@@ -13,7 +13,17 @@
     };
   };
 
-  networking.firewall.allowedUDPPorts = [ 53 ];
+  nix.autoOptimiseStore = true;
+  services.journald.extraConfig = ''
+    SystemMaxUse=100M
+    MaxFileSec=7day
+    Storage=volatile
+  '';
+
+
+  networking.firewall.allowedUDPPorts = [
+    53    # DNS
+  ];
   networking.firewall.allowedTCPPorts = [ 
     53    # DNS
     8443  # Unifi
