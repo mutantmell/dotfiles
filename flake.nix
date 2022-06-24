@@ -12,7 +12,15 @@
         };
       };
 
-      alfheim =  { name, config, pkgs, lib, ... }: (import ./hosts/alfheim/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
+      yggdrasil = { config, pkgs, lib, ... }: (import ./hosts/yggdrasil/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
+        deployment = {
+          targetUser = "root";
+          targetHost = "10.0.10.1";
+          tags = [ "mgmt" "infra" "router" ];
+        };
+      };
+
+      alfheim = { config, pkgs, lib, ... }: (import ./hosts/alfheim/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
         deployment = {
           targetUser = "root";
           targetHost = "10.0.10.2";
