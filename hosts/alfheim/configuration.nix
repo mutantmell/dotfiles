@@ -26,6 +26,8 @@
   ];
   networking.firewall.allowedTCPPorts = [ 
     53    # DNS
+    80    # HTTP
+    443   # HTTPS
     8443  # Unifi
   ];
 
@@ -74,7 +76,7 @@
 
   services.adguardhome = {
     enable = true;
-    openFirewall = true;
+    #openFirewall = true;
     settings = {
       dns = {
         bind_host = "0.0.0.0";
@@ -124,6 +126,26 @@
   # gpu accelleration
   #hardware.raspberry-pi."4".fkms-3d.enable = true;
   hardware.raspberry-pi."4".poe-hat.enable = true;
+
+  services.nginx = {
+    enable = true;
+    recommendedProxySettings = true;
+    virtualHosts."${config.networking.hostName}" = {
+#      addSSL = true;  # TODO: figure out cert stuff
+
+      locations."/adguard".return = "302 /adguard/";
+      locations."/adguard/" = {
+        proxyPass = "http://127.0.0.1:3000/";
+        proxyWebsockets = true;
+      };
+
+      locations."/unifi".return = "302 /unifi/";
+      locations."/unifi/" = {
+        proxyPass = "https://127.0.0.1:8443/";
+        proxyWebsockets = true;
+      };
+    };
+  };
 
   system.stateVersion = "22.11";
 }
