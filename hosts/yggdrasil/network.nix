@@ -470,6 +470,12 @@ in {
       }
     '';
   };
-  systemd.services.nftables.after = builtins.map (pppoeName: "pppd-${pppoeName}.service") pppoeNames;
+
+  systemd.services = {
+    nftables.after = builtins.map (pppoeName: "pppd-${pppoeName}.service") pppoeNames;
+    dhcpd4.wants = [ "network-online.target" ];
+  } // (
+    builtins.listToAttrs (builtins.map (pppoeName: { name = "pppd-${pppoeName}"; value = { wants = [ "multi-user.target" ]; }; }) pppoeNames)
+  );
 
 }
