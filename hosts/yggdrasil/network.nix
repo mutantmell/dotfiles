@@ -292,17 +292,6 @@ in {
     in toAttrSet fromDevice topology;
   };
 
-  services.avahi = {
-    #enable = true;
-    interfaces = (interfacesWithTrust "management") ++ (interfacesWithTrust "trusted");
-    publish = {
-      enable = true;
-      addresses = true;
-      domain = true;
-      userServices = true;
-    };
-  };
-
   networking.nameservers = [ "10.0.10.2" ];
   services.resolved = {
     enable = true;

@@ -115,8 +115,8 @@
           ''"local. AAAA fd00::1"''
           ''"yggdrasil.local. A 10.0.10.1"''
           ''"yggdrasil.local. AAAA fd00::1"''
-          ''"heimdall.local. A 10.0.10.3"''
-          ''"heimdall.local. AAAA fd00::2"''
+          ''"alfheim.local. A 10.0.10.2"''
+          ''"alfheim.local. AAAA fd00::2"''
         ];
       };
       remote-control.control-enable = true;
