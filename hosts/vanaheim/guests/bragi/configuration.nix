@@ -1,0 +1,165 @@
+let
+  mkKeyFile = source: user: group: {
+    source = source;
+    user = user;
+    group = group;
+    mode = "0600";
+  };
+  hostname = "bragi";
+  cert = {
+    filename = "bragi.crt";
+    contents = ./secrets/cert/bragi.crt;
+  };
+  key = {
+    filename = "bragi.key";
+    contents = ./secrets/cert/bragi.key;
+  };
+  credentials = {
+    filename = "jellyfin-smb";
+    contents = ./secrets/credentials;
+  };
+  secrets = import ./secrets.nix;
+in { config, pkgs, ...}:
+{
+  imports =
+    [ # Include the results of the hardware scan.
+      ./hardware-configuration.nix
+    ];
+
+  # Use the systemd-boot EFI boot loader.
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+
+  networking.hostName = "${hostname}";
+
+  nix.gc = {
+    automatic = true;
+    dates = "daily";
+    options = "--delete-older-than 7d";
+  };
+
+  system.autoUpgrade = {
+    #enable = true;
+    allowReboot = false;
+  };
+
+  networking.useDHCP = false;
+  networking.interfaces.enp1s0.useDHCP = true;
+
+  time.timeZone = "UTC";
+
+  services.openssh.enable = true;
+  services.openssh.passwordAuthentication = false;
+
+  users.users = {
+    root = {
+      openssh.authorizedKeys.keys = secrets.keys;
+    };
+  };
+  
+  environment.etc = {
+    "${cert.filename}" = mkKeyFile cert.contents "nginx" "nginx";
+    "${key.filename}" = mkKeyFile key.contents "nginx" "nginx";
+    "${credentials.filename}" = mkKeyFile credentials.contents "root" "wheel";
+  };
+
+  environment.systemPackages = with pkgs; [
+    vim
+    samba4Full
+    rsync
+  ];
+
+  networking.firewall = {
+    allowedTCPPorts = [
+      80
+      443
+      8096
+    ];
+    allowedUDPPorts = [
+      1900
+      7359
+    ];
+  };
+
+  users.users = {
+    jellyfin = {
+      uid = 1000;
+    };
+  };
+
+  fileSystems."/mnt/media" = rec {
+    device = "//mimisbrunnr/media";
+    fsType = "cifs";
+    options = let
+      automount_opts = "x-systemd.automount,noauto,x-systemd.idle-timeout=60,x-systemd.device-timeout=5s,x-systemd.mount-timeout=5s";
+    in ["${automount_opts},credentials=/etc/${credentials.filename}"];
+  };
+
+#  fileSystems."/mnt/media" = {
+#    device = "media";
+#    fsType = "9p";
+#    options = [
+#      "trans=virtio,version=9p2000.L,ro"
+#    ];
+#  };
+
+  services.avahi = {
+    enable = true;
+    publish = {
+      enable = true;
+      addresses = true;
+      userServices = true;
+      workstation = true;
+    };
+  };
+
+  services.jellyfin = {
+    enable = true;
+  };
+
+  services.nginx = {
+    enable = true;
+
+    recommendedTlsSettings = true;
+    recommendedOptimisation = true;
+    recommendedGzipSettings = true;
+    recommendedProxySettings = true;
+
+    virtualHosts."${hostname}" = let
+      jellyfinConf = ''
+        add_header X-Frame-Options "SAMEORIGIN";
+        add_header X-XSS-Protection "1; mode=block";
+        add_header X-Content-Type-Options "nosniff";
+
+        add_header Strict-Transport-Security "max-age=31536000" always;
+
+        # Content Security Policy
+        # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
+        # Enforces https content and restricts JS/CSS to origin
+        # External Javascript (such as cast_sender.js for Chromecast or YouTube embed JS for external trailers) must be whitelisted.
+        add_header Content-Security-Policy "default-src https: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.gstatic.com/cv/js/sender/v1/cast_sender.js https://www.youtube.com/iframe_api https://s.ytimg.com; worker-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'self'";
+      '';
+    in {
+      forceSSL = true;
+      sslCertificate = "/etc/${cert.filename}";
+      sslCertificateKey = "/etc/${key.filename}";
+
+      extraConfig = ''
+        proxy_read_timeout 604800;
+        proxy_send_timeout 604800;
+      '';
+
+      locations."/socket" = {
+        proxyPass = "http://localhost:8096/socket";
+        extraConfig = jellyfinConf;
+      };
+      locations."/" = {
+        proxyPass = "http://localhost:8096";
+        extraConfig = jellyfinConf;
+      };
+    };
+  };
+
+  system.stateVersion = "20.09";
+}
+
