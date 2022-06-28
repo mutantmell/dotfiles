@@ -12,7 +12,7 @@ let
 in { config, pkgs, ...}:
 {
   imports =
-    [ # Include the results of the hardware scan.
+    [
       ./hardware-configuration.nix
     ];
 
@@ -24,14 +24,13 @@ in { config, pkgs, ...}:
 
   nix.gc = {
     automatic = true;
-    dates = "daily";
-    options = "--delete-older-than 7d";
+    dates = "weekly";
+    options = "-d";
   };
-
-  system.autoUpgrade = {
-    #enable = true;
-    allowReboot = false;
-  };
+  services.journald.extraConfig = ''
+    SystemMaxUse=100M
+    MaxFileSec=7day
+  '';
 
   networking.useDHCP = false;
   networking.interfaces.enp1s0.useDHCP = true;
@@ -81,14 +80,6 @@ in { config, pkgs, ...}:
       automount_opts = "x-systemd.automount,noauto,x-systemd.idle-timeout=60,x-systemd.device-timeout=5s,x-systemd.mount-timeout=5s";
     in ["${automount_opts},credentials=/etc/${credentials.filename}"];
   };
-
-#  fileSystems."/mnt/media" = {
-#    device = "media";
-#    fsType = "9p";
-#    options = [
-#      "trans=virtio,version=9p2000.L,ro"
-#    ];
-#  };
 
   services.avahi = {
     enable = true;
@@ -147,5 +138,5 @@ in { config, pkgs, ...}:
     };
   };
 
-  system.stateVersion = "20.09";
+  system.stateVersion = "22.11";
 }
