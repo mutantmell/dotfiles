@@ -1,24 +1,14 @@
 let
-  mkKeyFile = source: user: group: {
-    source = source;
-    user = user;
-    group = group;
-    mode = "0600";
-  };
   hostname = "bragi";
   cert = {
     filename = "bragi.crt";
-    contents = ./secrets/cert/bragi.crt;
   };
   key = {
     filename = "bragi.key";
-    contents = ./secrets/cert/bragi.key;
   };
   credentials = {
     filename = "jellyfin-smb";
-    contents = ./secrets/credentials;
   };
-  secrets = import ./secrets.nix;
 in { config, pkgs, ...}:
 {
   imports =
@@ -53,16 +43,13 @@ in { config, pkgs, ...}:
 
   users.users = {
     root = {
-      openssh.authorizedKeys.keys = secrets.keys;
+      openssh.authorizedKeys.keys = [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPoCCiFtZ//7igTH9ChEXLkUsA35xzX33ZkhPY0KOohO malaguy@gmail.com"
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
+      ];
     };
   };
   
-  environment.etc = {
-    "${cert.filename}" = mkKeyFile cert.contents "nginx" "nginx";
-    "${key.filename}" = mkKeyFile key.contents "nginx" "nginx";
-    "${credentials.filename}" = mkKeyFile credentials.contents "root" "wheel";
-  };
-
   environment.systemPackages = with pkgs; [
     vim
     samba4Full
@@ -162,4 +149,3 @@ in { config, pkgs, ...}:
 
   system.stateVersion = "20.09";
 }
-

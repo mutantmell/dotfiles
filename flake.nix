@@ -28,6 +28,38 @@
         };
         nixpkgs.system = "aarch64-linux";
       };
+
+      bragi = { config, pkgs, lib, ... }: (import ./hosts/vanaheim/guests/bragi/configuration.nix { inherit config pkgs lib; }) // {
+        deployment = {
+          targetUser = "root";
+          targetHost = "bragi.local";
+          tags = [ "guest" "media" ];
+        };
+
+        deployment.keys = {
+          "bragi.crt" = {
+            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/vanaheim/guests/bragi/secure/bragi.crt.age" ];
+            destDir = "/etc";
+            user = "nginx";
+            group = "nginx";
+            permissions = "0400";
+          };
+          "bragi.key" = {
+            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/vanaheim/guests/bragi/secure/bragi.key.age" ];
+            destDir = "/etc";
+            user = "nginx";
+            group = "nginx";
+            permissions = "0400";
+          };
+          "jellyfin-smb" = {
+            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/vanaheim/guests/bragi/secure/credentials.age" ];
+            destDir = "/etc";
+            user = "root";
+            group = "wheel";
+            permissions = "0400";
+          };
+        };
+      };
     };
   };
 }
