@@ -61,5 +61,22 @@
         };
       };
     };
+    njord = { config, pkgs, lib, ... }: (import ./hosts/vanaheim/guests/njord/configuration.nix { inherit config pkgs lib; }) // {
+      deployment = {
+        targetUser = "root";
+        targetHost = "njord.local";
+        tags = [ "guest" "git" ];
+      };
+
+      deployment.keys = {
+        "credentials" = {
+          keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/vanaheim/guests/njord/secure/credentials.age" ];
+          destDir = "/etc/nas";
+          user = "root";
+          group = "wheel";
+          permissions = "0400";
+        };
+      };
+    };
   };
 }
