@@ -18,6 +18,16 @@
           targetHost = "10.0.10.1";
           tags = [ "mgmt" "infra" "router" ];
         };
+
+        deployment.keys = {
+          "chap-secrets" = {
+            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/yggdrasil/secure/chap-secrets.age" ];
+            destDir = "/etc/ppp";
+            user = "root";
+            group = "root";
+            permissions = "0400";
+          };
+        };
       };
 
       alfheim = { config, pkgs, lib, ... }: (import ./hosts/alfheim/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
