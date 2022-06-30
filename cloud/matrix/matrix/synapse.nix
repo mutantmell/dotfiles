@@ -4,7 +4,6 @@
     enable = true;
     settings = {
       server_name = config.networking.domain;
-      # registration_shared_secret = "<REDACTED>";
       listeners = [
         {
           port = 8008;
@@ -27,7 +26,7 @@
   
   services.postgresql.enable = true;
   services.postgresql.initialScript = pkgs.writeText "synapse-init.sql" ''
-    CREATE ROLE "matrix-synapse" WITH LOGIN PASSWORD '<REDACTED>';
+    CREATE ROLE "matrix-synapse" WITH LOGIN PASSWORD 'synapse';
     CREATE DATABASE "matrix-synapse" WITH OWNER "matrix-synapse"
       TEMPLATE template0
       LC_COLLATE = "C"
