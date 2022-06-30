@@ -78,6 +78,14 @@
           };
         };
       };
+
+      matrix = { config, pkgs, lib, ... }: (import ./cloud/matrix/configuration.nix { inherit config pkgs lib; }) // {
+        deployment = {
+          targetUser = "root";
+          targetHost = "helveticastandard.com";
+          tags = [ "digitalocean" "cloud" "matrix" "public" ];
+        };
+      };
     };
   };
 }

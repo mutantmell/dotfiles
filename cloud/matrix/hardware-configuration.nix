@@ -1,8 +1,10 @@
-{ config, lib, pkgs, nixpkgs, ... }:
+{ config, lib, pkgs, modulesPath, ... }:
 {
   #imports = [ <nixpkgs/nixos/modules/profiles/qemu-guest.nix> ];
-  imports = [ (builtins.toPath "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix") ];
-  
+  imports =
+    [ (modulesPath + "/profiles/qemu-guest.nix")
+    ];
+
   boot.kernelModules = [];
   boot.loader.grub.device = "nodev";
   fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
