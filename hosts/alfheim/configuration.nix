@@ -20,7 +20,6 @@
     Storage=volatile
   '';
 
-
   networking.firewall.allowedUDPPorts = [
     53    # DNS
   ];
@@ -72,7 +71,6 @@
     enable = true;
     openFirewall = true;
   };
-
 
   services.adguardhome = {
     enable = true;
@@ -131,7 +129,7 @@
     enable = true;
     recommendedProxySettings = true;
     virtualHosts."${config.networking.hostName}" = {
-#      addSSL = true;  # TODO: figure out cert stuff
+      #      addSSL = true;  # TODO: figure out cert stuff
 
       locations."/adguard".return = "302 /adguard/";
       locations."/adguard/" = {
@@ -143,6 +141,32 @@
       locations."/unifi/" = {
         proxyPass = "https://127.0.0.1:8443/";
         proxyWebsockets = true;
+      };
+    };
+  };
+
+  services.step-ca = {
+    enable = true;
+    address = "0.0.0.0";
+    port = 9443;
+    openFirewall = true;
+    intermediatePasswordFile = "/var/data/step-ca/intermediate-password-file";
+    settings = {
+      dnsNames = [ "alfheim" "alfheim.local" ];
+      root = "/var/data/step-ca/root_ca.crt";
+      crt = "/var/data/step-ca/intermediate_ca.crt";
+      key = "/var/data/step-ca/intermediate_ca.key";
+      db = {
+        type = "badger";
+        dataSource = "/var/lib/step-ca/db";
+      };
+      authority = {
+        provisioners = [
+          {
+            type = "ACME";
+            name = "acme";
+          }
+        ];
       };
     };
   };
