@@ -54,6 +54,20 @@ in { config, pkgs, ...}:
     samba4Full
     rsync
   ];
+  environment.etc = {
+    "step-ca/data/intermediate_ca.crt" = {
+      source = ../../../../common/data/intermediate_ca.crt;
+      mode = "0444";
+    };
+  };
+  security.acme = {
+    defaults = {
+      server = "https://alfheim.local:9443/acme/acme/directory";
+      email = "malaguy@gmail.com";
+    };
+    acceptTerms = true;
+  };
+  security.pki.certificates = [ (builtins.readFile ../../../../common/data/root_ca.crt) ];
 
   networking.firewall = {
     allowedTCPPorts = [
@@ -119,8 +133,10 @@ in { config, pkgs, ...}:
       '';
     in {
       forceSSL = true;
-      sslCertificate = "/etc/${cert.filename}";
-      sslCertificateKey = "/etc/${key.filename}";
+      enableACME = true;
+      #sslCertificate = "/etc/${cert.filename}";
+      #sslCertificateKey = "/etc/${key.filename}";
+      
 
       extraConfig = ''
         proxy_read_timeout 604800;

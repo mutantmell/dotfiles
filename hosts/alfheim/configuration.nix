@@ -151,11 +151,11 @@
   };
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
-      source = ./data/intermediate_ca.crt;
+      source = ../../common/data/intermediate_ca.crt;
       mode = "0444";
     };
     "step-ca/data/root_ca.crt" = {
-      source = ./data/root_ca.crt;
+      source = ../../common/data/intermediate_ca.crt;
       mode = "0444";
     };
   };
@@ -166,7 +166,7 @@
     };
     acceptTerms = true;
   };
-  security.pki.certificates = [ (builtins.readFile ./data/root_ca.crt) ];
+  security.pki.certificates = [ (builtins.readFile ../../common/data/root_ca.crt) ];
 
   services.step-ca = {
     enable = true;
