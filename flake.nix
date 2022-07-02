@@ -39,30 +39,16 @@
         nixpkgs.system = "aarch64-linux";
 
         deployment.keys = {
-          "root_ca.crt" = {
-            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/alfheim/secure/root_ca.crt.age" ];
-            destDir = "/var/data/step-ca";
-            user = "step-ca";
-            group = "step-ca";
-            permissions = "0400";
-          };
-          "intermediate_ca.crt" = {
-            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/alfheim/secure/intermediate_ca.crt.age" ];
-            destDir = "/var/data/step-ca";
-            user = "step-ca";
-            group = "step-ca";
-            permissions = "0400";
-          };
           "intermediate_ca.key" = {
             keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/alfheim/secure/intermediate_ca.key.age" ];
-            destDir = "/var/data/step-ca";
+            destDir = "/etc/step-ca/data";
             user = "step-ca";
             group = "step-ca";
             permissions = "0400";
           };
           "intermediate-password-file" = {
             keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/alfheim/secure/intermediate-password-file.age" ];
-            destDir = "/var/data/step-ca";
+            destDir = "/etc/step-ca/data";
             user = "step-ca";
             group = "step-ca";
             permissions = "0400";

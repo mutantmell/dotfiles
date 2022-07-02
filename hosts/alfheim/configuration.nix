@@ -129,7 +129,8 @@
     enable = true;
     recommendedProxySettings = true;
     virtualHosts."${config.networking.hostName}" = {
-      #      addSSL = true;  # TODO: figure out cert stuff
+      forceSSL = true;
+      enableACME = true;
 
       locations."/adguard".return = "302 /adguard/";
       locations."/adguard/" = {
@@ -139,26 +140,59 @@
 
       locations."/unifi".return = "302 /unifi/";
       locations."/unifi/" = {
-        proxyPass = "https://127.0.0.1:8443/";
+        proxyPass = "https://127.0.0.1:8443";
         proxyWebsockets = true;
+      };
+
+      locations."/unifi/inform" = {
+        proxyPass = "https://127.0.0.1:8080";
       };
     };
   };
+  environment.etc = {
+    "step-ca/data/intermediate_ca.crt" = {
+      source = ./data/intermediate_ca.crt;
+      mode = "0444";
+    };
+    "step-ca/data/root_ca.crt" = {
+      source = ./data/root_ca.crt;
+      mode = "0444";
+    };
+  };
+  security.acme = {
+    defaults = {
+      server = "https://localhost:9443/acme/acme/directory";
+      email = "malaguy@gmail.com";
+    };
+    acceptTerms = true;
+  };
+  security.pki.certificates = [ (builtins.readFile ./data/root_ca.crt) ];
 
   services.step-ca = {
     enable = true;
     address = "0.0.0.0";
     port = 9443;
     openFirewall = true;
-    intermediatePasswordFile = "/var/data/step-ca/intermediate-password-file";
+    intermediatePasswordFile = "/etc/step-ca/data/intermediate-password-file";
     settings = {
-      dnsNames = [ "alfheim" "alfheim.local" ];
-      root = "/var/data/step-ca/root_ca.crt";
-      crt = "/var/data/step-ca/intermediate_ca.crt";
-      key = "/var/data/step-ca/intermediate_ca.key";
+      dnsNames = [ "localhost" "alfheim" "alfheim.local" ];
+      root = "/etc/step-ca/data/root_ca.crt";
+      crt = "/etc/step-ca/data/intermediate_ca.crt";
+      key = "/etc/step-ca/data/intermediate_ca.key";
       db = {
         type = "badger";
         dataSource = "/var/lib/step-ca/db";
+      };
+      policy = let
+        allowLocal = {
+          allow = {
+            dns = ["*.local"];
+            ip = [ "10.0.10.0/24" "10.1.10.0/24" ];
+          };
+        };
+      in {
+        x509 = allowLocal;
+        ssh.host = allowLocal;
       };
       authority = {
         provisioners = [
