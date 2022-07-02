@@ -28,6 +28,7 @@
     80    # HTTP
     443   # HTTPS
     8443  # Unifi
+    9443  # ACME (temporary)
   ];
 
   networking.hostName = "alfheim";
@@ -40,6 +41,7 @@
     }];
   };
   networking.defaultGateway = "10.0.10.1";
+  networking.nameservers = [ "10.0.10.1" ]; # use router as main DNS, which will redirect to us for non-mdns
 
   environment.systemPackages = with pkgs; [
     bind
