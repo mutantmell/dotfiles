@@ -117,7 +117,7 @@ in { config, pkgs, ...}:
     recommendedGzipSettings = true;
     recommendedProxySettings = true;
 
-    virtualHosts."${hostname}" = let
+    virtualHosts."${hostname}.local" = let
       jellyfinConf = ''
         add_header X-Frame-Options "SAMEORIGIN";
         add_header X-XSS-Protection "1; mode=block";
