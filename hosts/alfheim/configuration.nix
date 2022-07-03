@@ -12,6 +12,9 @@
       options = [ "noatime" ];
     };
   };
+    # gpu accelleration
+  #hardware.raspberry-pi."4".fkms-3d.enable = true;
+  hardware.raspberry-pi."4".poe-hat.enable = true;
 
   nix.autoOptimiseStore = true;
   services.journald.extraConfig = ''
@@ -124,9 +127,16 @@
     };
   };
 
-  # gpu accelleration
-  #hardware.raspberry-pi."4".fkms-3d.enable = true;
-  hardware.raspberry-pi."4".poe-hat.enable = true;
+  services.keycloak = {
+    #enable = true;
+    settings = {
+      http-port = 9080;
+      hostname = "alfheim.local";
+      http-relative-path = "/auth";
+      proxy = "edge";
+    };
+    database.passwordFile = "/run/keys/db_password";
+  };
 
   services.nginx = {
     enable = true;
@@ -141,14 +151,17 @@
         proxyWebsockets = true;
       };
 
-      locations."/unifi".return = "302 /unifi/";
-      locations."/unifi/" = {
-        proxyPass = "https://127.0.0.1:8443";
-        proxyWebsockets = true;
-      };
+      #locations."/unifi".return = "302 /unifi/";
+      #locations."/unifi/" = {
+      #  proxyPass = "https://127.0.0.1:8443";
+      #  proxyWebsockets = true;
+      #};
+      #locations."/unifi/inform" = {
+      #  proxyPass = "https://127.0.0.1:8080";
+      #};
 
-      locations."/unifi/inform" = {
-        proxyPass = "https://127.0.0.1:8080";
+      locations."/auth" = {
+        proxyPass = "https://127.0.0.1:9080";
       };
     };
   };
