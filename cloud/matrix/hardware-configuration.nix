@@ -13,8 +13,8 @@
     defaultGateway = "165.227.0.1";
     defaultGateway6 = "2604:a880:2:d0::1";
     interfaces.ens3 = {
-      ip4 = [ { address = "165.227.0.61"; prefixLength = 20; } ];
-      ip6 = [
+      ipv4.addresses = [ { address = "165.227.0.61"; prefixLength = 20; } ];
+      ipv6.addresses = [
         { address = "2604:a880:2:d0::208b:d001"; prefixLength = 64; }
       ];
     };

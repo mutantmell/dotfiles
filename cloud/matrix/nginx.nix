@@ -133,7 +133,7 @@ in
   };
 
   security.acme = {
-    email = "malaguy@gmail.com";
+    defaults.email = "malaguy@gmail.com";
     acceptTerms = true;
   };
   
