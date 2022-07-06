@@ -12,7 +12,8 @@
       options = [ "noatime" ];
     };
   };
-    # gpu accelleration
+
+  # gpu accelleration
   #hardware.raspberry-pi."4".fkms-3d.enable = true;
   hardware.raspberry-pi."4".poe-hat.enable = true;
 
@@ -80,7 +81,6 @@
 
   services.adguardhome = {
     enable = true;
-    #openFirewall = true;
     settings = {
       dns = {
         bind_host = "0.0.0.0";
@@ -141,7 +141,7 @@
   services.nginx = {
     enable = true;
     recommendedProxySettings = true;
-    virtualHosts."${config.networking.hostName}" = {
+    virtualHosts."${config.networking.hostName}.local" = {
       forceSSL = true;
       enableACME = true;
 
@@ -150,15 +150,6 @@
         proxyPass = "http://127.0.0.1:3000/";
         proxyWebsockets = true;
       };
-
-      #locations."/unifi".return = "302 /unifi/";
-      #locations."/unifi/" = {
-      #  proxyPass = "https://127.0.0.1:8443";
-      #  proxyWebsockets = true;
-      #};
-      #locations."/unifi/inform" = {
-      #  proxyPass = "https://127.0.0.1:8080";
-      #};
 
       locations."/auth" = {
         proxyPass = "http://127.0.0.1:9080";
@@ -216,6 +207,14 @@
             type = "ACME";
             name = "acme";
           }
+          #{
+          #  type = "OIDC";
+          #  name = "keycloak";
+          #  clientId = "step-ca";
+          #  secret = "edsHrbtQizZI2ksicy9p3YnDuuHAYsz6";
+          #  configurationEndpoint = "https://alfheim.local/auth/realms/SSH/.well-known/openid-configuration";
+          #  listenAddress = ":10000";
+          #}
         ];
       };
     };
