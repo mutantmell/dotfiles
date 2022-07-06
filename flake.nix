@@ -53,6 +53,13 @@
             group = "step-ca";
             permissions = "0400";
           };
+          "keycloak_password_file" = {
+            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/alfheim/secure/keycloak_password_file.age" ];
+            destDir = "/etc/keycloak/data";
+            user = "keycloak";
+            group = "keycloak";
+            permissions = "0400";
+          };
         };
       };
 
@@ -60,7 +67,7 @@
         deployment = {
           targetUser = "root";
           targetHost = "bragi.local";
-          tags = [ "guest" "media" ];
+          tags = [ "guest" "svc" "media" ];
         };
 
         deployment.keys = {
@@ -92,7 +99,7 @@
         deployment = {
           targetUser = "root";
           targetHost = "njord.local";
-          tags = [ "guest" "git" ];
+          tags = [ "guest" "svc" "git" ];
         };
 
         deployment.keys = {

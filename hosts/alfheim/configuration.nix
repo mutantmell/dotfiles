@@ -128,14 +128,14 @@
   };
 
   services.keycloak = {
-    #enable = true;
+    enable = true;
     settings = {
       http-port = 9080;
       hostname = "alfheim.local";
       http-relative-path = "/auth";
       proxy = "edge";
     };
-    database.passwordFile = "/run/keys/db_password";
+    database.passwordFile = "/etc/keycloak/data/keycloak_password_file";
   };
 
   services.nginx = {
@@ -161,7 +161,7 @@
       #};
 
       locations."/auth" = {
-        proxyPass = "https://127.0.0.1:9080";
+        proxyPass = "http://127.0.0.1:9080";
       };
     };
   };
