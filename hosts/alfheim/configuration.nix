@@ -162,7 +162,7 @@
       mode = "0444";
     };
     "step-ca/data/root_ca.crt" = {
-      source = ../../common/data/intermediate_ca.crt;
+      source = ../../common/data/root_ca.crt;
       mode = "0444";
     };
   };
@@ -207,7 +207,7 @@
             type = "ACME";
             name = "acme";
           }
-          #{
+          # {
           #  type = "OIDC";
           #  name = "keycloak";
           #  clientId = "step-ca";
