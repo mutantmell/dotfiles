@@ -207,14 +207,14 @@
             type = "ACME";
             name = "acme";
           }
-          # {
-          #  type = "OIDC";
-          #  name = "keycloak";
-          #  clientId = "step-ca";
-          #  secret = "edsHrbtQizZI2ksicy9p3YnDuuHAYsz6";
-          #  configurationEndpoint = "https://alfheim.local/auth/realms/SSH/.well-known/openid-configuration";
-          #  listenAddress = ":10000";
-          #}
+          {
+            type = "OIDC";
+            name = "keycloak";
+            clientId = "step-ca";
+            secret = "edsHrbtQizZI2ksicy9p3YnDuuHAYsz6";
+            configurationEndpoint = "https://alfheim.local/auth/realms/SSH/.well-known/openid-configuration";
+            listenAddress = ":10000";
+          }
         ];
       };
     };
