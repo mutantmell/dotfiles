@@ -17,7 +17,12 @@
   #hardware.raspberry-pi."4".fkms-3d.enable = true;
   hardware.raspberry-pi."4".poe-hat.enable = true;
 
-  nix.autoOptimiseStore = true;
+  nix.settings.auto-optimise-store = true;
+  nix.gc = {
+    automatic = true;
+    dates = "weekly";
+    options = "-d";
+  };
   services.journald.extraConfig = ''
     SystemMaxUse=100M
     MaxFileSec=7day
@@ -218,6 +223,10 @@
         ];
       };
     };
+  };
+
+  systemd.services = {
+    "acme-alfheim.local".after = [ "step-ca.service" ];
   };
 
   system.stateVersion = "22.11";

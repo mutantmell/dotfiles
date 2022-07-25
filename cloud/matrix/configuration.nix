@@ -16,8 +16,7 @@
     dates = "weekly";
     options = "-d";
   };
-#  nix.optimise.automatic = true;
-  nix.autoOptimiseStore = true;
+  nix.settings.auto-optimise-store = true;
   services.journald.extraConfig = ''
     SystemMaxUse=100M
     MaxFileSec=7day
