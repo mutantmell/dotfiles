@@ -226,7 +226,9 @@
   };
 
   systemd.services = {
-    "acme-alfheim.local".after = [ "step-ca.service" ];
+    "acme-alfheim.local".after = [ "step-ca.service" "keycloak.service" ];
+    "step-ca".after = [ "keycloak.service" ];
+    "keycloak".after = [ "nginx.service" ];
   };
 
   system.stateVersion = "22.11";
