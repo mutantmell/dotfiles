@@ -88,8 +88,8 @@
     enable = true;
     settings = {
       dns = {
-        bind_host = "0.0.0.0";
-        bind_hosts = [ "127.0.0.1" "0.0.0.0" ];
+        #bind_host = "0.0.0.0";
+        bind_hosts = [ "0.0.0.0" ];
         upstream_dns = [ "127.0.0.1:5335" ];
         bootstrap_dns = [ "127.0.0.1:5335" ];
         allowed_clients = [ "127.0.0.1" "10.0.10.2" "10.0.10.1" ];
@@ -113,6 +113,8 @@
         interface = [ "127.0.0.1" ];
         port = 5335;
         access-control = [
+          "10.0.10.1 allow"
+          "10.0.10.2 allow"
           "0.0.0.0/0 refuse"
           "127.0.0.0/8 allow"
           "::1 allow"
