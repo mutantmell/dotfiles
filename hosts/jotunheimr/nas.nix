@@ -23,10 +23,10 @@
     #749  # kerberos admin
   ];
 
-  ntp.enable = true;
+  services.ntp.enable = true;
   services.nfs.server = {
     enable = true;
-    createMountPoints = true;
+#    createMountPoints = true;
     exports =''
       /data/media 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
       /data/data 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
