@@ -115,7 +115,6 @@ let
   interfaces = interfacesWhere (nw: nw.type != "disabled");
 
   interfacesOfType = ty: interfacesWhere (nw: nw.type == ty);
-  routedInterfaces = interfacesOfType "routed";
 
   pppoeNames = let
     fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (attrKeys pppoe) ++ (flatMapAttrsToList fromTopo vlans);
@@ -303,15 +302,20 @@ in {
     '';
   };
 
-  services.dhcpd4 = {
-    enable = true;
-    interfaces = routedInterfaces;
+  services.dhcpd4 = let
+    toAddress24 = addrFirstN 3;
+    v4Interfaces = let
+      mkConf = name: { type, ipv4 ? null, dns ? "self", ...}: if (type == "routed" && ipv4 != null) then [{ address24 = toAddress24 ipv4; iface = name; dns = dns; }] else [];
+      fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (mkConf name network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
+    in flatMapAttrsToList fromTopo topology;
+  in {
+    enable = v4Interfaces != [];
+    interfaces = builtins.map ({ iface, ... }: iface) v4Interfaces;
     extraConfig = let
       preamble = ''
         option domain-name "local";
         option subnet-mask 255.255.255.0;
       '';
-      toAddress24 = addrFirstN 3;
       mkV4Subnet = { address24, iface, dns }: let
         domainNameServers =
           if dns == "cloudflare" then "1.1.1.1, 1.0.0.1"
@@ -326,12 +330,20 @@ in {
           range ${address24}.100 ${address24}.200;
         }
       '';
-      subnetConfs = let
-        mkConf = name: { type, ipv4 ? "", dns ? "self", ...}: if type == "routed" then [(mkV4Subnet { address24 = toAddress24 ipv4; iface = name; dns = dns; })] else [];
-        fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (mkConf name network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
-      in flatMapAttrsToList fromTopo topology;
+      subnetConfs = builtins.map mkV4Subnet v4Interfaces;
+
     in lib.strings.concatStringsSep "\n\n" ([preamble] ++ subnetConfs);
   };
+
+  # services.dhcpd6 = let
+  #   toAddress48 = addr: "";
+  #   v6Interfaces = let
+  #     mkConf = name: { type, ipv6 ? null, dns ? "self", ...}: if (type == "routed" && ipv6 != null) then [{ address48 = toAddress48 ipv6; iface = name; dns = dns; }] else [];
+  #     fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (mkConf name network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
+  #   in flatMapAttrsToList fromTopo topology;
+  # in {
+  #   enable = false;
+  # };
 
   services.pppd = {
     enable = true;
