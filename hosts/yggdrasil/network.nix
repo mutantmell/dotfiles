@@ -253,7 +253,7 @@ in {
         (
           if mtu == null then {} else { MTUBytes = mtu; }
         ) // (
-          if required then {} else { RequiredForOnline = false; }
+          if required then {} else { RequiredForOnline = "no"; }
         );
       fromVlan = name: {
         network,
