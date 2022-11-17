@@ -122,7 +122,7 @@ let
 
   # should eventually return ipv4 + ipv6
   addrsWhere = pred: let
-    trustedAddr = nw@{ type, ipv4 ? null, ipv6 ? null, ... }: if type == "routed" && (pred nw) then (builtins.filter (v: v != null) [ipv4, ipv6]) else [];
+    trustedAddr = nw@{ type, ipv4 ? null, ipv6 ? null, ... }: if type == "routed" && (pred nw) then (builtins.filter (v: v != null) [ipv4 ipv6]) else [];
     fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (trustedAddr network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
   in flatMapAttrsToList fromTopo topology;
 
@@ -233,7 +233,7 @@ in {
           ...
       }:
         if type == "routed" then {
-          Address = builtins.filter (v: v != null) [ipv4, ipv6];
+          Address = builtins.filter (v: v != null) [ipv4 ipv6];
           MulticastDNS = (trust == "trusted" || trust == "management");
         } else if type == "dhcp" then {
           DHCP = "ipv4";
