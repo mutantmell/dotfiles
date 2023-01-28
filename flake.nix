@@ -2,8 +2,12 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
+    home-manager = {
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
-  outputs = { nixpkgs, nixos-hardware, ... }: {
+  outputs = { nixpkgs, nixos-hardware, home-manager, ... }: {
     colmena = {
       meta = {
         nixpkgs = import nixpkgs {
@@ -121,5 +125,20 @@
         };
       };
     };
+
+    homeConfigurations = let
+      system = "x86_64-linux";
+      username = "mjollnir";
+      pkgs = nixpkgs.legacyPackages.${system};
+    in {
+      "${username}" = home-manager.lib.homeManagerConfiguration {
+        inherit pkgs;
+        
+        modules = [
+          ./hosts/vanaheim/guests/skadi/home/home.nix
+        ];
+      };
+    };
+
   };
 }
