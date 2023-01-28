@@ -54,6 +54,9 @@ let
           network = { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; };
         };
       };
+      # disabled due to likely MTU issue :/
+      #batmanDevice = "bat0";
+      #mtu = "1536"; # This might solve the bat0 issue?
     };
     opt1 = {
       device = "00:e0:67:1b:70:36";
