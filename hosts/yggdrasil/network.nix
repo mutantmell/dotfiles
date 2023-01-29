@@ -55,15 +55,15 @@ let
         };
       };
       # disabled due to likely MTU issue :/
-      #batmanDevice = "bat0";
-      #mtu = "1536"; # This might solve the bat0 issue?
+      batmanDevice = "bat0";
+      mtu = "1536"; # This might solve the bat0 issue?
     };
     opt1 = {
       device = "00:e0:67:1b:70:36";
       network = { type = "disabled"; };
       required = true;
-      mtu = "1536";
-      batmanDevice = "bat0";
+#      mtu = "1536";
+#      batmanDevice = "bat0";
     };
     bat0 = {
       batman = {
@@ -396,7 +396,8 @@ in {
 
   networking.nftables = let
     external = interfacesWithTrust "external";
-    trusted = (interfacesWithTrust "trusted") ++ (interfacesWithTrust "management");
+    management = interfacesWithTrust "management";
+    trusted = (interfacesWithTrust "trusted") ++ management;
     untrusted = (interfacesWithTrust "untrusted") ++ (interfacesWithTrust "dmz");
     local-access = interfacesWithTrust "local-access";
     lockdown = interfacesWithTrust "lockdown";
@@ -454,6 +455,13 @@ in {
           } oifname {
             ${ruleFormat all-internal}
           } counter accept comment "Allow trusted internal to all internal"
+
+          # Allow untrusted access to internal https on management
+          iifname {
+            ${ruleFormat untrusted}
+          } oifname {
+            ${ruleFormat management}
+          } counter accept comment "Allow untrusted access to internal management https"
 
           # Allow established connections to return
           ct state established,related counter accept comment "Allow established to all internal"
