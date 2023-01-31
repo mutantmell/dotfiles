@@ -166,8 +166,8 @@
       locations."/acme" = {
         proxyPass = "https://127.0.0.1:9443/acme";
         extraConfig = ''
-          proxy_ssl_certificate /etc/nginx/acme-cert.ca;
-          proxy_ssl_certificate_key /etc/nginx/acme-key.ca;
+          proxy_ssl_certificate /etc/nginx/nginx.cert;
+          proxy_ssl_certificate_key /etc/nginx/nginx.key;
           proxy_ssl_protocols       TLSv1.2 TLSv1.3;
           proxy_ssl_ciphers         HIGH:!aNULL:!MD5;
         '';
