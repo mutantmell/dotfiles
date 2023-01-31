@@ -146,15 +146,6 @@
   };
 
 
-  # TODO: add two systemd units that do the following:
-  # 1. one that runs after step-ca and before nginx that creates a cert file if not exists as follows:
-  #    $ mkdir -p /etc/nginx
-  #    $ if [ ! -f /etc/ngnix/<whatever the name is>.crt; then
-  #    $ step ca certificate --ca-url=localhost:9443 --root=<some-path> /etc/nginx/blah.1 /etc/nginx.blah.2
-  #    $ chown blah blah
-  #    $ fi
-  # 2. One that runs every day at like 4 AM, renews the cert, and restart nginx
-  #    random idea is to all a renewal or something?  or just manually call `systemctl reload nginx` if it's running
   services.nginx = {
     enable = true;
     recommendedProxySettings = true;
@@ -174,12 +165,12 @@
 
       locations."/acme" = {
         proxyPass = "http://127.0.0.1:9443/acme";
-#        extraConfig = ''
-#          proxy_ssl_certificate /etc/nginx/acme-cert.ca
-#          proxy_ssl_certificate_key /etc/nginx/acme-key.ca
-#          proxy_ssl_protocols       TLSv1.2 TLSv1.3;
-#          proxy_ssl_ciphers         HIGH:!aNULL:!MD5;
-#        '';
+        extraConfig = ''
+          proxy_ssl_certificate /etc/nginx/acme-cert.ca;
+          proxy_ssl_certificate_key /etc/nginx/acme-key.ca;
+          proxy_ssl_protocols       TLSv1.2 TLSv1.3;
+          proxy_ssl_ciphers         HIGH:!aNULL:!MD5;
+        '';
       };
     };
   };
@@ -234,14 +225,14 @@
             type = "ACME";
             name = "acme";
           }
-#          {
-#            type = "OIDC";
-#            name = "keycloak";
-#            clientId = "step-ca";
-#            secret = "edsHrbtQizZI2ksicy9p3YnDuuHAYsz6";
-#            configurationEndpoint = "https://alfheim.local/auth/realms/SSH/.well-known/openid-configuration";
-#            listenAddress = ":10000";
-#          }
+          #          {
+          #            type = "OIDC";
+          #            name = "keycloak";
+          #            clientId = "step-ca";
+          #            secret = "edsHrbtQizZI2ksicy9p3YnDuuHAYsz6";
+          #            configurationEndpoint = "https://alfheim.local/auth/realms/SSH/.well-known/openid-configuration";
+          #            listenAddress = ":10000";
+          #          }
         ];
       };
     };
@@ -253,6 +244,48 @@
     "acme-alfheim.local".after = [ "step-ca.service" "keycloak.service" ];
     "step-ca".after = [ "keycloak.service" ];
     "keycloak".after = [ "nginx.service" ];
+  };
+
+  systemd.services = {
+    "nginx-cert-init" = {
+      serviceConfig.Type = "oneshot";
+      after = [ "step-ca.service" ];
+      before = [ "nginx.service" ];
+      wantedBy = [ "nginx.service" ];
+      path = with pkgs; [ bash step-cli ];
+      script = ''
+        #!/usr/bin/env bash
+
+        mkdir -p /etc/nginx
+        if [ ! -f /etc/nginx/nginx.cert ]; then
+          step ca certificate "alfheim.local" --ca-url=localhost:9443 --root=/etc/step-ca/data/root_ca.crt /etc/nginx/nginx.cert /etc/nginx/nginx.key || exit 1
+          chown nginx:nginx /etc/nginx/nginx.cert /etc/nginx/nginx.key
+        fi
+      '';
+    };
+    "nginx-cert-renew" = {
+      serviceConfig.Type = "oneshot";
+      path = with pkgs; [ bash step-cli ];
+      script = ''
+        #!/usr/bin/env bash
+
+        step ca renew --force --ca-url=localhost:9443 --root=/etc/step-ca/data/root_ca.crt /etc/nginx/nginx.cert /etc/nginx/nginx.key
+
+        if (systemctl is-active --quiet nginx); then
+          systemctl reload nginx
+        fi
+      '';
+    };
+  };
+  systemd.timers = {
+    "nginx-cert-renew" = {
+      wantedBy = [ "timers.target" ];
+      partOf = [ "nginx-cert-renew.service" ];
+      timerConfig = {
+        OnCalendar = "*-*-* 00,12:00:00";        
+        Unit = "nginx-cert-renew.service";
+      };
+    };
   };
 
   system.stateVersion = "22.11";
