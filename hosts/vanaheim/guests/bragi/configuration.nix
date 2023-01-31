@@ -33,7 +33,7 @@ in { config, pkgs, ...}:
   '';
 
   networking.useDHCP = false;
-  networking.interfaces.enp1s0.useDHCP = true;
+  networking.interfaces.ens3.useDHCP = true;
 
   time.timeZone = "UTC";
 
@@ -62,7 +62,7 @@ in { config, pkgs, ...}:
   };
   security.acme = {
     defaults = {
-      server = "https://alfheim.local:9443/acme/acme/directory";
+      server = "https://alfheim.local/acme/acme/directory";
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;
@@ -104,8 +104,6 @@ in { config, pkgs, ...}:
     publish = {
       enable = true;
       addresses = true;
-      userServices = true;
-      workstation = true;
     };
   };
 
