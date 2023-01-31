@@ -145,6 +145,16 @@
     database.passwordFile = "/etc/keycloak/data/keycloak_password_file";
   };
 
+
+  # TODO: add two systemd units that do the following:
+  # 1. one that runs after step-ca and before nginx that creates a cert file if not exists as follows:
+  #    $ mkdir -p /etc/nginx
+  #    $ if [ ! -f /etc/ngnix/<whatever the name is>.crt; then
+  #    $ step ca certificate --ca-url=localhost:9443 --root=<some-path> /etc/nginx/blah.1 /etc/nginx.blah.2
+  #    $ chown blah blah
+  #    $ fi
+  # 2. One that runs every day at like 4 AM, renews the cert, and restart nginx
+  #    random idea is to all a renewal or something?  or just manually call `systemctl reload nginx` if it's running
   services.nginx = {
     enable = true;
     recommendedProxySettings = true;
@@ -160,6 +170,16 @@
 
       locations."/auth" = {
         proxyPass = "http://127.0.0.1:9080";
+      };
+
+      locations."/acme" = {
+        proxyPass = "http://127.0.0.1:9443/acme";
+#        extraConfig = ''
+#          proxy_ssl_certificate /etc/nginx/acme-cert.ca
+#          proxy_ssl_certificate_key /etc/nginx/acme-key.ca
+#          proxy_ssl_protocols       TLSv1.2 TLSv1.3;
+#          proxy_ssl_ciphers         HIGH:!aNULL:!MD5;
+#        '';
       };
     };
   };
@@ -201,7 +221,7 @@
         allowLocal = {
           allow = {
             dns = ["*.local"];
-            ip = [ "10.0.10.0/24" "10.1.10.0/24" ];
+            ip = [ "10.0.0.0/16" "10.1.0.0/16" ];
           };
         };
       in {
@@ -227,6 +247,8 @@
     };
   };
 
+  # This setup causes some periodic issues still:
+  # acme-alfheim.local fails to renew the cert with the message: Failed with result 'exit-code'
   systemd.services = {
     "acme-alfheim.local".after = [ "step-ca.service" "keycloak.service" ];
     "step-ca".after = [ "keycloak.service" ];

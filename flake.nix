@@ -57,6 +57,7 @@
             group = "step-ca";
             permissions = "0400";
           };
+          # this causes errors -- the keycloak user doesn't seem to want to exist when this is sent?
           "keycloak_password_file" = {
             keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/alfheim/secure/keycloak_password_file.age" ];
             destDir = "/etc/keycloak/data";
