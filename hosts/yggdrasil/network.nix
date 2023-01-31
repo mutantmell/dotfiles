@@ -461,7 +461,7 @@ in {
             ${ruleFormat untrusted}
           } oifname {
             ${ruleFormat management}
-          } counter accept comment "Allow untrusted access to internal management https"
+          } tcp dport { https } counter accept comment "Allow untrusted access to internal management https"
 
           # Allow established connections to return
           ct state established,related counter accept comment "Allow established to all internal"
