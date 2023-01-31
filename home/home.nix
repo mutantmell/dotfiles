@@ -45,6 +45,8 @@ in {
     enable = true;
     extraPackages = (epkgs: (with epkgs.melpaStablePackages; [
       magit
+      lsp-mode
+      haskell-mode
     ]) ++ (with epkgs.melpaPackages; [
       nix-mode
       dante

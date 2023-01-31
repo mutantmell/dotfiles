@@ -144,7 +144,7 @@
         inherit pkgs;
         
         modules = [
-          ./hosts/vanaheim/guests/skadi/home/home.nix
+          ./home/home.nix
         ];
       };
     };
