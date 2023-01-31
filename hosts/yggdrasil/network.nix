@@ -237,7 +237,7 @@ in {
       }:
         if type == "routed" then {
           Address = builtins.filter (v: v != null) [ipv4 ipv6];
-          MulticastDNS = (trust == "trusted" || trust == "management");
+          MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" "dmz" ];
         } else if type == "dhcp" then {
           DHCP = "ipv4";
         } else if type == "disabled" then {
@@ -427,7 +427,7 @@ in {
           } tcp dport { 53 } counter accept
           iifname {
             ${ruleFormat untrusted}
-          } udp dport { 53, 67 } counter accept
+          } udp dport { 53, 67, mdns } counter accept
 
           # Allow returning traffic from external and drop everthing else
           iifname {
