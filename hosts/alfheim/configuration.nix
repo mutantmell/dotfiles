@@ -164,7 +164,7 @@
       };
 
       locations."/acme" = {
-        proxyPass = "http://127.0.0.1:9443/acme";
+        proxyPass = "https://127.0.0.1:9443/acme";
         extraConfig = ''
           proxy_ssl_certificate /etc/nginx/acme-cert.ca;
           proxy_ssl_certificate_key /etc/nginx/acme-key.ca;
@@ -241,9 +241,9 @@
   # This setup causes some periodic issues still:
   # acme-alfheim.local fails to renew the cert with the message: Failed with result 'exit-code'
   systemd.services = {
-    "acme-alfheim.local".after = [ "step-ca.service" "keycloak.service" ];
-    "step-ca".after = [ "keycloak.service" ];
-    "keycloak".after = [ "nginx.service" ];
+    "acme-alfheim.local".wants = [ "step-ca.service" "keycloak.service" ];
+    "step-ca".wants = [ "keycloak.service" ];
+    "keycloak".wants = [ "nginx.service" ];
   };
 
   systemd.services = {
