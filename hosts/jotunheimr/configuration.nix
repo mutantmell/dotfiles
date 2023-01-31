@@ -4,7 +4,7 @@
   imports =
     [
       ./hardware-configuration.nix
-      #./nas.nix
+      ./nas.nix
     ];
 
   boot.loader.systemd-boot.enable = true;

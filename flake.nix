@@ -68,6 +68,14 @@
         };
       };
 
+      jotunheimr = { config, pkgs, lib, ... }: (import ./hosts/jotunheimr/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
+        deployment = {
+          targetUser = "root";
+          targetHost = "jotunheimr.local";
+          tags = [ "infra" "nas" ];
+        };
+      };
+
       bragi = { config, pkgs, lib, ... }: (import ./hosts/vanaheim/guests/bragi/configuration.nix { inherit config pkgs lib; }) // {
         deployment = {
           targetUser = "root";
