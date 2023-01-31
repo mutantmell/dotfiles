@@ -144,7 +144,7 @@
         inherit pkgs;
         
         modules = [
-          ./home/home.nix
+          ./users/home.nix
         ];
       };
     };
