@@ -240,8 +240,9 @@
 
   # This setup causes some periodic issues still:
   # acme-alfheim.local fails to renew the cert with the message: Failed with result 'exit-code'
+  # current thesis: adding 'nginx.service' as 'wants' will help fix this
   systemd.services = {
-    "acme-alfheim.local".wants = [ "step-ca.service" "keycloak.service" ];
+    "acme-alfheim.local".wants = [ "step-ca.service" "keycloak.service" "nginx.service" ];
     "step-ca".wants = [ "keycloak.service" ];
     "keycloak".wants = [ "nginx.service" ];
   };
