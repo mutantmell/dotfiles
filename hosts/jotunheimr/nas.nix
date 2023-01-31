@@ -18,54 +18,50 @@
   # };
 
   networking.firewall.allowedTCPPorts = [
-    2049 # nfs
-    #88   # kerberos
-    #749  # kerberos admin
+    2049  # nfs
+    #88    # kerberos
+    #749   # kerberos admin
   ];
 
-  services.ntp.enable = true;
   services.nfs.server = {
     enable = true;
 #    createMountPoints = true;
     exports =''
-      /data/media 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
-      /data/data 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /data/media 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /data/data 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
     '';
   };
 
-  
   services.samba = {
-    enable = false;
+    enable = true;
     securityType = "user";
-    shares = {
-      data = {
-        path = "/data/share";
-        public = false;
-        writable = true;
-      };
-      drive = {
-        path = "/some/path";
-        public = false;
-        writable = true;
-      };
-      media = {
-        path = "/some/path";
-        public = false;
-        writable = true;
-      };
-      share = {
-        path = "/some/path";
-        public = true;
-        writable = true;
-      };
-    };
+    enableNmbd = false;
+    enableWinbindd = false;
+    openFirewall = true;
     extraConfig = ''
-      # login to guest if login fails
       map to guest = Bad User
-      # fix error with no printers
+
       load printers = no
       printcap name = /dev/null
-      printing = bsd
     '';
+
+    shares = {
+      drive = {
+        path = "/data/drive";
+        browseable = "yes";
+        "guest ok" = "no";
+        "read only" = "no";
+#        "valid users" = "mjollnir";
+#        "force user" = "mjollnir";
+      };
+      media = {
+        path = "/data/media";
+        browseable = "yes";
+        "guest ok" = "no";
+        "read only" = "no";
+#        "valid users" = "mjollnir";
+#        "force user" = "mjollnir";
+      };
+    };
   };
 }

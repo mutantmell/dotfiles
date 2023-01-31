@@ -7,12 +7,19 @@
       #./nas.nix
     ];
 
-  boot.loader.grub.enable = true;
-  boot.loader.grub.version = 2;
-  boot.loader.grub.device = "/dev/sda";
+  boot.loader.systemd-boot.enable = true;
+  boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
+  boot.supportedFilesystems = [ "zfs" ];
+  boot.zfs.extraPools = [ "data" ];
 
+  services.zfs.autoScrub.enable = true;
+  services.smartd.enable = true;
+  
   networking.hostName = "jotunheimr";
-  time.timeZone = "America/Los_Angeles";
+  networking.hostId = "9f034bc8";
+
+  services.ntp.enable = true;
+  time.timeZone = "UTC";
 
   nix.settings.auto-optimise-store = true;
   nix.gc = {
@@ -33,8 +40,8 @@
   networking.nameservers = [ "10.0.20.1" ];
 
   environment.systemPackages = with pkgs; [
-    vim
     wget
+    smartmontools
   ];
 
   services.openssh = {
@@ -44,25 +51,37 @@
     kbdInteractiveAuthentication = false;
   };
 
-#  users.mutableUsers = false;
+  #  users.mutableUsers = false;
   users.extraUsers.root.openssh.authorizedKeys.keys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com"
   ];
+  users.users.mjollnir = {
+    isNormalUser = true;
+    description = "samba client user";
+    group = "mjollnir";
+  };
+  users.groups.mjollnir = {};
 
   services.avahi = {
     enable = true;
     publish = {
       enable = true;
       addresses = true;
-      userServices = true;
-      workstation = true;
     };
   };
 
-  boot.zfs.extraPools = [ "data" ];
-  services.zfs.autoScrub.enable = true;
+  power.ups = {
+    # needs some files added before this will work -- use colmena to securely add them
+    # ref: https://old.reddit.com/r/NixOS/comments/ixpnco/installing_nut_network_ups_tools_on_nixos/
+    #enable = true;
+    ups."apc" = {
+      driver = "usbhid-ups";
+      port = "auto";
+      description = "APC UPS";
+    };
+  };
   
-  system.stateVersion = "21.11";
+  system.stateVersion = "22.11";
 
 }
