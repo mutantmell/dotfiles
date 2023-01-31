@@ -87,10 +87,10 @@ in { config, pkgs, ...}:
     };
   };
 
-  fileSystems."/mnt/media" = {
-    device = "jotunheimr:/data/media";
-    fsType = "nfs";
-  };
+  # fileSystems."/mnt/media" = {
+  #   device = "jotunheimr:/data/media";
+  #   fsType = "nfs";
+  # };
   # rec {
   #   device = "//mimisbrunnr/media";
   #   fsType = "cifs";
@@ -136,9 +136,6 @@ in { config, pkgs, ...}:
     in {
       forceSSL = true;
       enableACME = true;
-      #sslCertificate = "/etc/${cert.filename}";
-      #sslCertificateKey = "/etc/${key.filename}";
-      
 
       extraConfig = ''
         proxy_read_timeout 604800;
