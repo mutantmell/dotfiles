@@ -87,17 +87,11 @@ in { config, pkgs, ...}:
     };
   };
 
-  # fileSystems."/mnt/media" = {
-  #   device = "jotunheimr:/data/media";
-  #   fsType = "nfs";
-  # };
-  # rec {
-  #   device = "//mimisbrunnr/media";
-  #   fsType = "cifs";
-  #   options = let
-  #     automount_opts = "x-systemd.automount,noauto,x-systemd.idle-timeout=60,x-systemd.device-timeout=5s,x-systemd.mount-timeout=5s";
-  #   in ["${automount_opts},credentials=/etc/${credentials.filename}"];
-  # };
+  fileSystems."/mnt/media" = {
+    device = "/media";
+    fsType = "9p";
+    options = [ "trans=virtio" "version=9p2000.L" ];
+  };
 
   services.avahi = {
     enable = true;
