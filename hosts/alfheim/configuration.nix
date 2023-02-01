@@ -59,9 +59,11 @@
 
   services.openssh = {
     enable = true;
-    passwordAuthentication = false;
-    permitRootLogin = "prohibit-password";
-    kbdInteractiveAuthentication = false;
+    settings = {
+      PasswordAuthentication = false;
+      PermitRootLogin = "prohibit-password";
+      KbdInteractiveAuthentication = false;
+    };
   };
   
   users.extraUsers.root.openssh.authorizedKeys.keys = [
@@ -74,8 +76,6 @@
     publish = {
       enable = true;
       addresses = true;
-      userServices = true;
-      workstation = true;
     };
   };
 

@@ -38,8 +38,8 @@
   };
 
   services.openssh.enable = true;
-  services.openssh.permitRootLogin = "prohibit-password";
-  services.openssh.passwordAuthentication = false;
+  services.openssh.settings.PermitRootLogin = "prohibit-password";
+  services.openssh.settings.PasswordAuthentication = false;
 
   users.users.root.openssh.authorizedKeys.keys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPoCCiFtZ//7igTH9ChEXLkUsA35xzX33ZkhPY0KOohO malaguy@gmail.com"

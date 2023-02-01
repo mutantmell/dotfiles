@@ -35,7 +35,7 @@ in {
   time.timeZone = "UTC";
 
   services.openssh.enable = true;
-  services.openssh.passwordAuthentication = false;
+  services.openssh.settings.PasswordAuthentication = false;
 
   users.mutableUsers = false;
   users.users = let

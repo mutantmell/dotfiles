@@ -42,7 +42,7 @@
   networking.firewall.allowedTCPPorts = [ 80 443 ];
   
   services.openssh.enable = true;
-  services.openssh.passwordAuthentication = false;
+  services.openssh.settings.PasswordAuthentication = false;
   
   virtualisation.docker.enable = true;
   

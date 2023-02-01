@@ -28,7 +28,7 @@ in { config, pkgs, ...}:
     time.timeZone = "UTC";
 
     services.openssh.enable = true;
-    services.openssh.passwordAuthentication = false;
+    services.openssh.settings.PasswordAuthentication = false;
 
     users.users = {
       root = {
