@@ -23,34 +23,32 @@
     #749   # kerberos admin
   ];
 
-  fileSystems."/export/ro/media" = {
-    device = "/data/media";
-    options = [ "bind" ];    
-  };
-  fileSystems."/export/rw/media" = {
-    device = "/data/media";
-    options = [ "bind" ];    
-  };
-  fileSystems."/export/ro/data" = {
-    device = "/data/data";
-    options = [ "bind" ];    
-  };
-  fileSystems."/export/rw/data" = {
-    device = "/data/data";
-    options = [ "bind" ];    
+  fileSystems = {
+    # "export/ro/media" = {
+    #   device = "/data/media";
+    #   options = [ "bind" "x-systemd.requires=zfs-mount.service" ];
+    # };
+    "/export/rw/media" = {
+      device = "/data/media";
+      options = [ "bind" "x-systemd.requires=zfs-mount.service" ];
+    };
+    # "/export/ro/data" = {
+    #   device = "/data/data";
+    #   options = [ "bind" "x-systemd.requires=zfs-mount.service" ];
+    # };
+    "/export/rw/data" = {
+      device = "/data/data";
+      options = [ "bind" "x-systemd.requires=zfs-mount.service" ];
+    };
   };
 
-  
   services.nfs.server = {
     enable = true;
-#    createMountPoints = true;
-    exports =''
-      /data/media 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
-      /export/ro/media 10.0.10.0/24(ro) 10.0.20.0/24(ro)
-      /export/rw/media 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
-      /data/data 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
-      /export/ro/data 10.0.10.0/24(ro) 10.0.20.0/24(ro)
-      /export/rw/data 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+    #    createMountPoints = true;
+    exports = ''
+      /export 10.0.10.0/24(rw,fsid=0)
+      /export/rw/media 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=11) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=11)
+      /export/rw/data 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=21) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=21)
     '';
   };
 
@@ -73,16 +71,16 @@
         browseable = "yes";
         "guest ok" = "no";
         "read only" = "no";
-#        "valid users" = "mjollnir";
-#        "force user" = "mjollnir";
+        #        "valid users" = "mjollnir";
+        #        "force user" = "mjollnir";
       };
       media = {
         path = "/data/media";
         browseable = "yes";
         "guest ok" = "no";
         "read only" = "no";
-#        "valid users" = "mjollnir";
-#        "force user" = "mjollnir";
+        #        "valid users" = "mjollnir";
+        #        "force user" = "mjollnir";
       };
     };
   };
