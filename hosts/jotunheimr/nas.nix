@@ -23,32 +23,12 @@
     #749   # kerberos admin
   ];
 
-  fileSystems = {
-    # "export/ro/media" = {
-    #   device = "/data/media";
-    #   options = [ "bind" "x-systemd.requires=zfs-mount.service" ];
-    # };
-    "/export/rw/media" = {
-      device = "/data/media";
-      options = [ "bind" "x-systemd.requires=zfs-mount.service" ];
-    };
-    # "/export/ro/data" = {
-    #   device = "/data/data";
-    #   options = [ "bind" "x-systemd.requires=zfs-mount.service" ];
-    # };
-    "/export/rw/data" = {
-      device = "/data/data";
-      options = [ "bind" "x-systemd.requires=zfs-mount.service" ];
-    };
-  };
-
   services.nfs.server = {
     enable = true;
     #    createMountPoints = true;
     exports = ''
-      /export 10.0.10.0/24(rw,fsid=0)
-      /export/rw/media 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=11) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=11)
-      /export/rw/data 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=21) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=21)
+      /data/media 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /data/data 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash)
     '';
   };
 
