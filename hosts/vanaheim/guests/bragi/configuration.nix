@@ -49,11 +49,6 @@ in { config, pkgs, ...}:
     };
   };
   
-  environment.systemPackages = with pkgs; [
-    vim
-    samba4Full
-    rsync
-  ];
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
       source = ../../../../common/data/intermediate_ca.crt;
