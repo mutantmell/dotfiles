@@ -54,43 +54,13 @@ in {
 
   fileSystems = {
     "${dataDir}" = {
-      device = "/git";
+      device = "/data";
       fsType = "9p";
       options = [ "trans=virtio" "version=9p2000.L" ];
     };
     "/git" = {
       device = dataDir;
       options = [ "bind" ];
-    };
-  };
-
-  environment.etc = let
-    etcdir = "git/setup";
-  in {
-    "${etcdir}/git-dir-init" = {
-      mode = "700";
-      text = ''
-        #!/usr/bin/env bash
-
-        set -e
-
-        if ! [ "$(id -u)" = 0 ]; then
-           echo "Script must be run as root."
-           exit 1
-        fi
-
-        if [ -f "/etc/${etcdir}/.has-run" ]; then
-          echo "Script has already run"
-          exit 0
-        fi
-
-        sudo -u git mkdir -p ${dataDir}/git
-        chown git ${dataDir}/git
-        ln -s ${dataDir}/git /git
-        chown git /git
-
-        touch /etc/${etcdir}/.has-run
-      '';
     };
   };
 
