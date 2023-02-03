@@ -49,8 +49,10 @@ in {
       home = "/var/lib/git";
       shell = "${pkgs.git}/bin/git-shell";
       openssh.authorizedKeys.keys = keys;
+      extraGroups = [ "git" ];
     };
   };
+  users.groups.git.gid = 1000;
 
   fileSystems = {
     "${dataDir}" = {
@@ -59,7 +61,7 @@ in {
       options = [ "trans=virtio" "version=9p2000.L" ];
     };
     "/git" = {
-      device = dataDir;
+      device = "${dataDir}/git";
       options = [ "bind" ];
     };
   };
