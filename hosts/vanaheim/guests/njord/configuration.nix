@@ -29,9 +29,6 @@ in {
     MaxFileSec=7day
   '';
 
-  networking.useDHCP = false;
-  networking.interfaces.enp1s0.useDHCP = true;
-
   time.timeZone = "UTC";
 
   services.openssh.enable = true;
@@ -55,20 +52,17 @@ in {
     };
   };
 
-  fileSystems."${dataDir}" = {
-    device = "jotunheimr:/data/data/git";
-    fsType = "nfs";
+  fileSystems = {
+    "${dataDir}" = {
+      device = "/git";
+      fsType = "9p";
+      options = [ "trans=virtio" "version=9p2000.L" ];
+    };
+    "/git" = {
+      device = dataDir;
+      options = [ "bind" ];
+    };
   };
-
-  # rec {
-  #   device = "//mimisbrunnr/data/git";
-  #   fsType = "cifs";
-  #   options = let
-  #     user = config.users.users.git;
-  #     mount_opts = "uid=${toString user.uid},forceuid,file_mode=0770,dir_mode=0770";
-  #     automount_opts = "x-systemd.automount,noauto,x-systemd.idle-timeout=60,x-systemd.device-timeout=5s,x-systemd.mount-timeout=5s";
-  #   in ["${mount_opts},${automount_opts},credentials=/etc/${credentials_file}"];
-  # };
 
   environment.etc = let
     etcdir = "git/setup";
@@ -105,8 +99,6 @@ in {
     publish = {
       enable = true;
       addresses = true;
-      userServices = true;
-      workstation = true;
     };
   };
 

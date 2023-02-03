@@ -32,9 +32,6 @@ in { config, pkgs, ...}:
     MaxFileSec=7day
   '';
 
-  networking.useDHCP = false;
-  networking.interfaces.ens3.useDHCP = true;
-
   time.timeZone = "UTC";
 
   services.openssh.enable = true;
