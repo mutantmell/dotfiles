@@ -11,7 +11,7 @@
 
   networking.wireguard.interfaces =
   let
-    addr = octlet: "10.8.0.${octlet}";
+    addr = octlet: "10.100.0.${octlet}";
   in {
     wg0 = {
       ips = [ (addr "1/24") ];
