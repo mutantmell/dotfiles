@@ -14,6 +14,12 @@ in {
 
   networking.hostName = "njord";
 
+  networking.nftables.enable = true;
+  networking.firewall.interfaces."ens3" = {
+    allowedTCPPorts = [ 22 ];
+    allowedUDPPorts = [ 5353 ];
+  };
+
   environment.systemPackages = with pkgs; [
     git
   ];
@@ -33,6 +39,7 @@ in {
 
   services.openssh.enable = true;
   services.openssh.settings.PasswordAuthentication = false;
+  services.openssh.openFirewall = false;
 
   users.mutableUsers = false;
   users.users = let
@@ -68,6 +75,7 @@ in {
 
   services.avahi = {
     enable = true;
+    openFirewall = false;
     publish = {
       enable = true;
       addresses = true;
