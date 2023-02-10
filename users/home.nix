@@ -28,6 +28,8 @@ in {
     age
     step-cli
 
+    sops
+
     # (mkScript "hm-switch" ''
     #   nix flake update '${hmFlake}'
     #   home-manager switch --flake '${hmFlake}#mjollnir'
@@ -47,6 +49,7 @@ in {
       magit
       lsp-mode
       haskell-mode
+      yaml-mode
     ]) ++ (with epkgs.melpaPackages; [
       nix-mode
       dante
