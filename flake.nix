@@ -11,7 +11,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = { nixpkgs, nixos-hardware, home-manager, sops-nix, ... }: {
+  outputs = { self, nixpkgs, nixos-hardware, home-manager, sops-nix }: {
     colmena = {
       meta = {
         nixpkgs = import nixpkgs {
@@ -130,7 +130,7 @@
         };
       };
 
-      matrix = { config, pkgs, lib, ... }: (import ./cloud/matrix/configuration.nix { inherit config pkgs lib; }) // {
+      matrix = { config, pkgs, lib, ... }: (import ./cloud/matrix/configuration.nix { inherit config pkgs lib sops-nix; }) // {
         deployment = {
           targetUser = "root";
           targetHost = "helveticastandard.com";
