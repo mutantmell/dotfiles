@@ -2,23 +2,17 @@
 
 let
   dataDir = "/mnt/nas";
-  credentials_file = "/nas/credentials";
 in {
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
       sops-nix.nixosModules.sops
+      ./sops.nix
     ];
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  sops = {
-    defaultSopsFile = ./secrets/secrets.yaml;
-    age.sshKeyPaths = [ "/root/.ssh/id_ed25519" ];
-    secrets.njord_key = {};
-  };
-  
   networking.hostName = "njord";
 
   networking.nftables.enable = true;
