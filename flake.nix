@@ -118,16 +118,6 @@
           targetHost = "njord.local";
           tags = [ "guest" "svc" "git" ];
         };
-
-        deployment.keys = {
-          "credentials" = {
-            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/vanaheim/guests/njord/secure/credentials.age" ];
-            destDir = "/etc/nas/";
-            user = "root";
-            group = "wheel";
-            permissions = "0400";
-          };
-        };
       };
 
       matrix = { config, pkgs, lib, ... }: (import ./cloud/matrix/configuration.nix { inherit config pkgs lib sops-nix; }) // {
