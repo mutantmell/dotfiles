@@ -1,0 +1,22 @@
+# 0X - legacy protocol servers
+
+# 1X - trusted networking devices
+10 MGMT [10.X.10.0/24]
+
+# 2X - trusted home machines
+20 HOME [10.X.20.0/24]
+
+# 3X - untrusted guest machines
+30 GUEST [10.X.30.0/24]
+31 ADU [10.X.31.0/24]
+
+# 4X - untrusted embedded machines
+40 IOT [10.X.40.0/24]
+41 GAME [10.X.41.0/24]
+42 SMRT [10.X.42.0/24]
+
+# 10X - machines available over internet
+100 DMZ [10.X.100.0/24]
+    
+# MESH: 10.1.X.X, VLAN+256 ? Ideally move to same VLAN
+# OPT2: 10.2.X.X, VLAN+512 ?
