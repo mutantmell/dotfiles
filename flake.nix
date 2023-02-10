@@ -1,13 +1,17 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixos-hardware.url = "github:NixOS/nixos-hardware/master";
+    nixpkgs.url = github:NixOS/nixpkgs/nixos-unstable;
+    nixos-hardware.url = github:NixOS/nixos-hardware/master;
     home-manager = {
-      url = "github:nix-community/home-manager";
+      url = github:nix-community/home-manager;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    sops-nix = {
+      url = github:Mic92/sops-nix;
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = { nixpkgs, nixos-hardware, home-manager, ... }: {
+  outputs = { nixpkgs, nixos-hardware, home-manager, sops-nix, ... }: {
     colmena = {
       meta = {
         nixpkgs = import nixpkgs {
