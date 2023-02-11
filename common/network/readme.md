@@ -10,6 +10,9 @@ flowchart LR
 	src2[ ] -.->|Limited Access| snk2[ ]
 	style src2 height:0px;
 	style snk2 height:0px;	
+	src3[ ] --o|UPnP| snk3[ ]
+	style src3 height:0px;
+	style snk3 height:0px;		
   end
 
   WAN(((WAN)))
@@ -34,7 +37,7 @@ flowchart LR
   IOT((40 IOT)) -.-> IOT
   IOT -.-> WAN
 
-  GAME((41 GAME)) --> GAME
+  GAME((41 GAME)) --o GAME
   GAME --> WAN
 
   SMRT((42 SMRT)) --> SMRT
