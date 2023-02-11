@@ -3,6 +3,7 @@
   imports = [
     ./hardware-configuration.nix
     sops-nix.nixosModules.sops
+    ./sops.nix
 
     ./nginx.nix
     ./matrix/synapse.nix

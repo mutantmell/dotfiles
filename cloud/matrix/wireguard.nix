@@ -16,7 +16,7 @@
     wg0 = {
       ips = [ (addr "1/24") ];
       listenPort = 51820;
-      privateKeyFile = "/root/wireguard-keys/private";
+      privateKeyFile = config.sops.secrets.wireguard-key.path;
 
       peers = [
         {
