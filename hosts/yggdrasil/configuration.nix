@@ -1,9 +1,13 @@
-{ config, pkgs, ... }:
+{ config, pkgs, sops-nix, ... }:
 
 {
   imports =
     [
       ./hardware-configuration.nix
+
+      sops-nix.nixosModules.sops
+      ./sops.nix
+
       ./network.nix
     ];
 

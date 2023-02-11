@@ -20,21 +20,11 @@
         };
       };
 
-      yggdrasil = { config, pkgs, lib, ... }: (import ./hosts/yggdrasil/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
+      yggdrasil = { config, pkgs, lib, ... }: (import ./hosts/yggdrasil/configuration.nix { inherit config pkgs lib sops-nix; }) // {
         deployment = {
           targetUser = "root";
           targetHost = "10.0.10.1";
           tags = [ "mgmt" "infra" "router" ];
-        };
-
-        deployment.keys = {
-          "chap-secrets" = {
-            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/yggdrasil/secure/chap-secrets.age" ];
-            destDir = "/etc/ppp";
-            user = "root";
-            group = "root";
-            permissions = "0400";
-          };
         };
       };
 
