@@ -25,10 +25,8 @@ flowchart LR
   HOME --> MGMT
   HOME --> DMZ
 
-  GUEST((30 GUEST)) --> GUEST
-  GUEST --> WAN
+  GUEST((30 GUEST)) --> WAN
   GUEST -.-> MGMT
-  GUEST --> DMZ
 
   ADU((31 ADU)) --> ADU
   ADU --> WAN
