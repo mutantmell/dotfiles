@@ -2,6 +2,16 @@
 
 ```mermaid
 flowchart LR
+  subgraph Legend
+    direction LR
+	src1[ ] -->|Full Access| snk1[ ]
+	style src1 height:0px;
+	style snk1 height:0px;
+	src2[ ] -.->|Limited Access| snk2[ ]
+	style src2 height:0px;
+	style snk2 height:0px;	
+  end
+
   WAN(((WAN)))
 
   MGMT((10 MGMT)) --> MGMT
@@ -33,4 +43,4 @@ flowchart LR
   DMZ((100 DMZ)) --> DMZ
   DMZ -.-> MGMT
   DMZ --> WAN
-```
+  ```
