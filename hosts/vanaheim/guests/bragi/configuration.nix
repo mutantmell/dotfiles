@@ -1,14 +1,5 @@
 let
   hostname = "bragi";
-  cert = {
-    filename = "bragi.crt";
-  };
-  key = {
-    filename = "bragi.key";
-  };
-  credentials = {
-    filename = "jellyfin-smb";
-  };
 in { config, pkgs, ...}:
 {
   imports =
