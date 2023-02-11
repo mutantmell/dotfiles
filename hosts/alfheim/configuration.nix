@@ -1,7 +1,11 @@
-{ config, pkgs, lib, nixos-hardware, ... }:
+{ config, pkgs, lib, nixos-hardware, sops-nix, ... }:
 
 {
-  imports = [ nixos-hardware.nixosModules.raspberry-pi-4 ];
+  imports = [
+    nixos-hardware.nixosModules.raspberry-pi-4
+    sops-nix.nixosModules.sops
+    ./sops.nix
+  ];
 
   nixpkgs.config.allowUnfree = true;
 

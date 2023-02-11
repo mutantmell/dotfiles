@@ -38,7 +38,7 @@
         };
       };
 
-      alfheim = { config, pkgs, lib, ... }: (import ./hosts/alfheim/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
+      alfheim = { config, pkgs, lib, ... }: (import ./hosts/alfheim/configuration.nix { inherit config pkgs lib nixos-hardware sops-nix; }) // {
         deployment = {
           targetUser = "root";
           targetHost = "10.0.10.2";
