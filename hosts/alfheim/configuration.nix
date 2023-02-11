@@ -229,6 +229,7 @@
             type = "ACME";
             name = "acme";
           }
+          # TODO: try uncommenting this at the same time as making the conf endpoint hit keycloak directly
           #          {
           #            type = "OIDC";
           #            name = "keycloak";
