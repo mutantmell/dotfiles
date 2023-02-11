@@ -95,6 +95,14 @@
       };
     };
 
+    nixosConfigurations.skadi = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ./hosts/vanaheim/guests/skadi/configuration.nix
+        sops-nix.nixosModules.sops
+      ];
+    };
+
     homeConfigurations = let
       system = "x86_64-linux";
       username = "mjollnir";
