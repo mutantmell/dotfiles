@@ -2,6 +2,7 @@
 
 # 1X - trusted networking devices
 10 MGMT [10.X.10.0/24]
+# we might want 11 BASE [10.X.11.0/24] for non-networking baseline services like the VM Host and NAS?
 
 # 2X - trusted home machines
 20 HOME [10.X.20.0/24]
