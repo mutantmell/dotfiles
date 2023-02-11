@@ -54,16 +54,13 @@ let
           network = { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; };
         };
       };
-      # disabled due to likely MTU issue :/
       batmanDevice = "bat0";
-      mtu = "1536"; # This might solve the bat0 issue?
+      mtu = "1536";
     };
     opt1 = {
       device = "00:e0:67:1b:70:36";
       network = { type = "disabled"; };
-      required = true;
-#      mtu = "1536";
-#      batmanDevice = "bat0";
+      required = false;
     };
     bat0 = {
       batman = {
@@ -76,27 +73,22 @@ let
         "vMGMT.bat0" = {
           tag = 1010;
           network = { type = "routed"; ipv4 = "10.1.10.1/24"; trust = "management"; };
-          mtu = "1536";
         };
         "vHOME.bat0" = {
           tag = 1020;
           network = { type = "routed"; ipv4 = "10.1.20.1/24"; trust = "trusted"; };
-          mtu = "1536";
         };
         "vGUEST.bat0" = {
           tag = 1030;
           network = { type = "routed"; ipv4 = "10.1.30.1/24"; trust = "untrusted"; };
-          mtu = "1536";
         };
         "vIOT.bat0" = {
           tag = 1040;
           network = { type = "routed"; ipv4 = "10.1.40.1/24"; trust = "untrusted"; };
-          mtu = "1536";
         };
         "vGAME.bat0" = {
           tag = 1041;
           network = { type = "routed"; ipv4 = "10.1.41.1/24"; trust = "untrusted"; };
-          mtu = "1536";
         };
       };
     };
