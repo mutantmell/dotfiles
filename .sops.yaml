@@ -1,17 +1,11 @@
 keys:
   - &ad_skadi age1mmqej3arlv2wx96m2gh9fgvqpkwaeselzfu4rqfn54artx058vys7g3ehq
   - &sv_alfheim age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
+  - &sv_bragi age1exkagk0ztmnw7kvx3wwwqjgx3m2zxycgg46xmrt7pvqlngqgjyeqc4ajqh
   - &sv_matrix age1f58klxxdsk02cqrzprvfa4rt4spn7ch5v37thk35j8yzhfglhpgqhsh0n7
   - &sv_njord age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
   - &sv_yggdrasil age1yejm0ghvycctg868ag2u0awkf7crpuh59nfvy73dvsuuuns9davsxc6ssz
 creation_rules:
-  # - path_regex: secrets/[^/]+\.yaml$
-  #   key_groups:
-  #     - age:
-  #       - *ad_skadi
-  #       - *sv_alfheim
-  #       - *sv_matrix
-  #       - *sv_njord
   - path_regex: cloud/matrix/secrets/[^/]+\.yaml$
     key_groups:
       - age:
@@ -22,6 +16,11 @@ creation_rules:
       - age:
         - *ad_skadi
         - *sv_alfheim
+  - path_regex: hosts/vanaheim/guests/bragi/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_skadi
+        - *sv_bragi
   - path_regex: hosts/vanaheim/guests/njord/secrets/[^/]+\.yaml$
     key_groups:
       - age:
