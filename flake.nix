@@ -102,6 +102,13 @@
         sops-nix.nixosModules.sops
       ];
     };
+    nixosConfigurations.vanaheim = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ./hosts/vanaheim/configuration.nix
+        sops-nix.nixosModules.sops
+      ];
+    };
 
     homeConfigurations = let
       system = "x86_64-linux";
@@ -116,6 +123,5 @@
         ];
       };
     };
-
   };
 }
