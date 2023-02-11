@@ -3,6 +3,7 @@ keys:
   - &sv_alfheim age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
   - &sv_matrix age1f58klxxdsk02cqrzprvfa4rt4spn7ch5v37thk35j8yzhfglhpgqhsh0n7
   - &sv_njord age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
+  - &sv_yggdrasil age1yejm0ghvycctg868ag2u0awkf7crpuh59nfvy73dvsuuuns9davsxc6ssz
 creation_rules:
   # - path_regex: secrets/[^/]+\.yaml$
   #   key_groups:
@@ -26,3 +27,8 @@ creation_rules:
       - age:
         - *ad_skadi
         - *sv_njord
+  - path_regex: hosts/yggdrasil/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_skadi
+        - *sv_yggdrasil
