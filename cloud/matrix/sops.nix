@@ -8,6 +8,7 @@
       pgpass = {
         path = "/root/.pgpass";
       };
+      # weechat_passphrase = {};
     };
   };
 }
