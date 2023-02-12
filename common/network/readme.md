@@ -1,19 +1,31 @@
 # VLAN Diagram
 
 ```mermaid
-flowchart LR
+flowchart TB
 
   WAN(((WAN)))
 
   subgraph Network
     MGMT((10 MGMT))
-    HOME((20 HOME))
-    GUEST((30 GUEST))
-    ADU((31 ADU))
-    IOT((40 IOT))
-    GAME((41 GAME))
-    SMRT((42 SMRT))
-    DMZ((100 DMZ))
+    subgraph non-mgmt-group[ ]
+	    style non-mgmt-group height:0px
+        HOME((20 HOME))
+        subgraph guests-group[ ]
+            style guests-group height:0px
+            GUEST((30 GUEST))
+            ADU((31 ADU))
+        end
+        subgraph devices-group[ ]
+            style devices-group height:0px
+            IOT((40 IOT))
+            GAME((41 GAME))
+            SMRT((42 SMRT))
+        end
+        subgraph untrusted-group[ ]
+            style untrusted-group height:0px
+            DMZ((100 DMZ))
+        end
+    end
   end
 
   MGMT --> WAN
@@ -43,7 +55,7 @@ flowchart LR
   DMZ --> DMZ
   DMZ --> WAN
   DMZ -.-> MGMT
-  WAN ==> DMZ
+  WAN --x DMZ
 
   subgraph Legend
     direction LR
@@ -56,7 +68,7 @@ flowchart LR
 	src3[ ] --o|UPnP| snk3[ ]
 	style src3 height:0px;
 	style snk3 height:0px;
-	src4[ ] ==>|Wireguard| snk4[ ]
+	src4[ ] --x|Wireguard| snk4[ ]
 	style src4 height:0px
 	style snk4 height:0px;
   end
