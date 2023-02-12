@@ -16,6 +16,7 @@ flowchart LR
   end
 
   WAN(((WAN)))
+  WAN -.-> DMZ
 
   MGMT((10 MGMT)) --> MGMT
   MGMT --> WAN
@@ -44,4 +45,4 @@ flowchart LR
   DMZ((100 DMZ)) --> DMZ
   DMZ -.-> MGMT
   DMZ --> WAN
-  ```
+```
