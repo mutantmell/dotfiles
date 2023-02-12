@@ -97,7 +97,7 @@ let
     };
     opt2 = {
       device = "00:e0:67:1b:70:37";
-      network = { type = "static"; addresses = [{address="192.168.1.1"; gateway="192.168.1.1"; dns="192.168.1.1";}]; trust = "local-access"; };
+      network = { type = "static"; ignore-carrier = true; addresses = [{address="192.168.1.1/32"; gateway="192.168.1.1"; dns="192.168.1.1";}]; trust = "local-access"; };
       required = false;
     };
   };
@@ -291,7 +291,7 @@ in {
           ...
       }: let
         mkActivationStatus = { type, ignore-carrier ? false, ... }:
-          if ignore-carrier then "always-on" else null;
+          if ignore-carrier then "always-up" else null;
       in [{
         name = "10-${name}";
         value = {
