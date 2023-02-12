@@ -3,7 +3,7 @@
 with lib;
 
 # Adapted from https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/services/networking/go-neb.nix
-# Using a fork for now to enable configuration via endpoints, because that's more reproducible
+# TODO: return to using that file, and configure go-neb directly, using the secretFile for secrets
 let
   cfg = config.services.go-neb-bot;
 in {
@@ -57,7 +57,7 @@ in {
         ExecStart = "${pkgs.go-neb}/bin/go-neb";
         User = "go-neb";
         Group = "go-neb";
-        WorkingDirectory = "/var/lib/go-neb"; # TODO: make this reference the user's home dir
+        WorkingDirectory = "/var/lib/go-neb";
       };
     };
   };
