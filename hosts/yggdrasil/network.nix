@@ -25,7 +25,10 @@ let
           network = { type = "disabled"; };
           pppoe = {
             "pppcenturylink" = {
-              user = "***REMOVED***";  # todo: can we move this to sops? I don't mind it being exposed, but would like to not have it in plaintext
+              # an options file that just sets the user
+              # example: |
+              #  user "my-pppoe-user"
+              userfile = config.sops.secrets."pppd-userfile".path;
               network = { type = "dhcp"; trust = "external"; };
             };
           };
@@ -344,11 +347,11 @@ in {
   services.pppd = {
     enable = true;
     peers = let
-      mkConfig = parentDev: pppName: user: ''
+      mkConfig = parentDev: pppName: userfile: ''
         plugin rp-pppoe.so ${parentDev}
 
         hide-password
-        user "${user}"
+        file ${userfile}
 
         # Settings sourced from https://blog.confirm.ch/using-pppoe-on-linux/
 
@@ -378,7 +381,7 @@ in {
           name = name;
           value = {
             enable = true;
-            config = (mkConfig dev name pppoe.user);
+            config = (mkConfig dev name pppoe.userfile);
           };
         };
       fromTopology = name: { vlans ? {}, pppoe ? {}, ...}:
