@@ -1,6 +1,7 @@
 {
   inputs = {
     nixpkgs.url = github:NixOS/nixpkgs/nixos-unstable;
+    nixpkgs-stable.url = github:NixOS/nixpkgs/nixos-22.11;
     nixos-hardware.url = github:NixOS/nixos-hardware/master;
     home-manager = {
       url = github:nix-community/home-manager;
@@ -11,12 +12,18 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  outputs = { self, nixpkgs, nixos-hardware, home-manager, sops-nix }: {
+  outputs = { self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix }: {
     colmena = {
       meta = {
         nixpkgs = import nixpkgs {
           system = "x86_64-linux";
           config.allowUnfree = true;
+        };
+        nodeNixpkgs = {
+          alfheim = import nixpkgs-stable {
+            system = "aarch64-linux";
+            config.allowUnfree = true;
+          };
         };
       };
 
@@ -34,32 +41,7 @@
           targetHost = "10.0.10.2";
           tags = [ "mgmt" "infra" "dns" ];
         };
-        nixpkgs.system = "aarch64-linux";
-
-        deployment.keys = {
-          "intermediate_ca.key" = {
-            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/alfheim/secure/intermediate_ca.key.age" ];
-            destDir = "/etc/step-ca/data";
-            user = "step-ca";
-            group = "step-ca";
-            permissions = "0400";
-          };
-          "intermediate-password-file" = {
-            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/alfheim/secure/intermediate-password-file.age" ];
-            destDir = "/etc/step-ca/data";
-            user = "step-ca";
-            group = "step-ca";
-            permissions = "0400";
-          };
-          # this causes errors -- the keycloak user doesn't seem to want to exist when this is sent?
-          "keycloak_password_file" = {
-            keyCommand = [ "age" "--decrypt" "-i" "secrets/deploy" "hosts/alfheim/secure/keycloak_password_file.age" ];
-            destDir = "/etc/keycloak/data";
-            user = "keycloak";
-            group = "keycloak";
-            permissions = "0400";
-          };
-        };
+        #nixpkgs.system = "aarch64-linux";
       };
 
       jotunheimr = { config, pkgs, lib, ... }: (import ./hosts/jotunheimr/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {

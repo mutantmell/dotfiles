@@ -63,11 +63,14 @@
 
   services.openssh = {
     enable = true;
-    settings = {
-      PasswordAuthentication = false;
-      PermitRootLogin = "prohibit-password";
-      KbdInteractiveAuthentication = false;
-    };
+    passwordAuthentication = false;
+    permitRootLogin = "prohibit-password";
+    kbdInteractiveAuthentication = false;
+    # settings = {
+    #   PasswordAuthentication = false;
+    #   PermitRootLogin = "prohibit-password";
+    #   KbdInteractiveAuthentication = false;
+    # };
   };
   
   users.extraUsers.root.openssh.authorizedKeys.keys = [
@@ -146,7 +149,7 @@
       http-relative-path = "/auth";
       proxy = "edge";
     };
-    database.passwordFile = "/etc/keycloak/data/keycloak_password_file";
+    database.passwordFile = config.sops.secrets."keycloak_password_file".path;
   };
 
 
@@ -202,12 +205,12 @@
     address = "0.0.0.0";
     port = 9443;
     openFirewall = true;
-    intermediatePasswordFile = "/etc/step-ca/data/intermediate-password-file";
+    intermediatePasswordFile = config.sops.secrets."intermediate-password-file".path;
     settings = {
       dnsNames = [ "localhost" "alfheim" "alfheim.local" ];
       root = "/etc/step-ca/data/root_ca.crt";
       crt = "/etc/step-ca/data/intermediate_ca.crt";
-      key = "/etc/step-ca/data/intermediate_ca.key";
+      key = config.sops.secrets."intermediate_ca.key".path;
       db = {
         type = "badger";
         dataSource = "/var/lib/step-ca/db";
@@ -245,9 +248,14 @@
 
   # This setup causes some periodic issues still:
   # acme-alfheim.local fails to renew the cert with the message: Failed with result 'exit-code'
-  # current thesis: adding 'nginx.service' as 'wants' will help fix this
+  # current thesis: adding 'step-ca.service' as both 'wants' and 'after' will help fix this
   systemd.services = {
-    "acme-alfheim.local".wants = [ "step-ca.service" "keycloak.service" "nginx.service" ];
+    "acme-alfheim.local" = let
+      deps = [ "step-ca.service" "keycloak.service" "nginx.service" ];
+    in {
+      wants = deps;
+      after = deps;
+    };
     "step-ca".wants = [ "keycloak.service" ];
     "keycloak".wants = [ "nginx.service" ];
   };
