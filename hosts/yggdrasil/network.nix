@@ -25,7 +25,7 @@ let
           network = { type = "disabled"; };
           pppoe = {
             "pppcenturylink" = {
-              user = "***REMOVED***";
+              user = "***REMOVED***";  # todo: can we move this to sops? I don't mind it being exposed, but would like to not have it in plaintext
               network = { type = "dhcp"; trust = "external"; };
             };
           };
@@ -115,7 +115,7 @@ let
     fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (attrKeys pppoe) ++ (flatMapAttrsToList fromTopo vlans);
   in flatMapAttrsToList fromTopo topology;
 
-  # should eventually return ipv4 + ipv6
+  # should eventually return object like { ipv4: [...]; ipv6: [...]; }
   addrsWhere = pred: let
     trustedAddr = nw@{ type, ipv4 ? null, ipv6 ? null, ... }: if type == "routed" && (pred nw) then (builtins.filter (v: v != null) [ipv4 ipv6]) else [];
     fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (trustedAddr network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
@@ -156,8 +156,7 @@ in {
   networking = {
     useDHCP = false;
     useNetworkd = true;
-    #    nat.enable = false;
-    firewall.enable = false;
+    firewall.enable = false; # use custom nftables integration
   };
 
   systemd.network = {
@@ -341,6 +340,7 @@ in {
   #   enable = false;
   # };
 
+  # TODO: make mtu setting based on the config
   services.pppd = {
     enable = true;
     peers = let
@@ -477,10 +477,6 @@ in {
   };
 
   systemd.services = {
-    #nftables.after = builtins.map (pppoeName: "pppd-${pppoeName}.service") pppoeNames;
     dhcpd4.after = [ "network-online.target" ];
   };
-  #// (
-  #  builtins.listToAttrs (builtins.map (pppoeName: { name = "pppd-${pppoeName}"; value = { wants = [ "network-online.target" ]; }; }) pppoeNames)
-  #)
 }
