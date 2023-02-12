@@ -6,6 +6,7 @@
       "chap-secrets" = {
         path = "/etc/ppp/chap-secrets";
       };
+      "pppd-userfile" = {};
     };
   };
 }
