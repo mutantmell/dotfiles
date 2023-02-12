@@ -11,7 +11,7 @@ let
   #       { type = "disabled"; } # Has a network file, but with everything disabled
   #       { type = "routed"; ipv4 = "..."; ipv6 = "..."; trust = trust-status } # a network that we provide routing for
   #       { type = "dhcp"; trust = trust-status; } # a network where we get a dhcp address assigned -- we don't route this
-  #       { type = "static"; ipv4 = "..."; ipv6 = "..."; otherNetworkConfig = "..."; trust = trust-status } # static ip network
+  #       { type = "static"; addresses = [{ address = "..."; gateway? = "..."; dns? = "..."; }]; trust = trust-status } # static ip network
   #       trust-status = management | external | trusted | untrusted | lockdown | local-access | dmz
   # TODO: move the topology to its own file, and move the relevant extractors to there
   topology = {
@@ -97,12 +97,13 @@ let
     };
     opt2 = {
       device = "00:e0:67:1b:70:37";
-      network = { type = "dhcp"; trust = "local-access"; ignore-carrier = true; };
-      required = true;
+      network = { type = "static"; addresses = [{address="192.168.1.1"; gateway="192.168.1.1"; dns="192.168.1.1";}]; trust = "local-access"; };
+      required = false;
     };
   };
 
   flatMapAttrsToList = f: v: lib.lists.flatten (lib.attrsets.mapAttrsToList f v);
+  filterMap = f: l: builtins.filter (v: v != null) (builtins.map f l);
   attrKeys = lib.attrsets.mapAttrsToList (name: ignored: name);
 
   interfacesWhere = pred: let
@@ -228,18 +229,21 @@ in {
           ipv4 ? null,
           ipv6 ? null,
           ignore-carrier ? false,
+          addresses ? [],
           ...
       }:
-        if type == "routed" then {
+        let
+          ignoreCarrier = if !ignore-carrier then {} else {
+            ConfigureWithoutCarrier = true;
+            LinkLocalAddressing = "no"; # https://github.com/systemd/systemd/issues/9252#issuecomment-501850588
+            IPv6AcceptRA=false; # https://bbs.archlinux.org/viewtopic.php?pid=1958133#p1958133
+          };
+        in if type == "routed" then {
           Address = builtins.filter (v: v != null) [ipv4 ipv6];
           MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" "dmz" ];
         } else if type == "dhcp" then {
           DHCP = "ipv4";
-        } // (if !ignore-carrier then {} else {
-          ConfigureWithoutCarrier = true;
-          LinkLocalAddressing = "no"; # https://github.com/systemd/systemd/issues/9252#issuecomment-501850588
-          IPv6AcceptRA=false; # https://bbs.archlinux.org/viewtopic.php?pid=1958133#p1958133
-        }) else if type == "disabled" then {
+        } else if type == "disabled" then ignoreCarrier // {
           DHCP = "no";
           DHCPServer = false;
           LinkLocalAddressing = "no";
@@ -249,7 +253,12 @@ in {
           EmitLLDP = false;
           IPv6AcceptRA = false;
           IPv6SendRA = false;
-        } else {}; # "none"
+        } else if type == "static" then ignoreCarrier // {
+          Address = filterMap ({address ? null, ...}: address) addresses;
+          Gateway = filterMap ({gateway ? null, ...}: gateway) addresses;
+          DNS = filterMap ({dns ? null, ...}: dns) addresses;
+        } else if type == "none" then {
+        } else abort "invalid type: ${type}";
 
       mkLinkConfig = { mtu, required, activation-status ? null }:
         (
@@ -282,7 +291,7 @@ in {
           ...
       }: let
         mkActivationStatus = { type, ignore-carrier ? false, ... }:
-          if type == "dhcp" && ignore-carrier then "down" else null; # TODO: not having this plugged in is causing issues with networkctl - figure out why and/or use a static ip
+          if ignore-carrier then "always-on" else null;
       in [{
         name = "10-${name}";
         value = {
