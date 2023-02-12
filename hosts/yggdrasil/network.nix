@@ -97,8 +97,8 @@ let
     };
     opt2 = {
       device = "00:e0:67:1b:70:37";
-      network = { type = "dhcp"; trust = "local-access"; };
-      required = false;
+      network = { type = "dhcp"; trust = "local-access"; ignore-carrier = true; };
+      required = true;
     };
   };
 
@@ -227,6 +227,7 @@ in {
           trust ? null,
           ipv4 ? null,
           ipv6 ? null,
+          ignore-carrier ? false,
           ...
       }:
         if type == "routed" then {
@@ -234,7 +235,11 @@ in {
           MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" "dmz" ];
         } else if type == "dhcp" then {
           DHCP = "ipv4";
-        } else if type == "disabled" then {
+        } // (if !ignore-carrier then {} else {
+          ConfigureWithoutCarrier = true;
+          LinkLocalAddressing = "no"; # https://github.com/systemd/systemd/issues/9252#issuecomment-501850588
+          IPv6AcceptRA=false; # https://bbs.archlinux.org/viewtopic.php?pid=1958133#p1958133
+        }) else if type == "disabled" then {
           DHCP = "no";
           DHCPServer = false;
           LinkLocalAddressing = "no";
@@ -246,11 +251,13 @@ in {
           IPv6SendRA = false;
         } else {}; # "none"
 
-      mkLinkConfig = mtu: required:
+      mkLinkConfig = { mtu, required, activation-status ? null }:
         (
           if mtu == null then {} else { MTUBytes = mtu; }
         ) // (
           if required then {} else { RequiredForOnline = "no"; }
+        ) // (
+          if activation-status == null then {} else { ActivationPolicy = activation-status; }
         );
       fromVlan = name: {
         network,
@@ -263,7 +270,7 @@ in {
           value = {
             matchConfig = { Name = name; };
             networkConfig = mkNetworkConfig network;
-            linkConfig = mkLinkConfig mtu required;
+            linkConfig = mkLinkConfig { inherit mtu required; };
           };
         };
       fromDevice = name: {
@@ -273,7 +280,10 @@ in {
           batmanDevice ? null,
           mtu ? null,
           ...
-      }: [{
+      }: let
+        mkActivationStatus = { type, ignore-carrier ? false, ... }:
+          if type == "dhcp" && ignore-carrier then "down" else null; # TODO: not having this plugged in is causing issues with networkctl - figure out why and/or use a static ip
+      in [{
         name = "10-${name}";
         value = {
           matchConfig = {
@@ -283,7 +293,10 @@ in {
           networkConfig = (mkNetworkConfig network) // (
             if batmanDevice == null then {} else { BatmanAdvanced = batmanDevice; }
           );
-          linkConfig = mkLinkConfig mtu required;
+          linkConfig = mkLinkConfig {
+            inherit mtu required;
+            activation-status = (mkActivationStatus network);
+          };
         };
       }] ++ (lib.attrsets.mapAttrsToList fromVlan vlans);
     in toAttrSet fromDevice topology;
