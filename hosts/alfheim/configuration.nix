@@ -245,6 +245,7 @@
     in {
       wants = deps;
       after = deps;
+      requires = deps;
     };
     "step-ca".wantedBy = [ "acme-alfheim.local.service" ];
     "step-ca".before = [ "acme-alfheim.local.service" ];
