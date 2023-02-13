@@ -41,7 +41,6 @@
     80    # HTTP
     443   # HTTPS
     8443  # Unifi
-    9443  # ACME (temporary)
   ];
 
   networking.hostName = "alfheim";
@@ -232,15 +231,14 @@
             type = "ACME";
             name = "acme";
           }
-          # TODO: try uncommenting this at the same time as making the conf endpoint hit keycloak directly
-          #          {
-          #            type = "OIDC";
-          #            name = "keycloak";
-          #            clientId = "step-ca";
-          #            secret = "edsHrbtQizZI2ksicy9p3YnDuuHAYsz6";
-          #            configurationEndpoint = "https://alfheim.local/auth/realms/SSH/.well-known/openid-configuration";
-          #            listenAddress = ":10000";
-          #          }
+          {
+            type = "OIDC";
+            name = "keycloak";
+            clientId = "step-ca";
+            secret = "edsHrbtQizZI2ksicy9p3YnDuuHAYsz6";
+            configurationEndpoint = "http://alfheim.local:9080/auth/realms/SSH/.well-known/openid-configuration";
+            listenAddress = ":10000";
+          }
         ];
       };
     };
@@ -248,7 +246,7 @@
 
   # This setup causes some periodic issues still:
   # acme-alfheim.local fails to renew the cert with the message: Failed with result 'exit-code'
-  # current thesis: adding 'step-ca.service' as both 'wants' and 'after' will help fix this
+  # NGINX seems to be restarting while the acme call is happening?
   systemd.services = {
     "acme-alfheim.local" = let
       deps = [ "step-ca.service" "keycloak.service" "nginx.service" ];
@@ -257,6 +255,7 @@
       after = deps;
     };
     "step-ca".wants = [ "keycloak.service" ];
+    "step-ca".after = [ "keycloak.service" ];
     "keycloak".wants = [ "nginx.service" ];
   };
 
