@@ -74,8 +74,7 @@
   };
 
   power.ups = {
-    # needs some files added before this will work -- use colmena to securely add them
-    # ref: https://old.reddit.com/r/NixOS/comments/ixpnco/installing_nut_network_ups_tools_on_nixos/
+    # TODO: use the updated service once this pr is merged: https://github.com/NixOS/nixpkgs/pull/213006
     #enable = true;
     ups."apc" = {
       driver = "usbhid-ups";
