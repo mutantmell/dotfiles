@@ -241,13 +241,13 @@
   # NGINX seems to be restarting while the acme call is happening?
   systemd.services = {
     "acme-alfheim.local" = let
-      deps = [ "step-ca.service" "keycloak.service" "nginx.service" ];
+      deps = [ "step-ca.service" ];
     in {
       wants = deps;
       after = deps;
     };
-    "step-ca".wants = [ "keycloak.service" ];
-    "step-ca".after = [ "keycloak.service" ];
+    "step-ca".wantedBy = [ "acme-alfheim.local.service" ];
+    "step-ca".before = [ "acme-alfheim.local.service" ];
     "keycloak".wants = [ "nginx.service" ];
   };
 
