@@ -56,7 +56,10 @@ in {
       createHome = true;
       home = "/var/lib/git";
       shell = "${pkgs.git}/bin/git-shell";
-      openssh.authorizedKeys.keys = keys ++ [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl4UkXB94b0e/4YrPXIT4J4l73/mCwh724Yr1VFy7dk malaguy@gmail.com" ];
+      openssh.authorizedKeys.keys =
+        [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl4UkXB94b0e/4YrPXIT4J4l73/mCwh724Yr1VFy7dk malaguy@gmail.com"
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5AN0gzpx+1bJNZbGfLt4m2kD59WYmyqgIkXmzYbL+Q malaguy@gmail.com"
+        ] ++ keys;
       extraGroups = [ "git" ];
     };
   };
