@@ -10,7 +10,6 @@
   boot.loader.efi.canTouchEfiVariables = true;
 
   boot.kernelPackages = pkgs.linuxPackages_latest;
-  boot.kernelModules = [ "kvm-intel" ];
   
   environment.systemPackages = with pkgs; [
     virtmanager
