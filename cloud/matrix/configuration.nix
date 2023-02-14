@@ -44,10 +44,14 @@
   };
   networking.firewall.allowedTCPPorts = [ 80 443 ];
   
-  services.openssh.enable = true;
-  services.openssh.settings.PasswordAuthentication = false;
-  
-  virtualisation.docker.enable = true;
-  
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = false;
+      PermitRootLogin = "prohibit-password";
+      KbdInteractiveAuthentication = false;
+    };
+  };
+
   system.stateVersion = "21.11";
 }

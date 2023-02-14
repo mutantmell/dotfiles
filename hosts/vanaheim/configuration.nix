@@ -90,9 +90,15 @@
     device = "jotunheimr.local:/data/media/";
     fsType = "nfs";
   };
-  services.openssh.enable = true;
-  services.openssh.settings.PermitRootLogin = "prohibit-password";
-  services.openssh.settings.X11Forwarding = true;
+
+  services.openssh = {
+    enable = true;
+    settings = {
+      PasswordAuthentication = false;
+      PermitRootLogin = "prohibit-password";
+      KbdInteractiveAuthentication = false;
+    };
+  }
 
   system.stateVersion = "22.11";
 }
