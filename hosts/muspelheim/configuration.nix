@@ -29,8 +29,8 @@
   };
   security.polkit.enable = true;
 
-  networking = let lan = "enp88s0"; in {
-    hostName = "vanaheim";
+  networking = let lan = "eno1"; in {
+    hostName = "muspelheim";
     dhcpcd.enable = false;
 
     vlans = {
@@ -48,7 +48,7 @@
       "${lan}.10" = {
         useDHCP = false;
         ipv4.addresses = [{
-          address = "10.0.10.30";
+          address = "10.0.10.31";
           prefixLength = 24;
         }];
       };
