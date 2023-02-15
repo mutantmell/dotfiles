@@ -27,9 +27,10 @@
       privateKeyFile = config.sops.secrets."wireguard_private_key".path;
       peers = [
         {
-          publicKey = "";
+          publicKey = "QdA39mQUqQjSvOTy4c+Zrtll1OEb/4vroewi2Zz6+Qs=";
           allowedIPs = [ "10.100.0.2/32" ];
           endpointFile = config.sops.secrets."wireguard_peer_address".path;
+          dynamicEndpointRefreshSeconds = 15;
         }
       ];
     };
