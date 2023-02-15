@@ -1,0 +1,42 @@
+{ config, pkgs, ... }:
+
+{
+  imports =
+    [
+      ./hardware-configuration.nix
+    ];
+
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
+
+  environment.systemPackages = with pkgs; [
+    home-manager
+  ];
+
+  networking.hostName = "surtr";
+
+  services.avahi = {
+    enable = true;
+    publish = {
+      enable = true;
+      addresses = true;
+    };
+  };
+
+  users.users.root.openssh.authorizedKeys.keys =
+    [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com"
+    ];
+
+  services.openssh = {
+    enable = true;
+    passwordAuthentication = false;
+    permitRootLogin = "prohibit-password";
+    kbdInteractiveAuthentication = false;
+  };
+
+  system.stateVersion = "22.11";
+
+}
+
