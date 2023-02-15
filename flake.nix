@@ -52,6 +52,14 @@
         };
       };
 
+      surtr = { config, pkgs, lib, ... }: (import ./hosts/muspelheim/guests/surtr/configuration.nix { inherit config pkgs lib sops-nix; }) // {
+        deployment = {
+          targetUser = "root";
+          targetHost = "surtr.local";
+          tags = [ "guest" "svc" ];
+        };
+      };
+
       bragi = { config, pkgs, lib, ... }: (import ./hosts/vanaheim/guests/bragi/configuration.nix { inherit config pkgs lib sops-nix; }) // {
         deployment = {
           targetUser = "root";

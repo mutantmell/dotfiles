@@ -1,9 +1,15 @@
-{ config, pkgs, ... }:
+{ config, pkgs, sops-nix, ... }:
 
 {
   imports =
     [
       ./hardware-configuration.nix
+      sops-nix.nixosModules.sops
+      ./sops.nix
+      ../../../../modules/overrides/wireguard.nix
+    ];
+  disabledModules =
+    [ "services/networking/wireguard.nix"
     ];
 
   boot.loader.systemd-boot.enable = true;
@@ -14,6 +20,20 @@
   ];
 
   networking.hostName = "surtr";
+  networking.wireguard.interfaces = {
+    "wg0" = {
+      ips = [ "10.100.0.1/32" ];
+      listenPort = 51895;
+      privateKeyFile = config.sops.secrets."wireguard_private_key".path;
+      peers = [
+        {
+          publicKey = "";
+          allowedIPs = [ "10.100.0.2/32" ];
+          endpointFile = config.sops.secrets."wireguard_peer_address".path;
+        }
+      ];
+    };
+  };
 
   services.avahi = {
     enable = true;
@@ -39,4 +59,3 @@
   system.stateVersion = "22.11";
 
 }
-
