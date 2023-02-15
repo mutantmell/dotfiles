@@ -2,29 +2,27 @@
 
 {
 
-  networking.nat.enable = true;
-  networking.nat.externalInterface = "ens3";
-  networking.nat.internalInterfaces = [ "wg0" ];
+  networking.nat = {
+    #enable = true;
+    externalInterface = "ens3";
+    internalInterfaces = [ "wg0" ];
+  };
   networking.firewall = {
-    allowedUDPPorts = [ 51820 ];
+    allowedUDPPorts = [ 51895 ];
   };
 
-  networking.wireguard.interfaces =
-  let
-    addr = octlet: "10.100.0.${octlet}";
-  in {
+  networking.wireguard.interfaces = {
     wg0 = {
-      ips = [ (addr "1/24") ];
-      listenPort = 51820;
+      ips = [ "10.100.1.1/24" ];
+      listenPort = 51895;
       privateKeyFile = config.sops.secrets.wireguard-key.path;
 
       peers = [
         {
-          publicKey = "tCPBgrj+RdSjknIrhdATr45Ptd0ecio9JWEXyiIsm0Y=";
-          allowedIPs = [ (addr "2/32") ];
+          publicKey = "6Kb9OxV5mmCDt8GNTYTQi745sXI/ON7R9ZKnhuXPKiA=";
+          allowedIPs = [ "10.100.1.2/32" ];
         }
       ];
     };
   };
-  
 }
