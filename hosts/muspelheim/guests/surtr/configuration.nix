@@ -8,7 +8,7 @@
       ./sops.nix
       ../../../../modules/overrides/wireguard.nix
 
-      #./wireguard.nix
+      ./wireguard.nix
     ];
   disabledModules =
     [ "services/networking/wireguard.nix"
