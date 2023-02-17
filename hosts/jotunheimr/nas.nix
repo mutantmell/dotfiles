@@ -18,9 +18,17 @@
   # };
 
   networking.firewall.allowedTCPPorts = [
+    445   # smb
+    139   # smb
     2049  # nfs
+    5357  # wsdd
     #88    # kerberos
     #749   # kerberos admin
+  ];
+  networking.firewall.allowedUDPPorts = [
+    137  # smb
+    138  # smb
+    3702 # wsdd
   ];
 
   services.nfs.server = {
@@ -32,14 +40,20 @@
     '';
   };
 
+  services.udisks2.enable = true;
+  boot.supportedFilesystems = [ "ntfs" ];
+
+  services.samba-wsdd.enable = true;
   services.samba = {
     enable = true;
     securityType = "user";
-    enableNmbd = false;
-    enableWinbindd = false;
+    #enableNmbd = false;
+    #enableWinbindd = false;
     openFirewall = true;
     extraConfig = ''
       map to guest = Bad User
+      server string = JOTUNHEIMR
+      netbios name = JOTUNHEIMR
 
       load printers = no
       printcap name = /dev/null
