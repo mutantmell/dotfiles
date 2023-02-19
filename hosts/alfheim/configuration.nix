@@ -167,6 +167,15 @@
 
       locations."/auth" = {
         proxyPass = "http://127.0.0.1:9080";
+        extraConfig = ''
+          proxy_set_header X-Forwarded-For $proxy_protocol_addr;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header Host $host;
+
+          proxy_buffer_size   128k;
+          proxy_buffers   4 256k;
+          proxy_busy_buffers_size   256k;
+        '';
       };
 
       locations."/acme" = {
