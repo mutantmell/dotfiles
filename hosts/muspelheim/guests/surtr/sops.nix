@@ -4,7 +4,8 @@
     age.sshKeyPaths = [ "/root/.ssh/id_ed25519" ];
     secrets = {
       "wireguard_private_key" = {};
-      "wireguard_peer_address" = {};
+      "wg_ba_peer_1_address" = {};
+      "wg_ba_peer_2_address" = {};
     };
   };
 }

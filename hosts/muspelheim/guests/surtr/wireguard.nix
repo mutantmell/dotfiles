@@ -8,8 +8,15 @@
         peers = [
           {
             publicKey = "QdA39mQUqQjSvOTy4c+Zrtll1OEb/4vroewi2Zz6+Qs=";
-            allowedIPs = [ "10.100.0.0/24" ];
-            endpointFile = config.sops.secrets."wireguard_peer_address".path;
+            allowedIPs = [ "10.100.0.2/32" ];
+            endpointFile = config.sops.secrets."wg_ba_peer_1_address".path;
+            dynamicEndpointRefreshSeconds = 15;
+            persistentKeepalive = 25;
+          }
+          {
+            publicKey = "O+WWPlhy6Lg9YT3hYqq+/8gZ48PpRXaUTl4eFFwgTVA=";
+            allowedIPs = [ "10.100.0.3/32" ];
+            endpointFile = config.sops.secrets."wg_ba_peer_2_address".path;
             dynamicEndpointRefreshSeconds = 15;
             persistentKeepalive = 25;
           }

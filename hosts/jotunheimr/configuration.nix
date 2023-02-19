@@ -42,7 +42,7 @@
   environment.systemPackages = with pkgs; [
     wget
     smartmontools
-    czkawka
+    jdupes
   ];
 
   services.openssh = {

@@ -25,6 +25,7 @@
 
   environment.systemPackages = with pkgs; [
     home-manager
+    git
   ];
 
   networking.hostName = "surtr";
