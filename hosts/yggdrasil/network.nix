@@ -29,7 +29,7 @@ let
               # example: |
               #  user "my-pppoe-user"
               userfile = config.sops.secrets."pppd-userfile".path;
-              network = { type = "dhcp"; trust = "external"; };
+              network = { type = "dhcp"; route = "primary"; trust = "external"; };
             };
           };
         };
@@ -230,6 +230,7 @@ in {
           ipv4 ? null,
           ipv6 ? null,
           ignore-carrier ? false,
+          route ? null,
           addresses ? [],
           ...
       }:
@@ -239,10 +240,13 @@ in {
             LinkLocalAddressing = "no"; # https://github.com/systemd/systemd/issues/9252#issuecomment-501850588
             IPv6AcceptRA=false; # https://bbs.archlinux.org/viewtopic.php?pid=1958133#p1958133
           };
+          defRoute = if route != "primary" then {} else {
+            DefaultRouteOnDevice = true;
+          };
         in if type == "routed" then {
           Address = builtins.filter (v: v != null) [ipv4 ipv6];
           MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" "dmz" ];
-        } else if type == "dhcp" then {
+        } else if type == "dhcp" then defRoute // {
           DHCP = "ipv4";
         } else if type == "disabled" then ignoreCarrier // {
           DHCP = "no";
@@ -269,24 +273,39 @@ in {
         ) // (
           if activation-status == null then {} else { ActivationPolicy = activation-status; }
         );
+      fromPppoe = name: {
+        network,
+          ...
+      }: {
+        name = "20-${name}";
+        value = {
+          matchConfig = { Name = name; };
+          networkConfig = mkNetworkConfig network // {
+            KeepConfiguration = "static";
+            LinkLocalAddressing = "no";
+          };
+        };
+      };
       fromVlan = name: {
         network,
           mtu ? null,
+          pppoe ? {},
           required ? true,
           ...
       }:
-        {
+        [{
           name = "20-${name}";
           value = {
             matchConfig = { Name = name; };
             networkConfig = mkNetworkConfig network;
             linkConfig = mkLinkConfig { inherit mtu required; };
           };
-        };
+        }] ++ (lib.attrsets.mapAttrsToList fromPppoe pppoe);
       fromDevice = name: {
         network,
           required,
           vlans ? {},
+          pppoe ? {},
           batmanDevice ? null,
           mtu ? null,
           ...
@@ -308,11 +327,15 @@ in {
             activation-status = (mkActivationStatus network);
           };
         };
-      }] ++ (lib.attrsets.mapAttrsToList fromVlan vlans);
+      }] ++ (
+        flatMapAttrsToList fromVlan vlans
+      ) ++ (
+        lib.attrsets.mapAttrsToList fromPppoe pppoe
+      );
     in toAttrSet fromDevice topology;
   };
 
-#  networking.nameservers = [ "10.0.10.2" ];
+  #  networking.nameservers = [ "10.0.10.2" ];
   services.resolved = {
     enable = true;
     extraConfig = let
