@@ -97,7 +97,8 @@ let
     };
     opt2 = {
       device = "00:e0:67:1b:70:37";
-      network = { type = "static"; ignore-carrier = true; addresses = [{address="192.168.1.1/32"; gateway="192.168.1.1"; dns="192.168.1.1";}]; trust = "local-access"; };
+      network = { type = "disabled"; };
+      #network = { type = "static"; ignore-carrier = true; addresses = [{address="192.168.1.1/32"; gateway="192.168.1.1"; dns="192.168.1.1";}]; trust = "local-access"; };
       required = false;
     };
   };
@@ -311,7 +312,7 @@ in {
     in toAttrSet fromDevice topology;
   };
 
-  networking.nameservers = [ "10.0.10.2" ];
+#  networking.nameservers = [ "10.0.10.2" ];
   services.resolved = {
     enable = true;
     extraConfig = let
@@ -473,11 +474,11 @@ in {
             ${ruleFormat all-internal}
           } counter accept comment "Allow trusted internal to all internal"
 
-          # Allow untrusted access to internal https on management
+          # Allow untrusted and management access to internal https on untrusted and management
           iifname {
-            ${ruleFormat untrusted}
+            ${ruleFormat (untrusted ++ management)}
           } oifname {
-            ${ruleFormat management}
+            ${ruleFormat (untrusted ++ management)}
           } tcp dport { https } counter accept comment "Allow untrusted access to internal management https"
 
           # Allow established connections to return
