@@ -154,7 +154,9 @@
 
   services.nginx = {
     enable = true;
+    recommendedTlsSettings = true;
     recommendedProxySettings = true;
+    
     virtualHosts."${config.networking.hostName}.local" = {
       forceSSL = true;
       enableACME = true;
