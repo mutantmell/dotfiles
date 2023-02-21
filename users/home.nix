@@ -14,8 +14,11 @@ in {
   programs.home-manager.enable = true;
 
   home.packages = with pkgs; [
-    htop
     tmux
+
+    dig
+    htop
+
     bitwarden-cli
     git-secret
 
