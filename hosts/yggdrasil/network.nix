@@ -335,7 +335,7 @@ in {
     in toAttrSet fromDevice topology;
   };
 
-  #  networking.nameservers = [ "10.0.10.2" ];
+  networking.nameservers = [ "10.0.10.2" ];
   services.resolved = {
     enable = true;
     extraConfig = let
