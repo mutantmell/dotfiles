@@ -30,6 +30,15 @@
   ];
 
   networking.hostName = "surtr";
+  networking.interfaces."ens3" = {
+    useDHCP = false;
+    ipv4.addresses = [{
+      address = "10.0.100.40";
+      prefixLength = 24;
+    }];
+  };
+  networking.defaultGateway = "10.0.100.1";
+  networking.nameservers = [ "10.0.100.1" ];
 
   services.avahi = {
     enable = true;
