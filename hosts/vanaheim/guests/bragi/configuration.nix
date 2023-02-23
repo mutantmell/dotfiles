@@ -11,6 +11,19 @@ in { config, pkgs, ...}:
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
+  nixpkgs.config.packageOverrides = pkgs: {
+    vaapiIntel = pkgs.vaapiIntel.override { enableHybridCodec = true; };
+  };
+  hardware.opengl = {
+    enable = true;
+    extraPackages = with pkgs; [
+      intel-media-driver
+      vaapiIntel
+      vaapiVdpau
+      libvdpau-va-gl
+      intel-compute-runtime # OpenCL filter support (hardware tonemapping and subtitle burn-in)
+    ];
+  };
   networking.hostName = "${hostname}";
 
   nix.gc = {
@@ -55,14 +68,35 @@ in { config, pkgs, ...}:
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;
+    certs."${hostname}.local" = {
+      group = "acme-cert";
+    };
   };
   security.pki.certificates = [ (builtins.readFile ../../../../common/data/root_ca.crt) ];
+  systemd.services."jellyfin-cert-renew" = {
+    serviceConfig.Type = "oneshot";
+    description = "Mangage Jellyfin's pkcs12 key";
+    path = with pkgs; [ bash openssl ];
+    script = let
+      acmedir = "/var/lib/acme/${hostname}.local";
+      jellydir = config.systemd.services.jellyfin.serviceConfig.WorkingDirectory;
+    in ''
+        #!/usr/bin/env bash
+
+        openssl pkcs12 -export -out ${jellydir}/key.pfx -inkey ${acmedir}/key.pem -in ${acmedir}/cert.pem  -passout pass:
+        chmod 640 ${jellydir}/key.pfx
+        chown acme:acme-cert ${jellydir}/key.pfx
+    '';
+    wantedBy = [ "acme-${hostname}.local.service" ];
+    after = [ "acme-${hostname}.local.service" ];
+  };
 
   networking.firewall = {
     allowedTCPPorts = [
       80
       443
       8096
+      8920
     ];
     allowedUDPPorts = [
       1900
@@ -73,8 +107,11 @@ in { config, pkgs, ...}:
   users.users = {
     jellyfin = {
       uid = 1000;
+      extraGroups = ["acme-cert"];
     };
+    nginx.extraGroups = [ "acme-cert" ];
   };
+  users.groups."acme-cert" = {};
 
   fileSystems."/mnt/media" = {
     device = "/media";
