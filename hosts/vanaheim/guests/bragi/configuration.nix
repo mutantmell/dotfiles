@@ -163,11 +163,17 @@ in { config, pkgs, ...}:
       '';
 
       locations."/socket" = {
-        proxyPass = "http://localhost:8096/socket";
-        extraConfig = jellyfinConf;
+        proxyPass = "http://127.0.0.1:8096/socket";
+        extraConfig = ''
+          ${jellyfinConf}
+
+          proxy_http_version 1.1;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection "upgrade";
+        '';
       };
       locations."/" = {
-        proxyPass = "http://localhost:8096";
+        proxyPass = "http://127.0.0.1:8096/";
         extraConfig = jellyfinConf;
       };
     };
