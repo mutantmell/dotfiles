@@ -55,6 +55,7 @@ let
         "vDMZ.lan" = {
           tag = 100;
           network = { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; };
+          routes = [{ gateway = "10.0.100.40"; destination = "10.100.1.0/24"; }];
         };
       };
       batmanDevice = "bat0";
@@ -273,8 +274,16 @@ in {
         ) // (
           if activation-status == null then {} else { ActivationPolicy = activation-status; }
         );
+      mkRouteConfig = { gateway, destination, ... }:
+        {
+          routeConfig = {
+            Gateway = gateway;
+            Destination = destination;
+          };
+        };
       fromPppoe = name: {
         network,
+          routes ? [],
           ...
       }: {
         name = "20-${name}";
@@ -284,6 +293,7 @@ in {
             KeepConfiguration = "static";
             LinkLocalAddressing = "no";
           };
+          routes = builtins.map mkRouteConfig routes;
         };
       };
       fromVlan = name: {
@@ -291,6 +301,7 @@ in {
           mtu ? null,
           pppoe ? {},
           required ? true,
+          routes ? [],
           ...
       }:
         [{
@@ -299,6 +310,7 @@ in {
             matchConfig = { Name = name; };
             networkConfig = mkNetworkConfig network;
             linkConfig = mkLinkConfig { inherit mtu required; };
+            routes = builtins.map mkRouteConfig routes;
           };
         }] ++ (lib.attrsets.mapAttrsToList fromPppoe pppoe);
       fromDevice = name: {
@@ -308,6 +320,7 @@ in {
           pppoe ? {},
           batmanDevice ? null,
           mtu ? null,
+          routes ? [],
           ...
       }: let
         mkActivationStatus = { type, ignore-carrier ? false, ... }:
@@ -326,6 +339,7 @@ in {
             inherit mtu required;
             activation-status = (mkActivationStatus network);
           };
+          routes = builtins.map mkRouteConfig routes;
         };
       }] ++ (
         flatMapAttrsToList fromVlan vlans
