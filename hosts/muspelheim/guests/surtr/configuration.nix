@@ -1,5 +1,4 @@
 { config, pkgs, sops-nix, ... }:
-
 {
   nix = {
     package = pkgs.nixVersions.stable;
