@@ -1,4 +1,5 @@
 { config, pkgs, sops-nix, ... }:
+
 {
   nix = {
     package = pkgs.nixVersions.stable;
@@ -33,6 +34,9 @@
     useDHCP = false;
     ipv4.addresses = [{
       address = "10.0.100.40";
+      prefixLength = 24;
+    } {
+      address = "10.100.1.2";
       prefixLength = 24;
     }];
   };
