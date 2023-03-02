@@ -1,7 +1,7 @@
 { config, ... }:
 {
   config = {
-    networking.firewall.allowedTCPPorts = [ 80 443 4180 ]; # 4180 is temporary
+    networking.firewall.allowedTCPPorts = [ 80 443 ];
     security.acme = {
       defaults = {
         server = "https://alfheim.local/acme/acme/directory";
