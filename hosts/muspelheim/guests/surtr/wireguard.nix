@@ -1,11 +1,17 @@
 { pkgs, config, ... }:
 {
   config = {
+    boot.kernel.sysctl = {
+      "net.ipv4.ip_forward" = 1;
+      "net.ipv6.conf.all.forwarding" = 1;
+    };
+
     networking.nat = {
       enable = true;
       externalInterface = "wg-ba";
       internalInterfaces = [ "ens3" ];
     };
+
     networking.wireguard.interfaces = {
       "wg-ba" = {
         ips = [ "10.100.0.1/32" ];

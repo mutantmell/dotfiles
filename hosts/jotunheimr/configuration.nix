@@ -14,7 +14,7 @@
 
   services.zfs.autoScrub.enable = true;
   services.smartd.enable = true;
-  
+
   networking.hostName = "jotunheimr";
   networking.hostId = "9f034bc8";
 
