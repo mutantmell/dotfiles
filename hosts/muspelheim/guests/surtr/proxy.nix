@@ -80,6 +80,7 @@
         "provider-display-name" = "Keycloak";
         "oidc-issuer-url" = "https://alfheim.local/auth/realms/external";
         "set-authorization-header" = true;
+        "skip-jwt-bearer-tokens" = true;
       };
     };
   };
