@@ -1,10 +1,23 @@
-{ config, ... }:
+{ pkgs, config, ... }:
 {
   config = {
+    networking.nat = {
+      enable = true;
+      externalInterface = "wg-ba";
+      internalInterfaces = [ "ens3" ];
+    };
     networking.wireguard.interfaces = {
       "wg-ba" = {
         ips = [ "10.100.0.1/32" ];
         privateKeyFile = config.sops.secrets."wireguard_private_key".path;
+
+        postSetup = ''
+          ${pkgs.iptables}/bin/iptables -t nat -A POSTROUTING -s 10.100.0.0/24 -o wg-ba -j MASQUERADE
+        '';
+        postShutdown = ''
+          ${pkgs.iptables}/bin/iptables -t nat -D POSTROUTING -s 10.100.0.0/24 -o wg-ba -j MASQUERADE
+        '';
+
         peers = [
           {
             publicKey = "QdA39mQUqQjSvOTy4c+Zrtll1OEb/4vroewi2Zz6+Qs=";
