@@ -55,7 +55,10 @@ let
         "vDMZ.lan" = {
           tag = 100;
           network = { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; };
-          routes = [{ gateway = "10.0.100.40"; destination = "10.100.1.0/24"; }];
+          routes = [
+            { gateway = "10.0.100.40"; destination = "10.100.1.0/24"; }
+            { gateway = "10.0.100.40"; destination = "10.100.0.0/24"; }
+          ];
         };
       };
       batmanDevice = "bat0";

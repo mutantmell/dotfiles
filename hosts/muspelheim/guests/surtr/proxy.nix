@@ -2,12 +2,6 @@
 {
   config = {
     networking.firewall.allowedTCPPorts = [ 80 443 4180 ]; # 4180 is temporary
-    networking.nat = {
-      enable = true;
-      externalInterface = "wg-mx";
-      internalInterfaces = [ "ens3" ];
-      internalIPs = [ "10.0.100.0/24" ];
-    };
     security.acme = {
       defaults = {
         server = "https://alfheim.local/acme/acme/directory";

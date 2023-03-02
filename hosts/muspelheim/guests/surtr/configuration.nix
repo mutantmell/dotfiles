@@ -36,6 +36,9 @@
       address = "10.0.100.40";
       prefixLength = 24;
     } {
+      address = "10.100.0.1";
+      prefixLength = 24;
+    } {
       address = "10.100.1.2";
       prefixLength = 24;
     }];
