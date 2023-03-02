@@ -43,6 +43,8 @@
     wget
     smartmontools
     jdupes
+    ncdu
+    tmux
   ];
 
   services.openssh = {
