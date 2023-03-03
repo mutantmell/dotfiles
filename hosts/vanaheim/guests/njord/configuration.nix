@@ -59,6 +59,7 @@ in {
       openssh.authorizedKeys.keys =
         [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl4UkXB94b0e/4YrPXIT4J4l73/mCwh724Yr1VFy7dk malaguy@gmail.com"
           "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5AN0gzpx+1bJNZbGfLt4m2kD59WYmyqgIkXmzYbL+Q malaguy@gmail.com"
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINZ7mLwJ54FpGVAEdqB04CYUi3QH8ZIr3gsDhj220/d+ malaguy@gmail.com"
         ] ++ keys;
       extraGroups = [ "git" ];
     };
