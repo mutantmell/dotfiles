@@ -1,5 +1,4 @@
-{ config, pkgs, extra-conf ? {}, ... }:
-
+{ config, pkgs, lib, ... }:
 
 let
   mkScript = name: script: pkgs.writeScriptBin name ''
