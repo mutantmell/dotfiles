@@ -41,18 +41,26 @@
           }
         ];
       };
-      # "wg-mx" = {
-      #   ips = [ "10.100.1.2/32" ];
-      #   privateKeyFile = config.sops.secrets."wireguard_private_key".path;
-      #   peers = [
-      #     {
-      #       publicKey = "hTmV7qOLXHCQnTWljCiNHf2P22GBd0n339Fcq4tVdlw=";
-      #       allowedIPs = [ "10.100.1.0/24" ];
-      #       endpoint = "helveticastandard.com:51895";
-      #       persistentKeepalive = 25;
-      #     }
-      #   ];
-      # };
+      "wg-mx" = {
+        ips = [ "10.100.1.2/32" ];
+        privateKeyFile = config.sops.secrets."wireguard_private_key".path;
+
+        postSetup = ''
+          ${pkgs.iproute}/bin/ip route add 10.100.1.1 dev wg-mx
+        '';
+        postShutdown = ''
+          ${pkgs.iproute}/bin/ip route del 10.100.0.2 dev wg-ba
+        '';
+
+        peers = [
+          {
+            publicKey = "hTmV7qOLXHCQnTWljCiNHf2P22GBd0n339Fcq4tVdlw=";
+            allowedIPs = [ "10.100.1.1/32" ];
+            endpoint = "helveticastandard.com:58156";
+            persistentKeepalive = 25;
+          }
+        ];
+      };
     };
   };
 }

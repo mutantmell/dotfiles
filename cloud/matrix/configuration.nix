@@ -11,7 +11,7 @@
     ./matrix/go-neb.nix
     ./matrix/heisenbridge.nix
 
-    #./wireguard.nix
+    ./wireguard.nix
   ];
   
   nix.gc = {
