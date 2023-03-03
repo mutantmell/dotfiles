@@ -118,14 +118,15 @@
       system = "x86_64-linux";
       username = "mjollnir";
       pkgs = nixpkgs.legacyPackages.${system};
-    in {
-      "skadi" = home-manager.lib.homeManagerConfiguration {
+      mkHomeConfig = { extra-modules ? [] }: home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
-        
         modules = [
           ./users/home.nix
-        ];
+        ] ++ extra-modules;
       };
+    in {
+      skadi = mkHomeConfig {};
+      svartalfheim = mkHomeConfig { extra-modules = [ ./users/graphical.nix ]; };
     };
   };
 }
