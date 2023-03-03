@@ -8,7 +8,6 @@ let
 in {
   home.stateVersion = "22.05";
   home.username = "mjollnir";
-  home.homeDirectory = "/home/mjollnir";
   
   programs.home-manager.enable = true;
 
@@ -47,9 +46,6 @@ in {
       }/bin/git-credential-libsecret";
     };
   };
-
-  programs.direnv.enable = true;
-  services.lorri.enable = true;
 
   programs.tmux = {
     enable = true;

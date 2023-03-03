@@ -118,10 +118,17 @@
       system = "x86_64-linux";
       username = "mjollnir";
       pkgs = nixpkgs.legacyPackages.${system};
-      mkHomeConfig = { extra-modules ? [] }: home-manager.lib.homeManagerConfiguration {
+      confFor = {
+        linux = ./users/linux.nix;
+      };
+      mkHomeConfig = {
+        os ? "linux",
+        extra-modules ? []
+      }: home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         modules = [
           ./users/home.nix
+          (builtins.getAttr os confFor)
         ] ++ extra-modules;
       };
     in {
