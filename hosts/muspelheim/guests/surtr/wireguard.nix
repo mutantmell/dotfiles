@@ -12,6 +12,14 @@
       internalInterfaces = [ "ens3" ];
     };
 
+    networking.firewall.interfaces = let
+      non-mx-ports = {
+        allowedTCPPorts = [ 22 ];
+      };
+    in {
+      "wg-ba" = non-mx-ports;
+      "ens3" = non-mx-ports;
+    };
     networking.wireguard.interfaces = {
       "wg-ba" = {
         ips = [ "10.100.0.1/32" ];
