@@ -7,15 +7,11 @@
     ];
 
   nixpkgs.config.allowUnfree = true;
+
   boot.loader.grub.enable = true;
   boot.loader.grub.version = 2;
-  boot.initrd.luks.devices = {
-    root = {
-      device = "/dev/sda3";
-      preLVM = true;
-    };
-  };
   boot.loader.grub.device = "/dev/sda";
+
   networking.hostName = "svartalfheim";
   networking.networkmanager.enable = true;
 
@@ -66,6 +62,7 @@
 
   environment.systemPackages = with pkgs; [
     vim
+    git
     home-manager
     gnome.adwaita-icon-theme
     gnomeExtensions.appindicator
