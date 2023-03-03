@@ -63,6 +63,7 @@
 
   services.openssh = {
     enable = true;
+    openFirewall = false;
     passwordAuthentication = false;
     permitRootLogin = "prohibit-password";
     kbdInteractiveAuthentication = false;

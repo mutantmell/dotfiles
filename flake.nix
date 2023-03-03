@@ -79,7 +79,7 @@
       matrix = { config, pkgs, lib, ... }: (import ./cloud/matrix/configuration.nix { inherit config pkgs lib sops-nix; }) // {
         deployment = {
           targetUser = "root";
-          targetHost = "helveticastandard.com";
+          targetHost = "10.100.1.1";
           tags = [ "digitalocean" "cloud" "matrix" "public" ];
         };
       };
