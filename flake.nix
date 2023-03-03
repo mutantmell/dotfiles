@@ -119,7 +119,7 @@
       username = "mjollnir";
       pkgs = nixpkgs.legacyPackages.${system};
     in {
-      "${username}" = home-manager.lib.homeManagerConfiguration {
+      "skadi" = home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         
         modules = [
