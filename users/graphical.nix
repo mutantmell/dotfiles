@@ -1,7 +1,7 @@
 { config, pkgs, lib, ... }:
 
 {
-  programs.firefox = lib.mkIf extra-conf.has-gui {
+  programs.firefox = {
     enable = true;
   };
 }
