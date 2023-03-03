@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, extra-conf ? {}, ... }:
 
 
 let
@@ -14,19 +14,9 @@ in {
   programs.home-manager.enable = true;
 
   home.packages = with pkgs; [
-    tmux
-
     dig
-    htop
-
     bitwarden-cli
-    git-secret
-
-    colmena
     age
-    sops
-
-    step-cli
   ];
 
   programs.emacs = {
@@ -59,9 +49,19 @@ in {
     };
   };
 
-  programs.direnv = {
+  programs.direnv.enable = true;
+  services.lorri.enable = true;
+
+  programs.tmux = {
     enable = true;
-    nix-direnv.enable = true;
+    newSession = true;
+  };
+
+  programs.htop = {
+    enable = true;
+    settings = {
+      treeView = true;
+    };
   };
 
   programs.bash = {
