@@ -106,7 +106,7 @@
         sops-nix.nixosModules.sops
       ];
     };
-    nixosConfigurations.svartalfheim = nixpkgs.lib.nixosSystem {
+    nixosConfigurations.svartalfheim = nixpkgs-stable.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
         ./hosts/svartalfheim/configuration.nix
