@@ -1,9 +1,10 @@
-{ config, pkgs, ... }:
+{ config, pkgs, sops-nix, ... }:
 
 {
   imports =
     [
       ./hardware-configuration.nix
+      sops-nix.nixosModules.sops
     ];
 
   boot.loader.systemd-boot.enable = true;
@@ -29,7 +30,7 @@
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com"
     ];
-#  security.pki.certificates = [ (builtins.readFile ../../../../common/data/root_ca.crt) ];
+  security.pki.certificates = [ (builtins.readFile ../../../../common/data/root_ca.crt) ];
 
   services.openssh.enable = true;
 

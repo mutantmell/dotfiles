@@ -60,6 +60,14 @@
         };
       };
 
+      ymir = { config, pkgs, lib, ... }: (import ./hosts/muspelheim/guests/ymir/configuration.nix { inherit config pkgs lib sops-nix; }) // {
+        deployment = {
+          targetUser = "root";
+          targetHost = "ymir.local";
+          tags = [ "guest" "svc" ];
+        };
+      };
+
       bragi = { config, pkgs, lib, ... }: (import ./hosts/vanaheim/guests/bragi/configuration.nix { inherit config pkgs lib sops-nix; }) // {
         deployment = {
           targetUser = "root";
