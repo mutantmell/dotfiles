@@ -5,6 +5,7 @@
     [
       ./hardware-configuration.nix
       ./nas.nix
+      ./monit.nix
     ];
 
   boot.loader.systemd-boot.enable = true;
