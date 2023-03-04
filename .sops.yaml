@@ -8,6 +8,7 @@ keys:
   - &sv_njord age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
   - &sv_skadi age1dxvqqvhc02fu8vv827wxum8sfhcx326p4trx8keaywv058jlk9kqmfvztf
   - &sv_surtr age13w6jhmkzfj6c5p9v7s0ld2trkewypjhcjq9yejgkps7wlyk2eu3su8jf5g
+  - &sv_svartalfheim age1fw6dqxpmkee7785jp7ra97v2uteqmyx9j3ts0zv38t20x7tnvuhqtpelw3
   - &sv_vanaheim age1jnpyg8chayw6l9wfx209hvkddq9cult3qdyuf7trljs6t5vf3czseu8qlm
   - &sv_yggdrasil age1yejm0ghvycctg868ag2u0awkf7crpuh59nfvy73dvsuuuns9davsxc6ssz
 creation_rules:
@@ -36,6 +37,11 @@ creation_rules:
       - age:
         - *ad_skadi
         - *sv_surtr
+  - path_regex: hosts/svartalfheim/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+          - *ad_skadi
+          - *sv_svartalfheim
   - path_regex: hosts/vanaheim/secrets/[^/]+\.yaml$
     key_groups:
       - age:
