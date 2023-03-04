@@ -5,6 +5,8 @@
     [
       ./hardware-configuration.nix
       sops-nix.nixosModules.sops
+
+      ./monit.nix
     ];
 
   boot.loader.systemd-boot.enable = true;
