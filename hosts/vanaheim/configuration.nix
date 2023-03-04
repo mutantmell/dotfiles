@@ -10,6 +10,7 @@
   boot.loader.efi.canTouchEfiVariables = true;
 
   boot.kernelPackages = pkgs.linuxPackages_latest;
+  boot.extraModprobeConfig = "options kvm_intel nested=1";
 
   environment.systemPackages = with pkgs; [
     virtmanager
