@@ -31,6 +31,7 @@
     vim
     wget
     batctl
+    git
   ];
 
   services.openssh = {

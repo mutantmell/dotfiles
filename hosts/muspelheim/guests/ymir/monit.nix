@@ -50,6 +50,13 @@
             targets = [ "jotunheimr.local:9003" ];
           }];
         }
+        {
+          job_name = "matrix_smartctl";
+          static_configs = [{
+            targets = [ "10.100.1.1:9001" ];
+          }];
+        }
+
       ];
     };
 

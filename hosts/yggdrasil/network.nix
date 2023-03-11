@@ -54,7 +54,7 @@ let
         };
         "vDMZ.lan" = {
           tag = 100;
-          network = { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; };
+          network = { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; useNetworkd = true; };
           routes = [
             { gateway = "10.0.100.40"; destination = "10.100.1.0/24"; }
             { gateway = "10.0.100.40"; destination = "10.100.0.0/24"; }
@@ -236,6 +236,7 @@ in {
           ignore-carrier ? false,
           route ? null,
           addresses ? [],
+          useNetworkd ? false,
           ...
       }:
         let
@@ -250,6 +251,8 @@ in {
         in if type == "routed" then {
           Address = builtins.filter (v: v != null) [ipv4 ipv6];
           MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" "dmz" ];
+          DHCPServer = useNetworkd;
+          IPMasquerade = if useNetworkd then "ipv4" else "no";
         } else if type == "dhcp" then defRoute // {
           DHCP = "ipv4";
         } else if type == "disabled" then ignoreCarrier // {
@@ -284,6 +287,17 @@ in {
             Destination = destination;
           };
         };
+      #  { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; useNetworkd = true; };
+      mkDhcpServerConfig = { type, ipv4 ? null, useNetworkd ? false, dns ? "self", ...}: if type == "routed" && useNetworkd then {
+        ServerAddress = ipv4;
+        PoolOffset = 100;
+        PoolSize = 100;
+        EmitDNS = true;
+        DNS =
+          if dns == "cloudflare" then [ "1.1.1.1" "1.0.0.1" ]
+          else if dns == "self" then [ "${addrFirstN 3 ipv4}.1" ]
+          else abort "invalid dns type: ${dns}";
+      } else {};
       fromPppoe = name: {
         network,
           routes ? [],
@@ -297,6 +311,7 @@ in {
             LinkLocalAddressing = "no";
           };
           routes = builtins.map mkRouteConfig routes;
+          dhcpServerConfig = mkDhcpServerConfig network;
         };
       };
       fromVlan = name: {
@@ -314,6 +329,7 @@ in {
             networkConfig = mkNetworkConfig network;
             linkConfig = mkLinkConfig { inherit mtu required; };
             routes = builtins.map mkRouteConfig routes;
+            dhcpServerConfig = mkDhcpServerConfig network;
           };
         }] ++ (lib.attrsets.mapAttrsToList fromPppoe pppoe);
       fromDevice = name: {
@@ -366,12 +382,13 @@ in {
   services.dhcpd4 = let
     toAddress24 = addrFirstN 3;
     v4Interfaces = let
-      mkConf = name: { type, ipv4 ? null, dns ? "self", ...}: if (type == "routed" && ipv4 != null) then [{ address24 = toAddress24 ipv4; iface = name; dns = dns; }] else [];
+      mkConf = name: { type, ipv4 ? null, dns ? "self", useNetworkd ? false, ...}: if (type == "routed" && !useNetworkd && ipv4 != null) then [{ address24 = toAddress24 ipv4; iface = name; dns = dns; }] else [];
       fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (mkConf name network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
     in flatMapAttrsToList fromTopo topology;
   in {
     enable = v4Interfaces != [];
     interfaces = builtins.map ({ iface, ... }: iface) v4Interfaces;
+#    extraFlags = [ "-d2" ];
     extraConfig = let
       preamble = ''
         option domain-name "local";
