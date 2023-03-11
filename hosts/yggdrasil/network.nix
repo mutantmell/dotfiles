@@ -78,24 +78,24 @@ let
       required = true;
       vlans = {
         "vMGMT.bat0" = {
-          tag = 1010;
-          network = { type = "routed"; ipv4 = "10.1.10.1/24"; trust = "management"; };
+          tag = 10;
+          network = { type = "routed"; ipv4 = "10.1.10.1/24"; trust = "management"; useNetworkd = true; };
         };
         "vHOME.bat0" = {
-          tag = 1020;
-          network = { type = "routed"; ipv4 = "10.1.20.1/24"; trust = "trusted"; };
+          tag = 20;
+          network = { type = "routed"; ipv4 = "10.1.20.1/24"; trust = "trusted"; useNetworkd = true; };
         };
         "vGUEST.bat0" = {
-          tag = 1030;
-          network = { type = "routed"; ipv4 = "10.1.30.1/24"; trust = "untrusted"; };
+          tag = 30;
+          network = { type = "routed"; ipv4 = "10.1.30.1/24"; trust = "untrusted"; useNetworkd = true; };
         };
         "vIOT.bat0" = {
-          tag = 1040;
-          network = { type = "routed"; ipv4 = "10.1.40.1/24"; trust = "untrusted"; };
+          tag = 40;
+          network = { type = "routed"; ipv4 = "10.1.40.1/24"; trust = "untrusted"; useNetworkd = true; };
         };
         "vGAME.bat0" = {
-          tag = 1041;
-          network = { type = "routed"; ipv4 = "10.1.41.1/24"; trust = "untrusted"; };
+          tag = 41;
+          network = { type = "routed"; ipv4 = "10.1.41.1/24"; trust = "untrusted"; useNetworkd = true; };
         };
       };
     };
