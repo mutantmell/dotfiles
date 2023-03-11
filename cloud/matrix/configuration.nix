@@ -12,6 +12,8 @@
     ./matrix/heisenbridge.nix
 
     ./wireguard.nix
+
+    ./monit.nix
   ];
   
   nix.gc = {
