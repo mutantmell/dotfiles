@@ -54,7 +54,7 @@ let
         };
         "vDMZ.lan" = {
           tag = 100;
-          network = { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; useNetworkd = true; };
+          network = { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; };
           routes = [
             { gateway = "10.0.100.40"; destination = "10.100.1.0/24"; }
             { gateway = "10.0.100.40"; destination = "10.100.0.0/24"; }
@@ -79,23 +79,23 @@ let
       vlans = {
         "vMGMT.bat0" = {
           tag = 10;
-          network = { type = "routed"; ipv4 = "10.1.10.1/24"; trust = "management"; useNetworkd = true; };
+          network = { type = "routed"; ipv4 = "10.1.10.1/24"; trust = "management"; };
         };
         "vHOME.bat0" = {
           tag = 20;
-          network = { type = "routed"; ipv4 = "10.1.20.1/24"; trust = "trusted"; useNetworkd = true; };
+          network = { type = "routed"; ipv4 = "10.1.20.1/24"; trust = "trusted"; };
         };
         "vGUEST.bat0" = {
           tag = 30;
-          network = { type = "routed"; ipv4 = "10.1.30.1/24"; trust = "untrusted"; useNetworkd = true; };
+          network = { type = "routed"; ipv4 = "10.1.30.1/24"; trust = "untrusted"; };
         };
         "vIOT.bat0" = {
           tag = 40;
-          network = { type = "routed"; ipv4 = "10.1.40.1/24"; trust = "untrusted"; useNetworkd = true; };
+          network = { type = "routed"; ipv4 = "10.1.40.1/24"; trust = "untrusted"; };
         };
         "vGAME.bat0" = {
           tag = 41;
-          network = { type = "routed"; ipv4 = "10.1.41.1/24"; trust = "untrusted"; useNetworkd = true; };
+          network = { type = "routed"; ipv4 = "10.1.41.1/24"; trust = "untrusted"; };
         };
       };
     };
@@ -236,7 +236,6 @@ in {
           ignore-carrier ? false,
           route ? null,
           addresses ? [],
-          useNetworkd ? false,
           ...
       }:
         let
@@ -251,8 +250,8 @@ in {
         in if type == "routed" then {
           Address = builtins.filter (v: v != null) [ipv4 ipv6];
           MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" "dmz" ];
-          DHCPServer = useNetworkd;
-          IPMasquerade = if useNetworkd then "ipv4" else "no";
+          DHCPServer = true;
+          IPMasquerade = "ipv4";
         } else if type == "dhcp" then defRoute // {
           DHCP = "ipv4";
         } else if type == "disabled" then ignoreCarrier // {
@@ -287,8 +286,7 @@ in {
             Destination = destination;
           };
         };
-      #  { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "dmz"; useNetworkd = true; };
-      mkDhcpServerConfig = { type, ipv4 ? null, useNetworkd ? false, dns ? "self", ...}: if type == "routed" && useNetworkd then {
+      mkDhcpServerConfig = { type, ipv4 ? null, dns ? "self", ...}: if type == "routed" then {
         ServerAddress = ipv4;
         PoolOffset = 100;
         PoolSize = 100;
@@ -378,50 +376,6 @@ in {
       ${lib.strings.concatStringsSep "\n" dnsExtras}
     '';
   };
-
-  services.dhcpd4 = let
-    toAddress24 = addrFirstN 3;
-    v4Interfaces = let
-      mkConf = name: { type, ipv4 ? null, dns ? "self", useNetworkd ? false, ...}: if (type == "routed" && !useNetworkd && ipv4 != null) then [{ address24 = toAddress24 ipv4; iface = name; dns = dns; }] else [];
-      fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (mkConf name network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
-    in flatMapAttrsToList fromTopo topology;
-  in {
-    enable = v4Interfaces != [];
-    interfaces = builtins.map ({ iface, ... }: iface) v4Interfaces;
-#    extraFlags = [ "-d2" ];
-    extraConfig = let
-      preamble = ''
-        option domain-name "local";
-        option subnet-mask 255.255.255.0;
-      '';
-      mkV4Subnet = { address24, iface, dns }: let
-        domainNameServers =
-          if dns == "cloudflare" then "1.1.1.1, 1.0.0.1"
-          else if dns == "self" then "${address24}.1"
-          else abort "invalid dns type: ${dns}";
-      in ''
-        subnet ${address24}.0 netmask 255.255.255.0 {
-          option broadcast-address ${address24}.255;
-          option routers ${address24}.1;
-          option domain-name-servers ${domainNameServers};
-          interface "${iface}";
-          range ${address24}.100 ${address24}.200;
-        }
-      '';
-      subnetConfs = builtins.map mkV4Subnet v4Interfaces;
-
-    in lib.strings.concatStringsSep "\n\n" ([preamble] ++ subnetConfs);
-  };
-
-  # services.dhcpd6 = let
-  #   toAddress48 = addr: "";
-  #   v6Interfaces = let
-  #     mkConf = name: { type, ipv6 ? null, dns ? "self", ...}: if (type == "routed" && ipv6 != null) then [{ address48 = toAddress48 ipv6; iface = name; dns = dns; }] else [];
-  #     fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (mkConf name network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
-  #   in flatMapAttrsToList fromTopo topology;
-  # in {
-  #   enable = false;
-  # };
 
   # TODO: make mtu setting based on the config
   services.pppd = {
@@ -557,9 +511,5 @@ in {
         }
       }
     '';
-  };
-
-  systemd.services = {
-    dhcpd4.after = [ "network-online.target" ];
   };
 }
