@@ -6,13 +6,6 @@ let
   #   2. https://francis.begyn.be/blog/nixos-home-router
   # Thank you very much!
   #
-  # network types:
-  #       { type = "none"; } # Don't generate a network file
-  #       { type = "disabled"; } # Has a network file, but with everything disabled
-  #       { type = "routed"; ipv4 = "..."; ipv6 = "..."; trust = trust-status } # a network that we provide routing for
-  #       { type = "dhcp"; trust = trust-status; } # a network where we get a dhcp address assigned -- we don't route this
-  #       { type = "static"; addresses = [{ address = "..."; gateway? = "..."; dns? = "..."; }]; trust = trust-status } # static ip network
-  #       trust-status = management | external | trusted | untrusted | lockdown | local-access | dmz
   # TODO: move the topology to its own file, and move the relevant extractors to there
   topology = {
     wan = {
@@ -102,7 +95,7 @@ let
     opt2 = {
       device = "00:e0:67:1b:70:37";
       network = { type = "disabled"; };
-      #network = { type = "static"; ignore-carrier = true; addresses = [{address="192.168.1.1/32"; gateway="192.168.1.1"; dns="192.168.1.1";}]; trust = "local-access"; };
+      #network = { type = "static"; ignore-carrier = true; static-addresses = [{address="192.168.1.1/32"; gateway="192.168.1.1"; dns="192.168.1.1";}]; trust = "local-access"; };
       required = false;
     };
   };
