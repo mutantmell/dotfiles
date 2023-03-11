@@ -24,10 +24,6 @@
   time.timeZone = "America/Los_Angeles";
 
   networking.hostName = "skadi";
-  # TODO: try again after switching to use networkd
-#  networking.interfaces."ens3".ipv4.routes = [
-#    { address = "10.100.0.0"; prefixLength = 24; via = "10.0.100.40"; options = { onlink = true; }; }
-#  ];
 
   users.users.mjollnir = {
     isNormalUser = true;
