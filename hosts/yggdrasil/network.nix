@@ -138,7 +138,7 @@ let
     builtins.listToAttrs (flatMapAttrsToList f v);
 in {
   boot.kernel.sysctl = let
-    externals = interfacesWithTrust "external";
+    wans = interfacesOfType "dhcp";
   in {
     "net.ipv4.conf.all.forwarding" = true;
     "net.ipv6.conf.all.forwarding" = true;
@@ -150,7 +150,7 @@ in {
   } // (lib.lists.foldr (wan: acc: {
     "net.ipv6.conf.${wan}.accept_ra" = 2;
     "net.ipv6.conf.${wan}.autoconf" = 1;
-  } // acc) {} externals);
+  } // acc) {} wans);
 
   environment.systemPackages = with pkgs; [
     vim
