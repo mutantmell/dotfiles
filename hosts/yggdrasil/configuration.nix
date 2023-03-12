@@ -8,8 +8,7 @@
       sops-nix.nixosModules.sops
       ./sops.nix
 
-#      ./network.nix
-      ./modules/router.nix
+      ../../modules/router.nix
     ];
 
   boot.loader.grub.enable = true;
