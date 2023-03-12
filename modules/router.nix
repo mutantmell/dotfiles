@@ -7,6 +7,20 @@
 {
   options.router = with lib; {
     enable = mkEnableOption "Home Router Service";
+
+    # TODO: this might be better suited as something tied to the overall topology?
+    #       either way, this is kinda hardcoded and is worth re-thinking when we
+    #       migrate to dnsmasq for dns/dhcp
+    dns = mkOption {
+      type = types.submodule {
+        options.upstream = mkOption {
+          type = types.nullOr types.str;
+          example = "192.168.1.2";
+          description = "the upstream dns server, if any";
+          default = null;
+        };
+      };
+    };
     topology = mkOption {
       type = let
         # TODO: have multiple submodules declare their exact type expectations,
@@ -454,22 +468,20 @@
       in toAttrSet fromDevice cfg.topology;
     };
 
-    networking.nameservers = [ "10.0.10.2" ];
+    networking.nameservers = builtins.filter (v: v != null) [ cfg.dns.upstream ];
     services.resolved = {
       enable = true;
       extraConfig = let
         format = addr: "DNSStubListenerExtra=" + (addrFirstN 3 addr) + ".1";
         dnsExtras = builtins.map format routedAddrs;
       in ''
-      ${lib.strings.concatStringsSep "\n" dnsExtras}
-    '';
+        ${lib.strings.concatStringsSep "\n" dnsExtras}
+      '';
     };
 
-    # TODO: make mtu setting based on the config
-    services.pppd = {
-      enable = true;
-      peers = let
-        mkConfig = parentDev: pppName: userfile: ''
+    # TODO: make mtu setting based on the topology of the pppoe device
+    services.pppd = let
+      mkConfig = parentDev: pppName: userfile: ''
         plugin rp-pppoe.so ${parentDev}
 
         hide-password
@@ -498,17 +510,20 @@
         # Linux only
         ifname ${pppName}
       '';
-        fromPppoe = dev: name: pppoe:
-          {
-            name = name;
-            value = {
-              enable = true;
-              config = (mkConfig dev name pppoe.userfile);
-            };
+      fromPppoe = dev: name: pppoe:
+        {
+          name = name;
+          value = {
+            enable = true;
+            config = (mkConfig dev name pppoe.userfile);
           };
-        fromTopology = name: { vlans ? {}, pppoe ? {}, ...}:
-          (flatMapAttrsToList (fromPppoe name) pppoe) ++ (flatMapAttrsToList fromTopology vlans);
-      in builtins.listToAttrs (flatMapAttrsToList fromTopology cfg.topology);
+        };
+      fromTopology = name: { vlans ? {}, pppoe ? {}, ...}:
+        (flatMapAttrsToList (fromPppoe name) pppoe) ++ (flatMapAttrsToList fromTopology vlans);
+      peers = builtins.listToAttrs (flatMapAttrsToList fromTopology cfg.topology);
+    in {
+      inherit peers;
+      enable = peers != [];
     };
 
     networking.nftables = let
