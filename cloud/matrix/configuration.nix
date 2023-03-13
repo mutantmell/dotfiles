@@ -18,7 +18,7 @@
   
   nix.gc = {
     automatic = true;
-    dates = "weekly";
+    dates = "daily";
     options = "-d";
   };
   nix.settings.auto-optimise-store = true;
