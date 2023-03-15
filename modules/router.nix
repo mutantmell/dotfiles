@@ -21,6 +21,27 @@
         };
       };
     };
+    firewall = mkOption {
+      type = types.submodule {
+        options.extraForwards = mkOption {
+          type = types.listOf (types.submodule {
+            options.src = mkOption {
+              type = types.str;
+              description = "The ip address to permit forwarding from";
+            };
+            options.tgt = mkOption {
+              type = types.str;
+              description = "The ip address to permit forwarding to";
+            };
+          });
+          example = [{ src = "192.168.1.100"; tgt = "10.0.0.1";  }];
+          description = "Extra firewall forwarding rules";
+          default = {};
+        };
+      };
+      description = "Extra firewall rules";
+      default = {};
+    };
     topology = mkOption {
       type = let
         # TODO: have multiple submodules declare their exact type expectations,
@@ -537,6 +558,10 @@
       all-internal = all-wan-access ++ lockdown;
       quoted = dev: "\"" + dev + "\"";
       ruleFormat = devices: (lib.strings.concatStringsSep ", " (builtins.map quoted devices)) + ",";
+
+      extraForwards = lib.strings.concatStringsSep "\n" (
+        builtins.map (fw: "ip saddr ${fw.src} ip daddr ${fw.tgt} accept") cfg.firewall.extraForwards
+      );
     in {
       enable = true;
       ruleset = ''
@@ -595,8 +620,10 @@
               ${ruleFormat (untrusted ++ management)}
             } tcp dport { https } counter accept comment "Allow untrusted access to internal management https"
 
+            ${extraForwards}
+
             # Allow established connections to return
-            ct state established,related counter accept comment "Allow established to all internal"
+            ct state { established, related } counter accept comment "Allow established to all internal"
           }
         }
 
