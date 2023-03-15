@@ -32,6 +32,7 @@
     wget
     batctl
     git
+    wireguard-tools
   ];
 
   services.openssh = {
@@ -139,11 +140,12 @@
         wireguard = {
           address = "10.100.10.1/24"; # todo: { ipv4: ..., ipv6: ... }
           privateKeyFile = config.sops.secrets."wg-vpn-privatekey".path;
+          port = 59362;
           peers = [{
             allowedIps = [ "10.100.10.20/32" ];
             publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
           }];
-#          openFirewall = true;
+          openFirewall = true;
         };
       };
     };

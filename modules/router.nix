@@ -261,6 +261,7 @@ in {
                 type = types.path;
                 description = "path to the file containing the private key";
               };
+              # TODO: move this to the network, where we can specify trust/etc to integrate with nat/firewalling
               options.address = mkOption {
                 type = types.str;
                 description = "IP address that will be assigned to the host in the network";
@@ -704,6 +705,7 @@ in {
       all-internal = all-wan-access ++ lockdown;
       quoted = dev: "\"" + dev + "\"";
       quoted-non-null = dev: if dev == null then null else quoted dev;
+      to-string-non-null = port: if port == null then null else builtins.toString port;
       rule-format = devices: (lib.strings.concatStringsSep ", " (builtins.map quoted devices)) + ",";
 
       fmt-src-tgt = src-fmt: tgt-fmt: { src ? null, tgt ? null }: (
@@ -716,8 +718,10 @@ in {
       fmt-ip = fmt-src-tgt "ip saddr" "ip daddr";
       fmt-iface = { src ? null, tgt ? null }:
         fmt-src-tgt "iifname" "oifname" { src = quoted-non-null src; tgt = quoted-non-null tgt; };
-      fmt-tcp = fmt-src-tgt "tcp sport" "tcp dport";
-      fmt-udp = fmt-src-tgt "udp sport" "udp dport";
+      fmt-tcp = { src ? null, tgt ? null }:
+        fmt-src-tgt "tcp sport" "tcp dport" { src = to-string-non-null src; tgt = to-string-non-null tgt; };
+      fmt-udp = { src ? null, tgt ? null }:
+        fmt-src-tgt "udp sport" "udp dport" { src = to-string-non-null src; tgt = to-string-non-null tgt; };
       fmt-extra = { iface ? {}, ip ? {}, tcp ? {}, udp ? {}, policy }:
         lib.strings.concatStringsSep " " (
           (fmt-iface iface) ++ (fmt-ip ip) ++ (fmt-tcp tcp) ++ (fmt-udp udp) ++ [policy]
