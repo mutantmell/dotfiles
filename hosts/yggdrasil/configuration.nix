@@ -57,7 +57,6 @@
       wan = {
         device = "00:e0:67:1b:70:34";
         network = { type = "disabled"; };
-        required = true;
         vlans = {
           "wanCENTURYLINK" = {
             tag = 201;
@@ -74,7 +73,6 @@
       lan = {
         device = "00:e0:67:1b:70:35";
         network = { type = "disabled"; };
-        required = true;
         vlans = {
           "vMGMT.lan" = {
             tag = 10;
@@ -102,8 +100,7 @@
       };
       opt1 = {
         device = "00:e0:67:1b:70:36";
-        network = { type = "disabled"; };
-        required = false;
+        network = { type = "disabled"; required = false; };
       };
       bat0 = {
         batman = {
@@ -111,7 +108,6 @@
           routingAlgorithm = "batman-v";
         };
         network = { type = "disabled"; };
-        required = true;
         vlans = {
           "vMGMT.bat0" = {
             tag = 10;
@@ -137,8 +133,18 @@
       };
       opt2 = {
         device = "00:e0:67:1b:70:37";
-        network = { type = "disabled"; };
-        required = false;
+        network = { type = "disabled"; required = false; };
+      };
+      "wg-vpn" = {
+        wireguard = {
+          address = "10.100.10.1/24"; # todo: { ipv4: ..., ipv6: ... }
+          privateKeyFile = config.sops.secrets."wg-vpn-privatekey".path;
+          peers = [{
+            allowedIps = [ "10.100.10.20/32" ];
+            publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
+          }];
+#          openFirewall = true;
+        };
       };
     };
   };

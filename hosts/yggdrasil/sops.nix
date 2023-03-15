@@ -7,6 +7,7 @@
         path = "/etc/ppp/chap-secrets";
       };
       "pppd-userfile" = {};
+      "wg-vpn-privatekey" = {};
     };
   };
 }
