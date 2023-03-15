@@ -137,8 +137,12 @@
         network = { type = "disabled"; required = false; };
       };
       "wg-vpn" = {
+        network = {
+          type = "static";
+          static-addresses = [ "10.100.10.1/24" ];
+          trust = "trusted";
+        };
         wireguard = {
-          address = "10.100.10.1/24"; # todo: { ipv4: ..., ipv6: ... }
           privateKeyFile = config.sops.secrets."wg-vpn-privatekey".path;
           port = 59362;
           peers = [{

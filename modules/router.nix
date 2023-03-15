@@ -323,6 +323,7 @@ in {
     interfaces = interfacesWhere (nw: nw.type != "disabled");
 
     interfacesOfType = ty: interfacesWhere (nw: nw.type == ty);
+    natInterfaces = interfacesWhere (nw: nw.type == "dhcp" && nw.trust == "external");
 
     pppoeNames = let
       fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (attrKeys pppoe) ++ (flatMapAttrsToList fromTopo vlans);
@@ -349,9 +350,7 @@ in {
       }) cfg.topology
     ));
 
-    boot.kernel.sysctl = let
-      wans = interfacesOfType "dhcp";
-    in {
+    boot.kernel.sysctl = {
       "net.ipv4.conf.all.forwarding" = true;
       "net.ipv6.conf.all.forwarding" = true;
 
@@ -359,10 +358,10 @@ in {
       "net.ipv6.conf.all.accept_ra" = 0;
       "net.ipv6.conf.all.autoconf" = 0;
       "net.ipv6.conf.all.use_tempaddr" = 0; 
-    } // (lib.lists.foldr (wan: acc: {
-      "net.ipv6.conf.${wan}.accept_ra" = 2;
-      "net.ipv6.conf.${wan}.autoconf" = 1;
-    } // acc) {} wans);
+    } // (lib.lists.foldr (nat: acc: {
+      "net.ipv6.conf.${nat}.accept_ra" = 2;
+      "net.ipv6.conf.${nat}.autoconf" = 1;
+    } // acc) {} natInterfaces);
 
     environment.systemPackages = with pkgs; [
       vim
@@ -584,18 +583,6 @@ in {
               dhcpServerConfig = mkDhcpServerConfig network;
             };
           }] ++ (lib.attrsets.mapAttrsToList fromPppoe pppoe);
-        fromWireguard = name: {
-          address,
-            ...
-        }: {
-          name = "40-${name}";
-          value.matchConfig = {
-            Name = name;
-          };
-          value.networkConfig = {
-            Address = address;
-          };
-        };
         fromDevice = name: {
           network,
             vlans ? {},
@@ -610,7 +597,7 @@ in {
             if ignore-carrier then "always-up" else null;
           nw-conf = mkNetworkConfig network;
         in (if nw-conf == null then [] else [{
-          name = "10-${name}";
+          name = "${if wireguard == null then "10" else "40"}-${name}";
           value = {
             matchConfig = {
               Name = name;
@@ -630,8 +617,6 @@ in {
           flatMapAttrsToList fromVlan vlans
         ) ++ (
           lib.attrsets.mapAttrsToList fromPppoe pppoe
-        ) ++ (
-          if wireguard == null then [] else [(fromWireguard name wireguard)]
         );
       in toAttrSet fromDevice cfg.topology;
     };
