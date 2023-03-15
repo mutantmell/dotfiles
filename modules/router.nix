@@ -4,7 +4,9 @@
 #   1. https://pavluk.org/blog/2022/01/26/nixos_router.html
 #   2. https://francis.begyn.be/blog/nixos-home-router
 # Thank you very much!
-{
+let
+  cfg = config.router;
+in {
   options.router = with lib; {
     enable = mkEnableOption "Home Router Service";
 
@@ -93,6 +95,12 @@
                   { type = "static"; addresses = [{ address = "..."; gateway? = "..."; dns? = "..."; }]; trust = trust-status } # static ip network
                 '';         
               };
+              required = mkOption {
+                type = types.bool;
+                example = false;
+                description = "Whether or not this network is required for start-up";
+                default = true;
+              };
               trust = mkOption {
                 type = types.nullOr (types.enum [ "management" "external" "trusted" "untrusted" "lockdown" "local-access" ]);
                 example = "external";
@@ -152,6 +160,7 @@
               };
             };
           };
+          default = { type = "none"; required = false; };
           description = "configuration of the network corresponding to this device";
         };
         routesConf = mkOption {
@@ -212,11 +221,6 @@
             description = "MAC address of the device, to create the name for";
             default = null;
           };
-          required = mkOption {
-            type = types.bool;
-            example = true;
-            description = "Whether or not this device is required for start-up";
-          };
           network = networkConf;
           vlans = vlanConf;
           pppoe = pppoeConf;
@@ -251,14 +255,61 @@
             description = "configuration of the batman device";
             default = null;
           };
+          wireguard = mkOption {
+            type = types.nullOr (types.submodule {
+              options.privateKeyFile = mkOption {
+                type = types.path;
+                description = "path to the file containing the private key";
+              };
+              options.address = mkOption {
+                type = types.str;
+                description = "IP address that will be assigned to the host in the network";
+              };
+              options.port = mkOption {
+                type = types.nullOr types.int;
+                description = "port to listen on";
+                default = null;
+              };
+              options.peers = mkOption {
+                type = types.listOf (types.submodule {
+                  options.allowedIps = mkOption {
+                    type = types.nonEmptyListOf types.str;
+                    description = ''
+                      IP addresses to route to the peer
+
+                      If you want to route all traffic to the peer,
+                      (aka use the peer as a VPN) use [ "0.0.0.0/0" "::/0" ]
+                    '';
+                    example = [ "0.0.0.0/0" "::/0" ];
+                  };
+                  options.publicKey = mkOption {
+                    type = types.str;
+                    description = "public key for the peer";
+                  };
+                  options.endpoint = mkOption {
+                    type = types.nullOr types.str;
+                    description = "endpoint for the peer, including port";
+                    example = "example.com:45678";
+                    default = null;
+                  };
+                });
+                description = "wireguard peers";
+                default = [];
+              };
+              options.openFirewall = mkOption {
+                type = types.bool;
+                description = "whether or not to allow inbound traffic on the port";
+                default = false;
+              };
+            });
+            default = null;
+          };
         };
       });
     };
   };
   
   config = let
-    cfg = config.router;
-    
     flatMapAttrsToList = f: v: lib.lists.flatten (lib.attrsets.mapAttrsToList f v);
     filterMap = f: l: builtins.filter (v: v != null) (builtins.map f l);
     attrKeys = lib.attrsets.mapAttrsToList (name: ignored: name);
@@ -289,7 +340,14 @@
     toAttrSet = f: v:
       builtins.listToAttrs (flatMapAttrsToList f v);
     
-  in lib.mkIf cfg.enable {  
+  in lib.mkIf cfg.enable {
+    assertions = (lib.attrValues (
+      lib.mapAttrs (name: value: {
+        assertion = (value.wireguard != null && value.wireguard.openFirewall) -> (value.wireguard.port != null);
+        message = "Cannot open the firewall for ${name} if no port is defined";
+      }) cfg.topology
+    ));
+
     boot.kernel.sysctl = let
       wans = interfacesOfType "dhcp";
     in {
@@ -361,9 +419,44 @@
           };
         };
 
+        fromWireguardPeer = {
+          allowedIps,
+            publicKey,
+            endpoint ? null,
+            persistentKeepalive ? null
+        }: {
+          wireguardPeerConfig = lib.filterAttrs (n: v: v != null) {
+            AllowedIPs = allowedIps;
+            PublicKey = publicKey;
+            Endpoint = endpoint;
+            PersistentKeepalive = persistentKeepalive;
+          };
+        };
+        fromWireguard = name: {
+          privateKeyFile,
+            port ? null,
+            peers ? [],
+            ...
+        }: {
+          name = "30-${name}";
+          value = {
+            netdevConfig = {
+              Name = name;
+              Kind = "wireguard";
+            };
+            wireguardConfig = lib.filterAttrs (n: v: v != null) {
+              #Address = address;
+              PrivateKeyFile = privateKeyFile;
+              ListenPort = port;
+            };
+            wireguardPeers = builtins.map fromWireguardPeer peers;
+          };
+        };
+
         fromDevices = name: {
           vlans ? {},
             batman ? null,
+            wireguard ? null,
             ...
         }: (if batman == null then [] else [{
           name = "00-${name}";
@@ -377,7 +470,11 @@
               RoutingAlgorithm = batman.routingAlgorithm;
             };
           };
-        }]) ++ (lib.attrsets.mapAttrsToList fromVlan vlans);
+        }]) ++ (
+          lib.attrsets.mapAttrsToList fromVlan vlans
+        ) ++ (
+          if wireguard == null then [] else [(fromWireguard name wireguard)]
+        );
       in toAttrSet fromDevices cfg.topology;
 
       networks = let
@@ -423,8 +520,8 @@
             Address = static-addresses;
             Gateway = static-gateways;
             DNS = static-dns;
-          } else if type == "none" then {
-          } else abort "invalid type: ${type}";
+          } else if type == "none" then null
+            else abort "invalid type: ${type}";
 
         mkLinkConfig = { mtu, required, activation-status ? null }:
           (
@@ -455,23 +552,24 @@
           network,
             routes ? [],
             ...
-        }: {
+        }: let
+          nw-conf = mkNetworkConfig network;
+        in (if nw-conf == null then {} else {
           name = "20-${name}";
           value = {
             matchConfig = { Name = name; };
-            networkConfig = mkNetworkConfig network // {
+            networkConfig = nw-conf // {
               KeepConfiguration = "static";
               LinkLocalAddressing = "no";
             };
             routes = builtins.map mkRouteConfig routes;
             dhcpServerConfig = mkDhcpServerConfig network;
           };
-        };
+        });
         fromVlan = name: {
           network,
             mtu ? null,
             pppoe ? {},
-            required ? true,
             routes ? [],
             ...
         }:
@@ -480,43 +578,59 @@
             value = {
               matchConfig = { Name = name; };
               networkConfig = mkNetworkConfig network;
-              linkConfig = mkLinkConfig { inherit mtu required; };
+              linkConfig = mkLinkConfig { inherit mtu; inherit (network) required; };
               routes = builtins.map mkRouteConfig routes;
               dhcpServerConfig = mkDhcpServerConfig network;
             };
           }] ++ (lib.attrsets.mapAttrsToList fromPppoe pppoe);
+        fromWireguard = name: {
+          address,
+            ...
+        }: {
+          name = "40-${name}";
+          value.matchConfig = {
+            Name = name;
+          };
+          value.networkConfig = {
+            Address = address;
+          };
+        };
         fromDevice = name: {
           network,
-            required,
             vlans ? {},
             pppoe ? {},
             batmanDevice ? null,
             mtu ? null,
             routes ? [],
+            wireguard ? null,
             ...
         }: let
           mkActivationStatus = { type, ignore-carrier ? false, ... }:
             if ignore-carrier then "always-up" else null;
-        in [{
+          nw-conf = mkNetworkConfig network;
+        in (if nw-conf == null then [] else [{
           name = "10-${name}";
           value = {
             matchConfig = {
               Name = name;
             };
             vlan = lib.attrsets.mapAttrsToList (name: vlan: name) vlans;
-            networkConfig = (mkNetworkConfig network) // (
+            networkConfig = (nw-conf) // (
               if batmanDevice == null then {} else { BatmanAdvanced = batmanDevice; }
             );
             linkConfig = mkLinkConfig {
-              inherit mtu required;
+              inherit mtu;
+              inherit (network) required;
               activation-status = (mkActivationStatus network);
             };
             routes = builtins.map mkRouteConfig routes;
           };
-        }] ++ (
+        }]) ++ (
           flatMapAttrsToList fromVlan vlans
         ) ++ (
           lib.attrsets.mapAttrsToList fromPppoe pppoe
+        ) ++ (
+          if wireguard == null then [] else [(fromWireguard name wireguard)]
         );
       in toAttrSet fromDevice cfg.topology;
     };
@@ -609,8 +723,19 @@
           (fmt-iface iface) ++ (fmt-ip ip) ++ (fmt-tcp tcp) ++ (fmt-udp udp) ++ [policy]
         );
 
-      extra-forwards = lib.strings.concatStringsSep "\n" (builtins.map fmt-extra cfg.firewall.extraForwards);
-      extra-input = lib.strings.concatStringsSep "\n" (builtins.map fmt-extra cfg.firewall.extraInput);
+      fmt-all-extras = extras: lib.strings.concatStringsSep "\n" (builtins.map fmt-extra extras);
+
+      wireguard-firewall-as-extra = builtins.filter (v: v != null) (lib.attrValues (
+        lib.mapAttrs (name: value:
+          if (value.wireguard == null || !value.wireguard.openFirewall) then null else {
+            udp.tgt = value.wireguard.port;
+            policy = "accept";
+          }
+        ) cfg.topology
+      ));
+
+      extra-forwards = fmt-all-extras cfg.firewall.extraForwards;
+      extra-input = fmt-all-extras (cfg.firewall.extraInput ++ wireguard-firewall-as-extra);
     in {
       enable = true;
       ruleset = ''
