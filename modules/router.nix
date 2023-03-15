@@ -34,34 +34,41 @@
           default = null;
         };
       };
+      firewall-extras = types.submodule {
+        options.ip = mkOption {
+          type = src-tgt types.str;
+          default = {};
+        };
+        options.iface = mkOption {
+          type = src-tgt types.str;
+          default = {};
+        };
+        options.tcp = mkOption {
+          type = src-tgt types.int;
+          default = {};
+        };
+        options.udp = mkOption {
+          type = src-tgt types.int;
+          default = {};
+        };
+        options.policy = mkOption {
+          type = types.enum [ "accept" "drop" ];
+          description = "what to do when the rule is matched";
+        };
+      };
     in mkOption {
       type = types.submodule {
-        options.extraForwards = mkOption {
-          type = types.listOf (types.submodule {
-            options.ip = mkOption {
-              type = src-tgt types.str;
-              default = {};
-            };
-            options.iface = mkOption {
-              type = src-tgt types.str;
-              default = {};
-            };
-            options.tcp = mkOption {
-              type = src-tgt types.int;
-              default = {};
-            };
-            options.udp = mkOption {
-              type = src-tgt types.int;
-              default = {};
-            };
-            options.policy = mkOption {
-              type = types.enum [ "accept" "drop" ];
-              description = "what to do when the rule is matched";
-            };
-          });
+        options.extraInput = mkOption {
+          type = types.listOf firewall-extras;
           example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1";  }];
           description = "Extra firewall forwarding rules";
-          default = {};
+          default = [];
+        };
+        options.extraForwards = mkOption {
+          type = types.listOf firewall-extras;
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1";  }];
+          description = "Extra firewall forwarding rules";
+          default = [];
         };
       };
       description = "Extra firewall rules";
@@ -597,12 +604,13 @@
         fmt-src-tgt "iifname" "oifname" { src = quoted-non-null src; tgt = quoted-non-null tgt; };
       fmt-tcp = fmt-src-tgt "tcp sport" "tcp dport";
       fmt-udp = fmt-src-tgt "udp sport" "udp dport";
-      fmt-extras = { iface ? {}, ip ? {}, tcp ? {}, udp ? {}, policy }:
+      fmt-extra = { iface ? {}, ip ? {}, tcp ? {}, udp ? {}, policy }:
         lib.strings.concatStringsSep " " (
           (fmt-iface iface) ++ (fmt-ip ip) ++ (fmt-tcp tcp) ++ (fmt-udp udp) ++ [policy]
         );
 
-      extra-forwards = lib.strings.concatStringsSep "\n" (builtins.map fmt-extras cfg.firewall.extraForwards);
+      extra-forwards = lib.strings.concatStringsSep "\n" (builtins.map fmt-extra cfg.firewall.extraForwards);
+      extra-input = lib.strings.concatStringsSep "\n" (builtins.map fmt-extra cfg.firewall.extraInput);
     in {
       enable = true;
       ruleset = ''
@@ -631,6 +639,9 @@
             iifname {
               ${rule-format external}
             } ct state { established, related } counter accept
+
+            ${extra-input}
+
             iifname {
               ${rule-format external}
             } drop
