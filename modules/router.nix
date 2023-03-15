@@ -21,20 +21,37 @@
         };
       };
     };
-    firewall = mkOption {
+    firewall = let
+      src-tgt = types.submodule {
+        options.src = mkOption {
+          type = types.nullOr types.str;
+          description = "The ip address to permit forwarding from";
+          default = null;
+        };
+        options.tgt = mkOption {
+          type = types.nullOr types.str;
+          description = "The ip address to permit forwarding to";
+          default = null;
+        };
+      };
+    in mkOption {
       type = types.submodule {
         options.extraForwards = mkOption {
           type = types.listOf (types.submodule {
-            options.src = mkOption {
-              type = types.str;
-              description = "The ip address to permit forwarding from";
+            options.ip = mkOption {
+              type = src-tgt;
+              default = {};
             };
-            options.tgt = mkOption {
-              type = types.str;
-              description = "The ip address to permit forwarding to";
+            options.iface = mkOption {
+              type = src-tgt;
+              default = {};
+            };
+            options.policy = mkOption {
+              type = types.enum [ "accept" "drop" ];
+              description = "what to do when the rule is matched";
             };
           });
-          example = [{ src = "192.168.1.100"; tgt = "10.0.0.1";  }];
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1";  }];
           description = "Extra firewall forwarding rules";
           default = {};
         };
@@ -557,11 +574,23 @@
       all-wan-access = trusted ++ untrusted;
       all-internal = all-wan-access ++ lockdown;
       quoted = dev: "\"" + dev + "\"";
-      ruleFormat = devices: (lib.strings.concatStringsSep ", " (builtins.map quoted devices)) + ",";
+      quoted-non-null = dev: if dev == null then null else quoted dev;
+      rule-format = devices: (lib.strings.concatStringsSep ", " (builtins.map quoted devices)) + ",";
 
-      extraForwards = lib.strings.concatStringsSep "\n" (
-        builtins.map (fw: "ip saddr ${fw.src} ip daddr ${fw.tgt} accept") cfg.firewall.extraForwards
+      fmt-src-tgt = src-fmt: tgt-fmt: { src ? null, tgt ? null }: (
+        (
+          if src == null then [] else [ "${src-fmt} ${src}" ]
+        ) ++ (
+          if tgt == null then [] else [ "${tgt-fmt} ${tgt}" ]
+        )
       );
+      fmt-ip = fmt-src-tgt "ip saddr" "ip daddr";
+      fmt-iface = { src ? null, tgt ? null }:
+        fmt-src-tgt "iifname" "oifname" { src = quoted-non-null src; tgt = quoted-non-null tgt; };
+      fmt-extras = { iface ? {}, ip ? {}, policy }:
+        lib.strings.concatStringsSep " " ((fmt-iface iface) ++ (fmt-ip ip) ++ [policy]);
+
+      extra-forwards = lib.strings.concatStringsSep "\n" (builtins.map fmt-extras cfg.firewall.extraForwards);
     in {
       enable = true;
       ruleset = ''
@@ -575,23 +604,23 @@
 
             # Allow trusted networks to access the router
             iifname {
-              ${ruleFormat (trusted ++ local-access ++ ["lo"])}
+              ${rule-format (trusted ++ local-access ++ ["lo"])}
             } counter accept
 
             # allow untrusted access to DNS and DHCP
             iifname {
-              ${ruleFormat untrusted}
+              ${rule-format untrusted}
             } tcp dport { 53 } counter accept
             iifname {
-              ${ruleFormat untrusted}
+              ${rule-format untrusted}
             } udp dport { 53, 67, mdns } counter accept
 
             # Allow returning traffic from external and drop everthing else
             iifname {
-              ${ruleFormat external}
+              ${rule-format external}
             } ct state { established, related } counter accept
             iifname {
-              ${ruleFormat external}
+              ${rule-format external}
             } drop
           }
 
@@ -601,26 +630,26 @@
 
             # Allow internal networks WAN access
             iifname {
-              ${ruleFormat all-wan-access}
+              ${rule-format all-wan-access}
             } oifname {
-              ${ruleFormat external}
+              ${rule-format external}
             } counter accept comment "Allow trusted internal to WAN"
 
             # Allow trusted internal to all internal
             iifname {
-              ${ruleFormat trusted}
+              ${rule-format trusted}
             } oifname {
-              ${ruleFormat all-internal}
+              ${rule-format all-internal}
             } counter accept comment "Allow trusted internal to all internal"
 
             # Allow untrusted and management access to internal https on untrusted and management
             iifname {
-              ${ruleFormat (untrusted ++ management)}
+              ${rule-format (untrusted ++ management)}
             } oifname {
-              ${ruleFormat (untrusted ++ management)}
+              ${rule-format (untrusted ++ management)}
             } tcp dport { https } counter accept comment "Allow untrusted access to internal management https"
 
-            ${extraForwards}
+            ${extra-forwards}
 
             # Allow established connections to return
             ct state { established, related } counter accept comment "Allow established to all internal"
@@ -636,7 +665,7 @@
           chain postrouting {
             type nat hook postrouting priority filter; policy accept;
             oifname {
-              ${ruleFormat external}
+              ${rule-format external}
             } masquerade
           }
         }
