@@ -22,14 +22,14 @@
       };
     };
     firewall = let
-      src-tgt = types.submodule {
+      src-tgt = _type: types.submodule {
         options.src = mkOption {
-          type = types.nullOr types.str;
+          type = types.nullOr _type;
           description = "The ip address to permit forwarding from";
           default = null;
         };
         options.tgt = mkOption {
-          type = types.nullOr types.str;
+          type = types.nullOr _type;
           description = "The ip address to permit forwarding to";
           default = null;
         };
@@ -39,11 +39,19 @@
         options.extraForwards = mkOption {
           type = types.listOf (types.submodule {
             options.ip = mkOption {
-              type = src-tgt;
+              type = src-tgt types.str;
               default = {};
             };
             options.iface = mkOption {
-              type = src-tgt;
+              type = src-tgt types.str;
+              default = {};
+            };
+            options.tcp = mkOption {
+              type = src-tgt types.int;
+              default = {};
+            };
+            options.udp = mkOption {
+              type = src-tgt types.int;
               default = {};
             };
             options.policy = mkOption {
@@ -587,8 +595,12 @@
       fmt-ip = fmt-src-tgt "ip saddr" "ip daddr";
       fmt-iface = { src ? null, tgt ? null }:
         fmt-src-tgt "iifname" "oifname" { src = quoted-non-null src; tgt = quoted-non-null tgt; };
-      fmt-extras = { iface ? {}, ip ? {}, policy }:
-        lib.strings.concatStringsSep " " ((fmt-iface iface) ++ (fmt-ip ip) ++ [policy]);
+      fmt-tcp = fmt-src-tgt "tcp sport" "tcp dport";
+      fmt-udp = fmt-src-tgt "udp sport" "udp dport";
+      fmt-extras = { iface ? {}, ip ? {}, tcp ? {}, udp ? {}, policy }:
+        lib.strings.concatStringsSep " " (
+          (fmt-iface iface) ++ (fmt-ip ip) ++ (fmt-tcp tcp) ++ (fmt-udp udp) ++ [policy]
+        );
 
       extra-forwards = lib.strings.concatStringsSep "\n" (builtins.map fmt-extras cfg.firewall.extraForwards);
     in {
