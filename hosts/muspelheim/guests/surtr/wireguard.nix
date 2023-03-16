@@ -57,7 +57,7 @@
           ${pkgs.iproute}/bin/ip route add 10.100.1.1 dev wg-mx
         '';
         postShutdown = ''
-          ${pkgs.iproute}/bin/ip route del 10.100.0.2 dev wg-ba
+          ${pkgs.iproute}/bin/ip route del 10.100.1.1 dev wg-mx
         '';
 
         peers = [

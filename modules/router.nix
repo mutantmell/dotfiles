@@ -331,12 +331,15 @@ in {
 
     # should eventually return object like { ipv4: [...]; ipv6: [...]; }
     addrsWhere = pred: let
-      trustedAddr = nw@{ type, ipv4 ? null, ipv6 ? null, ... }: if type == "routed" && (pred nw) then (builtins.filter (v: v != null) [ipv4 ipv6]) else [];
+      trustedAddr = nw@{ type, ipv4 ? null, ipv6 ? null, ... }:
+        if builtins.elem type ["routed" "static"] && (pred nw)
+        then (builtins.filter (v: v != null) [ipv4 ipv6])
+        else [];
       fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (trustedAddr network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
     in flatMapAttrsToList fromTopo cfg.topology;
 
     addrsWithTrust = trust: addrsWhere (nw: nw.trust == trust);
-    routedAddrs = addrsWhere (nw: true);
+    allAddrs = addrsWhere (nw: true);
 
     addrFirstN = n: addr: lib.strings.concatStringsSep "." (lib.lists.take n (lib.strings.splitString "." addr));
     toAttrSet = f: v:
@@ -626,7 +629,7 @@ in {
       enable = true;
       extraConfig = let
         format = addr: "DNSStubListenerExtra=" + (addrFirstN 3 addr) + ".1";
-        dnsExtras = builtins.map format routedAddrs;
+        dnsExtras = builtins.map format allAddrs;
       in ''
         ${lib.strings.concatStringsSep "\n" dnsExtras}
       '';
