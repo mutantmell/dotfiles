@@ -140,6 +140,8 @@
         network = {
           type = "static";
           static-addresses = [ "10.100.10.1/24" ];
+          static-dns = [ "10.100.10.1" ];
+          static-gateways = [ "10.100.10.1" ];
           trust = "trusted";
         };
         wireguard = {
@@ -148,6 +150,9 @@
           peers = [{
             allowedIps = [ "10.100.10.20/32" ];
             publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
+          } {
+            allowedIps = [ "10.100.10.21/32" ];
+            publicKey = "8g4r9czA23tS/XTOajuIa/BNfDE2x4GwdXXi+udE6gY=";
           }];
           openFirewall = true;
         };
