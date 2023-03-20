@@ -17,6 +17,14 @@
   #   ];
   # };
 
+  environment.systemPackages = with pkgs; [
+    smartmontools
+    jdupes
+    ncdu
+    rclone
+    sshfs
+  ];
+  
   networking.firewall.allowedTCPPorts = [
     445   # smb
     139   # smb

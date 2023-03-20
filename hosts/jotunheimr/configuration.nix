@@ -42,9 +42,6 @@
 
   environment.systemPackages = with pkgs; [
     wget
-    smartmontools
-    jdupes
-    ncdu
     tmux
   ];
 
