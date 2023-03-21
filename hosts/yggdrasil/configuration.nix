@@ -136,27 +136,27 @@
         device = "00:e0:67:1b:70:37";
         network = { type = "disabled"; required = false; };
       };
-      "wg-vpn" = {
-        network = {
-          type = "static";
-          static-addresses = [ "10.100.10.1/24" ];
-          static-dns = [ "10.100.10.1" ];
-          static-gateways = [ "10.100.10.1" ];
-          trust = "trusted";
-        };
-        wireguard = {
-          privateKeyFile = config.sops.secrets."wg-vpn-privatekey".path;
-          port = 59362;
-          peers = [{
-            allowedIps = [ "10.100.10.20/32" ];
-            publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
-          } {
-            allowedIps = [ "10.100.10.21/32" ];
-            publicKey = "8g4r9czA23tS/XTOajuIa/BNfDE2x4GwdXXi+udE6gY=";
-          }];
-          openFirewall = true;
-        };
-      };
+      # "wg-vpn" = {
+      #   network = {
+      #     type = "static";
+      #     static-addresses = [ "10.100.10.1/24" ];
+      #     static-dns = [ "10.100.10.1" ];
+      #     static-gateways = [ "10.100.10.1" ];
+      #     trust = "trusted";
+      #   };
+      #   wireguard = {
+      #     privateKeyFile = config.sops.secrets."wg-vpn-privatekey".path;
+      #     port = 59362;
+      #     peers = [{
+      #       allowedIps = [ "10.100.10.20/32" ];
+      #       publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
+      #     } {
+      #       allowedIps = [ "10.100.10.21/32" ];
+      #       publicKey = "8g4r9czA23tS/XTOajuIa/BNfDE2x4GwdXXi+udE6gY=";
+      #     }];
+      #     openFirewall = true;
+      #   };
+      # };
     };
   };
 

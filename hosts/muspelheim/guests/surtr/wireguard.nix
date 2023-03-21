@@ -23,6 +23,7 @@
     networking.wireguard.interfaces = {
       "wg-ba" = {
         ips = [ "10.100.0.1/32" ];
+        listenPort = 38506;
         privateKeyFile = config.sops.secrets."wireguard_private_key".path;
 
         postSetup = ''
