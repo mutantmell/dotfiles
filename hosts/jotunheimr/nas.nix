@@ -39,13 +39,20 @@
     3702 # wsdd
   ];
 
-  fileSystems."/srv/media" = {
-    device = "/data/media";
-    options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
-  };
-  fileSystems."/srv/data" = {
-    device = "/data/data";
-    options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
+  fileSystems = let
+    media = {
+      device = "/data/media";
+      options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
+    };
+    data = {
+      device = "/data/data";
+      options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
+    };
+  in {
+    "/export/rw/media" = media;
+    "/export/ro/media" = media;
+    "/export/rw/data" = data;
+    "/export/ro/data" = data;
   };
 
   services.nfs.server = {
