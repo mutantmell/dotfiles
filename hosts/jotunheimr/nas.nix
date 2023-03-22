@@ -39,6 +39,15 @@
     3702 # wsdd
   ];
 
+  fileSystems."/srv/media" = {
+    device = "/data/media";
+    options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
+  };
+  fileSystems."/srv/data" = {
+    device = "/data/data";
+    options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
+  };
+
   services.nfs.server = {
     enable = true;
     #    createMountPoints = true;
