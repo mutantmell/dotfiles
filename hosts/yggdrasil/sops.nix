@@ -12,6 +12,10 @@
         mode = "0440";
         group = config.users.users."systemd-network".group;
       };
+      "wg-mx-privatekey" = {
+        mode = "0440";
+        group = config.users.users."systemd-network".group;
+      };
     };
   };
 }
