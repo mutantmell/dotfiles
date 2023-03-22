@@ -55,7 +55,7 @@
   };
 
   fileSystems."/mnt/backup" = {
-    device = "server:/data/backup/mutantmell";
+    device = "10.100.0.3:/srv/data/backup/mutantmell";
     fsType = "nfs";
   };
 
