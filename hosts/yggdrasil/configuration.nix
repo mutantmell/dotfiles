@@ -155,6 +155,23 @@
           openFirewall = true;
         };
       };
+      "wg-mx" = {
+        network = {
+          type = "static";
+          static-addresses = [ "10.100.20.1/24" ];
+          trust = "external";
+        };
+        wireguard = {
+          privateKeyFile = config.sops.secrets."wg-mx-privatekey".path;
+          port = 53973;
+          peers = [{
+            allowedIps = [ "10.100.20.10/32" ];
+            publicKey = "hTmV7qOLXHCQnTWljCiNHf2P22GBd0n339Fcq4tVdlw=";
+            endpoint = "helveticastandard.com:58156";
+            persistentKeepalive = 25;
+          }];
+        };
+      };
     };
   };
 

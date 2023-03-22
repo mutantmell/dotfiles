@@ -293,6 +293,12 @@ in {
                     example = "example.com:45678";
                     default = null;
                   };
+                  options.persistentKeepalive = mkOption {
+                    type = types.nullOr types.int;
+                    description = "persistent keepalive value for the peer";
+                    example = 25;
+                    default = null;
+                  };
                 });
                 description = "wireguard peers";
                 default = [];
@@ -691,6 +697,7 @@ in {
       lockdown = interfacesWithTrust "lockdown";
       all-wan-access = trusted ++ untrusted;
       all-internal = all-wan-access ++ lockdown;
+
       quoted = dev: "\"" + dev + "\"";
       quoted-non-null = dev: if dev == null then null else quoted dev;
       to-string-non-null = port: if port == null then null else builtins.toString port;
@@ -715,7 +722,7 @@ in {
           (fmt-iface iface) ++ (fmt-ip ip) ++ (fmt-tcp tcp) ++ (fmt-udp udp) ++ [policy]
         );
 
-      fmt-all-extras = extras: lib.strings.concatStringsSep "\n" (builtins.map fmt-extra extras);
+      fmt-all-extras = extras: lib.strings.concatStringsSep "\n    " (builtins.map fmt-extra extras);
 
       wireguard-firewall-as-extra = builtins.filter (v: v != null) (lib.attrValues (
         lib.mapAttrs (name: value:
@@ -805,7 +812,7 @@ in {
           chain postrouting {
             type nat hook postrouting priority filter; policy accept;
             oifname {
-              ${rule-format external}
+              ${rule-format natInterfaces}
             } masquerade
           }
         }
