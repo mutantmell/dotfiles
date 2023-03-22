@@ -558,7 +558,7 @@ in {
         }: let
           nw-conf = mkNetworkConfig network;
         in (if nw-conf == null then {} else {
-          name = "20-${name}";
+          name = "22-${name}";
           value = {
             matchConfig = { Name = name; };
             networkConfig = nw-conf // {
@@ -577,7 +577,7 @@ in {
             ...
         }:
           [{
-            name = "20-${name}";
+            name = "21-${name}";
             value = {
               matchConfig = { Name = name; };
               networkConfig = mkNetworkConfig network;
