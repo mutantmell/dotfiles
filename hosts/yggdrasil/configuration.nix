@@ -55,7 +55,7 @@
       {
         ip.saddr = "10.0.20.30";
         ip.daddr = "10.100.0.3";
-        policy = "accept";
+        verdict = "accept";
       }
     ];
     topology = {
