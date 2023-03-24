@@ -864,18 +864,20 @@ in {
         [
           "chain ${name} {"
         ] ++ (builtins.map indent (
-          (render-chain-type chain
-        ) ++ (
-          builtins.map render-rule rules
-        ))
-        ) ++ ["}"];
+          [(render-chain-type chain)] ++ (builtins.map render-rule rules)
+        )) ++ ["}"];
       render-table = { name, family, chains }:
         [
           "table ${family} ${name} {"
         ] ++ (
-          builtins.map indent (flatMapAttrsToList render-chain chains)
+          builtins.map indent (
+            lib.lists.flatten (lib.lists.reverseList (lib.attrsets.mapAttrsToList render-chain chains))
+          )
         ) ++ ["}"];
       render-firewall-rules = fwall: lib.strings.concatStringsSep "\n" (lib.lists.concatMap render-table fwall);
+      render-firewall-rules-2 = fwall: lib.strings.concatStringsSep "\n" (
+        lib.lists.flatten (lib.lists.reverseList (builtins.map render-table fwall))
+      );
 
       quoted = dev: "\"" + dev + "\"";
       quoted-non-null = dev: if dev == null then null else quoted dev;
@@ -916,87 +918,7 @@ in {
       extra-input = fmt-all-extras (cfg.firewall.extraInput ++ wireguard-firewall-as-extra);
     in {
       enable = true;
-#      ruleset = (render-firewall-rules tables);
-      ruleset = ''
-        table inet filter {
-          chain output {
-            type filter hook output priority 100; policy accept;
-          }
-
-          chain input {
-            type filter hook input priority filter; policy drop;
-
-            # Allow trusted networks to access the router
-            iifname {
-              ${rule-format (trusted ++ local-access ++ ["lo"])}
-            } counter accept
-
-            # allow untrusted access to DNS and DHCP
-            iifname {
-              ${rule-format untrusted}
-            } tcp dport { 53 } counter accept
-            iifname {
-              ${rule-format untrusted}
-            } udp dport { 53, 67, mdns } counter accept
-
-            # Allow returning traffic from external and drop everthing else
-            iifname {
-              ${rule-format external}
-            } ct state { established, related } counter accept
-
-            ${extra-input}
-
-            iifname {
-              ${rule-format external}
-            } drop
-          }
-
-          chain forward {
-            type filter hook forward priority filter; policy drop;
-            tcp flags syn tcp option maxseg size set rt mtu
-
-            # Allow internal networks WAN access
-            iifname {
-              ${rule-format all-wan-access}
-            } oifname {
-              ${rule-format external}
-            } counter accept comment "Allow trusted internal to WAN"
-
-            # Allow trusted internal to all internal
-            iifname {
-              ${rule-format trusted}
-            } oifname {
-              ${rule-format all-internal}
-            } counter accept comment "Allow trusted internal to all internal"
-
-            # Allow untrusted and management access to internal https on untrusted and management
-            iifname {
-              ${rule-format (untrusted ++ management)}
-            } oifname {
-              ${rule-format (untrusted ++ management)}
-            } tcp dport { https } counter accept comment "Allow untrusted access to internal management https"
-
-            ${extra-forwards}
-
-            # Allow established connections to return
-            ct state { established, related } counter accept comment "Allow established to all internal"
-          }
-        }
-
-        table ip nat {
-          chain prerouting {
-            type nat hook output priority filter; policy accept;
-          }
-
-          # Setup NAT masquerading on the wan interface
-          chain postrouting {
-            type nat hook postrouting priority filter; policy accept;
-            oifname {
-              ${rule-format natInterfaces}
-            } masquerade
-          }
-        }
-      '';
+      ruleset = render-firewall-rules tables;
     };
   };
 }
