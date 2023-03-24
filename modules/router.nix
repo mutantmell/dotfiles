@@ -24,33 +24,33 @@ in {
       };
     };
     firewall = let
-      src-tgt = _type: types.submodule {
-        options.src = mkOption {
+      src-tgt = _src: _tgt: _type: types.submodule {
+        options."${_src}" = mkOption {
           type = types.nullOr _type;
-          description = "The ip address to permit forwarding from";
+          description = "Indicates access from";
           default = null;
         };
-        options.tgt = mkOption {
+        options."${_tgt}" = mkOption {
           type = types.nullOr _type;
-          description = "The ip address to permit forwarding to";
+          description = "Inidicates access to";
           default = null;
         };
       };
       firewall-extras = types.submodule {
         options.ip = mkOption {
-          type = src-tgt types.str;
+          type = src-tgt "saddr" "daddr" types.str;
           default = {};
         };
-        options.iface = mkOption {
-          type = src-tgt types.str;
-          default = {};
+        options.iifname = mkOption {
+          type = types.nullOr (types.nonEmptyListOf types.str);
+          default = null;
         };
         options.tcp = mkOption {
-          type = src-tgt types.int;
+          type = src-tgt "sport" "dport" types.str;
           default = {};
         };
         options.udp = mkOption {
-          type = src-tgt types.int;
+          type = src-tgt "sport" "dport" types.str;
           default = {};
         };
         options.policy = mkOption {
@@ -698,141 +698,27 @@ in {
       all-wan-access = trusted ++ untrusted;
       all-internal = all-wan-access ++ lockdown;
 
-      tables = [
-        {
-          name = "filter";
-          family = "inet";
-          chains = {
-            "output" = {
-              type = "filter"; # filter, route, nat
-              hook = "output";
-              # family == filter --> prerouting, input, forward, output, postrouting,
-              # family == arp --> input, output
-              # family == bridge --> ethernet packets?
-              # family == netdev --> ingress
-              priority = "100";
-              default-policy = "accept"; # accept, drop
-            };
-            "input" = {
-              type = "filter";
-              hook = "input";
-              device = null;
-              priority = "filter";
-              default-policy = "drop";
-              rules = [
-                {
-                  iifname = trusted ++ untrusted ++ [ "lo" ];
-                  oifname = external;
-                  counter = true;
-                  policy = "accept";
-                  comment = "Allow internal networks WAN access";
-                }
-                {
-                  iifname = untrusted;
-                  udp.dport = [ "53" ];
-                  counter = true;
-                  policy = "accept";
-                  comment = "allow untrusted access to DNS and DHCP";
-                }
-                {
-                  iifname = untrusted;
-                  udp.dport = [ "53" "67" "mdns" ];
-                  counter = true;
-                  policy = "accept";
-                }
-                {
-                  iifname = external;
-                  ct.state = [ "established" "related" ];
-                  counter = true;
-                  policy = "accept";
-                  comment = "Allow returning traffic from external and drop everything else";
-                }
-              ];
-            };
-            "forward" = {
-              type = "filter";
-              hook = "forward";
-              device = null;
-              priority = "filter";
-              default-policy = "drop";
-              rules = [
-                "tcp flags syn tcp option maxseg size set rt mtu"
-                {
-                  iifname = all-wan-access;
-                  oifname = external;
-                  counter = true;
-                  policy = "accept";
-                  comment = "Allow all internal access to WAN";
-                }
-                {
-                  iifname = trusted;
-                  oifname = all-internal;
-                  counter = true;
-                  policy = "accept";
-                  comment = "Allow trusted internal to all internal";
-                }
-                {
-                  iifname = untrusted ++ management;
-                  oifname = untrusted ++ management;
-                  tcp.dport = [ "https" ];
-                  counter = true;
-                  policy = "accept";
-                  comment = "Allow untrusted access to internal management https";
-                }
-                {
-                  ip.saddr = "10.0.20.30";
-                  ip.daddr = "10.100.0.3";
-                  policy = "accept";
-                }
-                {
-                  ct.state = [ "established" "related" ];
-                  counter = true;
-                  policy = "accept";
-                  comment = "Allow established to all internal";
-                }
-              ];
-            };
-          };
-        }
-        {
-          name = "nat";
-          family = "ip";
-          chains = {
-            "prerouting" = {
-              type = "nat";
-              hook = "output";
-              priority = "filter";
-              default-policy = "accept";
-            };
-            "postrouting" = {
-              type = "nat";
-              hook = "postrouting";
-              priority = "filter";
-              default-policy = "accept";
-              rules = [
-                {
-                  iifname = natInterfaces;
-                  masquerade = true;
-                }
-              ];
-            };
-          };
-        }
-      ];
-
-      render-chain-type = { type, hook, device ? null, priority, default-policy, ... }:
+      render-chain-kind = { type, hook, device ? null, priority, default-policy, ... }:
         lib.strings.concatStringsSep " " (
           [ "type ${type} hook ${hook}"
           ] ++ (if device == null then [] else [ "device ${device}" ]
           ) ++ [ "priority ${priority}; policy ${default-policy};" ]
         );
       render-formatted-rule = let
+        # todo: support match ~ { not = ... }.  Ranges can be implicit, and are validated by the linter that's run regardless
         render-match = match:
           if builtins.isString match then match
-          else if builtins.length match <= 4 then "{ ${lib.strings.concatStringsSep ", " match} }"
-          else lib.strings.concatStringsSep "\n    " [ "{" (indent (lib.strings.concatStringsSep ", " match)) "}" ];
+          else let
+            matches = lib.strings.concatStringsSep ", " match;
+          in
+            if builtins.stringLength matches < 15
+            then "{ ${matches} }"
+            else lib.strings.concatStringsSep "\n    " [ "{" (indent matches) "}" ];
         render-sub-rule = proto: attr: set:
-          if builtins.hasAttr attr set then [ "${proto} ${attr} ${render-match (builtins.getAttr attr set)}" ] else [];
+          if builtins.hasAttr attr set && builtins.getAttr attr set != null
+          then [ "${proto} ${attr} ${render-match (builtins.getAttr attr set)}" ]
+          else [];
+        quoted = dev: "\"" + dev + "\"";
       in { iifname ? null, oifname ? null, tcp ? {}, udp ? {}, ip ? {}, counter ? false, ct ? {}, policy ? null, masquerade ? false, comment ? null }:
         lib.strings.concatStringsSep " " ((
           if iifname == null then [] else [ "iifname ${render-match (builtins.map quoted iifname)}" ]
@@ -863,13 +749,14 @@ in {
         ));
       render-rule = rule:
         if lib.isString rule then rule else render-formatted-rule rule;
-      indent = v: "  " + v;
-      render-chain = name: chain@{rules ? [], ...}:
+      indent-n = n: v: if n == 0 then v else "  " + (indent-n (n - 1) v);
+      indent = indent-n 1;
+      render-chain = name: { kind ? null, rules ? [], ...}:
         [
           "chain ${name} {"
-        ] ++ [
-          (indent (render-chain-type chain))
-        ] ++ (lib.strings.intersperse "" (builtins.map indent (
+        ] ++ (
+          if kind == null then [] else [(indent (render-chain-kind kind))]
+        ) ++ (lib.strings.intersperse "" (builtins.map indent (
           (builtins.map render-rule rules)
         ))) ++ ["}"];
       render-table = { name, family, chains }:
@@ -881,50 +768,149 @@ in {
           )
         ) ++ ["}"];
       render-firewall-rules = fwall: lib.strings.concatStringsSep "\n" (lib.lists.concatMap render-table fwall);
-      render-firewall-rules-2 = fwall: lib.strings.concatStringsSep "\n" (
-        lib.lists.flatten (lib.lists.reverseList (builtins.map render-table fwall))
-      );
-
-      quoted = dev: "\"" + dev + "\"";
-      quoted-non-null = dev: if dev == null then null else quoted dev;
-      to-string-non-null = port: if port == null then null else builtins.toString port;
-      rule-format = devices: (lib.strings.concatStringsSep ", " (builtins.map quoted devices)) + ",";
-
-      fmt-src-tgt = src-fmt: tgt-fmt: { src ? null, tgt ? null }: (
-        (
-          if src == null then [] else [ "${src-fmt} ${src}" ]
-        ) ++ (
-          if tgt == null then [] else [ "${tgt-fmt} ${tgt}" ]
-        )
-      );
-      fmt-ip = fmt-src-tgt "ip saddr" "ip daddr";
-      fmt-iface = { src ? null, tgt ? null }:
-        fmt-src-tgt "iifname" "oifname" { src = quoted-non-null src; tgt = quoted-non-null tgt; };
-      fmt-tcp = { src ? null, tgt ? null }:
-        fmt-src-tgt "tcp sport" "tcp dport" { src = to-string-non-null src; tgt = to-string-non-null tgt; };
-      fmt-udp = { src ? null, tgt ? null }:
-        fmt-src-tgt "udp sport" "udp dport" { src = to-string-non-null src; tgt = to-string-non-null tgt; };
-      fmt-extra = { iface ? {}, ip ? {}, tcp ? {}, udp ? {}, policy }:
-        lib.strings.concatStringsSep " " (
-          (fmt-iface iface) ++ (fmt-ip ip) ++ (fmt-tcp tcp) ++ (fmt-udp udp) ++ [policy]
-        );
-
-      fmt-all-extras = extras: lib.strings.concatStringsSep "\n    " (builtins.map fmt-extra extras);
-
-      wireguard-firewall-as-extra = builtins.filter (v: v != null) (lib.attrValues (
-        lib.mapAttrs (name: value:
-          if (value.wireguard == null || !value.wireguard.openFirewall) then null else {
-            udp.tgt = value.wireguard.port;
-            policy = "accept";
-          }
-        ) cfg.topology
-      ));
-
-      extra-forwards = fmt-all-extras cfg.firewall.extraForwards;
-      extra-input = fmt-all-extras (cfg.firewall.extraInput ++ wireguard-firewall-as-extra);
     in {
       enable = true;
-      ruleset = render-firewall-rules tables;
+      ruleset = render-firewall-rules [
+        {
+          name = "filter";
+          family = "inet";
+          chains = {
+            "output" = {
+              kind = {
+                type = "filter"; # filter, route, nat
+                hook = "output";
+                # family == filter --> prerouting, input, forward, output, postrouting,
+                # family == arp --> input, output
+                # family == bridge --> ethernet packets?
+                # family == netdev --> ingress
+                priority = "100";
+                default-policy = "accept"; # accept, drop
+              };
+            };
+            "input" = {
+              kind = {
+                type = "filter";
+                hook = "input";
+                device = null;
+                priority = "filter";
+                default-policy = "drop";
+              };
+              rules = [
+                {
+                  iifname = trusted ++ local-access ++ [ "lo" ];
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow trusted networks to access the router";
+                }
+                {
+                  iifname = untrusted;
+                  tcp.dport = [ "53" ];
+                  counter = true;
+                  policy = "accept";
+                  comment = "allow untrusted access to DNS and DHCP";
+                }
+                {
+                  iifname = untrusted;
+                  udp.dport = [ "53" "67" "mdns" ];
+                  counter = true;
+                  policy = "accept";
+                }
+              ] ++ (
+                cfg.firewall.extraInput
+              ) ++ (
+                builtins.filter (v: v != null) (lib.attrValues (
+                  lib.mapAttrs (name: value:
+                    if (value.wireguard == null || !value.wireguard.openFirewall) then null else {
+                      udp.dport = builtins.toString value.wireguard.port;
+                      policy = "accept";
+                    }
+                  ) cfg.topology
+                ))
+              ) ++ [
+                {
+                  iifname = external;
+                  ct.state = [ "established" "related" ];
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow returning traffic from external and drop everything else";
+                }
+              ];
+            };
+            "forward" = {
+              kind = {
+                type = "filter";
+                hook = "forward";
+                device = null;
+                priority = "filter";
+                default-policy = "drop";
+              };
+              rules = [
+                "tcp flags syn tcp option maxseg size set rt mtu"
+                # todo: if these lists are empty, do /not/ create the rule
+                {
+                  iifname = all-wan-access;
+                  oifname = external;
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow all internal access to WAN";
+                }
+                {
+                  iifname = trusted;
+                  oifname = all-internal;
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow trusted internal to all internal";
+                }
+                {
+                  iifname = untrusted ++ management;
+                  oifname = untrusted ++ management;
+                  tcp.dport = [ "https" ];
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow untrusted access to internal management https";
+                }
+              ] ++ (
+                cfg.firewall.extraForwards
+              ) ++ [
+                {
+                  ct.state = [ "established" "related" ];
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow all established";
+                }
+              ];
+            };
+          };
+        }
+        {
+          name = "nat";
+          family = "ip";
+          chains = {
+            "prerouting" = {
+              kind = {
+                type = "nat";
+                hook = "output";
+                priority = "filter";
+                default-policy = "accept";
+              };
+            };
+            "postrouting" = {
+              kind = {
+                type = "nat";
+                hook = "postrouting";
+                priority = "filter";
+                default-policy = "accept";
+              };
+              rules = [
+                {
+                  oifname = natInterfaces;
+                  masquerade = true;
+                }
+              ];
+            };
+          };
+        }
+      ];
     };
   };
 }
