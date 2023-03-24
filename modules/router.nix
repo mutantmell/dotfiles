@@ -721,27 +721,27 @@ in {
               default-policy = "drop";
               rules = [
                 {
-                  iface.src = trusted ++ untrusted ++ [ "lo" ];
-                  iface.tgt = external;
+                  iifname = trusted ++ untrusted ++ [ "lo" ];
+                  oifname = external;
                   counter = true;
                   policy = "accept";
                   comment = "Allow internal networks WAN access";
                 }
                 {
-                  iface.src = untrusted;
-                  tcp.tgt = [ "53" ];
+                  iifname = untrusted;
+                  udp.dport = [ "53" ];
                   counter = true;
                   policy = "accept";
                   comment = "allow untrusted access to DNS and DHCP";
                 }
                 {
-                  iface.src = untrusted;
-                  udp.tgt = [ "53" "67" "mdns" ];
+                  iifname = untrusted;
+                  udp.dport = [ "53" "67" "mdns" ];
                   counter = true;
                   policy = "accept";
                 }
                 {
-                  iface.src = untrusted;
+                  iifname = untrusted;
                   ct.state = [ "established" "related" ];
                   counter = true;
                   policy = "accept";
@@ -758,30 +758,30 @@ in {
               rules = [
                 "tcp flags syn tcp option maxseg size set rt mtu"
                 {
-                  iface.src = all-wan-access;
-                  iface.tgt = external;
+                  iifname = all-wan-access;
+                  oifname = external;
                   counter = true;
                   policy = "accept";
                   comment = "Allow all internal access to WAN";
                 }
                 {
-                  iface.src = trusted;
-                  iface.tgt = all-internal;
+                  iifname = trusted;
+                  oifname = all-internal;
                   counter = true;
                   policy = "accept";
                   comment = "Allow trusted internal to all internal";
                 }
                 {
-                  iface.src = untrusted ++ management;
-                  iface.tgt = untrusted ++ management;
-                  tcp.tgt = [ "https" ]; # todo: tgt => dport
+                  iifname = untrusted ++ management;
+                  oifname = untrusted ++ management;
+                  tcp.dport = [ "https" ]; # todo: tgt => dport
                   counter = true;
                   policy = "accept";
                   comment = "Allow untrusted access to internal management https";
                 }
                 {
-                  ip.src = "10.0.20.30";
-                  ip.tgt = "10.100.0.3";
+                  ip.saddr = "10.0.20.30";
+                  ip.daddr = "10.100.0.3";
                   policy = "accept";
                 }
                 {
@@ -802,16 +802,16 @@ in {
               type = "nat";
               hook = "output";
               priority = "filter";
-              policy = "accept";
+              default-policy = "accept";
             };
             "postrouting" = {
               type = "nat";
               hook = "postrouting";
               priority = "filter";
-              policy = "accept";
+              default-policy = "accept";
               rules = [
                 {
-                  iface.tgt = natInterfaces;
+                  iifname = natInterfaces;
                   masquerade = true;
                 }
               ];
@@ -824,8 +824,58 @@ in {
         lib.strings.concatStringsSep " " (
           [ "type ${type} hook ${hook}"
           ] ++ (if device == null then [] else [ "device ${device}" ]
-          ) ++ [ "priority ${priority}; policy ${default-policy}:" ]
+          ) ++ [ "priority ${priority}; policy ${default-policy};" ]
         );
+      render-formatted-rule = let
+        render-match = match:
+          if builtins.isString match then match else "{ ${lib.strings.concatStringsSep ", " match} }";
+        render-sub-rule = proto: attr: set:
+          if builtins.hasAttr attr set then [ "${proto} ${attr} ${render-match (builtins.getAttr attr set)}" ] else [];
+      in { iifname ? null, oifname ? null, tcp ? {}, udp ? {}, ip ? {}, counter ? false, ct ? {}, policy ? null, masquerade ? false, comment ? null }:
+        lib.strings.concatStringsSep " " ((
+          if iifname == null then [] else [ "iifname ${render-match (builtins.map quoted iifname)}" ]
+        ) ++ (
+          render-sub-rule "tcp" "sport" tcp
+        ) ++ (
+          render-sub-rule "udp" "sport" udp
+        ) ++ (
+          render-sub-rule "ip" "saddr" ip
+        ) ++ (
+          if oifname == null then [] else [ "oifname ${render-match (builtins.map quoted oifname)}" ]
+        ) ++ (
+          render-sub-rule "tcp" "dport" tcp
+        ) ++ (
+          render-sub-rule "udp" "dport" udp
+        ) ++ (
+          render-sub-rule "ip" "daddr" ip
+        ) ++ (
+          if counter then [ "counter" ] else []
+        ) ++ (
+          if policy == null then [] else [ policy ]
+        ) ++ (
+          if masquerade then [ "masquerade" ] else []
+        ) ++ (
+          if comment == null then [] else [ "comment \"${comment}\"" ]
+        ));
+      render-rule = rule:
+        if lib.isString rule then rule else render-formatted-rule rule;
+      indent = v: "  " + v;
+      render-chain = name: chain@{rules ? [], ...}:
+        [
+          "chain ${name} {"
+        ] ++ (builtins.map indent (
+          (render-chain-type chain
+        ) ++ (
+          builtins.map render-rule rules
+        ))
+        ) ++ ["}"];
+      render-table = { name, family, chains }:
+        [
+          "table ${family} ${name} {"
+        ] ++ (
+          builtins.map indent (flatMapAttrsToList render-chain chains)
+        ) ++ ["}"];
+      render-firewall-rules = fwall: lib.strings.concatStringsSep "\n" (lib.lists.concatMap render-table fwall);
 
       quoted = dev: "\"" + dev + "\"";
       quoted-non-null = dev: if dev == null then null else quoted dev;
@@ -866,6 +916,7 @@ in {
       extra-input = fmt-all-extras (cfg.firewall.extraInput ++ wireguard-firewall-as-extra);
     in {
       enable = true;
+#      ruleset = (render-firewall-rules tables);
       ruleset = ''
         table inet filter {
           chain output {
