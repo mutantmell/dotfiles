@@ -698,6 +698,135 @@ in {
       all-wan-access = trusted ++ untrusted;
       all-internal = all-wan-access ++ lockdown;
 
+      tables = [
+        {
+          name = "filter";
+          family = "inet";
+          chains = {
+            "output" = {
+              type = "filter"; # filter, route, nat
+              hook = "output";
+              # family == filter --> prerouting, input, forward, output, postrouting,
+              # family == arp --> input, output
+              # family == bridge --> ethernet packets?
+              # family == netdev --> ingress
+              priority = "100";
+              default-policy = "accept"; # accept, drop
+            };
+            "input" = {
+              type = "filter";
+              hook = "input";
+              device = null;
+              priority = "filter";
+              default-policy = "drop";
+              rules = [
+                {
+                  iface.src = trusted ++ untrusted ++ [ "lo" ];
+                  iface.tgt = external;
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow internal networks WAN access";
+                }
+                {
+                  iface.src = untrusted;
+                  tcp.tgt = [ "53" ];
+                  counter = true;
+                  policy = "accept";
+                  comment = "allow untrusted access to DNS and DHCP";
+                }
+                {
+                  iface.src = untrusted;
+                  udp.tgt = [ "53" "67" "mdns" ];
+                  counter = true;
+                  policy = "accept";
+                }
+                {
+                  iface.src = untrusted;
+                  ct.state = [ "established" "related" ];
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow returning traffic from external and drop everthing else";
+                }
+              ];
+            };
+            "forward" = {
+              type = "filter";
+              hook = "forward";
+              device = null;
+              priority = "filter";
+              default-policy = "drop";
+              rules = [
+                "tcp flags syn tcp option maxseg size set rt mtu"
+                {
+                  iface.src = all-wan-access;
+                  iface.tgt = external;
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow all internal access to WAN";
+                }
+                {
+                  iface.src = trusted;
+                  iface.tgt = all-internal;
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow trusted internal to all internal";
+                }
+                {
+                  iface.src = untrusted ++ management;
+                  iface.tgt = untrusted ++ management;
+                  tcp.tgt = [ "https" ]; # todo: tgt => dport
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow untrusted access to internal management https";
+                }
+                {
+                  ip.src = "10.0.20.30";
+                  ip.tgt = "10.100.0.3";
+                  policy = "accept";
+                }
+                {
+                  ct.state = [ "established" "related" ];
+                  counter = true;
+                  policy = "accept";
+                  comment = "Allow established to all internal";
+                }
+              ];
+            };
+          };
+        }
+        {
+          name = "nat";
+          family = "ip";
+          chains = {
+            "prerouting" = {
+              type = "nat";
+              hook = "output";
+              priority = "filter";
+              policy = "accept";
+            };
+            "postrouting" = {
+              type = "nat";
+              hook = "postrouting";
+              priority = "filter";
+              policy = "accept";
+              rules = [
+                {
+                  iface.tgt = natInterfaces;
+                  masquerade = true;
+                }
+              ];
+            };
+          };
+        }
+      ];
+
+      render-chain-type = { type, hook, device ? null, priority, default-policy, ... }:
+        lib.strings.concatStringsSep " " (
+          [ "type ${type} hook ${hook}"
+          ] ++ (if device == null then [] else [ "device ${device}" ]
+          ) ++ [ "priority ${priority}; policy ${default-policy}:" ]
+        );
+
       quoted = dev: "\"" + dev + "\"";
       quoted-non-null = dev: if dev == null then null else quoted dev;
       to-string-non-null = port: if port == null then null else builtins.toString port;
