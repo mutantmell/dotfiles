@@ -52,7 +52,11 @@
     enable = true;
     dns.upstream = "10.0.10.2";
     firewall.extraForwards = [
-      { ip.src = "10.0.20.30"; ip.tgt = "10.100.0.3"; policy = "accept"; }
+      {
+        ip.saddr = "10.0.20.30";
+        ip.daddr = "10.100.0.3";
+        policy = "accept";
+      }
     ];
     topology = {
       wan = {
