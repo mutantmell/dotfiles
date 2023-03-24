@@ -62,13 +62,13 @@ in {
       type = types.submodule {
         options.extraInput = mkOption {
           type = types.listOf firewall-extras;
-          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1";  }];
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
           description = "Extra firewall forwarding rules";
           default = [];
         };
         options.extraForwards = mkOption {
           type = types.listOf firewall-extras;
-          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1";  }];
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
           description = "Extra firewall forwarding rules";
           default = [];
         };
@@ -741,11 +741,11 @@ in {
                   policy = "accept";
                 }
                 {
-                  iifname = untrusted;
+                  iifname = external;
                   ct.state = [ "established" "related" ];
                   counter = true;
                   policy = "accept";
-                  comment = "Allow returning traffic from external and drop everthing else";
+                  comment = "Allow returning traffic from external and drop everything else";
                 }
               ];
             };
@@ -774,7 +774,7 @@ in {
                 {
                   iifname = untrusted ++ management;
                   oifname = untrusted ++ management;
-                  tcp.dport = [ "https" ]; # todo: tgt => dport
+                  tcp.dport = [ "https" ];
                   counter = true;
                   policy = "accept";
                   comment = "Allow untrusted access to internal management https";
@@ -828,7 +828,9 @@ in {
         );
       render-formatted-rule = let
         render-match = match:
-          if builtins.isString match then match else "{ ${lib.strings.concatStringsSep ", " match} }";
+          if builtins.isString match then match
+          else if builtins.length match <= 4 then "{ ${lib.strings.concatStringsSep ", " match} }"
+          else lib.strings.concatStringsSep "\n    " [ "{" (indent (lib.strings.concatStringsSep ", " match)) "}" ];
         render-sub-rule = proto: attr: set:
           if builtins.hasAttr attr set then [ "${proto} ${attr} ${render-match (builtins.getAttr attr set)}" ] else [];
       in { iifname ? null, oifname ? null, tcp ? {}, udp ? {}, ip ? {}, counter ? false, ct ? {}, policy ? null, masquerade ? false, comment ? null }:
@@ -849,6 +851,8 @@ in {
         ) ++ (
           render-sub-rule "ip" "daddr" ip
         ) ++ (
+          render-sub-rule "ct" "state" ct
+        ) ++ (
           if counter then [ "counter" ] else []
         ) ++ (
           if policy == null then [] else [ policy ]
@@ -863,9 +867,11 @@ in {
       render-chain = name: chain@{rules ? [], ...}:
         [
           "chain ${name} {"
-        ] ++ (builtins.map indent (
-          [(render-chain-type chain)] ++ (builtins.map render-rule rules)
-        )) ++ ["}"];
+        ] ++ [
+          (indent (render-chain-type chain))
+        ] ++ (lib.strings.intersperse "" (builtins.map indent (
+          (builtins.map render-rule rules)
+        ))) ++ ["}"];
       render-table = { name, family, chains }:
         [
           "table ${family} ${name} {"
