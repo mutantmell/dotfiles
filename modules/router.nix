@@ -829,6 +829,7 @@ in {
                   verdict = "accept";
                   comment = "Allow trusted networks to access the router";
                 }
+              ] ++ (if untrusted == [] then [] else [
                 {
                   iifname = untrusted;
                   tcp.dport = [ "53" ];
@@ -842,7 +843,7 @@ in {
                   counter = true;
                   verdict = "accept";
                 }
-              ] ++ (
+              ]) ++ (
                 cfg.firewall.extraInput
               ) ++ (
                 builtins.filter (v: v != null) (lib.attrValues (
@@ -854,14 +855,14 @@ in {
                     }
                   ) cfg.topology
                 ))
-              ) ++ [
+              ) ++ (if external == [] then [] else [
                 {
                   iifname = external;
                   ct.state = [ "established" "related" ];
                   counter = true;
                   verdict = "accept";
                 }
-              ];
+              ]);
             };
             "forward" = {
               kind = {
@@ -872,8 +873,9 @@ in {
                 default-policy = "drop";
               };
               rules = [
+                # todo: how should we handle this in the dsl?
                 "tcp flags syn tcp option maxseg size set rt mtu"
-                # todo: if these lists are empty, do /not/ create the rule
+              ] ++ (if all-wan-access == [] || external == [] then [] else [
                 {
                   iifname = all-wan-access;
                   oifname = external;
@@ -881,6 +883,7 @@ in {
                   verdict = "accept";
                   comment = "Allow all internal access to WAN";
                 }
+              ]) ++ (if trusted == [] then [] else [
                 {
                   iifname = trusted;
                   oifname = all-internal;
@@ -888,6 +891,7 @@ in {
                   verdict = "accept";
                   comment = "Allow trusted internal to all internal";
                 }
+              ]) ++ (if untrusted == [] && management == [] then [] else [
                 {
                   iifname = untrusted ++ management;
                   oifname = untrusted ++ management;
@@ -896,7 +900,7 @@ in {
                   verdict = "accept";
                   comment = "Allow untrusted access to internal management https";
                 }
-              ] ++ (
+              ]) ++ (
                 cfg.firewall.extraForwards
               ) ++ [
                 {
@@ -928,12 +932,12 @@ in {
                 priority = "filter";
                 default-policy = "accept";
               };
-              rules = [
+              rules = (if natInterfaces == [] then [] else [
                 {
                   oifname = natInterfaces;
                   masquerade = true;
                 }
-              ];
+              ]);
             };
           };
         }
