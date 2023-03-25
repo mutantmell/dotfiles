@@ -16,11 +16,11 @@
       peers = [
         {
           publicKey = "6Kb9OxV5mmCDt8GNTYTQi745sXI/ON7R9ZKnhuXPKiA=";
-          allowedIPs = [ "10.100.1.2/32" "10.0.0.0/16" ];
+          allowedIPs = [ "10.100.1.2/32" ];
         }
         {
           publicKey = "8VUwFlyw+Rj6mXDbzYV51lgqWrWskFEcwNR/6M85fg0=";
-          allowedIPs = [ "10.100.20.0/24" ];
+          allowedIPs = [ "10.100.20.0/24" "10.0.0.0/16" "10.1.0.0/16" ];
         }
       ];
     };
