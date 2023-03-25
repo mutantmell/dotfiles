@@ -774,7 +774,7 @@ in {
         ] ++ (
           render-rules kind-rule (lib.lists.reverseList rules)
         ) ++ ["}"];
-      render-table = { name, family, chains }:
+      render-table = family: name: { chains }:
         [
           "table ${family} ${name} {"
         ] ++ (
@@ -790,17 +790,19 @@ in {
         ) ++ ["}"];
       render-firewall-rules = fwall: lib.strings.concatStringsSep "\n" (
         lib.lists.flatten (
-          lib.strings.intersperse "" (
-            builtins.map render-table fwall
+          lib.lists.flatten (
+            lib.strings.intersperse "" (
+              lib.attrsets.mapAttrsToList (
+                name: value: lib.attrsets.mapAttrsToList (render-table name) value
+              ) fwall
+            )
           )
         )
       );
     in {
       enable = true;
-      ruleset = render-firewall-rules [
-        {
-          name = "filter";
-          family = "inet";
+      ruleset = render-firewall-rules {
+        inet.filter = {
           chains = {
             "output" = {
               kind = {
@@ -862,6 +864,10 @@ in {
                   counter = true;
                   verdict = "accept";
                 }
+                {
+                  iifname = external;
+                  verdict = "drop";
+                }
               ]);
             };
             "forward" = {
@@ -912,10 +918,8 @@ in {
               ];
             };
           };
-        }
-        {
-          name = "nat";
-          family = "ip";
+        };
+        ip.nat = {
           chains = {
             "prerouting" = {
               kind = {
@@ -940,8 +944,8 @@ in {
               ]);
             };
           };
-        }
-      ];
+        };
+      };
     };
   };
 }
