@@ -924,8 +924,8 @@ in {
             "prerouting" = {
               kind = {
                 type = "nat";
-                hook = "output";
-                priority = "filter";
+                hook = "prerouting";
+                priority = "0";
                 default-policy = "accept";
               };
             };
@@ -933,7 +933,7 @@ in {
               kind = {
                 type = "nat";
                 hook = "postrouting";
-                priority = "filter";
+                priority = "100";
                 default-policy = "accept";
               };
               rules = (if natInterfaces == [] then [] else [
