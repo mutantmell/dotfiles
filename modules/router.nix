@@ -348,6 +348,7 @@ in {
     allAddrs = addrsWhere (nw: true);
 
     addrFirstN = n: addr: lib.strings.concatStringsSep "." (lib.lists.take n (lib.strings.splitString "." addr));
+    bracketed = v: if v == null then null else "[${v}]";
     toAttrSet = f: v:
       builtins.listToAttrs (flatMapAttrsToList f v);
     
@@ -382,9 +383,9 @@ in {
       bind
     ];
 
+    systemd.network.enable = true;
     networking = {
       useDHCP = false;
-      useNetworkd = true;
       firewall.enable = false; # use custom nftables integration
     };
 
@@ -630,7 +631,6 @@ in {
       in toAttrSet fromDevice cfg.topology;
     };
 
-    networking.nameservers = builtins.filter (v: v != null) [ cfg.dns.upstream ];
     services.resolved = {
       enable = true;
       extraConfig = let
@@ -639,6 +639,52 @@ in {
       in ''
         ${lib.strings.concatStringsSep "\n" dnsExtras}
       '';
+    };
+
+    services.dnsmasq = let
+      dhcp-networks = {};
+      test-data = {
+        "lan" = {
+          ipv4 = "192.168.1.1";
+          dns = "self";
+        };
+      };
+    in {
+      enable = dhcp-networks != {};
+      settings = {
+        server = builtins.filter (v: v != null) [ cfg.dns.upstream ];
+        local = "/local/";
+        domain = "local";
+        expand-hosts = true;
+        listen-address = [ "::1" "127.0.0.1" ];
+        interface = builtins.attrName dhcp-networks;
+        bind-interfaces = true;
+        dhcp-option = let
+          fmt = { ipv4 ? null, ipv6 ? null, dns ? "self", ... }:
+            (
+              builtins.map (gw: "option:router, ${gw}") (builtins.filter (v: v != null) [ ipv4 (bracketed ipv6) ])
+            ) ++ (
+              # todo: ipv6, and do less add-hoc stuff here
+              builtins.map (dns: "option:router, ${dns}") (
+                if dns == "cloudflare" then [ "1.1.1.1" "1.0.0.1" ]
+                else if dns == "self" then [ "${addrFirstN 3 ipv4}.1" ]
+                else abort "invalid dns type: ${dns}"
+              )
+            );
+        in builtins.concatMap fmt (builtins.attrValues dhcp-networks);
+        dhcp-range = let
+          fmt = { ipv4 ? null, ... }:
+            # todo: add ipv6
+            [
+              "${addrFirstN 3 ipv4}.101,${addrFirstN 3 ipv4}.200,5m"
+            ];
+        in builtins.concatMap fmt (builtins.attrValues dhcp-networks);
+      };
+    };
+
+    services.avahi = {
+      enable = config.services.dnsmasq.enable;
+      nssmdns = true;
     };
 
     # TODO: make mtu setting based on the topology of the pppoe device
