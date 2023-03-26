@@ -24,6 +24,15 @@
   time.timeZone = "America/Los_Angeles";
 
   networking.hostName = "skadi";
+  networking.interfaces."ens3" = {
+    useDHCP = false;
+    ipv4.addresses = [{
+      address = "10.0.20.40";
+      prefixLength = 24;
+    }];
+  };
+  networking.defaultGateway = "10.0.20.1";
+  networking.nameservers = [ "10.0.20.1" ];
 
   users.users.mjollnir = {
     isNormalUser = true;
