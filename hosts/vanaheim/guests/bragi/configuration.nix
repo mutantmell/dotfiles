@@ -25,6 +25,15 @@ in { config, pkgs, ...}:
     ];
   };
   networking.hostName = "${hostname}";
+  networking.interfaces."ens3" = {
+    useDHCP = false;
+    ipv4.addresses = [{
+      address = "10.0.100.50";
+      prefixLength = 24;
+    }];
+  };
+  networking.defaultGateway = "10.0.100.1";
+  networking.nameservers = [ "10.0.100.1" ];
 
   nix.gc = {
     automatic = true;
