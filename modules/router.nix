@@ -321,9 +321,16 @@ in {
     filterMap = f: l: builtins.filter (v: v != null) (builtins.map f l);
     attrKeys = lib.attrsets.mapAttrsToList (name: ignored: name);
 
-    interfacesWhere = pred: let
-      fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (if pred network then [name] else []) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
-    in flatMapAttrsToList fromTopo cfg.topology;
+    networksWhere = pred: let
+      filter = name: { network, vlans ? {}, pppoe ? {}, ... }: (
+        if pred network then { ${name} = network; } else {}
+      ) // (
+        lib.attrsets.concatMapAttrs filter vlans
+      ) // (
+        lib.attrsets.concatMapAttrs filter pppoe
+      );
+    in lib.attrsets.concatMapAttrs filter cfg.topology;
+    interfacesWhere = pred: builtins.attrNames (networksWhere pred);
 
     interfacesWithTrust = tr: interfacesWhere ({ trust ? null, ... }: trust == tr);
     interfaces = interfacesWhere (nw: nw.type != "disabled");
@@ -359,6 +366,15 @@ in {
         message = "Cannot open the firewall for ${name} if no port is defined";
       }) cfg.topology
     ));
+    # ++ [(
+    #   let
+    #     nw = builtins.attrNames (networksWhere (v: true));
+    #     iw = interfacesWhere (v: true);
+    #     display = l: "[${lib.strings.concatStringsSep "," l}]";
+    #   in {
+    #   assertion = nw == iw;
+    #   message = "${display nw} != ${display iw}";
+    # })];
 
     boot.kernel.sysctl = {
       "net.ipv4.conf.all.forwarding" = true;
@@ -642,13 +658,7 @@ in {
     };
 
     services.dnsmasq = let
-      dhcp-networks = {};
-      test-data = {
-        "lan" = {
-          ipv4 = "192.168.1.1";
-          dns = "self";
-        };
-      };
+      dhcp-networks = networksWhere (builtins.hasAttr "dhcp");
     in {
       enable = dhcp-networks != {};
       settings = {
