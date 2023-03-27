@@ -25,8 +25,6 @@
     options = "-d";
   };
 
-  networking.useDHCP = false;
-
   environment.systemPackages = with pkgs; [
     vim
     wget
@@ -93,7 +91,14 @@
           };
           "vDMZ.lan" = {
             tag = 100;
-            network = { type = "routed"; ipv4 = "10.0.100.1/24"; trust = "untrusted"; };
+            network = {
+              type = "static";
+              static-addresses = ["10.0.100.1/24"];
+              dhcp = {
+                enable = true;
+              };
+              trust = "untrusted";
+            };
             routes = [
               { gateway = "10.0.100.40"; destination = "10.100.1.0/24"; }
               { gateway = "10.0.100.40"; destination = "10.100.0.0/24"; }
