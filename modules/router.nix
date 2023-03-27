@@ -116,6 +116,7 @@ in {
                 '';
                 default = null;
               };
+              # todo: move this to ipv4.addresses.*.{address, prefixLength}
               ipv4 = mkOption {
                 type = types.nullOr types.str;
                 example = "192.168.1.1/24";
@@ -127,12 +128,19 @@ in {
                 description = "IPV6 addresses to associate with a routed network";
                 default = null;
               };
+              dhcp = mkOption {
+                type = types.submodule {
+                  options.enable = mkEnableOption "Enable DHCP on a static network";
+                };
+                default = {};
+              };
               dns = mkOption {
                 type = types.enum [ "self" "cloudflare" ];
                 description = "DNS provider to use -- either use this router, or use cloudflare";
                 default = "self";
                 example = "cloudflare";
               };
+              # todo: ipv4.addresses and ipv6.addresses
               static-addresses = mkOption {
                 type = types.listOf types.str;
                 example = [ "192.168.1.100" ];
@@ -355,6 +363,7 @@ in {
     allAddrs = addrsWhere (nw: true);
 
     addrFirstN = n: addr: lib.strings.concatStringsSep "." (lib.lists.take n (lib.strings.splitString "." addr));
+    addrNoPrefix = addr: builtins.head (lib.strings.splitString "/" addr);
     bracketed = v: if v == null then null else "[${v}]";
     toAttrSet = f: v:
       builtins.listToAttrs (flatMapAttrsToList f v);
@@ -658,36 +667,36 @@ in {
     };
 
     services.dnsmasq = let
-      dhcp-networks = networksWhere (builtins.hasAttr "dhcp");
+      dhcp-networks = networksWhere (n: n.dhcp.enable);
     in {
       enable = dhcp-networks != {};
-      settings = {
+      settings =  {
         server = builtins.filter (v: v != null) [ cfg.dns.upstream ];
         local = "/local/";
         domain = "local";
         expand-hosts = true;
         listen-address = [ "::1" "127.0.0.1" ];
-        interface = builtins.attrName dhcp-networks;
+        interface = builtins.attrNames dhcp-networks;
         bind-interfaces = true;
         dhcp-option = let
-          fmt = { ipv4 ? null, ipv6 ? null, dns ? "self", ... }:
+          fmt = { static-addresses, dns, ... }:
             (
-              builtins.map (gw: "option:router, ${gw}") (builtins.filter (v: v != null) [ ipv4 (bracketed ipv6) ])
+              builtins.map (gw: "option:router, ${addrNoPrefix gw}") static-addresses
             ) ++ (
               # todo: ipv6, and do less add-hoc stuff here
-              builtins.map (dns: "option:router, ${dns}") (
+              builtins.map (dns: "6,${dns}") (
                 if dns == "cloudflare" then [ "1.1.1.1" "1.0.0.1" ]
-                else if dns == "self" then [ "${addrFirstN 3 ipv4}.1" ]
+                else if dns == "self" then [ "0.0.0.0" ]
                 else abort "invalid dns type: ${dns}"
               )
             );
         in builtins.concatMap fmt (builtins.attrValues dhcp-networks);
         dhcp-range = let
-          fmt = { ipv4 ? null, ... }:
+          fmt = { static-addresses, ... }:
             # todo: add ipv6
-            [
+            builtins.map (ipv4:
               "${addrFirstN 3 ipv4}.101,${addrFirstN 3 ipv4}.200,5m"
-            ];
+            ) static-addresses;
         in builtins.concatMap fmt (builtins.attrValues dhcp-networks);
       };
     };
