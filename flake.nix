@@ -55,7 +55,7 @@
       surtr = { config, pkgs, lib, ... }: (import ./hosts/muspelheim/guests/surtr/configuration.nix { inherit config pkgs lib sops-nix; }) // {
         deployment = {
           targetUser = "root";
-          targetHost = "surtr.local";
+          targetHost = "10.0.100.40";
           tags = [ "guest" "svc" ];
         };
       };
@@ -71,7 +71,7 @@
       bragi = { config, pkgs, lib, ... }: (import ./hosts/vanaheim/guests/bragi/configuration.nix { inherit config pkgs lib sops-nix; }) // {
         deployment = {
           targetUser = "root";
-          targetHost = "bragi.local";
+          targetHost = "10.0.100.50";
           tags = [ "guest" "svc" "media" ];
         };
       };
@@ -79,7 +79,7 @@
       njord = { config, pkgs, lib, ... }: (import ./hosts/vanaheim/guests/njord/configuration.nix { inherit config pkgs lib sops-nix; }) // {
         deployment = {
           targetUser = "root";
-          targetHost = "njord.local";
+          targetHost = "10.0.100.51";
           tags = [ "guest" "svc" "git" ];
         };
       };
