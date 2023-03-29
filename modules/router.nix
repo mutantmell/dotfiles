@@ -658,6 +658,8 @@ in {
       trustedAddr = nw@{ type, ipv4 ? null, ipv6 ? null, ... }:
         if builtins.elem type ["routed"]
         then (builtins.filter (v: v != null) [ipv4 ipv6])
+        else if nw.dhcp.enable
+        then nw.static-addresses
         else [];
       fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (
         trustedAddr network
@@ -706,7 +708,7 @@ in {
           fmt = { static-addresses, ... }:
             # todo: add ipv6
             builtins.map (ipv4:
-              "${addrFirstN 3 ipv4}.101,${addrFirstN 3 ipv4}.200,5m"
+              "${addrFirstN 3 ipv4}.101,${addrFirstN 3 ipv4}.200,12h"
             ) static-addresses;
         in builtins.concatMap fmt (builtins.attrValues dhcp-networks);
       };
