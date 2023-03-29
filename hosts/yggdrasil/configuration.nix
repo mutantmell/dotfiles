@@ -67,7 +67,7 @@
             pppoe = {
               "pppcenturylink" = {
                 userfile = config.sops.secrets."pppd-userfile".path;
-                network = { type = "dhcp"; route = "primary"; trust = "external"; };
+                network = { type = "dhcp"; nat.enable = true; route = "primary"; trust = "external"; };
               };
             };
           };
