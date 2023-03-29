@@ -353,7 +353,7 @@ in {
     interfaces = interfacesWhere (nw: nw.type != "disabled");
 
     interfacesOfType = ty: interfacesWhere (nw: nw.type == ty);
-    natInterfaces = interfacesWhere (nw: nw.type == "dhcp" && nw.trust == "external");
+    natInterfaces = interfacesWhere (nw: nw.nat.enable);
 
     pppoeNames = let
       fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (attrKeys pppoe) ++ (flatMapAttrsToList fromTopo vlans);
