@@ -90,8 +90,9 @@ in {
                   Type of network this is mean to configure.  Expects one of the following network types:
                   { type = "none"; } # Don't generate a network file
                   { type = "disabled"; } # Has a network file, but with everything disabled
-                  { type = "routed"; ipv4 = "..."; ipv6 = "..."; trust = trust-status } # a network that we provide routing for
-                  { type = "dhcp"; trust = trust-status; } # a network where we get a dhcp address assigned -- we don't route this
+                  # todo: replace with "static" && "dhcp"
+                  { type = "routed"; ipv4 = "..."; ipv6 = "..."; trust = trust-status }
+                  { type = "dhcp"; nat.enable = true; trust = trust-status; } # a network where we get a dhcp address assigned -- we don't route this
                   { type = "static"; addresses = [{ address = "..."; gateway? = "..."; dns? = "..."; }]; trust = trust-status } # static ip network
                 '';         
               };
@@ -160,6 +161,14 @@ in {
                 description = "DNS to use for a static network";
               };
               # TODO: we should combine this with the routes option, and move routes into network
+              nat = mkOption {
+                type = types.submodule {
+                  options.enable = mkEnableOption "Enable NAT for ipv4 on this dhcp interface";
+                };
+                example = { enable = true; };
+                default = {};
+                description = "NAT options for dhcp networks";
+              };
               route = mkOption {
                 type = types.nullOr (types.enum [ "primary" ]);
                 example = "primary";
@@ -351,17 +360,6 @@ in {
     in flatMapAttrsToList fromTopo cfg.topology;
 
     # should eventually return object like { ipv4: [...]; ipv6: [...]; }
-    addrsWhere = pred: let
-      trustedAddr = nw@{ type, ipv4 ? null, ipv6 ? null, ... }:
-        if builtins.elem type ["routed"] && (pred nw)
-        then (builtins.filter (v: v != null) [ipv4 ipv6])
-        else [];
-      fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (trustedAddr network) ++ (flatMapAttrsToList fromTopo vlans) ++ (flatMapAttrsToList fromTopo pppoe);
-    in flatMapAttrsToList fromTopo cfg.topology;
-
-    addrsWithTrust = trust: addrsWhere (nw: nw.trust == trust);
-    allAddrs = addrsWhere (nw: true);
-
     addrFirstN = n: addr: lib.strings.concatStringsSep "." (lib.lists.take n (lib.strings.splitString "." addr));
     addrNoPrefix = addr: builtins.head (lib.strings.splitString "/" addr);
     bracketed = v: if v == null then null else "[${v}]";
@@ -656,11 +654,24 @@ in {
       in toAttrSet fromDevice cfg.topology;
     };
 
-    services.resolved = {
-      enable = true;
+    services.resolved = let
+      trustedAddr = nw@{ type, ipv4 ? null, ipv6 ? null, ... }:
+        if builtins.elem type ["routed"]
+        then (builtins.filter (v: v != null) [ipv4 ipv6])
+        else [];
+      fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (
+        trustedAddr network
+      ) ++ (
+        flatMapAttrsToList fromTopo vlans
+      ) ++ (
+        flatMapAttrsToList fromTopo pppoe
+      );
+      dnsAddrs = flatMapAttrsToList fromTopo cfg.topology;
+    in {
+      enable = dnsAddrs != [];
       extraConfig = let
         format = addr: "DNSStubListenerExtra=" + (addrFirstN 3 addr) + ".1";
-        dnsExtras = builtins.map format allAddrs;
+        dnsExtras = builtins.map format dnsAddrs;
       in ''
         ${lib.strings.concatStringsSep "\n" dnsExtras}
       '';
