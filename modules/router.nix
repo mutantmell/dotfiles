@@ -84,14 +84,12 @@ in {
           type = types.submodule {
             options = {
               type = mkOption {
-                type = types.enum [ "none" "disabled" "routed" "dhcp" "static" ];
+                type = types.enum [ "none" "disabled" "dhcp" "static" ];
                 example = "none";
                 description = ''
                   Type of network this is mean to configure.  Expects one of the following network types:
                   { type = "none"; } # Don't generate a network file
                   { type = "disabled"; } # Has a network file, but with everything disabled
-                  # todo: replace with "static" && "dhcp"
-                  { type = "routed"; ipv4 = "..."; ipv6 = "..."; trust = trust-status }
                   { type = "dhcp"; nat.enable = true; trust = trust-status; } # a network where we get a dhcp address assigned -- we don't route this
                   { type = "static"; addresses = [{ address = "..."; gateway? = "..."; dns? = "..."; }]; trust = trust-status } # static ip network
                 '';         
@@ -117,18 +115,6 @@ in {
                 '';
                 default = null;
               };
-              # todo: move this to ipv4.addresses.*.{address, prefixLength}
-              ipv4 = mkOption {
-                type = types.nullOr types.str;
-                example = "192.168.1.1/24";
-                description = "IPV4 addresses to associate with a routed network";
-                default = null;
-              };
-              ipv6 = mkOption {
-                type = types.nullOr types.str;
-                description = "IPV6 addresses to associate with a routed network";
-                default = null;
-              };
               dhcp = mkOption {
                 type = types.submodule {
                   options.enable = mkEnableOption "Enable DHCP on a static network";
@@ -141,7 +127,7 @@ in {
                 default = "self";
                 example = "cloudflare";
               };
-              # todo: ipv4.addresses and ipv6.addresses
+              # todo: {ipv4,ipv6}.addresses.*.{address,prefixLength}
               static-addresses = mkOption {
                 type = types.listOf types.str;
                 example = [ "192.168.1.100" ];
@@ -514,8 +500,6 @@ in {
         mkNetworkConfig = {
           type,
             trust ? null,
-            ipv4 ? null,
-            ipv6 ? null,
             ignore-carrier ? false,
             route ? null,
             static-addresses ? [],
@@ -532,12 +516,7 @@ in {
             defRoute = if route != "primary" then {} else {
               DefaultRouteOnDevice = true;
             };
-          in if type == "routed" then {
-            Address = builtins.filter (v: v != null) [ipv4 ipv6];
-            MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" ];
-            DHCPServer = true;
-            IPMasquerade = "ipv4";
-          } else if type == "dhcp" then defRoute // {
+          in if type == "dhcp" then defRoute // {
             DHCP = "ipv4";
           } else if type == "disabled" then ignoreCarrier // {
             DHCP = "no";
@@ -553,6 +532,7 @@ in {
             Address = static-addresses;
             Gateway = static-gateways;
             DNS = static-dns;
+            MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" ];
           } else if type == "none" then null
             else abort "invalid type: ${type}";
 
@@ -571,16 +551,6 @@ in {
               Destination = destination;
             };
           };
-        mkDhcpServerConfig = { type, ipv4 ? null, dns ? "self", ...}: if type == "routed" then {
-          ServerAddress = ipv4;
-          PoolOffset = 100;
-          PoolSize = 100;
-          EmitDNS = true;
-          DNS =
-            if dns == "cloudflare" then [ "1.1.1.1" "1.0.0.1" ]
-            else if dns == "self" then [ "${addrFirstN 3 ipv4}.1" ]
-            else abort "invalid dns type: ${dns}";
-        } else {};
         fromPppoe = name: {
           network,
             routes ? [],
@@ -596,7 +566,6 @@ in {
               LinkLocalAddressing = "no";
             };
             routes = builtins.map mkRouteConfig routes;
-            dhcpServerConfig = mkDhcpServerConfig network;
           };
         });
         fromVlan = name: {
@@ -613,7 +582,6 @@ in {
               networkConfig = mkNetworkConfig network;
               linkConfig = mkLinkConfig { inherit mtu; inherit (network) required; };
               routes = builtins.map mkRouteConfig routes;
-              dhcpServerConfig = mkDhcpServerConfig network;
             };
           }] ++ (lib.attrsets.mapAttrsToList fromPppoe pppoe);
         fromDevice = name: {
@@ -654,30 +622,7 @@ in {
       in toAttrSet fromDevice cfg.topology;
     };
 
-    services.resolved = let
-      trustedAddr = nw@{ type, ipv4 ? null, ipv6 ? null, ... }:
-        if builtins.elem type ["routed"]
-        then (builtins.filter (v: v != null) [ipv4 ipv6])
-        else if nw.dhcp.enable
-        then nw.static-addresses
-        else [];
-      fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (
-        trustedAddr network
-      ) ++ (
-        flatMapAttrsToList fromTopo vlans
-      ) ++ (
-        flatMapAttrsToList fromTopo pppoe
-      );
-      dnsAddrs = flatMapAttrsToList fromTopo cfg.topology;
-    in {
-      enable = dnsAddrs != [];
-      extraConfig = let
-        format = addr: "DNSStubListenerExtra=" + (addrFirstN 3 addr) + ".1";
-        dnsExtras = builtins.map format dnsAddrs;
-      in ''
-        ${lib.strings.concatStringsSep "\n" dnsExtras}
-      '';
-    };
+    services.resolved.enable = false;
 
     services.dnsmasq = let
       dhcp-networks = networksWhere (n: n.dhcp.enable);

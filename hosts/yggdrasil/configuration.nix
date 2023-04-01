@@ -79,24 +79,22 @@
         vlans = {
           "vMGMT.lan" = {
             tag = 10;
-            network = { type = "routed"; ipv4 = "10.0.10.1/24"; trust = "management"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.0.10.1/24"]; trust = "management"; };
           };
           "vHOME.lan" = {
             tag = 20;
-            network = { type = "routed"; ipv4 = "10.0.20.1/24"; trust = "trusted"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.0.20.1/24"]; trust = "trusted"; };
           };
           "vADU.lan" = {
             tag = 31;
-            network = { type = "routed"; ipv4 = "10.0.31.1/24"; dns = "cloudflare"; trust = "untrusted"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.0.31.1/24"]; dns = "cloudflare"; trust = "untrusted"; };
           };
           "vDMZ.lan" = {
             tag = 100;
             network = {
               type = "static";
               static-addresses = ["10.0.100.1/24"];
-              dhcp = {
-                enable = true;
-              };
+              dhcp.enable = true;
               trust = "untrusted";
             };
             routes = [
@@ -121,23 +119,23 @@
         vlans = {
           "vMGMT.bat0" = {
             tag = 10;
-            network = { type = "routed"; ipv4 = "10.1.10.1/24"; trust = "management"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.1.10.1/24"]; trust = "management"; };
           };
           "vHOME.bat0" = {
             tag = 20;
-            network = { type = "routed"; ipv4 = "10.1.20.1/24"; trust = "trusted"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.1.20.1/24"]; trust = "trusted"; };
           };
           "vGUEST.bat0" = {
             tag = 30;
-            network = { type = "routed"; ipv4 = "10.1.30.1/24"; trust = "untrusted"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.1.30.1/24"]; trust = "untrusted"; };
           };
           "vIOT.bat0" = {
             tag = 40;
-            network = { type = "routed"; ipv4 = "10.1.40.1/24"; trust = "untrusted"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.1.40.1/24"]; trust = "untrusted"; };
           };
           "vGAME.bat0" = {
             tag = 41;
-            network = { type = "routed"; ipv4 = "10.1.41.1/24"; trust = "untrusted"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.1.41.1/24"]; trust = "untrusted"; };
           };
         };
       };
