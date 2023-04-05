@@ -59,11 +59,11 @@
     topology = {
       wan = {
         device = "00:e0:67:1b:70:34";
-        network = { type = "disabled"; };
+        network = { type = "disabled"; required = false; };
         vlans = {
           "wanCENTURYLINK" = {
             tag = 201;
-            network = { type = "disabled"; };
+            network = { type = "disabled"; required = false; };
             pppoe = {
               "pppcenturylink" = {
                 userfile = config.sops.secrets."pppd-userfile".path;
@@ -75,7 +75,7 @@
       };
       lan = {
         device = "00:e0:67:1b:70:35";
-        network = { type = "disabled"; };
+        network = { type = "disabled"; required = false; };
         vlans = {
           "vMGMT.lan" = {
             tag = 10;
@@ -115,7 +115,7 @@
           gatewayMode = "off";
           routingAlgorithm = "batman-v";
         };
-        network = { type = "disabled"; };
+        network = { type = "disabled"; required = false; };
         vlans = {
           "vMGMT.bat0" = {
             tag = 10;
@@ -148,6 +148,7 @@
           type = "static";
           static-addresses = [ "10.100.10.1/24" ];
           trust = "trusted";
+          required = false;
         };
         wireguard = {
           privateKeyFile = config.sops.secrets."wg-vpn-privatekey".path;
@@ -167,6 +168,7 @@
           type = "static";
           static-addresses = [ "10.100.20.1/24" ];
           trust = "external";
+          required = false;
         };
         wireguard = {
           privateKeyFile = config.sops.secrets."wg-mx-privatekey".path;
