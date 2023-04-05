@@ -615,7 +615,7 @@ in {
         expand-hosts = true;
         listen-address = [ "::1" "127.0.0.1" ];
         interface = builtins.attrNames dhcp-networks;
-        bind-interfaces = true;
+        bind-dynamic = true;
         dhcp-option = let
           fmt = name: { static-addresses, dns, ... }:
             (
@@ -639,7 +639,7 @@ in {
       };
     };
     systemd.services."dnsmasq" = {
-      wants = [ "network-online.target" ];
+      requires = [ "network-online.target" ];
       after = [ "network-online.target" ];
     };
 
