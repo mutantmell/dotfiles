@@ -82,28 +82,27 @@ in {
         #       and merge together
         networkConf = mkOption {
           type = types.submodule {
-            options = {
-              type = mkOption {
-                type = types.enum [ "none" "disabled" "dhcp" "static" ];
-                example = "none";
-                description = ''
+            options.type = mkOption {
+              type = types.enum [ "none" "disabled" "dhcp" "static" ];
+              example = "none";
+              description = ''
                   Type of network this is mean to configure.  Expects one of the following network types:
                   { type = "none"; } # Don't generate a network file
                   { type = "disabled"; } # Has a network file, but with everything disabled
                   { type = "dhcp"; nat.enable = true; trust = trust-status; } # a network where we get a dhcp address assigned -- we don't route this
                   { type = "static"; addresses = [{ address = "..."; gateway? = "..."; dns? = "..."; }]; trust = trust-status } # static ip network
                 '';         
-              };
-              required = mkOption {
-                type = types.bool;
-                example = false;
-                description = "Whether or not this network is required for start-up";
-                default = true;
-              };
-              trust = mkOption {
-                type = types.nullOr (types.enum [ "management" "external" "trusted" "untrusted" "lockdown" "local-access" ]);
-                example = "external";
-                description = ''
+            };
+            options.required = mkOption {
+              type = types.bool;
+              example = false;
+              description = "Whether or not this network is required for start-up";
+              default = true;
+            };
+            options.trust = mkOption {
+              type = types.nullOr (types.enum [ "management" "external" "trusted" "untrusted" "lockdown" "local-access" ]);
+              example = "external";
+              description = ''
                   trust-status determines how the firewall should handle this interface
 
                   management: Lock down access to just 'trusted' and 'management', but allow https communication for non-external
@@ -113,54 +112,53 @@ in {
                   lockdown: No access, neither internal nor external
                   local-access: Only allowed access to this device, no forwarding
                 '';
-                default = null;
+              default = null;
+            };
+            options.dhcp = mkOption {
+              type = types.submodule {
+                options.enable = mkEnableOption "Enable DHCP on a static network";
               };
-              dhcp = mkOption {
-                type = types.submodule {
-                  options.enable = mkEnableOption "Enable DHCP on a static network";
-                };
-                default = {};
+              default = {};
+            };
+            options.dns = mkOption {
+              type = types.enum [ "self" "cloudflare" ];
+              description = "DNS provider to use -- either use this router, or use cloudflare";
+              default = "self";
+              example = "cloudflare";
+            };
+            # todo: {ipv4,ipv6}.addresses.*.{address,prefixLength}
+            options.static-addresses = mkOption {
+              type = types.listOf types.str;
+              example = [ "192.168.1.100" ];
+              default = [];
+              description = "Addresses to use for a static network";
+            };
+            options.static-gateways = mkOption {
+              type = types.listOf types.str;
+              example = [ "192.168.1.1" ];
+              default = [];
+              description = "Gateways to use for a static network";
+            };
+            options.static-dns = mkOption {
+              type = types.listOf types.str;
+              example = [ "192.168.1.1" ];
+              default = [];
+              description = "DNS to use for a static network";
+            };
+            # TODO: we should combine this with the routes option, and move routes into network
+            options.nat = mkOption {
+              type = types.submodule {
+                options.enable = mkEnableOption "Enable NAT for ipv4 on this dhcp interface";
               };
-              dns = mkOption {
-                type = types.enum [ "self" "cloudflare" ];
-                description = "DNS provider to use -- either use this router, or use cloudflare";
-                default = "self";
-                example = "cloudflare";
-              };
-              # todo: {ipv4,ipv6}.addresses.*.{address,prefixLength}
-              static-addresses = mkOption {
-                type = types.listOf types.str;
-                example = [ "192.168.1.100" ];
-                default = [];
-                description = "Addresses to use for a static network";
-              };
-              static-gateways = mkOption {
-                type = types.listOf types.str;
-                example = [ "192.168.1.1" ];
-                default = [];
-                description = "Gateways to use for a static network";
-              };
-              static-dns = mkOption {
-                type = types.listOf types.str;
-                example = [ "192.168.1.1" ];
-                default = [];
-                description = "DNS to use for a static network";
-              };
-              # TODO: we should combine this with the routes option, and move routes into network
-              nat = mkOption {
-                type = types.submodule {
-                  options.enable = mkEnableOption "Enable NAT for ipv4 on this dhcp interface";
-                };
-                example = { enable = true; };
-                default = {};
-                description = "NAT options for dhcp networks";
-              };
-              route = mkOption {
-                type = types.nullOr (types.enum [ "primary" ]);
-                example = "primary";
-                description = "For a DHCP network, mark this as primary/default route";
-                default = null;
-              };
+              example = { enable = true; };
+              default = {};
+              description = "NAT options for dhcp networks";
+            };
+            options.route = mkOption {
+              type = types.nullOr (types.enum [ "primary" ]);
+              example = "primary";
+              description = "For a DHCP network, mark this as primary/default route";
+              default = null;
             };
           };
           default = { type = "none"; required = false; };
@@ -168,17 +166,15 @@ in {
         };
         routesConf = mkOption {
           type = types.listOf (types.submodule {
-            options = {
-              gateway = mkOption {
-                type = types.str;
-                description = "Address of Gateway for Static Routes";
-                example = "192.168.1.100";
-              };
-              destination = mkOption {
-                type = types.str;
-                description = "Address and prefix to route to the gateway";
-                example = "10.0.0.0/24";
-              };
+            options.gateway = mkOption {
+              type = types.str;
+              description = "Address of Gateway for Static Routes";
+              example = "192.168.1.100";
+            };
+            options.destination = mkOption {
+              type = types.str;
+              description = "Address and prefix to route to the gateway";
+              example = "10.0.0.0/24";
             };
           });
           description = "Static routes that correspond with this interface";
@@ -190,139 +186,134 @@ in {
         pppoeConf = mkOption {
           description = "configuration of the pppoe network on this device or vlan";
           type = types.attrsOf (types.submodule {
-            options = {
-              userfile = mkOption {
-                type = types.path;
-                description = "A path of an options file that sets the name of the user";
-              };
-              network = networkConf;
+            options.userfile = mkOption {
+              type = types.path;
+              description = "A path of an options file that sets the name of the user";
             };
+            options.network = networkConf;
           });
           default = {};
         };
         vlanConf = mkOption {
           description = "configuration of the vlan on this device";
           type = types.attrsOf (types.submodule {
-            options = {
-              tag = mkOption {
-                type = types.int;
-                example = 123;
-                description = "Tag to use for the vlan";
-              };
-              pppoe = pppoeConf;
-              network = networkConf;
-              routes = routesConf;
+            options.tag = mkOption {
+              type = types.int;
+              example = 123;
+              description = "Tag to use for the vlan";
             };
+            options.pppoe = pppoeConf;
+            options.network = networkConf;
+            options.routes = routesConf;
           });
           default = {};
         };
       in types.attrsOf (types.submodule {
-        options = {
-          device = mkOption {
-            type = types.nullOr types.str;
-            example = "00:11:22:33:44:55";
-            description = "MAC address of the device, to create the name for";
-            default = null;
-          };
-          network = networkConf;
-          vlans = vlanConf;
-          pppoe = pppoeConf;
-          routes = routesConf;
-          mtu = mkOption {
-            type = types.nullOr types.str;
-            example = "1536";
-            description = "override the default mtu of the device";
-            default = null;
-          };          
-          batmanDevice = mkOption {
-            type = types.nullOr types.str;
-            example = "bat0";
-            description = "batman-advanced network this device should be associated with, if any";
-            default = null;
-          };
-          batman = mkOption {
-            type = types.nullOr (types.submodule {
-              options = {
-                gatewayMode = mkOption {
-                  type = types.nullOr types.str;
-                  example = "off";
-                  description = "gateway mode of the batman device";
-                };
-                routingAlgorithm = mkOption {
-                  type = types.nullOr types.str;
-                  example = "batman-v";
-                  description = "routing algorithm of the batman device";
-                };
-              };
-            });
-            description = "configuration of the batman device";
-            default = null;
-          };
-          wireguard = mkOption {
-            type = types.nullOr (types.submodule {
-              options.privateKeyFile = mkOption {
-                type = types.path;
-                description = "path to the file containing the private key";
-              };
-              # TODO: move this to the network, where we can specify trust/etc to integrate with nat/firewalling
-              options.address = mkOption {
-                type = types.str;
-                description = "IP address that will be assigned to the host in the network";
-              };
-              options.port = mkOption {
-                type = types.nullOr types.int;
-                description = "port to listen on";
-                default = null;
-              };
-              options.peers = mkOption {
-                type = types.listOf (types.submodule {
-                  options.allowedIps = mkOption {
-                    type = types.nonEmptyListOf types.str;
-                    description = ''
+        options.device = mkOption {
+          type = types.nullOr types.str;
+          example = "00:11:22:33:44:55";
+          description = "MAC address of the device, to create the name for";
+          default = null;
+        };
+        options.network = networkConf;
+        options.vlans = vlanConf;
+        options.pppoe = pppoeConf;
+        options.routes = routesConf;
+        options.mtu = mkOption {
+          type = types.nullOr types.str;
+          example = "1536";
+          description = "override the default mtu of the device";
+          default = null;
+        };
+        options.batmanDevice = mkOption {
+          type = types.nullOr types.str;
+          example = "bat0";
+          description = "batman-advanced network this device should be associated with, if any";
+          default = null;
+        };
+        options.batman = mkOption {
+          type = types.nullOr (types.submodule {
+            options.gatewayMode = mkOption {
+              type = types.nullOr types.str;
+              example = "off";
+              description = "gateway mode of the batman device";
+            };
+            options.routingAlgorithm = mkOption {
+              type = types.nullOr types.str;
+              example = "batman-v";
+              description = "routing algorithm of the batman device";
+            };
+          });
+          description = "configuration of the batman device";
+          default = null;
+        };
+        options.wireguard = mkOption {
+          type = types.nullOr (types.submodule {
+            options.privateKeyFile = mkOption {
+              type = types.path;
+              description = "path to the file containing the private key";
+            };
+            # TODO: move this to the network, where we can specify trust/etc to integrate with nat/firewalling
+            options.address = mkOption {
+              type = types.str;
+              description = "IP address that will be assigned to the host in the network";
+            };
+            options.port = mkOption {
+              type = types.nullOr types.int;
+              description = "port to listen on";
+              default = null;
+            };
+            options.peers = mkOption {
+              type = types.listOf (types.submodule {
+                options.allowedIps = mkOption {
+                  type = types.nonEmptyListOf types.str;
+                  description = ''
                       IP addresses to route to the peer
 
                       If you want to route all traffic to the peer,
                       (aka use the peer as a VPN) use [ "0.0.0.0/0" "::/0" ]
                     '';
-                    example = [ "0.0.0.0/0" "::/0" ];
-                  };
-                  options.publicKey = mkOption {
-                    type = types.str;
-                    description = "public key for the peer";
-                  };
-                  options.endpoint = mkOption {
-                    type = types.nullOr types.str;
-                    description = "endpoint for the peer, including port";
-                    example = "example.com:45678";
-                    default = null;
-                  };
-                  options.persistentKeepalive = mkOption {
-                    type = types.nullOr types.int;
-                    description = "persistent keepalive value for the peer";
-                    example = 25;
-                    default = null;
-                  };
-                });
-                description = "wireguard peers";
-                default = [];
-              };
-              options.openFirewall = mkOption {
-                type = types.bool;
-                description = "whether or not to allow inbound traffic on the port";
-                default = false;
-              };
-            });
-            default = null;
-          };
+                  example = [ "0.0.0.0/0" "::/0" ];
+                };
+                options.publicKey = mkOption {
+                  type = types.str;
+                  description = "public key for the peer";
+                };
+                options.endpoint = mkOption {
+                  type = types.nullOr types.str;
+                  description = "endpoint for the peer, including port";
+                  example = "example.com:45678";
+                  default = null;
+                };
+                options.persistentKeepalive = mkOption {
+                  type = types.nullOr types.int;
+                  description = "persistent keepalive value for the peer";
+                  example = 25;
+                  default = null;
+                };
+              });
+              description = "wireguard peers";
+              default = [];
+            };
+            options.openFirewall = mkOption {
+              type = types.bool;
+              description = "whether or not to allow inbound traffic on the port";
+              default = false;
+            };
+          });
+          default = null;
         };
       });
     };
   };
-  
+
   config = let
     flatMapAttrsToList = f: v: lib.lists.flatten (lib.attrsets.mapAttrsToList f v);
     filterMap = f: l: builtins.filter (v: v != null) (builtins.map f l);
     attrKeys = lib.attrsets.mapAttrsToList (name: ignored: name);
+    opt = cond: val: if cond then [val] else [];
+    optNonNull = val: opt (val != null) val;
+    liftNonNull = f: val: if val == null then null else f val;
 
     networksWhere = pred: let
       filter = name: { network, vlans ? {}, pppoe ? {}, ... }: (
@@ -335,7 +326,7 @@ in {
     in lib.attrsets.concatMapAttrs filter cfg.topology;
     interfacesWhere = pred: builtins.attrNames (networksWhere pred);
 
-    interfacesWithTrust = tr: interfacesWhere ({ trust ? null, ... }: trust == tr);
+    interfacesWithTrust = tr: interfacesWhere ({ trust ? null, ... }: (if builtins.isList tr then builtins.elem trust tr else trust == tr));
     interfaces = interfacesWhere (nw: nw.type != "disabled");
 
     interfacesOfType = ty: interfacesWhere (nw: nw.type == ty);
@@ -348,7 +339,6 @@ in {
     # should eventually return object like { ipv4: [...]; ipv6: [...]; }
     addrFirstN = n: addr: lib.strings.concatStringsSep "." (lib.lists.take n (lib.strings.splitString "." addr));
     addrNoPrefix = addr: builtins.head (lib.strings.splitString "/" addr);
-    bracketed = v: if v == null then null else "[${v}]";
     toAttrSet = f: v:
       builtins.listToAttrs (flatMapAttrsToList f v);
     
@@ -359,15 +349,6 @@ in {
         message = "Cannot open the firewall for ${name} if no port is defined";
       }) cfg.topology
     ));
-    # ++ [(
-    #   let
-    #     nw = builtins.attrNames (networksWhere (v: true));
-    #     iw = interfacesWhere (v: true);
-    #     display = l: "[${lib.strings.concatStringsSep "," l}]";
-    #   in {
-    #   assertion = nw == iw;
-    #   message = "${display nw} != ${display iw}";
-    # })];
 
     boot.kernel.sysctl = {
       "net.ipv4.conf.all.forwarding" = true;
@@ -393,6 +374,7 @@ in {
     ];
 
     systemd.network.enable = true;
+    services.resolved.enable = false;
     networking = {
       useDHCP = false;
       firewall.enable = false; # use custom nftables integration
@@ -532,7 +514,8 @@ in {
             Address = static-addresses;
             Gateway = static-gateways;
             DNS = static-dns;
-            MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" ];
+            # multicast dns is provided by avahi
+            # MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" ];
           } else if type == "none" then null
             else abort "invalid type: ${type}";
 
@@ -622,8 +605,6 @@ in {
       in toAttrSet fromDevice cfg.topology;
     };
 
-    services.resolved.enable = false;
-
     services.dnsmasq = let
       dhcp-networks = networksWhere (n: n.dhcp.enable);
     in {
@@ -662,6 +643,8 @@ in {
     services.avahi = {
       enable = config.services.dnsmasq.enable;
       nssmdns = true;
+      #reflector = true;
+      allowInterfaces = interfacesWithTrust [ "management" "trusted" "untrusted" ];
     };
 
     # TODO: make mtu setting based on the topology of the pppoe device
@@ -714,7 +697,7 @@ in {
     networking.nftables = let
       external = interfacesWithTrust "external";
       management = interfacesWithTrust "management";
-      trusted = (interfacesWithTrust "trusted") ++ management;
+      trusted = interfacesWithTrust [ "trusted" "management" ];
       untrusted = (interfacesWithTrust "untrusted");
       local-access = interfacesWithTrust "local-access";
       lockdown = interfacesWithTrust "lockdown";
@@ -728,7 +711,6 @@ in {
           ) ++ [ "priority ${priority}; policy ${default-policy};" ]
         );
       render-formatted-rule = let
-        # todo: support match ~ { not = ... }.  Ranges can be implicit, and are validated by the linter that's run regardless
         render-long-brackets = inner:
           if builtins.stringLength inner < 25
           then "{ ${inner} }"
