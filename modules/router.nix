@@ -11,8 +11,6 @@ in {
     enable = mkEnableOption "Home Router Service";
 
     # TODO: this might be better suited as something tied to the overall topology?
-    #       either way, this is kinda hardcoded and is worth re-thinking when we
-    #       migrate to dnsmasq for dns/dhcp
     dns = mkOption {
       type = types.submodule {
         options.upstream = mkOption {
@@ -93,6 +91,7 @@ in {
                   { type = "static"; addresses = [{ address = "..."; gateway? = "..."; dns? = "..."; }]; trust = trust-status } # static ip network
                 '';         
             };
+            # todo: infer required via a mkDefault that checks if type == disabled,none ; maybe if vlans,pppoe non-empty?
             options.required = mkOption {
               type = types.bool;
               example = false;
@@ -618,18 +617,18 @@ in {
         interface = builtins.attrNames dhcp-networks;
         bind-interfaces = true;
         dhcp-option = let
-          fmt = { static-addresses, dns, ... }:
+          fmt = name: { static-addresses, dns, ... }:
             (
-              builtins.map (gw: "option:router, ${addrNoPrefix gw}") static-addresses
+              builtins.map (gw: "${name},3,${addrNoPrefix gw}") static-addresses
             ) ++ (
               # todo: ipv6, and do less add-hoc stuff here
-              builtins.map (dns: "6,${dns}") (
-                if dns == "cloudflare" then [ "1.1.1.1" "1.0.0.1" ]
-                else if dns == "self" then [ "0.0.0.0" ]
+              [("${name},6," + (
+                if dns == "cloudflare" then "1.1.1.1,1.0.0.1"
+                else if dns == "self" then "0.0.0.0"
                 else abort "invalid dns type: ${dns}"
-              )
+              ))]
             );
-        in builtins.concatMap fmt (builtins.attrValues dhcp-networks);
+        in flatMapAttrsToList fmt dhcp-networks;
         dhcp-range = let
           fmt = { static-addresses, ... }:
             # todo: add ipv6
@@ -638,6 +637,10 @@ in {
             ) static-addresses;
         in builtins.concatMap fmt (builtins.attrValues dhcp-networks);
       };
+    };
+    systemd.services."dnsmasq" = {
+      wants = [ "network-online.target" ];
+      after = [ "network-online.target" ];
     };
 
     services.avahi = {
