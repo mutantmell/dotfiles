@@ -182,25 +182,24 @@
         };
       };
     };
-    dynamic.environmentFile = ""; # config.sops.secrets."dynamic-network-env.conf".path;
-    dynamic.topology = {
-      "wg-ba" = {
-        network = {
-          type = "static";
-          static-addresses = [ "10.100.0.1/24" ];
-          trust = "untrusted";
-          required = false;
-        };
-        wireguard = {
-          privateKeyFile = ""; # config.sops.secrets."wg-ba-privatekey".path;
-          port = 53973;
-          peers = [{
-            allowedIps = [ "10.100.0.3/32" ];
-            publicKey = "hTmV7qOLXHCQnTWljCiNHf2P22GBd0n339Fcq4tVdlw=";
-            endpoint.env = "wg-ba-endpoint";
-            persistentKeepalive = 25;
-          }];
-        };
+    dynamic = {
+      environmentFile = config.sops.secrets."dynamic-network-env.conf".path;
+      networkFiles = {
+        "30-wg-ba" = ''
+          [NetDev]
+          Kind=wireguard
+          Name=wg-ba
+
+          [WireGuard]
+          ListenPort=38506
+          PrivateKeyFile=${config.sops.secrets."wg-ba-privatekey".path}
+
+          [WireGuardPeer]
+          AllowedIPs="10.100.0.3/32"
+          Endpoint=$WG_BA_ENDPOINT
+          PersistentKeepalive=25
+          PublicKey=O+WWPlhy6Lg9YT3hYqq+/8gZ48PpRXaUTl4eFFwgTVA=
+        '';
       };
     };
   };

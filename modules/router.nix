@@ -313,29 +313,38 @@ in {
       });
       asDynamic = val:
         if builtins.isList val then builtins.map asDynamic val
-        else if builtins.isAttrs val then builtins.mapAttrs (name: value:
-          if name == "_type" then types.enum [ envType (asDynamic value) ] else asDynamic value
-        ) val
+        else if builtins.isAttrs val && builtins.hasAttr "_type" val && val._type == "option" then {
+          type = types.enum [ envType (asDynamic val) ];
+        } // val
         else val;
     in
-      mkOption {
-        type = types.submodule {
-          environmentFile = mkOption {
-            type = types.nullOr types.str;
-            default = null;
-          };
-          topology = asDynamic opt.topolody;
+     mkOption {
+      type = types.submodule {
+        options.environmentFile = mkOption {
+          type = types.str; # types.nullOr types.str;
         };
-        default = {};
+        # todo: see if people would be willing to export the networkd builders, then use those builders
+        #       to generate files for the systemd script
+        options.topology = asDynamic opt.topology;
+        options.networkFiles = mkOption {
+          type = types.attrsOf types.str;
+          default = {};
+        };
+        options.netdevFiles = mkOption {
+          type = types.attrsOf types.str;
+          default = {};
+        };
       };
+      default = {};
+    };
   };
 
   config = let
     flatMapAttrsToList = f: v: lib.lists.flatten (lib.attrsets.mapAttrsToList f v);
     filterMap = f: l: builtins.filter (v: v != null) (builtins.map f l);
     attrKeys = lib.attrsets.mapAttrsToList (name: ignored: name);
-    opt = cond: val: if cond then [val] else [];
-    optNonNull = val: opt (val != null) val;
+    optional = cond: val: if cond then [val] else [];
+    optNonNull = val: optional (val != null) val;
     liftNonNull = f: val: if val == null then null else f val;
 
     networksWhere = pred: let
@@ -626,6 +635,40 @@ in {
           lib.attrsets.mapAttrsToList fromPppoe pppoe
         );
       in toAttrSet fromDevice cfg.topology;
+    };
+
+    # todo: turn on when ready to do dynamic networking
+    systemd.services."router-network-dynamic" = lib.mkIf (
+      false # cfg.dynamic.networkFiles != {} || cfg.dynamic.netdevFiles != {}
+    ) {
+      wantedBy = [ "network.target" ];
+      before = [ "network.target" ];
+      path = with pkgs; [ bash envsubst ];
+      # todo: once we have access to the networkd file rendering functions,
+      #       use those to generate the files instead of directly using
+      #       ones the user provides
+      script = let
+        volatilePath = "/run/systemd/network";
+      in ''
+        mkdir -p ${volatilePath}
+        chown systemd-network:systemd-network ${volatilePath}
+      '' + (lib.strings.concatStringsSep "\n" (
+        lib.attrsets.mapAttrsToList (file: contents: ''
+          cat << EOF | envsubst > ${volatilePath}/${file}.netdev
+          ${contents}
+          EOF
+        '') cfg.dynamic.netdevFiles
+      )) + (lib.strings.concatStringsSep "\n" (
+        lib.attrsets.mapAttrsToList (file: contents: ''
+          cat << EOF | envsubst > ${volatilePath}/${file}.network
+          ${contents}
+          EOF
+        '') cfg.dynamic.networkFiles
+      ));
+      serviceConfig = {
+        Type = "oneshot";
+        EnvironmentFile = cfg.dynamic.environmentFile;
+      };
     };
 
     services.dnsmasq = let
