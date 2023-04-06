@@ -20,6 +20,7 @@ in {
     allowedTCPPorts = [ 22 ];
     allowedUDPPorts = [ 5353 ];
   };
+  networking.useNetworkd = true;
   networking.interfaces."ens3" = {
     useDHCP = false;
     ipv4.addresses = [{

@@ -1,4 +1,4 @@
-{ config, pkgs, lib, ... }:
+{ config, options, pkgs, lib, ... }:
 
 # There were two main sources of inspiration for this configuration:
 #   1. https://pavluk.org/blog/2022/01/26/nixos_router.html
@@ -6,6 +6,7 @@
 # Thank you very much!
 let
   cfg = config.router;
+  opt = options.router;
 in {
   options.router = with lib; {
     enable = mkEnableOption "Home Router Service";
@@ -304,6 +305,29 @@ in {
         };
       });
     };
+    dynamic = let
+      envType = types.nullOr (types.submodule {
+        options.name = mkOption {
+          type = types.str;
+        };
+      });
+      asDynamic = val:
+        if builtins.isList val then builtins.map asDynamic val
+        else if builtins.isAttrs val then builtins.mapAttrs (name: value:
+          if name == "_type" then types.enum [ envType (asDynamic value) ] else asDynamic value
+        ) val
+        else val;
+    in
+      mkOption {
+        type = types.submodule {
+          environmentFile = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+          };
+          topology = asDynamic opt.topolody;
+        };
+        default = {};
+      };
   };
 
   config = let
