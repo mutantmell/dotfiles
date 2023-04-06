@@ -182,6 +182,27 @@
         };
       };
     };
+    dynamic.environmentFile = ""; # config.sops.secrets."dynamic-network-env.conf".path;
+    dynamic.topology = {
+      "wg-ba" = {
+        network = {
+          type = "static";
+          static-addresses = [ "10.100.0.1/24" ];
+          trust = "untrusted";
+          required = false;
+        };
+        wireguard = {
+          privateKeyFile = ""; # config.sops.secrets."wg-ba-privatekey".path;
+          port = 53973;
+          peers = [{
+            allowedIps = [ "10.100.0.3/32" ];
+            publicKey = "hTmV7qOLXHCQnTWljCiNHf2P22GBd0n339Fcq4tVdlw=";
+            endpoint.env = "wg-ba-endpoint";
+            persistentKeepalive = 25;
+          }];
+        };
+      };
+    };
   };
   networking.extraHosts = ''
     10.0.10.2 alfheim
