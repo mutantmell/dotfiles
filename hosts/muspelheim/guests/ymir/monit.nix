@@ -53,7 +53,7 @@
         {
           job_name = "matrix_node";
           static_configs = [{
-            targets = [ "10.100.1.1:9001" ];
+            targets = [ "10.100.20.10:9001" ];
           }];
         }
 
