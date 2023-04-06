@@ -377,6 +377,7 @@ in {
     networking = {
       useDHCP = false;
       firewall.enable = false; # use custom nftables integration
+      nameservers = builtins.filter (v: v != null) [ cfg.dns.upstream ];
     };
 
     systemd.network = {
@@ -445,7 +446,6 @@ in {
               Kind = "wireguard";
             };
             wireguardConfig = lib.filterAttrs (n: v: v != null) {
-              #Address = address;
               PrivateKeyFile = privateKeyFile;
               ListenPort = port;
             };
@@ -610,6 +610,7 @@ in {
       enable = dhcp-networks != {};
       settings =  {
         server = builtins.filter (v: v != null) [ cfg.dns.upstream ];
+        no-resolv = true;
         local = "/local/";
         domain = "local";
         expand-hosts = true;
@@ -646,7 +647,8 @@ in {
     services.avahi = {
       enable = config.services.dnsmasq.enable;
       nssmdns = true;
-      #reflector = true;
+      publish.enable = true;
+      reflector = true;
       allowInterfaces = interfacesWithTrust [ "management" "trusted" "untrusted" ];
     };
 

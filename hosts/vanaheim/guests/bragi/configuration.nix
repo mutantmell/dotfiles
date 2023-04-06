@@ -109,6 +109,7 @@ in { config, pkgs, ...}:
     ];
     allowedUDPPorts = [
       1900
+      5353
       7359
     ];
   };

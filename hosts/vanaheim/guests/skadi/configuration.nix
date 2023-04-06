@@ -33,6 +33,7 @@
   };
   networking.defaultGateway = "10.0.20.1";
   networking.nameservers = [ "10.0.20.1" ];
+  networking.firewall.allowedUDPPorts = [ 5353 ];
 
   users.users.mjollnir = {
     isNormalUser = true;
@@ -67,6 +68,7 @@
 
   services.avahi = {
     enable = true;
+    nssmdns = true;
     publish = {
       enable = true;
       addresses = true;
