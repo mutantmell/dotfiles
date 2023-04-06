@@ -17,6 +17,7 @@
   ];
 
   networking.hostName = "ymir";
+  networking.useNetworkd = true;
   time.timeZone = "UTC";
 
   services.avahi = {
