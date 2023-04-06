@@ -16,6 +16,11 @@
         mode = "0440";
         group = config.users.users."systemd-network".group;
       };
+      "wg-ba-privatekey" = {
+        mode = "0440";
+        group = config.users.users."systemd-network".group;
+      };
+      "dynamic-network-env.conf" = {};
     };
   };
 }
