@@ -186,8 +186,6 @@
   networking.extraHosts = ''
     10.0.10.2 alfheim
     10.0.10.2 alfheim.local
-    10.0.100.50 bragi.local
-    10.0.100.51 njord.local
   '';
 
   system.stateVersion = "21.11";
