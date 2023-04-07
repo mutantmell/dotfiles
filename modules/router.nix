@@ -654,13 +654,13 @@ in {
         chown systemd-network:systemd-network ${volatilePath}
       '' + (lib.strings.concatStringsSep "\n" (
         lib.attrsets.mapAttrsToList (file: contents: ''
-          cat << EOF | envsubst > ${volatilePath}/${file}.netdev
+          envsubst <<EOF > ${volatilePath}/${file}.netdev
           ${contents}
           EOF
         '') cfg.dynamic.netdevFiles
       )) + (lib.strings.concatStringsSep "\n" (
         lib.attrsets.mapAttrsToList (file: contents: ''
-          cat << EOF | envsubst > ${volatilePath}/${file}.network
+          envsubst <<EOF > ${volatilePath}/${file}.network
           ${contents}
           EOF
         '') cfg.dynamic.networkFiles
