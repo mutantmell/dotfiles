@@ -15,7 +15,6 @@
       ../../../../modules/overrides/wireguard.nix
 
       ./proxy.nix
-      #./wireguard.nix
     ];
   disabledModules =
     [ "services/networking/wireguard.nix"
@@ -35,12 +34,6 @@
     ipv4.addresses = [{
       address = "10.0.100.40";
       prefixLength = 24;
-    } {
-      address = "10.100.0.1";
-      prefixLength = 24;
-    } {
-      address = "10.100.1.2";
-      prefixLength = 24;
     }];
   };
   networking.defaultGateway = "10.0.100.1";
@@ -48,6 +41,7 @@
 
   services.avahi = {
     enable = true;
+    nssmdns = true;
     publish = {
       enable = true;
       addresses = true;

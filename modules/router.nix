@@ -344,25 +344,25 @@ in {
         } // val
         else val;
     in
-     mkOption {
-      type = types.submodule {
-        options.environmentFile = mkOption {
-          type = types.str; # types.nullOr types.str;
+      mkOption {
+        type = types.submodule {
+          options.environmentFile = mkOption {
+            type = types.str; # types.nullOr types.str;
+          };
+          # todo: see if people would be willing to export the networkd builders, then use those builders
+          #       to generate files for the systemd script
+          options.topology = asDynamic opt.topology;
+          options.networkFiles = mkOption {
+            type = types.attrsOf types.str;
+            default = {};
+          };
+          options.netdevFiles = mkOption {
+            type = types.attrsOf types.str;
+            default = {};
+          };
         };
-        # todo: see if people would be willing to export the networkd builders, then use those builders
-        #       to generate files for the systemd script
-        options.topology = asDynamic opt.topology;
-        options.networkFiles = mkOption {
-          type = types.attrsOf types.str;
-          default = {};
-        };
-        options.netdevFiles = mkOption {
-          type = types.attrsOf types.str;
-          default = {};
-        };
+        default = {};
       };
-      default = {};
-    };
   };
 
   config = let
@@ -696,10 +696,20 @@ in {
           chown systemd-network:systemd-network ${volatilePath}/${file}.network
         '') cfg.dynamic.networkFiles
       ));
-      serviceConfig = {
-        Type = "oneshot";
-        EnvironmentFile = cfg.dynamic.environmentFile;
-      };
+      # todo: eventually have this remove the links via ip manip -- networkd just kinda abandons them :/
+      preStop = let
+        volatilePath = "/run/systemd/network";
+      in (lib.strings.concatStringsSep "\n" (
+        lib.attrsets.mapAttrsToList (file: contents: ''
+          rm ${volatilePath}/${file}.netdev
+        '') cfg.dynamic.netdevFiles
+      )) + (lib.strings.concatStringsSep "\n" (
+        lib.attrsets.mapAttrsToList (file: contents: ''
+          rm ${volatilePath}/${file}.network
+        '') cfg.dynamic.networkFiles
+      ));
+      serviceConfig.Type = "oneshot";
+      serviceConfig.EnvironmentFile = cfg.dynamic.environmentFile;
     };
 
     services.dnsmasq = let
