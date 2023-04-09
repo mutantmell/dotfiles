@@ -665,7 +665,7 @@ in {
 
     # todo: turn on when ready to do dynamic networking
     systemd.services."router-network-dynamic" = lib.mkIf (
-      false # cfg.dynamic.networkFiles != {} || cfg.dynamic.netdevFiles != {}
+      cfg.dynamic.networkFiles != {} || cfg.dynamic.netdevFiles != {}
     ) {
       wants = [ "network-pre.target" ];
       before = [ "network-pre.target" ];

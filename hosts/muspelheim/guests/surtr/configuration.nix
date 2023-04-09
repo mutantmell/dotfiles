@@ -15,7 +15,7 @@
       ../../../../modules/overrides/wireguard.nix
 
       ./proxy.nix
-      ./wireguard.nix
+      #./wireguard.nix
     ];
   disabledModules =
     [ "services/networking/wireguard.nix"
@@ -63,7 +63,6 @@
 
   services.openssh = {
     enable = true;
-    openFirewall = false;
     passwordAuthentication = false;
     permitRootLogin = "prohibit-password";
     kbdInteractiveAuthentication = false;
