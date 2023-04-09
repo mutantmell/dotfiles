@@ -110,10 +110,10 @@
               dhcp.enable = true;
               trust = "untrusted";
             };
-            routes = [
-              { gateway = "10.0.100.40"; destination = "10.100.1.0/24"; }
-              { gateway = "10.0.100.40"; destination = "10.100.0.0/24"; }
-            ];
+            # routes = [
+            #   { gateway = "10.0.100.40"; destination = "10.100.1.0/24"; }
+            #   { gateway = "10.0.100.40"; destination = "10.100.0.0/24"; }
+            # ];
           };
         };
         batmanDevice = "bat0";
@@ -197,7 +197,7 @@
     };
     dynamic = {
       environmentFile = config.sops.secrets."dynamic-network-env.conf".path;
-      networkFiles = {
+      netdevFiles = {
         "30-wg-ba" = ''
           [NetDev]
           Kind=wireguard
@@ -208,10 +208,22 @@
           PrivateKeyFile=${config.sops.secrets."wg-ba-privatekey".path}
 
           [WireGuardPeer]
-          AllowedIPs="10.100.0.3/32"
+          AllowedIPs=10.100.0.3/32
           Endpoint=$WG_BA_ENDPOINT
           PersistentKeepalive=25
           PublicKey=O+WWPlhy6Lg9YT3hYqq+/8gZ48PpRXaUTl4eFFwgTVA=
+        '';
+      };
+      networkFiles = {
+        "40-wg-ba" = ''
+          [Match]
+          Name=wg-ba
+
+          [Link]
+          RequiredForOnline=no
+
+          [Network]
+          Address=10.100.0.1/24
         '';
       };
     };
