@@ -1026,10 +1026,10 @@ in {
                 {
                   iifname = untrusted ++ management;
                   oifname = untrusted ++ management;
-                  tcp.dport = [ "https" ];
+                  tcp.dport = [ "http" "https" ];
                   counter = true;
                   verdict = "accept";
-                  comment = "Allow untrusted access to internal management https";
+                  comment = "Allow untrusted access to internal management http(s)";
                 }
               ]) ++ (
                 cfg.firewall.extraForwards

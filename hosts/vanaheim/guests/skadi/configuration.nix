@@ -7,14 +7,13 @@
     extraOptions = ''
       experimental-features = nix-command flakes
     '';
-   };
+  };
+  nixpkgs.config.allowUnfree = true;
 
   imports =
     [
       ./hardware-configuration.nix
       ./sops.nix
-
-      #./wireguard.nix
     ];
 
   boot.loader.systemd-boot.enable = true;
@@ -33,6 +32,7 @@
   };
   networking.defaultGateway = "10.0.20.1";
   networking.nameservers = [ "10.0.20.1" ];
+  networking.firewall.allowedTCPPorts = [ 8443 ];
   networking.firewall.allowedUDPPorts = [ 5353 ];
 
   users.users.mjollnir = {
@@ -77,6 +77,11 @@
     };
   };
 
-  system.stateVersion = "22.11";
+  services.unifi = {
+    enable = true;
+    openFirewall = true;
+  };
+
+  system.stateVersion = "23.05";
 
 }
