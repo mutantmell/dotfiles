@@ -1040,7 +1040,7 @@ in {
               kind = {
                 type = "nat";
                 hook = "prerouting";
-                priority = "0";
+                priority = "-100";
                 default-policy = "accept";
               };
               rules = cfg.firewall.extraPreRoutes;
