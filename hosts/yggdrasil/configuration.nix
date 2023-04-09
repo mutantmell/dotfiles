@@ -56,6 +56,19 @@
         verdict = "accept";
       }
     ];
+    firewall.extraPreRoutes = [
+      {
+        iifname = "wg-ba";
+        tcp.dport = "22";
+        verdict.dnat = "10.0.100.40";
+      }
+    ];
+    firewall.extraPostRoutes = [
+      {
+        oifname = "wg-ba";
+        masquerade = true;
+      }
+    ];
     topology = {
       wan = {
         device = "00:e0:67:1b:70:34";

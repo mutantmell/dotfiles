@@ -41,7 +41,11 @@ in {
           default = {};
         };
         options.iifname = mkOption {
-          type = types.nullOr (types.nonEmptyListOf types.str);
+          type = types.nullOr (types.either types.str (types.nonEmptyListOf types.str));
+          default = null;
+        };
+        options.oifname = mkOption {
+          type = types.nullOr (types.either types.str (types.nonEmptyListOf types.str));
           default = null;
         };
         options.tcp = mkOption {
@@ -53,12 +57,22 @@ in {
           default = {};
         };
         options.verdict = mkOption {
-          type = types.enum [ "accept" "drop" ];
+          type = types.nullOr (types.either (types.enum [ "accept" "drop" ]) (types.submodule {
+            options.dnat = mkOption {
+              type = types.str;
+            };
+          }));
+          default = null;
           description = "what to do when the rule is matched";
+        };
+        options.masquerade = mkOption {
+          type = types.bool;
+          default = false;
         };
       };
     in mkOption {
       type = types.submodule {
+        # todo: parameterize firewall-extras based on what verdicts, etc, are allowed
         options.extraInput = mkOption {
           type = types.listOf firewall-extras;
           example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
@@ -66,6 +80,18 @@ in {
           default = [];
         };
         options.extraForwards = mkOption {
+          type = types.listOf firewall-extras;
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
+          description = "Extra firewall forwarding rules";
+          default = [];
+        };
+        options.extraPreRoutes = mkOption {
+          type = types.listOf firewall-extras;
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
+          description = "Extra firewall forwarding rules";
+          default = [];
+        };
+        options.extraPostRoutes = mkOption {
           type = types.listOf firewall-extras;
           example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
           description = "Extra firewall forwarding rules";
@@ -314,7 +340,7 @@ in {
       asDynamic = val:
         if builtins.isList val then builtins.map asDynamic val
         else if builtins.isAttrs val && builtins.hasAttr "_type" val && val._type == "option" then {
-          type = types.enum [ envType (asDynamic val) ];
+          type = types.either envType (asDynamic val);
         } // val
         else val;
     in
@@ -641,8 +667,8 @@ in {
     systemd.services."router-network-dynamic" = lib.mkIf (
       false # cfg.dynamic.networkFiles != {} || cfg.dynamic.netdevFiles != {}
     ) {
-      wantedBy = [ "network.target" ];
-      before = [ "network.target" ];
+      wants = [ "network-pre.target" ];
+      before = [ "network-pre.target" ];
       path = with pkgs; [ bash envsubst ];
       # todo: once we have access to the networkd file rendering functions,
       #       use those to generate the files instead of directly using
@@ -652,17 +678,22 @@ in {
       in ''
         mkdir -p ${volatilePath}
         chown systemd-network:systemd-network ${volatilePath}
+
       '' + (lib.strings.concatStringsSep "\n" (
         lib.attrsets.mapAttrsToList (file: contents: ''
-          envsubst <<EOF > ${volatilePath}/${file}.netdev
+          envsubst <<EOF >${volatilePath}/${file}.netdev
           ${contents}
           EOF
+
+          chown systemd-network:systemd-network ${volatilePath}/${file}.netdev
         '') cfg.dynamic.netdevFiles
       )) + (lib.strings.concatStringsSep "\n" (
         lib.attrsets.mapAttrsToList (file: contents: ''
-          envsubst <<EOF > ${volatilePath}/${file}.network
+          envsubst <<EOF >${volatilePath}/${file}.network
           ${contents}
           EOF
+
+          chown systemd-network:systemd-network ${volatilePath}/${file}.network
         '') cfg.dynamic.networkFiles
       ));
       serviceConfig = {
@@ -799,12 +830,19 @@ in {
           if builtins.hasAttr attr set && builtins.getAttr attr set != null
           then [ "${proto} ${attr} ${render-match (builtins.getAttr attr set)}" ]
           else [];
-        quoted = dev: "\"" + dev + "\"";
+        render-verdict = ver:
+          if builtins.isString ver then ver
+          else if builtins.hasAttr "dnat" ver then "dnat to ${ver.dnat}"
+          else abort "invalid verdict: ${ver}";
+        render-if-name = if-name: let
+          quoted = if builtins.isString if-name then quote if-name else builtins.map quote if-name;
+        in render-match quoted;
+        quote = dev: "\"" + dev + "\"";
       in {
         iifname ? null, oifname ? null, tcp ? {}, udp ? {}, ip ? {}, counter ? false, ct ? {}, verdict ? null, masquerade ? false, comment ? null
       }: lib.strings.concatStringsSep " " (
         (
-          if iifname == null then [] else [ "iifname ${render-match (builtins.map quoted iifname)}" ]
+          if iifname == null then [] else [ "iifname ${render-if-name iifname}" ]
         ) ++ (
           render-sub-rule "tcp" "sport" tcp
         ) ++ (
@@ -812,7 +850,7 @@ in {
         ) ++ (
           render-sub-rule "ip" "saddr" ip
         ) ++ (
-          if oifname == null then [] else [ "oifname ${render-match (builtins.map quoted oifname)}" ]
+          if oifname == null then [] else [ "oifname ${render-if-name oifname}" ]
         ) ++ (
           render-sub-rule "tcp" "dport" tcp
         ) ++ (
@@ -824,7 +862,7 @@ in {
         ) ++ (
           if counter then [ "counter" ] else []
         ) ++ (
-          if verdict == null then [] else [ verdict ]
+          if verdict == null then [] else [ (render-verdict verdict) ]
         ) ++ (
           if masquerade then [ "masquerade" ] else []
         ) ++ (
@@ -1005,6 +1043,7 @@ in {
                 priority = "0";
                 default-policy = "accept";
               };
+              rules = cfg.firewall.extraPreRoutes;
             };
             "postrouting" = {
               kind = {
@@ -1018,7 +1057,7 @@ in {
                   oifname = natInterfaces;
                   masquerade = true;
                 }
-              ]);
+              ]) ++ cfg.firewall.extraPostRoutes;
             };
           };
         };
