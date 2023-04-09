@@ -127,10 +127,6 @@
               dhcp.enable = true;
               trust = "untrusted";
             };
-            # routes = [
-            #   { gateway = "10.0.100.40"; destination = "10.100.1.0/24"; }
-            #   { gateway = "10.0.100.40"; destination = "10.100.0.0/24"; }
-            # ];
           };
         };
         batmanDevice = "bat0";
