@@ -55,6 +55,18 @@
         ip.daddr = "10.100.0.3";
         verdict = "accept";
       }
+      {
+        iifname = [
+          "vDMZ.lan" "vHOME.lan" "vHOME.bat0"
+        ];
+        oifname = "wg-ba";
+        verdict = "accept";
+      }
+      {
+        iifname = "wg-ba";
+        ip.daddr = "10.0.100.40";
+        verdict = "accept";
+      }
     ];
     firewall.extraPreRoutes = [
       {
@@ -66,6 +78,11 @@
     firewall.extraPostRoutes = [
       {
         oifname = "wg-ba";
+        masquerade = true;
+      }
+      {
+        iifname = "wg-ba";
+        ip.daddr = "10.0.100.40";
         masquerade = true;
       }
     ];
