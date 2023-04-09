@@ -79,6 +79,7 @@
 
   services.avahi = {
     enable = true;
+    nssmdns = true;
     publish = {
       enable = true;
       addresses = true;
@@ -305,5 +306,5 @@
     };
   };
 
-  system.stateVersion = "22.11";
+  system.stateVersion = "23.05";
 }
