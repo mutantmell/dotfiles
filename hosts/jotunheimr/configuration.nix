@@ -43,6 +43,7 @@
   environment.systemPackages = with pkgs; [
     wget
     tmux
+    htop
   ];
 
   services.openssh = {
@@ -72,6 +73,7 @@
 
   services.avahi = {
     enable = true;
+    nssmdns = true;
     publish = {
       enable = true;
       addresses = true;
