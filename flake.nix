@@ -47,7 +47,7 @@
       jotunheimr = { config, pkgs, lib, ... }: (import ./hosts/jotunheimr/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
         deployment = {
           targetUser = "root";
-          targetHost = "jotunheimr.local";
+          targetHost = "10.0.20.30";
           tags = [ "infra" "nas" ];
         };
       };
