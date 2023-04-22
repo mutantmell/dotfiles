@@ -48,11 +48,16 @@
       device = "/data/data";
       options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
     };
+    backup = {
+      device = "/data/backup";
+      options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
+    };
   in {
     "/export/rw/media" = media;
     "/export/ro/media" = media;
     "/export/rw/data" = data;
     "/export/ro/data" = data;
+    "/export/rw/backup" = backup;
   };
 
   services.nfs.server = {
@@ -64,8 +69,11 @@
 
       /export/ro/media 10.0.10.0/24(ro) 10.0.20.0/24(ro)
       /export/rw/media 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+
       /export/ro/data 10.0.10.0/24(ro) 10.0.20.0/24(ro)
       /export/rw/data 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+
+      /export/rw/backup 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
     '';
   };
 
@@ -100,6 +108,14 @@
       };
       media = {
         path = "/data/media";
+        browseable = "yes";
+        "guest ok" = "no";
+        "read only" = "no";
+        #        "valid users" = "mjollnir";
+        #        "force user" = "mjollnir";
+      };
+      backup = {
+        path = "/export/rw/backup";
         browseable = "yes";
         "guest ok" = "no";
         "read only" = "no";
