@@ -242,6 +242,8 @@
     };
   };
   networking.extraHosts = ''
+    10.0.10.1 yggdrasil
+    10.0.10.1 yggdrasil.local
     10.0.10.2 alfheim
     10.0.10.2 alfheim.local
     10.0.100.40 surtr.local
