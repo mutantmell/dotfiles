@@ -16,6 +16,15 @@
   networking.hostName = "svartalfheim";
   networking.networkmanager.enable = true;
 
+  services.avahi = {
+    enable = true;
+    nssmdns = true;
+    publish = {
+      enable = true;
+      addresses = true;
+    };
+  };
+  
   i18n = {
     defaultLocale = "en_US.UTF-8";
     inputMethod = {
@@ -104,6 +113,11 @@
     isNormalUser = true;
     uid = 1000;
     extraGroups = [ "wheel" "audio" ];
+  };
+
+  fileSystems."/mnt/backup" = {
+    device = "jotunheimr.local:/export/rw/backup";
+    fsType = "nfs";
   };
 
   system.stateVersion = "22.11";
