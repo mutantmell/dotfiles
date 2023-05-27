@@ -763,7 +763,7 @@ in {
     # TODO: make mtu setting based on the topology of the pppoe device
     services.pppd = let
       mkConfig = parentDev: pppName: userfile: ''
-        plugin rp-pppoe.so ${parentDev}
+        plugin pppoe.so ${parentDev}
 
         hide-password
         file ${userfile}
