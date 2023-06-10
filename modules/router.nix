@@ -805,6 +805,7 @@ in {
     in {
       inherit peers;
       enable = peers != [];
+      package = (pkgs.callPackage ./backports/ppp-2.4.9 { });
     };
 
     networking.nftables = let
