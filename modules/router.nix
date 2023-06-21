@@ -273,6 +273,8 @@ in {
           description = "configuration of the batman device";
           default = null;
         };
+        # TODO: add an option that makes a unit do a periodic endpoint refresh with the following command:
+        #       wg set "${interface}" peer "${publickey}" endpoint "${endpoint}"
         options.wireguard = mkOption {
           type = types.nullOr (types.submodule {
             options.privateKeyFile = mkOption {
@@ -673,6 +675,7 @@ in {
       # todo: once we have access to the networkd file rendering functions,
       #       use those to generate the files instead of directly using
       #       ones the user provides
+      # todo: generate several smaller units that point to the same environment file
       script = let
         volatilePath = "/run/systemd/network";
       in ''
