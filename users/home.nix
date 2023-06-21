@@ -15,6 +15,7 @@ in {
     dig
     bitwarden-cli
     age
+    nixfmt
   ];
 
   programs.emacs = {
