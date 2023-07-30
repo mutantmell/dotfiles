@@ -5,6 +5,7 @@ keys:
   - &sv_jotunheimr age1smvmkjl0csqh3wmx9744xqatghnrpnj0y8hmv88gy5llrpujmetqhu9l4g
   - &sv_matrix age1f58klxxdsk02cqrzprvfa4rt4spn7ch5v37thk35j8yzhfglhpgqhsh0n7
   - &sv_muspelheim age1lx8zxzgumkxevzp0cy0ndvdrvpk94qfvxrdfd86vuydecf586urqhwc52e
+  - &sv_nidavellir age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
   - &sv_njord age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
   - &sv_skadi age1dxvqqvhc02fu8vv827wxum8sfhcx326p4trx8keaywv058jlk9kqmfvztf
   - &sv_surtr age13w6jhmkzfj6c5p9v7s0ld2trkewypjhcjq9yejgkps7wlyk2eu3su8jf5g
@@ -43,6 +44,11 @@ creation_rules:
       - age:
         - *ad_skadi
         - *sv_ymir
+  - path_regex: hosts/nidavellir/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_skadi
+        - *sv_nidavellir
   - path_regex: hosts/svartalfheim/secrets/[^/]+\.yaml$
     key_groups:
       - age:
