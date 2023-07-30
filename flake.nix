@@ -19,11 +19,14 @@
           system = "x86_64-linux";
           config.allowUnfree = true;
         };
-        nodeNixpkgs = {
-          alfheim = import nixpkgs {
+        nodeNixpkgs = let
+          rpi4 = import nixpkgs {
             system = "aarch64-linux";
             config.allowUnfree = true;
           };
+        in {
+          alfheim = rpi4;
+          nidavellir = rpi4;
         };
       };
 
@@ -90,6 +93,15 @@
           targetHost = "10.100.20.10";
           tags = [ "digitalocean" "cloud" "matrix" "public" ];
         };
+      };
+
+      nidavellir = { config, pkgs, lib, ... }: (import ./hosts/nidavellir/configuration.nix { inherit config pkgs lib nixos-hardware sops-nix; }) // {
+        deployment = {
+          targetUser = "root";
+          targetHost = "nidavellir.local";
+          tags = [ "svc" "home" ];
+        };
+        #nixpkgs.system = "aarch64-linux";
       };
     };
 
