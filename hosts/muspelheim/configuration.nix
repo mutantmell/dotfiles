@@ -82,11 +82,11 @@
   };
 
   fileSystems."/mnt/data" = {
-    device = "jotunheimr.local:/data/data";
+    device = "10.0.20.30:/data/data";
     fsType = "nfs";
   };
   fileSystems."/mnt/media" = {
-    device = "jotunheimr.local:/data/media/";
+    device = "10.0.20.30:/data/media/";
     fsType = "nfs";
   };
 
