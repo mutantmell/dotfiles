@@ -191,8 +191,6 @@ in {
           description = "configuration of the batman device";
           default = null;
         };
-        # TODO: add an option that makes a unit do a periodic endpoint refresh with the following command:
-        #       wg set "${interface}" peer "${publickey}" endpoint "${endpoint}"
         options.wireguard = mkOption {
           type = types.nullOr (types.submodule {
             options.privateKeyFile = mkOption {
@@ -755,7 +753,6 @@ in {
       networks = toAttrSet mkNetworkUnits cfg.topology;
     };
 
-    # todo: turn on when ready to do dynamic networking
     systemd.services."router-network-dynamic" = lib.mkIf (
       cfg.dynamic.topology != {}
     ) (let
@@ -765,10 +762,6 @@ in {
       before = [ "network-pre.target" ];
       wantedBy = [ "network.target" ];
       path = with pkgs; [ bash envsubst ];
-      # todo: once we have access to the networkd file rendering functions,
-      #       use those to generate the files instead of directly using
-      #       ones the user provides
-      # todo: generate several smaller units that point to the same environment file
       script = with utils.systemdUtils.network; ''
         mkdir -p ${volatilePath}
         chown systemd-network:systemd-network ${volatilePath}
