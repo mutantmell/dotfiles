@@ -1,4 +1,4 @@
-{ config, options, pkgs, lib, ... }:
+{ config, options, pkgs, lib, utils, ... }:
 
 # There were two main sources of inspiration for this configuration:
 #   1. https://pavluk.org/blog/2022/01/26/nixos_router.html
@@ -8,100 +8,18 @@ let
   cfg = config.router;
   opt = options.router;
 in {
-  options.router = with lib; {
-    enable = mkEnableOption "Home Router Service";
-
-    # TODO: this might be better suited as something tied to the overall topology?
-    dns = mkOption {
-      type = types.submodule {
-        options.upstream = mkOption {
-          type = types.nullOr types.str;
-          example = "192.168.1.2";
-          description = "the upstream dns server, if any";
-          default = null;
+  options.router = with lib; let
+    mkTopologyOpt = is-dynamic: let
+      dynType = types.submodule {
+        options.env = mkOption {
+          type = types.str;
+          description = "the environment variable to fetch the value from dynamically";
         };
       };
-    };
-    firewall = let
-      src-tgt = _src: _tgt: _type: types.submodule {
-        options."${_src}" = mkOption {
-          type = types.nullOr _type;
-          description = "Indicates access from";
-          default = null;
-        };
-        options."${_tgt}" = mkOption {
-          type = types.nullOr _type;
-          description = "Inidicates access to";
-          default = null;
-        };
-      };
-      firewall-extras = types.submodule {
-        options.ip = mkOption {
-          type = src-tgt "saddr" "daddr" types.str;
-          default = {};
-        };
-        options.iifname = mkOption {
-          type = types.nullOr (types.either types.str (types.nonEmptyListOf types.str));
-          default = null;
-        };
-        options.oifname = mkOption {
-          type = types.nullOr (types.either types.str (types.nonEmptyListOf types.str));
-          default = null;
-        };
-        options.tcp = mkOption {
-          type = src-tgt "sport" "dport" types.str;
-          default = {};
-        };
-        options.udp = mkOption {
-          type = src-tgt "sport" "dport" types.str;
-          default = {};
-        };
-        options.verdict = mkOption {
-          type = types.nullOr (types.either (types.enum [ "accept" "drop" ]) (types.submodule {
-            options.dnat = mkOption {
-              type = types.str;
-            };
-          }));
-          default = null;
-          description = "what to do when the rule is matched";
-        };
-        options.masquerade = mkOption {
-          type = types.bool;
-          default = false;
-        };
-      };
+      mkDynamicOpt = base: if is-dynamic then mkOption (base // {
+        type = types.either base.type dynType;
+      }) else mkOption base;
     in mkOption {
-      type = types.submodule {
-        # todo: parameterize firewall-extras based on what verdicts, etc, are allowed
-        options.extraInput = mkOption {
-          type = types.listOf firewall-extras;
-          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
-          description = "Extra firewall forwarding rules";
-          default = [];
-        };
-        options.extraForwards = mkOption {
-          type = types.listOf firewall-extras;
-          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
-          description = "Extra firewall forwarding rules";
-          default = [];
-        };
-        options.extraPreRoutes = mkOption {
-          type = types.listOf firewall-extras;
-          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
-          description = "Extra firewall forwarding rules";
-          default = [];
-        };
-        options.extraPostRoutes = mkOption {
-          type = types.listOf firewall-extras;
-          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
-          description = "Extra firewall forwarding rules";
-          default = [];
-        };
-      };
-      description = "Extra firewall rules";
-      default = {};
-    };
-    topology = mkOption {
       type = let
         # TODO: have multiple submodules declare their exact type expectations,
         #       and merge together
@@ -307,7 +225,7 @@ in {
                   type = types.str;
                   description = "public key for the peer";
                 };
-                options.endpoint = mkOption {
+                options.endpoint = mkDynamicOpt {
                   type = types.nullOr types.str;
                   description = "endpoint for the peer, including port";
                   example = "example.com:45678";
@@ -333,38 +251,117 @@ in {
         };
       });
     };
-    dynamic = let
-      envType = types.nullOr (types.submodule {
-        options.name = mkOption {
-          type = types.str;
+  in {
+    enable = mkEnableOption "Home Router Service";
+
+    # TODO: this might be better suited as something tied to the overall topology?
+    dns = mkOption {
+      type = types.submodule {
+        options.upstream = mkOption {
+          type = types.nullOr types.str;
+          example = "192.168.1.2";
+          description = "the upstream dns server, if any";
+          default = null;
         };
-      });
-      asDynamic = val:
-        if builtins.isList val then builtins.map asDynamic val
-        else if builtins.isAttrs val && builtins.hasAttr "_type" val && val._type == "option" then {
-          type = types.either envType (asDynamic val);
-        } // val
-        else val;
-    in
-      mkOption {
-        type = types.submodule {
-          options.environmentFile = mkOption {
-            type = types.str; # types.nullOr types.str;
-          };
-          # todo: see if people would be willing to export the networkd builders, then use those builders
-          #       to generate files for the systemd script
-          options.topology = asDynamic opt.topology;
-          options.networkFiles = mkOption {
-            type = types.attrsOf types.str;
-            default = {};
-          };
-          options.netdevFiles = mkOption {
-            type = types.attrsOf types.str;
-            default = {};
-          };
-        };
-        default = {};
       };
+    };
+    firewall = let
+      src-tgt = _src: _tgt: _type: types.submodule {
+        options."${_src}" = mkOption {
+          type = types.nullOr _type;
+          description = "Indicates access from";
+          default = null;
+        };
+        options."${_tgt}" = mkOption {
+          type = types.nullOr _type;
+          description = "Inidicates access to";
+          default = null;
+        };
+      };
+      firewall-extras = types.submodule {
+        options.ip = mkOption {
+          type = src-tgt "saddr" "daddr" types.str;
+          default = {};
+        };
+        options.iifname = mkOption {
+          type = types.nullOr (types.either types.str (types.nonEmptyListOf types.str));
+          default = null;
+        };
+        options.oifname = mkOption {
+          type = types.nullOr (types.either types.str (types.nonEmptyListOf types.str));
+          default = null;
+        };
+        options.tcp = mkOption {
+          type = src-tgt "sport" "dport" types.str;
+          default = {};
+        };
+        options.udp = mkOption {
+          type = src-tgt "sport" "dport" types.str;
+          default = {};
+        };
+        options.verdict = mkOption {
+          type = types.nullOr (types.either (types.enum [ "accept" "drop" ]) (types.submodule {
+            options.dnat = mkOption {
+              type = types.str;
+            };
+          }));
+          default = null;
+          description = "what to do when the rule is matched";
+        };
+        options.masquerade = mkOption {
+          type = types.bool;
+          default = false;
+        };
+      };
+    in mkOption {
+      type = types.submodule {
+        # todo: parameterize firewall-extras based on what verdicts, etc, are allowed
+        options.extraInput = mkOption {
+          type = types.listOf firewall-extras;
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
+          description = "Extra firewall forwarding rules";
+          default = [];
+        };
+        options.extraForwards = mkOption {
+          type = types.listOf firewall-extras;
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
+          description = "Extra firewall forwarding rules";
+          default = [];
+        };
+        options.extraPreRoutes = mkOption {
+          type = types.listOf firewall-extras;
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
+          description = "Extra firewall forwarding rules";
+          default = [];
+        };
+        options.extraPostRoutes = mkOption {
+          type = types.listOf firewall-extras;
+          example = [{ ip.src = "192.168.1.100"; ip.tgt = "10.0.0.1"; }];
+          description = "Extra firewall forwarding rules";
+          default = [];
+        };
+      };
+      description = "Extra firewall rules";
+      default = {};
+    };
+    topology = mkTopologyOpt false;
+    dynamic = mkOption {
+      type = types.submodule {
+        options.environmentFile = mkOption {
+          type = types.str; # types.nullOr types.str;
+        };
+        options.topology = mkTopologyOpt true;
+        options.networkFiles = mkOption {
+          type = types.attrsOf types.str;
+          default = {};
+        };
+        options.netdevFiles = mkOption {
+          type = types.attrsOf types.str;
+          default = {};
+        };
+      };
+      default = {};
+    };
   };
 
   config = let
@@ -401,6 +398,316 @@ in {
     addrNoPrefix = addr: builtins.head (lib.strings.splitString "/" addr);
     toAttrSet = f: v:
       builtins.listToAttrs (flatMapAttrsToList f v);
+
+    empty-netdev = {
+      matchConfig = {};
+      vlanConfig = {};
+      macvlanConfig = {};
+      vxlanConfig = {};
+      tunnelConfig = {};
+      fooOverUDPConfig = {};
+      peerConfig = {};
+      tunConfig = {};
+      tapConfig = {};
+      l2tpConfig = {};
+      l2tpSessions = [];
+      wireguardConfig = {};
+      wireguardPeers = [];
+      bondConfig = {};
+      xfrmConfig = {};
+      vrfConfig = {};
+      batmanAdvancedConfig = {};
+      extraConfig = "";
+    };
+
+    from-dynamic = v: if v ? "env" then v.env else v;
+
+    empty-network = {
+      matchConfig = {};
+      linkConfig = {};
+      networkConfig = {};
+      address = [];
+      gateway = [];
+      dns = [];
+      ntp = [];
+      bridge = [];
+      bond = [];
+      vrf = [];
+      vlan = [];
+      macvlan = [];
+      macvtap = [];
+      vxlan = [];
+      tunnel = [];
+      xfrm = [];
+      addresses = [];
+      routingPolicyRules = [];
+      routeConfig = [];
+      dhcpV4Config = {};
+      dhcpV6Config = {};
+      dhcpPrefixDelegationConfig = {};
+      ipv6AcceptRAConfig = {};
+      dhcpServerConfig = {};
+      ipv6SendRAConfig = {};
+      ipv6Prefixes = [];
+      ipv6RoutePrefixes = [];
+      dhcpServerStaticLeases = [];
+      bridgeConfig = {};
+      bridgeFDBs = [];
+      bridgeMDBs = [];
+      lldpConfig = {};
+      canConfig = {};
+      ipoIBConfig = {};
+      qdiscConfig = {};
+      networkEmulatorConfig  = {};
+      tokenBucketFilterConfig = {};
+      pieConfig = {};
+      flowQueuePIEConfig = {};
+      stochasticFairBlueConfig = {};
+      stochasticFairnessQueueingConfig = {};
+      bfifoConfig = {};
+      pfifoConfig = {};
+      pfifoHeadDropConfig = {};
+      pfifoFastConfig = {};
+      cakeConfig = {};
+      controlledDelayConfig = {};
+      deficitRoundRobinSchedulerConfig = {};
+      deficitRoundRobinSchedulerClassConfig = {};
+      enhancedTransmissionSelectionConfig = {};
+      genericRandomEarlyDetectionConfig = {};
+      fairQueueingControlledDelayConfig = {};
+      fairQueueingConfig = {};
+      trivialLinkEqualizerConfig = {};
+      hierarchyTokenBucketConfig = {};
+      hierarchyTokenBucketClassConfig = {};
+      heavyHitterFilterConfig = {};
+      quickFairQueueingConfig = {};
+      quickFairQueueingConfigClass = {};
+      bridgeVLANs = [];
+      extraConfig = "";
+    };
+    
+    mkNetdevUnits = let
+      fromVlan = name: {
+        tag,
+          ...
+      }: {
+        name = "01-${name}";
+        value = {
+          netdevConfig = {
+            Name = name;
+            Kind = "vlan";
+          };
+          vlanConfig = {
+            Id = tag;
+          };
+        };
+      };
+
+      fromWireguardPeer = {
+        allowedIps,
+          publicKey,
+          endpoint ? null,
+          persistentKeepalive ? null
+      }: {
+        wireguardPeerConfig = lib.filterAttrs (n: v: v != null) {
+          AllowedIPs = allowedIps;
+          PublicKey = publicKey;
+          Endpoint = from-dynamic endpoint;
+          PersistentKeepalive = persistentKeepalive;
+        };
+      };
+      fromWireguard = name: {
+        privateKeyFile,
+          port ? null,
+          peers ? [],
+          ...
+      }: {
+        name = "30-${name}";
+        value = {
+          netdevConfig = {
+            Name = name;
+            Kind = "wireguard";
+          };
+          wireguardConfig = lib.filterAttrs (n: v: v != null) {
+            PrivateKeyFile = privateKeyFile;
+            ListenPort = port;
+          };
+          wireguardPeers = builtins.map fromWireguardPeer peers;
+        };
+      };
+
+    in
+      name: {
+        vlans ? {},
+        batman ? null,
+        wireguard ? null,
+        ...
+      }: (if batman == null then [] else [{
+        name = "00-${name}";
+        value = {
+          netdevConfig = {
+            Name = name;
+            Kind = "batadv";
+          };
+          batmanAdvancedConfig = {
+            GatewayMode = batman.gatewayMode;
+            RoutingAlgorithm = batman.routingAlgorithm;
+          };
+        };
+      }]) ++ (
+        lib.attrsets.mapAttrsToList fromVlan vlans
+      ) ++ (
+        if wireguard == null then [] else [(fromWireguard name wireguard)]
+      );
+    
+    mkNetworkUnits = let
+      mkNetworkConfig = {
+        type,
+          trust ? null,
+          ignore-carrier ? false,
+          route ? null,
+          static-addresses ? [],
+          static-gateways ? [],
+          static-dns ? [],
+          ...
+      }:
+        let
+          ignoreCarrier = if !ignore-carrier then {} else {
+            ConfigureWithoutCarrier = true;
+            LinkLocalAddressing = "no"; # https://github.com/systemd/systemd/issues/9252#issuecomment-501850588
+            IPv6AcceptRA=false; # https://bbs.archlinux.org/viewtopic.php?pid=1958133#p1958133
+          };
+          defRoute = if route != "primary" then {} else {
+            DefaultRouteOnDevice = true;
+          };
+        in if type == "dhcp" then defRoute // {
+          DHCP = "ipv4";
+        } else if type == "disabled" then ignoreCarrier // {
+          DHCP = "no";
+          DHCPServer = false;
+          LinkLocalAddressing = "no";
+          LLMNR = false;
+          MulticastDNS = false;
+          LLDP = false;
+          EmitLLDP = false;
+          IPv6AcceptRA = false;
+          IPv6SendRA = false;
+        } else if type == "static" then ignoreCarrier // {
+          Address = static-addresses;
+          Gateway = static-gateways;
+          DNS = static-dns;
+          # multicast dns is provided by avahi
+          # MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" ];
+        } else if type == "none" then null
+          else abort "invalid type: ${type}";
+
+      mkLinkConfig = { mtu, required, activation-status ? null }:
+        (
+          if mtu == null then {} else { MTUBytes = mtu; }
+        ) // (
+          if required then {} else { RequiredForOnline = "no"; }
+        ) // (
+          if activation-status == null then {} else { ActivationPolicy = activation-status; }
+        );
+      mkRouteConfig = { gateway, destination, ... }:
+        {
+          routeConfig = {
+            Gateway = gateway;
+            Destination = destination;
+          };
+        };
+
+      fromPppoe = name: {
+        network,
+          routes ? [],
+          ...
+      }: let
+        nw-conf = mkNetworkConfig network;
+      in (if nw-conf == null then {} else {
+        name = "22-${name}";
+        value = {
+          matchConfig = { Name = name; };
+          networkConfig = nw-conf // {
+            KeepConfiguration = "static";
+            LinkLocalAddressing = "no";
+          };
+          routes = builtins.map mkRouteConfig routes;
+        };
+      });
+
+      fromVlan = name: {
+        network,
+          mtu ? null,
+          pppoe ? {},
+          routes ? [],
+          ...
+      }:
+        [{
+          name = "21-${name}";
+          value = {
+            matchConfig = { Name = name; };
+            networkConfig = mkNetworkConfig network;
+            linkConfig = mkLinkConfig { inherit mtu; inherit (network) required; };
+            routes = builtins.map mkRouteConfig routes;
+          };
+        }] ++ (lib.attrsets.mapAttrsToList fromPppoe pppoe);
+    in
+      name: {
+        network,
+        vlans ? {},
+        pppoe ? {},
+        batmanDevice ? null,
+        mtu ? null,
+        routes ? [],
+        wireguard ? null,
+        ...
+      }: let
+        mkActivationStatus = { type, ignore-carrier ? false, ... }:
+          if ignore-carrier then "always-up" else null;
+        nw-conf = mkNetworkConfig network;
+      in (if nw-conf == null then [] else [{
+        name = "${if wireguard == null then "10" else "40"}-${name}";
+        value = {
+          matchConfig = {
+            Name = name;
+          };
+          vlan = lib.attrsets.mapAttrsToList (name: vlan: name) vlans;
+          networkConfig = (nw-conf) // (
+            if batmanDevice == null then {} else { BatmanAdvanced = batmanDevice; }
+          );
+          linkConfig = mkLinkConfig {
+            inherit mtu;
+            inherit (network) required;
+            activation-status = (mkActivationStatus network);
+          };
+          routes = builtins.map mkRouteConfig routes;
+        };
+      }]) ++ (
+        flatMapAttrsToList fromVlan vlans
+      ) ++ (
+        lib.attrsets.mapAttrsToList fromPppoe pppoe
+      );
+
+    mkLinkUnits = name: {
+      device ? null,
+        mtu ? null,
+        ...
+    }:
+      if device == null then [] else [{
+        name = "00-${name}";
+        value = {
+          matchConfig = {
+            MACAddress = device;
+            Type = "ether";
+          };
+          linkConfig = {
+            Name = name;
+          } // (
+            if mtu == null then {} else { MTUBytes = mtu; }
+          );
+        };
+      }];
+
     
   in lib.mkIf cfg.enable {
     assertions = (lib.attrValues (
@@ -442,232 +749,14 @@ in {
     };
 
     systemd.network = {
-      links = let
-        fromDevices = name: {
-          device ? null,
-            mtu ? null,
-            ...
-        }:
-          if device == null then [] else [{
-            name = "00-${name}";
-            value = {
-              matchConfig = {
-                MACAddress = device;
-                Type = "ether";
-              };
-              linkConfig = {
-                Name = name;
-              } // (
-                if mtu == null then {} else { MTUBytes = mtu; }
-              );
-            };
-          }];
-      in toAttrSet fromDevices cfg.topology;
-
-      netdevs = let
-        fromVlan = name: {
-          tag,
-            ...
-        }: {
-          name = "01-${name}";
-          value = {
-            netdevConfig = {
-              Name = name;
-              Kind = "vlan";
-            };
-            vlanConfig = {
-              Id = tag;
-            };
-          };
-        };
-
-        fromWireguardPeer = {
-          allowedIps,
-            publicKey,
-            endpoint ? null,
-            persistentKeepalive ? null
-        }: {
-          wireguardPeerConfig = lib.filterAttrs (n: v: v != null) {
-            AllowedIPs = allowedIps;
-            PublicKey = publicKey;
-            Endpoint = endpoint;
-            PersistentKeepalive = persistentKeepalive;
-          };
-        };
-        fromWireguard = name: {
-          privateKeyFile,
-            port ? null,
-            peers ? [],
-            ...
-        }: {
-          name = "30-${name}";
-          value = {
-            netdevConfig = {
-              Name = name;
-              Kind = "wireguard";
-            };
-            wireguardConfig = lib.filterAttrs (n: v: v != null) {
-              PrivateKeyFile = privateKeyFile;
-              ListenPort = port;
-            };
-            wireguardPeers = builtins.map fromWireguardPeer peers;
-          };
-        };
-
-        fromDevices = name: {
-          vlans ? {},
-            batman ? null,
-            wireguard ? null,
-            ...
-        }: (if batman == null then [] else [{
-          name = "00-${name}";
-          value = {
-            netdevConfig = {
-              Name = name;
-              Kind = "batadv";
-            };
-            batmanAdvancedConfig = {
-              GatewayMode = batman.gatewayMode;
-              RoutingAlgorithm = batman.routingAlgorithm;
-            };
-          };
-        }]) ++ (
-          lib.attrsets.mapAttrsToList fromVlan vlans
-        ) ++ (
-          if wireguard == null then [] else [(fromWireguard name wireguard)]
-        );
-      in toAttrSet fromDevices cfg.topology;
-
-      networks = let
-        mkNetworkConfig = {
-          type,
-            trust ? null,
-            ignore-carrier ? false,
-            route ? null,
-            static-addresses ? [],
-            static-gateways ? [],
-            static-dns ? [],
-            ...
-        }:
-          let
-            ignoreCarrier = if !ignore-carrier then {} else {
-              ConfigureWithoutCarrier = true;
-              LinkLocalAddressing = "no"; # https://github.com/systemd/systemd/issues/9252#issuecomment-501850588
-              IPv6AcceptRA=false; # https://bbs.archlinux.org/viewtopic.php?pid=1958133#p1958133
-            };
-            defRoute = if route != "primary" then {} else {
-              DefaultRouteOnDevice = true;
-            };
-          in if type == "dhcp" then defRoute // {
-            DHCP = "ipv4";
-          } else if type == "disabled" then ignoreCarrier // {
-            DHCP = "no";
-            DHCPServer = false;
-            LinkLocalAddressing = "no";
-            LLMNR = false;
-            MulticastDNS = false;
-            LLDP = false;
-            EmitLLDP = false;
-            IPv6AcceptRA = false;
-            IPv6SendRA = false;
-          } else if type == "static" then ignoreCarrier // {
-            Address = static-addresses;
-            Gateway = static-gateways;
-            DNS = static-dns;
-            # multicast dns is provided by avahi
-            # MulticastDNS = builtins.elem trust [ "trusted" "management" "untrusted" ];
-          } else if type == "none" then null
-            else abort "invalid type: ${type}";
-
-        mkLinkConfig = { mtu, required, activation-status ? null }:
-          (
-            if mtu == null then {} else { MTUBytes = mtu; }
-          ) // (
-            if required then {} else { RequiredForOnline = "no"; }
-          ) // (
-            if activation-status == null then {} else { ActivationPolicy = activation-status; }
-          );
-        mkRouteConfig = { gateway, destination, ... }:
-          {
-            routeConfig = {
-              Gateway = gateway;
-              Destination = destination;
-            };
-          };
-        fromPppoe = name: {
-          network,
-            routes ? [],
-            ...
-        }: let
-          nw-conf = mkNetworkConfig network;
-        in (if nw-conf == null then {} else {
-          name = "22-${name}";
-          value = {
-            matchConfig = { Name = name; };
-            networkConfig = nw-conf // {
-              KeepConfiguration = "static";
-              LinkLocalAddressing = "no";
-            };
-            routes = builtins.map mkRouteConfig routes;
-          };
-        });
-        fromVlan = name: {
-          network,
-            mtu ? null,
-            pppoe ? {},
-            routes ? [],
-            ...
-        }:
-          [{
-            name = "21-${name}";
-            value = {
-              matchConfig = { Name = name; };
-              networkConfig = mkNetworkConfig network;
-              linkConfig = mkLinkConfig { inherit mtu; inherit (network) required; };
-              routes = builtins.map mkRouteConfig routes;
-            };
-          }] ++ (lib.attrsets.mapAttrsToList fromPppoe pppoe);
-        fromDevice = name: {
-          network,
-            vlans ? {},
-            pppoe ? {},
-            batmanDevice ? null,
-            mtu ? null,
-            routes ? [],
-            wireguard ? null,
-            ...
-        }: let
-          mkActivationStatus = { type, ignore-carrier ? false, ... }:
-            if ignore-carrier then "always-up" else null;
-          nw-conf = mkNetworkConfig network;
-        in (if nw-conf == null then [] else [{
-          name = "${if wireguard == null then "10" else "40"}-${name}";
-          value = {
-            matchConfig = {
-              Name = name;
-            };
-            vlan = lib.attrsets.mapAttrsToList (name: vlan: name) vlans;
-            networkConfig = (nw-conf) // (
-              if batmanDevice == null then {} else { BatmanAdvanced = batmanDevice; }
-            );
-            linkConfig = mkLinkConfig {
-              inherit mtu;
-              inherit (network) required;
-              activation-status = (mkActivationStatus network);
-            };
-            routes = builtins.map mkRouteConfig routes;
-          };
-        }]) ++ (
-          flatMapAttrsToList fromVlan vlans
-        ) ++ (
-          lib.attrsets.mapAttrsToList fromPppoe pppoe
-        );
-      in toAttrSet fromDevice cfg.topology;
+      links = toAttrSet mkLinkUnits cfg.topology;
+      netdevs = toAttrSet mkNetdevUnits cfg.topology;
+      networks = toAttrSet mkNetworkUnits cfg.topology;
     };
 
     # todo: turn on when ready to do dynamic networking
     systemd.services."router-network-dynamic" = lib.mkIf (
-      cfg.dynamic.networkFiles != {} || cfg.dynamic.netdevFiles != {}
+      cfg.dynamic.topology != {}
     ) {
       wants = [ "network-pre.target" ];
       before = [ "network-pre.target" ];
@@ -678,7 +767,9 @@ in {
       # todo: generate several smaller units that point to the same environment file
       script = let
         volatilePath = "/run/systemd/network";
-      in ''
+        netdevs = toAttrSet mkNetdevUnits cfg.dynamic.topology;
+        networks = toAttrSet mkNetworkUnits cfg.dynamic.topology;
+      in with utils.systemdUtils.network; ''
         mkdir -p ${volatilePath}
         chown systemd-network:systemd-network ${volatilePath}
 
@@ -689,7 +780,7 @@ in {
           EOF
 
           chown systemd-network:systemd-network ${volatilePath}/${file}.netdev
-        '') cfg.dynamic.netdevFiles
+        '') (builtins.mapAttrs (name: nd: units.netdevToUnit (empty-netdev // nd)) netdevs)
       )) + (lib.strings.concatStringsSep "\n" (
         lib.attrsets.mapAttrsToList (file: contents: ''
           envsubst <<EOF >${volatilePath}/${file}.network
@@ -697,7 +788,7 @@ in {
           EOF
 
           chown systemd-network:systemd-network ${volatilePath}/${file}.network
-        '') cfg.dynamic.networkFiles
+        '') (builtins.mapAttrs (name: nd: units.networkToUnit (empty-network // nd)) networks)
       ));
       # todo: eventually have this remove the links via ip manip -- networkd just kinda abandons them :/
       preStop = let
