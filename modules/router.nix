@@ -763,6 +763,7 @@ in {
     in {
       wants = [ "network-pre.target" ];
       before = [ "network-pre.target" ];
+      wantedBy = [ "network.target" ];
       path = with pkgs; [ bash envsubst ];
       # todo: once we have access to the networkd file rendering functions,
       #       use those to generate the files instead of directly using
@@ -801,6 +802,7 @@ in {
       ));
       serviceConfig.Type = "oneshot";
       serviceConfig.EnvironmentFile = cfg.dynamic.environmentFile;
+      serviceConfig.RemainAfterExit = true;
     });
 
     systemd.services."router-wireguard-dynamic-endpoint-refresh" = let
