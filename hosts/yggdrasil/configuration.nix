@@ -202,6 +202,7 @@
             allowedIps = [ "10.100.20.10/32" ];
             publicKey = "hTmV7qOLXHCQnTWljCiNHf2P22GBd0n339Fcq4tVdlw=";
             endpoint = "helveticastandard.com:58156";
+            dynamicEndpointRefreshRestartSeconds = 135;
             persistentKeepalive = 25;
           }];
         };
@@ -221,8 +222,9 @@
           port = 38506;
           peers = [{
             allowedIps = [ "10.100.0.3/32" ];
-            publicKey = "hTmV7qOLXHCQnTWljCiNHf2P22GBd0n339Fcq4tVdlw=";
+            publicKey = "O+WWPlhy6Lg9YT3hYqq+/8gZ48PpRXaUTl4eFFwgTVA=";
             endpoint.env = "$WG_BA_ENDPOINT";
+            dynamicEndpointRefreshRestartSeconds = 135;
             persistentKeepalive = 25;
           }];
         };

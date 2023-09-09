@@ -237,6 +237,12 @@ in {
                   example = 25;
                   default = null;
                 };
+                options.dynamicEndpointRefreshRestartSeconds = mkOption {
+                  type = types.nullOr types.int;
+                  description = "how long a handshake needs to stall out before it will be refreshed";
+                  example = 135;
+                  default = null;
+                };
               });
               description = "wireguard peers";
               default = [];
@@ -351,14 +357,6 @@ in {
           type = types.str; # types.nullOr types.str;
         };
         options.topology = mkTopologyOpt true;
-        options.networkFiles = mkOption {
-          type = types.attrsOf types.str;
-          default = {};
-        };
-        options.netdevFiles = mkOption {
-          type = types.attrsOf types.str;
-          default = {};
-        };
       };
       default = {};
     };
@@ -507,7 +505,8 @@ in {
         allowedIps,
           publicKey,
           endpoint ? null,
-          persistentKeepalive ? null
+          persistentKeepalive ? null,
+          ...
       }: {
         wireguardPeerConfig = lib.filterAttrs (n: v: v != null) {
           AllowedIPs = allowedIps;
@@ -708,6 +707,8 @@ in {
         };
       }];
 
+    dynamic-netdevs = toAttrSet mkNetdevUnits cfg.dynamic.topology;
+    dynamic-networks = toAttrSet mkNetworkUnits cfg.dynamic.topology;
     
   in lib.mkIf cfg.enable {
     assertions = (lib.attrValues (
@@ -757,7 +758,9 @@ in {
     # todo: turn on when ready to do dynamic networking
     systemd.services."router-network-dynamic" = lib.mkIf (
       cfg.dynamic.topology != {}
-    ) {
+    ) (let
+      volatilePath = "/run/systemd/network";
+    in {
       wants = [ "network-pre.target" ];
       before = [ "network-pre.target" ];
       path = with pkgs; [ bash envsubst ];
@@ -765,11 +768,7 @@ in {
       #       use those to generate the files instead of directly using
       #       ones the user provides
       # todo: generate several smaller units that point to the same environment file
-      script = let
-        volatilePath = "/run/systemd/network";
-        netdevs = toAttrSet mkNetdevUnits cfg.dynamic.topology;
-        networks = toAttrSet mkNetworkUnits cfg.dynamic.topology;
-      in with utils.systemdUtils.network; ''
+      script = with utils.systemdUtils.network; ''
         mkdir -p ${volatilePath}
         chown systemd-network:systemd-network ${volatilePath}
 
@@ -780,7 +779,7 @@ in {
           EOF
 
           chown systemd-network:systemd-network ${volatilePath}/${file}.netdev
-        '') (builtins.mapAttrs (name: nd: units.netdevToUnit (empty-netdev // nd)) netdevs)
+        '') (builtins.mapAttrs (name: nd: units.netdevToUnit (empty-netdev // nd)) dynamic-netdevs)
       )) + (lib.strings.concatStringsSep "\n" (
         lib.attrsets.mapAttrsToList (file: contents: ''
           envsubst <<EOF >${volatilePath}/${file}.network
@@ -788,19 +787,53 @@ in {
           EOF
 
           chown systemd-network:systemd-network ${volatilePath}/${file}.network
-        '') (builtins.mapAttrs (name: nd: units.networkToUnit (empty-network // nd)) networks)
+        '') (builtins.mapAttrs (name: nd: units.networkToUnit (empty-network // nd)) dynamic-networks)
       ));
-      # todo: eventually have this remove the links via ip manip -- networkd just kinda abandons them :/
-      preStop = let
-        volatilePath = "/run/systemd/network";
-      in (lib.strings.concatStringsSep "\n" (
+      # todo: eventually have this remove the links via an (ip?) command -- networkd just kinda abandons them :/
+      preStop = (lib.strings.concatStringsSep "\n" (
         lib.attrsets.mapAttrsToList (file: contents: ''
           rm ${volatilePath}/${file}.netdev
-        '') cfg.dynamic.netdevFiles
+        '') dynamic-netdevs
       )) + (lib.strings.concatStringsSep "\n" (
         lib.attrsets.mapAttrsToList (file: contents: ''
           rm ${volatilePath}/${file}.network
-        '') cfg.dynamic.networkFiles
+        '') dynamic-networks
+      ));
+      serviceConfig.Type = "oneshot";
+      serviceConfig.EnvironmentFile = cfg.dynamic.environmentFile;
+    });
+
+    systemd.services."router-wireguard-dynamic-endpoint-refresh" = let
+      getWireguardConf = lib.attrsets.concatMapAttrs (name: { wireguard ? {}, vlans ? {}, pppoe ? {}, ... }:
+        (
+          getWireguardConf vlans
+        ) // (
+          getWireguardConf pppoe
+        ) // (
+          let peers-with-refresh =
+                if wireguard ? "peers"
+                then builtins.filter (p:
+                  p.dynamicEndpointRefreshRestartSeconds != null
+                ) wireguard.peers
+                else [];
+          in if peers-with-refresh != [] then { ${name} = (wireguard // { peers = peers-with-refresh; }); } else {}
+        ));
+      wireguard-confs = getWireguardConf cfg.topology // getWireguardConf cfg.dynamic.topology;
+    in lib.mkIf (wireguard-confs != {}) {
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      path = with pkgs; [ bash wireguard-tools ];
+      script = (lib.strings.concatStringsSep "\n" (
+        flatMapAttrsToList (iface: {
+          peers,
+            ...
+        }: builtins.map (peer: ''
+          if [[ $(wg show "${iface}" latest-handshakes) =~ '${peer.publicKey}\s+(\d+)' ]]; then
+            if (( ($EPOCHSECONDS - ''${BASH_REMATCH[1]}) > ${toString peer.dynamicEndpointRefreshRestartSeconds} )); then
+              wg set "${iface}" peer "${peer.publicKey}" endpoint "${from-dynamic peer.endpoint}"
+            fi
+          fi
+        '') peers) wireguard-confs
       ));
       serviceConfig.Type = "oneshot";
       serviceConfig.EnvironmentFile = cfg.dynamic.environmentFile;
