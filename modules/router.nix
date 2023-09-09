@@ -828,7 +828,8 @@ in {
           peers,
             ...
         }: builtins.map (peer: ''
-          if [[ $(wg show "${iface}" latest-handshakes) =~ '${peer.publicKey}\s+(\d+)' ]]; then
+          re=$'${builtins.replaceStrings ["+"] ["\\+"] peer.publicKey}\t([0-9]+)'
+          if [[ $(wg show "${iface}" latest-handshakes) =~ $re ]]; then
             if (( ($EPOCHSECONDS - ''${BASH_REMATCH[1]}) > ${toString peer.dynamicEndpointRefreshRestartSeconds} )); then
               wg set "${iface}" peer "${peer.publicKey}" endpoint "${from-dynamic peer.endpoint}"
             fi
@@ -837,6 +838,14 @@ in {
       ));
       serviceConfig.Type = "oneshot";
       serviceConfig.EnvironmentFile = cfg.dynamic.environmentFile;
+    };
+    systemd.timers."router-wireguard-dynamic-endpoint-refresh" = lib.mkIf (config.systemd.services ? "router-wireguard-dynamic-endpoint-refresh") {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "5m";
+        OnUnitActiveSec = "5m";
+        Unit = "router-wireguard-dynamic-endpoint-refresh.service";
+      };
     };
 
     services.dnsmasq = let
