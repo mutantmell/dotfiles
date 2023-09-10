@@ -61,6 +61,13 @@ in {
             options.dhcp = mkOption {
               type = types.submodule {
                 options.enable = mkEnableOption "Enable DHCP on a static network";
+                # todo: remove this in favor of just using kea
+                options.svc = mkOption {
+                  type = types.enum [ "dnsmasq" "kea" ];
+                  description = "Specify which provider to use for this network";
+                  example = "kea";
+                  default = "dnsmasq";
+                };
               };
               default = {};
             };
@@ -266,6 +273,13 @@ in {
           example = "192.168.1.2";
           description = "the upstream dns server, if any";
           default = null;
+        };
+        options.svc = mkOption {
+          # todo: only allow unbound
+          type = types.enum [ "dnsmasq" "unbound" ];
+          description = "The backing service for local dns";
+          example = "unbound";
+          default = "dnsmasq";
         };
       };
     };
@@ -844,10 +858,11 @@ in {
     };
 
     services.dnsmasq = let
-      dhcp-networks = networksWhere (n: n.dhcp.enable);
+      dhcp-networks = networksWhere (n: n.dhcp.enable && n.dhcp.svc == "dnsmasq");
     in {
       enable = dhcp-networks != {};
       settings =  {
+        # todo: use unbound for local dns resolution
         server = builtins.filter (v: v != null) [ cfg.dns.upstream ];
         no-resolv = true;
         local = "/local/";
@@ -883,12 +898,52 @@ in {
       after = [ "network-online.target" ];
     };
 
+    services.kea = let
+      dhcp4-networks = networksWhere (n: n.dhcp.enable && n.dhcp.svc == "kea");
+    in {
+      dhcp4.enable = dhcp4-networks != {};
+      dhcp4.settings = {
+        interfaces-config.interfaces = builtins.attrNames dhcp4-networks;
+        lease-database = {
+          name = "/var/lib/kea/dhcp4.leases";
+          persist = true;
+          type = "memfile";
+        };
+        valid-lifetime = 4000;
+        renew-timer = 1000;
+        rebind-timer = 2000;
+        subnet4 = flatMapAttrsToList (name: nw: builtins.map (ipv4: {
+          pools = let
+            first3 = addrFirstN 3 ipv4;
+          in [{
+            pool = "${first3}.100 - ${first3}.200";
+          }];
+          subnet = ipv4;
+        }) nw.static-addresses) dhcp4-networks;
+      };
+    };
+
     services.avahi = {
-      enable = config.services.dnsmasq.enable;
-      nssmdns = true;
+      enable = config.services.dnsmasq.enable || config.services.kea.dhcp4.enable;
+      nssmdns = true; # todo: remove when unbound can handle .local
       publish.enable = true;
-      reflector = true;
+      reflector = true; # todo: remove?
+      # todo: trust is more of an nftables concept, maybe make this explicit, and tied in with dns below?
       allowInterfaces = interfacesWithTrust [ "management" "trusted" "untrusted" ];
+    };
+
+    services.unbound = {
+      enable = cfg.dns.svc == "unbound";
+      # todo: figure out how to make this handle .local
+      settings = {
+        # todo: confirm that unbound works with iface names like this
+        # todo: make this configured properly, rather than implicit like this
+        server.interface = interfacesWithTrust [ "management" "trusted" "untrusted" ];
+        forward-zone = if cfg.dns.upstream == null then [] else [{
+          name = ".";
+          forward-addr = cfg.dns.upstream;
+        }];
+      };
     };
 
     # TODO: make mtu setting based on the topology of the pppoe device
