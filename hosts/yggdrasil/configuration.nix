@@ -55,6 +55,7 @@
       usernameFile = config.sops.secrets."dyndns-host-domain".path;
       passwordFile = config.sops.secrets."dyndns-host-password".path;
       hosts = [ "home" ];
+      iface = "pppcenturylink";
       renewPeriod = "60m";
     };
     firewall.extraForwards = [
