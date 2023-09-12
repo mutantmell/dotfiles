@@ -277,9 +277,55 @@ in {
         options.svc = mkOption {
           # todo: only allow unbound
           type = types.enum [ "dnsmasq" "unbound" ];
-          description = "The backing service for local dns";
+          description = "The backing service for local DNS";
           example = "unbound";
           default = "dnsmasq";
+        };
+        options.dyndns = mkOption {
+          type = types.submodule {
+            options.enable = mkEnableOption "Use Dynamic DNS";
+            options.protocol = mkOption {
+              type = types.enum [ "namecheap" ];
+              default = "namecheap";
+              description = "dyndns protocol";
+            };
+            options.server = mkOption {
+              type = types.str;
+              default = "";
+              description = "Server for Dynamic DNS";
+            };
+            options.ip-host = mkOption {
+              type = types.str;
+              default = "ifconfig.io";
+              description = "Server for IP Address checking";
+            };
+            options.domains = mkOption {
+              type = types.listOf types.str;
+              default = [];
+              description = "hosts to use Dynamic DNS with.  Use '@' for all";
+            };
+            options.renewPeriod = mkOption {
+              type = types.str;
+              default = "60m";
+              description = "How often to check Dynamic DNS ip address";
+            };
+            options.username = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "Username/host";
+            };
+            options.usernameFile = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "File containing username/host";
+            };
+            options.passwordFile = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "Path to file containing password";
+            };
+          };
+          default = {};
         };
       };
     };
@@ -857,6 +903,54 @@ in {
       };
     };
 
+    # TODO: make mtu setting based on the configured values of the pppoe device
+    services.pppd = let
+      mkConfig = parentDev: pppName: userfile: ''
+        plugin pppoe.so ${parentDev}
+
+        hide-password
+        file ${userfile}
+
+        # Settings sourced from https://blog.confirm.ch/using-pppoe-on-linux/
+
+        # Connection settings.
+        persist
+        maxfail 0
+        holdoff 5
+
+        # LCP settings.
+        lcp-echo-interval 10
+        lcp-echo-failure 3
+
+        # PPPoE compliant settings.
+        noaccomp
+        default-asyncmap
+        mtu 1492
+
+        # IP settings.
+        noipdefault
+        defaultroute
+
+        # Linux only
+        ifname ${pppName}
+      '';
+      fromPppoe = dev: name: pppoe:
+        {
+          name = name;
+          value = {
+            enable = true;
+            config = (mkConfig dev name pppoe.userfile);
+          };
+        };
+      fromTopology = name: { vlans ? {}, pppoe ? {}, ...}:
+        (flatMapAttrsToList (fromPppoe name) pppoe) ++ (flatMapAttrsToList fromTopology vlans);
+      peers = builtins.listToAttrs (flatMapAttrsToList fromTopology cfg.topology);
+    in {
+      inherit peers;
+      enable = peers != [];
+      package = (pkgs.callPackage ./backports/ppp-2.4.9 { });
+    };
+
     services.dnsmasq = let
       dhcp-networks = networksWhere (n: n.dhcp.enable && n.dhcp.svc == "dnsmasq");
     in {
@@ -946,52 +1040,30 @@ in {
       };
     };
 
-    # TODO: make mtu setting based on the topology of the pppoe device
-    services.pppd = let
-      mkConfig = parentDev: pppName: userfile: ''
-        plugin pppoe.so ${parentDev}
+    systemd.services."router-dyn-dns" = let
+      dyndns = cfg.dns.dyndns;
+    in lib.mkIf (dyndns.enable) {
+      path = with pkgs; [ bash curl host ];
+      script = if dyndns.protocol == "namecheap" then (''
+        DDNS_EXTERNAL_IP=$(curl ${dyndns.ip-host})
+        DDNS_DOMAIN=${if dyndns.username != null then dyndns.username else ("$(cat " + dyndns.usernameFile + ")")}
+        DDNS_PASSWORD=$(cat ${dyndns.passwordFile})
+      '' + "\n" + lib.strings.concatStringsSep "\n" (builtins.map (domain: ''
+        DDNS_DOMAIN_IP=$(host "${if domain == "@" then "" else domain + "."}$DDNS_DOMAIN")
 
-        hide-password
-        file ${userfile}
-
-        # Settings sourced from https://blog.confirm.ch/using-pppoe-on-linux/
-
-        # Connection settings.
-        persist
-        maxfail 0
-        holdoff 5
-
-        # LCP settings.
-        lcp-echo-interval 10
-        lcp-echo-failure 3
-
-        # PPPoE compliant settings.
-        noaccomp
-        default-asyncmap
-        mtu 1492
-
-        # IP settings.
-        noipdefault
-        defaultroute
-
-        # Linux only
-        ifname ${pppName}
-      '';
-      fromPppoe = dev: name: pppoe:
-        {
-          name = name;
-          value = {
-            enable = true;
-            config = (mkConfig dev name pppoe.userfile);
-          };
-        };
-      fromTopology = name: { vlans ? {}, pppoe ? {}, ...}:
-        (flatMapAttrsToList (fromPppoe name) pppoe) ++ (flatMapAttrsToList fromTopology vlans);
-      peers = builtins.listToAttrs (flatMapAttrsToList fromTopology cfg.topology);
-    in {
-      inherit peers;
-      enable = peers != [];
-      package = (pkgs.callPackage ./backports/ppp-2.4.9 { });
+        if [ "$DDNS_EXTERNAL_IP" != "$DDNS_DOMAIN_IP" ]; then
+          #curl "${dyndns.server}/update?host=$DDNS_DOMAIN&domain=${domain}&password=$DDNS_PASSWORD"
+          echo "${dyndns.server}/update?host=$DDNS_DOMAIN&domain=${domain}&password=$DDNS_PASSWORD"
+        fi
+      '') dyndns.domains)) else abort "Unknown protocol for dyndns: ${dyndns.protocol}";
+    };
+    systemd.timers."router-dyn-dns" = lib.mkIf (config.systemd.services ? "router-dyn-dns") {
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = cfg.dns.dyndns.renewPeriod;
+        OnUnitActiveSec = cfg.dns.dyndns.renewPeriod;
+        Unit = "router-dyn-dns.service";
+      };
     };
 
     networking.nftables = let
