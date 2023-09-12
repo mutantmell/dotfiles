@@ -55,7 +55,6 @@
       usernameFile = config.sops.secrets."dyndns-host-domain".path;
       passwordFile = config.sops.secrets."dyndns-host-password".path;
       hosts = [ "home" ];
-      iface = "pppcenturylink";
       renewPeriod = "60m";
     };
     firewall.extraForwards = [
@@ -106,7 +105,7 @@
             pppoe = {
               "pppcenturylink" = {
                 userfile = config.sops.secrets."pppd-userfile".path;
-                network = { type = "dhcp"; nat.enable = true; route = "primary"; trust = "external"; };
+                network = { type = "dhcp"; nat.enable = true; route = "default"; trust = "external"; };
               };
             };
           };

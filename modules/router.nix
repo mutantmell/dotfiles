@@ -106,8 +106,8 @@ in {
               description = "NAT options for dhcp networks";
             };
             options.route = mkOption {
-              type = types.nullOr (types.enum [ "primary" ]);
-              example = "primary";
+              type = types.nullOr (types.enum [ "default" ]);
+              example = "default";
               description = "For a DHCP network, mark this as primary/default route";
               default = null;
             };
@@ -636,7 +636,7 @@ in {
             LinkLocalAddressing = "no"; # https://github.com/systemd/systemd/issues/9252#issuecomment-501850588
             IPv6AcceptRA=false; # https://bbs.archlinux.org/viewtopic.php?pid=1958133#p1958133
           };
-          defRoute = if route != "primary" then {} else {
+          defRoute = if route != "default" then {} else {
             DefaultRouteOnDevice = true;
           };
         in if type == "dhcp" then defRoute // {
@@ -1044,7 +1044,7 @@ in {
 
     systemd.services."router-dyn-dns" = let
       dyndns = cfg.dns.dyndns;
-      external = interfacesWithTrust "external";
+      external = interfacesWhere ({route, trust, ...}: route == "default" && trust == "external");
       inferred-external =
         if builtins.length external == 1
         then builtins.head external
