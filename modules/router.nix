@@ -294,10 +294,12 @@ in {
               default = "";
               description = "Server for Dynamic DNS";
             };
-            options.ip-host = mkOption {
-              type = types.str;
-              default = "ifconfig.io";
-              description = "Server for IP Address checking";
+            options.iface = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description =
+                "The interface to get the ip address from." +
+                "If null, will try and infer if there is a single active external.";
             };
             options.hosts = mkOption {
               type = types.listOf types.str;
@@ -1042,10 +1044,19 @@ in {
 
     systemd.services."router-dyn-dns" = let
       dyndns = cfg.dns.dyndns;
+      external = interfacesWithTrust "external";
+      inferred-external =
+        if builtins.length external == 1
+        then builtins.head external
+        else abort "Unable to infer which interface is external -- please specify";
+      iface =
+        if dyndns.iface != null
+        then dyndns.iface
+        else inferred-external;
     in lib.mkIf (dyndns.enable) {
-      path = with pkgs; [ bash curl dig ];
+      path = with pkgs; [ bash curl dig gnugrep iproute2 ];
       script = if dyndns.protocol == "namecheap" then (''
-        DDNS_EXTERNAL_IP=$(curl ${dyndns.ip-host})
+        DDNS_EXTERNAL_IP=$(ip -4 a show ${iface} | grep -Po 'inet \K[0-9.]*')
         DDNS_DOMAIN=${if dyndns.username != null then dyndns.username else ("$(cat " + dyndns.usernameFile + ")")}
         DDNS_PASSWORD=$(cat ${dyndns.passwordFile})
       '' + "\n" + lib.strings.concatStringsSep "\n" (builtins.map (host: ''
