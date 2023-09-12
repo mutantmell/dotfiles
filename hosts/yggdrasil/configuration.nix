@@ -49,12 +49,12 @@
     enable = true;
     dns.upstream = "10.0.10.2";
     dns.dyndns = {
-      enable = false;
+      enable = true;
       protocol = "namecheap";
       server = "https://dynamicdns.park-your-domain.com";
       usernameFile = config.sops.secrets."dyndns-host-domain".path;
       passwordFile = config.sops.secrets."dyndns-host-password".path;
-      domains = [ "home" ];
+      hosts = [ "home" ];
       renewPeriod = "60m";
     };
     firewall.extraForwards = [

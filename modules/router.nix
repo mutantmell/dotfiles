@@ -299,7 +299,7 @@ in {
               default = "ifconfig.io";
               description = "Server for IP Address checking";
             };
-            options.domains = mkOption {
+            options.hosts = mkOption {
               type = types.listOf types.str;
               default = [];
               description = "hosts to use Dynamic DNS with.  Use '@' for all";
@@ -1043,19 +1043,21 @@ in {
     systemd.services."router-dyn-dns" = let
       dyndns = cfg.dns.dyndns;
     in lib.mkIf (dyndns.enable) {
-      path = with pkgs; [ bash curl host ];
+      path = with pkgs; [ bash curl dig ];
       script = if dyndns.protocol == "namecheap" then (''
         DDNS_EXTERNAL_IP=$(curl ${dyndns.ip-host})
         DDNS_DOMAIN=${if dyndns.username != null then dyndns.username else ("$(cat " + dyndns.usernameFile + ")")}
         DDNS_PASSWORD=$(cat ${dyndns.passwordFile})
-      '' + "\n" + lib.strings.concatStringsSep "\n" (builtins.map (domain: ''
-        DDNS_DOMAIN_IP=$(host "${if domain == "@" then "" else domain + "."}$DDNS_DOMAIN")
+      '' + "\n" + lib.strings.concatStringsSep "\n" (builtins.map (host: ''
+        DDNS_DOMAIN_IP=$(dig +short "${if host == "@" then "" else host + "."}$DDNS_DOMAIN") || DDNS_DOMAIN_IP=""
 
         if [ "$DDNS_EXTERNAL_IP" != "$DDNS_DOMAIN_IP" ]; then
-          #curl "${dyndns.server}/update?host=$DDNS_DOMAIN&domain=${domain}&password=$DDNS_PASSWORD"
-          echo "${dyndns.server}/update?host=$DDNS_DOMAIN&domain=${domain}&password=$DDNS_PASSWORD"
+          curl "${dyndns.server}/update?host=${host}&domain=$DDNS_DOMAIN&password=$DDNS_PASSWORD"
         fi
-      '') dyndns.domains)) else abort "Unknown protocol for dyndns: ${dyndns.protocol}";
+      '') dyndns.hosts)) else abort "Unknown protocol for dyndns: ${dyndns.protocol}";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      serviceConfig.Type = "oneshot";
     };
     systemd.timers."router-dyn-dns" = lib.mkIf (config.systemd.services ? "router-dyn-dns") {
       wantedBy = [ "timers.target" ];
