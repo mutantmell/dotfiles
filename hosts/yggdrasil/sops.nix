@@ -21,6 +21,8 @@
         group = config.users.users."systemd-network".group;
       };
       "dynamic-network-env.conf" = {};
+      "dyndns-host-domain" = {};
+      "dyndns-host-password" = {};
     };
   };
 }

@@ -44,7 +44,6 @@
           targetHost = "10.0.10.2";
           tags = [ "mgmt" "infra" "dns" ];
         };
-        #nixpkgs.system = "aarch64-linux";
       };
 
       jotunheimr = { config, pkgs, lib, ... }: (import ./hosts/jotunheimr/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
@@ -101,7 +100,6 @@
           targetHost = "nidavellir.local";
           tags = [ "svc" "home" ];
         };
-        #nixpkgs.system = "aarch64-linux";
       };
     };
 
