@@ -12,12 +12,8 @@
       ./hardware-configuration.nix
       sops-nix.nixosModules.sops
       ./sops.nix
-      ../../../../modules/overrides/wireguard.nix
 
       ./proxy.nix
-    ];
-  disabledModules =
-    [ "services/networking/wireguard.nix"
     ];
 
   boot.loader.systemd-boot.enable = true;
