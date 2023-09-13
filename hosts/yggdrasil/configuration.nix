@@ -65,7 +65,7 @@
       }
       {
         iifname = [
-          "vDMZ.lan" "vHOME.lan" "vHOME.bat0"
+          "vDMZ.lan"
         ];
         oifname = "wg-ba";
         verdict = "accept";
@@ -223,7 +223,7 @@
         network = {
           type = "static";
           static-addresses = [ "10.100.0.1/24" ];
-          trust = "untrusted";
+          trust = "lockdown";
           required = false;
         };
         wireguard = {
@@ -236,6 +236,7 @@
             dynamicEndpointRefreshRestartSeconds = 135;
             persistentKeepalive = 25;
           }];
+          openFirewall = true;
         };
       };
     };
