@@ -784,8 +784,8 @@ in {
         message = "Cannot open the firewall for ${name} if no port is defined";
       }) whole-topology
     )) ++ [{
-      assertion = lib.lists.intersectLists (interfaces' cfg.topology) (interfaces' cfg.dynamic.topology) == [];
-      message = "Dynamic and Static interface names cannot overlap";
+      assertion = lib.lists.mutuallyExclusive (interfaces' cfg.topology) (interfaces' cfg.dynamic.topology);
+      message = "Dynamic and Static interface names must be mutually exclusive";
     }];
 
     boot.kernel.sysctl = {
@@ -825,6 +825,7 @@ in {
       networks = toAttrSet mkNetworkUnits cfg.topology;
     };
 
+    # todo: should this make 1 service per dynamic device?
     systemd.services."router-network-dynamic" = lib.mkIf (
       cfg.dynamic.topology != {}
     ) (let
