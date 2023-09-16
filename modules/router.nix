@@ -899,6 +899,7 @@ in {
           re=$'${builtins.replaceStrings ["+"] ["\\+"] peer.publicKey}\t([0-9]+)'
           if [[ $(wg show "${iface}" latest-handshakes) =~ $re ]]; then
             if (( ($EPOCHSECONDS - ''${BASH_REMATCH[1]}) > ${toString peer.dynamicEndpointRefreshRestartSeconds} )); then
+              echo "Updating wg endpoint for iface ${iface} and peer ${peer.publicKey}"
               wg set "${iface}" peer "${peer.publicKey}" endpoint "${from-dynamic peer.endpoint}"
             fi
           fi
