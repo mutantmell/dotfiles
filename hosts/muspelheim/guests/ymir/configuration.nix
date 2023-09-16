@@ -17,8 +17,18 @@
   ];
 
   networking.hostName = "ymir";
-  networking.useNetworkd = true;
   time.timeZone = "UTC";
+
+  networking.useNetworkd = true;
+  networking.interfaces."ens3" = {
+    useDHCP = false;
+    ipv4.addresses = [{
+      address = "10.0.20.41";
+      prefixLength = 24;
+    }];
+  };
+  networking.defaultGateway = "10.0.20.1";
+  networking.nameservers = [ "10.0.20.1" ];
 
   services.avahi = {
     enable = true;
