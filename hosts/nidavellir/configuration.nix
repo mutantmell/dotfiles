@@ -5,6 +5,7 @@
     nixos-hardware.nixosModules.raspberry-pi-4
     sops-nix.nixosModules.sops
     ./sops.nix
+    ./home-assistant.nix
   ];
 
   boot = {
