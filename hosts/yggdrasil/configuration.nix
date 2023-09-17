@@ -99,11 +99,11 @@
         device = "00:e0:67:1b:70:34";
         network = { type = "disabled"; required = false; };
         vlans = {
-          "wanCENTURYLINK" = {
+          "vISP.wan" = {
             tag = 201;
             network = { type = "disabled"; required = false; };
             pppoe = {
-              "pppcenturylink" = {
+              "pppwan" = {
                 userfile = config.sops.secrets."pppd-userfile".path;
                 network = { type = "dhcp"; nat.enable = true; route = "default"; trust = "external"; };
               };
