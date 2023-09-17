@@ -261,6 +261,7 @@ in {
           default = null;
         };
       });
+      default = {};
     };
   in {
     enable = mkEnableOption "Home Router Service";
@@ -414,7 +415,8 @@ in {
     dynamic = mkOption {
       type = types.submodule {
         options.environmentFile = mkOption {
-          type = types.str; # types.nullOr types.str;
+          type = types.nullOr types.str;
+          default = null;
         };
         options.topology = mkTopologyOpt true;
       };
@@ -783,7 +785,12 @@ in {
         assertion = (value.wireguard != null && value.wireguard.openFirewall) -> (value.wireguard.port != null);
         message = "Cannot open the firewall for ${name} if no port is defined";
       }) whole-topology
-    )) ++ [{
+    )) ++ (lib.flatten (lib.attrValues (
+      lib.mapAttrs (name: value: builtins.map (peer: {
+        assertion = (peer.dynamicEndpointRefreshRestartSeconds != null) -> (peer.endpoint != null);
+        message = "Cannot refresh the wireguard endpoint for ${name} and peer ${peer.publicKey} if no endpoint is defined";
+      }) (if value.wireguard != null then value.wireguard.peers else [])) whole-topology
+    ))) ++ [{
       assertion = lib.lists.mutuallyExclusive (interfaces' cfg.topology) (interfaces' cfg.dynamic.topology);
       message = "Dynamic and Static interface names must be mutually exclusive";
     }];
