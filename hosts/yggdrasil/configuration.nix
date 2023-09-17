@@ -177,6 +177,24 @@
         device = "00:e0:67:1b:70:37";
         network = { type = "disabled"; required = false; };
       };
+      "wg-ba" = {
+        network = {
+          type = "static";
+          static-addresses = [ "10.100.0.1/24" ];
+          trust = "lockdown";
+          required = false;
+        };
+        wireguard = {
+          privateKeyFile = config.sops.secrets."wg-ba-privatekey".path;
+          port = 38506;
+          peers = [{
+            allowedIps = [ "10.100.0.3/32" ];
+            publicKey = "O+WWPlhy6Lg9YT3hYqq+/8gZ48PpRXaUTl4eFFwgTVA=";
+            persistentKeepalive = 25;
+          }];
+          openFirewall = true;
+        };
+      };
       "wg-vpn" = {
         network = {
           type = "static";
@@ -214,29 +232,6 @@
             dynamicEndpointRefreshRestartSeconds = 135;
             persistentKeepalive = 25;
           }];
-        };
-      };
-    };
-    dynamic = {
-      environmentFile = config.sops.secrets."dynamic-network-env.conf".path;
-      topology."wg-ba" = {
-        network = {
-          type = "static";
-          static-addresses = [ "10.100.0.1/24" ];
-          trust = "lockdown";
-          required = false;
-        };
-        wireguard = {
-          privateKeyFile = config.sops.secrets."wg-ba-privatekey".path;
-          port = 38506;
-          peers = [{
-            allowedIps = [ "10.100.0.3/32" ];
-            publicKey = "O+WWPlhy6Lg9YT3hYqq+/8gZ48PpRXaUTl4eFFwgTVA=";
-            endpoint.env = "$WG_BA_ENDPOINT";
-            dynamicEndpointRefreshRestartSeconds = 135;
-            persistentKeepalive = 25;
-          }];
-          openFirewall = true;
         };
       };
     };
