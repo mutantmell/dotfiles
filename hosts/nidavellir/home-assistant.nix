@@ -9,6 +9,7 @@
       "radio_browser"
       # Aded components
       "google_translate"
+      "mqtt"
       "zha"
       # zwave-js support not yet merged: https://github.com/NixOS/nixpkgs/pull/230380
     ];
