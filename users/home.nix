@@ -25,6 +25,7 @@ in {
       lsp-mode
       haskell-mode
       yaml-mode
+      json-mode
     ]) ++ (with epkgs.melpaPackages; [
       nix-mode
       dante
