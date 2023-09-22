@@ -91,10 +91,17 @@ in {
   services.avahi = {
     enable = true;
     openFirewall = false;
+    nssmdns = true;
     publish = {
       enable = true;
       addresses = true;
     };
+  };
+
+  services.unifi = {
+    enable = true;
+    openFirewall = true;
+    unifiPackage = pkgs.unifi7;
   };
 
   system.stateVersion = "22.11";
