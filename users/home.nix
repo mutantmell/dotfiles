@@ -1,26 +1,19 @@
 { config, pkgs, lib, ... }:
 
-let
-  mkScript = name: script: pkgs.writeScriptBin name ''
-    #!${pkgs.runtimeShell}
-    ${script}
-  '';
-in {
+{
   home.stateVersion = "22.05";
-  home.username = "mjollnir";
   
   programs.home-manager.enable = true;
 
   home.packages = with pkgs; [
-    dig
-    bitwarden-cli
-    age
     nixfmt
   ];
 
   programs.emacs = {
     enable = true;
-    extraPackages = (epkgs: (with epkgs.melpaStablePackages; [
+    extraPackages = (epkgs: [
+      epkgs.agda2-mode
+    ] ++ (with epkgs.melpaStablePackages; [
       magit
       lsp-mode
       haskell-mode
@@ -40,8 +33,6 @@ in {
 
   programs.git = {
     enable = true;
-    userName = "mutantmell";
-    userEmail = "malaguy@gmail.com";
     extraConfig = {
       credential.helper = "${
         pkgs.git.override { withLibsecret = true; }
@@ -49,16 +40,9 @@ in {
     };
   };
 
-  programs.tmux = {
+  programs.direnv = {
     enable = true;
-    newSession = true;
-  };
-
-  programs.htop = {
-    enable = true;
-    settings = {
-      treeView = true;
-    };
+    nix-direnv.enable = true;
   };
 
   programs.bash = {

@@ -1,7 +1,23 @@
 { config, pkgs, lib, ... }:
 
 {
-  home.homeDirectory = "/home/mjollnir";
-  programs.direnv.enable = true;
-  services.lorri.enable = true;
+
+  home.packages = with pkgs; [
+    dig
+    bitwarden-cli
+    age
+  ];
+
+  programs.tmux = {
+    enable = true;
+    newSession = true;
+  };
+
+  programs.htop = {
+    enable = true;
+    settings = {
+      treeView = true;
+    };
+  };
+
 }

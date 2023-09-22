@@ -138,15 +138,18 @@
       pkgs = nixpkgs.legacyPackages.${system};
       confFor = {
         linux = ./users/linux.nix;
+        mjollnir = ./users/mjollnir.nix;
       };
       mkHomeConfig = {
         os ? "linux",
+        user ? "mjollnir",
         extra-modules ? []
       }: home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         modules = [
           ./users/home.nix
           (builtins.getAttr os confFor)
+          (builtins.getAttr user confFor)
         ] ++ extra-modules;
       };
     in {
