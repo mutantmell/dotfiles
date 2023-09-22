@@ -57,7 +57,8 @@ in
 
           # forward all Matrix API calls to the synapse Matrix homeserver
           locations."/_matrix".proxyPass = "http://[::1]:8008";
-          locations."/_synapse".proxyPass = "http://[::1]:8008";
+          # forward all non-admin synapse calls
+          locations."/_synapse/client".proxyPass = "http://[::1]:8008";
         };
 
         "${matrix-fqdn}" = {
@@ -73,7 +74,8 @@ in
 
           # forward all Matrix API calls to the synapse Matrix homeserver
           locations."/_matrix".proxyPass = "http://[::1]:8008";
-          locations."/_synapse".proxyPass = "http://[::1]:8008";
+          # forward all non-admin synapse calls
+          locations."/_synapse/client".proxyPass = "http://[::1]:8008";
         };
 
         "${element-fqdn}" = {
