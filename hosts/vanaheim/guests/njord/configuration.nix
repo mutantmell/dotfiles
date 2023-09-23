@@ -102,6 +102,7 @@ in {
     enable = true;
     openFirewall = true;
     unifiPackage = pkgs.unifi7;
+    maximumJavaHeapSize = 256;
   };
 
   system.stateVersion = "22.11";
