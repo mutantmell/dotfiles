@@ -2,6 +2,7 @@
 
 {
   home.username = "mjollnir";
+  home.homeDirectory = "/home/mjollnir";
 
   programs.git = {
     userName = "mutantmell";
