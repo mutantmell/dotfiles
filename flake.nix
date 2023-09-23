@@ -11,8 +11,20 @@
       url = github:Mic92/sops-nix;
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    flake-utils.url = "github:numtide/flake-utils";
   };
-  outputs = { self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix }: {
+  outputs = { self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, flake-utils }:
+    (flake-utils.lib.eachDefaultSystem (system: let
+      pkgs = nixpkgs.legacyPackages.${system};
+    in {
+      devShells.default = pkgs.mkShell {
+        packages = [
+          pkgs.bashInteractive
+          pkgs.colmena
+          pkgs.sops
+        ];
+      };
+    })) // {
     colmena = {
       meta = {
         nixpkgs = import nixpkgs {
