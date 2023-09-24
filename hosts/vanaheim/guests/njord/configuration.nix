@@ -105,5 +105,7 @@ in {
     maximumJavaHeapSize = 256;
   };
 
+  networking.firewall.allowedTCPPorts = [ 8443 ];
+
   system.stateVersion = "22.11";
 }
