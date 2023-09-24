@@ -32,7 +32,6 @@
   };
   networking.defaultGateway = "10.0.20.1";
   networking.nameservers = [ "10.0.20.1" ];
-  networking.firewall.allowedTCPPorts = [ 8443 ];
   networking.firewall.allowedUDPPorts = [ 5353 ];
 
   users.users.mjollnir = {
@@ -75,11 +74,6 @@
       userServices = true;
       workstation = true;
     };
-  };
-
-  services.unifi = {
-    enable = true;
-    openFirewall = true;
   };
 
   system.stateVersion = "23.05";
