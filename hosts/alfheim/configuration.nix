@@ -40,7 +40,6 @@
     53    # DNS
     80    # HTTP
     443   # HTTPS
-    8443  # Unifi
   ];
 
   networking.hostName = "alfheim";
@@ -84,11 +83,6 @@
       enable = true;
       addresses = true;
     };
-  };
-
-  services.unifi = {
-    enable = true;
-    openFirewall = true;
   };
 
   services.adguardhome = {
