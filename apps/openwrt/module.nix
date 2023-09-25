@@ -2,6 +2,7 @@
 
 {
   # terminology derived from: https://openwrt.org/docs/guide-user/base-system/uci#uci_dataobject_model
+  # TODO: guard the output on `uci validate` the generated config: https://openwrt.org/docs/guide-user/advanced/uci_extras#commands
   options.uci.config = lib.mkOption {
     type = lib.types.attrsOf (lib.types.listOf (lib.types.submodule {
       options.type = lib.mkOption {
