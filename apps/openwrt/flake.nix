@@ -14,7 +14,12 @@
       packages = {
         parse-uci = python.pkgs.buildPythonApplication {
           name = "parse-uci";
-          buildInputs = with python.pkgs; [ pip ];
+          version = "0.1.0";
+          format = "pyproject";
+          buildInputs = [
+            python.pkgs.pip
+            python.pkgs.setuptools
+          ];
           src = ./parse_uci;
         };
       };
