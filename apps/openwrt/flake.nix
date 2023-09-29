@@ -3,44 +3,36 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs";
+    flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs }: let
-    allSystems = builtins.map (
-      {machine, system}: "${machine}-${system}"
-    ) (nixpkgs.lib.cartesianProductOfSets {
-      machine = [ "x86_64" "aarch64" ];
-      system = [ "linux" "darwin" ];
-    });
-
-    forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
+  outputs = { self, nixpkgs, flake-utils, }:
+    flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs { inherit system; };
-    });
-  in {
-    packages = forAllSystems ({ pkgs }: {
-      parse-uci = let
-        python = pkgs.python311;
-      in python.pkgs.buildPythonApplication {
-        name = "parse-uci";
-        buildInputs = with python.pkgs; [ pip ];
-        src = ./parse_uci;
+      python = pkgs.python311;
+    in {
+      packages = {
+        parse-uci = python.pkgs.buildPythonApplication {
+          name = "parse-uci";
+          buildInputs = with python.pkgs; [ pip ];
+          src = ./parse_uci;
+        };
+      };
+
+      apps = {
+        parse-uci = {
+          type = "app";
+          program = let
+            path = self.packages.${system}.parse-uci;
+          in "${path}/bin/parse-uci";
+        };
+      };
+
+      devShells.default = pkgs.mkShell {
+        buildInputs = [
+          python
+          self.packages.${system}.parse-uci
+        ];
       };
     });
-
-    apps = forAllSystems ({ pkgs }: {
-      parse-uci = {
-        type = "app";
-        program = let
-          path = self.packages."${pkgs.system}".parse-uci;
-        in "${path}/bin/parse-uci";
-      };
-    });
-
-    # TODO: use flake-utils and a common eachDefaultSystem
-    devShell = forAllSystems ({ pkgs }: pkgs.mkShell {
-      buildInputs = [
-        pkgs.python311
-      ];
-    });
-  };
 }
