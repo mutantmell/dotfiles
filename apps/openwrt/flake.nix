@@ -1,5 +1,5 @@
 {
-  description = "Python example flake for Zero to Nix";
+  description = "Apps and other software related to managing OpenWRT images";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs";
@@ -34,6 +34,13 @@
           path = self.packages."${pkgs.system}".parse-uci;
         in "${path}/bin/parse-uci";
       };
+    });
+
+    # TODO: use flake-utils and a common eachDefaultSystem
+    devShell = forAllSystems ({ pkgs }: pkgs.mkShell {
+      buildInputs = [
+        pkgs.python311
+      ];
     });
   };
 }
