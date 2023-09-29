@@ -13,18 +13,46 @@
     };
     flake-utils.url = "github:numtide/flake-utils";
   };
-  outputs = { self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, flake-utils, }:
-    (flake-utils.lib.eachDefaultSystem (system: let
-      pkgs = nixpkgs.legacyPackages.${system};
-    in {
-      devShells.default = pkgs.mkShell {
-        packages = [
-          pkgs.bashInteractive
-          pkgs.colmena
-          pkgs.sops
-        ];
+  outputs = {
+    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, flake-utils,
+  }: (flake-utils.lib.eachDefaultSystem (system: let
+    pkgs = nixpkgs.legacyPackages.${system};
+  in {
+    devShells.default = pkgs.mkShell {
+      packages = [
+        pkgs.bashInteractive
+        pkgs.colmena
+        pkgs.sops
+      ];
+    };
+
+    templates = {
+      mk-home-config = {
+        os ? "linux",
+          user ? null,
+          extra-modules ? []
+      }: let
+        confFor = {
+          linux = [
+            ./users/linux.nix
+          ];
+          mjollnir = [
+            ./users/mjollnir.nix
+          ];
+          null = [];
+        };
+      in home-manager.lib.homeManagerConfiguration {
+        inherit pkgs;
+        modules = [
+          ./users/home.nix
+        ] ++ (
+          builtins.getAttr os confFor
+        ) ++ (
+          builtins.getAttr user confFor
+        ) ++ extra-modules;
       };
-    })) // {
+    };
+  })) // {
     colmena = {
       meta = {
         nixpkgs = import nixpkgs {
@@ -144,29 +172,14 @@
       ];
     };
 
-    homeConfigurations = let
-      system = "x86_64-linux";
-      username = "mjollnir";
-      pkgs = nixpkgs.legacyPackages.${system};
-      confFor = {
-        linux = ./users/linux.nix;
-        mjollnir = ./users/mjollnir.nix;
+    homeConfigurations = {
+      skadi = self.templates."x86_64-linux".mk-home-config {
+        user = "mjollnir";
       };
-      mkHomeConfig = {
-        os ? "linux",
-        user ? "mjollnir",
-        extra-modules ? []
-      }: home-manager.lib.homeManagerConfiguration {
-        inherit pkgs;
-        modules = [
-          ./users/home.nix
-          (builtins.getAttr os confFor)
-          (builtins.getAttr user confFor)
-        ] ++ extra-modules;
+      svartalfheim = self.templates."x86_64-linux".mk-home-config {
+        user = "mjollnir";
+        extra-modules = [ ./users/graphical.nix ];
       };
-    in {
-      skadi = mkHomeConfig {};
-      svartalfheim = mkHomeConfig { extra-modules = [ ./users/graphical.nix ]; };
     };
   };
 }
