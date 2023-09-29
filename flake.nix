@@ -13,7 +13,7 @@
     };
     flake-utils.url = "github:numtide/flake-utils";
   };
-  outputs = { self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, flake-utils }:
+  outputs = { self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, flake-utils, }:
     (flake-utils.lib.eachDefaultSystem (system: let
       pkgs = nixpkgs.legacyPackages.${system};
     in {
