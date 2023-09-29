@@ -41,9 +41,9 @@ def parse_uci(uci_file):
   }
 
 
-if __name__ == "__main__":
+def main():
   parser = argparse.ArgumentParser(description="Parse UCI to json")
-  parser.add_argument("--file", dest="file", metavar="FILE", type=str, help="path to UCI file to parse")
+  parser.add_argument("--file", dest="file", metavar="FILE", type=str, help="path to UCI file to parse", required=True)
   parser.add_argument("--output", dest="output", metavar="FILE", type=str, help="output path for the json file", default=None)
   args = parser.parse_args()
   parsed = parse_uci(args.file)
@@ -52,3 +52,7 @@ if __name__ == "__main__":
   else:
     with open(args.output, 'w', encoding="utf-8") as outfile:
       outfile.write(json.dumps(parsed, indent=2))
+
+
+if __name__ == "__main__":
+  main()
