@@ -59,14 +59,15 @@
           system = "x86_64-linux";
           config.allowUnfree = true;
         };
-        nodeNixpkgs = let
-          rpi4 = import nixpkgs {
+        nodeNixpkgs = {
+          alfheim = import nixpkgs-stable {
             system = "aarch64-linux";
             config.allowUnfree = true;
           };
-        in {
-          alfheim = rpi4;
-          nidavellir = rpi4;
+          nidavellir = import nixpkgs {
+            system = "aarch64-linux";
+            config.allowUnfree = true;
+          };
         };
       };
 
