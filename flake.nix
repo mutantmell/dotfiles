@@ -60,7 +60,7 @@
           config.allowUnfree = true;
         };
         nodeNixpkgs = {
-          alfheim = import nixpkgs-stable {
+          alfheim = import nixpkgs {
             system = "aarch64-linux";
             config.allowUnfree = true;
           };
