@@ -19,6 +19,7 @@
       haskell-mode
       yaml-mode
       json-mode
+      js2-mode
     ]) ++ (with epkgs.melpaPackages; [
       nix-mode
       dante
