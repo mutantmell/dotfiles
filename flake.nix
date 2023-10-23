@@ -11,10 +11,14 @@
       url = github:Mic92/sops-nix;
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-utils.url = github:numtide/flake-utils;
+    jovian = {
+      url = github:Jovian-Experiments/Jovian-NixOS;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = {
-    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, flake-utils,
+    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, flake-utils, jovian,
   }: (flake-utils.lib.eachDefaultSystem (system: let
     pkgs = nixpkgs.legacyPackages.${system};
   in {
