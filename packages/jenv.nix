@@ -12,12 +12,11 @@ stdenv.mkDerivation rec {
     owner = "jenv";
     repo = "jenv";
     rev = "refs/tags/${version}";
-    hash = "sha256-KxYxHNoXk4RVA5+mpE3hjrl1c+7Ei/km/zrMIvvV+1M=";
+    hash = "sha256-2N8LONZvu7n6hRi6+Dt5V9F9CerphSFbMBG58WIBWDI=";
+    fetchSubmodules = true;
   };
 
-  postPatch = ''
-    patchShebangs --build src/configure
-  '';
+  dontConfigure = true;
 
   nativeBuildInputs = [
     installShellFiles
@@ -29,7 +28,6 @@ stdenv.mkDerivation rec {
     mkdir -p "$out"
     cp -R bin "$out/bin"
     cp -R libexec "$out/libexec"
-    #cp -R plugins "$out/plugins"
 
     runHook postInstall
   '';
