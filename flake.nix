@@ -30,6 +30,12 @@
       ];
     };
 
+    packages = {
+      jenv = import packages/jenv.nix {
+        inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
+      };
+    };
+
     templates = {
       mk-home-config = {
         os ? "linux",
