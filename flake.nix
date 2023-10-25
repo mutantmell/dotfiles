@@ -20,7 +20,7 @@
   outputs = {
     self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, flake-utils, jovian,
   }: (flake-utils.lib.eachDefaultSystem (system: let
-    pkgs = nixpkgs.legacyPackages.${system};
+    pkgs = import nixpkgs { inherit system; };
   in {
     devShells.default = pkgs.mkShell {
       packages = [
