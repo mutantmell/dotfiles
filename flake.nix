@@ -44,17 +44,17 @@
       }: let
         confFor = {
           linux = [
-            ./users/linux.nix
+            ./home/linux.nix
           ];
           mjollnir = [
-            ./users/mjollnir.nix
+            ./home/mjollnir.nix
           ];
           null = [];
         };
       in home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         modules = [
-          ./users/home.nix
+          ./home/common.nix
         ] ++ (
           builtins.getAttr os confFor
         ) ++ (
@@ -197,7 +197,7 @@
       };
       svartalfheim = self.templates."x86_64-linux".mk-home-config {
         user = "mjollnir";
-        extra-modules = [ ./users/graphical.nix ];
+        extra-modules = [ ./home/graphical.nix ];
       };
     };
   };
