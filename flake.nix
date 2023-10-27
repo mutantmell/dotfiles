@@ -152,6 +152,14 @@
           tags = [ "svc" "home" ];
         };
       };
+
+      thunarr = { config, pkgs, lib, ... }: (import ./hosts/nidavellir/configuration.nix { inherit config pkgs lib jovian sops-nix; }) // {
+        deployment = {
+          targetUser = "root";
+          targetHost = "thunarr.local";
+          tags = [ "game" "htpc" ];
+        };
+      };
     };
 
     nixosConfigurations.skadi = nixpkgs.lib.nixosSystem {
