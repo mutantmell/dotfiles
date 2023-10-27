@@ -39,26 +39,35 @@
     templates = {
       mk-home-config = {
         os ? "linux",
-          user ? null,
+          user ? "mjollnir",
           extra-modules ? []
       }: let
-        confFor = {
+        osConf = {
           linux = [
             ./home/linux.nix
           ];
+          darwin = [
+            ./home/darwin.nix
+          ];
+        };
+        userConf = {
           mjollnir = [
             ./home/mjollnir.nix
           ];
-          null = [];
         };
+        homeDirectory = if os == "darwin" then "/Users/${user}" else "/home/${user}";
       in home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         modules = [
           ./home/common.nix
+          {
+            home.username = user;
+            home.homeDirectory = homeDirectory;
+          }
         ] ++ (
-          builtins.getAttr os confFor
+          osConf.${os} or (builtins.raise "unsupported os: ${os}")
         ) ++ (
-          builtins.getAttr user confFor
+          userConf.${user} or []
         ) ++ extra-modules;
       };
     };
