@@ -11,6 +11,10 @@
 
   programs.emacs = {
     enable = true;
+    extraConfig = ''
+      (load-file (let ((coding-system-for-read 'utf-8))
+                (shell-command-to-string "agda-mode locate")))
+    '';
     extraPackages = (epkgs: [
       epkgs.agda2-mode
     ] ++ (with epkgs.melpaStablePackages; [
@@ -26,12 +30,6 @@
     ]));
   };
 
-  services.emacs = {
-    enable = true;
-    socketActivation.enable = true;
-    defaultEditor = true;
-  };
-
   programs.git = {
     enable = true;
     extraConfig = {
@@ -44,10 +42,6 @@
   programs.direnv = {
     enable = true;
     nix-direnv.enable = true;
-  };
-
-  programs.bash = {
-    enable = true;
   };
 
 }
