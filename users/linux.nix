@@ -8,6 +8,16 @@
     age
   ];
 
+  services.emacs = {
+    enable = true;
+    socketActivation.enable = true;
+    defaultEditor = true;
+  };
+
+  programs.bash = {
+    enable = true;
+  };
+
   programs.tmux = {
     enable = true;
     newSession = true;
