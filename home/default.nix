@@ -15,12 +15,11 @@ in {
 
   imports = [
     ./common.nix
-  ] ++ (builtins.map (lang: {
-    "agda" = ./lang/agda.nix;
-  }.lang) (home-conf.langs or [])) ++ (
-    option-null ({
-      "mjollnir" = ./mjollnir.nix;
-    }.${home-conf.user} or null)
+  ] ++ (
+    builtins.map (lang: ./lang + "/${lang}.nix") (home-conf.langs or [])
+  ) ++ (
+    let path = ./user + "/${home-conf.user}.nix";
+    in lib.optional (builtins.pathExists path) path
   ) ++ (
     lib.optional (home-conf.is-graphical or false) ./graphical.nix
   ) ++ (
