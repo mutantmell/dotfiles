@@ -1,7 +1,7 @@
 { config, pkgs, lib, home-conf, ... }:
 
 let
-  optional-nonnull = x: if x != null then [x] else [];
+  option-null = x: if x != null then [x] else [];
 in {
   programs.home-manager.enable = true;
 
@@ -17,10 +17,13 @@ in {
     ./common.nix
   ] ++ (builtins.map (lang: {
     "agda" = ./lang/agda.nix;
-  }.lang) (home-conf.langs or [])) ++ (optional-nonnull ({
-    "mjollnir" = ./mjollnir.nix;
-  }.${home-conf.user} or null)) ++ (
+  }.lang) (home-conf.langs or [])) ++ (
+    option-null ({
+      "mjollnir" = ./mjollnir.nix;
+    }.${home-conf.user} or null)
+  ) ++ (
     lib.optional (home-conf.is-graphical or false) ./graphical.nix
-  ) ++ (home-conf.extraModules or []);
-
+  ) ++ (
+    home-conf.extraModules or []
+  );
 }

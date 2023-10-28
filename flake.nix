@@ -47,7 +47,7 @@
         ) ++ (
           pkgs.lib.optional pkgs.stdenv.isLinux ./home/linux.nix
         );
-      }); # // { inherit extraSpecialArgs; });
+      });
     };
   })) // {
     colmena = {
