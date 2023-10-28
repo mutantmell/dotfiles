@@ -39,7 +39,7 @@
     templates = {
       mk-home-config = args: home-manager.lib.homeManagerConfiguration (rec {
         inherit pkgs;
-        extraSpecialArgs = { home-conf = ({ inherit system; } // args); };
+        extraSpecialArgs = { home-conf = args; };
         modules = [
           ./home
         ] ++ (
