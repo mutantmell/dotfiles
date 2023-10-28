@@ -14,6 +14,12 @@
     defaultEditor = true;
   };
 
+  programs.git.extraConfig = {
+    credential.helper = "${
+      pkgs.git.override { withLibsecret = true; }
+    }/bin/git-credential-libsecret";
+  };
+
   programs.bash = {
     enable = true;
   };
