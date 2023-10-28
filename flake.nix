@@ -37,39 +37,17 @@
     };
 
     templates = {
-      mk-home-config = {
-        os ? "linux",
-          user ? "mjollnir",
-          extra-modules ? []
-      }: let
-        osConf = {
-          linux = [
-            ./home/linux.nix
-          ];
-          darwin = [
-            ./home/darwin.nix
-          ];
-        };
-        userConf = {
-          mjollnir = [
-            ./home/mjollnir.nix
-          ];
-        };
-        homeDirectory = if os == "darwin" then "/Users/${user}" else "/home/${user}";
-      in home-manager.lib.homeManagerConfiguration {
+      mk-home-config = args: home-manager.lib.homeManagerConfiguration (rec {
         inherit pkgs;
+        extraSpecialArgs = { home-conf = ({ inherit system; } // args); };
         modules = [
-          ./home/common.nix
-          {
-            home.username = user;
-            home.homeDirectory = homeDirectory;
-          }
+          ./home
         ] ++ (
-          osConf.${os} or (builtins.raise "unsupported os: ${os}")
+          pkgs.lib.optional pkgs.stdenv.isDarwin ./home/darwin.nix
         ) ++ (
-          userConf.${user} or []
-        ) ++ extra-modules;
-      };
+          pkgs.lib.optional pkgs.stdenv.isLinux ./home/linux.nix
+        );
+      }); # // { inherit extraSpecialArgs; });
     };
   })) // {
     colmena = {
@@ -206,7 +184,7 @@
       };
       svartalfheim = self.templates."x86_64-linux".mk-home-config {
         user = "mjollnir";
-        extra-modules = [ ./home/graphical.nix ];
+        is-graphical = true;
       };
     };
   };
