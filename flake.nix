@@ -36,6 +36,8 @@
       };
     };
 
+    nixosModules.router = import ./modules/router.nix;
+
     templates = {
       mk-home-config = args: home-manager.lib.homeManagerConfiguration (rec {
         inherit pkgs;
