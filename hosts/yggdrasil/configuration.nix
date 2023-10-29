@@ -1,4 +1,4 @@
-{ config, pkgs, sops-nix, ... }:
+{ config, pkgs, sops-nix, router, ... }:
 
 {
   imports =
