@@ -1,6 +1,10 @@
 { config, pkgs, lib, ... }:
 
 {
+  imports = [
+    ./modules/java-versions.nix
+  ];
+
   home.packages = with pkgs; [
     nixfmt
   ];
