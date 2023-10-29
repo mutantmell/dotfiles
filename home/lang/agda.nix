@@ -1,6 +1,10 @@
 { config, pkgs, lib, ... }:
 
 {
+  home.packages = [
+    (pkgs.agda.withPackages (p: [ p.standard-library ]))
+  ];
+
   programs.emacs = {
     extraConfig = ''
       (load-file (let ((coding-system-for-read 'utf-8))

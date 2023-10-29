@@ -7,9 +7,7 @@
 
   programs.emacs = {
     enable = true;
-    extraPackages = (epkgs: [
-      epkgs.agda2-mode
-    ] ++ (with epkgs.melpaStablePackages; [
+    extraPackages = epkgs: (with epkgs.melpaStablePackages; [
       magit
       lsp-mode
       haskell-mode
@@ -19,7 +17,7 @@
     ]) ++ (with epkgs.melpaPackages; [
       nix-mode
       dante
-    ]));
+    ]);
   };
 
   programs.git = {

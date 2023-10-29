@@ -181,6 +181,7 @@
     homeConfigurations = {
       skadi = self.templates."x86_64-linux".mk-home-config {
         user = "mjollnir";
+        langs = [ "agda" ];
       };
       svartalfheim = self.templates."x86_64-linux".mk-home-config {
         user = "mjollnir";
