@@ -22,7 +22,7 @@
     pkgsFor = basepkgs: system: import basepkgs {
       inherit system;
       overlays = [
-        (final: prev: { jenv = self.packages.${system}.jenv;})
+        self.overlays.${system}.packages
       ];
     };
     allSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
@@ -47,6 +47,10 @@
     });
 
     nixosModules.router = import ./modules/router.nix;
+
+    overlays = forAllSystems ({ pkgs }: {
+      packages = final: prev: { mmell = self.packages.${pkgs.system}; };
+    });
 
     lib = {
       mk-home-config = args @ { nixpkgs, system, ... }: let
