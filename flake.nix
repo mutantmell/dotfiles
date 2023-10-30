@@ -43,7 +43,7 @@
 
     nixosModules.router = import ./modules/router.nix;
 
-    templates = {
+    lib = {
       mk-home-config = args @ {pkgs, ...}: home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
         extraSpecialArgs = { home-conf = builtins.removeAttrs args ["pkgs"]; };
@@ -230,12 +230,12 @@
     };
 
     homeConfigurations = {
-      skadi = self.templates.mk-home-config {
+      skadi = self.lib.mk-home-config {
         pkgs = pkgsFor nixpkgs "x86_64-linux";
         user = "mjollnir";
         langs = [ "agda" ];
       };
-      svartalfheim = self.templates.mk-home-config {
+      svartalfheim = self.lib.mk-home-config {
         pkgs = pkgsFor nixpkgs "x86_64-linux";
         user = "mjollnir";
         is-graphical = true;
