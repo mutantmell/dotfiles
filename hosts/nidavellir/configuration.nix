@@ -1,9 +1,7 @@
-{ config, pkgs, lib, nixos-hardware, sops-nix, ... }:
+{ config, pkgs, lib, ... }:
 
 {
   imports = [
-    nixos-hardware.nixosModules.raspberry-pi-4
-    sops-nix.nixosModules.sops
     ./sops.nix
     ./home-assistant.nix
   ];

@@ -1,11 +1,6 @@
-{ config, pkgs, jovian, sops-nix, ... }:
+{ config, pkgs, ... }:
 
 {
-
-  imports = [
-    sops-nix.nixosModules.sops
-    jovian.nixosModules.jovian
-  ];
 
   nixpkgs.config.allowUnfree = true;
   

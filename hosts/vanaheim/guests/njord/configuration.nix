@@ -1,14 +1,12 @@
-{ config, pkgs, sops-nix, ... }:
+{ config, pkgs, ... }:
 
 let
   dataDir = "/mnt/nas";
 in {
-  imports =
-    [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
-      sops-nix.nixosModules.sops
-      ./sops.nix
-    ];
+  imports = [
+    ./hardware-configuration.nix
+    ./sops.nix
+  ];
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
