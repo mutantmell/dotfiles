@@ -7,6 +7,11 @@
 
   home.packages = with pkgs; [
     nixfmt
+    (aspellWithDicts (ds: [
+      ds.en
+      ds.en-computers
+      ds.en-science
+    ]))
   ];
 
   programs.emacs = {
