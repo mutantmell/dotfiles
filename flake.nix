@@ -11,35 +11,42 @@
       url = github:Mic92/sops-nix;
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    flake-utils.url = github:numtide/flake-utils;
     jovian = {
       url = github:Jovian-Experiments/Jovian-NixOS;
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
   outputs = {
-    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, flake-utils, jovian,
-  }: (flake-utils.lib.eachDefaultSystem (system: let
-    pkgs = import nixpkgs { inherit system; };
+    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, jovian,
+  }: let
+    pkgsFor = basepkgs: system: import basepkgs { inherit system; };
+    allSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+    forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
+      pkgs = pkgsFor nixpkgs system;
+    });
   in {
-    devShells.default = pkgs.mkShell {
-      packages = [
-        pkgs.bashInteractive
-        pkgs.colmena
-        pkgs.sops
-      ];
-    };
+    devShells = forAllSystems ({ pkgs }: {
+      default = pkgs.mkShell {
+        packages = [
+          pkgs.bashInteractive
+          pkgs.colmena
+          pkgs.sops
+        ];
+      };
+    });
 
-    packages = {
+    packages = forAllSystems ({ pkgs }: {
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
       };
-    };
+    });
+
+    nixosModules.router = import ./modules/router.nix;
 
     templates = {
-      mk-home-config = args: home-manager.lib.homeManagerConfiguration (rec {
+      mk-home-config = args @ {pkgs, ...}: home-manager.lib.homeManagerConfiguration {
         inherit pkgs;
-        extraSpecialArgs = { home-conf = args; };
+        extraSpecialArgs = { home-conf = builtins.removeAttrs args ["pkgs"]; };
         modules = [
           ./home
         ] ++ (
@@ -47,11 +54,8 @@
         ) ++ (
           pkgs.lib.optional pkgs.stdenv.isLinux ./home/linux.nix
         );
-      });
+      };
     };
-  })) // {
-
-    nixosModules.router = import ./modules/router.nix;
 
     colmena = {
       meta = {
@@ -199,38 +203,40 @@
     nixosConfigurations.skadi = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
-        ./hosts/vanaheim/guests/skadi/configuration.nix
         sops-nix.nixosModules.sops
+        ./hosts/vanaheim/guests/skadi/configuration.nix
       ];
     };
     nixosConfigurations.vanaheim = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
-        ./hosts/vanaheim/configuration.nix
         sops-nix.nixosModules.sops
+        ./hosts/vanaheim/configuration.nix
       ];
     };
     nixosConfigurations.muspelheim = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
-        ./hosts/muspelheim/configuration.nix
         sops-nix.nixosModules.sops
+        ./hosts/muspelheim/configuration.nix
       ];
     };
     nixosConfigurations.svartalfheim = nixpkgs-stable.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
-        ./hosts/svartalfheim/configuration.nix
         sops-nix.nixosModules.sops
+        ./hosts/svartalfheim/configuration.nix
       ];
     };
 
     homeConfigurations = {
-      skadi = self.templates."x86_64-linux".mk-home-config {
+      skadi = self.templates.mk-home-config {
+        pkgs = pkgsFor nixpkgs "x86_64-linux";
         user = "mjollnir";
         langs = [ "agda" ];
       };
-      svartalfheim = self.templates."x86_64-linux".mk-home-config {
+      svartalfheim = self.templates.mk-home-config {
+        pkgs = pkgsFor nixpkgs "x86_64-linux";
         user = "mjollnir";
         is-graphical = true;
       };
