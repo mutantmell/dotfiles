@@ -36,8 +36,6 @@
       };
     };
 
-    nixosModules.router = import ./modules/router.nix;
-
     templates = {
       mk-home-config = args: home-manager.lib.homeManagerConfiguration (rec {
         inherit pkgs;
@@ -52,6 +50,9 @@
       });
     };
   })) // {
+
+    nixosModules.router = import ./modules/router.nix;
+
     colmena = {
       meta = {
         nixpkgs = import nixpkgs {
@@ -70,7 +71,12 @@
         };
       };
 
-      yggdrasil = { config, pkgs, lib, ... }: (import ./hosts/yggdrasil/configuration.nix { inherit config pkgs lib sops-nix; }) // {
+      yggdrasil = {
+        imports = [
+          sops-nix.nixosModules.sops
+          self.nixosModules.router
+          ./hosts/yggdrasil/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "10.0.10.1";
@@ -78,7 +84,12 @@
         };
       };
 
-      alfheim = { config, pkgs, lib, ... }: (import ./hosts/alfheim/configuration.nix { inherit config pkgs lib nixos-hardware sops-nix; }) // {
+      alfheim = {
+        imports = [
+          nixos-hardware.nixosModules.raspberry-pi-4
+          sops-nix.nixosModules.sops
+          ./hosts/alfheim/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "10.0.10.2";
@@ -86,7 +97,11 @@
         };
       };
 
-      jotunheimr = { config, pkgs, lib, ... }: (import ./hosts/jotunheimr/configuration.nix { inherit config pkgs lib nixos-hardware; }) // {
+      jotunheimr = {
+        imports = [
+          sops-nix.nixosModules.sops
+          ./hosts/jotunheimr/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "10.0.20.30";
@@ -94,7 +109,11 @@
         };
       };
 
-      surtr = { config, pkgs, lib, ... }: (import ./hosts/muspelheim/guests/surtr/configuration.nix { inherit config pkgs lib sops-nix; }) // {
+      surtr = {
+        imports = [
+          sops-nix.nixosModules.sops
+          ./hosts/muspelheim/guests/surtr/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "10.0.100.40";
@@ -102,7 +121,11 @@
         };
       };
 
-      ymir = { config, pkgs, lib, ... }: (import ./hosts/muspelheim/guests/ymir/configuration.nix { inherit config pkgs lib sops-nix; }) // {
+      ymir = {
+        imports = [
+          sops-nix.nixosModules.sops
+          ./hosts/muspelheim/guests/ymir/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "ymir.local";
@@ -110,7 +133,11 @@
         };
       };
 
-      bragi = { config, pkgs, lib, ... }: (import ./hosts/vanaheim/guests/bragi/configuration.nix { inherit config pkgs lib sops-nix; }) // {
+      bragi = {
+        imports = [
+          sops-nix.nixosModules.sops
+          ./hosts/vanaheim/guests/bragi/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "10.0.100.50";
@@ -118,7 +145,11 @@
         };
       };
 
-      njord = { config, pkgs, lib, ... }: (import ./hosts/vanaheim/guests/njord/configuration.nix { inherit config pkgs lib sops-nix; }) // {
+      njord = {
+        imports = [
+          sops-nix.nixosModules.sops
+          ./hosts/vanaheim/guests/njord/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "10.0.100.51";
@@ -126,7 +157,11 @@
         };
       };
 
-      matrix = { config, pkgs, lib, ... }: (import ./cloud/matrix/configuration.nix { inherit config pkgs lib sops-nix; }) // {
+      matrix = {
+        imports = [
+          sops-nix.nixosModules.sops
+          ./cloud/matrix/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "10.100.20.10";
@@ -134,7 +169,12 @@
         };
       };
 
-      nidavellir = { config, pkgs, lib, ... }: (import ./hosts/nidavellir/configuration.nix { inherit config pkgs lib nixos-hardware sops-nix; }) // {
+      nidavellir = {
+        imports = [
+          nixos-hardware.nixosModules.raspberry-pi-4
+          sops-nix.nixosModules.sops
+          ./hosts/nidavellir/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "nidavellir.local";
@@ -142,7 +182,12 @@
         };
       };
 
-      thunarr = { config, pkgs, lib, ... }: (import ./hosts/nidavellir/configuration.nix { inherit config pkgs lib jovian sops-nix; }) // {
+      thunarr = {
+        imports = [
+          jovian.nixosModules.jovian
+          sops-nix.nixosModules.sops
+          ./hosts/thunarr/configuration.nix
+        ];
         deployment = {
           targetUser = "root";
           targetHost = "thunarr.local";

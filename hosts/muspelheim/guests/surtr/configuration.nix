@@ -1,4 +1,4 @@
-{ config, pkgs, sops-nix, ... }:
+{ config, pkgs, ... }:
 
 {
   nix = {
@@ -10,9 +10,7 @@
   imports =
     [
       ./hardware-configuration.nix
-      sops-nix.nixosModules.sops
       ./sops.nix
-
       ./proxy.nix
     ];
 

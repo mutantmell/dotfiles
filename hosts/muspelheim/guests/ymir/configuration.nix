@@ -1,11 +1,9 @@
-{ config, pkgs, sops-nix, ... }:
+{ config, pkgs, ... }:
 
 {
   imports =
     [
       ./hardware-configuration.nix
-      sops-nix.nixosModules.sops
-
       ./monit.nix
     ];
 

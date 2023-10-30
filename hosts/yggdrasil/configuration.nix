@@ -1,14 +1,10 @@
-{ config, pkgs, sops-nix, router, ... }:
+{ config, pkgs, ... }:
 
 {
   imports =
     [
       ./hardware-configuration.nix
-
-      sops-nix.nixosModules.sops
       ./sops.nix
-
-      ../../modules/router.nix
     ];
 
   boot.loader.grub.enable = true;

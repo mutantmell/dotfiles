@@ -1,8 +1,7 @@
-{ config, pkgs, sops-nix, ...}:
+{ config, pkgs, ...}:
 {
   imports = [
     ./hardware-configuration.nix
-    sops-nix.nixosModules.sops
     ./sops.nix
 
     ./nginx.nix
