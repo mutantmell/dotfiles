@@ -19,7 +19,12 @@
   outputs = {
     self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, jovian,
   }: let
-    pkgsFor = basepkgs: system: import basepkgs { inherit system; };
+    pkgsFor = basepkgs: system: import basepkgs {
+      inherit system;
+      overlays = [
+        (final: prev: { jenv = self.packages.${system}.jenv;})
+      ];
+    };
     allSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
     forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
       pkgs = pkgsFor nixpkgs system;
