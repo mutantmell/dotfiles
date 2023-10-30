@@ -11,7 +11,9 @@ in {
       if pkgs.stdenv.isDarwin then "/Users/${home-conf.user}" else "/home/${home-conf.user}"
     );
     stateVersion = "23.05";
-    packages = home-conf.extraPackages or [];
+    packages = ((
+      home-conf.extraPackages or (pkgs: [])
+    ) pkgs);
   };
 
   imports = [
