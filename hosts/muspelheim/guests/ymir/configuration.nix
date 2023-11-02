@@ -21,14 +21,9 @@
   };
   time.timeZone = "UTC";
 
-  users.users.root.openssh.authorizedKeys.keys =
-    [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com"
-    ];
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.common.data.certs.root) ];
 
-  services.openssh.enable = true;
+  common.openssh.enable = true;
 
   system.stateVersion = "22.11";
 

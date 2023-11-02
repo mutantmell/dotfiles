@@ -45,18 +45,8 @@
   };
   networking.firewall.allowedTCPPorts = [ 80 443 ];
 
-  services.openssh = {
-    enable = true;
-    openFirewall = false;
-    settings = {
-      PasswordAuthentication = false;
-      PermitRootLogin = "prohibit-password";
-      KbdInteractiveAuthentication = false;
-    };
-  };
-  users.extraUsers.root.openssh.authorizedKeys.keys = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
-  ];
+  common.openssh.enable = true;
+  services.openssh.openFirewall = false;
 
   system.stateVersion = "21.11";
 }
