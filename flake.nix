@@ -59,26 +59,42 @@
       packages = extend "mmell" self.packages.${pkgs.system};
       lib = extend "mmell" {
         lib = {
-          common.network = pkgs.lib.importJSON ./common/network.json;
+          inherit (self.lib) common;
         };
       };
     });
 
     lib = {
+      common = {
+        network = builtins.fromJSON (
+          builtins.readFile ./common/network.json
+        );
+      };
       mk-nixos = args @ { nixpkgs, system, ... }: nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
           { nixpkgs = { overlays = builtins.attrValues self.overlays.${system};}; }
           self.nixosModules.common
           sops-nix.nixosModules.sops
-        ] ++ (args.modules or []);
+        ] ++ args.modules;
       };
-      mk-colmena = args: (args // {
+      mk-colmena = host: args: {
         imports = [
           sops-nix.nixosModules.sops
           self.nixosModules.common
-        ] ++ (args.imports or []);
-      });
+        ] ++ args.imports;
+
+        deployment = {
+          targetUser = "root";
+          targetHost = self.lib.common.network.hosts.${host}.ipv4;
+          tags = args.tags;
+        };
+      };
+      mk-hive = meta: hosts: (
+        builtins.mapAttrs self.lib.mk-colmena hosts
+      ) // {
+        inherit meta;
+      };
       mk-home-config = args @ { nixpkgs, system, ... }: let
         pkgs = pkgsFor nixpkgs system;
       in home-manager.lib.homeManagerConfiguration {
@@ -94,131 +110,89 @@
       };
     };
 
-    colmena = {
-      meta = {
-        nixpkgs = pkgsFor nixpkgs "x86_64-linux";
-        nodeNixpkgs = let
-          nixpkgs-aarch = (pkgsFor nixpkgs "aarch64-linux");
-        in {
-          alfheim = nixpkgs-aarch;
-          nidavellir = nixpkgs-aarch;
-        };
+    colmena = (self.lib.mk-hive {
+      nixpkgs = pkgsFor nixpkgs "x86_64-linux";
+      nodeNixpkgs = let
+        nixpkgs-aarch = (pkgsFor nixpkgs "aarch64-linux");
+      in {
+        alfheim = nixpkgs-aarch;
+        nidavellir = nixpkgs-aarch;
       };
-
-      yggdrasil = self.lib.mk-colmena {
+    } {
+      yggdrasil = {
         imports = [
           self.nixosModules.router
           ./hosts/yggdrasil/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "10.0.10.1";
-          tags = [ "mgmt" "infra" "router" ];
-        };
+        tags = [ "mgmt" "infra" "router" ];
       };
 
-      alfheim = self.lib.mk-colmena {
+      alfheim = {
         imports = [
           nixos-hardware.nixosModules.raspberry-pi-4
           ./hosts/alfheim/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "10.0.10.2";
-          tags = [ "mgmt" "infra" "dns" ];
-        };
+        tags = [ "mgmt" "infra" "dns" ];
       };
 
-      jotunheimr = self.lib.mk-colmena {
+      jotunheimr = {
         imports = [
           ./hosts/jotunheimr/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "10.0.20.30";
-          tags = [ "infra" "nas" ];
-        };
+        tags = [ "infra" "nas" ];
       };
 
-      surtr = self.lib.mk-colmena {
+      surtr = {
         imports = [
           ./hosts/muspelheim/guests/surtr/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "10.0.100.40";
-          tags = [ "guest" "svc" ];
-        };
+        tags = [ "guest" "svc" ];
       };
 
-      ymir = self.lib.mk-colmena {
+      ymir = {
         imports = [
           ./hosts/muspelheim/guests/ymir/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "ymir.local";
-          tags = [ "guest" "svc" ];
-        };
+        tags = [ "guest" "svc" ];
       };
 
-      bragi = self.lib.mk-colmena {
+      bragi = {
         imports = [
           ./hosts/vanaheim/guests/bragi/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "10.0.100.50";
-          tags = [ "guest" "svc" "media" ];
-        };
+        tags = [ "guest" "svc" "media" ];
       };
 
-      njord = self.lib.mk-colmena {
+      njord = {
         imports = [
           ./hosts/vanaheim/guests/njord/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "10.0.100.51";
-          tags = [ "guest" "svc" "git" ];
-        };
+        tags = [ "guest" "svc" "git" ];
       };
 
-      matrix = self.lib.mk-colmena {
+      matrix = {
         imports = [
           ./cloud/matrix/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "10.100.20.10";
-          tags = [ "digitalocean" "cloud" "matrix" "public" ];
-        };
+        tags = [ "digitalocean" "cloud" "matrix" "public" ];
       };
 
-      nidavellir = self.lib.mk-colmena {
+      nidavellir = {
         imports = [
           nixos-hardware.nixosModules.raspberry-pi-4
           ./hosts/nidavellir/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "nidavellir.local";
-          tags = [ "svc" "home" ];
-        };
+        tags = [ "svc" "home" ];
       };
 
-      thunarr = self.lib.mk-colmena {
+      thunarr = {
         imports = [
           jovian.nixosModules.jovian
           ./hosts/thunarr/configuration.nix
         ];
-        deployment = {
-          targetUser = "root";
-          targetHost = "thunarr.local";
-          tags = [ "game" "htpc" ];
-        };
+        tags = [ "game" "htpc" ];
       };
-    };
+    });
 
     nixosConfigurations = {
       skadi = self.lib.mk-nixos {
