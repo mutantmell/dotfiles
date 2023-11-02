@@ -425,12 +425,7 @@ in {
   };
 
   config = let
-    flatMapAttrsToList = f: v: lib.lists.flatten (lib.attrsets.mapAttrsToList f v);
-    filterMap = f: l: builtins.filter (v: v != null) (builtins.map f l);
-    attrKeys = lib.attrsets.mapAttrsToList (name: ignored: name);
-    optional = cond: val: if cond then [val] else [];
-    optNonNull = val: optional (val != null) val;
-    liftNonNull = f: val: if val == null then null else f val;
+    concatMapAttrsToList = f: v: lib.lists.flatten (lib.attrsets.mapAttrsToList f v);
 
     whole-topology = cfg.topology // cfg.dynamic.topology;
 
@@ -457,14 +452,12 @@ in {
     natInterfaces = interfacesWhere (nw: nw.nat.enable);
 
     pppoeNames = let
-      fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (attrKeys pppoe) ++ (flatMapAttrsToList fromTopo vlans);
-    in flatMapAttrsToList fromTopo whole-topology;
+      fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (builtins.attrNames pppoe) ++ (concatMapAttrsToList fromTopo vlans);
+    in concatMapAttrsToList fromTopo whole-topology;
 
     # should eventually return object like { ipv4: [...]; ipv6: [...]; }
     addrFirstN = n: addr: lib.strings.concatStringsSep "." (lib.lists.take n (lib.strings.splitString "." addr));
     addrNoPrefix = addr: builtins.head (lib.strings.splitString "/" addr);
-    toAttrSet = f: v:
-      builtins.listToAttrs (flatMapAttrsToList f v);
 
     empty-netdev = {
       matchConfig = {};
@@ -558,8 +551,7 @@ in {
         tag,
           ...
       }: {
-        name = "01-${name}";
-        value = {
+        "01-${name}" = {
           netdevConfig = {
             Name = name;
             Kind = "vlan";
@@ -590,8 +582,7 @@ in {
           peers ? [],
           ...
       }: {
-        name = "30-${name}";
-        value = {
+        "30-${name}" = {
           netdevConfig = {
             Name = name;
             Kind = "wireguard";
@@ -610,9 +601,8 @@ in {
         batman ? null,
         wireguard ? null,
         ...
-      }: (if batman == null then [] else [{
-        name = "00-${name}";
-        value = {
+      }: lib.attrsets.optionalAttrs (batman != null) ({
+        "00-${name}" = {
           netdevConfig = {
             Name = name;
             Kind = "batadv";
@@ -622,10 +612,10 @@ in {
             RoutingAlgorithm = batman.routingAlgorithm;
           };
         };
-      }]) ++ (
-        lib.attrsets.mapAttrsToList fromVlan vlans
-      ) ++ (
-        if wireguard == null then [] else [(fromWireguard name wireguard)]
+      }) // (
+        lib.attrsets.concatMapAttrs fromVlan vlans
+      ) // (
+        lib.attrsets.optionalAttrs (wireguard != null) (fromWireguard name wireguard)
       );
     
     mkNetworkUnits = let
@@ -640,12 +630,12 @@ in {
           ...
       }:
         let
-          ignoreCarrier = if !ignore-carrier then {} else {
+          ignoreCarrier = lib.attrsets.optionalAttrs (ignore-carrier) {
             ConfigureWithoutCarrier = true;
             LinkLocalAddressing = "no"; # https://github.com/systemd/systemd/issues/9252#issuecomment-501850588
             IPv6AcceptRA=false; # https://bbs.archlinux.org/viewtopic.php?pid=1958133#p1958133
           };
-          defRoute = if route != "default" then {} else {
+          defRoute = lib.attrsets.optionalAttrs (route == "default") {
             DefaultRouteOnDevice = true;
           };
         in if type == "dhcp" then defRoute // {
@@ -671,11 +661,11 @@ in {
 
       mkLinkConfig = { mtu, required, activation-status ? null }:
         (
-          if mtu == null then {} else { MTUBytes = mtu; }
+          lib.attrsets.optionalAttrs (mtu != null) { MTUBytes = mtu; }
         ) // (
-          if required then {} else { RequiredForOnline = "no"; }
+          lib.attrsets.optionalAttrs (!required) { RequiredForOnline = "no"; }
         ) // (
-          if activation-status == null then {} else { ActivationPolicy = activation-status; }
+          lib.attrsets.optionalAttrs (activation-status != null) { ActivationPolicy = activation-status; }
         );
       mkRouteConfig = { gateway, destination, ... }:
         {
@@ -691,9 +681,8 @@ in {
           ...
       }: let
         nw-conf = mkNetworkConfig network;
-      in (if nw-conf == null then {} else {
-        name = "22-${name}";
-        value = {
+      in lib.attrsets.optionalAttrs (nw-conf != null) {
+        "22-${name}" = {
           matchConfig = { Name = name; };
           networkConfig = nw-conf // {
             KeepConfiguration = "static";
@@ -701,7 +690,7 @@ in {
           };
           routes = builtins.map mkRouteConfig routes;
         };
-      });
+      };
 
       fromVlan = name: {
         network,
@@ -710,15 +699,16 @@ in {
           routes ? [],
           ...
       }:
-        [{
-          name = "21-${name}";
-          value = {
+        {
+          "21-${name}" = {
             matchConfig = { Name = name; };
             networkConfig = mkNetworkConfig network;
             linkConfig = mkLinkConfig { inherit mtu; inherit (network) required; };
             routes = builtins.map mkRouteConfig routes;
           };
-        }] ++ (lib.attrsets.mapAttrsToList fromPppoe pppoe);
+        } // (
+          lib.attrsets.concatMapAttrs fromPppoe pppoe
+        );
     in
       name: {
         network,
@@ -733,9 +723,8 @@ in {
         mkActivationStatus = { type, ignore-carrier ? false, ... }:
           if ignore-carrier then "always-up" else null;
         nw-conf = mkNetworkConfig network;
-      in (if nw-conf == null then [] else [{
-        name = "${if wireguard == null then "10" else "40"}-${name}";
-        value = {
+      in lib.attrsets.optionalAttrs (nw-conf != null) ({
+        "${if wireguard == null then "10" else "40"}-${name}" = {
           matchConfig = {
             Name = name;
           };
@@ -750,34 +739,33 @@ in {
           };
           routes = builtins.map mkRouteConfig routes;
         };
-      }]) ++ (
-        flatMapAttrsToList fromVlan vlans
-      ) ++ (
-        lib.attrsets.mapAttrsToList fromPppoe pppoe
-      );
+      } // (
+        lib.attrsets.concatMapAttrs fromVlan vlans
+      ) // (
+        lib.attrsets.concatMapAttrs fromPppoe pppoe
+      ));
 
     mkLinkUnits = name: {
       device ? null,
         mtu ? null,
         ...
     }:
-      if device == null then [] else [{
-        name = "00-${name}";
-        value = {
+      lib.attrsets.optionalAttrs (device != null) {
+        "00-${name}" = {
           matchConfig = {
             MACAddress = device;
             Type = "ether";
           };
-          linkConfig = {
+          linkConfig = ({
             Name = name;
           } // (
-            if mtu == null then {} else { MTUBytes = mtu; }
-          );
+            lib.attrsets.optionalAttrs (mtu != null) { MTUBytes = mtu; }
+          ));
         };
-      }];
+      };
 
-    dynamic-netdevs = toAttrSet mkNetdevUnits cfg.dynamic.topology;
-    dynamic-networks = toAttrSet mkNetworkUnits cfg.dynamic.topology;
+    dynamic-netdevs = lib.attrsets.concatMapAttrs mkNetdevUnits cfg.dynamic.topology;
+    dynamic-networks = lib.attrsets.concatMapAttrs mkNetworkUnits cfg.dynamic.topology;
     
   in lib.mkIf cfg.enable {
     assertions = (lib.attrValues (
@@ -827,9 +815,9 @@ in {
     };
 
     systemd.network = {
-      links = toAttrSet mkLinkUnits cfg.topology;
-      netdevs = toAttrSet mkNetdevUnits cfg.topology;
-      networks = toAttrSet mkNetworkUnits cfg.topology;
+      links = lib.attrsets.concatMapAttrs mkLinkUnits cfg.topology;
+      netdevs = lib.attrsets.concatMapAttrs mkNetdevUnits cfg.topology;
+      networks = lib.attrsets.concatMapAttrs mkNetworkUnits cfg.topology;
     };
 
     # todo: should this make 1 service per dynamic device?
@@ -898,8 +886,8 @@ in {
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       path = with pkgs; [ bash wireguard-tools ];
-      script = (lib.strings.concatStringsSep "\n" (
-        flatMapAttrsToList (iface: {
+      script = lib.strings.concatStringsSep "\n" (
+        concatMapAttrsToList (iface: {
           peers,
             ...
         }: builtins.map (peer: ''
@@ -911,7 +899,7 @@ in {
             fi
           fi
         '') peers) wireguard-confs
-      ));
+      );
       serviceConfig.Type = "oneshot";
       serviceConfig.EnvironmentFile = cfg.dynamic.environmentFile;
     };
@@ -957,15 +945,15 @@ in {
       '';
       fromPppoe = dev: name: pppoe:
         {
-          name = name;
+          inherit name;
           value = {
             enable = true;
             config = (mkConfig dev name pppoe.userfile);
           };
         };
       fromTopology = name: { vlans ? {}, pppoe ? {}, ...}:
-        (flatMapAttrsToList (fromPppoe name) pppoe) ++ (flatMapAttrsToList fromTopology vlans);
-      peers = builtins.listToAttrs (flatMapAttrsToList fromTopology cfg.topology);
+        (concatMapAttrsToList (fromPppoe name) pppoe) ++ (concatMapAttrsToList fromTopology vlans);
+      peers = builtins.listToAttrs (concatMapAttrsToList fromTopology cfg.topology);
     in {
       inherit peers;
       enable = peers != [];
@@ -997,7 +985,7 @@ in {
                 else abort "invalid dns type: ${dns}"
               ))]
             );
-        in flatMapAttrsToList fmt dhcp-networks;
+        in concatMapAttrsToList fmt dhcp-networks;
         dhcp-range = let
           fmt = { static-addresses, ... }:
             # todo: add ipv6
@@ -1026,7 +1014,7 @@ in {
         valid-lifetime = 4000;
         renew-timer = 1000;
         rebind-timer = 2000;
-        subnet4 = flatMapAttrsToList (name: nw: builtins.map (ipv4: {
+        subnet4 = concatMapAttrsToList (name: nw: builtins.map (ipv4: {
           pools = let
             first3 = addrFirstN 3 ipv4;
           in [{
