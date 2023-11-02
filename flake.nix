@@ -66,9 +66,11 @@
 
     lib = {
       common = {
-        network = builtins.fromJSON (
+        data.network = builtins.fromJSON (
           builtins.readFile ./common/network.json
         );
+        data.certs.root = ./common/data/root_ca.crt;
+        data.certs.intermediate = ./common/data/intermediate_ca.crt;
       };
       mk-nixos = args @ { nixpkgs, system, ... }: nixpkgs.lib.nixosSystem {
         inherit system;
@@ -86,7 +88,7 @@
 
         deployment = {
           targetUser = "root";
-          targetHost = self.lib.common.network.hosts.${host}.ipv4;
+          targetHost = self.lib.common.data.network.hosts.${host}.ipv4;
           tags = args.tags;
         };
       };
@@ -110,7 +112,7 @@
       };
     };
 
-    colmena = (self.lib.mk-hive {
+    colmena = self.lib.mk-hive {
       nixpkgs = pkgsFor nixpkgs "x86_64-linux";
       nodeNixpkgs = let
         nixpkgs-aarch = (pkgsFor nixpkgs "aarch64-linux");
@@ -192,7 +194,7 @@
         ];
         tags = [ "game" "htpc" ];
       };
-    });
+    };
 
     nixosConfigurations = {
       skadi = self.lib.mk-nixos {

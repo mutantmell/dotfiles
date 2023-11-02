@@ -66,7 +66,7 @@ in {
   
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
-      source = ../../../../common/data/intermediate_ca.crt;
+      source = pkgs.mmell.lib.common.data.certs.intermediate;
       mode = "0444";
     };
   };
@@ -80,7 +80,7 @@ in {
       group = "acme-cert";
     };
   };
-  security.pki.certificates = [ (builtins.readFile ../../../../common/data/root_ca.crt) ];
+  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.common.data.certs.root) ];
   systemd.services."jellyfin-cert-renew" = {
     serviceConfig.Type = "oneshot";
     description = "Mangage Jellyfin's pkcs12 key";
@@ -89,11 +89,11 @@ in {
       acmedir = "/var/lib/acme/${hostname}.local";
       jellydir = config.systemd.services.jellyfin.serviceConfig.WorkingDirectory;
     in ''
-        #!/usr/bin/env bash
+      #!/usr/bin/env bash
 
-        openssl pkcs12 -export -out ${jellydir}/key.pfx -inkey ${acmedir}/key.pem -in ${acmedir}/cert.pem  -passout pass:
-        chmod 640 ${jellydir}/key.pfx
-        chown acme:acme-cert ${jellydir}/key.pfx
+      openssl pkcs12 -export -out ${jellydir}/key.pfx -inkey ${acmedir}/key.pem -in ${acmedir}/cert.pem  -passout pass:
+      chmod 640 ${jellydir}/key.pfx
+      chown acme:acme-cert ${jellydir}/key.pfx
     '';
     wantedBy = [ "acme-${hostname}.local.service" ];
     after = [ "acme-${hostname}.local.service" ];

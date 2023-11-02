@@ -172,11 +172,11 @@
   };
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
-      source = ../../common/data/intermediate_ca.crt;
+      source = pkgs.mmell.lib.common.data.certs.intermediate;
       mode = "0444";
     };
     "step-ca/data/root_ca.crt" = {
-      source = ../../common/data/root_ca.crt;
+      source = pkgs.mmell.lib.common.data.certs.root;
       mode = "0444";
     };
   };
@@ -187,7 +187,7 @@
     };
     acceptTerms = true;
   };
-  security.pki.certificates = [ (builtins.readFile ../../common/data/root_ca.crt) ];
+  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.common.data.certs.root) ];
 
   services.step-ca = {
     enable = true;
