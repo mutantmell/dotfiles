@@ -210,14 +210,14 @@
           ./hosts/vanaheim/guests/skadi/configuration.nix
         ];
       };
-      vanaheim = self.lib.mk-nixos nixpkgs {
+      vanaheim = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
           ./hosts/vanaheim/configuration.nix
         ];
       };
-      muspelheim = self.lib.mk-nixos nixpkgs {
+      muspelheim = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
