@@ -2,7 +2,7 @@
 
 let
   cfg = config.common.networking;
-  network-data = pkgs.mmell.lib.common.network;
+  network-data = pkgs.mmell.lib.common.data.network;
   parse-ipv4 = ipv4: lib.strings.splitString "." ipv4;
   parse-cidr4 = cidr: let
     split-cidr = lib.strings.splitString "/" cidr;
