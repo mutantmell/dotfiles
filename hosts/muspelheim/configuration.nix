@@ -29,6 +29,7 @@
   };
   security.polkit.enable = true;
 
+  # TODO: convert to networkD, and use common networking for base config
   networking = let lan = "eno1"; in {
     hostName = "muspelheim";
     dhcpcd.enable = false;

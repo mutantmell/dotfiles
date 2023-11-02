@@ -40,17 +40,11 @@
     443   # HTTPS
   ];
 
-  networking.hostName = "alfheim";
-  networking.useDHCP = false;
-  networking.interfaces.eth0 = {
-    useDHCP = false;
-    ipv4.addresses = [{
-      address = "10.0.10.2";
-      prefixLength = 24;
-    }];
+  common.networking = {
+    enable = true;
+    hostname = "alfheim";
+    interface = "eth0";
   };
-  networking.defaultGateway = "10.0.10.1";
-  networking.nameservers = [ "10.0.10.1" ]; # use router as main DNS, which will redirect to us for non-mdns
   networking.resolvconf.useLocalResolver = false;
   
   environment.systemPackages = with pkgs; [
@@ -70,15 +64,6 @@
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com"
   ];
-
-  services.avahi = {
-    enable = true;
-    nssmdns = true;
-    publish = {
-      enable = true;
-      addresses = true;
-    };
-  };
 
   services.adguardhome = {
     enable = true;
