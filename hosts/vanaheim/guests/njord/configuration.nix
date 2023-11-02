@@ -16,6 +16,7 @@ in {
     hostname = "njord";
     interface = "ens3";
   };
+  services.avahi.openFirewall = false;
   
   networking.firewall.interfaces."ens3" = {
     allowedTCPPorts = [ 22 ];
@@ -77,16 +78,6 @@ in {
     "/git" = {
       device = "${dataDir}/git";
       options = [ "bind" ];
-    };
-  };
-
-  services.avahi = {
-    enable = true;
-    openFirewall = false;
-    nssmdns = true;
-    publish = {
-      enable = true;
-      addresses = true;
     };
   };
 

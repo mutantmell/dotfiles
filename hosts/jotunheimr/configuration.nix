@@ -17,7 +17,6 @@
   services.zfs.trim.enable = true;
   services.smartd.enable = true;
 
-  networking.hostName = "jotunheimr";
   networking.hostId = "9f034bc8";
 
   services.ntp.enable = true;
@@ -30,16 +29,11 @@
     options = "-d";
   };
 
-  networking.useDHCP = false;
-  networking.interfaces.enp4s0 = {
-    useDHCP = false;
-    ipv4.addresses = [{
-      address = "10.0.20.30";
-      prefixLength = 24;
-    }];
+  common.networking = {
+    enable = true;
+    hostname = "jotunheimr";
+    interface = "enp4s0";
   };
-  networking.defaultGateway = "10.0.20.1";
-  networking.nameservers = [ "10.0.20.1" ];
 
   environment.systemPackages = with pkgs; [
     wget
@@ -66,15 +60,6 @@
     group = "mjollnir";
   };
   users.groups.mjollnir = {};
-
-  services.avahi = {
-    enable = true;
-    nssmdns = true;
-    publish = {
-      enable = true;
-      addresses = true;
-    };
-  };
 
   power.ups = {
     # TODO: use the updated service once this pr is merged: https://github.com/NixOS/nixpkgs/pull/213006

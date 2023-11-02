@@ -73,6 +73,12 @@
           sops-nix.nixosModules.sops
         ] ++ (args.modules or []);
       };
+      mk-colmena = args: (args // {
+        imports = [
+          sops-nix.nixosModules.sops
+          self.nixosModules.common
+        ] ++ (args.imports or []);
+      });
       mk-home-config = args @ { nixpkgs, system, ... }: let
         pkgs = pkgsFor nixpkgs system;
       in home-manager.lib.homeManagerConfiguration {
@@ -99,9 +105,8 @@
         };
       };
 
-      yggdrasil = {
+      yggdrasil = self.lib.mk-colmena {
         imports = [
-          sops-nix.nixosModules.sops
           self.nixosModules.router
           ./hosts/yggdrasil/configuration.nix
         ];
@@ -112,10 +117,9 @@
         };
       };
 
-      alfheim = {
+      alfheim = self.lib.mk-colmena {
         imports = [
           nixos-hardware.nixosModules.raspberry-pi-4
-          sops-nix.nixosModules.sops
           ./hosts/alfheim/configuration.nix
         ];
         deployment = {
@@ -125,9 +129,8 @@
         };
       };
 
-      jotunheimr = {
+      jotunheimr = self.lib.mk-colmena {
         imports = [
-          sops-nix.nixosModules.sops
           ./hosts/jotunheimr/configuration.nix
         ];
         deployment = {
@@ -137,9 +140,8 @@
         };
       };
 
-      surtr = {
+      surtr = self.lib.mk-colmena {
         imports = [
-          sops-nix.nixosModules.sops
           ./hosts/muspelheim/guests/surtr/configuration.nix
         ];
         deployment = {
@@ -149,9 +151,8 @@
         };
       };
 
-      ymir = {
+      ymir = self.lib.mk-colmena {
         imports = [
-          sops-nix.nixosModules.sops
           ./hosts/muspelheim/guests/ymir/configuration.nix
         ];
         deployment = {
@@ -161,10 +162,8 @@
         };
       };
 
-      bragi = {
+      bragi = self.lib.mk-colmena {
         imports = [
-          self.nixosModules.common
-          sops-nix.nixosModules.sops
           ./hosts/vanaheim/guests/bragi/configuration.nix
         ];
         deployment = {
@@ -174,10 +173,8 @@
         };
       };
 
-      njord = {
+      njord = self.lib.mk-colmena {
         imports = [
-          self.nixosModules.common
-          sops-nix.nixosModules.sops
           ./hosts/vanaheim/guests/njord/configuration.nix
         ];
         deployment = {
@@ -187,9 +184,8 @@
         };
       };
 
-      matrix = {
+      matrix = self.lib.mk-colmena {
         imports = [
-          sops-nix.nixosModules.sops
           ./cloud/matrix/configuration.nix
         ];
         deployment = {
@@ -199,10 +195,9 @@
         };
       };
 
-      nidavellir = {
+      nidavellir = self.lib.mk-colmena {
         imports = [
           nixos-hardware.nixosModules.raspberry-pi-4
-          sops-nix.nixosModules.sops
           ./hosts/nidavellir/configuration.nix
         ];
         deployment = {
@@ -212,10 +207,9 @@
         };
       };
 
-      thunarr = {
+      thunarr = self.lib.mk-colmena {
         imports = [
           jovian.nixosModules.jovian
-          sops-nix.nixosModules.sops
           ./hosts/thunarr/configuration.nix
         ];
         deployment = {

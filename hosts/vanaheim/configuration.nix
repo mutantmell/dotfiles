@@ -30,6 +30,7 @@
   };
   security.polkit.enable = true;
 
+  # TODO: convert to networkD, and use common networking for base config
   networking = let lan = "enp88s0"; in {
     hostName = "vanaheim";
     dhcpcd.enable = false;

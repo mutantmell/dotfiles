@@ -22,25 +22,14 @@
     git
   ];
 
-  networking.hostName = "surtr";
-  networking.interfaces."ens3" = {
-    useDHCP = false;
-    ipv4.addresses = [{
-      address = "10.0.100.40";
-      prefixLength = 24;
-    }];
-  };
-  networking.defaultGateway = "10.0.100.1";
-  networking.nameservers = [ "10.0.100.1" ];
-
-  services.avahi = {
+  common.networking = {
     enable = true;
-    nssmdns = true;
-    publish = {
-      enable = true;
-      addresses = true;
-    };
+    hostname = "surtr";
+    interface = "ens3";
   };
+  networking.extraHosts = ''
+    10.0.10.2 alfheim.local
+  '';
 
   users.users.root.openssh.authorizedKeys.keys =
     [
