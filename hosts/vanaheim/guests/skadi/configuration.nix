@@ -35,10 +35,12 @@
     isNormalUser = true;
     extraGroups = [ "wheel" "systemd-journal" ];
     uid = 1000;
-
-    openssh.authorizedKeys.keys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com"
-    ];
+  };
+  common.openssh = {
+    enable = true;
+    users = [ "mjollnir" ];
+    keys = [ "home" ];
+    allowPassword = true;
   };
 
   fileSystems."/mnt/drive" = let

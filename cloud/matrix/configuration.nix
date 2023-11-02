@@ -44,7 +44,7 @@
     domain = "helveticastandard.com";
   };
   networking.firewall.allowedTCPPorts = [ 80 443 ];
-  
+
   services.openssh = {
     enable = true;
     openFirewall = false;
@@ -54,6 +54,9 @@
       KbdInteractiveAuthentication = false;
     };
   };
+  users.extraUsers.root.openssh.authorizedKeys.keys = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
+  ];
 
   system.stateVersion = "21.11";
 }

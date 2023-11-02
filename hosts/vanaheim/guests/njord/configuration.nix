@@ -41,33 +41,28 @@ in {
 
   time.timeZone = "UTC";
 
-  services.openssh.enable = true;
-  services.openssh.settings.PasswordAuthentication = false;
-  services.openssh.openFirewall = false;
-
   users.mutableUsers = false;
-  users.users = let
-    keys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPoCCiFtZ//7igTH9ChEXLkUsA35xzX33ZkhPY0KOohO malaguy@gmail.com"
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
-    ];
-  in {
-    root.openssh.authorizedKeys.keys = keys;
-    git = {
-      uid = 1000;
-      isNormalUser = true;
-      createHome = true;
-      home = "/var/lib/git";
-      shell = "${pkgs.git}/bin/git-shell";
-      openssh.authorizedKeys.keys =
-        [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl4UkXB94b0e/4YrPXIT4J4l73/mCwh724Yr1VFy7dk malaguy@gmail.com"
-          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5AN0gzpx+1bJNZbGfLt4m2kD59WYmyqgIkXmzYbL+Q malaguy@gmail.com"
-          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINZ7mLwJ54FpGVAEdqB04CYUi3QH8ZIr3gsDhj220/d+ malaguy@gmail.com"
-        ] ++ keys;
-      extraGroups = [ "git" ];
-    };
+  users.users.git = {
+    uid = 1000;
+    isNormalUser = true;
+    createHome = true;
+    home = "/var/lib/git";
+    shell = "${pkgs.git}/bin/git-shell";
+    extraGroups = [ "git" ];
+    # openssh.authorizedKeys.keys = [
+    #   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl4UkXB94b0e/4YrPXIT4J4l73/mCwh724Yr1VFy7dk malaguy@gmail.com"
+    #   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5AN0gzpx+1bJNZbGfLt4m2kD59WYmyqgIkXmzYbL+Q malaguy@gmail.com"
+    #   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINZ7mLwJ54FpGVAEdqB04CYUi3QH8ZIr3gsDhj220/d+ malaguy@gmail.com"
+    # ];
   };
   users.groups.git.gid = 1000;
+
+  common.openssh = {
+    enable = true;
+    users = [ "git" "root" ];
+    keys = [ "deploy" "home" ];
+  };
+  services.openssh.openFirewall = false;
 
   fileSystems = {
     "${dataDir}" = {
