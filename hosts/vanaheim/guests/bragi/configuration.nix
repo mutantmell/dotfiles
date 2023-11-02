@@ -46,24 +46,8 @@ in {
 
   time.timeZone = "UTC";
 
-  services.openssh = {
-    enable = true;
-    settings = {
-      PasswordAuthentication = false;
-      PermitRootLogin = "prohibit-password";
-      KbdInteractiveAuthentication = false;
-    };
-  };
+  common.openssh.enable = true;
 
-  users.users = {
-    root = {
-      openssh.authorizedKeys.keys = [
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPoCCiFtZ//7igTH9ChEXLkUsA35xzX33ZkhPY0KOohO malaguy@gmail.com"
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
-      ];
-    };
-  };
-  
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
       source = pkgs.mmell.lib.common.data.certs.intermediate;

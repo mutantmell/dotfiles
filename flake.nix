@@ -93,7 +93,7 @@
 
         deployment = {
           targetUser = "root";
-          targetHost = self.lib.common.data.network.hosts.${host}.ipv4;
+          targetHost = args.host or self.lib.common.data.network.hosts.${host}.ipv4;
           tags = args.tags;
         };
       };
@@ -189,6 +189,7 @@
           nixos-hardware.nixosModules.raspberry-pi-4
           ./hosts/nidavellir/configuration.nix
         ];
+        host = "nidavellir.local";
         tags = [ "svc" "home" ];
       };
 

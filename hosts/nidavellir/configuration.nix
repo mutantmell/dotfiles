@@ -60,16 +60,7 @@
 
   environment.systemPackages = with pkgs; [ vim ];
 
-  services.openssh.enable = true;
-
-  users = {
-    users.root = {
-      openssh.authorizedKeys.keys = [
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com"
-      ];
-    };
-  };
+  common.openssh.enable = true;
 
   hardware.enableRedistributableFirmware = true;
   system.stateVersion = "23.11";

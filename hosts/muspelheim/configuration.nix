@@ -68,18 +68,9 @@
 
   i18n.defaultLocale = "en_US.UTF-8";
 
-  users.users = let
-    keys = [
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com"
-    ];
-  in {
-    root.openssh.authorizedKeys.keys = keys;
-    "qemu-agent" = {
-      isNormalUser = true;
-      extraGroups = [ "libvirtd" ];
-      openssh.authorizedKeys.keys = keys;
-    };
+  users.users."qemu-agent" = {
+    isNormalUser = true;
+    extraGroups = [ "libvirtd" ];
   };
 
   fileSystems."/mnt/data" = {
@@ -91,13 +82,10 @@
     fsType = "nfs";
   };
 
-  services.openssh = {
+  common.openssh = {
     enable = true;
-    settings = {
-      PasswordAuthentication = false;
-      PermitRootLogin = "prohibit-password";
-      KbdInteractiveAuthentication = false;
-    };
+    users = [ "root" "qemu-agent" ];
+    keys = [ "deploy" "home" ];
   };
 
   system.stateVersion = "22.11";
