@@ -13,7 +13,7 @@
   boot.extraModprobeConfig = "options kvm_intel nested=1";
 
   environment.systemPackages = with pkgs; [
-    virtmanager
+    virt-manager
     vim
     git
   ];

@@ -12,7 +12,7 @@
   boot.kernelPackages = pkgs.linuxPackages_latest;
 
   environment.systemPackages = with pkgs; [
-    virtmanager
+    virt-manager
     vim
     git
   ];
