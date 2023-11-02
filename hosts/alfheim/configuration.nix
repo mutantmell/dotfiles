@@ -46,23 +46,14 @@
     interface = "eth0";
   };
   networking.resolvconf.useLocalResolver = false;
+
+  common.openssh = {
+    enable = true;
+    keys = [ "deploy" "home" ];
+  };
   
   environment.systemPackages = with pkgs; [
     bind
-  ];
-
-  services.openssh = {
-    enable = true;
-    settings = {
-      PasswordAuthentication = false;
-      PermitRootLogin = "prohibit-password";
-      KbdInteractiveAuthentication = false;
-    };
-  };
-  
-  users.extraUsers.root.openssh.authorizedKeys.keys = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com"
   ];
 
   services.adguardhome = {

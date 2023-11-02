@@ -45,10 +45,12 @@
       };
     });
 
-    nixosModules = {
-      common = import ./common;
-      router = import ./modules/router.nix;
-    };
+    nixosModules = let
+      importModule = dir: value:
+        if value == "directory"
+        then import (./modules + "/${dir}")
+        else abort "invalid entry in modules";
+    in builtins.mapAttrs importModule (builtins.readDir ./modules);
 
     overlays = forAllSystems ({ pkgs }: let
       extend = path: val:
@@ -68,6 +70,9 @@
       common = {
         data.network = builtins.fromJSON (
           builtins.readFile ./common/network.json
+        );
+        data.keys = builtins.fromJSON (
+          builtins.readFile ./common/keys.json
         );
         data.certs.root = ./common/data/root_ca.crt;
         data.certs.intermediate = ./common/data/intermediate_ca.crt;

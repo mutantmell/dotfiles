@@ -1,4 +1,4 @@
-{ config, options, pkgs, lib, utils, ... }:
+{ config, options, pkgs, lib, ... }:
 
 let
   cfg = config.common.networking;
