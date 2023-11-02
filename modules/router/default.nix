@@ -756,11 +756,11 @@ in {
             MACAddress = device;
             Type = "ether";
           };
-          linkConfig = ({
+          linkConfig = {
             Name = name;
           } // (
             lib.attrsets.optionalAttrs (mtu != null) { MTUBytes = mtu; }
-          ));
+          );
         };
       };
 
@@ -768,17 +768,17 @@ in {
     dynamic-networks = lib.attrsets.concatMapAttrs mkNetworkUnits cfg.dynamic.topology;
     
   in lib.mkIf cfg.enable {
-    assertions = (lib.attrValues (
+    assertions = lib.attrValues (
       lib.mapAttrs (name: value: {
         assertion = (value.wireguard != null && value.wireguard.openFirewall) -> (value.wireguard.port != null);
         message = "Cannot open the firewall for ${name} if no port is defined";
       }) whole-topology
-    )) ++ (lib.flatten (lib.attrValues (
+    ) ++ lib.flatten (lib.attrValues (
       lib.mapAttrs (name: value: builtins.map (peer: {
         assertion = (peer.dynamicEndpointRefreshRestartSeconds != null) -> (peer.endpoint != null);
         message = "Cannot refresh the wireguard endpoint for ${name} and peer ${peer.publicKey} if no endpoint is defined";
       }) (if value.wireguard != null then value.wireguard.peers else [])) whole-topology
-    ))) ++ [{
+    )) ++ [{
       assertion = lib.lists.mutuallyExclusive (interfaces' cfg.topology) (interfaces' cfg.dynamic.topology);
       message = "Dynamic and Static interface names must be mutually exclusive";
     }];
@@ -872,15 +872,13 @@ in {
           getWireguardConf vlans
         ) // (
           getWireguardConf pppoe
-        ) // (
-          let peers-with-refresh =
-                if wireguard ? "peers"
-                then builtins.filter (p:
-                  p.dynamicEndpointRefreshRestartSeconds != null
-                ) wireguard.peers
-                else [];
-          in if peers-with-refresh != [] then { ${name} = (wireguard // { peers = peers-with-refresh; }); } else {}
-        ));
+        ) // (let
+          peers-with-refresh = builtins.filter (p:
+            p.dynamicEndpointRefreshRestartSeconds != null
+          ) (wireguard.peers or []);
+        in lib.attrsets.optionalAttrs (peers-with-refresh != []) {
+          ${name} = wireguard // { peers = peers-with-refresh; };
+        }));
       wireguard-confs = getWireguardConf whole-topology;
     in lib.mkIf (wireguard-confs != {}) {
       after = [ "network-online.target" ];
