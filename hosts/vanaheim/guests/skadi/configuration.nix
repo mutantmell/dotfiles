@@ -22,17 +22,14 @@
 
   time.timeZone = "America/Los_Angeles";
 
-  networking.hostName = "skadi";
-  networking.interfaces."ens3" = {
-    useDHCP = false;
-    ipv4.addresses = [{
-      address = "10.0.20.40";
-      prefixLength = 24;
-    }];
+  common.networking = {
+    enable = true;
+    hostname = "skadi";
+    interface = "ens3";
   };
-  networking.defaultGateway = "10.0.20.1";
-  networking.nameservers = [ "10.0.20.1" ];
   networking.firewall.allowedUDPPorts = [ 5353 ];
+  services.avahi.publish.userServices = true;
+  services.avahi.publish.workstation = true;
 
   users.users.mjollnir = {
     isNormalUser = true;
@@ -64,17 +61,6 @@
 
   services.openssh.enable = true;
   services.openssh.settings.X11Forwarding = true;
-
-  services.avahi = {
-    enable = true;
-    nssmdns = true;
-    publish = {
-      enable = true;
-      addresses = true;
-      userServices = true;
-      workstation = true;
-    };
-  };
 
   system.stateVersion = "23.05";
 

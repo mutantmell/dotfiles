@@ -7,6 +7,15 @@ in {
     ./hardware-configuration.nix
   ];
 
+  common.networking = {
+    enable = true;
+    inherit hostname;
+    interface = "ens3";
+  };
+  networking.extraHosts = ''
+    10.0.10.2 alfheim.local
+  '';
+
   # Use the systemd-boot EFI boot loader.
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
@@ -24,16 +33,6 @@ in {
       intel-compute-runtime # OpenCL filter support (hardware tonemapping and subtitle burn-in)
     ];
   };
-  networking.hostName = "${hostname}";
-  networking.interfaces."ens3" = {
-    useDHCP = false;
-    ipv4.addresses = [{
-      address = "10.0.100.50";
-      prefixLength = 24;
-    }];
-  };
-  networking.defaultGateway = "10.0.100.1";
-  networking.nameservers = [ "10.0.100.1" ];
 
   nix.gc = {
     automatic = true;
@@ -127,14 +126,6 @@ in {
     device = "/media";
     fsType = "9p";
     options = [ "trans=virtio" "version=9p2000.L" ];
-  };
-
-  services.avahi = {
-    enable = true;
-    publish = {
-      enable = true;
-      addresses = true;
-    };
   };
 
   services.jellyfin = {

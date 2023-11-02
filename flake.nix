@@ -21,9 +21,8 @@
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
       inherit system;
-      overlays = [
-        self.overlays.${system}.packages
-      ];
+      overlays = builtins.attrValues self.overlays.${system};
+      config.allowUnfree = true;
     };
     allSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
     forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
@@ -46,13 +45,34 @@
       };
     });
 
-    nixosModules.router = import ./modules/router.nix;
+    nixosModules = {
+      common = import ./common;
+      router = import ./modules/router.nix;
+    };
 
-    overlays = forAllSystems ({ pkgs }: {
-      packages = final: prev: { mmell = self.packages.${pkgs.system}; };
+    overlays = forAllSystems ({ pkgs }: let
+      extend = path: val:
+        final: prev: {
+          ${path} = (prev.${path} or {}) // val;
+        };
+    in {
+      packages = extend "mmell" self.packages.${pkgs.system};
+      lib = extend "mmell" {
+        lib = {
+          common.network = pkgs.lib.importJSON ./common/network.json;
+        };
+      };
     });
 
     lib = {
+      mk-nixos = args @ { nixpkgs, system, ... }: nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          { nixpkgs = { overlays = builtins.attrValues self.overlays.${system};}; }
+          self.nixosModules.common
+          sops-nix.nixosModules.sops
+        ] ++ (args.modules or []);
+      };
       mk-home-config = args @ { nixpkgs, system, ... }: let
         pkgs = pkgsFor nixpkgs system;
       in home-manager.lib.homeManagerConfiguration {
@@ -70,19 +90,12 @@
 
     colmena = {
       meta = {
-        nixpkgs = import nixpkgs {
-          system = "x86_64-linux";
-          config.allowUnfree = true;
-        };
-        nodeNixpkgs = {
-          alfheim = import nixpkgs {
-            system = "aarch64-linux";
-            config.allowUnfree = true;
-          };
-          nidavellir = import nixpkgs {
-            system = "aarch64-linux";
-            config.allowUnfree = true;
-          };
+        nixpkgs = pkgsFor nixpkgs "x86_64-linux";
+        nodeNixpkgs = let
+          nixpkgs-aarch = (pkgsFor nixpkgs "aarch64-linux");
+        in {
+          alfheim = nixpkgs-aarch;
+          nidavellir = nixpkgs-aarch;
         };
       };
 
@@ -150,6 +163,7 @@
 
       bragi = {
         imports = [
+          self.nixosModules.common
           sops-nix.nixosModules.sops
           ./hosts/vanaheim/guests/bragi/configuration.nix
         ];
@@ -162,6 +176,7 @@
 
       njord = {
         imports = [
+          self.nixosModules.common
           sops-nix.nixosModules.sops
           ./hosts/vanaheim/guests/njord/configuration.nix
         ];
@@ -211,33 +226,35 @@
       };
     };
 
-    nixosConfigurations.skadi = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        sops-nix.nixosModules.sops
-        ./hosts/vanaheim/guests/skadi/configuration.nix
-      ];
-    };
-    nixosConfigurations.vanaheim = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        sops-nix.nixosModules.sops
-        ./hosts/vanaheim/configuration.nix
-      ];
-    };
-    nixosConfigurations.muspelheim = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        sops-nix.nixosModules.sops
-        ./hosts/muspelheim/configuration.nix
-      ];
-    };
-    nixosConfigurations.svartalfheim = nixpkgs-stable.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        sops-nix.nixosModules.sops
-        ./hosts/svartalfheim/configuration.nix
-      ];
+    nixosConfigurations = {
+      skadi = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          ./hosts/vanaheim/guests/skadi/configuration.nix
+        ];
+      };
+      vanaheim = self.lib.mk-nixos nixpkgs {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          ./hosts/vanaheim/configuration.nix
+        ];
+      };
+      muspelheim = self.lib.mk-nixos nixpkgs {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          ./hosts/muspelheim/configuration.nix
+        ];
+      };
+      svartalfheim = self.lib.mk-nixos {
+        nixpkgs = nixpkgs-stable;
+        system = "x86_64-linux";
+        modules = [
+          ./hosts/svartalfheim/configuration.nix
+        ];
+      };
     };
 
     homeConfigurations = {
