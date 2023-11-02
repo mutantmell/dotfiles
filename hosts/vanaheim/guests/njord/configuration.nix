@@ -11,23 +11,17 @@ in {
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  networking.hostName = "njord";
-
-  networking.nftables.enable = true;
+  common.networking = {
+    enable = true;
+    hostname = "njord";
+    interface = "ens3";
+  };
+  
   networking.firewall.interfaces."ens3" = {
     allowedTCPPorts = [ 22 ];
     allowedUDPPorts = [ 5353 ];
   };
-  networking.useNetworkd = true;
-  networking.interfaces."ens3" = {
-    useDHCP = false;
-    ipv4.addresses = [{
-      address = "10.0.100.51";
-      prefixLength = 24;
-    }];
-  };
-  networking.defaultGateway = "10.0.100.1";
-  networking.nameservers = [ "10.0.100.1" ];
+  networking.firewall.allowedTCPPorts = [ 8443 ];
 
   environment.systemPackages = with pkgs; [
     git
@@ -102,8 +96,6 @@ in {
     unifiPackage = pkgs.unifi7;
     maximumJavaHeapSize = 256;
   };
-
-  networking.firewall.allowedTCPPorts = [ 8443 ];
 
   system.stateVersion = "22.11";
 }
