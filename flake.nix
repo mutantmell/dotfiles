@@ -60,9 +60,7 @@
     in {
       packages = extend "mmell" self.packages.${pkgs.system};
       lib = extend "mmell" {
-        lib = {
-          inherit (self.lib) common;
-        };
+        lib = self.lib.common;
       };
     });
 

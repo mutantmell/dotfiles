@@ -50,9 +50,9 @@ in {
     shell = "${pkgs.git}/bin/git-shell";
     extraGroups = [ "git" ];
     openssh.authorizedKeys.keys = [
-      pkgs.mmell.lib.common.data.keys.ssh.muspelheim
-      pkgs.mmell.lib.common.data.keys.ssh.svartalfheim
-      pkgs.mmell.lib.common.data.keys.ssh.vanaheim
+      pkgs.mmell.lib.data.keys.ssh.muspelheim
+      pkgs.mmell.lib.data.keys.ssh.svartalfheim
+      pkgs.mmell.lib.data.keys.ssh.vanaheim
     ];
   };
   users.groups.git.gid = 1000;
