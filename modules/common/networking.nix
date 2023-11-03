@@ -10,15 +10,18 @@ let
     mask-opt = builtins.tail cidr;
   in {
     ipv4 = ipv4-parts;
-  } // (if mask-opt == [] then {} else {
+  } // (lib.attrsets.optionalAttrs (mask-opt != []) {
     mask = builtins.head mask-opt;
   });
   format-ipv4 = builtins.concatStringsSep ".";
   replace-ipv4 = parts: ipv4: let
     num-parts = builtins.length parts;
-  in (
-    lib.lists.take (4 - num-parts) ipv4
-  ) ++ parts;
+    replaced = lib.lists.take (4 - num-parts) ipv4;
+  in
+    if num-parts > 4
+    then abort "replace-ipv4: invalid numbers of parts to replace (${num-parts})"
+    else replaced ++ parts;
+
 in {
   options.common.networking = {
     enable = lib.mkEnableOption "Common Networking Configuration";
