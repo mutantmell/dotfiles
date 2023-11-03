@@ -67,16 +67,7 @@
     });
 
     lib = {
-      common = {
-        data.network = builtins.fromJSON (
-          builtins.readFile ./common/network.json
-        );
-        data.keys = builtins.fromJSON (
-          builtins.readFile ./common/keys.json
-        );
-        data.certs.root = ./common/data/root_ca.crt;
-        data.certs.intermediate = ./common/data/intermediate_ca.crt;
-      };
+      common = import ./lib/common { inherit (nixpkgs) lib; };
       mk-nixos = args @ { nixpkgs, system, ... }: nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
