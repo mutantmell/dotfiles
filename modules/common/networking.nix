@@ -2,8 +2,8 @@
 
 let
   cfg = config.common.networking;
-  network-data = pkgs.mmell.lib.common.data.network;
-  nw-lib = pkgs.mmell.lib.common.network;
+  network-data = pkgs.mmell.lib.data.network;
+  nw-lib = pkgs.mmell.lib.network;
 in {
   options.common.networking = {
     enable = lib.mkEnableOption "Common Networking Configuration";

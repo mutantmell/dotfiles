@@ -21,7 +21,7 @@
   };
   time.timeZone = "UTC";
 
-  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.common.data.certs.root) ];
+  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
 
   common.openssh.enable = true;
 

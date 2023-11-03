@@ -50,7 +50,7 @@ in {
 
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
-      source = pkgs.mmell.lib.common.data.certs.intermediate;
+      source = pkgs.mmell.lib.data.certs.intermediate;
       mode = "0444";
     };
   };
@@ -64,7 +64,7 @@ in {
       group = "acme-cert";
     };
   };
-  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.common.data.certs.root) ];
+  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
   systemd.services."jellyfin-cert-renew" = {
     serviceConfig.Type = "oneshot";
     description = "Mangage Jellyfin's pkcs12 key";

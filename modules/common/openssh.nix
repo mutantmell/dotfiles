@@ -11,7 +11,7 @@ in {
     };
     keys = lib.mkOption {
       type = lib.types.nonEmptyListOf (lib.types.enum (
-        builtins.attrNames pkgs.mmell.lib.common.data.keys.ssh
+        builtins.attrNames pkgs.mmell.lib.data.keys.ssh
       ));
       default = [ "deploy" ];
     };
@@ -33,7 +33,7 @@ in {
 
     users.extraUsers = builtins.listToAttrs (builtins.map (user:
       lib.attrsets.nameValuePair user {
-        openssh.authorizedKeys.keys = builtins.map (key: pkgs.mmell.lib.common.data.keys.ssh.${key}) cfg.keys;
+        openssh.authorizedKeys.keys = builtins.map (key: pkgs.mmell.lib.data.keys.ssh.${key}) cfg.keys;
       }
     ) cfg.users);
   };

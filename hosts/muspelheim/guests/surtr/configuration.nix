@@ -32,7 +32,7 @@
   '';
 
   common.openssh.enable = true;
-  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.common.data.certs.root) ];
+  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
 
   system.stateVersion = "22.11";
 
