@@ -7,6 +7,7 @@
 let
   cfg = config.router;
   opt = options.router;
+  nw-lib = pkgs.mmell.lib.network;
 in {
   options.router = with lib; let
     mkTopologyOpt = is-dynamic: let
@@ -425,8 +426,7 @@ in {
   };
 
   config = let
-    concatMapAttrsToList = f: v: lib.lists.flatten (lib.attrsets.mapAttrsToList f v);
-
+    concatMapAttrsToList = pkgs.mmell.lib.attrsets.concatMapAttrsToList;
     whole-topology = cfg.topology // cfg.dynamic.topology;
 
     networksWhere' = topo: pred: let
@@ -454,10 +454,6 @@ in {
     pppoeNames = let
       fromTopo = name: { network, vlans ? {}, pppoe ? {}, ... }: (builtins.attrNames pppoe) ++ (concatMapAttrsToList fromTopo vlans);
     in concatMapAttrsToList fromTopo whole-topology;
-
-    # should eventually return object like { ipv4: [...]; ipv6: [...]; }
-    addrFirstN = n: addr: lib.strings.concatStringsSep "." (lib.lists.take n (lib.strings.splitString "." addr));
-    addrNoPrefix = addr: builtins.head (lib.strings.splitString "/" addr);
 
     empty-netdev = {
       matchConfig = {};
@@ -974,7 +970,9 @@ in {
         dhcp-option = let
           fmt = name: { static-addresses, dns, ... }:
             (
-              builtins.map (gw: "${name},3,${addrNoPrefix gw}") static-addresses
+              builtins.map (gw:
+                "${name},3,${(nw-lib.parsing.cidr4 gw).ipv4.string}"
+              ) static-addresses
             ) ++ (
               # todo: ipv6, and do less add-hoc stuff here
               [("${name},6," + (
@@ -987,9 +985,10 @@ in {
         dhcp-range = let
           fmt = { static-addresses, ... }:
             # todo: add ipv6
-            builtins.map (ipv4:
-              "${addrFirstN 3 ipv4}.101,${addrFirstN 3 ipv4}.200,12h"
-            ) static-addresses;
+            builtins.map (ipv4: let
+              min = nw-lib.replace-ipv4 ["101"] ipv4;
+              max = nw-lib.replace-ipv4 ["200"] ipv4;
+            in "${min},${max},12h") static-addresses;
         in builtins.concatMap fmt (builtins.attrValues dhcp-networks);
       };
     };
@@ -1014,9 +1013,10 @@ in {
         rebind-timer = 2000;
         subnet4 = concatMapAttrsToList (name: nw: builtins.map (ipv4: {
           pools = let
-            first3 = addrFirstN 3 ipv4;
+            min = nw-lib.replace-ipv4 ["100"] ipv4;
+            max = nw-lib.replace-ipv4 ["200"] ipv4;
           in [{
-            pool = "${first3}.100 - ${first3}.200";
+            pool = "${min} - ${max}";
           }];
           subnet = ipv4;
         }) nw.static-addresses) dhcp4-networks;

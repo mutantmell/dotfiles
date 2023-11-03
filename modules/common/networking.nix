@@ -17,7 +17,7 @@ in {
 
   config = lib.mkIf cfg.enable (let
     ipv4 = nw-lib.parsing.ipv4 network-data.hosts.${cfg.hostname}.ipv4;
-    gateway = nw-lib.formatting.ipv4 (nw-lib.replace-ipv4 [ "1" ] ipv4);
+    gateway = nw-lib.replace-ipv4 [ "1" ] ipv4;
   in {
     networking.hostName = cfg.hostname;
     networking.useNetworkd = true;
