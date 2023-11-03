@@ -3,25 +3,7 @@
 let
   cfg = config.common.networking;
   network-data = pkgs.mmell.lib.common.data.network;
-  parse-ipv4 = ipv4: lib.strings.splitString "." ipv4;
-  parse-cidr4 = cidr: let
-    split-cidr = lib.strings.splitString "/" cidr;
-    ipv4-parts = parse-ipv4 (builtins.head cidr);
-    mask-opt = builtins.tail cidr;
-  in {
-    ipv4 = ipv4-parts;
-  } // (lib.attrsets.optionalAttrs (mask-opt != []) {
-    mask = builtins.head mask-opt;
-  });
-  format-ipv4 = builtins.concatStringsSep ".";
-  replace-ipv4 = parts: ipv4: let
-    num-parts = builtins.length parts;
-    replaced = lib.lists.take (4 - num-parts) ipv4;
-  in
-    if num-parts > 4
-    then abort "replace-ipv4: invalid numbers of parts to replace (${num-parts})"
-    else replaced ++ parts;
-
+  nw-lib = pkgs.mmell.lib.common.network;
 in {
   options.common.networking = {
     enable = lib.mkEnableOption "Common Networking Configuration";
@@ -34,8 +16,8 @@ in {
   };
 
   config = lib.mkIf cfg.enable (let
-    ipv4 = parse-ipv4 network-data.hosts.${cfg.hostname}.ipv4;
-    gateway = format-ipv4 (replace-ipv4 [ "1" ] ipv4);
+    ipv4 = nw-lib.parsing.ipv4 network-data.hosts.${cfg.hostname}.ipv4;
+    gateway = nw-lib.formatting.ipv4 (nw-lib.replace-ipv4 [ "1" ] ipv4);
   in {
     networking.hostName = cfg.hostname;
     networking.useNetworkd = true;
