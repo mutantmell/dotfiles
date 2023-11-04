@@ -22,8 +22,10 @@
         microvm.balloonMem = 1024;
         microvm.vcpu = 1;
         microvm.interfaces = [{
-          type = "tap";
-          id = "br20";
+          type = "bridge";
+          bridge = "br100";
+          id = "ens3";
+          # TODO: change
           mac = "02:00:00:00:00:01";
         }];
 
