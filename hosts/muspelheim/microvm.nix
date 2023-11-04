@@ -5,7 +5,7 @@
     "surtr2"
   ];
 
-  microvms.vms = {
+  microvm.vms = {
     surtr2 = {
       inherit pkgs;
 
@@ -22,8 +22,9 @@
         microvm.balloonMem = 1024;
         microvm.vcpu = 1;
         microvm.interfaces = [{
-          type = "bridge";
+          type = "tap";
           id = "br20";
+          mac = "02:00:00:00:00:01";
         }];
 
         # Any other configuration for your MicroVM
