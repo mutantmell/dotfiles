@@ -6,8 +6,8 @@
   ];
 
   microvms.vms = {
-    surtr2 = rec {
-      pkgs = import nixpkgs {};
+    surtr2 = {
+      inherit pkgs;
 
       config = {
         # It is highly recommended to share the host's nix-store
@@ -30,6 +30,18 @@
         # [...]
         environment.systemPackages = [
           pkgs.home-manager
+        ];
+        services.openssh = {
+          enable = true;
+          settings = {
+            PasswordAuthentication = cfg.allowPassword;
+            PermitRootLogin = "prohibit-password";
+            KbdInteractiveAuthentication = false;
+          };
+        };
+
+        users.extraUsers.root.openssh.authorizedKeys.keys = [
+          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
         ];
       };
     };
