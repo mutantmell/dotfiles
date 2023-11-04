@@ -18,6 +18,7 @@
           tag = "ro-store";
           proto = "virtiofs";
         }];
+        microvm.writableStoreOverlay = "/nix/.rw-store";
         microvm.mem = 1024;
         microvm.balloonMem = 1024;
         microvm.vcpu = 1;
