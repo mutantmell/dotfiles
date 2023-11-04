@@ -9,7 +9,7 @@
     surtr2 = {
       inherit pkgs;
 
-      config = {
+      config = pkgs.mmell.lib.builders.mk-microvm {
         # It is highly recommended to share the host's nix-store
         # with the VMs to prevent building huge images.
         microvm.shares = [{
@@ -33,14 +33,7 @@
         environment.systemPackages = [
           pkgs.home-manager
         ];
-        services.openssh = {
-          enable = true;
-          settings = {
-            PasswordAuthentication = false;
-            PermitRootLogin = "prohibit-password";
-            KbdInteractiveAuthentication = false;
-          };
-        };
+        common.openssh.enable = true;
 
         users.extraUsers.root.openssh.authorizedKeys.keys = [
           "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"

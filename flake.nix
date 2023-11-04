@@ -64,7 +64,7 @@
     in {
       packages = extend "mmell" self.packages.${pkgs.system};
       lib = extend "mmell" {
-        lib = self.lib.common;
+        lib = self.lib.common // { builders = { inherit (self.lib) mk-microvm; }; };
       };
     });
 
@@ -108,6 +108,9 @@
           pkgs.lib.optional pkgs.stdenv.isLinux ./home/linux.nix
         );
       };
+      mk-microvm = args: nixpkgs.lib.mkMerge [ args {
+        imports = [ sops-nix.nixosModules.sops self.nixosModules.common ];
+      }];
     };
 
     colmena = self.lib.mk-hive {
