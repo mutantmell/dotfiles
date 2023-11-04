@@ -31,6 +31,7 @@
 
         # Any other configuration for your MicroVM
         # [...]
+        nix.settings.experimental-features = [ "nix-command" "flakes" ];
         environment.systemPackages = [
           pkgs.home-manager
         ];
