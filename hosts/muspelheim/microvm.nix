@@ -34,7 +34,7 @@
         services.openssh = {
           enable = true;
           settings = {
-            PasswordAuthentication = cfg.allowPassword;
+            PasswordAuthentication = false;
             PermitRootLogin = "prohibit-password";
             KbdInteractiveAuthentication = false;
           };
