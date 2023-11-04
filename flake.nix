@@ -145,7 +145,15 @@
         tags = [ "infra" "nas" ];
       };
 
-      surtr = {
+      muspelheim = {
+        imports = [
+          microvm.nixosModules.host
+          ./hosts/muspelheim/configuration.nix
+        ];
+        tags = [ "host" ]; 
+     };
+ 
+     surtr = {
         imports = [
           ./hosts/muspelheim/guests/surtr/configuration.nix
         ];
