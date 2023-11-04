@@ -34,10 +34,10 @@
           pkgs.home-manager
         ];
         common.openssh.enable = true;
-
-        users.extraUsers.root.openssh.authorizedKeys.keys = [
-          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com"
-        ];
+        common.networking = {
+          enable = true;
+          interface = "ens3";
+        };
       };
     };
   };

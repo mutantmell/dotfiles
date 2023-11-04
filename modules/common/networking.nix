@@ -16,8 +16,8 @@ in {
   };
 
   config = lib.mkIf cfg.enable (let
-    ipv4 = nw-lib.parsing.ipv4 network-data.hosts.${cfg.hostname}.ipv4;
-    gateway = nw-lib.replace-ipv4 [ "1" ] ipv4;
+    cidr = nw-lib.parsing.cidr4 network-data.hosts.${cfg.hostname}.ipv4;
+    gateway = cidr.ipv4.replace [ "1" ];
   in {
     networking.hostName = cfg.hostname;
     networking.useNetworkd = true;
@@ -26,7 +26,7 @@ in {
       useDHCP = false;
       ipv4.addresses = [{
         address = network-data.hosts.${cfg.hostname}.ipv4;
-        prefixLength = 24;
+        prefixLength = cidr.mask or 24;
       }];
     };
     networking.defaultGateway.address = gateway;
