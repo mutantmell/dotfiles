@@ -72,6 +72,7 @@ in {
               };
               default = {};
             };
+            # TODO: use bind9 zones to opt into self or dhcp, and don't use cloudflare for anything
             options.dns = mkOption {
               type = types.enum [ "self" "cloudflare" ];
               description = "DNS provider to use -- either use this router, or use cloudflare";
@@ -278,7 +279,7 @@ in {
         };
         options.svc = mkOption {
           # todo: only allow unbound
-          type = types.enum [ "dnsmasq" "unbound" ];
+          type = types.enum [ "dnsmasq" "unbound" "bind9" ];
           description = "The backing service for local DNS";
           example = "unbound";
           default = "dnsmasq";
@@ -803,7 +804,8 @@ in {
     ];
 
     systemd.network.enable = true;
-    services.resolved.enable = false;
+    # TODO: verify that this is a setting we want -- this should allow fallback to DHCP dns?
+    services.resolved.enable = cfg.dns.upstream == "bind9";
     networking = {
       useDHCP = false;
       firewall.enable = false; # use custom nftables integration
@@ -958,7 +960,7 @@ in {
     in {
       enable = dhcp-networks != {};
       settings =  {
-        # todo: use unbound for local dns resolution
+        # todo: use bind9 for local dns resolution
         server = builtins.filter (v: v != null) [ cfg.dns.upstream ];
         no-resolv = true;
         local = "/local/";
@@ -1044,6 +1046,21 @@ in {
           forward-addr = cfg.dns.upstream;
         }];
       };
+    };
+
+    services.bind = {
+      enable = cfg.dns.svc == "bind9";
+      forwarders = (
+        builtins.filter (v: v != null) [cfg.dns.upstream]
+      ) ++ [
+        "127.0.0.53"  # fallback to DHCP if upstream fails
+      ];
+      # TODO: pull these in from the router config somewhere?
+      cacheNetworks = [
+        "10.0.0.0/16"
+        "10.1.0.0/16"
+        "10.100.0.0/16"
+      ];
     };
 
     systemd.services."router-dyn-dns" = let
