@@ -41,6 +41,7 @@
           hostname = "surtr2"; # TODO: find way to default here?
           interface = "ens3";
         };
+        system.stateVersion = "23.11";
       };
     };
   };
