@@ -4,6 +4,7 @@
   imports =
     [
       ./hardware-configuration.nix
+      ./microvm.nix
     ];
 
   boot.loader.systemd-boot.enable = true;

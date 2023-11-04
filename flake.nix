@@ -15,9 +15,13 @@
       url = github:Jovian-Experiments/Jovian-NixOS;
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    microvm = {
+      url = github:astro/microvm.nix;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = {
-    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, jovian,
+    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, jovian, microvm,
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
       inherit system;
@@ -210,6 +214,7 @@
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
+          microvm.nixosModules.host
           ./hosts/muspelheim/configuration.nix
         ];
       };
