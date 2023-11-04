@@ -25,8 +25,7 @@
           type = "bridge";
           bridge = "br100";
           id = "ens3";
-          # TODO: change
-          mac = "02:00:00:00:00:01";
+          mac = "5E:41:3F:F4:AB:B4";
         }];
 
         # Any other configuration for your MicroVM
