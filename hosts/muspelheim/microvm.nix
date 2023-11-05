@@ -35,9 +35,8 @@
         microvm.balloonMem = 1024;
         microvm.vcpu = 1;
         microvm.interfaces = [{
-          type = "bridge";
-          bridge = "br100";
-          id = "enp0s6";
+          type = "tap";
+          id = "vm-100-surtr2";
           mac = "5E:41:3F:F4:AB:B4";
         }];
 
@@ -51,7 +50,7 @@
         common.networking = {
           enable = true;
           hostname = "surtr2"; # TODO: find way to default here?
-          interface = "enp0s6";
+          interface = "vm-100-surtr2";
         };
         system.stateVersion = "23.11";
       };
