@@ -30,81 +30,35 @@
   };
   security.polkit.enable = true;
 
-  networking.hostName = "muspelheim";
-  systemd.network = {
-    enable = true;
-    netdevs."10-eno1.10" = {
-      netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.10";
-      vlanConfig.Id = 10;
-    };
-    netdevs."10-eno1.20" = {
-      netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.20";
-      vlanConfig.Id = 20;
-    };
-    netdevs."10-eno1.100" = {
-      netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.100";
-      vlanConfig.Id = 100;
+  networking = let lan = "eno1"; in {
+    hostName = "muspelheim";
+    useNetworkd = true;
+    dhcpcd.enable = false;
+
+    vlans = {
+      "${lan}.10" = { id = 10; interface = lan; };
+      "${lan}.20" = { id = 20; interface = lan; };
+      "${lan}.100" = { id = 100; interface = lan; };
     };
 
-    netdevs."11-br20" = {
-      netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br20";
+    bridges = {
+      "br20".interfaces = [ "${lan}.20" ];
+      "br100".interfaces = [ "${lan}.100" ];
     };
-    netdevs."11-br100" = {
-      netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br100";
+    interfaces = {
+      "${lan}.10" = {
+        useDHCP = false;
+        ipv4.addresses = [{
+          address = "10.0.10.31";
+          prefixLength = 24;
+        }];
+      };
     };
-
-    networks."20-eno1" = {
-      matchConfig.Name = "eno1";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.DHCP = "no";
-      linkConfig.RequiredForOnline = "no";
-      vlan = [
-        "eno1.10"
-        "eno1.20"
-        "eno1.100"
-      ];
-    };
-
-    networks."21-eno1.10" = {
-      matchConfig.Name = "eno1.10";
-      networkConfig.Address = [ "10.0.10.31/24" ];
-      networkConfig.Gateway = "10.0.10.1";
-      networkConfig.DNS = [ "10.0.10.1" ];
-      networkConfig.DHCP = "no";
-      linkConfig.RequiredForOnline = "routable";
-    };
-
-    networks."21-eno1.20" = {
-      matchConfig.Name = "eno1.20";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      linkConfig.RequiredForOnline = "no";
-    };
-
-    networks."21-eno1.100" = {
-      matchConfig.Name = "eno1.100";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      linkConfig.RequiredForOnline = "no";
-    };
-
-    networks."22-br20" = {
-      matchConfig.Name = ["eno1.20" "vm-20-*"];
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.DHCP = "no";
-    };
-    networks."22-br100" = {
-      matchConfig.Name = ["eno1.100" "vm-100-*"];
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.DHCP = "no";
-    };
+    defaultGateway.address = "10.0.10.1";
+    defaultGateway.interface = "${lan}.10";
+    nameservers = [ "10.0.10.1" ];
   };
-
+  
   services.avahi = {
     enable = true;
     nssmdns = true;
