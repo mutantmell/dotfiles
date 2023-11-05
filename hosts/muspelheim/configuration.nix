@@ -30,6 +30,7 @@
   };
   security.polkit.enable = true;
 
+  networking.hostName = "muspelheim";
   systemd.network = {
     enable = true;
     netdevs."10-eno1.10" = {
@@ -60,6 +61,8 @@
     networks."20-eno1" = {
       matchConfig.Name = "eno1";
       networkConfig.LinkLocalAddressing = "no";
+      networkConfig.DHCP = "no";
+      linkConfig.RequiredForOnline = "no";
       vlan = [
         "eno1.10"
         "eno1.20"
@@ -72,16 +75,33 @@
       networkConfig.Address = [ "10.0.10.31/24" ];
       networkConfig.Gateway = "10.0.10.1";
       networkConfig.DNS = [ "10.0.10.1" ];
+      networkConfig.DHCP = "no";
       linkConfig.RequiredForOnline = "routable";
     };
 
-    networks."21-br20" = {
-      matchConfig.Name = ["eno1.20" "vm-20-*"];
-      networkConfig.Bridge = "br20";
+    networks."21-eno1.20" = {
+      matchConfig.Name = "eno1.20";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      linkConfig.RequiredForOnline = "no";
     };
-    networks."21-br100" = {
+
+    networks."21-eno1.100" = {
+      matchConfig.Name = "eno1.100";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      linkConfig.RequiredForOnline = "no";
+    };
+
+    networks."22-br20" = {
+      matchConfig.Name = ["eno1.20" "vm-20-*"];
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.DHCP = "no";
+    };
+    networks."22-br100" = {
       matchConfig.Name = ["eno1.100" "vm-100-*"];
-      networkConfig.Bridge = "br100";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.DHCP = "no";
     };
   };
 
