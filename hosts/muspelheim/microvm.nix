@@ -9,7 +9,9 @@
     surtr2 = {
       inherit pkgs;
 
-      config = pkgs.mmell.lib.builders.mk-microvm {
+      config = let
+        writableStoreOverlay = "/nix/.rw-store";
+      in pkgs.mmell.lib.builders.mk-microvm {
         # It is highly recommended to share the host's nix-store
         # with the VMs to prevent building huge images.
         microvm.shares = [{
@@ -18,14 +20,24 @@
           tag = "ro-store";
           proto = "virtiofs";
         }];
-        microvm.writableStoreOverlay = "/nix/.rw-store";
+        microvm.volumes = [{
+          autoCreate = true;
+          mountPoint = "/";
+          image = "surtr2-root.img";
+          size = 6 * 1024;
+        } {
+          image = "nix-store-overlay.img";
+          mountPoint = writableStoreOverlay;
+          size = 4096;
+        }];
+        microvm.writableStoreOverlay = writableStoreOverlay;
         microvm.mem = 1024;
         microvm.balloonMem = 1024;
         microvm.vcpu = 1;
         microvm.interfaces = [{
           type = "bridge";
           bridge = "br100";
-          id = "ens3";
+          id = "enp0s6";
           mac = "5E:41:3F:F4:AB:B4";
         }];
 
@@ -39,7 +51,7 @@
         common.networking = {
           enable = true;
           hostname = "surtr2"; # TODO: find way to default here?
-          interface = "ens3";
+          interface = "enp0s6";
         };
         system.stateVersion = "23.11";
       };
