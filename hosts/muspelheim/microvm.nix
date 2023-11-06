@@ -11,9 +11,8 @@
 
       config = let
         writableStoreOverlay = "/nix/.rw-store";
+        mac = "5E:41:3F:F4:AB:B4";
       in pkgs.mmell.lib.builders.mk-microvm {
-        # It is highly recommended to share the host's nix-store
-        # with the VMs to prevent building huge images.
         microvm.shares = [{
           source = "/nix/store";
           mountPoint = "/nix/.ro-store";
@@ -37,11 +36,9 @@
         microvm.interfaces = [{
           type = "tap";
           id = "vm-100-surtr2";
-          mac = "5E:41:3F:F4:AB:B4";
+          inherit mac;
         }];
 
-        # Any other configuration for your MicroVM
-        # [...]
         nix.settings.experimental-features = [ "nix-command" "flakes" ];
         environment.systemPackages = [
           pkgs.home-manager
@@ -51,7 +48,7 @@
 
         systemd.network.networks."20-tap" = {
           matchConfig.Type = "ether";
-          matchConfig.MACAddress = "5E:41:3F:F4:AB:B4";
+          matchConfig.MACAddress = mac;
           networkConfig = {
             Address = [ "10.0.100.41/24" ];
             Gateway = "10.0.100.1";
