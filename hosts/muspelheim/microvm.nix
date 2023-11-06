@@ -5,10 +5,6 @@
     "surtr2"
   ];
 
-  systemd.tmpfiles.rules = [
-    "L+ /var/log/journal/surtr2/1675b99d70ec3c482f750b4c65487b2c - - - - /var/lib/microvms/surtr2/journal/1675b99d70ec3c482f750b4c65487b2c"
-  ];
-
   microvm.vms = {
     surtr2 = {
       inherit pkgs;
@@ -23,12 +19,6 @@
           mountPoint = "/nix/.ro-store";
           tag = "ro-store";
           proto = "virtiofs";
-        } {
-          source = "/var/lib/microvms/surtr2/journal";
-          mountPoint = "/var/log/journal";
-          tag = "journal";
-          proto = "virtiofs";
-          socket = "journal.sock";
         }];
         microvm.volumes = [{
           autoCreate = true;
@@ -58,10 +48,6 @@
         ];
         common.openssh.enable = true;
         systemd.network.enable = true;
-        environment.etc."machine-id" = {
-          mode = "0644";
-          text = "1675b99d70ec3c482f750b4c65487b2c\n";
-        };
 
         systemd.network.networks."20-tap" = {
           matchConfig.Type = "ether";
