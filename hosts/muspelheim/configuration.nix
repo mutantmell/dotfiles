@@ -37,30 +37,30 @@
 
   systemd.network = {
     enable = true;
-    netdevs."40-br20" = {
+    netdevs."20-br20" = {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br20";
     };
-    netdevs."40-br100" = {
+    netdevs."20-br100" = {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br100";
     };
-    netdevs."40-eno1.10" = {
+    netdevs."20-eno1.10" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "eno1.10";
       vlanConfig.Id = 10;
     };
-    netdevs."40-eno1.20" = {
+    netdevs."20-eno1.20" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "eno1.20";
       vlanConfig.Id = 20;
     };
-    netdevs."40-eno1.100" = {
+    netdevs."20-eno1.100" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "eno1.100";
       vlanConfig.Id = 100;
     };
-    networks."40-eno1" = {
+    networks."20-eno1" = {
       matchConfig.Name = "eno1";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
@@ -70,34 +70,34 @@
         "eno1.100"
       ];
     };
-    networks."40-eno1.10" = {
+    networks."20-eno1.10" = {
       matchConfig.Name = "eno1.10";
       networkConfig.DHCP = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
       networkConfig.Address = [ "10.0.10.31/24" ];
       routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
     };
-    networks."40-vm20-bridge" = {
+    networks."20-vm20-bridge" = {
       matchConfig.Name = [ "eno1.20" "vm-20-*" ];
       networkConfig.Bridge = "br20";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-    networks."40-vm100-bridge" = {
+    networks."20-vm100-bridge" = {
       matchConfig.Name = [ "eno1.100" "vm-100-*" ];
       networkConfig.Bridge = "br100";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-    networks."40-br20" = {
+    networks."20-br20" = {
       matchConfig.Name = "br20";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-    networks."40-br100" = {
+    networks."20-br100" = {
       matchConfig.Name = "br100";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
