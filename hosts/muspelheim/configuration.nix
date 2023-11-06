@@ -77,14 +77,14 @@
       networkConfig.Address = [ "10.0.10.31/24" ];
       routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
     };
-    networks."40-eno1.20" = {
+    networks."40-vm20-bridge" = {
       matchConfig.Name = [ "eno1.20" "vm-20-*" ];
       networkConfig.Bridge = "br20";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-    networks."40-eno1.100" = {
+    networks."40-vm100-bridge" = {
       matchConfig.Name = [ "eno1.100" "vm-100-*" ];
       networkConfig.Bridge = "br100";
       networkConfig.DHCP = "no";
