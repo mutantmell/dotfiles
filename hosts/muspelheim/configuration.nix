@@ -78,28 +78,14 @@
       routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
     };
     networks."40-eno1.20" = {
-      matchConfig.Name = "eno1.20";
+      matchConfig.Name = [ "eno1.20" "vm-20-*" ];
       networkConfig.Bridge = "br20";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
     networks."40-eno1.100" = {
-      matchConfig.Name = "eno1.100";
-      networkConfig.Bridge = "br100";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-    };
-    networks."40-vm-20" = {
-      matchConfig.Name = "vm-20-*";
-      networkConfig.Bridge = "br20";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-    };
-    networks."40-vm-100" = {
-      matchConfig.Name = "vm-100-*";
+      matchConfig.Name = [ "eno1.100" "vm-100-*" ];
       networkConfig.Bridge = "br100";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
