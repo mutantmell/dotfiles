@@ -32,7 +32,7 @@
 
   networking = let lan = "eno1"; in {
     hostName = "muspelheim";
-    useNetworkd = true;
+    #useNetworkd = true;
     dhcpcd.enable = false;
 
     vlans = {
@@ -53,6 +53,7 @@
           prefixLength = 24;
         }];
       };
+      "${lan}".useDHCP = false;
     };
     defaultGateway.address = "10.0.10.1";
     defaultGateway.interface = "${lan}.10";
