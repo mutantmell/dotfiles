@@ -91,6 +91,18 @@
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
+    networks."40-br20" = {
+      matchConfig.Name = "br20";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+    networks."40-br100" = {
+      matchConfig.Name = "br100";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
   };
   
   services.avahi = {
