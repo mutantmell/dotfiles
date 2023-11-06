@@ -91,6 +91,20 @@
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
+    networks."40-vm-20" = {
+      matchConfig.Name = "vm-20-*";
+      networkConfig.Bridge = "br20";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+    networks."40-vm-100" = {
+      matchConfig.Name = "vm-100-*";
+      networkConfig.Bridge = "br100";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
     networks."40-br20" = {
       matchConfig.Name = "br20";
       networkConfig.DHCP = "no";
