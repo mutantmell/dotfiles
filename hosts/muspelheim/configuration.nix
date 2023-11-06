@@ -30,7 +30,7 @@
   };
   security.polkit.enable = true;
 
-  networking = {# let lan = "eno1"; in {
+  networking = {
     hostName = "muspelheim";
     dhcpcd.enable = false;
   };
