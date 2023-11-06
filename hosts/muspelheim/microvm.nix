@@ -38,6 +38,11 @@
           type = "tap";
           id = "vm-100-surtr2";
           mac = "5E:41:3F:F4:AB:B4";
+        } {
+          type = "bridge";
+          bridge = "br100";
+          id = "surtrbr0";
+          mac = "5E:41:3F:F4:AB:B5";
         }];
 
         # Any other configuration for your MicroVM
@@ -47,10 +52,27 @@
           pkgs.home-manager
         ];
         common.openssh.enable = true;
-        common.networking = {
-          enable = true;
-          hostname = "surtr2"; # TODO: find way to default here?
-          interface = "vm-100-surtr2";
+        systemd.network.enable = true;
+
+        systemd.network.networks."20-lan" = {
+          matchConfig.Type = "ether";
+          networkConfig = {
+            Address = [ "10.0.100.41" ];
+            Gateway = "10.0.100.1";
+            DNS = [ "10.0.100.1" ];
+            IPv6AcceptRA = true;
+            DHCP = "no";
+          };
+        };
+        systemd.network.networks."20-lan-br" = {
+          matchConfig.Name = "surtrbr0";
+          networkConfig = {
+            Address = [ "10.0.100.49" ];
+            Gateway = "10.0.100.1";
+            DNS = [ "10.0.100.1" ];
+            IPv6AcceptRA = true;
+            DHCP = "no";
+          };
         };
         system.stateVersion = "23.11";
       };
