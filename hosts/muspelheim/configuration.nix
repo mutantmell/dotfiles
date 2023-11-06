@@ -30,34 +30,67 @@
   };
   security.polkit.enable = true;
 
-  networking = let lan = "eno1"; in {
+  networking = {# let lan = "eno1"; in {
     hostName = "muspelheim";
-    #useNetworkd = true;
     dhcpcd.enable = false;
+  };
 
-    vlans = {
-      "${lan}.10" = { id = 10; interface = lan; };
-      "${lan}.20" = { id = 20; interface = lan; };
-      "${lan}.100" = { id = 100; interface = lan; };
+  systemd.network = {
+    enable = true;
+    netdevs."40-br20" = {
+      netdevConfig.Kind = "bridge";
+      netdevConfig.Name = "br20";
     };
-
-    bridges = {
-      "br20".interfaces = [ "${lan}.20" ];
-      "br100".interfaces = [ "${lan}.100" ];
+    netdevs."40-br100" = {
+      netdevConfig.Kind = "bridge";
+      netdevConfig.Name = "br100";
     };
-    interfaces = {
-      "${lan}.10" = {
-        useDHCP = false;
-        ipv4.addresses = [{
-          address = "10.0.10.31";
-          prefixLength = 24;
-        }];
-      };
-      "${lan}".useDHCP = false;
+    netdevs."40-eno1.10" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "eno1.10";
+      vlanConfig.Id = 10;
     };
-    defaultGateway.address = "10.0.10.1";
-    defaultGateway.interface = "${lan}.10";
-    nameservers = [ "10.0.10.1" ];
+    netdevs."40-eno1.20" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "eno1.20";
+      vlanConfig.Id = 20;
+    };
+    netdevs."40-eno1.100" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "eno1.100";
+      vlanConfig.Id = 100;
+    };
+    networks."40-eno1" = {
+      matchConfig.Name = "eno1";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      vlan = [
+        "eno1.10"
+        "eno1.20"
+        "eno1.100"
+      ];
+    };
+    networks."40-eno1.10" = {
+      matchConfig.Name = "eno1.10";
+      networkConfig.DHCP = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+      networkConfig.Address = [ "10.0.10.31/24" ];
+      routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
+    };
+    networks."40-eno1.20" = {
+      matchConfig.Name = "eno1.20";
+      networkConfig.Bridge = "br20";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+    networks."40-eno1.100" = {
+      matchConfig.Name = "eno1.100";
+      networkConfig.Bridge = "br100";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
   };
   
   services.avahi = {
