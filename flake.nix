@@ -19,9 +19,14 @@
       url = github:astro/microvm.nix;
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    impermanence = {
+      url = github:nix-community/impermanence;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = {
-    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager, sops-nix, jovian, microvm,
+    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager,
+      sops-nix, jovian, microvm, impermanence,
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
       inherit system;
@@ -109,7 +114,11 @@
         );
       };
       mk-microvm = args: nixpkgs.lib.mkMerge [ args {
-        imports = [ sops-nix.nixosModules.sops self.nixosModules.common ];
+        imports = [
+          sops-nix.nixosModules.sops
+          impermanence.nixosModules.impermanence
+          self.nixosModules.common
+        ];
       }];
     };
 
