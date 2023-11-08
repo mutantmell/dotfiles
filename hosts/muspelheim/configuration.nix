@@ -16,6 +16,37 @@
     virt-manager
     vim
     git
+    (pkgs.writeScriptBin "mk-volume-with-ssh-key" ''
+      set -euxo pipefail
+      if [ "$#" -lt 2 ]; then
+        echo "invalid number of args"
+        exit 1
+      fi;
+
+      DIR=`mktemp -d`
+      echo $DIR
+      cd $DIR
+
+      NAME="$1"
+      SIZE="$2"
+
+      FS=ext4
+      if [ "$#" -ge 3 ]; then
+        FS="$3"
+      fi;
+
+      truncate --size=$SIZE $NAME.img
+      mkfs.$FS $NAME.img
+
+      mkdir mnt
+      mount -t auto -o loop $NAME.img ./mnt
+      mkdir -p ./mnt/etc/ssh/
+
+      ssh-keygen -t ed25519 -C "malaguy@gmail.com" -f $DIR/ssh_host_ed25519_key
+      cp ssh_host_ed25519_key ./mnt/etc/ssh/
+
+      umount ./mnt
+    '')
   ];
 
   virtualisation.libvirtd = {

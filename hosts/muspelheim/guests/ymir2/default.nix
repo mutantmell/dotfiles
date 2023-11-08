@@ -30,9 +30,16 @@ in {
   }];
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  common.openssh.enable = true;
-  systemd.network.enable = true;
 
+  common.openssh.enable = true;
+  services.openssh.hostKeys = [
+    {
+      path = "/persist/etc/ssh/ssh_host_ed25519_key";
+      type = "ed25519";
+    }
+  ];
+
+  systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = mac;
