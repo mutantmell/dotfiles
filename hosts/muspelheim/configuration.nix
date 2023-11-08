@@ -43,7 +43,7 @@
       mkdir -p ./mnt/static/ssh/
 
       ssh-keygen -t ed25519 -f $DIR/ssh_host_ed25519_key -q -N ""
-      cp ssh_host_ed25519_key ./mnt/static/ssh/
+      cp ssh_host_ed25519_key* ./mnt/static/ssh/
 
       umount ./mnt
     '')
