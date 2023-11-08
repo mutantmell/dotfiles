@@ -40,10 +40,10 @@
 
       mkdir mnt
       mount -t auto -o loop $NAME.img ./mnt
-      mkdir -p ./mnt/etc/ssh/
+      mkdir -p ./mnt/static/ssh/
 
-      ssh-keygen -t ed25519 -C "malaguy@gmail.com" -f $DIR/ssh_host_ed25519_key
-      cp ssh_host_ed25519_key ./mnt/etc/ssh/
+      ssh-keygen -t ed25519 -f $DIR/ssh_host_ed25519_key -q -N ""
+      cp ssh_host_ed25519_key ./mnt/static/ssh/
 
       umount ./mnt
     '')
