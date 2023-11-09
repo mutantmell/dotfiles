@@ -49,6 +49,9 @@
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
       };
+      mk-volume = import packages/mk-volume.nix {
+        inherit (pkgs) writeShellScriptBin;
+      };
     });
 
     nixosModules = let
