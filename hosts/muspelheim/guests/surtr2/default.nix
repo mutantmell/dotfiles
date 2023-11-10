@@ -46,5 +46,10 @@ in {
       DHCP = "no";
     };
   };
+  networking.extraHosts = ''
+    10.0.10.2 alfheim.local
+  '';
+  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
+  
   system.stateVersion = "23.11";
 }
