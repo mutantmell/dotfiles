@@ -16,7 +16,9 @@ in {
     ) pkgs);
   };
 
-  imports = [
+  imports = let
+    extra-modules = home-conf.extraModules or [];
+  in [
     ./common.nix
   ] ++ (
     builtins.map (lang: ./lang + "/${lang}.nix") (home-conf.langs or [])
@@ -26,6 +28,8 @@ in {
   ) ++ (
     lib.optional (home-conf.is-graphical or false) ./graphical.nix
   ) ++ (
-    home-conf.extraModules or []
+    if builtins.isFunction extra-modules
+    then extra-modules pkgs
+    else extra-modules
   );
 }
