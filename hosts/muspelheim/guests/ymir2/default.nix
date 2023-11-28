@@ -1,48 +1,24 @@
 { pkgs, lib, config, ... }:
 let
-  mac = "5E:A2:E4:CB:05:DA";
   persist-dir = "/persist";
 in {
   imports = [
     #./monit.nix
+    ./microvm.nix
   ];
-  microvm.shares = [{
-    source = "/nix/store";
-    mountPoint = "/nix/.ro-store";
-    tag = "ro-store";
-    proto = "virtiofs";
-  }];
-  microvm.volumes = [{
-    autoCreate = true;
-    mountPoint = persist-dir;
-    image = "ymir2-persist.img";
-    size = 10 * 1024;
-  }];
-  fileSystems."/persist".neededForBoot = lib.mkForce true;
-
-  microvm.mem = 1024;
-  microvm.balloonMem = 1024;
-  microvm.vcpu = 1;
-  microvm.interfaces = [{
-    type = "tap";
-    id = "vm-20-ymir2";
-    inherit mac;
-  }];
 
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   common.openssh.enable = true;
-  services.openssh.hostKeys = [
-    {
-      path = "/persist/etc/ssh/ssh_host_ed25519_key"; # todo: "/persist/static/ssh/ssh_host_ed25519_key";
-      type = "ed25519";
-    }
-  ];
+  services.openssh.hostKeys = [{
+    path = "/persist/static/etc/ssh/ssh_host_ed25519_key";
+    type = "ed25519";
+  }];
 
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
-    matchConfig.MACAddress = mac;
+    matchConfig.MACAddress = "5E:A2:E4:CB:05:DA";;
     networkConfig = {
       Address = [ "10.0.20.42/24" ];
       Gateway = "10.0.20.1";
