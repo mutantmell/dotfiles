@@ -21,7 +21,6 @@
         ./common.nix
         ({ config, lib, pkgs, modulesPath, ... }: {
           imports = [(modulesPath + "/installer/scan/not-detected.nix")];
-
           boot.initrd.availableKernelModules = [ "xhci_pci" "ahci" "sd_mod" "rtsx_pci_sdmmc" ];
           boot.initrd.kernelModules = [ ];
           boot.kernelModules = [ "kvm-intel" ];

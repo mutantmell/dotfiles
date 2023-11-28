@@ -14,9 +14,12 @@
       content = {
         type = "gpt";
         partitions = {
+          boot = {
+            size = "1M";
+            type = "EF02";
+          };
           ESP = {
             size = "512M";
-            type = "EF00";
             content = {
               type = "filesystem";
               format = "vfat";
