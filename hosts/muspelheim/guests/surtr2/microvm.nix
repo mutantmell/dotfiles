@@ -7,22 +7,26 @@
     proto = "virtiofs";
   } {
     source = "/persist/guests/surtr";
-    mountPoint = "/";
-    image = "surtr2-root.img";
-    size = 6 * 1024;
-  } ];
+    mountPoint = "/persist";
+    tag = "persist";
+    proto = "virtiofs";
+  }];
+  fileSystems."/persist".neededForBoot = lib.mkForce true;
+
   microvm.volumes = [{
-    image = "nix-store-overlay.img";
+    image = "surtr-nix-store-overlay.img";
     mountPoint = config.microvm.writableStoreOverlay;
     size = 4096;
   }];
   microvm.writableStoreOverlay = "/nix/.rw-store";
+
   microvm.mem = 1024;
-  microvm.balloonMem = 1024;
-  microvm.vcpu = 1;
+  microvm.balloonMem = 1024 * 3;
+
+  microvm.vcpu = 2;
   microvm.interfaces = [{
     type = "tap";
-    id = "vm-100-surtr2";
+    id = "vm-100-surtr";
     mac = config.systemd.network.networks."20-tap".matchConfig.MACAddress;
   }];
 }
