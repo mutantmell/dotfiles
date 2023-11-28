@@ -18,4 +18,8 @@
     ];
   };
   fileSystems."/persist".neededForBoot = true;
+  common.zfs.impermanence = {
+    enable = true;
+    dataset = "zroot/local/root";
+  };
 }
