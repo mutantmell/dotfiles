@@ -1,7 +1,5 @@
 { pkgs, lib, config, ... }:
-let
-  persist-dir = "/persist";
-in {
+{
   imports = [
     #./monit.nix
     ./microvm.nix
@@ -30,7 +28,7 @@ in {
 
   time.timeZone = "UTC";
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
-  environment.persistence."${persist-dir}" = {
+  environment.persistence."/persist" = {
     hideMounts = true;
     directories = [
       "/var/log"
