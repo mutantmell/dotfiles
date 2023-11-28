@@ -15,12 +15,27 @@ in {
       };
       default = {};
     };
+    impermanence = lib.mkOption {
+      type = lib.types.submodule {
+        options.enable = lib.mkEnableOption "Impermanence common options";
+        options.dataset = lib.mkOption {
+          type = lib.types.str;
+          description = "zfs dataset to rollback on boot";
+        };
+        options.snapshot = lib.mkOption {
+          type = lib.types.str;
+          default = "blank";
+          description = "zfs snapshot to rollback to";
+        };
+      };
+      default = {};
+    };
   };
 
-  config = lib.mkMerge [
-    (lib.mkIf cfg.enable {
+  config = lib.mkIf cfg.enable (lib.mkMerge [
+    {
       boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
-    })
+    }
     (lib.mkIf cfg.remoteUnlock.enable {
       boot.initrd.network = {
         enable = true;
@@ -40,5 +55,10 @@ in {
       '';
       };
     })
-  ];
+    (lib.mkIf cfg.impermanence.enable {
+      boot.initrd.postDeviceCommands = lib.mkAfter ''
+        zfs rollback -r ${cfg.impermanence.dataset}@${cfg.impermanence.snapshot}
+      '';
+    })
+  ]);
 }
