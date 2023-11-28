@@ -235,6 +235,7 @@
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
+          impermanence.nixosModules.impermanence
           microvm.nixosModules.host
           ./hosts/muspelheim/configuration.nix
         ];
