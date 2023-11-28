@@ -3,6 +3,7 @@
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   imports = [
+    ./impermanence.nix
     ./monit.nix
     ./microvm.nix
   ];
