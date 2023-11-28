@@ -30,7 +30,11 @@
           nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
           hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
         })
-        (import ./profiles/vm-host.nix { root-on-tmpfs = false; })
+        (import ./profiles/vm-host.nix {
+          root-on-tmpfs = false;
+          swap-partition = true;
+          swap-size = "8G";
+        })
       ];
     };
   };
