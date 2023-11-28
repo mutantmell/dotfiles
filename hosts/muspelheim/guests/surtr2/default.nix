@@ -32,6 +32,14 @@
     10.0.10.2 alfheim.local
   '';
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
+  environment.persistence."/persist" = {
+    hideMounts = true;
+    directories = [
+      "/etc"
+      "/home"
+      "/var"
+    ];
+  };
   
   system.stateVersion = "23.11";
 }
