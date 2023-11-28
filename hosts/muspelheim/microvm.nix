@@ -1,15 +1,11 @@
 { config, pkgs, microvm, ... }:
 
 {
-  microvm.autostart = [
-    "surtr2"
-  ];
-
-  microvm.vms = builtins.mapAttrs (name: config-path: {
-    inherit pkgs;
-    config = pkgs.mmell.lib.builders.mk-microvm (import config-path);
-  }) {
-    surtr2 = ./guests/surtr2;
-    ymir2 = ./guests/ymir2;
+  microvm = rec {
+    vms = builtins.mapAttrs (name: dir: {
+      inherit pkgs;
+      config = pkgs.mmell.lib.builders.mk-microvm (import (./guests + "/${dir}"));
+    }) (builtins.readDir ./guests);
+    autostart = builtins.attrNames vms;
   };
 }
