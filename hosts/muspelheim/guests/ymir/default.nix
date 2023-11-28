@@ -3,7 +3,6 @@
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   imports = [
-    ./impermanence.nix
     ./monit.nix
     ./microvm.nix
   ];
@@ -17,7 +16,7 @@
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
-    matchConfig.MACAddress = "5E:A2:E4:CB:05:DA";;
+    matchConfig.MACAddress = "5E:A2:E4:CB:05:DA";
     networkConfig = {
       Address = [ "10.0.20.42/24" ];
       Gateway = "10.0.20.1";
