@@ -2,6 +2,9 @@
   disk ? "/dev/sda",
   root-on-tmpfs ? true,
   tmpfs-size ? "2G",
+  swap-partition ? false,
+  swap-size ? "1G",
+  swap-encrypted ? true,
 }: {
   disko.devices = {
     disk.main = {
@@ -20,19 +23,33 @@
             };
           };
           zfs = {
-            size = "100%";
             content = {
               type = "zfs";
               pool = "zroot";
             };
+          } // (if swap-partition then {
+            end = "-${swap-size}";
+          } else {
+            size = "100%";
+          });
+        } // (if !swap-partition then {} else {
+          swap = {
+            size = "100%";
+            content = {
+              type = "swap";
+              randomEncryption = swap-encrypted;
+            };
           };
-        };
+        });
       };
     };
     zpool = {
       zroot = {
         type = "zpool";
         rootFsOptions = {
+          encryption = "on";
+          keyformat = "passphrase";
+          keylocation = "prompt";
           compression = "zstd";
           mountpoint = "none";
         };
