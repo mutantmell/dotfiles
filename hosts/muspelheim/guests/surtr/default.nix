@@ -1,12 +1,18 @@
-{ pkgs, lib, config, ... }:
+{ pkgs, config, ... }:
 {
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
-    #./monit.nix
     ./microvm.nix
+    ./sops.nix
+    ./proxy.nix
   ];
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  environment.systemPackages = [
+    pkgs.home-manager
+    pkgs.git
+  ];
 
+  networking.hostName = "surtr";
   common.openssh.enable = true;
   services.openssh.hostKeys = [{
     path = "/persist/static/etc/ssh/ssh_host_ed25519_key";
@@ -16,29 +22,29 @@
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
-    matchConfig.MACAddress = "5E:A2:E4:CB:05:DA";;
+    matchConfig.MACAddress = "5E:41:3F:F4:AB:B4";
     networkConfig = {
-      Address = [ "10.0.20.42/24" ];
-      Gateway = "10.0.20.1";
-      DNS = [ "10.0.20.1" ];
+      Address = [ "10.0.100.41/24" ];
+      Gateway = "10.0.100.1";
+      DNS = [ "10.0.100.1" ];
       IPv6AcceptRA = true;
       DHCP = "no";
     };
   };
-
-  time.timeZone = "UTC";
+  networking.extraHosts = ''
+    10.0.10.2 alfheim.local
+    10.0.100.50 bragi.local
+  '';
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
+
   environment.persistence."/persist" = {
     hideMounts = true;
     directories = [
-      "/var/log"
-      "/var/lib/nixos"
-      "/var/lib/systemd/coredump"
-    ];
-    files = [
-      "/etc/machine-id"
+      "/etc"
+      "/home"
+      "/var"
     ];
   };
-
+  
   system.stateVersion = "23.11";
 }
