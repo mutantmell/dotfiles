@@ -157,6 +157,7 @@
       muspelheim = {
         imports = [
           microvm.nixosModules.host
+          impermanence.nixosModules.impermanence
           ./hosts/muspelheim/configuration.nix
         ];
         tags = [ "host" ]; 

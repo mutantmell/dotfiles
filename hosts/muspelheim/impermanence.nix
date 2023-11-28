@@ -9,7 +9,6 @@
       "/var/lib/systemd/coredump"
     ];
     files = [
-      "/etc/hostid"
       "/etc/machine-id"
 
       "/etc/ssh/ssh_host_ed25519_key"
@@ -18,4 +17,5 @@
       "/etc/ssh/ssh_host_rsa_key.pub"
     ];
   };
+  fileSystems."/persist".neededForBoot = true;
 }

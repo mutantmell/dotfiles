@@ -11,26 +11,19 @@
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
+  common.zfs.enable = true;
+  common.zfs.remoteUnlock.enable = true;
 
   environment.systemPackages = [
     pkgs.git
   ];
 
-  virtualisation.libvirtd = {
-    enable = true;
-    qemu = {
-      ovmf.enable = true;
-      runAsRoot = false;
-    };
-    onBoot = "start";
-    onShutdown = "suspend";
-    allowedBridges = [ "br20" "br100" ];
-  };
   security.polkit.enable = true;
 
   networking = {
     hostName = "muspelheim";
+    hostId = "518f0054";
+    useNetworkd = true;
     dhcpcd.enable = false;
   };
 
@@ -115,11 +108,6 @@
 
   i18n.defaultLocale = "en_US.UTF-8";
 
-  users.users."qemu-agent" = {
-    isNormalUser = true;
-    extraGroups = [ "libvirtd" ];
-  };
-
   fileSystems."/mnt/data" = {
     device = "10.0.20.30:/data/data";
     fsType = "nfs";
@@ -131,7 +119,7 @@
 
   common.openssh = {
     enable = true;
-    users = [ "root" "qemu-agent" ];
+    users = [ "root" ];
     keys = [ "deploy" "home" ];
   };
 

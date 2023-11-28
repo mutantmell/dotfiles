@@ -1,4 +1,4 @@
-{ config, ...}:
+{ config, lib, ...}:
 {
   microvm.shares = [{
     source = "/nix/store";
