@@ -5,6 +5,7 @@
   swap-partition ? false,
   swap-size ? "1G",
   swap-encrypted ? true,
+  zfs-reservation ? null,
 }: {
   disko.devices = {
     disk.main = {
@@ -49,6 +50,7 @@
         rootFsOptions = {
           encryption = "on";
           keyformat = "passphrase";
+          #keylocation = "file:///tmp/secret.key";
           keylocation = "prompt";
           compression = "zstd";
           mountpoint = "none";
@@ -75,6 +77,14 @@
             mountpoint = "/";
             postCreateHook = "zfs snapshot zroot/local/root@blank";
             options."com.sun:auto-snapshot" = "false";
+          };
+        }) // (if zfs-reservation == null then {} else {
+          "local/reservation" = {
+            type = "zfs_fs";
+            options = {
+              mountpoint = "none";
+              refreservation = zfs-reservation;
+            };
           };
         });
       };

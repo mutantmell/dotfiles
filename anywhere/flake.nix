@@ -34,6 +34,7 @@
           root-on-tmpfs = false;
           swap-partition = true;
           swap-size = "8G";
+          zfs-reservation = "20G";
         })
       ];
     };
