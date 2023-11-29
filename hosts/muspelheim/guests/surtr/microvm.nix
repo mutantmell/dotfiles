@@ -4,12 +4,12 @@
     source = "/nix/store";
     mountPoint = "/nix/.ro-store";
     tag = "ro-store";
-    proto = "virtiofs";
+    proto = "9p";
   } {
     source = "/persist/guests/surtr/static";
     mountPoint = "/static";
     tag = "static";
-    proto = "virtiofs";
+    proto = "9p";
   }];
 
   microvm.volumes = [{
