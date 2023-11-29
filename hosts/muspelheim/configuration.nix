@@ -16,10 +16,8 @@
   common.zfs.remoteUnlock.enable = true;
   common.zfs.remoteUnlock.hostkey = /persist/etc/ssh/initrd_ssh_host_ed25519_key;
 
-  boot.initrd.availableKernelModules = [ "e1000e" ];
-  boot.initrd.systemd.enable = true;
+  boot.initrd.availableKernelModules = [ "e1000e" "8021q" ];
   boot.initrd.systemd.network = {
-    enable = true;
     netdevs."20-eno1.10" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "eno1.10";

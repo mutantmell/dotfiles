@@ -35,8 +35,10 @@ in {
   config = lib.mkIf cfg.enable (lib.mkMerge [
     {
       boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
+      boot.initrd.systemd.enable = true;
     }
     (lib.mkIf cfg.remoteUnlock.enable {
+      boot.initrd.systemd.network.enable = true;
       boot.initrd.network = {
         enable = true;
         ssh = {
@@ -54,9 +56,19 @@ in {
       };
     })
     (lib.mkIf cfg.impermanence.enable {
-      #boot.initrd.postDeviceCommands = lib.mkAfter ''
-      #  zfs rollback -r ${cfg.impermanence.dataset}@${cfg.impermanence.snapshot}
-      #'';
+      # c/o https://discourse.nixos.org/t/impermanence-vs-systemd-initrd-w-tpm-unlocking/25167/2
+      boot.initrd.systemd.services.rollback = {
+        description = "Rollback ZFS datasets to a pristine state";
+        wantedBy = [ "initrd.target" ];
+        after = [ "zfs-import-zroot.service" ];
+        before = [ "sysroot.mount" ];
+        path = [ pkgs.zfs ];
+        unitConfig.DefaultDependencies = "no";
+        serviceConfig.Type = "oneshot";
+        script = ''
+          zfs rollback -r ${cfg.impermanence.dataset}@${cfg.impermanence.snapshot}
+        '';
+      };
     })
   ]);
 }
