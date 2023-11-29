@@ -47,10 +47,10 @@ in {
             pkgs.mmell.lib.data.keys.ssh.${key}
           ) ["deploy" "home"];
         };
-        postCommands = ''
-        zpool import -a
-        echo "zfs load-key -a; killall zfs" >> /root/.profile
-      '';
+        #postCommands = ''
+        #  zpool import -a
+        #  echo "zfs load-key -a; killall zfs" >> /root/.profile
+        #'';
       };
     })
     (lib.mkIf cfg.impermanence.enable {
