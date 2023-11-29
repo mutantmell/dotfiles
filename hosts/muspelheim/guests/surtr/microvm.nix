@@ -4,22 +4,22 @@
     source = "/nix/store";
     mountPoint = "/nix/.ro-store";
     tag = "ro-store";
-    proto = "9p";
+    proto = "virtiofs";
   } {
     source = "/persist/guests/surtr/static";
     mountPoint = "/static";
     tag = "static";
-    proto = "9p";
+    proto = "virtiofs";
   }];
 
   microvm.volumes = [{
     autoCreate = true;
     mountPoint = "/";
-    image = "surtr-root.img";
+    image = "/persist/guests/surtr/images/root.img";
     size = 25 * 1024;
   } {
     autoCreate = true;
-    image = "surtr-store-overlay.img";
+    image = "/persist/guests/surtr/images/store-overlay.img";
     mountPoint = config.microvm.writableStoreOverlay;
     size = 4 * 1024;
   }];
