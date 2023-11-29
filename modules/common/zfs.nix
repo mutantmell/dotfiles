@@ -39,11 +39,7 @@ in {
     }
     (lib.mkIf cfg.remoteUnlock.enable {
       boot.initrd.systemd.network.enable = true;
-      boot.initrd.systemd.initrdBin = [ pkgs.killall ];
-      boot.initrd.systemd.contents."/root/.profile".text = ''
-        zpool import -a
-        zfs load-key -a && killall zfs"
-      '';
+      boot.initrd.systemd.contents."/root/.profile".text = "systemd-tty-ask-password-agent";
       boot.initrd.network = {
         enable = true;
         ssh = {
@@ -54,10 +50,6 @@ in {
             pkgs.mmell.lib.data.keys.ssh.${key}
           ) ["deploy" "home"];
         };
-        #postCommands = ''
-        #  zpool import -a
-        #  echo "zfs load-key -a; killall zfs" >> /root/.profile
-        #'';
       };
     })
     (lib.mkIf cfg.impermanence.enable {
