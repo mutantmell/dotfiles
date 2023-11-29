@@ -7,6 +7,8 @@
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
+
+      "/root"  # Add for now, until we can get rid of the git repo in /root
     ];
     files = [
       "/etc/machine-id"
