@@ -16,17 +16,4 @@ in {
   users.users.root.openssh.authorizedKeys.keys = [ ssh-key ];
   networking.hostId = lib.mkDefault "8425e349";
   system.stateVersion = "23.11";
-  boot.initrd.network = {
-    enable = true;
-    ssh = {
-      enable = true;
-      port = 2222;
-      hostKeys = [ cfg.remoteUnlock.hostkey ];
-      authorizedKeys = [ ssh-key ];
-    };
-    postCommands = ''
-      zpool import -a
-      echo "zfs load-key -a; killall zfs" >> /root/.profile
-    '';
-  };
 }

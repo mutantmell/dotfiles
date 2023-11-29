@@ -10,7 +10,7 @@ in {
         options.enable = lib.mkEnableOption "Remote Unlock via SSH";
         options.hostkey = lib.mkOption {
           type = lib.types.path;
-          default = /etc/ssh/ssh_host_ed25519_key;
+          default = /etc/ssh/initrd_ssh_host_ed25519_key;
         };
       };
       default = {};
@@ -45,9 +45,7 @@ in {
           hostKeys = [ cfg.remoteUnlock.hostkey ];
           authorizedKeys = builtins.map (key:
             pkgs.mmell.lib.data.keys.ssh.${key}
-          ) [
-            "deploy" "home"
-          ];
+          ) ["deploy" "home"];
         };
         postCommands = ''
         zpool import -a
