@@ -16,6 +16,7 @@
   common.zfs.remoteUnlock.hostkey = /persist/etc/ssh/initrd_ssh_host_ed25519_key;
 
   boot.initrd.systemd.network = {
+    enable = true;
     netdevs."20-eno1.10" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "eno1.10";
