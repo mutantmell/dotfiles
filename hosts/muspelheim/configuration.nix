@@ -1,6 +1,7 @@
 { config, pkgs, ... }:
 
 {
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports =
     [
       ./hardware-configuration.nix
@@ -15,6 +16,8 @@
   common.zfs.remoteUnlock.enable = true;
   common.zfs.remoteUnlock.hostkey = /persist/etc/ssh/initrd_ssh_host_ed25519_key;
 
+  boot.initrd.availableKernelModules = [ "e1000e" ];
+  boot.initrd.systemd.enable = true;
   boot.initrd.systemd.network = {
     enable = true;
     netdevs."20-eno1.10" = {
