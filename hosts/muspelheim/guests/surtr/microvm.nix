@@ -6,16 +6,21 @@
     tag = "ro-store";
     proto = "virtiofs";
   } {
-    source = "/persist/guests/surtr";
-    mountPoint = "/";
+    source = "/persist/guests/surtr/static";
+    mountPoint = "/static";
     tag = "root";
     proto = "virtiofs";
   }];
 
   microvm.volumes = [{
+    autoCreate = true;
+    mountPoint = "/";
+    image = "/persist/guests/surtr/root.img";
+    size = 25 * 1024;
+  } {
     image = "surtr-nix-store-overlay.img";
     mountPoint = config.microvm.writableStoreOverlay;
-    size = 4096;
+    size = 4 * 1024;
   }];
   microvm.writableStoreOverlay = "/nix/.rw-store";
 
