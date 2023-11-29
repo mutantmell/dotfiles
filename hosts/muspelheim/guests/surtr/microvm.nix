@@ -27,6 +27,6 @@
   microvm.interfaces = [{
     type = "tap";
     id = "vm-100-surtr";
-    mac = config.systemd.network.networks."20-tap".matchConfig.MACAddress;
+    mac = "5E:41:3F:F4:AB:B4";
   }];
 }

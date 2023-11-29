@@ -20,7 +20,7 @@
   microvm.interfaces = [{
     type = "tap";
     id = "vm-20-ymir";
-    mac = config.systemd.network.networks."20-tap".matchConfig.MACAddress;
+    mac = "5E:A2:E4:CB:05:DA";
   }];
 
   environment.persistence."/persist" = {

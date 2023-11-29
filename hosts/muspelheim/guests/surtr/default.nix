@@ -24,7 +24,7 @@
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:41:3F:F4:AB:B4";
     networkConfig = {
-      Address = [ "10.0.100.41/24" ];
+      Address = [ "10.0.100.40/24" ];
       Gateway = "10.0.100.1";
       DNS = [ "10.0.100.1" ];
       IPv6AcceptRA = true;
