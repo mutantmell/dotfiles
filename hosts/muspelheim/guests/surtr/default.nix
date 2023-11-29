@@ -15,7 +15,7 @@
   networking.hostName = "surtr";
   common.openssh.enable = true;
   services.openssh.hostKeys = [{
-    path = "/persist/static/etc/ssh/ssh_host_ed25519_key";
+    path = "/static/etc/ssh/ssh_host_ed25519_key";
     type = "ed25519";
   }];
 
@@ -37,14 +37,5 @@
   '';
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
 
-  environment.persistence."/persist" = {
-    hideMounts = true;
-    directories = [
-      "/etc"
-      "/home"
-      "/var"
-    ];
-  };
-  
   system.stateVersion = "23.11";
 }
