@@ -54,9 +54,9 @@ in {
       };
     })
     (lib.mkIf cfg.impermanence.enable {
-      boot.initrd.postDeviceCommands = lib.mkAfter ''
-        zfs rollback -r ${cfg.impermanence.dataset}@${cfg.impermanence.snapshot}
-      '';
+      #boot.initrd.postDeviceCommands = lib.mkAfter ''
+      #  zfs rollback -r ${cfg.impermanence.dataset}@${cfg.impermanence.snapshot}
+      #'';
     })
   ]);
 }
