@@ -15,11 +15,11 @@
   microvm.volumes = [{
     autoCreate = true;
     mountPoint = "/";
-    image = "/persist/guests/surtr/images/root.img";
+    image = "surtr-root.img";
     size = 25 * 1024;
   } {
     autoCreate = true;
-    image = "/persist/guests/surtr/images/store-overlay.img";
+    image = "surtr-store-overlay.img";
     mountPoint = config.microvm.writableStoreOverlay;
     size = 4 * 1024;
   }];
