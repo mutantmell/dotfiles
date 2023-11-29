@@ -39,6 +39,11 @@ in {
     }
     (lib.mkIf cfg.remoteUnlock.enable {
       boot.initrd.systemd.network.enable = true;
+      boot.initrd.systemd.initrdBin = [ pkgs.killall ];
+      boot.initrd.systemd.contents."/root/.profile" = ''
+        zpool import -a
+        zfs load-key -a && killall zfs"
+      '';
       boot.initrd.network = {
         enable = true;
         ssh = {
