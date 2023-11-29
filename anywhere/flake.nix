@@ -26,7 +26,6 @@
           boot.kernelModules = [ "kvm-intel" ];
           boot.extraModulePackages = [ ];
           networking.useDHCP = lib.mkDefault true;
-          networking.hostName = "muspelheim";
           nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
           hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
         })
