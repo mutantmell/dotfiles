@@ -23,11 +23,6 @@
     mac = "5E:A2:E4:CB:05:DA";
   }];
 
-  environment.persistence."/persist" = {
-    directories = [
-      "/var/lib/microvms"
-    ];
-  };
   environment.systemPackages = [
     pkgs.mmell.mk-volume
     (pkgs.writeShellApplication {

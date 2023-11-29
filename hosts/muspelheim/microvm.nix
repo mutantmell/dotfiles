@@ -8,4 +8,11 @@
     }) (builtins.readDir ./guests);
     autostart = builtins.attrNames vms;
   };
+
+  environment.persistence."/persist" = {
+    directories = [
+      { directory = "/var/lib/microvms"; user = "microvm"; group = "kvm"; }
+    ];
+  };
+
 }
