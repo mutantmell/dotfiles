@@ -13,6 +13,7 @@
 
   common.zfs.enable = true;
   common.zfs.remoteUnlock.enable = true;
+  common.zfs.remoteUnlock.hostkey = /persist/etc/ssh/initrd_ssh_host_ed25519_key;
 
   boot.initrd.systemd.network = {
     netdevs."20-eno1.10" = {
