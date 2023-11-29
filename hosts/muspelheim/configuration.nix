@@ -14,6 +14,29 @@
   common.zfs.enable = true;
   common.zfs.remoteUnlock.enable = true;
 
+  boot.initrd.systemd.network = {
+    netdevs."20-eno1.10" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "eno1.10";
+      vlanConfig.Id = 10;
+    };
+    networks."20-eno1" = {
+      matchConfig.Name = "eno1";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      vlan = [
+        "eno1.10"
+      ];
+    };
+    networks."20-eno1.10" = {
+      matchConfig.Name = "eno1.10";
+      networkConfig.DHCP = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+      networkConfig.Address = [ "10.0.10.31/24" ];
+      routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
+    };
+  };
+
   environment.systemPackages = [
     pkgs.git
   ];
