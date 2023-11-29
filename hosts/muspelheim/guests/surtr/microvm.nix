@@ -8,7 +8,7 @@
   } {
     source = "/persist/guests/surtr/static";
     mountPoint = "/static";
-    tag = "root";
+    tag = "static";
     proto = "virtiofs";
   }];
 
