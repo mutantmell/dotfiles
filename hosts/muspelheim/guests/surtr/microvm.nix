@@ -7,11 +7,10 @@
     proto = "virtiofs";
   } {
     source = "/persist/guests/surtr";
-    mountPoint = "/persist";
-    tag = "persist";
+    mountPoint = "/";
+    tag = "root";
     proto = "virtiofs";
   }];
-  fileSystems."/persist".neededForBoot = lib.mkForce true;
 
   microvm.volumes = [{
     image = "surtr-nix-store-overlay.img";
