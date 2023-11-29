@@ -9,7 +9,7 @@
 
   common.openssh.enable = true;
   services.openssh.hostKeys = [{
-    path = "/persist/static/etc/ssh/ssh_host_ed25519_key";
+    path = "/static/etc/ssh/ssh_host_ed25519_key";
     type = "ed25519";
   }];
 
