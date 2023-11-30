@@ -12,6 +12,7 @@
     tag = "static";
     proto = "virtiofs";
   }];
+  fileSystems."/static".neededForBoot = lib.mkForce true;
 
   microvm.volumes = [{
     autoCreate = true;
