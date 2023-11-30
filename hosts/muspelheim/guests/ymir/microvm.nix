@@ -12,7 +12,7 @@
     tag = "static";
     proto = "virtiofs";
   }];
-  fileSystems."/persist".neededForBoot = lib.mkForce true;
+  fileSystems."/static".neededForBoot = lib.mkForce true;
 
   microvm.volumes = [{
     autoCreate = true;
@@ -20,6 +20,7 @@
     image = "/persist/guests/ymir/images/persist.img";
     size = 10 * 1024;
   }];
+  fileSystems."/persist".neededForBoot = lib.mkForce true;
 
   microvm.mem = 1024;
   microvm.balloonMem = 1024;
