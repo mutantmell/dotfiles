@@ -973,7 +973,7 @@ in {
           fmt = name: { static-addresses, dns, ... }:
             (
               builtins.map (gw:
-                "${name},3,${(nw-lib.parsing.cidr4 gw).ipv4.string}"
+                "${name},3,${(nw-lib.parsing.cidr4 gw).ipv4.formatted}"
               ) static-addresses
             ) ++ (
               # todo: ipv6, and do less add-hoc stuff here

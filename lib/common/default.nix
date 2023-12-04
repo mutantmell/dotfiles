@@ -26,6 +26,7 @@
       ipv4 = ipv4-parsed;
     } // lib.attrsets.optionalAttrs (mask-opt != []) {
       mask = builtins.head mask-opt;
+      # TODO: add a new ipv4 section for ipv4 w/ mask applied
     };
   in {
     parsing = {
