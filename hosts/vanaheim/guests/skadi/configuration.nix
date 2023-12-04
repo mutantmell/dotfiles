@@ -30,6 +30,15 @@
   networking.firewall.allowedUDPPorts = [ 5353 ];
   services.avahi.publish.userServices = true;
   services.avahi.publish.workstation = true;
+  networking.extraHosts = ''
+    10.0.10.1 yggdrasil
+    10.0.10.1 yggdrasil.local
+    10.0.10.2 alfheim
+    10.0.10.2 alfheim.local
+    10.0.100.40 surtr.local
+    10.0.100.50 bragi.local
+    10.0.100.51 njord.local
+  '';
 
   users.users.mjollnir = {
     isNormalUser = true;
