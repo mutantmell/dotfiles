@@ -1,7 +1,6 @@
 { config, pkgs, lib, ... }:
 
 {
-
   home.packages = with pkgs; [
     dig
     bitwarden-cli
@@ -27,6 +26,11 @@
   programs.tmux = {
     enable = true;
     newSession = true;
+    plugins = let
+      inherit (pkgs) tmuxPlugins;
+    in [
+      tmuxPlugins.resurrect
+    ];
   };
 
   programs.htop = {
