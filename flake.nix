@@ -125,10 +125,12 @@
     colmena = self.lib.mk-hive {
       nixpkgs = pkgsFor nixpkgs "x86_64-linux";
       nodeNixpkgs = let
-        nixpkgs-aarch = (pkgsFor nixpkgs "aarch64-linux");
+        nixpkgs-aarch = pkgsFor nixpkgs "aarch64-linux";
+        nixpkgs-stable-x86_64 = pkgsFor nixpkgs-stable "x86_64-linux";
       in {
         alfheim = nixpkgs-aarch;
         nidavellir = nixpkgs-aarch;
+        yggdrasil = nixpkgs-stable-x86_64;
       };
     } {
       yggdrasil = {
