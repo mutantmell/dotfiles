@@ -23,6 +23,7 @@ in {
           default = builtins.attrNames network-data.hosts;
         };
       };
+      default = {};
     };
   };
 

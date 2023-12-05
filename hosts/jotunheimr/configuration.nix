@@ -1,6 +1,7 @@
 { config, pkgs, ... }:
 
 {
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports =
     [
       ./hardware-configuration.nix
@@ -35,10 +36,10 @@
     interface = "enp4s0";
   };
 
-  environment.systemPackages = with pkgs; [
-    wget
-    tmux
-    htop
+  environment.systemPackages = [
+    pkgs.wget
+    pkgs.tmux
+    pkgs.htop
   ];
 
   common.openssh = {
