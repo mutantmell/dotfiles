@@ -9,7 +9,8 @@ let
   opt = options.router;
   nw-lib = pkgs.mmell.lib.network;
 in {
-  options.router = with lib; let
+  options.router = let
+    inherit (lib) types mkOption mkEnableOption;
     mkTopologyOpt = is-dynamic: let
       dynType = types.submodule {
         options.env = mkOption {
@@ -117,6 +118,15 @@ in {
           default = { type = "none"; required = false; };
           description = "configuration of the network corresponding to this device";
         };
+        bridgeConf = mkOption {
+          type = types.nullOr (types.submodule {
+            options.devices = mkOption {
+              type = types.listOf types.str;
+            };
+          });
+          default = null;
+          description = "configure this network with a bridge netdev";
+        };
         routesConf = mkOption {
           type = types.listOf (types.submodule {
             options.gateway = mkOption {
@@ -162,12 +172,14 @@ in {
           default = {};
         };
       in types.attrsOf (types.submodule {
+        # TODO: rename to "MAC"
         options.device = mkOption {
           type = types.nullOr types.str;
           example = "00:11:22:33:44:55";
           description = "MAC address of the device, to create the name for";
           default = null;
         };
+        options.bridge = bridgeConf;
         options.network = networkConf;
         options.vlans = vlanConf;
         options.pppoe = pppoeConf;
@@ -549,16 +561,11 @@ in {
           ...
       }: {
         "01-${name}" = {
-          netdevConfig = {
-            Name = name;
-            Kind = "vlan";
-          };
-          vlanConfig = {
-            Id = tag;
-          };
+          netdevConfig.Name = name;
+          netdevConfig.Kind = "vlan";
+          vlanConfig.Id = tag;
         };
       };
-
       fromWireguardPeer = {
         allowedIps,
           publicKey,
@@ -580,10 +587,8 @@ in {
           ...
       }: {
         "30-${name}" = {
-          netdevConfig = {
-            Name = name;
-            Kind = "wireguard";
-          };
+          netdevConfig.Name = name;
+          netdevConfig.Kind = "wireguard";
           wireguardConfig = lib.filterAttrs (n: v: v != null) {
             PrivateKeyFile = privateKeyFile;
             ListenPort = port;
@@ -591,19 +596,17 @@ in {
           wireguardPeers = builtins.map fromWireguardPeer peers;
         };
       };
-
     in
       name: {
         vlans ? {},
         batman ? null,
         wireguard ? null,
+        bridge ? null,
         ...
       }: lib.attrsets.optionalAttrs (batman != null) ({
         "00-${name}" = {
-          netdevConfig = {
-            Name = name;
-            Kind = "batadv";
-          };
+          netdevConfig.Name = name;
+          netdevConfig.Kind = "batadv";
           batmanAdvancedConfig = {
             GatewayMode = batman.gatewayMode;
             RoutingAlgorithm = batman.routingAlgorithm;
@@ -611,6 +614,13 @@ in {
         };
       }) // (
         lib.attrsets.concatMapAttrs fromVlan vlans
+      ) // (
+        lib.attrsets.optionalAttrs (bridge != null) {
+          "02-${name}" = {
+            netdevConfig.Kind = "bridge";
+            netdevConfig.Name = name;
+          };
+        }
       ) // (
         lib.attrsets.optionalAttrs (wireguard != null) (fromWireguard name wireguard)
       );
@@ -624,6 +634,7 @@ in {
           static-addresses ? [],
           static-gateways ? [],
           static-dns ? [],
+          bridge-device ? null,
           ...
       }:
         let
@@ -656,21 +667,17 @@ in {
         } else if type == "none" then null
           else abort "invalid type: ${type}";
 
-      mkLinkConfig = { mtu, required, activation-status ? null }:
-        (
-          lib.attrsets.optionalAttrs (mtu != null) { MTUBytes = mtu; }
-        ) // (
-          lib.attrsets.optionalAttrs (!required) { RequiredForOnline = "no"; }
-        ) // (
-          lib.attrsets.optionalAttrs (activation-status != null) { ActivationPolicy = activation-status; }
-        );
-      mkRouteConfig = { gateway, destination, ... }:
-        {
-          routeConfig = {
-            Gateway = gateway;
-            Destination = destination;
-          };
-        };
+      mkLinkConfig = { mtu, required, activation-status ? null }: (
+        lib.attrsets.optionalAttrs (mtu != null) { MTUBytes = mtu; }
+      ) // (
+        lib.attrsets.optionalAttrs (!required) { RequiredForOnline = "no"; }
+      ) // (
+        lib.attrsets.optionalAttrs (activation-status != null) { ActivationPolicy = activation-status; }
+      );
+      mkRouteConfig = { gateway, destination, ... }: {
+        routeConfig.Gateway = gateway;
+        routeConfig.Destination = destination;
+      };
 
       fromPppoe = name: {
         network,
@@ -680,7 +687,7 @@ in {
         nw-conf = mkNetworkConfig network;
       in lib.attrsets.optionalAttrs (nw-conf != null) {
         "22-${name}" = {
-          matchConfig = { Name = name; };
+          matchConfig.Name = name;
           networkConfig = nw-conf // {
             KeepConfiguration = "static";
             LinkLocalAddressing = "no";
@@ -695,20 +702,20 @@ in {
           pppoe ? {},
           routes ? [],
           ...
-      }:
-        {
-          "21-${name}" = {
-            matchConfig = { Name = name; };
-            networkConfig = mkNetworkConfig network;
-            linkConfig = mkLinkConfig { inherit mtu; inherit (network) required; };
-            routes = builtins.map mkRouteConfig routes;
-          };
-        } // (
-          lib.attrsets.concatMapAttrs fromPppoe pppoe
-        );
+      }: {
+        "21-${name}" = {
+          matchConfig.Name = name;
+          networkConfig = mkNetworkConfig network;
+          linkConfig = mkLinkConfig { inherit mtu; inherit (network) required; };
+          routes = builtins.map mkRouteConfig routes;
+        };
+      } // (
+        lib.attrsets.concatMapAttrs fromPppoe pppoe
+      );
     in
       name: {
         network,
+        bridge ? null,
         vlans ? {},
         pppoe ? {},
         batmanDevice ? null,
@@ -722,12 +729,13 @@ in {
         nw-conf = mkNetworkConfig network;
       in lib.attrsets.optionalAttrs (nw-conf != null) ({
         "${if wireguard == null then "10" else "40"}-${name}" = {
-          matchConfig = {
-            Name = name;
-          };
+          matchConfig.Name = if bridge == null then name else bridge.devices;
           vlan = lib.attrsets.mapAttrsToList (name: vlan: name) vlans;
-          networkConfig = (nw-conf) // (
-            if batmanDevice == null then {} else { BatmanAdvanced = batmanDevice; }
+          networkConfig = nw-conf // (
+            lib.attrsets.optionalAttrs (batmanDevice != null) { BatmanAdvanced = batmanDevice; }
+          ) // (
+            # If bridge is defined, then this network is attached to a bridge with the same name
+            lib.attrsets.optionalAttrs (bridge != null) { Bridge = name; }
           );
           linkConfig = mkLinkConfig {
             inherit mtu;
@@ -746,20 +754,17 @@ in {
       device ? null,
         mtu ? null,
         ...
-    }:
-      lib.attrsets.optionalAttrs (device != null) {
-        "00-${name}" = {
-          matchConfig = {
-            MACAddress = device;
-            Type = "ether";
-          };
-          linkConfig = {
-            Name = name;
-          } // (
-            lib.attrsets.optionalAttrs (mtu != null) { MTUBytes = mtu; }
-          );
-        };
+    }: lib.attrsets.optionalAttrs (device != null) {
+      "00-${name}" = {
+        matchConfig.MACAddress = device;
+        matchConfig.Type = "ether";
+        linkConfig = {
+          Name = name;
+        } // (
+          lib.attrsets.optionalAttrs (mtu != null) { MTUBytes = mtu; }
+        );
       };
+    };
 
     dynamic-netdevs = lib.attrsets.concatMapAttrs mkNetdevUnits cfg.dynamic.topology;
     dynamic-networks = lib.attrsets.concatMapAttrs mkNetworkUnits cfg.dynamic.topology;
