@@ -126,13 +126,6 @@
   };
 
   services.resolved.enable = true;
-  services.avahi = {
-    enable = true;
-    publish = {
-      enable = true;
-      addresses = true;
-    };
-  };
 
   i18n.defaultLocale = "en_US.UTF-8";
 
