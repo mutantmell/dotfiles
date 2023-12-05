@@ -151,6 +151,7 @@
 
       jotunheimr = {
         imports = [
+          microvm.nixosModules.host
           ./hosts/jotunheimr/configuration.nix
         ];
         tags = [ "infra" "nas" ];
