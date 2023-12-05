@@ -36,6 +36,7 @@
       networkConfig.DHCP = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
       networkConfig.Address = [ "10.0.10.31/24" ];
+      networkConfig.MulticastDNS = true;
       routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
     };
   };
@@ -93,6 +94,7 @@
       networkConfig.DHCP = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
       networkConfig.Address = [ "10.0.10.31/24" ];
+      networkConfig.MulticastDNS = true;
       routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
     };
     networks."20-vm20-bridge" = {
