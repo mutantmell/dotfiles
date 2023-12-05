@@ -122,10 +122,10 @@
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
   };
-  
+
+  services.resolved.enable = true;
   services.avahi = {
     enable = true;
-    nssmdns = true;
     publish = {
       enable = true;
       addresses = true;
