@@ -35,6 +35,16 @@
     10.0.10.2 alfheim.local
     10.0.100.50 bragi.local
   '';
+
+  services.resolved.enable = true;
+  services.avahi = {
+    enable = true;
+    publish = {
+      enable = true;
+      addresses = true;
+    };
+  };
+
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
 
   system.stateVersion = "23.11";

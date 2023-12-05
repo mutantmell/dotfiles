@@ -26,6 +26,15 @@
     };
   };
 
+  services.resolved.enable = true;
+  services.avahi = {
+    enable = true;
+    publish = {
+      enable = true;
+      addresses = true;
+    };
+  };
+
   time.timeZone = "UTC";
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
 

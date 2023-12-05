@@ -22,6 +22,7 @@ in {
     networking.hostName = cfg.hostname;
     networking.useNetworkd = true;
     networking.nftables.enable = true;
+    # TODO: use systemd network interface
     networking.interfaces.${cfg.interface} = {
       useDHCP = false;
       ipv4.addresses = [{
@@ -33,9 +34,10 @@ in {
     networking.defaultGateway.interface = cfg.interface;
     networking.nameservers = [ gateway ];
 
+    # use resolved for hostname resolution, avahi for mdns publishing
+    services.resolved.enable = true;
     services.avahi = {
       enable = true;
-      nssmdns = true;
       publish = {
         enable = true;
         addresses = true;
