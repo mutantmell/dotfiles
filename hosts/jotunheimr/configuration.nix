@@ -18,8 +18,6 @@
   services.zfs.trim.enable = true;
   services.smartd.enable = true;
 
-  networking.hostId = "9f034bc8";
-
   services.ntp.enable = true;
   time.timeZone = "UTC";
 
@@ -30,17 +28,95 @@
     options = "-d";
   };
 
-  common.networking = {
-    enable = true;
-    hostname = "jotunheimr";
-    interface = "enp4s0";
-  };
-
   environment.systemPackages = [
     pkgs.wget
     pkgs.tmux
     pkgs.htop
   ];
+
+  networking = {
+    hostName = "jotunheimr";
+    hostId = "9f034bc8";
+    useNetworkd = true;
+    dhcpcd.enable = false;
+  };
+
+  systemd.network = {
+    enable = true;
+    netdevs."20-br20" = {
+      netdevConfig.Kind = "bridge";
+      netdevConfig.Name = "br20";
+    };
+    netdevs."20-br100" = {
+      netdevConfig.Kind = "bridge";
+      netdevConfig.Name = "br100";
+    };
+    netdevs."20-enp4s0.10" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "enp4s0.10";
+      vlanConfig.Id = 10;
+    };
+    netdevs."20-enp4s0.20" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "enp4s0.20";
+      vlanConfig.Id = 20;
+    };
+    netdevs."20-enp4s0.100" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "enp4s0.100";
+      vlanConfig.Id = 100;
+    };
+    networks."20-enp4s0" = {
+      matchConfig.Name = "enp4s0";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      vlan = [
+        "enp4s0.10"
+        "enp4s0.20"
+        "enp4s0.100"
+      ];
+    };
+    networks."20-enp4s0.10" = {
+      matchConfig.Name = "enp4s0.10";
+      networkConfig.DHCP = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+      networkConfig.Address = [ "10.0.10.32/24" ];
+      networkConfig.MulticastDNS = true;
+      routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
+    };
+    networks."20-vm20-bridge" = {
+      matchConfig.Name = [ "enp4s0.20" "vm-20-*" ];
+      networkConfig.Bridge = "br20";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+    networks."20-vm100-bridge" = {
+      matchConfig.Name = [ "enp4s0.100" "vm-100-*" ];
+      networkConfig.Bridge = "br100";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+    networks."20-br20" = {
+      matchConfig.Name = "br20";
+      networkConfig.DHCP = "no";
+      #networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+      # TODO: delete everything below here after done migrating the ip address
+      networkConfig.Address = [ "10.0.20.30/24" ];
+      networkConfig.MulticastDNS = true;
+      networkConfig.DefaultRouteOnDevice = true;
+      routes = [ { routeConfig.Gateway = "10.0.20.1"; }];
+    };
+    networks."20-br100" = {
+      matchConfig.Name = "br100";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+  };
+  services.resolved.enable = true;
 
   common.openssh = {
     enable = true;
