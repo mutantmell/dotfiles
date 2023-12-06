@@ -29,6 +29,7 @@
   };
 
   environment.systemPackages = [
+    pkgs.git
     pkgs.wget
     pkgs.tmux
     pkgs.htop
