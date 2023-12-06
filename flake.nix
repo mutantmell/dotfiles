@@ -234,6 +234,14 @@
           ./hosts/vanaheim/configuration.nix
         ];
       };
+      jotunheimr = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          microvm.nixosModules.host
+          ./hosts/jotunheimr/configuration.nix
+        ];
+      };
       muspelheim = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
