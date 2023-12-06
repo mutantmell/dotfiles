@@ -103,13 +103,8 @@
     networks."20-br20" = {
       matchConfig.Name = "br20";
       networkConfig.DHCP = "no";
-      #networkConfig.LinkLocalAddressing = "no";
+      networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
-      # TODO: delete everything below here after done migrating the ip address
-      networkConfig.Address = [ "10.0.20.30/24" ];
-      networkConfig.MulticastDNS = true;
-      networkConfig.DefaultRouteOnDevice = true;
-      routes = [ { routeConfig.Gateway = "10.0.20.1"; }];
     };
     networks."20-br100" = {
       matchConfig.Name = "br100";
