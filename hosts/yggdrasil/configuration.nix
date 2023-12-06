@@ -52,6 +52,11 @@
         verdict = "accept";
       }
       {
+        ip.saddr = "10.0.10.32";
+        ip.daddr = "10.100.0.3";
+        verdict = "accept";
+      }
+      {
         iifname = [
           "vDMZ.lan"
         ];
