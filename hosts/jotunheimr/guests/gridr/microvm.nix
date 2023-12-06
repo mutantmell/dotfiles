@@ -12,7 +12,7 @@
     tag = "static";
     proto = "virtiofs";
   } {
-    source = "/data/guests/gridr/static";
+    source = "/data/guests/gridr/persist";
     mountPoint = "/persist";
     tag = "persist";
     proto = "virtiofs";
