@@ -7,6 +7,7 @@
       ./hardware-configuration.nix
       ./nas.nix
       ./monit.nix
+      ./microvm.nix
     ];
 
   boot.loader.systemd-boot.enable = true;
