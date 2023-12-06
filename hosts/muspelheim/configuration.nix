@@ -130,11 +130,11 @@
   i18n.defaultLocale = "en_US.UTF-8";
 
   fileSystems."/mnt/data" = {
-    device = "10.0.20.30:/data/data";
+    device = "10.0.10.32:/data/data";
     fsType = "nfs";
   };
   fileSystems."/mnt/media" = {
-    device = "10.0.20.30:/data/media/";
+    device = "10.0.10.32:/data/media/";
     fsType = "nfs";
   };
 
