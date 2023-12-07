@@ -20,10 +20,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     impermanence.url = github:nix-community/impermanence;
+    attic = {
+      url = github:zhaofengli/attic;
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.nixpkgs-stable.follows = "nixpkgs-stable";
+    };
   };
   outputs = {
     self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager,
-      sops-nix, jovian, microvm, impermanence,
+      sops-nix, jovian, microvm, impermanence, attic,
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
       inherit system;
@@ -117,6 +122,7 @@
         imports = [
           sops-nix.nixosModules.sops
           impermanence.nixosModules.impermanence
+          attic.nixosModules.atticd
           self.nixosModules.common
         ];
       }];

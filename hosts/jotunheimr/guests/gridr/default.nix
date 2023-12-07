@@ -4,6 +4,7 @@
   imports = [
     ./microvm.nix
     ./sops.nix
+    ./attic.nix
   ];
 
   networking.hostName = "gridr";
