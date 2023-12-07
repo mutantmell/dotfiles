@@ -5,19 +5,20 @@
     mountPoint = "/nix/.ro-store";
     tag = "ro-store";
     proto = "virtiofs";
-    #proto = "9p";
   } {
     source = "/data/guests/gridr/static";
     mountPoint = "/static";
     tag = "static";
     proto = "virtiofs";
-  } {
-    source = "/data/guests/gridr/persist";
-    mountPoint = "/persist";
-    tag = "persist";
-    proto = "virtiofs";
   }];
   fileSystems."/static".neededForBoot = lib.mkForce true;
+
+  microvm.volumes = [{
+    autoCreate = true;
+    mountPoint = "/persist";
+    image = "/data/guests/gridr/images/persist.img";
+    size = 10 * 1024;
+  }];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
   microvm.mem = 1024;
