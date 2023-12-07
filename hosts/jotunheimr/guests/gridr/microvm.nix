@@ -17,7 +17,7 @@
     autoCreate = true;
     mountPoint = "/persist";
     image = "/data/guests/gridr/images/persist.img";
-    size = 10 * 1024;
+    size = 100 * 1024;
   }];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
