@@ -31,6 +31,7 @@
   networking.firewall.allowedUDPPorts = [ 5353 ];
   services.avahi.publish.userServices = true;
   services.avahi.publish.workstation = true;
+  services.avahi.nssmdns = true;
 
   users.users.mjollnir = {
     isNormalUser = true;
