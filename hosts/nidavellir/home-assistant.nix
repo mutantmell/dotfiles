@@ -8,10 +8,16 @@
       "met"
       "radio_browser"
       # Aded components
+      "androidtv_remote"
+      "brother"
+      "cast"
       "google_translate"
+      "ipp"
       "mqtt"
+      "snmp"
+      "spotify"
       "zha"
-      #"zwave_js"
+      "zwave_js"
     ];
     config = {
       # Includes dependencies for a basic setup
@@ -21,10 +27,10 @@
     openFirewall = true;
   };
 
-  #services.zwave-js = {
-  #  enable = true;
-  #  serialPort = "/dev/ttyUSB0";
-  #  secretsConfigFile = config.sops.secrets."zwavejs.secrets".path;
-  #};
+  services.zwave-js = {
+    enable = true;
+    serialPort = "/dev/ttyUSB0";
+    secretsConfigFile = config.sops.secrets."zwavejs.secrets".path;
+  };
 
 }
