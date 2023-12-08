@@ -127,16 +127,6 @@
   };
   users.groups.mjollnir = {};
 
-  power.ups = {
-    # TODO: use the updated service once this pr is merged: https://github.com/NixOS/nixpkgs/pull/213006
-    #enable = true;
-    ups."apc" = {
-      driver = "usbhid-ups";
-      port = "auto";
-      description = "APC UPS";
-    };
-  };
-  
   system.stateVersion = "22.11";
 
 }
