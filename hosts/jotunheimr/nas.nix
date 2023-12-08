@@ -1,22 +1,5 @@
 { config, pkgs, lib, ... }:
 {
-  # services.krb5 = {
-  #   enable = true;
-  #   realms."JOTUNHEIMR.LOCAL" = {
-  #     admin_server = "jotunheimr.local";
-  #     kdc = "jotunheimr.local";
-  #   };
-  #   domain_realm."jotunheimr.local" = "JOTUNHEIMR.LOCAL";
-  #   libdefaults.default_realm = "JOTUNHEIMR.LOCAL";
-  # };
-  # services.kerberos_server = {
-  #   enable = true;
-  #   realms."JOTUNHEIMR.LOCAL".acl = [
-  #     { principal = "*/admin"; access = "all"; }
-  #     { principal = "admin"; access = "all"; }
-  #   ];
-  # };
-
   environment.systemPackages = with pkgs; [
     smartmontools
     jdupes
@@ -30,8 +13,6 @@
     139   # smb
     2049  # nfs
     5357  # wsdd
-    #88    # kerberos
-    #749   # kerberos admin
   ];
   networking.firewall.allowedUDPPorts = [
     137  # smb
@@ -123,5 +104,19 @@
         #        "force user" = "mjollnir";
       };
     };
+  };
+
+  power.ups = {
+    #enable = true;
+    ups."apc" = {
+      driver = "usbhid-ups";
+      port = "auto";
+      description = "APC UPS";
+    };
+    # users.upsmon = {
+    #   passwordFile = config.sops.secrets."upsmon.password".path;
+    #   upsmon = "master";
+    # };
+    # upsmon.monitor."apc".user = "upsmon";
   };
 }
