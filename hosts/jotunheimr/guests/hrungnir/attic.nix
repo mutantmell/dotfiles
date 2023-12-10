@@ -19,7 +19,7 @@
 
   environment.persistence."/persist" = {
     directories = [
-      { directory = "/var/lib/atticd"; user = "atticd"; group = "atticd"; }
+      { directory = "/var/lib/private/atticd"; user = "atticd"; group = "atticd"; }
     ];
   };
 
