@@ -83,7 +83,12 @@
       mk-nixos = args @ { nixpkgs, system, ... }: nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
-          { nixpkgs = { overlays = builtins.attrValues self.overlays.${system};}; }
+          {
+            nixpkgs = {
+              overlays = builtins.attrValues self.overlays.${system};
+              config.allowUnfree = true;
+            };
+          }
           self.nixosModules.common
           sops-nix.nixosModules.sops
         ] ++ args.modules;
