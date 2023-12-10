@@ -84,6 +84,7 @@
       networkConfig.IPv6PrivacyExtensions = "kernel";
       networkConfig.Address = [ "10.0.10.32/24" ];
       networkConfig.MulticastDNS = true;
+      networkConfig.LLMNR = true;
       routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
     };
     networks."20-vm20-bridge" = {
