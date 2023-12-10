@@ -27,6 +27,10 @@
       LLMNR = true;
     };
   };
+  services.resolved.enable = true;
+  services.resolved.extraConfig = ''
+    MulticastDNS=true
+  '';
 
   time.timeZone = "UTC";
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];

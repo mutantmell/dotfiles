@@ -116,6 +116,9 @@
     };
   };
   services.resolved.enable = true;
+  services.resolved.extraConfig = ''
+    MulticastDNS=true
+  '';
 
   common.openssh = {
     enable = true;
