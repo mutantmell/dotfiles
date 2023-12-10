@@ -2,6 +2,7 @@
   "ssh": {
     "deploy": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com",
     "home": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com",
+    "jotunheimr": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFc95ROxFt8eNrMdQrg01UXMYeJpKfWcIF7mSwWTD4+O malaguy@gmail.com",
     "muspelheim": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5AN0gzpx+1bJNZbGfLt4m2kD59WYmyqgIkXmzYbL+Q malaguy@gmail.com",
     "svartalfheim": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5AN0gzpx+1bJNZbGfLt4m2kD59WYmyqgIkXmzYbL+Q malaguy@gmail.com",
     "vanaheim": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl4UkXB94b0e/4YrPXIT4J4l73/mCwh724Yr1VFy7dk malaguy@gmail.com"
