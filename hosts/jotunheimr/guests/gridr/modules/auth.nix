@@ -164,7 +164,7 @@
   environment.persistence."/persist" = {
     directories = [
       { directory = "/var/lib/private/step-ca"; user = "step-ca"; group = "step-ca"; }
-      { directory = "/var/lib/postgresql"; user = "postgres"; group = "postgresb"; }
+      { directory = "/var/lib/postgresql"; user = "postgres"; group = "postgres"; }
     ];
   };
 }
