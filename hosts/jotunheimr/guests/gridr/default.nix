@@ -3,8 +3,6 @@
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
     ./microvm.nix
-    ./sops.nix
-    ./attic.nix
   ];
 
   networking.hostName = "gridr";
