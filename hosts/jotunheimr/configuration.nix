@@ -35,6 +35,7 @@
     pkgs.tmux
     pkgs.htop
   ];
+  environment.noXlibs = false;
 
   networking = {
     hostName = "jotunheimr";
