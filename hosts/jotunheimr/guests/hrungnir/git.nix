@@ -17,6 +17,8 @@
   };
   users.groups.git = {};
 
+  networking.firewall.allowedTCPPorts = [ 80 443 ];
+
   environment.persistence."/persist" = {
     directories = [
       { directory = "/var/lib/git"; user = "git"; group = "git"; }
