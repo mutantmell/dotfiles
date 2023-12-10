@@ -116,9 +116,13 @@
     };
   };
   services.resolved.enable = true;
-  services.resolved.extraConfig = ''
-    MulticastDNS=true
-  '';
+  #services.resolved.extraConfig = ''
+  #  MulticastDNS=true
+  #'';
+
+  services.avahi.enable = true;
+  services.avahi.publish.enable = true;
+  services.avahi.publish.addresses = true;
 
   common.openssh = {
     enable = true;
