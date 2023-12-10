@@ -4,7 +4,8 @@
   imports = [
     ./microvm.nix
     #./sops.nix
-    #./auth.nix
+    #./modules/auth.nix
+    ./modules/unifi.nix
   ];
 
   networking.hostName = "gridr";
