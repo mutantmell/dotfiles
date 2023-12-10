@@ -23,6 +23,8 @@
       DNS = [ "10.0.100.1" ];
       IPv6AcceptRA = true;
       DHCP = "no";
+      MulticastDNS = true;
+      LLMNR = true;
     };
   };
 
