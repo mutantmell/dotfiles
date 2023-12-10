@@ -5,7 +5,7 @@
     enable = true;
     settings = {
       http-port = 9080;
-      hostname = "alfheim.local";
+      hostname = "${config.networking.hostName}.local";
       http-relative-path = "/auth";
       proxy = "edge";
     };
@@ -20,12 +20,6 @@
     virtualHosts."${config.networking.hostName}.local" = {
       forceSSL = true;
       enableACME = true;
-
-      locations."/adguard".return = "302 /adguard/";
-      locations."/adguard/" = {
-        proxyPass = "http://127.0.0.1:3000/";
-        proxyWebsockets = true;
-      };
 
       locations."/auth" = {
         proxyPass = "http://127.0.0.1:9080";
@@ -77,7 +71,7 @@
     openFirewall = true;
     intermediatePasswordFile = config.sops.secrets."intermediate-password-file".path;
     settings = {
-      dnsNames = [ "localhost" "alfheim" "alfheim.local" ];
+      dnsNames = [ "localhost" "${config.networking.hostName}" "${config.networking.hostName}.local" ];
       root = "/etc/step-ca/data/root_ca.crt";
       crt = "/etc/step-ca/data/intermediate_ca.crt";
       key = config.sops.secrets."intermediate_ca.key".path;
@@ -108,19 +102,21 @@
   };
 
   # This setup causes some periodic issues still:
-  # acme-alfheim.local fails to renew the cert with the message: Failed with result 'exit-code'
+  # acme-gridr.local fails to renew the cert with the message: Failed with result 'exit-code'
   # NGINX seems to be restarting while the acme call is happening?
+  # See if adding "keycloak".after = [ "nginx.service" ] helps
   systemd.services = {
-    "acme-alfheim.local" = let
+    "acme-${config.networking.hostName}.local" = let
       deps = [ "step-ca.service" ];
     in {
       wants = deps;
       after = deps;
       requires = deps;
     };
-    "step-ca".wantedBy = [ "acme-alfheim.local.service" ];
-    "step-ca".before = [ "acme-alfheim.local.service" ];
+    "step-ca".wantedBy = [ "acme-${config.networking.hostName}.local.service" ];
+    "step-ca".before = [ "acme-${config.networking.hostName}.local.service" ];
     "keycloak".wants = [ "nginx.service" ];
+    "keycloak".after = [ "nginx.service" ];
   };
 
   systemd.services = {
@@ -135,7 +131,7 @@
 
         mkdir -p /etc/nginx
         if [ ! -f /etc/nginx/nginx.cert ]; then
-          step ca certificate "alfheim.local" --ca-url=localhost:9443 --root=/etc/step-ca/data/root_ca.crt /etc/nginx/nginx.cert /etc/nginx/nginx.key || exit 1
+          step ca certificate "${config.networking.hostName}.local" --ca-url=localhost:9443 --root=/etc/step-ca/data/root_ca.crt /etc/nginx/nginx.cert /etc/nginx/nginx.key || exit 1
           chown nginx:nginx /etc/nginx/nginx.cert /etc/nginx/nginx.key
         fi
       '';
