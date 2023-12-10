@@ -16,4 +16,10 @@
     ) [ "deploy" "home" "jotunheimr" "muspelheim" "vanaheim" ];
   };
   users.groups.git = {};
+
+  environment.persistence."/persist" = {
+    directories = [
+      { directory = "/var/lib/git"; user = "git"; group = "git"; }
+    ];
+  };
 }
