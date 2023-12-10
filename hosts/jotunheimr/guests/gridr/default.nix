@@ -3,8 +3,8 @@
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
     ./microvm.nix
-    ./sops.nix
-    ./auth.nix
+    #./sops.nix
+    #./auth.nix
   ];
 
   networking.hostName = "gridr";
