@@ -145,5 +145,15 @@
     keys = [ "deploy" "home" ];
   };
 
+  home-manager.users.root = {
+    home.stateVersion = "23.11";
+    programs.git = {
+      enable = true;
+      userName = "mutantmell";
+      userEmail = "malaguy@gmail.com";
+      extraConfig.core.sshCommand = "ssh -i /etc/ssh/ssh_host_ed25519_key";
+    };
+  };
+
   system.stateVersion = "22.11";
 }

@@ -137,6 +137,15 @@
   };
   users.groups.mjollnir = {};
 
+  home-manager.users.root = {
+    home.stateVersion = "23.11";
+    programs.git = {
+      enable = true;
+      userName = "mutantmell";
+      userEmail = "malaguy@gmail.com";
+    };
+  };
+
   system.stateVersion = "22.11";
 
 }
