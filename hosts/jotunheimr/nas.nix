@@ -115,7 +115,7 @@
     };
     users.upsmon = {
       passwordFile = config.sops.secrets."upsmon.password".path;
-      upsmon = "master";
+      upsmon = "primary";
     };
     upsmon.monitor."apc".user = "upsmon";
   };
