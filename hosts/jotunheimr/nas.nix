@@ -107,16 +107,16 @@
   };
 
   power.ups = {
-    #enable = true;
+    enable = true;
     ups."apc" = {
       driver = "usbhid-ups";
       port = "auto";
       description = "APC UPS";
     };
-    # users.upsmon = {
-    #   passwordFile = config.sops.secrets."upsmon.password".path;
-    #   upsmon = "master";
-    # };
-    # upsmon.monitor."apc".user = "upsmon";
+    users.upsmon = {
+      passwordFile = config.sops.secrets."upsmon.password".path;
+      upsmon = "master";
+    };
+    upsmon.monitor."apc".user = "upsmon";
   };
 }

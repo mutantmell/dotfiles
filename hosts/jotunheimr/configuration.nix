@@ -5,6 +5,7 @@
   imports =
     [
       ./hardware-configuration.nix
+      ./sops.nix
       ./nas.nix
       ./monit.nix
       ./microvm.nix
