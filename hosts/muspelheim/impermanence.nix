@@ -18,7 +18,6 @@
       "/etc/ssh/initrd_ssh_host_ed25519_key"
       "/etc/ssh/initrd_ssh_host_ed25519_key.pub"
 
-      "/root/.gitconfig"
       "/root/.ssh/known_hosts"
     ];
   };

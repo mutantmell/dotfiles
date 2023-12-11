@@ -163,6 +163,7 @@
       jotunheimr = {
         imports = [
           microvm.nixosModules.host
+          home-manager.nixosModules.home-manager
           ./hosts/jotunheimr/configuration.nix
         ];
         tags = [ "infra" "nas" ];
@@ -172,6 +173,7 @@
         imports = [
           microvm.nixosModules.host
           impermanence.nixosModules.impermanence
+          home-manager.nixosModules.home-manager
           ./hosts/muspelheim/configuration.nix
         ];
         tags = [ "host" ]; 
@@ -250,6 +252,7 @@
         system = "x86_64-linux";
         modules = [
           microvm.nixosModules.host
+          home-manager.nixosModules.home-manager
           ./hosts/jotunheimr/configuration.nix
         ];
       };
@@ -259,6 +262,7 @@
         modules = [
           impermanence.nixosModules.impermanence
           microvm.nixosModules.host
+          home-manager.nixosModules.home-manager
           ./hosts/muspelheim/configuration.nix
         ];
       };
