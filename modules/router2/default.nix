@@ -63,22 +63,14 @@ in {
             options.dhcp = mkOption {
               type = types.submodule {
                 options.enable = mkEnableOption "Enable DHCP on a static network";
-                # todo: remove this in favor of just using kea
-                options.svc = mkOption {
-                  type = types.enum [ "dnsmasq" "kea" ];
-                  description = "Specify which provider to use for this network";
-                  example = "kea";
-                  default = "dnsmasq";
-                };
               };
               default = {};
             };
-            # TODO: use bind9 zones to opt into self or dhcp, and don't use cloudflare for anything
             options.dns = mkOption {
-              type = types.enum [ "self" "cloudflare" ];
-              description = "DNS provider to use -- either use this router, or use cloudflare";
-              default = "self";
-              example = "cloudflare";
+              type = types.enum [ "upstream" "resolved" ];
+              description = "DNS provider to use -- either use the configured upstream, or use systemd resolved";
+              default = "upstream";
+              example = "resolved";
             };
             # todo: {ipv4,ipv6}.addresses.*.{address,prefixLength}
             options.static-addresses = mkOption {
@@ -288,13 +280,6 @@ in {
           example = "192.168.1.2";
           description = "the upstream dns server, if any";
           default = null;
-        };
-        options.svc = mkOption {
-          # todo: only allow unbound
-          type = types.enum [ "dnsmasq" "unbound" "bind9" ];
-          description = "The backing service for local DNS";
-          example = "unbound";
-          default = "dnsmasq";
         };
         options.dyndns = mkOption {
           type = types.submodule {
@@ -809,12 +794,11 @@ in {
     ];
 
     systemd.network.enable = true;
-    # TODO: verify that this is a setting we want -- this should allow fallback to DHCP dns?
-    services.resolved.enable = cfg.dns.upstream == "bind9";
+    services.resolved.enable = true;
     networking = {
       useDHCP = false;
       firewall.enable = false; # use custom nftables integration
-      nameservers = builtins.filter (v: v != null) [ cfg.dns.upstream ];
+      nameservers = builtins.filter (v: v != null) [ cfg.dns.upstream ]; # use upstream for the router dns as well
     };
 
     systemd.network = {
@@ -960,64 +944,20 @@ in {
       enable = peers != [];
     };
 
-    services.dnsmasq = let
-      dhcp-networks = networksWhere (n: n.dhcp.enable && n.dhcp.svc == "dnsmasq");
-    in {
-      enable = dhcp-networks != {};
-      settings =  {
-        # todo: use bind9 for local dns resolution
-        server = builtins.filter (v: v != null) [ cfg.dns.upstream ];
-        no-resolv = true;
-        local = "/local/";
-        domain = "local";
-        expand-hosts = true;
-        listen-address = [ "::1" "127.0.0.1" ];
-        interface = builtins.attrNames dhcp-networks;
-        bind-dynamic = true;
-        dhcp-option = let
-          fmt = name: { static-addresses, dns, ... }:
-            (
-              builtins.map (gw:
-                "${name},3,${(nw-lib.parsing.cidr4 gw).ipv4.formatted}"
-              ) static-addresses
-            ) ++ (
-              # todo: ipv6, and do less add-hoc stuff here
-              [("${name},6," + (
-                if dns == "cloudflare" then "1.1.1.1,1.0.0.1"
-                else if dns == "self" then "0.0.0.0"
-                else abort "invalid dns type: ${dns}"
-              ))]
-            );
-        in concatMapAttrsToList fmt dhcp-networks;
-        dhcp-range = let
-          fmt = { static-addresses, ... }:
-            # todo: add ipv6
-            builtins.map (ipv4: let
-              min = nw-lib.replace-ipv4 ["101"] ipv4;
-              max = nw-lib.replace-ipv4 ["200"] ipv4;
-            in "${min},${max},12h") static-addresses;
-        in builtins.concatMap fmt (builtins.attrValues dhcp-networks);
-      };
-    };
-    systemd.services."dnsmasq" = {
-      requires = [ "network-online.target" ];
-      after = [ "network-online.target" ];
-    };
-
     services.kea = let
-      dhcp4-networks = networksWhere (n: n.dhcp.enable && n.dhcp.svc == "kea");
+      dhcp4-networks = networksWhere (n: n.dhcp.enable);
     in {
       dhcp4.enable = dhcp4-networks != {};
       dhcp4.settings = {
         interfaces-config.interfaces = builtins.attrNames dhcp4-networks;
+        valid-lifetime = 4000;
+        renew-timer = 1000;
+        rebind-timer = 2000;
         lease-database = {
           name = "/var/lib/kea/dhcp4.leases";
           persist = true;
           type = "memfile";
         };
-        valid-lifetime = 4000;
-        renew-timer = 1000;
-        rebind-timer = 2000;
         subnet4 = concatMapAttrsToList (name: nw: builtins.map (ipv4: {
           pools = let
             min = nw-lib.replace-ipv4 ["100"] ipv4;
@@ -1030,42 +970,24 @@ in {
       };
     };
 
-    services.avahi = {
-      enable = config.services.dnsmasq.enable || config.services.kea.dhcp4.enable;
-      nssmdns = true; # todo: remove when unbound can handle .local
-      publish.enable = true;
-      reflector = true; # todo: remove?
-      # todo: trust is more of an nftables concept, maybe make this explicit, and tied in with dns below?
-      allowInterfaces = interfacesWithTrust [ "management" "trusted" "untrusted" ];
-    };
-
-    services.unbound = {
-      enable = cfg.dns.svc == "unbound";
-      # todo: figure out how to make this handle .local
-      settings = {
-        # todo: confirm that unbound works with iface names like this
-        # todo: make this configured properly, rather than implicit like this
-        server.interface = interfacesWithTrust [ "management" "trusted" "untrusted" ];
-        forward-zone = if cfg.dns.upstream == null then [] else [{
-          name = ".";
-          forward-addr = cfg.dns.upstream;
-        }];
-      };
-    };
-
-    services.bind = {
-      enable = cfg.dns.svc == "bind9";
-      forwarders = (
-        builtins.filter (v: v != null) [cfg.dns.upstream]
-      ) ++ [
-        "127.0.0.53"  # fallback to DHCP if upstream fails
+    services.kresd = {
+      enable = true;
+      listenPlain = [
+        "127.0.0.1:53"
+        "[::1]:53"
       ];
-      # TODO: pull these in from the router config somewhere?
-      cacheNetworks = [
-        "10.0.0.0/16"
-        "10.1.0.0/16"
-        "10.100.0.0/16"
-      ];
+      # TODO: validate this mess
+      extraConfig = lib.strings.concatStringsSep "\n" ([
+        "modules.load('policy');"
+      ] ++ lib.lists.flatten (lib.attrsets.mapAttrsToList (name: { static-addresses, ...}:
+        builtins.map (addr: let
+          fmt = (nw-lib.parsing.cidr4 gw).ipv4.formatted;
+        in
+          "view:addr(${fmt}/24, policy.all(policy.FORWARD(${cfg.dns.upstream})))"
+        ) static-addresses
+      ) (networksWhere (n: n.dns == "upstream"))) ++ [
+        "policy:add(policy.all(policy.FORWARD('127.0.0.53')))";
+      ]);
     };
 
     systemd.services."router-dyn-dns" = let
