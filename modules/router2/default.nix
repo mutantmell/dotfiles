@@ -66,8 +66,9 @@ in {
               };
               default = {};
             };
+            # todo: remove cloudflare, repace with resovled
             options.dns = mkOption {
-              type = types.enum [ "upstream" "resolved" ];
+              type = types.enum [ "upstream" "resolved" "cloudflare" ];
               description = "DNS provider to use -- either use the configured upstream, or use systemd resolved";
               default = "upstream";
               example = "resolved";
@@ -981,12 +982,12 @@ in {
         "modules.load('policy');"
       ] ++ lib.lists.flatten (lib.attrsets.mapAttrsToList (name: { static-addresses, ...}:
         builtins.map (addr: let
-          fmt = (nw-lib.parsing.cidr4 gw).ipv4.formatted;
+          fmt = (nw-lib.parsing.cidr4 addr).ipv4.formatted;
         in
           "view:addr(${fmt}/24, policy.all(policy.FORWARD(${cfg.dns.upstream})))"
         ) static-addresses
       ) (networksWhere (n: n.dns == "upstream"))) ++ [
-        "policy:add(policy.all(policy.FORWARD('127.0.0.53')))";
+        "policy:add(policy.all(policy.FORWARD('127.0.0.53')))"
       ]);
     };
 
