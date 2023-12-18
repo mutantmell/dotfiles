@@ -273,6 +273,14 @@
           ./hosts/svartalfheim/configuration.nix
         ];
       };
+      yggdrasil = self.lib.mk-nixos {
+        nixpkgs = nixpkgs-stable;
+        system = "x86_64-linux";
+        modules = [
+          self.nixosModules.router2
+          ./hosts/yggdrasil/configuration.nix
+        ];
+      };
     };
 
     homeConfigurations = {
