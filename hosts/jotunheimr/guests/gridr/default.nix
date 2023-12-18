@@ -43,5 +43,13 @@
     ];
   };
 
+  services.avahi = {
+    enable = true;
+    publish = {
+      enable = true;
+      addresses = true;
+    };
+  };
+
   system.stateVersion = "23.11";
 }
