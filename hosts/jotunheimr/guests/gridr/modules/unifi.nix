@@ -13,7 +13,7 @@
     recommendedProxySettings = true;
     virtualHosts."unifi.${config.networking.hostName}.local" = {
       locations."/" = {
-        proxyPass = "localhost:8443";
+        proxyPass = "http://localhost:8443";
         proxyWebsockets = true;
       };
     };
