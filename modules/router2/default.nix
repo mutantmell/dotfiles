@@ -31,12 +31,12 @@ in {
               type = types.enum [ "none" "disabled" "dhcp" "static" ];
               example = "none";
               description = ''
-                  Type of network this is mean to configure.  Expects one of the following network types:
-                  { type = "none"; } # Don't generate a network file
-                  { type = "disabled"; } # Has a network file, but with everything disabled
-                  { type = "dhcp"; nat.enable = true; trust = trust-status; } # a network where we get a dhcp address assigned -- we don't route this
-                  { type = "static"; addresses = [{ address = "..."; gateway? = "..."; dns? = "..."; }]; trust = trust-status } # static ip network
-                '';         
+                Type of network this is mean to configure.  Expects one of the following network types:
+                { type = "none"; } # Don't generate a network file
+                { type = "disabled"; } # Has a network file, but with everything disabled
+                { type = "dhcp"; nat.enable = true; trust = trust-status; } # a network where we get a dhcp address assigned -- we don't route this
+                { type = "static"; addresses = [{ address = "..."; gateway? = "..."; dns? = "..."; }]; trust = trust-status } # static ip network
+              '';
             };
             # todo: infer required via a mkDefault that checks if type == disabled,none ; maybe if vlans,pppoe non-empty?
             options.required = mkOption {
@@ -49,15 +49,15 @@ in {
               type = types.nullOr (types.enum [ "management" "external" "trusted" "untrusted" "lockdown" "local-access" ]);
               example = "external";
               description = ''
-                  trust-status determines how the firewall should handle this interface
+                trust-status determines how the firewall should handle this interface
 
-                  management: Lock down access to just 'trusted' and 'management', but allow https communication for non-external
-                  external: Do not allow it to initiate any communications
-                  trusted: Is allowed to initiate communications with other internal and external services
-                  untrusted: Is allowed to initiate communications with external
-                  lockdown: No access, neither internal nor external
-                  local-access: Only allowed access to this device, no forwarding
-                '';
+                management: Lock down access to just 'trusted' and 'management', but allow https communication for non-external
+                external: Do not allow it to initiate any communications
+                trusted: Is allowed to initiate communications with other internal and external services
+                untrusted: Is allowed to initiate communications with external
+                lockdown: No access, neither internal nor external
+                local-access: Only allowed access to this device, no forwarding
+              '';
               default = null;
             };
             options.dhcp = mkOption {
