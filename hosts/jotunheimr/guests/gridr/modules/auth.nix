@@ -12,6 +12,10 @@
     database.passwordFile = config.sops.secrets."keycloak_password_file".path;
   };
 
+  networking.firewall.allowedTCPPorts = [
+    80
+    443
+  ];
   services.nginx = {
     enable = true;
     recommendedTlsSettings = true;
@@ -101,10 +105,6 @@
     };
   };
 
-  # This setup causes some periodic issues still:
-  # acme-gridr.local fails to renew the cert with the message: Failed with result 'exit-code'
-  # NGINX seems to be restarting while the acme call is happening?
-  # See if adding "keycloak".after = [ "nginx.service" ] helps
   systemd.services = {
     "acme-${config.networking.hostName}.local" = let
       deps = [ "step-ca.service" ];
