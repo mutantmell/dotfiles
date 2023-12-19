@@ -87,7 +87,7 @@
       networkConfig.Address = [ "10.0.10.32/24" ];
       networkConfig.MulticastDNS = true;
       networkConfig.LLMNR = true;
-      networkConfig.DNS = [ "10.0.100.1" ];
+      networkConfig.DNS = [ "10.0.10.1" ];
       routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
     };
     networks."20-vm20-bridge" = {
