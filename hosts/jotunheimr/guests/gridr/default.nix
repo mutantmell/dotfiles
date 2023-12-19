@@ -3,12 +3,14 @@
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
     ./microvm.nix
-    #./sops.nix
-    #./modules/auth.nix
+    ./sops.nix
+    ./modules/auth.nix
     ./modules/unifi.nix
   ];
 
   networking.hostName = "gridr";
+  environment.noXlibs = false;
+
   common.openssh.enable = true;
   services.openssh.hostKeys = [{
     path = "/static/etc/ssh/ssh_host_ed25519_key";
