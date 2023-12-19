@@ -37,7 +37,7 @@
       networkConfig.IPv6PrivacyExtensions = "kernel";
       networkConfig.Address = [ "10.0.10.31/24" ];
       networkConfig.MulticastDNS = true;
-      networkConfig.DNS = [ "10.0.100.1" ];
+      networkConfig.DNS = [ "10.0.10.1" ];
       routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
     };
   };
