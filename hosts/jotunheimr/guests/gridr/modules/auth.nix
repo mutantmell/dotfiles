@@ -128,6 +128,10 @@
       before = [ "nginx.service" ];
       requiredBy = [ "nginx.service" ];
       path = with pkgs; [ bash step-cli ];
+      # step-ca is marked as successful before the web api is available -- add this sleep for now
+      preStart = ''
+        sleep 5
+      '';
       script = ''
         #!/usr/bin/env bash
 
