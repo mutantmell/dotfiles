@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 {
 
@@ -31,7 +31,7 @@
   networking.firewall.allowedUDPPorts = [ 5353 ];
   services.avahi.publish.userServices = true;
   services.avahi.publish.workstation = true;
-  services.avahi.nssmdns = true;
+  services.avahi.nssmdns4 = lib.mkForce false;
 
   users.users.mjollnir = {
     isNormalUser = true;
