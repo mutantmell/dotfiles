@@ -25,9 +25,28 @@
       forceSSL = true;
       enableACME = true;
 
+      locations."/auth/realms" = {
+        proxyPass = "http://127.0.0.1:9080/realms";
+        extraConfig = ''
+          proxy_set_header X-Forwarded-For $proxy_protocol_addr;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header Host $host;
+
+          proxy_buffer_size   128k;
+          proxy_buffers   4 256k;
+          proxy_busy_buffers_size   256k;
+        '';
+      };
+
       locations."/auth" = {
         proxyPass = "http://127.0.0.1:9080";
         extraConfig = ''
+          allow 10.0.10.0/24;
+          allow 10.1.10.0/24;
+          allow 10.0.20.0/24;
+          allow 10.1.20.0/24;
+          deny all;
+
           proxy_set_header X-Forwarded-For $proxy_protocol_addr;
           proxy_set_header X-Forwarded-Proto $scheme;
           proxy_set_header Host $host;
