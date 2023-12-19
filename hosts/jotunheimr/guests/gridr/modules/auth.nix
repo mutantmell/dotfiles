@@ -123,6 +123,7 @@
     "nginx-cert-init" = {
       serviceConfig.Type = "oneshot";
       after = [ "step-ca.service" ];
+      wants = [ "step-ca.service" ];
       before = [ "nginx.service" ];
       wantedBy = [ "nginx.service" ];
       path = with pkgs; [ bash step-cli ];
