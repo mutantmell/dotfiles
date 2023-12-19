@@ -4,7 +4,7 @@
     source = "/nix/store";
     mountPoint = "/nix/.ro-store";
     tag = "ro-store";
-    proto = "9p";
+    proto = "virtiofs";
   } {
     source = "/data/guests/gridr/static";
     mountPoint = "/static";
@@ -27,7 +27,7 @@
   microvm.vcpu = 2;
   microvm.interfaces = [{
     type = "tap";
-    id = "vm-20-gridr-test";
+    id = "vm-20-gridr";
     mac = "5E:6D:F8:D1:E8:AA";
   }];
 }
