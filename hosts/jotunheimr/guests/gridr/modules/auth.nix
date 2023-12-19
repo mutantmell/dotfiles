@@ -109,23 +109,22 @@
     "acme-${config.networking.hostName}.local" = let
       deps = [ "step-ca.service" ];
     in {
-      wants = deps;
       after = deps;
       requires = deps;
     };
     "step-ca".before = [ "nginx.service" ];
-    "step-ca".wantedBy = [ "nginx.service" ];
-    "keycloak".wants = [ "nginx.service" ];
+    "step-ca".requiredBy = [ "nginx.service" ];
     "keycloak".after = [ "nginx.service" ];
+    "keycloak".requires = [ "nginx.service" ];
   };
 
   systemd.services = {
     "nginx-cert-init" = {
       serviceConfig.Type = "oneshot";
       after = [ "step-ca.service" ];
-      wants = [ "step-ca.service" ];
+      requires = [ "step-ca.service" ];
       before = [ "nginx.service" ];
-      wantedBy = [ "nginx.service" ];
+      requiredBy = [ "nginx.service" ];
       path = with pkgs; [ bash step-cli ];
       script = ''
         #!/usr/bin/env bash
