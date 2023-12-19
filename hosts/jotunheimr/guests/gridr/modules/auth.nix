@@ -112,6 +112,8 @@
       after = deps;
       requires = deps;
     };
+    "nginx".after = [ "step-ca.service" ];
+    "nginx".requires = [ "step-ca.service" ];
     "step-ca".before = [ "nginx.service" ];
     "step-ca".requiredBy = [ "nginx.service" ];
     "keycloak".after = [ "nginx.service" ];
