@@ -113,8 +113,8 @@
       after = deps;
       requires = deps;
     };
-    "step-ca".wantedBy = [ "acme-${config.networking.hostName}.local.service" ];
-    "step-ca".before = [ "acme-${config.networking.hostName}.local.service" ];
+    "step-ca".before = [ "nginx.service" ];
+    "step-ca".wantedBy = [ "nginx.service" ];
     "keycloak".wants = [ "nginx.service" ];
     "keycloak".after = [ "nginx.service" ];
   };
