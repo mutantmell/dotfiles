@@ -22,9 +22,9 @@
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:6D:F8:D1:E8:AA";
     networkConfig = {
-      Address = [ "10.0.100.30/24" ];
-      Gateway = "10.0.100.1";
-      DNS = [ "10.0.100.1" ];
+      Address = [ "10.0.20.30/24" ];
+      Gateway = "10.0.20.1";
+      DNS = [ "10.0.20.1" ];
       IPv6AcceptRA = true;
       DHCP = "no";
     };

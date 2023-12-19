@@ -27,7 +27,7 @@
   microvm.vcpu = 2;
   microvm.interfaces = [{
     type = "tap";
-    id = "vm-100-gridr";
+    id = "vm-20-gridr";
     mac = "5E:6D:F8:D1:E8:AA";
   }];
 }
