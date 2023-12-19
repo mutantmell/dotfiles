@@ -116,8 +116,8 @@
     "nginx".requires = [ "step-ca.service" ];
     "step-ca".before = [ "nginx.service" ];
     "step-ca".requiredBy = [ "nginx.service" ];
-    "keycloak".after = [ "nginx.service" ];
-    "keycloak".requires = [ "nginx.service" ];
+    "keycloak".before = [ "nginx.service" ];
+    "keycloak".requiredBy = [ "nginx.service" ];
   };
 
   systemd.services = {
