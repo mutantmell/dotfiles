@@ -3,7 +3,6 @@
 {
   sops = {
     defaultSopsFile = ./secrets/secrets.yaml;
-    age.sshKeyPaths = [ "/root/.ssh/id_ed25519" ];
     secrets = let
       step-ca = {
         mode = "0400";
