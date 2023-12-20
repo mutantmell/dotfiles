@@ -16,7 +16,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     microvm = {
-      url = github:astro/microvm.nix?rev=4189f0d20da3ae7b25e44a0b242e5caa6c558558;
+      url = github:astro/microvm.nix?rev=b59a26962bb324cc0a134756a323f3e164409b72;
       inputs.nixpkgs.follows = "nixpkgs";
     };
     impermanence.url = github:nix-community/impermanence;
