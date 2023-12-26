@@ -288,7 +288,7 @@
         inherit nixpkgs;
         system = "x86_64-linux";
         user = "mjollnir";
-        langs = [ "agda" ];
+        langs = [ "agda" "rust" ];
       };
       svartalfheim = self.lib.mk-home-config {
         inherit nixpkgs;
