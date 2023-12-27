@@ -10,7 +10,7 @@
     source = "/persist/guests/ymir/static";
     mountPoint = "/static";
     tag = "static";
-    proto = "virtiofs";
+    proto = "9p";
   }];
   fileSystems."/static".neededForBoot = lib.mkForce true;
 
