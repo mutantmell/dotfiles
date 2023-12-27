@@ -37,6 +37,9 @@
 
   networking = {
     hostName = "nidavellir";
+    defaultGateway.address = "10.1.20.1";
+    defaultGateway.interface = "wlan0";
+    nameservers = [ "10.1.20.1" "10.0.20.1" ];
     wireless = {
       enable = true;
       environmentFile = config.sops.secrets."wpa.env".path;
@@ -49,18 +52,26 @@
       };
       interfaces = [ "wlan0" ];
     };
-    # interfaces.wlan0 = {
-    #   useDHCP = false;
-    #   ipv4.addresses = [{
-    #     address = "10.1.20.50";
-    #     prefixLength = 24;
-    #   }];
-    # };
+    # TODO: bond these together, once the ip addr space for wifi and ethernet are unified
+    interfaces.wlan0 = {
+      useDHCP = false;
+      ipv4.addresses = [{
+        address = "10.1.20.50";
+        prefixLength = 24;
+      }];
+    };
+    interfaces.end0 = {
+      useDHCP = false;
+      ipv4.addresses = [{
+        address = "10.0.20.50";
+        prefixLength = 24;
+      }];
+    };
   };
 
   services.avahi = {
     enable = true;
-    nssmdns = true;
+    nssmdns4 = true;
     publish = {
       enable = true;
       addresses = true;
