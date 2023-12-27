@@ -1,5 +1,8 @@
 { config, ... }: {
 
+  # home-assistant requires EoL openssl
+  nixpkgs.config.permittedInsecurePackages = [ "openssl-1.1.1w" ];
+  
   services.home-assistant = {
     enable = true;
     extraComponents = [
@@ -7,7 +10,7 @@
       "esphome"
       "met"
       "radio_browser"
-      # Aded components
+      # added components
       "androidtv_remote"
       "brother"
       "cast"
