@@ -43,4 +43,3 @@
     rmdir $OUTDIR/mnt
   fi
 ''
-
