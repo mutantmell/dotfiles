@@ -219,7 +219,6 @@
           nixos-hardware.nixosModules.raspberry-pi-4
           ./hosts/nidavellir/configuration.nix
         ];
-        host = "nidavellir.local";
         tags = [ "svc" "home" ];
       };
 
