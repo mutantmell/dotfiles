@@ -2,9 +2,9 @@
 {
   environment.systemPackages = [ pkgs.git ];
   
-  services.cgit."git.hrungnir.local" = {
+  services.cgit."hrungnir.local" = {
     enable = true;
-    scanPath = config.users.users.git.home; #"/var/lib/git";
+    scanPath = config.users.users.git.home;
   };
   
   users.users.git = {
