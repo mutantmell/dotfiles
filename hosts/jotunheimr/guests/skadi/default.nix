@@ -16,13 +16,13 @@
 
   boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
 
-  networking.hostName = "skadi2";
+  networking.hostName = "skadi2"; # todo: change to skadi
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:A4:B9:D2:F8:03";
     networkConfig = {
-      Address = [ "10.0.20.30/24" ];
+      Address = [ "10.0.20.42/24" ]; # todo: change to 10.0.20.40
       Gateway = "10.0.20.1";
       DNS = [ "10.0.20.1" ];
       IPv6AcceptRA = true;
