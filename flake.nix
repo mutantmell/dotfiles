@@ -283,7 +283,7 @@
     };
 
     homeConfigurations = {
-      skadi = self.lib.mk-home-config {
+      mjollnir = self.lib.mk-home-config {
         inherit nixpkgs;
         system = "x86_64-linux";
         user = "mjollnir";
