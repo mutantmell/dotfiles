@@ -49,7 +49,7 @@
   };
   common.openssh = {
     enable = true;
-    users = [ "mjollnir" ];
+    users = [ "mjollnir" "root" ];
     keys = [ "home" ];
     allowPassword = true;
   };
