@@ -12,11 +12,11 @@
       "radio_browser"
       # added components
       "androidtv_remote"
+      "apple_tv"
       "brother"
       "cast"
       "google_translate"
       "ipp"
-      "mqtt"
       "snmp"
       "spotify"
       "zha"
@@ -26,7 +26,6 @@
       # Includes dependencies for a basic setup
       # https://www.home-assistant.io/integrations/default_config/
       default_config = {};
-      mqtt = {};
     };
     openFirewall = true;
   };

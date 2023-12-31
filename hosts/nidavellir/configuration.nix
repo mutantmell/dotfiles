@@ -4,6 +4,7 @@
   imports = [
     ./sops.nix
     ./home-assistant.nix
+    ./modules/mqtt.nix
   ];
 
   boot = {
