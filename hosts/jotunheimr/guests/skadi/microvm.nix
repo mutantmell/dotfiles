@@ -6,7 +6,7 @@
     tag = "ro-store";
     proto = "virtiofs";
   } {
-    source = "/persist/guests/surtr/static";
+    source = "/data/guests/skadi/static"; # todo: adjust path when vm host changes
     mountPoint = "/static";
     tag = "static";
     proto = "virtiofs";
@@ -16,11 +16,11 @@
   microvm.volumes = [{
     autoCreate = true;
     mountPoint = "/";
-    image = "/persist/guests/surtr/images/root.img";
+    image = "/data/guests/skadi/images/root.img"; # todo: adjust path when vm host changes
     size = 25 * 1024;
   } {
     autoCreate = true;
-    image = "/persist/guests/surtr/images/store-overlay.img";
+    image = "/data/guests/skadi/images/store-overlay.img"; # todo: adjust path when vm host changes
     mountPoint = config.microvm.writableStoreOverlay;
     size = 75 * 1024;
   }];
