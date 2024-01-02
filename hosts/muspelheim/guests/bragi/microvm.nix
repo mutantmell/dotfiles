@@ -20,10 +20,11 @@
 
   microvm.volumes = [{
     autoCreate = true;
-    mountPoint = "/";
-    image = "/persist/guests/bragi/images/root.img";
-    size = 25 * 1024;
+    mountPoint = "/persist";
+    image = "/persist/guests/bragi/images/persist.img";
+    size = 10 * 1024;
   }];
+  fileSystems."/persist".neededForBoot = lib.mkForce true;
 
   microvm.mem = 1024;
   microvm.balloonMem = 1024 * 3;
