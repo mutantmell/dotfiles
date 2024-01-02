@@ -1,16 +1,27 @@
 { config, pkgs, ...}:
 
-let
-  hostname = "bragi";
-in {
+{
   imports = [
-    ./hardware-configuration.nix
+    ./microvm.nix
   ];
 
-  common.networking = {
-    enable = true;
-    inherit hostname;
-    interface = "ens3";
+  networking.hostName = "bragi";
+
+  nixpkgs.overlays = [(final: prev: {
+    vaapiIntel = prev.vaapiIntel.override { enableHybridCodec = true; };
+  })];
+
+  systemd.network.enable = true;
+  systemd.network.networks."20-tap" = {
+    matchConfig.Type = "ether";
+    matchConfig.MACAddress = "5E:45:07:58:F0:82";
+    networkConfig = {
+      Address = [ "10.0.100.50/24" ];
+      Gateway = "10.0.100.1";
+      DNS = [ "10.0.100.1" ];
+      IPv6AcceptRA = true;
+      DHCP = "no";
+    };
   };
   networking.extraHosts = ''
     10.0.10.2 alfheim.local
@@ -20,9 +31,6 @@ in {
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  nixpkgs.config.packageOverrides = pkgs: {
-    vaapiIntel = pkgs.vaapiIntel.override { enableHybridCodec = true; };
-  };
   hardware.opengl = {
     enable = true;
     extraPackages = with pkgs; [
@@ -33,16 +41,6 @@ in {
       intel-compute-runtime # OpenCL filter support (hardware tonemapping and subtitle burn-in)
     ];
   };
-
-  nix.gc = {
-    automatic = true;
-    dates = "weekly";
-    options = "-d";
-  };
-  services.journald.extraConfig = ''
-    SystemMaxUse=100M
-    MaxFileSec=7day
-  '';
 
   time.timeZone = "UTC";
 
@@ -56,11 +54,11 @@ in {
   };
   security.acme = {
     defaults = {
-      server = "https://alfheim.local/acme/acme/directory";
+      server = "https://alfheim.local/acme/acme/directory"; # TODO: change to new server once that's all working
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;
-    certs."${hostname}.local" = {
+    certs."${config.networking.hostName}.local" = {
       group = "acme-cert";
     };
   };
@@ -70,7 +68,7 @@ in {
     description = "Mangage Jellyfin's pkcs12 key";
     path = with pkgs; [ bash openssl ];
     script = let
-      acmedir = "/var/lib/acme/${hostname}.local";
+      acmedir = "/var/lib/acme/${config.networking.hostName}.local";
       jellydir = config.systemd.services.jellyfin.serviceConfig.WorkingDirectory;
     in ''
       #!/usr/bin/env bash
@@ -79,8 +77,8 @@ in {
       chmod 640 ${jellydir}/key.pfx
       chown acme:acme-cert ${jellydir}/key.pfx
     '';
-    wantedBy = [ "acme-${hostname}.local.service" ];
-    after = [ "acme-${hostname}.local.service" ];
+    wantedBy = [ "acme-${config.networking.hostName}.local.service" ];
+    after = [ "acme-${config.networking.hostName}.local.service" ];
   };
 
   networking.firewall = {
@@ -106,12 +104,6 @@ in {
   };
   users.groups."acme-cert" = {};
 
-  fileSystems."/mnt/media" = {
-    device = "/media";
-    fsType = "9p";
-    options = [ "trans=virtio" "version=9p2000.L" ];
-  };
-
   services.jellyfin = {
     enable = true;
   };
@@ -124,7 +116,7 @@ in {
     recommendedGzipSettings = true;
     recommendedProxySettings = true;
 
-    virtualHosts."${hostname}.local" = let
+    virtualHosts."${config.networking.hostName}.local" = let
       jellyfinConf = ''
         add_header X-Frame-Options "SAMEORIGIN";
         add_header X-XSS-Protection "1; mode=block";
@@ -164,5 +156,5 @@ in {
     };
   };
 
-  system.stateVersion = "22.11";
+  system.stateVersion = "23.11";
 }
