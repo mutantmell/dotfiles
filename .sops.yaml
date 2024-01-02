@@ -9,8 +9,7 @@ keys:
   - &sv_muspelheim age1328qtjtudgc3zgg7su05ja20kckx50jehs0v3q3mw6k64j0dzefs752tu2
   - &sv_nidavellir age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
   - &sv_njord age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
-  - &sv_skadi age1dxvqqvhc02fu8vv827wxum8sfhcx326p4trx8keaywv058jlk9kqmfvztf
-  - &sv_skadi2 age19d3g52d9vn37n9z2ezrj37n6svk9vjxdm6tmnjchklh9muhdpqfs4xvea7
+  - &sv_skadi age19d3g52d9vn37n9z2ezrj37n6svk9vjxdm6tmnjchklh9muhdpqfs4xvea7
   - &sv_surtr age1fekpnwvr7xzkfmwx0t3ar3h0e6sdl5jxskupy2hnzc4d08c9mv2qz3ksx7
   - &sv_svartalfheim age1fw6dqxpmkee7785jp7ra97v2uteqmyx9j3ts0zv38t20x7tnvuhqtpelw3
   - &sv_vanaheim age1jnpyg8chayw6l9wfx209hvkddq9cult3qdyuf7trljs6t5vf3czseu8qlm
@@ -47,7 +46,7 @@ creation_rules:
     key_groups:
       - age:
         - *ad_skadi
-        - *sv_skadi2 # todo: remove old skadi, move skadi2 to skadi
+        - *sv_skadi
   - path_regex: hosts/muspelheim/secrets/[^/]+\.yaml$
     key_groups:
       - age:
@@ -88,11 +87,6 @@ creation_rules:
       - age:
         - *ad_skadi
         - *sv_njord
-  - path_regex: hosts/vanaheim/guests/skadi/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_skadi
-        - *sv_skadi
   - path_regex: hosts/yggdrasil/secrets/[^/]+\.yaml$
     key_groups:
       - age:
