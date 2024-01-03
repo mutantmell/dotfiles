@@ -32,7 +32,7 @@
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
       inherit system;
-      overlays = builtins.attrValues self.overlays.${system};
+      overlays = builtins.attrValues self.overlays;
       config.allowUnfree = true;
     };
     allSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
@@ -66,17 +66,16 @@
         else abort "invalid entry in modules";
     in builtins.mapAttrs importModule (builtins.readDir ./modules);
 
-    overlays = forAllSystems ({ pkgs }: let
-      extend = path: val:
-        final: prev: {
-          ${path} = (prev.${path} or {}) // val;
-        };
-    in {
-      packages = extend "mmell" self.packages.${pkgs.system};
-      lib = extend "mmell" {
-        lib = self.lib.common // { builders = { inherit (self.lib) mk-microvm; }; };
+    overlays = {
+      packages = final: prev: {
+        mmell = (prev.mmell or {}) // self.packages.${prev.system};
       };
-    });
+      lib = final: prev: {
+        mmell = (prev.mmell or {}) // {
+          lib = self.lib.common // { builders = { inherit (self.lib) mk-microvm; }; };
+        };
+      };
+    };
 
     lib = {
       common = import ./lib/common { inherit (nixpkgs) lib; };
@@ -85,7 +84,7 @@
         modules = [
           {
             nixpkgs = {
-              overlays = builtins.attrValues self.overlays.${system};
+              overlays = builtins.attrValues self.overlays;
               config.allowUnfree = true;
             };
           }
