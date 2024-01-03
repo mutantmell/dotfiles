@@ -177,7 +177,7 @@
         ];
         tags = [ "host" ]; 
      };
- 
+
      surtr = {
         imports = [
           ./hosts/muspelheim/guests/surtr/configuration.nix
@@ -190,13 +190,6 @@
           ./hosts/muspelheim/guests/ymir/configuration.nix
         ];
         tags = [ "guest" "svc" ];
-      };
-
-      bragi = {
-        imports = [
-          ./hosts/vanaheim/guests/bragi/configuration.nix
-        ];
-        tags = [ "guest" "svc" "media" ];
       };
 
       njord = {
@@ -231,13 +224,6 @@
     };
 
     nixosConfigurations = {
-      skadi = self.lib.mk-nixos {
-        inherit nixpkgs;
-        system = "x86_64-linux";
-        modules = [
-          ./hosts/vanaheim/guests/skadi/configuration.nix
-        ];
-      };
       vanaheim = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
