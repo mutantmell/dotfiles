@@ -29,7 +29,7 @@
     plugins = let
       inherit (pkgs) tmuxPlugins;
     in [
-      tmuxPlugins.resurrect
+      tmuxPlugins.continuum
     ];
   };
 
