@@ -2,12 +2,11 @@
 
 {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  imports =
-    [
-      ./hardware-configuration.nix
-      ./impermanence.nix
-      ./microvm.nix
-    ];
+  imports = [
+    ./hardware-configuration.nix
+    ./impermanence.nix
+    ./microvm.nix
+  ];
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
@@ -57,7 +56,6 @@
   environment.systemPackages = [
     pkgs.git
   ];
-
   security.polkit.enable = true;
 
   networking = {
@@ -137,7 +135,6 @@
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
   };
-
   services.resolved.enable = true;
 
   i18n.defaultLocale = "en_US.UTF-8";
