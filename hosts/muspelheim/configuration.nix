@@ -16,6 +16,7 @@
   common.zfs.remoteUnlock.enable = true;
   common.zfs.remoteUnlock.hostkey = /persist/etc/ssh/initrd_ssh_host_ed25519_key;
 
+  boot.extraModprobeConfig = "options kvm_intel nested=1";
   boot.initrd.availableKernelModules = [ "e1000e" "8021q" ];
   boot.initrd.systemd.network = {
     netdevs."20-eno1.10" = {
@@ -166,5 +167,5 @@
     };
   };
 
-  system.stateVersion = "22.11";
+  system.stateVersion = "23.11";
 }
