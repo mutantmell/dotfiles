@@ -151,6 +151,17 @@
         tags = [ "mgmt" "infra" "router" ];
       };
 
+      vanaheim = {
+        imports = [
+          self.nixosModules.router2
+          microvm.nixosModules.host
+          home-manager.nixosModules.home-manager
+          impermanence.nixosModules.impermanence
+          ./hosts/vanaheim/configuration.nix
+        ];
+        tags = [ "test" ];
+      };
+
       alfheim = {
         imports = [
           nixos-hardware.nixosModules.raspberry-pi-4
@@ -176,27 +187,6 @@
           ./hosts/muspelheim/configuration.nix
         ];
         tags = [ "host" ]; 
-     };
-
-     surtr = {
-        imports = [
-          ./hosts/muspelheim/guests/surtr/configuration.nix
-        ];
-        tags = [ "guest" "svc" ];
-      };
-
-      ymir = {
-        imports = [
-          ./hosts/muspelheim/guests/ymir/configuration.nix
-        ];
-        tags = [ "guest" "svc" ];
-      };
-
-      njord = {
-        imports = [
-          ./hosts/vanaheim/guests/njord/configuration.nix
-        ];
-        tags = [ "guest" "svc" "git" ];
       };
 
       matrix = {
@@ -228,6 +218,10 @@
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
+          self.nixosModules.router2
+          microvm.nixosModules.host
+          home-manager.nixosModules.home-manager
+          impermanence.nixosModules.impermanence
           ./hosts/vanaheim/configuration.nix
         ];
       };
@@ -255,14 +249,6 @@
         system = "x86_64-linux";
         modules = [
           ./hosts/svartalfheim/configuration.nix
-        ];
-      };
-      yggdrasil = self.lib.mk-nixos {
-        nixpkgs = nixpkgs-stable;
-        system = "x86_64-linux";
-        modules = [
-          self.nixosModules.router2
-          ./hosts/yggdrasil/configuration.nix
         ];
       };
     };

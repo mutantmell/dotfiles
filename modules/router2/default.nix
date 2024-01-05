@@ -66,9 +66,8 @@ in {
               };
               default = {};
             };
-            # todo: remove cloudflare, repace with resovled
             options.dns = mkOption {
-              type = types.enum [ "upstream" "resolved" "cloudflare" ];
+              type = types.enum [ "upstream" "resolved" ];
               description = "DNS provider to use -- either use the configured upstream, or use systemd resolved";
               default = "upstream";
               example = "resolved";
@@ -165,11 +164,16 @@ in {
           default = {};
         };
       in types.attrsOf (types.submodule {
-        # TODO: rename to "MAC"
-        options.device = mkOption {
+        options.MAC = mkOption {
           type = types.nullOr types.str;
           example = "00:11:22:33:44:55";
           description = "MAC address of the device, to create the name for";
+          default = null;
+        };
+        options.name = mkOption {
+          type = types.nullOr types.str;
+          example = "eth0";
+          description = "underlying name of the device";
           default = null;
         };
         options.bridge = bridgeConf;
@@ -736,16 +740,26 @@ in {
         lib.attrsets.concatMapAttrs fromPppoe pppoe
       ));
 
-    mkLinkUnits = name: {
-      device ? null,
+    mkLinkUnits = linkName: {
+      MAC ? null,
+        name ? null,
         mtu ? null,
         ...
-    }: lib.attrsets.optionalAttrs (device != null) {
-      "00-${name}" = {
-        matchConfig.MACAddress = device;
+    }: lib.attrsets.optionalAttrs (MAC != null) {
+      "00-${linkName}" = {
+        matchConfig.MACAddress = MAC;
         matchConfig.Type = "ether";
         linkConfig = {
-          Name = name;
+          Name = linkName;
+        } // (
+          lib.attrsets.optionalAttrs (mtu != null) { MTUBytes = mtu; }
+        );
+      };
+    } // lib.attrsets.optionalAttrs (name != null) {
+      "00-${linkName}" = {
+        matchConfig.Name = name;
+        linkConfig = {
+          Name = linkName;
         } // (
           lib.attrsets.optionalAttrs (mtu != null) { MTUBytes = mtu; }
         );
@@ -757,9 +771,15 @@ in {
     
   in lib.mkIf cfg.enable {
     assertions = lib.attrValues (
-      lib.mapAttrs (name: value: {
-        assertion = (value.wireguard != null && value.wireguard.openFirewall) -> (value.wireguard.port != null);
-        message = "Cannot open the firewall for ${name} if no port is defined";
+      lib.attrsets.concatMapAttrs (name: value: {
+        wireguardFirewallAssert = {
+          assertion = (value.wireguard != null && value.wireguard.openFirewall) -> (value.wireguard.port != null);
+          message = "Cannot open the firewall for ${name} if no port is defined";
+        };
+        linkMutuallyExclusiveAssert = {
+          assertion = !(value.MAC != null && value.name != null);
+          message = "Link config must be specified against device name or MAC address, not both";
+        };
       }) whole-topology
     ) ++ lib.flatten (lib.attrValues (
       lib.mapAttrs (name: value: builtins.map (peer: {
