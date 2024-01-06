@@ -53,6 +53,7 @@
           hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
         })
         (import ./profiles/vm-host.nix {
+          disk = "/dev/nvme0n1";
           root-on-tmpfs = true;
           tmpfs-size = "4G";
           zfs-reservation = "20G";
