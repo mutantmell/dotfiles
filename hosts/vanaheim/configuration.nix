@@ -84,6 +84,9 @@
     keys = [ "deploy" "home" ];
   };
 
+  # todo: remove, set mutableUsers = false, etc
+  users.users.root.hashedPassword = "$y$j9T$3LKptm/9A.x8WAyU6mGNx.$k8yOrBlbgPl2J0cUcAX1GZVNuWQHl0f.4xZNiIlaKy9";
+
   home-manager.users.root = {
     home.stateVersion = "23.11";
     programs.git = {
