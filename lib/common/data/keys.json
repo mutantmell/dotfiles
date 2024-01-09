@@ -5,6 +5,6 @@
     "jotunheimr": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFc95ROxFt8eNrMdQrg01UXMYeJpKfWcIF7mSwWTD4+O malaguy@gmail.com",
     "muspelheim": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJqOeAuTSDE4SAzqZGxAieyxL/4LIhwdkI3jt8aUNEBc root@muspelheim",
     "svartalfheim": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE5AN0gzpx+1bJNZbGfLt4m2kD59WYmyqgIkXmzYbL+Q malaguy@gmail.com",
-    "vanaheim": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl4UkXB94b0e/4YrPXIT4J4l73/mCwh724Yr1VFy7dk malaguy@gmail.com"
+    "vanaheim": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl4UkXB94b0e/4YrPXIT4J4l73/mCwh724Yr1VFy7dk root@vanaheim"
   }
 }
