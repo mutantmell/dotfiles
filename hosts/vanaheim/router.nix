@@ -102,5 +102,6 @@
   };
   environment.persistence."/persist".directories = [
     "/var/lib/knot-resolver"
+    "/var/lib/kea"
   ];
 }
