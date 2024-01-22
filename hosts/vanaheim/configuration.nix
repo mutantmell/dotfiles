@@ -5,7 +5,7 @@
   imports = [
     ./hardware-configuration.nix
     ./impermanence.nix
-    #./router.nix
+    ./router.nix
     ./microvm.nix
   ];
 

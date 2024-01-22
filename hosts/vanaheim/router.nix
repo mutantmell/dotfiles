@@ -5,7 +5,7 @@
     dns.upstream = "10.0.10.2";
     firewall.extraForwards = [
       {
-        ip.saddr = "10.0.10.32";
+        ip.saddr = "10.55.10.32";
         ip.daddr = "10.100.0.3";
         verdict = "accept";
       }
@@ -18,7 +18,7 @@
       }
       {
         iifname = "wg-ba";
-        ip.daddr = "10.0.100.40";
+        ip.daddr = "10.55.100.40";
         verdict = "accept";
       }
     ];
@@ -26,7 +26,7 @@
       {
         iifname = "wg-ba";
         tcp.dport = "22";
-        verdict.dnat = "10.0.100.40";
+        verdict.dnat = "10.55.100.40";
       }
     ];
     firewall.extraPostRoutes = [
@@ -36,31 +36,31 @@
       }
       {
         iifname = "wg-ba";
-        ip.daddr = "10.0.100.40";
+        ip.daddr = "10.55.100.40";
         masquerade = true;
       }
     ];
     topology = {
-      "enp88s0" = {
+      "enp0s13f0u3u1" = {
         network = { type = "disabled"; required = false; };
         vlans = {
           "vMGMT.lan" = {
             tag = 10;
-            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.0.10.1/24"]; trust = "management"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.55.10.1/24"]; trust = "management"; };
           };
           "vHOME.lan" = {
             tag = 20;
-            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.0.20.1/24"]; trust = "trusted"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.55.20.1/24"]; trust = "trusted"; };
           };
           "vADU.lan" = {
             tag = 31;
-            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.0.31.1/24"]; dns = "resolved"; trust = "untrusted"; };
+            network = { type = "static"; dhcp.enable = true; static-addresses = ["10.55.31.1/24"]; dns = "resolved"; trust = "untrusted"; };
           };
           "vDMZ.lan" = {
             tag = 100;
             network = {
               type = "static";
-              static-addresses = ["10.0.100.1/24"];
+              static-addresses = ["10.55.100.1/24"];
               dhcp.enable = true;
               trust = "untrusted";
             };
