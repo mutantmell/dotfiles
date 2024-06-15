@@ -37,7 +37,7 @@
     enable = true;
     dns.upstream = "10.0.10.2";
     dns.dyndns = {
-      enable = true;
+      #enable = true;
       protocol = "namecheap";
       server = "https://dynamicdns.park-your-domain.com";
       usernameFile = config.sops.secrets."dyndns-host-domain".path;
