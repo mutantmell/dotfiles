@@ -5,7 +5,7 @@
   imports = [
     ./hardware-configuration.nix
     ./impermanence.nix
-    ./router.nix
+    # ./router.nix
     ./microvm.nix
   ];
 
@@ -14,36 +14,36 @@
 
   common.zfs.enable = true;
   # TODO: add remote unlock after no longer doing the router tests
-  #common.zfs.remoteUnlock.enable = true;
-  #common.zfs.remoteUnlock.hostkey = /persist/etc/ssh/initrd_ssh_host_ed25519_key;
+  common.zfs.remoteUnlock.enable = true;
+  common.zfs.remoteUnlock.hostkey = /persist/etc/ssh/initrd_ssh_host_ed25519_key;
 
   boot.extraModprobeConfig = "options kvm_intel nested=1";
   # todo: add after creating an initrd host key
-  # boot.initrd.availableKernelModules = [ "e1000e" "8021q" ];
-  # boot.initrd.systemd.network = {
-  #   netdevs."20-enp88s0.10" = {
-  #     netdevConfig.Kind = "vlan";
-  #     netdevConfig.Name = "enp88s0.10";
-  #     vlanConfig.Id = 10;
-  #   };
-  #   networks."20-enp88s0" = {
-  #     matchConfig.Name = "enp88s0";
-  #     networkConfig.DHCP = "no";
-  #     networkConfig.LinkLocalAddressing = "no";
-  #     vlan = [
-  #       "enp88s0.10"
-  #     ];
-  #   };
-  #   networks."20-enp88s0.10" = {
-  #     matchConfig.Name = "enp88s0.10";
-  #     networkConfig.DHCP = "no";
-  #     networkConfig.IPv6PrivacyExtensions = "kernel";
-  #     networkConfig.Address = [ "10.0.10.30/24" ];
-  #     networkConfig.MulticastDNS = true;
-  #     networkConfig.DNS = [ "10.0.10.1" ];
-  #     routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
-  #   };
-  # };
+  boot.initrd.availableKernelModules = [ "e1000e" "8021q" ];
+  boot.initrd.systemd.network = {
+    netdevs."20-enp88s0.10" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "enp88s0.10";
+      vlanConfig.Id = 10;
+    };
+    networks."20-enp88s0" = {
+      matchConfig.Name = "enp88s0";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      vlan = [
+        "enp88s0.10"
+      ];
+    };
+    networks."20-enp88s0.10" = {
+      matchConfig.Name = "enp88s0.10";
+      networkConfig.DHCP = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+      networkConfig.Address = [ "10.0.10.30/24" ];
+      networkConfig.MulticastDNS = true;
+      networkConfig.DNS = [ "10.0.10.1" ];
+      routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
+    };
+  };
 
   nix.settings.auto-optimise-store = true;
   nix.gc = {
