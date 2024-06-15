@@ -85,19 +85,19 @@
     topology = {
       wan = {
         device = "00:e0:67:1b:70:34";
-        network = { type = "disabled"; required = false; };
-        vlans = {
-          "vISP.wan" = {
-            tag = 201;
-            network = { type = "disabled"; required = false; };
-            pppoe = {
-              "pppwan" = {
-                userfile = config.sops.secrets."pppd-userfile".path;
-                network = { type = "dhcp"; nat.enable = true; route = "default"; trust = "external"; };
-              };
-            };
-          };
-        };
+        network = { type = "dhcp"; nat.enable = true; route = "default"; trust = "external"; };
+        # vlans = {
+        #   "vISP.wan" = {
+        #     tag = 201;
+        #     network = { type = "disabled"; required = false; };
+        #     pppoe = {
+        #       "pppwan" = {
+        #         userfile = config.sops.secrets."pppd-userfile".path;
+        #         network = { type = "dhcp"; nat.enable = true; route = "default"; trust = "external"; };
+        #       };
+        #     };
+        #   };
+        # };
       };
       lan = {
         device = "00:e0:67:1b:70:35";
