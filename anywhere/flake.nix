@@ -60,6 +60,26 @@
         })
       ];
     };
+    nixosConfigurations.yggdrasil = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        disko.nixosModules.disko
+        ./common.nix
+        ({ config, lib, pkgs, modulesPath, ... }: {
+          imports = [(modulesPath + "/installer/scan/not-detected.nix")];
+          boot.initrd.availableKernelModules = [ "xhci_pci" "ahci" "sd_mod" "rtsx_pci_sdmmc" ]; # todo: confirm these
+          boot.initrd.kernelModules = [ ];
+          boot.kernelModules = [ "kvm-intel" ];
+          boot.extraModulePackages = [ ];
+          networking.useDHCP = lib.mkDefault true;
+          nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+          hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
+        })
+        (import ./profiles/router.nix {
+          tmpfs-size = "2G";
+        })
+      ];
+    };
   };
 }
   
