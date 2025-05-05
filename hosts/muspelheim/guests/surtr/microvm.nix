@@ -28,7 +28,6 @@
   microvm.writableStoreOverlay = "/nix/.rw-store";
 
   microvm.mem = 1024;
-  microvm.balloonMem = 1024 * 3;
 
   microvm.vcpu = 2;
   microvm.interfaces = [{

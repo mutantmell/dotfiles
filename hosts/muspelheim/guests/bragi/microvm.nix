@@ -26,8 +26,7 @@
   }];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
-  microvm.mem = 1024;
-  microvm.balloonMem = 1024 * 3;
+  microvm.mem = 3096;
 
   microvm.vcpu = 2;
   microvm.interfaces = [{

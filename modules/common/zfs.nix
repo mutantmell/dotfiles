@@ -34,7 +34,6 @@ in {
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
     {
-      boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
       boot.initrd.systemd.enable = true;
     }
     (lib.mkIf cfg.remoteUnlock.enable {
