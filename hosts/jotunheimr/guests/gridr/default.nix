@@ -9,7 +9,6 @@
   ];
 
   networking.hostName = "gridr";
-  environment.noXlibs = false;
 
   common.openssh.enable = true;
   services.openssh.hostKeys = [{

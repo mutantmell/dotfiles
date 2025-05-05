@@ -65,20 +65,20 @@
   services.samba-wsdd.enable = true;
   services.samba = {
     enable = true;
-    securityType = "user";
     #enableNmbd = false;
     #enableWinbindd = false;
     openFirewall = true;
-    extraConfig = ''
-      map to guest = Bad User
-      server string = JOTUNHEIMR
-      netbios name = JOTUNHEIMR
-
-      load printers = no
-      printcap name = /dev/null
-    '';
-
-    shares = {
+    settings.global = {
+      "invalid users" = [ "root" ];
+      "passwd program" = "/run/wrappers/bin/passwd %u";
+      security = "user";
+      "map to guest" = "Bad User";
+      "server string" = "JOTUNHEIMR";
+      "netbios name" = "JOTUNHEIMR";
+      "load printers" = "no";
+      "printcap name" = "/dev/null";
+    };
+    settings = {
       drive = {
         path = "/data/drive";
         browseable = "yes";

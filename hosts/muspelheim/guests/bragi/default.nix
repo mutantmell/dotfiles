@@ -11,7 +11,6 @@
   nixpkgs.overlays = [(final: prev: {
     vaapiIntel = prev.vaapiIntel.override { enableHybridCodec = true; };
   })];
-  environment.noXlibs = false;
 
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {

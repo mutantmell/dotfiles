@@ -1,11 +1,15 @@
 {
   inputs = {
     nixpkgs.url = github:NixOS/nixpkgs/nixos-unstable;
-    nixpkgs-stable.url = github:NixOS/nixpkgs/nixos-23.11;
+    nixpkgs-stable.url = github:NixOS/nixpkgs/nixos-24.11;
     nixos-hardware.url = github:NixOS/nixos-hardware/master;
     home-manager = {
       url = github:nix-community/home-manager;
       inputs.nixpkgs.follows = "nixpkgs";
+    };
+    home-manager-stable = {
+      url = github:nix-community/home-manager/release-24.11;
+      inputs.nixpkgs.follows = "nixpkgs-stable";
     };
     sops-nix = {
       url = github:Mic92/sops-nix;
@@ -19,16 +23,16 @@
       url = github:astro/microvm.nix;
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    impermanence.url = github:nix-community/impermanence;
-    attic = {
-      url = github:zhaofengli/attic;
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.nixpkgs-stable.follows = "nixpkgs-stable";
+    microvm-stable = {
+      url = github:astro/microvm.nix;
+      inputs.nixpkgs.follows = "nixpkgs-stable";
     };
+    impermanence.url = github:nix-community/impermanence;
   };
   outputs = {
     self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager,
-      sops-nix, jovian, microvm, impermanence, attic,
+      sops-nix, jovian, microvm, impermanence,
+      home-manager-stable, microvm-stable,
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
       inherit system;
@@ -126,7 +130,6 @@
         imports = [
           sops-nix.nixosModules.sops
           impermanence.nixosModules.impermanence
-          attic.nixosModules.atticd
           self.nixosModules.common
         ];
       }];
@@ -168,15 +171,6 @@
           ./hosts/alfheim/configuration.nix
         ];
         tags = [ "mgmt" "infra" "dns" ];
-      };
-
-      jotunheimr = {
-        imports = [
-          microvm.nixosModules.host
-          home-manager.nixosModules.home-manager
-          ./hosts/jotunheimr/configuration.nix
-        ];
-        tags = [ "infra" "nas" ];
       };
 
       muspelheim = {
@@ -226,11 +220,11 @@
         ];
       };
       jotunheimr = self.lib.mk-nixos {
-        inherit nixpkgs;
+        nixpkgs = nixpkgs-stable;
         system = "x86_64-linux";
         modules = [
-          microvm.nixosModules.host
-          home-manager.nixosModules.home-manager
+          microvm-stable.nixosModules.host
+          home-manager-stable.nixosModules.home-manager
           ./hosts/jotunheimr/configuration.nix
         ];
       };
