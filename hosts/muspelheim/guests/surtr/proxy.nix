@@ -45,13 +45,14 @@
         };
       };
     };
-    services.oauth2_proxy = {
+    services.oauth2-proxy = {
       enable = true;
       nginx = {
         proxy = "http://127.0.0.1:4180";
-        virtualHosts = [
-          "${config.networking.hostName}.local"
-        ];
+        virtualHosts = {
+          "${config.networking.hostName}.local" = {};
+        };
+        domain = "surtr.local";
       };
       keyFile = config.sops.secrets."oauth-2-proxy-keyfile".path;
       provider = "oidc";

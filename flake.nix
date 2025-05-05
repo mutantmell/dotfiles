@@ -229,12 +229,12 @@
         ];
       };
       muspelheim = self.lib.mk-nixos {
-        inherit nixpkgs;
+        nixpkgs = nixpkgs-stable;
         system = "x86_64-linux";
         modules = [
           impermanence.nixosModules.impermanence
-          microvm.nixosModules.host
-          home-manager.nixosModules.home-manager
+          microvm-stable.nixosModules.host
+          home-manager-stable.nixosModules.home-manager
           ./hosts/muspelheim/configuration.nix
         ];
       };
