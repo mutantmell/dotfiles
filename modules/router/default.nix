@@ -675,8 +675,8 @@ in {
         lib.attrsets.optionalAttrs (activation-status != null) { ActivationPolicy = activation-status; }
       );
       mkRouteConfig = { gateway, destination, ... }: {
-        routeConfig.Gateway = gateway;
-        routeConfig.Destination = destination;
+        Gateway = gateway;
+        Destination = destination;
       };
 
       fromPppoe = name: {

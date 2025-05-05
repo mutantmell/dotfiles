@@ -40,7 +40,7 @@
       networkConfig.IPv6PrivacyExtensions = "kernel";
       networkConfig.Address = [ "10.0.10.30/24" ];
       networkConfig.MulticastDNS = true;
-      routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
+      routes = [ { Gateway = "10.0.10.1"; }];
     };
     networks."20-vm20-bridge" = {
       matchConfig.Name = [ "enp88s0.20" "vm-20-*" ];
