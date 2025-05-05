@@ -220,11 +220,11 @@
         ];
       };
       jotunheimr = self.lib.mk-nixos {
-        nixpkgs = nixpkgs-stable;
+        inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
-          microvm-stable.nixosModules.host
-          home-manager-stable.nixosModules.home-manager
+          microvm.nixosModules.host
+          home-manager.nixosModules.home-manager
           ./hosts/jotunheimr/configuration.nix
         ];
       };
