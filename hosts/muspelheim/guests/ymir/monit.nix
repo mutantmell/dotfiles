@@ -84,10 +84,10 @@
 
       schema_config = {
         configs = [{
-          from = "2022-06-06";
+          from = "2025-05-05";
           store = "boltdb-shipper";
           object_store = "filesystem";
-          schema = "v11";
+          schema = "v13";
           index = {
             prefix = "index_";
             period = "24h";
