@@ -5,7 +5,7 @@
     ./microvm.nix
     ./sops.nix
     ./modules/auth.nix
-    ./modules/unifi.nix
+    #./modules/unifi.nix
   ];
 
   networking.hostName = "gridr";
