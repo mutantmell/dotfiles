@@ -3,7 +3,7 @@
   networking.firewall.allowedTCPPorts = [
     80
     443
-    config.services.loki.configuration.server.http_listen_port
+    #config.services.loki.configuration.server.http_listen_port
     config.services.prometheus.port
   ];
 
@@ -128,7 +128,7 @@
     };
   };
   services.promtail = {
-    enable = true;
+    enable = false;
     configuration = {
       server = {
         http_listen_port = 3031;
@@ -179,10 +179,10 @@
       user = "prometheus";
       group = config.users.users.prometheus.group;
     }
-    {
+    /*{
       directory = toString config.services.loki.dataDir;
       user = "loki";
       group = config.users.users.loki.group;
-    }
+    }*/
   ];
 }
