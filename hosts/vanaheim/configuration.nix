@@ -41,7 +41,7 @@
       networkConfig.Address = [ "10.0.10.30/24" ];
       networkConfig.MulticastDNS = true;
       networkConfig.DNS = [ "10.0.10.1" ];
-      routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
+      routes = [ { Gateway = "10.0.10.1"; }];
     };
   };
 
