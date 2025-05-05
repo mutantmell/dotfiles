@@ -71,7 +71,6 @@
   };
 
   environment.systemPackages = [ pkgs.git ];
-  environment.noXlibs = false;
 
   services.openssh.enable = true;
   services.openssh.settings.X11Forwarding = true;

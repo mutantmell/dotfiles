@@ -2,7 +2,7 @@
 {
   services.atticd = {
     enable = true;
-    credentialsFile = config.sops.secrets."attic.env".path;
+    environmentFile = config.sops.secrets."attic.env".path;
     settings = {
       listen = "[::]:8080";
       chunking = {

@@ -12,7 +12,6 @@
     ];
 
   boot.loader.systemd-boot.enable = true;
-  boot.kernelPackages = config.boot.zfs.package.latestCompatibleLinuxPackages;
   boot.supportedFilesystems = [ "zfs" ];
   boot.zfs.extraPools = [ "data" ];
 
@@ -40,7 +39,6 @@
     pkgs.tmux
     pkgs.htop
   ];
-  environment.noXlibs = false;
 
   networking = {
     hostName = "jotunheimr";
@@ -92,7 +90,7 @@
       networkConfig.MulticastDNS = true;
       networkConfig.LLMNR = true;
       networkConfig.DNS = [ "10.0.10.1" ];
-      routes = [ { routeConfig.Gateway = "10.0.10.1"; }];
+      routes = [ { Gateway = "10.0.10.1"; }];
     };
     networks."20-vm20-bridge" = {
       matchConfig.Name = [ "enp4s0.20" "vm-20-*" ];
