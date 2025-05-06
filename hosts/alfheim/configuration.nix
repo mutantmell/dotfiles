@@ -116,7 +116,8 @@
       http-port = 9080;
       hostname = "alfheim.local";
       http-relative-path = "/auth";
-      proxy = "edge";
+      proxy-headers = "forwarded|xforwarded";
+      http-enabled = true;
     };
     database.passwordFile = config.sops.secrets."keycloak_password_file".path;
   };
