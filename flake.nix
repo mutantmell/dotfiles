@@ -27,11 +27,12 @@
       url = github:astro/microvm.nix;
       inputs.nixpkgs.follows = "nixpkgs-stable";
     };
+    colmena.url = github:zhaofengli/colmena;
     impermanence.url = github:nix-community/impermanence;
   };
   outputs = {
     self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager,
-      sops-nix, jovian, microvm, impermanence,
+      sops-nix, jovian, microvm, impermanence, colmena, 
       home-manager-stable, microvm-stable,
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
@@ -41,20 +42,21 @@
     };
     allSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
     forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
+      inherit system;
       pkgs = pkgsFor nixpkgs system;
     });
   in {
-    devShells = forAllSystems ({ pkgs }: {
+    devShells = forAllSystems ({ system, pkgs }: {
       default = pkgs.mkShell {
         packages = [
           pkgs.bashInteractive
-          pkgs.colmena
+          colmena.defaultPackage.${system}
           pkgs.sops
         ];
       };
     });
 
-    packages = forAllSystems ({ pkgs }: {
+    packages = forAllSystems ({ pkgs, ... }: {
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
       };
@@ -135,6 +137,8 @@
       }];
     };
 
+    colmenaHive = colmena.lib.makeHive self.outputs.colmena;
+
     colmena = self.lib.mk-hive {
       nixpkgs = pkgsFor nixpkgs "x86_64-linux";
       nodeNixpkgs = let
@@ -208,6 +212,14 @@
     };
 
     nixosConfigurations = {
+      alfheim = {
+        inherit nixpkgs;
+        system = "aarch64-linux";
+        modules = [
+          nixos-hardware.nixosModules.raspberry-pi-4
+          ./hosts/alfheim/configuration.nix
+        ];
+      };
       vanaheim = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
