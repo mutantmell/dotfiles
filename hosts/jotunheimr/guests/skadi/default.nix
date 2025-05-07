@@ -70,10 +70,7 @@
     in ["${mount_opts},${automount_opts},credentials=${config.sops.secrets.smb-credentials.path}"];
   };
 
-  environment.systemPackages = [
-    pkgs.git
-    pkgs.home-manager
-  ];
+  environment.systemPackages = [ pkgs.git ];
 
   services.openssh.enable = true;
   services.openssh.settings.X11Forwarding = true;
