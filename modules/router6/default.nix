@@ -354,7 +354,13 @@ in {
           upstream = mkOption {
             type = types.listOf types.str;
             default = ["1.1.1.1" "8.8.8.8"];
-            description = "Upstream DNS servers";
+            description = "Primary upstream DNS servers (queried in parallel)";
+          };
+
+          fallback = mkOption {
+            type = types.listOf types.str;
+            default = ["1.1.1.1" "8.8.8.8"];
+            description = "Fallback DNS servers used when primary is unavailable";
           };
 
           localDomain = mkOption {
@@ -703,14 +709,60 @@ in {
           in if v4 != null then "${(parseCIDR v4).ip}:53" else null
         ) (trustedInterfaces ++ interfacesWithTrust "untrusted")));
 
-        extraConfig = ''
-          -- Upstream DNS servers
-          policy.add(policy.all(policy.FORWARD({
-            ${concatStringsSep ", " (map (s: "'${s}'") cfg.dns.upstream)}
-          })))
+        extraConfig = let
+          primaryServers = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.upstream);
+          fallbackServers = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.fallback);
+          hasFallback = cfg.dns.fallback != [] && cfg.dns.fallback != cfg.dns.upstream;
+        in ''
+          modules.load('policy')
+
+          ${optionalString hasFallback ''
+          -- Primary DNS with fallback support
+          -- Track primary server health
+          local primary_failures = 0
+          local last_primary_success = os.time()
+          local primary_down = false
+          local PRIMARY_THRESHOLD = 3      -- failures before switching
+          local PRIMARY_RETRY = 30         -- seconds before retrying primary
+
+          local primary = policy.FORWARD({${primaryServers}})
+          local fallback = policy.FORWARD({${fallbackServers}})
+
+          policy.add(function(state, req)
+            -- If primary is marked down, check if we should retry
+            if primary_down then
+              if os.time() - last_primary_success > PRIMARY_RETRY then
+                primary_down = false
+                primary_failures = 0
+              else
+                return fallback(state, req)
+              end
+            end
+
+            -- Try primary
+            local result = primary(state, req)
+            if result then
+              last_primary_success = os.time()
+              primary_failures = 0
+              return result
+            else
+              primary_failures = primary_failures + 1
+              if primary_failures >= PRIMARY_THRESHOLD then
+                primary_down = true
+                log('[dns] Primary DNS unavailable, switching to fallback')
+              end
+              return fallback(state, req)
+            end
+          end)
+          ''}
+
+          ${optionalString (!hasFallback) ''
+          -- Upstream DNS servers (no separate fallback configured)
+          policy.add(policy.all(policy.FORWARD({${primaryServers}})))
+          ''}
 
           ${optionalString (cfg.dns.localDomain != null) ''
-          -- Local domain handling
+          -- Block external resolution of local domain
           policy.add(policy.suffix(policy.DENY, policy.todnames({'${cfg.dns.localDomain}.'})))
           ''}
 
@@ -721,7 +773,7 @@ in {
           trust_anchors.negative = { '.' }
           ''}
 
-          -- Cache size
+          -- Cache size (helps during outages)
           cache.size = 100 * MB
         '';
       };
