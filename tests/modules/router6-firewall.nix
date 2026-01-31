@@ -3,14 +3,20 @@
 # Verifies that the router operates in "stealth mode" for external networks:
 # - TCP connections to closed ports are silently dropped (no RST)
 # - UDP packets to closed ports are silently dropped (no ICMP unreachable)
+# - ICMP echo requests (ping) from external are silently dropped
 # - Firewall policy is 'drop' not 'reject'
+# - Essential ICMP (PMTUD, Neighbor Discovery) still works
 #
 # Tests:
 # 1. Verify firewall uses drop policy (not reject)
 # 2. Verify external interface has explicit drop rule
 # 3. TCP SYN to closed port is silently dropped (no response)
 # 4. UDP to closed port is silently dropped (no ICMP unreachable)
-# 5. Internal clients can still access router services
+# 5. ICMP echo (ping) from external is silently dropped
+# 6. Internal clients can ping the router
+# 7. External network cannot access router services
+# 8. Internal clients can access router services
+# 9. Verify nftables ruleset structure
 
 { pkgs ? import <nixpkgs> { }
 , lib ? pkgs.lib
@@ -204,9 +210,28 @@ pkgs.nixosTest {
     print("PASS: UDP packet silently dropped (no ICMP unreachable)")
 
     # ==========================================================================
-    # Test 5: Verify attacker cannot access router services
+    # Test 5: ICMP echo (ping) from external is silently dropped (stealth mode)
     # ==========================================================================
-    print("Test 5: Verifying external network cannot access router services...")
+    print("Test 5: Testing ICMP ping stealth mode from external network...")
+
+    # Ping from external network should timeout (no response)
+    attacker.fail("ping -c 2 -W 2 192.168.1.1")
+
+    print("PASS: ICMP echo request from external silently dropped")
+
+    # ==========================================================================
+    # Test 6: Internal clients CAN ping the router
+    # ==========================================================================
+    print("Test 6: Verifying internal network can ping router...")
+
+    client.succeed("ping -c 2 -W 2 10.0.10.1")
+
+    print("PASS: Internal network can ping router")
+
+    # ==========================================================================
+    # Test 7: Verify attacker cannot access router services
+    # ==========================================================================
+    print("Test 7: Verifying external network cannot access router services...")
 
     # Attacker should not be able to access DNS on the router
     attacker.fail("timeout 3 nc -z -w 2 192.168.1.1 53")
@@ -219,9 +244,9 @@ pkgs.nixosTest {
     print("PASS: External network blocked from router services")
 
     # ==========================================================================
-    # Test 6: Verify internal clients CAN access router services
+    # Test 8: Verify internal clients CAN access router services
     # ==========================================================================
-    print("Test 6: Verifying internal network can access router services...")
+    print("Test 8: Verifying internal network can access router services...")
 
     # Wait for kresd to be ready
     router.wait_for_unit("kresd.service")
@@ -235,9 +260,9 @@ pkgs.nixosTest {
     print("PASS: Internal network can access router services")
 
     # ==========================================================================
-    # Test 7: Verify nftables ruleset structure
+    # Test 9: Verify nftables ruleset structure
     # ==========================================================================
-    print("Test 7: Verifying nftables ruleset structure...")
+    print("Test 9: Verifying nftables ruleset structure...")
 
     # Should have inet filter table
     router.succeed("nft list tables | grep 'inet filter'")
@@ -262,8 +287,9 @@ pkgs.nixosTest {
     print("- External interfaces have explicit drop rules")
     print("- TCP SYN packets to closed ports are silently dropped")
     print("- UDP packets to closed ports are silently dropped")
-    print("- No ICMP unreachable or TCP RST responses leak router presence")
-    print("- Internal clients retain full access to router services")
+    print("- ICMP echo requests (ping) from external are silently dropped")
+    print("- Essential ICMP (PMTUD, ND) still works for network operation")
+    print("- Internal clients retain full access to router services (including ping)")
     print("=" * 70)
   '';
 }
