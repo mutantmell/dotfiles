@@ -700,9 +700,11 @@ in {
             Managed = false;
             OtherInformation = false;
             RouterLifetimeSec = 1800;
-            # Advertise DNS server (the router itself)
+            # Advertise DNS server (the router's ULA address on this interface)
+            # Note: We use the ULA address instead of _link_local because kresd
+            # listens on ULA addresses, not link-local addresses
             EmitDNS = true;
-            DNS = "_link_local";
+            DNS = (parseCIDR (head v6Addrs)).ip;
           };
 
           # Advertise the IPv6 prefix for SLAAC
