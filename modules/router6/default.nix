@@ -244,6 +244,17 @@ in {
                   default = true;
                   description = "Whether this interface is required for boot";
                 };
+
+                bridge = mkOption {
+                  type = types.nullOr types.str;
+                  default = null;
+                  description = ''
+                    Bridge to add this interface to. When set, the interface
+                    will be added to the specified bridge and will not have
+                    its own IP configuration (the bridge gets the IP config).
+                  '';
+                  example = "br0";
+                };
               };
             };
             default = { type = "disabled"; };
@@ -632,6 +643,11 @@ in {
                 };
                 mtu = mkOption { type = types.nullOr types.int; default = null; };
                 required = mkOption { type = types.bool; default = false; };
+                bridge = mkOption {
+                  type = types.nullOr types.str;
+                  default = null;
+                  description = "Bridge to add this bond to";
+                };
               };
             };
             default = {};
@@ -1050,11 +1066,17 @@ in {
         mainNetworks = mapAttrs (name: iface: let
           ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
           isBonded = iface.bondDevice or null != null;
+          isBridged = iface.network.bridge or null != null;
         in
           if isBonded then {
             # Bonded interface: join the bond, no IP config
             matchConfig.Name = name;
             networkConfig.Bond = iface.bondDevice;
+            linkConfig.RequiredForOnline = "no";
+          } else if isBridged then {
+            # Bridged interface: join the bridge, no IP config
+            matchConfig.Name = name;
+            networkConfig.Bridge = iface.network.bridge;
             linkConfig.RequiredForOnline = "no";
           } else
             (mkNetworkConfig name iface.network ifaceData) // {
@@ -1094,13 +1116,20 @@ in {
         # Bond networks
         bondNetworks = mapAttrs (name: bond: let
           ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
+          isBridged = bond.network.bridge or null != null;
         in
-          (mkNetworkConfig name bond.network ifaceData) // {
-            # Add VLAN references for the bond
-            vlan = attrNames (bond.vlans or {});
-          } // optionalAttrs (bond.batmanDevice or null != null) {
-            networkConfig.BatmanAdvanced = bond.batmanDevice;
-          }
+          if isBridged then {
+            # Bridged bond: join the bridge, no IP config
+            matchConfig.Name = name;
+            networkConfig.Bridge = bond.network.bridge;
+            linkConfig.RequiredForOnline = "no";
+          } else
+            (mkNetworkConfig name bond.network ifaceData) // {
+              # Add VLAN references for the bond
+              vlan = attrNames (bond.vlans or {});
+            } // optionalAttrs (bond.batmanDevice or null != null) {
+              networkConfig.BatmanAdvanced = bond.batmanDevice;
+            }
         ) (cfg.bonds or {});
 
         # Bond VLAN networks
@@ -1549,29 +1578,53 @@ in {
       }) (filterAttrs (n: v: v.wireguard != null) cfg.topology))
       # Bridge assertions: ensure all referenced bridges are defined
       ++ (let
-        # Collect all bridge references from VLANs
+        # Collect all bridge references from VLANs (topology and bonds)
         vlanBridgeRefs = flatten (mapAttrsToList (parentName: parent:
           mapAttrsToList (vlanName: vlan:
-            if vlan.bridge or null != null then { inherit vlanName; bridge = vlan.bridge; } else null
+            if vlan.bridge or null != null then { name = vlanName; bridge = vlan.bridge; kind = "VLAN"; } else null
           ) (parent.vlans or {})
-        ) cfg.topology);
+        ) cfg.topology)
+        ++ flatten (mapAttrsToList (bondName: bond:
+          mapAttrsToList (vlanName: vlan:
+            if vlan.bridge or null != null then { name = vlanName; bridge = vlan.bridge; kind = "VLAN"; } else null
+          ) (bond.vlans or {})
+        ) (cfg.bonds or {}));
+        # Collect bridge references from interfaces
+        ifaceBridgeRefs = mapAttrsToList (name: iface:
+          if iface.network.bridge or null != null then { inherit name; bridge = iface.network.bridge; kind = "interface"; } else null
+        ) cfg.topology;
+        # Collect bridge references from bonds
+        bondBridgeRefs = mapAttrsToList (name: bond:
+          if bond.network.bridge or null != null then { inherit name; bridge = bond.network.bridge; kind = "bond"; } else null
+        ) (cfg.bonds or {});
+        allBridgeRefs = vlanBridgeRefs ++ ifaceBridgeRefs ++ bondBridgeRefs;
         definedBridges = attrNames (cfg.bridges or {});
       in filter (x: x != null) (map (ref:
         if ref != null && !(elem ref.bridge definedBridges) then {
           assertion = false;
-          message = "VLAN ${ref.vlanName} references undefined bridge '${ref.bridge}'. Define it in router6.bridges.";
+          message = "${ref.kind} '${ref.name}' references undefined bridge '${ref.bridge}'. Define it in router6.bridges.";
         } else null
-      ) vlanBridgeRefs))
-      # Ensure each bridge has at least one VLAN member
+      ) allBridgeRefs))
+      # Ensure each bridge has at least one member (VLAN, interface, or bond)
       ++ (let
-        bridgeMembers = bridge: filter (i: (i.bridge or null) == bridge) (
+        # All potential bridge members
+        allBridgeMembers =
+          # VLANs from topology
           flatten (mapAttrsToList (parentName: parent:
             mapAttrsToList (vlanName: vlan: { name = vlanName; bridge = vlan.bridge or null; }) (parent.vlans or {})
           ) cfg.topology)
-        );
+          # VLANs from bonds
+          ++ flatten (mapAttrsToList (bondName: bond:
+            mapAttrsToList (vlanName: vlan: { name = vlanName; bridge = vlan.bridge or null; }) (bond.vlans or {})
+          ) (cfg.bonds or {}))
+          # Interfaces
+          ++ mapAttrsToList (name: iface: { inherit name; bridge = iface.network.bridge or null; }) cfg.topology
+          # Bonds
+          ++ mapAttrsToList (name: bond: { inherit name; bridge = bond.network.bridge or null; }) (cfg.bonds or {});
+        bridgeMembers = bridge: filter (i: (i.bridge or null) == bridge) allBridgeMembers;
       in mapAttrsToList (name: bridge: {
         assertion = (bridgeMembers name) != [];
-        message = "Bridge '${name}' has no VLAN members. Add VLANs with bridge = \"${name}\".";
+        message = "Bridge '${name}' has no members. Add VLANs, interfaces, or bonds with bridge = \"${name}\".";
       }) (cfg.bridges or {}))
       # Bond assertions: ensure all referenced bonds are defined
       ++ (let
