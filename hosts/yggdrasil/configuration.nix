@@ -37,6 +37,10 @@
   router6 = {
     enable = true;
 
+    # ULA prefix for internal IPv6 addressing
+    # IPv6 addresses auto-generated from VLAN tags (e.g., VLAN 10 -> fdc6:55f2:0a5e:a::1/64)
+    ulaPrefix = "fdc6:55f2:0a5e::/48";
+
     dns = {
       upstream = [ "10.0.10.2" ];  # alfheim (primary - has local hostnames)
       useDHCPFallback = true;      # fall back to ISP DNS when alfheim is down
@@ -89,39 +93,43 @@
         };
         vlans = {
           "vMGMT.lan" = {
-            tag = 10;
+            tag = 10;  # -> fdc6:55f2:0a5e:a::1/64
             network = {
               type = "static";
               addresses = [ "10.0.10.1/24" ];
               trust = "management";
               dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
           "vHOME.lan" = {
-            tag = 20;
+            tag = 20;  # -> fdc6:55f2:0a5e:14::1/64
             network = {
               type = "static";
               addresses = [ "10.0.20.1/24" ];
               trust = "trusted";
               dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
           "vADU.lan" = {
-            tag = 31;
+            tag = 31;  # -> fdc6:55f2:0a5e:1f::1/64
             network = {
               type = "static";
               addresses = [ "10.0.31.1/24" ];
               trust = "untrusted";
               dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
           "vDMZ.lan" = {
-            tag = 100;
+            tag = 100;  # -> fdc6:55f2:0a5e:64::1/64
             network = {
               type = "static";
               addresses = [ "10.0.100.1/24" ];
               trust = "untrusted";
               dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
         };
@@ -148,48 +156,53 @@
         };
         vlans = {
           "vMGMT.bat0" = {
-            tag = 10;
+            tag = 10;  # -> fdc6:55f2:0a5e:a::1/64 (shared with vMGMT.lan)
             network = {
               type = "static";
               addresses = [ "10.1.10.1/24" ];
               trust = "management";
               dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
           "vHOME.bat0" = {
-            tag = 20;
+            tag = 20;  # -> fdc6:55f2:0a5e:14::1/64 (shared with vHOME.lan)
             network = {
               type = "static";
               addresses = [ "10.1.20.1/24" ];
               trust = "trusted";
               dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
           "vGUEST.bat0" = {
-            tag = 30;
+            tag = 30;  # -> fdc6:55f2:0a5e:1e::1/64
             network = {
               type = "static";
               addresses = [ "10.1.30.1/24" ];
               trust = "untrusted";
               dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
           "vIOT.bat0" = {
-            tag = 40;
+            tag = 40;  # -> fdc6:55f2:0a5e:28::1/64
             network = {
               type = "static";
               addresses = [ "10.1.40.1/24" ];
               trust = "untrusted";
               dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
           "vGAME.bat0" = {
-            tag = 41;
+            tag = 41;  # -> fdc6:55f2:0a5e:29::1/64
             network = {
               type = "static";
               addresses = [ "10.1.41.1/24" ];
               trust = "untrusted";
               dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
         };
@@ -208,7 +221,10 @@
       "wg-ba" = {
         network = {
           type = "static";
-          addresses = [ "10.100.0.1/24" ];
+          addresses = [
+            "10.100.0.1/24"
+            "fdc6:55f2:0a5e:6400::1/64"  # Manual IPv6 for WG
+          ];
           trust = "isolated";
           required = false;
         };
@@ -218,7 +234,7 @@
           openFirewall = true;
           peers = [{
             publicKey = "O+WWPlhy6Lg9YT3hYqq+/8gZ48PpRXaUTl4eFFwgTVA=";
-            allowedIPs = [ "10.100.0.3/32" ];
+            allowedIPs = [ "10.100.0.3/32" "fdc6:55f2:0a5e:6400::3/128" ];
             persistentKeepalive = 25;
           }];
         };
@@ -228,7 +244,10 @@
       "wg-vpn" = {
         network = {
           type = "static";
-          addresses = [ "10.100.10.1/24" ];
+          addresses = [
+            "10.100.10.1/24"
+            "fdc6:55f2:0a5e:640a::1/64"  # Manual IPv6 for WG
+          ];
           trust = "trusted";
           required = false;
         };
@@ -239,11 +258,11 @@
           peers = [
             {
               publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
-              allowedIPs = [ "10.100.10.20/32" ];
+              allowedIPs = [ "10.100.10.20/32" "fdc6:55f2:0a5e:640a::14/128" ];
             }
             {
               publicKey = "8g4r9czA23tS/XTOajuIa/BNfDE2x4GwdXXi+udE6gY=";
-              allowedIPs = [ "10.100.10.21/32" ];
+              allowedIPs = [ "10.100.10.21/32" "fdc6:55f2:0a5e:640a::15/128" ];
             }
           ];
         };
@@ -253,7 +272,10 @@
       "wg-mx" = {
         network = {
           type = "static";
-          addresses = [ "10.100.20.1/24" ];
+          addresses = [
+            "10.100.20.1/24"
+            "fdc6:55f2:0a5e:6414::1/64"  # Manual IPv6 for WG
+          ];
           trust = "external";
           required = false;
         };
@@ -262,7 +284,7 @@
           port = 53973;
           peers = [{
             publicKey = "hTmV7qOLXHCQnTWljCiNHf2P22GBd0n339Fcq4tVdlw=";
-            allowedIPs = [ "10.100.20.10/32" ];
+            allowedIPs = [ "10.100.20.10/32" "fdc6:55f2:0a5e:6414::a/128" ];
             endpoint = "helveticastandard.com:58156";
             persistentKeepalive = 25;
           }];
