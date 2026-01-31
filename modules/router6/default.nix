@@ -15,7 +15,7 @@ let
   # Helper to flatten topology into a list of all network interfaces
   flattenTopology = let
     flattenInterface = name: iface:
-      [{ inherit name; inherit (iface) network; isVlan = false; parent = null; isBridge = false; }]
+      [{ inherit name; inherit (iface) network; isVlan = false; parent = null; isBridge = false; isBond = false; }]
       ++ (lib.mapAttrsToList (vlanName: vlan: {
         name = vlanName;
         # If VLAN is bridged, it has no network config (the bridge has it)
@@ -27,6 +27,7 @@ let
         tag = vlan.tag;
         bridge = vlan.bridge or null;
         isBridge = false;
+        isBond = false;
       }) (iface.vlans or {}));
     # Include bridges in the flattened list
     bridgeInterfaces = lib.mapAttrsToList (name: bridge: {
@@ -35,10 +36,27 @@ let
       isVlan = false;
       parent = null;
       isBridge = true;
+      isBond = false;
       # Use vlanTag for IPv6 auto-generation (bridges act like VLANs for this purpose)
       tag = bridge.vlanTag or null;
     }) (cfg.bridges or {});
-  in lib.flatten (lib.mapAttrsToList flattenInterface cfg.topology) ++ bridgeInterfaces;
+    # Include bonds and their VLANs in the flattened list
+    bondInterfaces = lib.flatten (lib.mapAttrsToList (name: bond:
+      [{ inherit name; inherit (bond) network; isVlan = false; parent = null; isBridge = false; isBond = true; }]
+      ++ (lib.mapAttrsToList (vlanName: vlan: {
+        name = vlanName;
+        network = if vlan.bridge or null != null
+                  then { type = "disabled"; }
+                  else vlan.network;
+        isVlan = true;
+        parent = name;
+        tag = vlan.tag;
+        bridge = vlan.bridge or null;
+        isBridge = false;
+        isBond = false;
+      }) (bond.vlans or {}))
+    ) (cfg.bonds or {}));
+  in lib.flatten (lib.mapAttrsToList flattenInterface cfg.topology) ++ bridgeInterfaces ++ bondInterfaces;
 
   # Get all interfaces matching a predicate
   interfacesWhere = pred: map (i: i.name) (filter pred flattenTopology);
@@ -343,6 +361,14 @@ in {
             example = "bat0";
           };
 
+          # Attach to bond device
+          bondDevice = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = "Bond device to attach this interface to";
+            example = "bond0";
+          };
+
           # Wireguard configuration
           wireguard = mkOption {
             type = types.nullOr (types.submodule {
@@ -466,6 +492,157 @@ in {
               };
             };
             default = {};
+          };
+        };
+      });
+    };
+
+    bonds = mkOption {
+      description = ''
+        Bond definitions for combining physical interfaces for increased
+        bandwidth (LACP) or redundancy (active-backup).
+        Interfaces that specify bondDevice = "bondName" will be added to that bond.
+      '';
+      default = {};
+      type = types.attrsOf (types.submodule {
+        options = {
+          mode = mkOption {
+            type = types.enum [
+              "balance-rr"     # Round-robin for load balancing
+              "active-backup"  # Failover
+              "balance-xor"    # XOR based on MAC
+              "broadcast"      # Transmit on all slaves
+              "802.3ad"        # LACP - requires switch support
+              "balance-tlb"    # Adaptive transmit load balancing
+              "balance-alb"    # Adaptive load balancing
+            ];
+            default = "802.3ad";
+            description = "Bonding mode";
+          };
+
+          lacpTransmitRate = mkOption {
+            type = types.enum ["slow" "fast"];
+            default = "fast";
+            description = "LACP transmit rate (only for 802.3ad mode)";
+          };
+
+          miiMonitorSec = mkOption {
+            type = types.str;
+            default = "100ms";
+            description = "MII link monitoring interval";
+          };
+
+          # Bond can have VLANs on top of it
+          vlans = mkOption {
+            type = types.attrsOf (types.submodule {
+              options = {
+                tag = mkOption {
+                  type = types.int;
+                  description = "VLAN ID (1-4094)";
+                };
+                bridge = mkOption {
+                  type = types.nullOr types.str;
+                  default = null;
+                  description = "Bridge to add this VLAN to";
+                };
+                network = mkOption {
+                  type = types.submodule {
+                    options = {
+                      type = mkOption {
+                        type = types.enum ["disabled" "static"];
+                        default = "static";
+                      };
+                      addresses = mkOption {
+                        type = types.listOf types.str;
+                        default = [];
+                      };
+                      trust = mkOption {
+                        type = types.nullOr (types.enum [
+                          "external" "management" "trusted" "untrusted" "isolated"
+                        ]);
+                        default = null;
+                      };
+                      nat = mkOption {
+                        type = types.submodule {
+                          options.enable = mkEnableOption "NAT";
+                        };
+                        default = {};
+                      };
+                      dhcp = mkOption {
+                        type = types.submodule {
+                          options = {
+                            enable = mkEnableOption "DHCP server";
+                            poolStart = mkOption { type = types.nullOr types.str; default = null; };
+                            poolEnd = mkOption { type = types.nullOr types.str; default = null; };
+                            reservations = mkOption {
+                              type = types.listOf (types.submodule {
+                                options = {
+                                  mac = mkOption { type = types.str; };
+                                  ip = mkOption { type = types.str; };
+                                  hostname = mkOption { type = types.nullOr types.str; default = null; };
+                                };
+                              });
+                              default = [];
+                            };
+                          };
+                        };
+                        default = {};
+                      };
+                      dhcp6 = mkOption {
+                        type = types.submodule {
+                          options = {
+                            enable = mkEnableOption "DHCPv6/RA";
+                            mode = mkOption {
+                              type = types.enum ["slaac" "stateful" "stateless"];
+                              default = "slaac";
+                            };
+                          };
+                        };
+                        default = {};
+                      };
+                      mtu = mkOption { type = types.nullOr types.int; default = null; };
+                      required = mkOption { type = types.bool; default = true; };
+                    };
+                  };
+                  default = {};
+                };
+              };
+            });
+            default = {};
+            description = "VLANs to create on this bond";
+          };
+
+          network = mkOption {
+            description = "Network configuration for the bond itself (if not using VLANs)";
+            type = types.submodule {
+              options = {
+                type = mkOption {
+                  type = types.enum ["disabled" "static" "dhcp"];
+                  default = "disabled";
+                };
+                addresses = mkOption {
+                  type = types.listOf types.str;
+                  default = [];
+                };
+                trust = mkOption {
+                  type = types.nullOr (types.enum [
+                    "external" "management" "trusted" "untrusted" "isolated"
+                  ]);
+                  default = null;
+                };
+                mtu = mkOption { type = types.nullOr types.int; default = null; };
+                required = mkOption { type = types.bool; default = false; };
+              };
+            };
+            default = {};
+          };
+
+          # Attach bond to batman device (for mesh networking over bonded interfaces)
+          batmanDevice = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = "Batman-adv device to attach this bond to";
+            example = "bat0";
           };
         };
       });
@@ -771,7 +948,32 @@ in {
           };
         }) (cfg.bridges or {});
 
-      in vlanDevs // batmanDevs // wgDevs // bridgeDevs;
+        # Bond netdevs
+        bondDevs = mapAttrs (name: bond: {
+          netdevConfig = {
+            Name = name;
+            Kind = "bond";
+          };
+          bondConfig = {
+            Mode = bond.mode;
+            MIIMonitorSec = bond.miiMonitorSec;
+          } // optionalAttrs (bond.mode == "802.3ad") {
+            LACPTransmitRate = bond.lacpTransmitRate;
+          };
+        }) (cfg.bonds or {});
+
+        # VLANs on bonds
+        bondVlanDevs = concatMapAttrs (bondName: bond:
+          mapAttrs (vlanName: vlan: {
+            netdevConfig = {
+              Name = vlanName;
+              Kind = "vlan";
+            };
+            vlanConfig.Id = vlan.tag;
+          }) (bond.vlans or {})
+        ) (cfg.bonds or {});
+
+      in vlanDevs // batmanDevs // wgDevs // bridgeDevs // bondDevs // bondVlanDevs;
     }
 
     # ============================
@@ -847,13 +1049,20 @@ in {
         # Physical/main interface networks
         mainNetworks = mapAttrs (name: iface: let
           ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
+          isBonded = iface.bondDevice or null != null;
         in
-          (mkNetworkConfig name iface.network ifaceData) // {
-            # Add VLAN references
-            vlan = attrNames (iface.vlans or {});
-          } // optionalAttrs (iface.batmanDevice != null) {
-            networkConfig.BatmanAdvanced = iface.batmanDevice;
-          }
+          if isBonded then {
+            # Bonded interface: join the bond, no IP config
+            matchConfig.Name = name;
+            networkConfig.Bond = iface.bondDevice;
+            linkConfig.RequiredForOnline = "no";
+          } else
+            (mkNetworkConfig name iface.network ifaceData) // {
+              # Add VLAN references
+              vlan = attrNames (iface.vlans or {});
+            } // optionalAttrs (iface.batmanDevice != null) {
+              networkConfig.BatmanAdvanced = iface.batmanDevice;
+            }
         ) cfg.topology;
 
         # VLAN networks
@@ -882,7 +1091,38 @@ in {
           mkNetworkConfig name bridge.network ifaceData
         ) (cfg.bridges or {});
 
-      in mainNetworks // vlanNetworks // bridgeNetworks;
+        # Bond networks
+        bondNetworks = mapAttrs (name: bond: let
+          ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
+        in
+          (mkNetworkConfig name bond.network ifaceData) // {
+            # Add VLAN references for the bond
+            vlan = attrNames (bond.vlans or {});
+          } // optionalAttrs (bond.batmanDevice or null != null) {
+            networkConfig.BatmanAdvanced = bond.batmanDevice;
+          }
+        ) (cfg.bonds or {});
+
+        # Bond VLAN networks
+        bondVlanNetworks = concatMapAttrs (bondName: bond:
+          mapAttrs (vlanName: vlan: let
+            ifaceData = lib.findFirst (i: i.name == vlanName) null flattenTopology;
+            isBridged = vlan.bridge or null != null;
+          in
+            if isBridged then {
+              # Bridged VLAN: join the bridge, no IP config
+              matchConfig.Name = vlanName;
+              networkConfig = {
+                Bridge = vlan.bridge;
+              };
+              linkConfig.RequiredForOnline = "no";
+            } else
+              # Non-bridged VLAN: normal config
+              mkNetworkConfig vlanName vlan.network ifaceData
+          ) (bond.vlans or {})
+        ) (cfg.bonds or {});
+
+      in mainNetworks // vlanNetworks // bridgeNetworks // bondNetworks // bondVlanNetworks;
     }
 
     # ===================
@@ -1332,7 +1572,29 @@ in {
       in mapAttrsToList (name: bridge: {
         assertion = (bridgeMembers name) != [];
         message = "Bridge '${name}' has no VLAN members. Add VLANs with bridge = \"${name}\".";
-      }) (cfg.bridges or {}));
+      }) (cfg.bridges or {}))
+      # Bond assertions: ensure all referenced bonds are defined
+      ++ (let
+        # Collect all bond references from interfaces
+        ifaceBondRefs = mapAttrsToList (name: iface:
+          if iface.bondDevice or null != null then { ifaceName = name; bond = iface.bondDevice; } else null
+        ) cfg.topology;
+        definedBonds = attrNames (cfg.bonds or {});
+      in filter (x: x != null) (map (ref:
+        if ref != null && !(elem ref.bond definedBonds) then {
+          assertion = false;
+          message = "Interface ${ref.ifaceName} references undefined bond '${ref.bond}'. Define it in router6.bonds.";
+        } else null
+      ) ifaceBondRefs))
+      # Ensure each bond has at least one interface member
+      ++ (let
+        bondMembers = bond: filter (i: (i.bondDevice or null) == bond) (
+          mapAttrsToList (name: iface: { name = name; bondDevice = iface.bondDevice or null; }) cfg.topology
+        );
+      in mapAttrsToList (name: bond: {
+        assertion = (bondMembers name) != [];
+        message = "Bond '${name}' has no interface members. Add interfaces with bondDevice = \"${name}\".";
+      }) (cfg.bonds or {}));
     }
   ]);
 }
