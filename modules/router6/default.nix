@@ -10,7 +10,7 @@
 # - Minimal magic, explicit configuration
 
 let
-  cfg = config.router2;
+  cfg = config.router6;
 
   # Helper to flatten topology into a list of all network interfaces
   flattenTopology = let
@@ -54,8 +54,8 @@ let
   inherit (builtins) attrNames attrValues hasAttr length head elemAt;
 
 in {
-  options.router2 = {
-    enable = mkEnableOption "Modern router service";
+  options.router6 = {
+    enable = mkEnableOption "IPv6-ready router service";
 
     topology = mkOption {
       description = "Network topology definition";
