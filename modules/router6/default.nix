@@ -367,9 +367,8 @@ in {
             type = types.bool;
             default = true;
             description = ''
-              Use DNS servers from DHCP (WAN) lease as fallback.
-              This is more privacy-friendly than hardcoded public DNS.
-              Falls back to ISP-provided DNS when primary is unavailable.
+              Use DNS servers from DHCP (WAN) lease as fallback
+              when primary upstream servers are unavailable.
             '';
           };
 
