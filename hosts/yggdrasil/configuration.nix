@@ -38,7 +38,8 @@
     enable = true;
 
     dns = {
-      upstream = [ "10.0.10.2" ]; # alfheim
+      upstream = [ "10.0.10.2" ];           # alfheim (primary - has local hostnames)
+      fallback = [ "1.1.1.1" "8.8.8.8" ];   # public DNS (fallback when alfheim is down)
       localDomain = "local";
     };
 
