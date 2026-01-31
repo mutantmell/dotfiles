@@ -15,15 +15,30 @@ let
   # Helper to flatten topology into a list of all network interfaces
   flattenTopology = let
     flattenInterface = name: iface:
-      [{ inherit name; inherit (iface) network; isVlan = false; parent = null; }]
+      [{ inherit name; inherit (iface) network; isVlan = false; parent = null; isBridge = false; }]
       ++ (lib.mapAttrsToList (vlanName: vlan: {
         name = vlanName;
-        inherit (vlan) network;
+        # If VLAN is bridged, it has no network config (the bridge has it)
+        network = if vlan.bridge or null != null
+                  then { type = "disabled"; }
+                  else vlan.network;
         isVlan = true;
         parent = name;
         tag = vlan.tag;
+        bridge = vlan.bridge or null;
+        isBridge = false;
       }) (iface.vlans or {}));
-  in lib.flatten (lib.mapAttrsToList flattenInterface cfg.topology);
+    # Include bridges in the flattened list
+    bridgeInterfaces = lib.mapAttrsToList (name: bridge: {
+      inherit name;
+      inherit (bridge) network;
+      isVlan = false;
+      parent = null;
+      isBridge = true;
+      # Use vlanTag for IPv6 auto-generation (bridges act like VLANs for this purpose)
+      tag = bridge.vlanTag or null;
+    }) (cfg.bridges or {});
+  in lib.flatten (lib.mapAttrsToList flattenInterface cfg.topology) ++ bridgeInterfaces;
 
   # Get all interfaces matching a predicate
   interfacesWhere = pred: map (i: i.name) (filter pred flattenTopology);
@@ -224,6 +239,18 @@ in {
                   type = types.int;
                   description = "VLAN ID (1-4094)";
                 };
+                bridge = mkOption {
+                  type = types.nullOr types.str;
+                  default = null;
+                  description = ''
+                    Bridge to add this VLAN to. When set, the VLAN interface
+                    will be added to the specified bridge and will not have
+                    its own IP configuration (the bridge gets the IP config).
+                    Use this to bond VLANs from different parent interfaces
+                    (e.g., physical + batman) into a single Layer 2 network.
+                  '';
+                  example = "brMGMT";
+                };
                 network = mkOption {
                   # Same as parent network option
                   type = types.submodule {
@@ -357,6 +384,91 @@ in {
           };
         };
       }));
+    };
+
+    bridges = mkOption {
+      description = ''
+        Bridge definitions for combining VLANs from different parent interfaces.
+        VLANs that specify bridge = "brName" will be added to that bridge.
+        The bridge gets the IP configuration; bridged VLANs have no IP.
+      '';
+      default = {};
+      type = types.attrsOf (types.submodule {
+        options = {
+          vlanTag = mkOption {
+            type = types.nullOr types.int;
+            default = null;
+            description = ''
+              VLAN tag for IPv6 auto-generation. When set and dhcp6 is enabled,
+              an IPv6 address will be auto-generated from the ULA prefix using
+              this VLAN tag, just like for regular VLANs.
+            '';
+            example = 10;
+          };
+          network = mkOption {
+            type = types.submodule {
+              options = {
+                type = mkOption {
+                  type = types.enum ["disabled" "static"];
+                  default = "static";
+                };
+                addresses = mkOption {
+                  type = types.listOf types.str;
+                  default = [];
+                  description = "Static IPv4/IPv6 addresses in CIDR notation";
+                };
+                trust = mkOption {
+                  type = types.nullOr (types.enum [
+                    "external" "management" "trusted" "untrusted" "isolated"
+                  ]);
+                  default = null;
+                };
+                nat = mkOption {
+                  type = types.submodule {
+                    options.enable = mkEnableOption "NAT";
+                  };
+                  default = {};
+                };
+                dhcp = mkOption {
+                  type = types.submodule {
+                    options = {
+                      enable = mkEnableOption "DHCP server";
+                      poolStart = mkOption { type = types.nullOr types.str; default = null; };
+                      poolEnd = mkOption { type = types.nullOr types.str; default = null; };
+                      reservations = mkOption {
+                        type = types.listOf (types.submodule {
+                          options = {
+                            mac = mkOption { type = types.str; };
+                            ip = mkOption { type = types.str; };
+                            hostname = mkOption { type = types.nullOr types.str; default = null; };
+                          };
+                        });
+                        default = [];
+                      };
+                    };
+                  };
+                  default = {};
+                };
+                dhcp6 = mkOption {
+                  type = types.submodule {
+                    options = {
+                      enable = mkEnableOption "DHCPv6/RA";
+                      mode = mkOption {
+                        type = types.enum ["slaac" "stateful" "stateless"];
+                        default = "slaac";
+                      };
+                    };
+                  };
+                  default = {};
+                };
+                mtu = mkOption { type = types.nullOr types.int; default = null; };
+                required = mkOption { type = types.bool; default = true; };
+              };
+            };
+            default = {};
+          };
+        };
+      });
     };
 
     dns = mkOption {
@@ -493,8 +605,10 @@ in {
       let
         explicit = iface.network.addresses or [];
         hasExplicitV6 = lib.any (a: lib.hasInfix ":" a) explicit;
-        # Auto-generate IPv6 for VLANs with dhcp6 enabled if no explicit IPv6
-        autoV6 = if !hasExplicitV6 && (iface.isVlan or false) && (iface.tag or null) != null
+        # Auto-generate IPv6 for VLANs or bridges with a tag, if dhcp6 enabled and no explicit IPv6
+        hasTag = (iface.tag or null) != null;
+        isVlanOrBridge = (iface.isVlan or false) || (iface.isBridge or false);
+        autoV6 = if !hasExplicitV6 && isVlanOrBridge && hasTag
                     && (iface.network.dhcp6.enable or false)
                  then mkAutoIPv6 iface.tag
                  else null;
@@ -649,7 +763,15 @@ in {
           } else null
         ) cfg.topology);
 
-      in vlanDevs // batmanDevs // wgDevs;
+        # Bridge netdevs
+        bridgeDevs = mapAttrs (name: bridge: {
+          netdevConfig = {
+            Name = name;
+            Kind = "bridge";
+          };
+        }) (cfg.bridges or {});
+
+      in vlanDevs // batmanDevs // wgDevs // bridgeDevs;
     }
 
     # ============================
@@ -738,12 +860,29 @@ in {
         vlanNetworks = concatMapAttrs (parentName: parent:
           mapAttrs (vlanName: vlan: let
             ifaceData = lib.findFirst (i: i.name == vlanName) null flattenTopology;
+            isBridged = vlan.bridge or null != null;
           in
-            mkNetworkConfig vlanName vlan.network ifaceData
+            if isBridged then {
+              # Bridged VLAN: join the bridge, no IP config
+              matchConfig.Name = vlanName;
+              networkConfig = {
+                Bridge = vlan.bridge;
+              };
+              linkConfig.RequiredForOnline = "no";
+            } else
+              # Non-bridged VLAN: normal config
+              mkNetworkConfig vlanName vlan.network ifaceData
           ) (parent.vlans or {})
         ) cfg.topology;
 
-      in mainNetworks // vlanNetworks;
+        # Bridge networks
+        bridgeNetworks = mapAttrs (name: bridge: let
+          ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
+        in
+          mkNetworkConfig name bridge.network ifaceData
+        ) (cfg.bridges or {});
+
+      in mainNetworks // vlanNetworks // bridgeNetworks;
     }
 
     # ===================
@@ -1167,7 +1306,33 @@ in {
       ] ++ (mapAttrsToList (name: iface: {
         assertion = !(iface.wireguard.openFirewall or false) || (iface.wireguard.port or null) != null;
         message = "Wireguard interface ${name}: openFirewall requires port to be set";
-      }) (filterAttrs (n: v: v.wireguard != null) cfg.topology));
+      }) (filterAttrs (n: v: v.wireguard != null) cfg.topology))
+      # Bridge assertions: ensure all referenced bridges are defined
+      ++ (let
+        # Collect all bridge references from VLANs
+        vlanBridgeRefs = flatten (mapAttrsToList (parentName: parent:
+          mapAttrsToList (vlanName: vlan:
+            if vlan.bridge or null != null then { inherit vlanName; bridge = vlan.bridge; } else null
+          ) (parent.vlans or {})
+        ) cfg.topology);
+        definedBridges = attrNames (cfg.bridges or {});
+      in filter (x: x != null) (map (ref:
+        if ref != null && !(elem ref.bridge definedBridges) then {
+          assertion = false;
+          message = "VLAN ${ref.vlanName} references undefined bridge '${ref.bridge}'. Define it in router6.bridges.";
+        } else null
+      ) vlanBridgeRefs))
+      # Ensure each bridge has at least one VLAN member
+      ++ (let
+        bridgeMembers = bridge: filter (i: (i.bridge or null) == bridge) (
+          flatten (mapAttrsToList (parentName: parent:
+            mapAttrsToList (vlanName: vlan: { name = vlanName; bridge = vlan.bridge or null; }) (parent.vlans or {})
+          ) cfg.topology)
+        );
+      in mapAttrsToList (name: bridge: {
+        assertion = (bridgeMembers name) != [];
+        message = "Bridge '${name}' has no VLAN members. Add VLANs with bridge = \"${name}\".";
+      }) (cfg.bridges or {}));
     }
   ]);
 }
