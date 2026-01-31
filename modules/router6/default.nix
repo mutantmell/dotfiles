@@ -57,6 +57,17 @@ in {
   options.router6 = {
     enable = mkEnableOption "IPv6-ready router service";
 
+    ulaPrefix = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = ''
+        ULA /48 prefix for internal IPv6 addressing.
+        When set, IPv6 addresses are automatically generated for VLANs
+        based on their VLAN tag (e.g., VLAN 10 -> prefix:a::/64).
+      '';
+      example = "fdc6:55f2:0a5e::/48";
+    };
+
     topology = mkOption {
       description = "Network topology definition";
       default = {};
@@ -463,6 +474,35 @@ in {
       let v4 = filter (a: !(lib.hasInfix ":" a)) addrs;
       in if v4 == [] then null else head v4;
 
+    # Get first IPv6 address from a list
+    firstIPv6 = addrs:
+      let v6 = filter (a: lib.hasInfix ":" a) addrs;
+      in if v6 == [] then null else head v6;
+
+    # Generate IPv6 address from ULA prefix and VLAN tag
+    mkAutoIPv6 = vlanTag:
+      if cfg.ulaPrefix != null then
+        let
+          basePrefix = lib.removeSuffix "::/48" cfg.ulaPrefix;
+          vlanHex = lib.toLower (lib.toHexString vlanTag);
+        in "${basePrefix}:${vlanHex}::1/64"
+      else null;
+
+    # Get effective addresses including auto-generated IPv6
+    getEffectiveAddresses = iface:
+      let
+        explicit = iface.network.addresses or [];
+        hasExplicitV6 = lib.any (a: lib.hasInfix ":" a) explicit;
+        # Auto-generate IPv6 for VLANs with dhcp6 enabled if no explicit IPv6
+        autoV6 = if !hasExplicitV6 && (iface.isVlan or false) && (iface.tag or null) != null
+                    && (iface.network.dhcp6.enable or false)
+                 then mkAutoIPv6 iface.tag
+                 else null;
+      in explicit ++ (optional (autoV6 != null) autoV6);
+
+    # Interfaces that have dhcp6/RA enabled
+    dhcp6Interfaces = filter (i: i.network.dhcp6.enable or false) flattenTopology;
+
     # Build Kea subnet4 config for an interface
     mkKeaSubnet4 = iface: let
       addr = firstIPv4 iface.network.addresses;
@@ -617,7 +657,14 @@ in {
     # ============================
     {
       systemd.network.networks = let
-        mkNetworkConfig = iface: network: {
+        mkNetworkConfig = iface: network: ifaceData: let
+          # Get effective addresses (including auto-generated IPv6)
+          effectiveAddrs = if ifaceData != null then getEffectiveAddresses ifaceData else network.addresses or [];
+          # Check if this interface should send Router Advertisements
+          shouldSendRA = (network.dhcp6.enable or false) && network.type == "static";
+          # Get IPv6 addresses for RA prefix configuration
+          v6Addrs = filter (a: lib.hasInfix ":" a) effectiveAddrs;
+        in {
           matchConfig.Name = iface;
 
           networkConfig = {
@@ -629,12 +676,15 @@ in {
               else "ipv6";
           } // optionalAttrs (network.type == "dhcp" && network.defaultRoute) {
             DefaultRouteOnDevice = true;
-          } // optionalAttrs (network.type == "static" && length network.addresses > 0) {
-            Address = network.addresses;
+          } // optionalAttrs (network.type == "static" && length effectiveAddrs > 0) {
+            Address = effectiveAddrs;
           } // optionalAttrs (network.gateway != null) {
             Gateway = network.gateway;
           } // optionalAttrs (length (network.dns or []) > 0) {
             DNS = network.dns;
+          } // optionalAttrs shouldSendRA {
+            # Enable Router Advertisement on interfaces with dhcp6 enabled
+            IPv6SendRA = true;
           };
 
           linkConfig = {
@@ -642,11 +692,39 @@ in {
           } // optionalAttrs (network.mtu != null) {
             MTUBytes = toString network.mtu;
           };
+        } // optionalAttrs (shouldSendRA && v6Addrs != []) {
+          # IPv6 Router Advertisement configuration
+          ipv6SendRAConfig = {
+            # SLAAC mode: M=0 (no managed addresses), O=0 (no other config from DHCPv6)
+            # Clients will auto-configure addresses from the advertised prefix
+            Managed = false;
+            OtherInformation = false;
+            RouterLifetimeSec = 1800;
+            # Advertise DNS server (the router itself)
+            EmitDNS = true;
+            DNS = "_link_local";
+          };
+
+          # Advertise the IPv6 prefix for SLAAC
+          ipv6Prefixes = map (addr: let
+            parsed = parseCIDR addr;
+            # Extract the network prefix (e.g., fdc6:55f2:0a5e:a::1/64 -> fdc6:55f2:0a5e:a::/64)
+            ipParts = lib.splitString "::" parsed.ip;
+            networkPrefix = "${head ipParts}::/${toString parsed.prefix}";
+          in {
+            ipv6PrefixConfig = {
+              Prefix = networkPrefix;
+              PreferredLifetimeSec = 3600;
+              ValidLifetimeSec = 7200;
+            };
+          }) v6Addrs;
         };
 
         # Physical/main interface networks
-        mainNetworks = mapAttrs (name: iface:
-          (mkNetworkConfig name iface.network) // {
+        mainNetworks = mapAttrs (name: iface: let
+          ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
+        in
+          (mkNetworkConfig name iface.network ifaceData) // {
             # Add VLAN references
             vlan = attrNames (iface.vlans or {});
           } // optionalAttrs (iface.batmanDevice != null) {
@@ -656,8 +734,10 @@ in {
 
         # VLAN networks
         vlanNetworks = concatMapAttrs (parentName: parent:
-          mapAttrs (vlanName: vlan:
-            mkNetworkConfig vlanName vlan.network
+          mapAttrs (vlanName: vlan: let
+            ifaceData = lib.findFirst (i: i.name == vlanName) null flattenTopology;
+          in
+            mkNetworkConfig vlanName vlan.network ifaceData
           ) (parent.vlans or {})
         ) cfg.topology;
 
@@ -711,11 +791,15 @@ in {
         listenPlain = [
           "127.0.0.1:53"
           "[::1]:53"
-        ] ++ (filter (x: x != null) (map (iface:
+        ] ++ (flatten (map (iface:
           let
-            addrs = (lib.findFirst (i: i.name == iface) null flattenTopology).network.addresses or [];
+            ifaceData = lib.findFirst (i: i.name == iface) null flattenTopology;
+            addrs = if ifaceData != null then getEffectiveAddresses ifaceData else [];
             v4 = firstIPv4 addrs;
-          in if v4 != null then "${(parseCIDR v4).ip}:53" else null
+            v6 = firstIPv6 addrs;
+          in
+            (optional (v4 != null) "${(parseCIDR v4).ip}:53")
+            ++ (optional (v6 != null) "[${(parseCIDR v6).ip}]:53")
         ) (trustedInterfaces ++ interfacesWithTrust "untrusted")));
 
         extraConfig = let
@@ -1037,6 +1121,8 @@ in {
             }
           }
 
+          # IPv6 NAT table (empty - no NAT66 needed for internal-only IPv6)
+          # ULA addresses are used for internal IPv6 communication only
           table ip6 nat {
             chain prerouting {
               type nat hook prerouting priority dstnat;
@@ -1044,11 +1130,6 @@ in {
 
             chain postrouting {
               type nat hook postrouting priority srcnat;
-
-              ${optionalString (natInterfaces != []) ''
-              # IPv6 masquerade (if needed)
-              oifname ${natIfaces} masquerade
-              ''}
             }
           }
         '';
