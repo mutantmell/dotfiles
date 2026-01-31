@@ -92,26 +92,11 @@
           mtu = 1536;
         };
         vlans = {
-          "vMGMT.lan" = {
-            tag = 10;  # -> fdc6:55f2:0a5e:a::1/64
-            network = {
-              type = "static";
-              addresses = [ "10.0.10.1/24" ];
-              trust = "management";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
-          "vHOME.lan" = {
-            tag = 20;  # -> fdc6:55f2:0a5e:14::1/64
-            network = {
-              type = "static";
-              addresses = [ "10.0.20.1/24" ];
-              trust = "trusted";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
+          # Bridged VLANs - network config is on the bridge
+          "vMGMT.lan" = { tag = 10; bridge = "brMGMT"; };
+          "vHOME.lan" = { tag = 20; bridge = "brHOME"; };
+
+          # LAN-only VLANs (no batman counterpart)
           "vADU.lan" = {
             tag = 31;  # -> fdc6:55f2:0a5e:1f::1/64
             network = {
@@ -155,31 +140,16 @@
           required = false;
         };
         vlans = {
-          "vMGMT.bat0" = {
-            tag = 10;  # -> fdc6:55f2:0a5e:a::1/64 (shared with vMGMT.lan)
-            network = {
-              type = "static";
-              addresses = [ "10.1.10.1/24" ];
-              trust = "management";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
-          "vHOME.bat0" = {
-            tag = 20;  # -> fdc6:55f2:0a5e:14::1/64 (shared with vHOME.lan)
-            network = {
-              type = "static";
-              addresses = [ "10.1.20.1/24" ];
-              trust = "trusted";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
+          # Bridged VLANs - network config is on the bridge
+          "vMGMT.bat0" = { tag = 10; bridge = "brMGMT"; };
+          "vHOME.bat0" = { tag = 20; bridge = "brHOME"; };
+
+          # Batman-only VLANs (no physical counterpart)
           "vGUEST.bat0" = {
             tag = 30;  # -> fdc6:55f2:0a5e:1e::1/64
             network = {
               type = "static";
-              addresses = [ "10.1.30.1/24" ];
+              addresses = [ "10.0.30.1/24" ];
               trust = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -189,7 +159,7 @@
             tag = 40;  # -> fdc6:55f2:0a5e:28::1/64
             network = {
               type = "static";
-              addresses = [ "10.1.40.1/24" ];
+              addresses = [ "10.0.40.1/24" ];
               trust = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -199,7 +169,7 @@
             tag = 41;  # -> fdc6:55f2:0a5e:29::1/64
             network = {
               type = "static";
-              addresses = [ "10.1.41.1/24" ];
+              addresses = [ "10.0.41.1/24" ];
               trust = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -288,6 +258,30 @@
             endpoint = "helveticastandard.com:58156";
             persistentKeepalive = 25;
           }];
+        };
+      };
+    };
+
+    # Bridges combining physical and batman VLANs into unified networks
+    bridges = {
+      brMGMT = {
+        vlanTag = 10;  # -> fdc6:55f2:0a5e:a::1/64
+        network = {
+          type = "static";
+          addresses = [ "10.0.10.1/24" ];
+          trust = "management";
+          dhcp.enable = true;
+          dhcp6.enable = true;
+        };
+      };
+      brHOME = {
+        vlanTag = 20;  # -> fdc6:55f2:0a5e:14::1/64
+        network = {
+          type = "static";
+          addresses = [ "10.0.20.1/24" ];
+          trust = "trusted";
+          dhcp.enable = true;
+          dhcp6.enable = true;
         };
       };
     };
