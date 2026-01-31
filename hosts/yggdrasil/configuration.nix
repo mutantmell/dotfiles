@@ -82,47 +82,20 @@
         };
       };
 
-      # LAN interface with VLANs
+      # LAN interface - bonded with opt1
       lan = {
         mac = "00:e0:67:1b:70:35";
-        batmanDevice = "bat0";
+        bondDevice = "bond0";
         network = {
           type = "disabled";
           required = false;
-          mtu = 1536;
-        };
-        vlans = {
-          # Bridged VLANs - network config is on the bridge
-          "vMGMT.lan" = { tag = 10; bridge = "brMGMT"; };
-          "vHOME.lan" = { tag = 20; bridge = "brHOME"; };
-
-          # LAN-only VLANs (no batman counterpart)
-          "vADU.lan" = {
-            tag = 31;  # -> fdc6:55f2:0a5e:1f::1/64
-            network = {
-              type = "static";
-              addresses = [ "10.0.31.1/24" ];
-              trust = "untrusted";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
-          "vDMZ.lan" = {
-            tag = 100;  # -> fdc6:55f2:0a5e:64::1/64
-            network = {
-              type = "static";
-              addresses = [ "10.0.100.1/24" ];
-              trust = "untrusted";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
         };
       };
 
-      # Spare interface
+      # Second LAN interface - bonded with lan
       opt1 = {
         mac = "00:e0:67:1b:70:36";
+        bondDevice = "bond0";
         network = {
           type = "disabled";
           required = false;
@@ -282,6 +255,48 @@
           trust = "trusted";
           dhcp.enable = true;
           dhcp6.enable = true;
+        };
+      };
+    };
+
+    # Bond combining lan + opt1 for increased bandwidth (LACP)
+    bonds = {
+      bond0 = {
+        mode = "802.3ad";
+        lacpTransmitRate = "fast";
+        miiMonitorSec = "100ms";
+        batmanDevice = "bat0";
+        network = {
+          type = "disabled";
+          mtu = 1536;
+          required = false;
+        };
+        vlans = {
+          # Bridged VLANs - network config is on the bridge
+          "vMGMT.bond0" = { tag = 10; bridge = "brMGMT"; };
+          "vHOME.bond0" = { tag = 20; bridge = "brHOME"; };
+
+          # Bond-only VLANs (no batman counterpart needed now)
+          "vADU.bond0" = {
+            tag = 31;  # -> fdc6:55f2:0a5e:1f::1/64
+            network = {
+              type = "static";
+              addresses = [ "10.0.31.1/24" ];
+              trust = "untrusted";
+              dhcp.enable = true;
+              dhcp6.enable = true;
+            };
+          };
+          "vDMZ.bond0" = {
+            tag = 100;  # -> fdc6:55f2:0a5e:64::1/64
+            network = {
+              type = "static";
+              addresses = [ "10.0.100.1/24" ];
+              trust = "untrusted";
+              dhcp.enable = true;
+              dhcp6.enable = true;
+            };
+          };
         };
       };
     };
