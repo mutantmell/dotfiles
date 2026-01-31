@@ -41,6 +41,10 @@
       }
     ];
     topology = {
+      wan = {
+        device = "00:e0:67:1b:70:34";
+        network = { type = "dhcp"; nat.enable = true; route = "default"; trust = "external"; };
+      };
       "enp0s13f0u3u1" = {
         network = { type = "disabled"; required = false; };
         vlans = {
