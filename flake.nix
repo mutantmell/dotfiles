@@ -152,7 +152,7 @@
     } {
       yggdrasil = {
         imports = [
-          self.nixosModules.router
+          self.nixosModules.router6
           ./hosts/yggdrasil/configuration.nix
         ];
         tags = [ "mgmt" "infra" "router" ];
@@ -160,7 +160,7 @@
 
       vanaheim = {
         imports = [
-          self.nixosModules.router2
+          self.nixosModules.router6
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
           impermanence.nixosModules.impermanence
