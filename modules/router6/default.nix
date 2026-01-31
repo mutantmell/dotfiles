@@ -1033,9 +1033,22 @@ in {
               # Accept loopback
               iifname "lo" accept
 
-              # Accept ICMP/ICMPv6 (ping, etc)
-              ip protocol icmp accept
-              ip6 nexthdr icmpv6 accept
+              # Accept essential ICMP/ICMPv6 from anywhere (required for network operation)
+              # - destination-unreachable: connection handling
+              # - packet-too-big (v6) / frag-needed (v4): Path MTU Discovery (critical)
+              # - time-exceeded: traceroute, TTL expiry
+              # - parameter-problem: malformed packet notification
+              icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+              icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
+
+              # Accept Neighbor Discovery (required for IPv6 to function - like ARP for IPv4)
+              icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+
+              ${optionalString (internalInterfaces != []) ''
+              # Accept echo (ping) only from internal networks (stealth mode for external)
+              iifname ${intIfaces} icmp type { echo-request, echo-reply } accept
+              iifname ${intIfaces} icmpv6 type { echo-request, echo-reply } accept
+              ''}
 
               ${optionalString (trustedInterfaces != []) ''
               # Trusted networks can access all router services
