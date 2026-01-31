@@ -353,14 +353,24 @@ in {
         options = {
           upstream = mkOption {
             type = types.listOf types.str;
-            default = ["1.1.1.1" "8.8.8.8"];
-            description = "Primary upstream DNS servers (queried in parallel)";
+            default = [];
+            description = "Primary upstream DNS servers";
           };
 
           fallback = mkOption {
             type = types.listOf types.str;
-            default = ["1.1.1.1" "8.8.8.8"];
-            description = "Fallback DNS servers used when primary is unavailable";
+            default = [];
+            description = "Static fallback DNS servers (used if useDHCPFallback is false)";
+          };
+
+          useDHCPFallback = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Use DNS servers from DHCP (WAN) lease as fallback.
+              This is more privacy-friendly than hardcoded public DNS.
+              Falls back to ISP-provided DNS when primary is unavailable.
+            '';
           };
 
           localDomain = mkOption {
@@ -711,14 +721,15 @@ in {
 
         extraConfig = let
           primaryServers = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.upstream);
-          fallbackServers = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.fallback);
-          hasFallback = cfg.dns.fallback != [] && cfg.dns.fallback != cfg.dns.upstream;
+          staticFallback = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.fallback);
+          hasStaticFallback = cfg.dns.fallback != [] && cfg.dns.fallback != cfg.dns.upstream;
+          hasPrimary = cfg.dns.upstream != [];
+          useDHCP = cfg.dns.useDHCPFallback;
         in ''
           modules.load('policy')
 
-          ${optionalString hasFallback ''
+          ${optionalString (hasPrimary && (useDHCP || hasStaticFallback)) ''
           -- Primary DNS with fallback support
-          -- Track primary server health
           local primary_failures = 0
           local last_primary_success = os.time()
           local primary_down = false
@@ -726,7 +737,36 @@ in {
           local PRIMARY_RETRY = 30         -- seconds before retrying primary
 
           local primary = policy.FORWARD({${primaryServers}})
-          local fallback = policy.FORWARD({${fallbackServers}})
+
+          -- Read DHCP-provided DNS servers from lease file
+          local function get_dhcp_dns()
+            local servers = {}
+            local f = io.open('/run/kresd/dhcp-dns', 'r')
+            if f then
+              for line in f:lines() do
+                local ip = line:match('^%s*(.-)%s*$')  -- trim whitespace
+                if ip and ip ~= "" then
+                  table.insert(servers, ip)
+                end
+              end
+              f:close()
+            end
+            return servers
+          end
+
+          local function get_fallback()
+            ${if useDHCP then ''
+            local dhcp_servers = get_dhcp_dns()
+            if #dhcp_servers > 0 then
+              return policy.FORWARD(dhcp_servers)
+            end
+            '' else ""}
+            ${if hasStaticFallback then ''
+            return policy.FORWARD({${staticFallback}})
+            '' else ''
+            return nil
+            ''}
+          end
 
           policy.add(function(state, req)
             -- If primary is marked down, check if we should retry
@@ -735,7 +775,8 @@ in {
                 primary_down = false
                 primary_failures = 0
               else
-                return fallback(state, req)
+                local fb = get_fallback()
+                if fb then return fb(state, req) end
               end
             end
 
@@ -751,14 +792,40 @@ in {
                 primary_down = true
                 log('[dns] Primary DNS unavailable, switching to fallback')
               end
-              return fallback(state, req)
+              local fb = get_fallback()
+              if fb then return fb(state, req) end
             end
           end)
           ''}
 
-          ${optionalString (!hasFallback) ''
-          -- Upstream DNS servers (no separate fallback configured)
+          ${optionalString (hasPrimary && !useDHCP && !hasStaticFallback) ''
+          -- Upstream DNS servers (no fallback configured)
           policy.add(policy.all(policy.FORWARD({${primaryServers}})))
+          ''}
+
+          ${optionalString (!hasPrimary && useDHCP) ''
+          -- Use DHCP-provided DNS only
+          local function get_dhcp_dns()
+            local servers = {}
+            local f = io.open('/run/kresd/dhcp-dns', 'r')
+            if f then
+              for line in f:lines() do
+                local ip = line:match('^%s*(.-)%s*$')
+                if ip and ip ~= "" then
+                  table.insert(servers, ip)
+                end
+              end
+              f:close()
+            end
+            return servers
+          end
+
+          policy.add(function(state, req)
+            local servers = get_dhcp_dns()
+            if #servers > 0 then
+              return policy.FORWARD(servers)(state, req)
+            end
+          end)
           ''}
 
           ${optionalString (cfg.dns.localDomain != null) ''
@@ -776,6 +843,61 @@ in {
           -- Cache size (helps during outages)
           cache.size = 100 * MB
         '';
+      };
+
+      # Create directory for DHCP DNS file
+      systemd.tmpfiles.rules = [
+        "d /run/kresd 0755 knot-resolver knot-resolver -"
+      ];
+
+      # Service to extract DNS from DHCP lease and write to kresd-readable file
+      systemd.services.kresd-dhcp-dns = mkIf cfg.dns.useDHCPFallback {
+        description = "Extract DNS servers from DHCP lease for kresd";
+        after = [ "systemd-networkd.service" ];
+        wantedBy = [ "multi-user.target" ];
+
+        # Run when network changes
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = let
+            script = pkgs.writeShellScript "kresd-dhcp-dns" ''
+              set -euo pipefail
+              mkdir -p /run/kresd
+              : > /run/kresd/dhcp-dns.tmp
+
+              # Look for lease files from DHCP interfaces
+              for lease in /run/systemd/netif/leases/*; do
+                [ -f "$lease" ] || continue
+                # Extract DNS servers from lease
+                ${pkgs.gnugrep}/bin/grep -E '^DNS=' "$lease" 2>/dev/null | \
+                  ${pkgs.coreutils}/bin/cut -d= -f2 | \
+                  ${pkgs.coreutils}/bin/tr ' ' '\n' >> /run/kresd/dhcp-dns.tmp || true
+              done
+
+              # Deduplicate and move to final location
+              ${pkgs.coreutils}/bin/sort -u /run/kresd/dhcp-dns.tmp > /run/kresd/dhcp-dns
+              rm -f /run/kresd/dhcp-dns.tmp
+
+              # Log what we found
+              if [ -s /run/kresd/dhcp-dns ]; then
+                echo "DHCP DNS servers: $(${pkgs.coreutils}/bin/tr '\n' ' ' < /run/kresd/dhcp-dns)"
+              else
+                echo "No DHCP DNS servers found"
+              fi
+            '';
+          in "${script}";
+        };
+      };
+
+      # Trigger DNS extraction when network changes
+      systemd.paths.kresd-dhcp-dns = mkIf cfg.dns.useDHCPFallback {
+        description = "Watch for DHCP lease changes";
+        wantedBy = [ "multi-user.target" ];
+        pathConfig = {
+          PathChanged = "/run/systemd/netif/leases";
+          Unit = "kresd-dhcp-dns.service";
+        };
       };
     }
 
