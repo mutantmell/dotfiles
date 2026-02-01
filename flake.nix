@@ -56,25 +56,14 @@
       };
     });
 
-    packages = forAllSystems ({ pkgs, system, ... }: {
+    packages = forAllSystems ({ pkgs, ... }: {
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
       };
       mk-volume = import packages/mk-volume.nix {
         inherit (pkgs) writeShellScriptBin;
       };
-    } // (if system == "x86_64-linux" then let
-      # Helper to build container image package
-      mkContainerImage = name: config: pkgs.runCommand "${name}-image" {} ''
-        mkdir -p $out
-        ln -s ${config.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
-        ln -s ${config.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
-      '';
-    in {
-      # Incus container images (only for x86_64-linux)
-      # Available in configs as pkgs.mmell.surtr-image via overlay
-      surtr-image = mkContainerImage "surtr" self.nixosConfigurations.surtr-image;
-    } else {}));
+    });
 
     # NixOS integration tests
     checks = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
@@ -98,6 +87,22 @@
         mmell = (prev.mmell or {}) // {
           lib = self.lib.common // { builders = { inherit (self.lib) mk-microvm; }; };
         };
+      };
+      containerImages = final: prev: {
+        mmell = (prev.mmell or {}) // (
+          if prev.system == "x86_64-linux" then let
+            # Helper to build container image package from nixosConfiguration
+            mkContainerImage = name: config: final.runCommand "${name}-image" {} ''
+              mkdir -p $out
+              ln -s ${config.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
+              ln -s ${config.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
+            '';
+          in {
+            # Incus container images
+            # Built directly from nixosConfigurations to avoid circular dependencies
+            surtr-image = mkContainerImage "surtr" self.nixosConfigurations.surtr-image;
+          } else {}
+        );
       };
     };
 
