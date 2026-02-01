@@ -55,8 +55,7 @@
     containers = {
       # surtr container (migrated from microVM)
       surtr = {
-        image = "surtr";  # Image alias
-        imagePackage = pkgs.mmell.surtr-image;  # From overlay
+        configurationFile = ./containers/surtr/configuration.nix;
         autoUpdate = true;
         profile = "dev";
         network = "incusbr20";
