@@ -7,10 +7,10 @@
 # host configuration changes, minimizing disruption to running processes.
 #
 # Design principles:
+# - Fully declarative (instances auto-created on activation)
 # - Image/instance separation (images are templates, instances are persistent)
-# - Auto-update on host rebuild (configurable per container)
+# - Auto-update on host rebuild (configurable per-container)
 # - Minimal disruption (only changed services restart)
-# - Fully declarative container definitions
 
 let
   cfg = config.incus-manager;
@@ -20,20 +20,56 @@ let
     concatStringsSep flatten filter elem literalExpression;
   inherit (builtins) attrNames attrValues hasAttr length toString;
 
+  # Helper to build instance creation/update script
+  mkInstanceScript = name: containerCfg: pkgs.writeShellScript "incus-ensure-${name}" ''
+    set -e
+
+    CONTAINER="${name}"
+    IMAGE_ALIAS="${containerCfg.image}"
+    PROFILE="${optionalString (containerCfg.profile != null) containerCfg.profile}"
+    NETWORK="${optionalString (containerCfg.network != null) containerCfg.network}"
+
+    # Import image if it doesn't exist
+    if ! ${pkgs.incus}/bin/incus image list --format=csv -c l | grep -q "^$IMAGE_ALIAS$"; then
+      echo "  Importing image: $IMAGE_ALIAS"
+      ${pkgs.incus}/bin/incus image import \
+        ${containerCfg.imagePackage}/metadata.tar.xz \
+        ${containerCfg.imagePackage}/rootfs.tar.xz \
+        --alias "$IMAGE_ALIAS"
+    fi
+
+    # Create instance if it doesn't exist
+    if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$CONTAINER$"; then
+      echo "  Creating instance: $CONTAINER"
+      ${pkgs.incus}/bin/incus init "$IMAGE_ALIAS" "$CONTAINER" \
+        ${optionalString (containerCfg.profile != null) "--profile ${containerCfg.profile}"}
+
+      ${optionalString (containerCfg.network != null) ''
+      # Add network device if specified
+      ${pkgs.incus}/bin/incus config device add "$CONTAINER" eth0 nic \
+        network="${containerCfg.network}" \
+        name=eth0 || true
+      ''}
+    fi
+
+    # Start instance if autoStart is enabled and not running
+    ${optionalString containerCfg.autoStart ''
+    if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$CONTAINER,RUNNING"; then
+      echo "  Starting instance: $CONTAINER"
+      ${pkgs.incus}/bin/incus start "$CONTAINER"
+    fi
+    ''}
+  '';
+
   # Helper to build container update script
   mkUpdateScript = name: containerCfg: pkgs.writeShellScript "update-incus-container-${name}" ''
     set -e
 
     CONTAINER="${name}"
-    FLAKE_REF="${containerCfg.flakeRef}"
-
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Updating container: $CONTAINER"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     # Check if container exists
     if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$CONTAINER$"; then
-      echo "  ⚠ Container $CONTAINER does not exist (will be created on first launch)"
+      echo "  ⚠ Container $CONTAINER does not exist (skipping update)"
       exit 0
     fi
 
@@ -44,14 +80,31 @@ let
     fi
 
     # Run nixos-rebuild switch inside container
-    echo "  Running nixos-rebuild switch in container..."
+    echo "  Updating container: $CONTAINER"
     if ${pkgs.incus}/bin/incus exec "$CONTAINER" -- \
-      nixos-rebuild switch --flake "$FLAKE_REF" 2>&1 | sed 's/^/    /'; then
+      nixos-rebuild switch 2>&1 | sed 's/^/    /'; then
       echo "  ✓ Container $CONTAINER updated successfully"
     else
       echo "  ✗ Failed to update container $CONTAINER"
       exit 1
     fi
+  '';
+
+  # Script to ensure all instances exist
+  ensureInstancesScript = pkgs.writeShellScript "incus-ensure-instances" ''
+    set -e
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Ensuring Incus instances exist..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    ${concatStringsSep "\n    " (mapAttrsToList (name: containerCfg:
+      "${mkInstanceScript name containerCfg} || echo '  ⚠ Failed to ensure ${name}, continuing...'"
+    ) cfg.containers)}
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✓ Instance check complete"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   '';
 
   # Build script to update all managed containers
@@ -77,16 +130,6 @@ let
 in {
   options.incus-manager = {
     enable = mkEnableOption "Incus container management with auto-updates";
-
-    flakeUrl = mkOption {
-      type = types.str;
-      default = "git+file:///etc/nixos";
-      description = ''
-        Default flake URL for container configurations.
-        Can be overridden per-container.
-      '';
-      example = "github:user/dotfiles";
-    };
 
     storage = mkOption {
       type = types.submodule {
@@ -190,11 +233,6 @@ in {
                   type = "disk";
                   size = "100GB";
                 };
-                eth0 = {
-                  name = "eth0";
-                  network = "incusbr20";
-                  type = "nic";
-                };
               }
             '';
           };
@@ -210,10 +248,19 @@ in {
           image = mkOption {
             type = types.str;
             description = ''
-              Container image reference. This should match a nixosConfiguration
-              output in your flake that builds a container image.
+              Image alias to use for this container.
+              The image will be auto-imported from imagePackage.
             '';
-            example = "devbox-image";
+            example = "surtr";
+          };
+
+          imagePackage = mkOption {
+            type = types.package;
+            description = ''
+              Package containing the container image (metadata.tar.xz and rootfs.tar.xz).
+              Typically from pkgs.mmell.<container-name>-image.
+            '';
+            example = literalExpression "pkgs.mmell.surtr-image";
           };
 
           autoUpdate = mkOption {
@@ -224,16 +271,6 @@ in {
               When enabled, runs nixos-rebuild switch inside the container
               during host activation.
             '';
-          };
-
-          flakeRef = mkOption {
-            type = types.str;
-            default = "${cfg.flakeUrl}#${name}";
-            description = ''
-              Flake reference for this container's configuration.
-              Used by nixos-rebuild inside the container.
-            '';
-            example = "github:user/dotfiles#container-name";
           };
 
           profile = mkOption {
@@ -260,8 +297,7 @@ in {
       default = {};
       description = ''
         Declarative container definitions.
-        Note: Containers must be created manually with `incus launch`.
-        This module manages their configuration and updates.
+        Containers are automatically created, started, and updated.
       '';
     };
   };
@@ -315,6 +351,15 @@ in {
       };
     };
 
+    # Ensure instances exist and are started on system activation
+    system.activationScripts.incusEnsureInstances = lib.mkIf (cfg.containers != {}) {
+      text = ''
+        # Ensure all instances exist and are started
+        ${ensureInstancesScript}
+      '';
+      deps = [ "incus" ];
+    };
+
     # Auto-update containers on system activation
     # This runs in the background to avoid blocking activation
     system.activationScripts.updateIncusContainers = lib.mkIf (cfg.containers != {}) {
@@ -322,7 +367,7 @@ in {
         # Launch container updates in background
         (${updateAllScript} &) || true
       '';
-      deps = [];
+      deps = [ "incusEnsureInstances" ];
     };
 
     # Systemd service for manual container updates
@@ -370,6 +415,10 @@ in {
             exit 1
             ;;
         esac
+      '')
+      (pkgs.writeScriptBin "incus-ensure-instances" ''
+        #!${pkgs.bash}/bin/bash
+        exec ${ensureInstancesScript}
       '')
     ];
 

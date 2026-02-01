@@ -5,10 +5,6 @@
   incus-manager = {
     enable = true;
 
-    # Flake URL for container configurations
-    flakeUrl = "git+file:///etc/nixos";  # Local flake
-    # Or use: flakeUrl = "github:mutantmell/dotfiles";  # Remote flake
-
     # Storage configuration
     storage = {
       driver = "zfs";
@@ -51,13 +47,6 @@
             type = "disk";
             size = "50GB";
           };
-
-          # Network interface
-          eth0 = {
-            name = "eth0";
-            network = "incusbr20";
-            type = "nic";
-          };
         };
       };
     };
@@ -66,16 +55,12 @@
     containers = {
       # surtr container (migrated from microVM)
       surtr = {
-        image = "surtr-image";
+        image = "surtr";  # Image alias
+        imagePackage = pkgs.mmell.surtr-image;  # From overlay
         autoUpdate = true;
         profile = "dev";
         network = "incusbr20";
         autoStart = true;
-
-        # Flake reference for this container's nixos configuration
-        # This is what gets passed to `nixos-rebuild switch` inside the container
-        flakeRef = "git+file:///etc/nixos#surtr-image";
-        # Or remote: flakeRef = "github:mutantmell/dotfiles#surtr-image";
       };
     };
   };
