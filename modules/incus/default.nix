@@ -17,8 +17,15 @@ let
 
   inherit (lib) mkOption mkEnableOption types mkIf mkMerge optional optionals
     mapAttrs mapAttrsToList filterAttrs concatMapAttrs optionalAttrs optionalString
-    concatStringsSep flatten filter elem literalExpression;
+    concatStringsSep flatten filter elem literalExpression nixosSystem;
   inherit (builtins) attrNames attrValues hasAttr length toString;
+
+  # Helper to build container image from NixOS configuration
+  mkContainerImage = name: containerSystem: pkgs.runCommand "${name}-image" {} ''
+    mkdir -p $out
+    ln -s ${containerSystem.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
+    ln -s ${containerSystem.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
+  '';
 
   # Helper to build instance creation/update script
   mkInstanceScript = name: containerCfg: pkgs.writeShellScript "incus-ensure-${name}" ''
@@ -243,22 +250,45 @@ in {
     };
 
     containers = mkOption {
-      type = types.attrsOf (types.submodule ({ name, ... }: {
+      type = types.attrsOf (types.submodule ({ name, config, ... }: {
         options = {
+          configurationFile = mkOption {
+            type = types.nullOr types.path;
+            default = null;
+            description = ''
+              Path to NixOS configuration file for this container.
+              When set, the container image will be built automatically.
+              Mutually exclusive with setting imagePackage explicitly.
+            '';
+            example = literalExpression "./containers/surtr/configuration.nix";
+          };
+
           image = mkOption {
             type = types.str;
+            default = name;
             description = ''
               Image alias to use for this container.
-              The image will be auto-imported from imagePackage.
+              Defaults to the container name.
             '';
             example = "surtr";
           };
 
           imagePackage = mkOption {
             type = types.package;
+            default =
+              if config.configurationFile != null
+              then mkContainerImage name (nixosSystem {
+                system = "x86_64-linux";
+                modules = [
+                  config.configurationFile
+                  "${pkgs.path}/nixos/modules/virtualisation/lxc-container.nix"
+                ];
+              })
+              else throw "Container ${name}: Either configurationFile or imagePackage must be set";
+            defaultText = literalExpression "Built from configurationFile";
             description = ''
               Package containing the container image (metadata.tar.xz and rootfs.tar.xz).
-              Typically from pkgs.mmell.<container-name>-image.
+              Can be provided directly or built automatically from configurationFile.
             '';
             example = literalExpression "pkgs.mmell.surtr-image";
           };

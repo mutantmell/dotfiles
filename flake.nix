@@ -88,22 +88,6 @@
           lib = self.lib.common // { builders = { inherit (self.lib) mk-microvm; }; };
         };
       };
-      containerImages = final: prev: {
-        mmell = (prev.mmell or {}) // (
-          if prev.system == "x86_64-linux" then let
-            # Helper to build container image package from nixosConfiguration
-            mkContainerImage = name: config: final.runCommand "${name}-image" {} ''
-              mkdir -p $out
-              ln -s ${config.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
-              ln -s ${config.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
-            '';
-          in {
-            # Incus container images
-            # Built directly from nixosConfigurations to avoid circular dependencies
-            surtr-image = mkContainerImage "surtr" self.nixosConfigurations.surtr-image;
-          } else {}
-        );
-      };
     };
 
     lib = {
@@ -280,16 +264,6 @@
         system = "x86_64-linux";
         modules = [
           ./hosts/svartalfheim/configuration.nix
-        ];
-      };
-
-      # Incus container images
-      surtr-image = self.lib.mk-nixos {
-        inherit nixpkgs;
-        system = "x86_64-linux";
-        modules = [
-          home-manager.nixosModules.home-manager
-          ./containers/surtr/configuration.nix
         ];
       };
     };
