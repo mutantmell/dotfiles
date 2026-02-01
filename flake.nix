@@ -56,14 +56,32 @@
       };
     });
 
-    packages = forAllSystems ({ pkgs, ... }: {
+    packages = forAllSystems ({ pkgs, system, ... }: {
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
       };
       mk-volume = import packages/mk-volume.nix {
         inherit (pkgs) writeShellScriptBin;
       };
-    });
+    } // (if system == "x86_64-linux" then let
+      # Helper to build container image package
+      mkContainerImage = name: config: {
+        metadata = config.config.system.build.metadata;
+        tarball = config.config.system.build.tarball;
+
+        # Combined package for easy importing
+        combined = pkgs.runCommand "${name}-combined" {} ''
+          mkdir -p $out
+          ln -s ${config.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
+          ln -s ${config.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
+        '';
+      };
+    in {
+      # Container images (only for x86_64-linux)
+      surtr-image = (mkContainerImage "surtr" self.nixosConfigurations.surtr-image).combined;
+      surtr-image-metadata = (mkContainerImage "surtr" self.nixosConfigurations.surtr-image).metadata;
+      surtr-image-tarball = (mkContainerImage "surtr" self.nixosConfigurations.surtr-image).tarball;
+    } else {}));
 
     # NixOS integration tests
     checks = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
@@ -189,9 +207,10 @@
           microvm.nixosModules.host
           impermanence.nixosModules.impermanence
           home-manager.nixosModules.home-manager
+          self.nixosModules.incus
           ./hosts/muspelheim/configuration.nix
         ];
-        tags = [ "host" ]; 
+        tags = [ "host" ];
       };
 
       matrix = {
@@ -254,6 +273,7 @@
           impermanence.nixosModules.impermanence
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
+          self.nixosModules.incus
           ./hosts/muspelheim/configuration.nix
         ];
       };
@@ -262,6 +282,16 @@
         system = "x86_64-linux";
         modules = [
           ./hosts/svartalfheim/configuration.nix
+        ];
+      };
+
+      # Incus container images
+      surtr-image = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          home-manager.nixosModules.home-manager
+          ./containers/surtr/configuration.nix
         ];
       };
     };
