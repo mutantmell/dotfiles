@@ -65,22 +65,15 @@
       };
     } // (if system == "x86_64-linux" then let
       # Helper to build container image package
-      mkContainerImage = name: config: {
-        metadata = config.config.system.build.metadata;
-        tarball = config.config.system.build.tarball;
-
-        # Combined package for easy importing
-        combined = pkgs.runCommand "${name}-combined" {} ''
-          mkdir -p $out
-          ln -s ${config.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
-          ln -s ${config.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
-        '';
-      };
+      mkContainerImage = name: config: pkgs.runCommand "${name}-image" {} ''
+        mkdir -p $out
+        ln -s ${config.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
+        ln -s ${config.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
+      '';
     in {
-      # Container images (only for x86_64-linux)
-      surtr-image = (mkContainerImage "surtr" self.nixosConfigurations.surtr-image).combined;
-      surtr-image-metadata = (mkContainerImage "surtr" self.nixosConfigurations.surtr-image).metadata;
-      surtr-image-tarball = (mkContainerImage "surtr" self.nixosConfigurations.surtr-image).tarball;
+      # Incus container images (only for x86_64-linux)
+      # Available in configs as pkgs.mmell.surtr-image via overlay
+      surtr-image = mkContainerImage "surtr" self.nixosConfigurations.surtr-image;
     } else {}));
 
     # NixOS integration tests
