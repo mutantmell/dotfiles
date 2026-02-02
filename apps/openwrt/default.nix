@@ -2,11 +2,141 @@
 #
 # Usage:
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
+#   nix run .#openwrt-configure-secrets -- <device-ip>
 #   nix run .#openwrt-profiles -- | grep -i <device>
 #   nix run .#openwrt-show-config -- <device-name>
+#
+# Secrets file format (hosts/openwrt/secrets/wifi.yaml):
+#   mesh_key: "your-mesh-password"
+#   wifi_keys:
+#     main: "main-network-password"
+#     guest: "guest-network-password"
+#     iot: "iot-network-password"
 { pkgs }:
 
-{
+let
+  # Script to configure secrets on an OpenWrt device via SSH
+  # Reads from sops-encrypted hosts/openwrt/secrets/wifi.yaml
+  configureSecretsScript = pkgs.writeShellScript "openwrt-configure-secrets" ''
+    set -euo pipefail
+
+    TARGET="$1"
+    REPO_ROOT="''${2:-$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")}"
+
+    if [ -z "$TARGET" ]; then
+      echo "Usage: openwrt-configure-secrets <device-ip> [repo-root]"
+      exit 1
+    fi
+
+    if [ -z "$REPO_ROOT" ]; then
+      echo "Error: Could not find repository root. Please specify it as the second argument."
+      exit 1
+    fi
+
+    SECRETS_FILE="$REPO_ROOT/hosts/openwrt/secrets/wifi.yaml"
+
+    if [ ! -f "$SECRETS_FILE" ]; then
+      echo "No secrets file found at $SECRETS_FILE"
+      echo "Skipping secrets configuration."
+      echo ""
+      echo "To create one, run:"
+      echo "  sops $SECRETS_FILE"
+      echo ""
+      echo "Expected format:"
+      echo "  mesh_key: \"your-mesh-password\""
+      echo "  wifi_keys:"
+      echo "    main: \"main-network-password\""
+      echo "    guest: \"guest-network-password\""
+      exit 0
+    fi
+
+    echo "Decrypting secrets..."
+    SECRETS=$(${pkgs.sops}/bin/sops -d "$SECRETS_FILE")
+
+    # Extract values using yq
+    MESH_KEY=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '.mesh_key // empty')
+    WIFI_MAIN=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '.wifi_keys.main // empty')
+    WIFI_GUEST=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '.wifi_keys.guest // empty')
+    WIFI_IOT=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '.wifi_keys.iot // empty')
+
+    echo "Configuring secrets on $TARGET..."
+
+    # Build UCI commands
+    UCI_COMMANDS=""
+
+    # Configure mesh key on all mesh interfaces
+    if [ -n "$MESH_KEY" ]; then
+      echo "  - Setting mesh key..."
+      UCI_COMMANDS="$UCI_COMMANDS
+    for i in \$(uci show wireless | grep \"mode='mesh'\" | cut -d. -f2); do
+      uci set wireless.\$i.encryption='sae'
+      uci set wireless.\$i.key='$MESH_KEY'
+    done"
+    fi
+
+    # Configure wifi keys by SSID pattern matching
+    if [ -n "$WIFI_MAIN" ]; then
+      echo "  - Setting main network key..."
+      UCI_COMMANDS="$UCI_COMMANDS
+    for i in \$(uci show wireless | grep -E \"ssid='.*(Network|Home).*'\" | grep -v Guest | grep -v IoT | cut -d. -f2); do
+      uci set wireless.\$i.key='$WIFI_MAIN'
+    done"
+    fi
+
+    if [ -n "$WIFI_GUEST" ]; then
+      echo "  - Setting guest network key..."
+      UCI_COMMANDS="$UCI_COMMANDS
+    for i in \$(uci show wireless | grep -i \"ssid='.*guest.*'\" | cut -d. -f2); do
+      uci set wireless.\$i.key='$WIFI_GUEST'
+    done"
+    fi
+
+    if [ -n "$WIFI_IOT" ]; then
+      echo "  - Setting IoT network key..."
+      UCI_COMMANDS="$UCI_COMMANDS
+    for i in \$(uci show wireless | grep -i \"ssid='.*iot.*'\" | cut -d. -f2); do
+      uci set wireless.\$i.key='$WIFI_IOT'
+    done"
+    fi
+
+    if [ -z "$UCI_COMMANDS" ]; then
+      echo "No secrets to configure."
+      exit 0
+    fi
+
+    # Apply configuration
+    ${pkgs.openssh}/bin/ssh "root@$TARGET" "
+    $UCI_COMMANDS
+    uci commit wireless
+    wifi reload
+    "
+
+    echo "Secrets configured successfully."
+  '';
+
+  # Script to wait for device to come back online
+  waitForDeviceScript = pkgs.writeShellScript "wait-for-device" ''
+    TARGET="$1"
+    MAX_WAIT="''${2:-180}"
+
+    echo "Waiting for $TARGET to come back online (max ''${MAX_WAIT}s)..."
+
+    elapsed=0
+    while [ $elapsed -lt $MAX_WAIT ]; do
+      if ${pkgs.openssh}/bin/ssh -o ConnectTimeout=5 -o BatchMode=yes "root@$TARGET" "echo ok" >/dev/null 2>&1; then
+        echo "Device is online."
+        exit 0
+      fi
+      sleep 5
+      elapsed=$((elapsed + 5))
+      echo "  Still waiting... (''${elapsed}s)"
+    done
+
+    echo "Timeout waiting for device."
+    exit 1
+  '';
+
+in {
   # Deploy an OpenWrt image to a device via sysupgrade
   openwrt-deploy = {
     type = "app";
@@ -15,14 +145,15 @@
         set -euo pipefail
 
         if [ $# -lt 2 ]; then
-          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force]"
+          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--skip-secrets]"
           echo ""
           echo "Deploys an OpenWrt sysupgrade image to the specified device."
           echo ""
           echo "Arguments:"
-          echo "  device-name  Name of the device (as defined in hosts/openwrt/)"
-          echo "  device-ip    IP address or hostname of the device"
-          echo "  --force      Skip confirmation prompt"
+          echo "  device-name    Name of the device (as defined in hosts/openwrt/)"
+          echo "  device-ip      IP address or hostname of the device"
+          echo "  --force        Skip confirmation prompt"
+          echo "  --skip-secrets Skip secrets configuration after flash"
           echo ""
           echo "Example:"
           echo "  nix run .#openwrt-deploy -- fenrir 10.0.10.10"
@@ -31,7 +162,23 @@
 
         DEVICE="$1"
         TARGET="$2"
-        FORCE="''${3:-}"
+        shift 2
+
+        FORCE=""
+        SKIP_SECRETS=""
+        for arg in "$@"; do
+          case "$arg" in
+            --force) FORCE="1" ;;
+            --skip-secrets) SKIP_SECRETS="1" ;;
+          esac
+        done
+
+        # Find repo root
+        REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
+        if [ -z "$REPO_ROOT" ]; then
+          echo "Warning: Could not find repository root. Secrets will not be configured."
+          SKIP_SECRETS="1"
+        fi
 
         # Build the image
         echo "Building image for $DEVICE..."
@@ -55,7 +202,7 @@
         echo "Target: $TARGET"
         echo ""
 
-        if [ "$FORCE" != "--force" ]; then
+        if [ -z "$FORCE" ]; then
           read -p "Deploy to $TARGET? This will reboot the device. [y/N] " -n 1 -r
           echo
           if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -72,7 +219,53 @@
 
         echo ""
         echo "Upgrade initiated. Device is rebooting."
-        echo "Wait ~2-3 minutes, then verify connectivity."
+
+        if [ -z "$SKIP_SECRETS" ]; then
+          echo ""
+          ${waitForDeviceScript} "$TARGET" 180
+
+          echo ""
+          ${configureSecretsScript} "$TARGET" "$REPO_ROOT"
+        else
+          echo "Skipping secrets configuration (--skip-secrets specified)."
+          echo "Wait ~2-3 minutes, then verify connectivity."
+        fi
+
+        echo ""
+        echo "Deployment complete."
+      '';
+    in "${script}";
+  };
+
+  # Configure secrets on an already-deployed device
+  openwrt-configure-secrets = {
+    type = "app";
+    program = let
+      script = pkgs.writeShellScript "openwrt-configure-secrets-wrapper" ''
+        set -euo pipefail
+
+        if [ $# -lt 1 ]; then
+          echo "Usage: nix run .#openwrt-configure-secrets -- <device-ip>"
+          echo ""
+          echo "Configures wifi/mesh secrets on an OpenWrt device."
+          echo "Secrets are read from hosts/openwrt/secrets/wifi.yaml (sops-encrypted)."
+          echo ""
+          echo "To create the secrets file:"
+          echo "  sops hosts/openwrt/secrets/wifi.yaml"
+          echo ""
+          echo "Expected format:"
+          echo "  mesh_key: \"your-mesh-password\""
+          echo "  wifi_keys:"
+          echo "    main: \"main-network-password\""
+          echo "    guest: \"guest-network-password\""
+          echo "    iot: \"iot-network-password\""
+          exit 1
+        fi
+
+        TARGET="$1"
+        REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
+
+        ${configureSecretsScript} "$TARGET" "$REPO_ROOT"
       '';
     in "${script}";
   };
