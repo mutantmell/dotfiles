@@ -33,6 +33,7 @@
   };
   networking.extraHosts = ''
     10.0.10.2 alfheim.local
+    10.0.20.30 gridr.local
     10.0.100.50 bragi.local
   '';
 

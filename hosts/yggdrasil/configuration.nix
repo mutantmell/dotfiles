@@ -6,6 +6,7 @@
       ./hardware-configuration.nix
       ./impermanence.nix
       ./sops.nix
+      ./microvm.nix
     ];
 
   boot.loader.grub.enable = true;
@@ -42,8 +43,8 @@
     ulaPrefix = "fdc6:55f2:0a5e::/48";
 
     dns = {
-      upstream = [ "10.0.10.2" ];  # alfheim (primary - has local hostnames)
-      useDHCPFallback = true;      # fall back to ISP DNS when alfheim is down
+      upstream = [ "10.0.10.2" ];  # alfheim microVM (primary - has local hostnames)
+      useDHCPFallback = true;      # fall back to ISP DNS when alfheim microVM is down
       localDomain = "local";
     };
 
@@ -302,11 +303,24 @@
     };
   };
 
+  # Bridge microVM tap interfaces into the management network
+  # The vm-10-alfheim tap interface is created by microvm and needs to be bridged to brMGMT
+  systemd.network.networks."10-vm-mgmt" = {
+    matchConfig.Name = "vm-10-*";
+    networkConfig = {
+      Bridge = "brMGMT";
+      DHCP = "no";
+      LinkLocalAddressing = "no";
+    };
+    linkConfig.RequiredForOnline = "no";
+  };
+
   networking.extraHosts = ''
     10.0.10.1 yggdrasil
     10.0.10.1 yggdrasil.local
     10.0.10.2 alfheim
     10.0.10.2 alfheim.local
+    10.0.20.30 gridr.local
     10.0.100.40 surtr.local
     10.0.100.50 bragi.local
     10.0.100.51 njord.local
