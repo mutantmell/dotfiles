@@ -50,10 +50,10 @@
 
     firewall = {
       # Forward from DMZ to wg-ba
-      extraForwardRules = ''
-        iifname "vDMZ.lan" oifname "wg-ba" accept
-        iifname "wg-ba" ip daddr 10.0.100.40 accept
-      '';
+      extraForwardRules = [
+        { iifname = "vDMZ.bond0"; oifname = "wg-ba"; verdict = "accept"; }
+        { iifname = "wg-ba"; ip.daddr = "10.0.100.40"; verdict = "accept"; }
+      ];
 
       # Port forward SSH from wg-ba to surtr
       portForwards = [
@@ -65,10 +65,26 @@
         }
       ];
 
-      extraNatRules = ''
-        oifname "wg-ba" masquerade
-        iifname "wg-ba" ip daddr 10.0.100.40 masquerade
-      '';
+      extraNatRules = [
+        # Wireguard BA tunnel masquerading
+        { oifname = "wg-ba"; masquerade = true; }
+        { iifname = "wg-ba"; ip.daddr = "10.0.100.40"; masquerade = true; }
+
+        # DNS interception - redirect bypass attempts to router's DNS
+        # This catches devices (e.g., Google/Nest) that ignore DHCP-provided DNS
+        {
+          ip.daddr = { not = [ "10.0.10.1" "10.0.10.2" ]; };
+          udp.dport = 53;
+          verdict = { dnat = "10.0.10.1:53"; };
+          comment = "Intercept DNS bypass (UDP)";
+        }
+        {
+          ip.daddr = { not = [ "10.0.10.1" "10.0.10.2" ]; };
+          tcp.dport = 53;
+          verdict = { dnat = "10.0.10.1:53"; };
+          comment = "Intercept DNS bypass (TCP)";
+        }
+      ];
     };
 
     topology = {
