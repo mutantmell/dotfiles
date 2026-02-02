@@ -114,6 +114,17 @@ in {
   # =============================================================================
   # Template: Uncomment and modify for your devices
   # =============================================================================
+  #
+  # Default packages (minimal + debug tools, no LuCI):
+  #   kmod-batman-adv, batctl-full, wpad-mesh-openssl, kmod-8021q, htop, tcpdump
+  #
+  # To add LuCI web interface:
+  #   extraPackages = openwrt.packages.luciPackages;
+  #
+  # For truly minimal (no debug tools):
+  #   extraPackages = []; and set packages = openwrt.packages.minimalMeshPackages
+  #
+  # =============================================================================
 
   # <device-name> = mkMeshAP {
   #   hostname = "<device-name>";

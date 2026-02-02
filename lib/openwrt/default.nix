@@ -10,33 +10,45 @@
 let
   uci = import ./uci.nix { inherit lib; };
 
-  # Default packages for a mesh AP
-  defaultMeshPackages = [
-    # Remove default packages we don't need
-    "-dnsmasq"
-    "-odhcpd-ipv6only"
-    "-ppp"
+  # Packages to remove from default OpenWrt image
+  removeDefaultPackages = [
+    "-dnsmasq"          # We don't run DHCP on mesh APs
+    "-odhcpd-ipv6only"  # No DHCP
+    "-ppp"              # No PPPoE
     "-ppp-mod-pppoe"
-    "-firewall4"
+    "-firewall4"        # Mesh APs don't need firewall
     "-nftables"
+    "-wpad-basic-mbedtls"  # Replaced by mesh-capable wpad
+  ];
 
+  # Minimal packages required for batman-adv mesh AP
+  # This is the smallest functional set for declarative management via SSH
+  minimalMeshPackages = removeDefaultPackages ++ [
     # batman-adv mesh networking
     "kmod-batman-adv"
     "batctl-full"
 
-    # Wireless mesh support
+    # Wireless mesh support (openssl variant supports mesh + WPA3)
     "wpad-mesh-openssl"
-    "-wpad-basic-mbedtls"
 
-    # VLAN support
+    # VLAN support for network segmentation
     "kmod-8021q"
+  ];
 
-    # Useful utilities
+  # Additional packages for web UI management
+  luciPackages = [
     "luci"
     "luci-proto-batman-adv"
+  ];
+
+  # Debugging/monitoring tools (optional)
+  debugPackages = [
     "htop"
     "tcpdump"
   ];
+
+  # Default: minimal + debug tools (no LuCI)
+  defaultMeshPackages = minimalMeshPackages ++ debugPackages;
 
   # Generate network configuration for a mesh AP
   mkMeshNetworkConfig = { hostname, meshId, routingAlgo ? "BATMAN_V", vlans ? {}, lanAddress ? null }:
@@ -318,6 +330,16 @@ let
 in {
   # Re-export UCI library
   inherit uci;
+
+  # Package sets (for customization)
+  packages = {
+    inherit
+      removeDefaultPackages
+      minimalMeshPackages
+      luciPackages
+      debugPackages
+      defaultMeshPackages;
+  };
 
   # High-level API
   inherit
