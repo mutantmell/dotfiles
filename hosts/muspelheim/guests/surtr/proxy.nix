@@ -4,7 +4,7 @@
     networking.firewall.allowedTCPPorts = [ 80 443 ];
     security.acme = {
       defaults = {
-        server = "https://alfheim.local/acme/acme/directory";
+        server = "https://gridr.local/acme/acme/directory";
         email = "malaguy@gmail.com";
       };
       acceptTerms = true;
@@ -73,7 +73,7 @@
       
       extraConfig = {
         "provider-display-name" = "Keycloak";
-        "oidc-issuer-url" = "https://alfheim.local/auth/realms/external";
+        "oidc-issuer-url" = "https://gridr.local/auth/realms/external";
         "set-authorization-header" = true;
         "skip-jwt-bearer-tokens" = true;
       };

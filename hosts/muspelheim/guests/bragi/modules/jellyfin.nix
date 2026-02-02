@@ -115,11 +115,11 @@
     };
   };
   networking.extraHosts = ''
-    10.0.10.2 alfheim.local
+    10.0.20.30 gridr.local
   '';
   security.acme = {
     defaults = {
-      server = "https://alfheim.local/acme/acme/directory"; # TODO: change to new server once that's all working
+      server = "https://gridr.local/acme/acme/directory";
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;
