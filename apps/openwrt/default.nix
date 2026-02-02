@@ -339,12 +339,9 @@ in {
           echo "Useful for migrating existing devices to the declarative system."
           echo ""
           echo "Output includes:"
-          echo "  - Full UCI export (uci-export.txt)"
-          echo "  - Network config (network.txt)"
-          echo "  - Wireless config (wireless.txt) - keys redacted"
-          echo "  - System config (system.txt)"
-          echo "  - Installed packages (packages.txt)"
-          echo "  - Device info (device-info.txt)"
+          echo "  - uci-show.txt     - Full UCI config (keys redacted)"
+          echo "  - packages.txt     - Installed packages"
+          echo "  - device-info.txt  - Board, model, version info"
           exit 1
         fi
 
@@ -370,28 +367,10 @@ in {
           uname -a
         " > "$OUTPUT_DIR/device-info.txt"
 
-        # Full UCI export
+        # Full UCI config (redact keys)
         echo "  - Full UCI config..."
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci export" > "$OUTPUT_DIR/uci-export.txt"
-
-        # Network config
-        echo "  - Network config..."
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show network" > "$OUTPUT_DIR/network.txt"
-
-        # Wireless config (redact keys)
-        echo "  - Wireless config (keys redacted)..."
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show wireless" | \
-          ${pkgs.gnused}/bin/sed "s/\(\.key='\)[^']*'/\1[REDACTED]'/g" > "$OUTPUT_DIR/wireless.txt"
-
-        # System config
-        echo "  - System config..."
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show system" > "$OUTPUT_DIR/system.txt"
-
-        # batman-adv config if present
-        if ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show batman-adv" >/dev/null 2>&1; then
-          echo "  - Batman-adv config..."
-          ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show batman-adv" > "$OUTPUT_DIR/batman-adv.txt"
-        fi
+        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show" | \
+          ${pkgs.gnused}/bin/sed "s/\(\.key='\)[^']*'/\1[REDACTED]'/g" > "$OUTPUT_DIR/uci-show.txt"
 
         # Installed packages
         echo "  - Installed packages..."
