@@ -12,6 +12,12 @@
 let
   cfg = config.router6;
 
+  # nftables DSL library for structured rule generation
+  nft = import ../../lib/nftables.nix { inherit lib; };
+
+  # Type for nftables rules: either a raw string or a structured attribute set
+  nftRuleType = lib.types.either lib.types.str lib.types.attrs;
+
   # Helper to flatten topology into a list of all network interfaces
   flattenTopology = let
     flattenInterface = name: iface:
@@ -708,21 +714,35 @@ in {
       type = types.submodule {
         options = {
           extraInputRules = mkOption {
-            type = types.lines;
-            default = "";
-            description = "Extra nftables rules for input chain";
+            type = types.listOf nftRuleType;
+            default = [];
+            description = ''
+              Extra nftables rules for input chain.
+              Each rule can be either a raw string or a structured attribute set.
+              Example:
+                [
+                  { iifname = "eth0"; tcp.dport = 22; verdict = "accept"; }
+                  "udp dport 5000 accept"  # raw string escape hatch
+                ]
+            '';
           };
 
           extraForwardRules = mkOption {
-            type = types.lines;
-            default = "";
-            description = "Extra nftables rules for forward chain";
+            type = types.listOf nftRuleType;
+            default = [];
+            description = ''
+              Extra nftables rules for forward chain.
+              Each rule can be either a raw string or a structured attribute set.
+            '';
           };
 
           extraNatRules = mkOption {
-            type = types.lines;
-            default = "";
-            description = "Extra nftables rules for NAT";
+            type = types.listOf nftRuleType;
+            default = [];
+            description = ''
+              Extra nftables rules for NAT prerouting chain.
+              Each rule can be either a raw string or a structured attribute set.
+            '';
           };
 
           portForwards = mkOption {
@@ -1476,7 +1496,10 @@ in {
               udp dport { ${concatStringsSep ", " (map toString wgPorts)} } accept
               ''}
 
-              ${cfg.firewall.extraInputRules}
+              ${optionalString (cfg.firewall.extraInputRules != []) ''
+              # Extra input rules
+              ${nft.rulesToStringIndented "              " cfg.firewall.extraInputRules}
+              ''}
 
               ${optionalString (externalInterfaces != []) ''
               # Drop everything else from external
@@ -1511,7 +1534,10 @@ in {
               ${forwardDnatRules}
               ''}
 
-              ${cfg.firewall.extraForwardRules}
+              ${optionalString (cfg.firewall.extraForwardRules != []) ''
+              # Extra forward rules
+              ${nft.rulesToStringIndented "              " cfg.firewall.extraForwardRules}
+              ''}
 
               # Log and drop anything else
               # log prefix "FORWARD DROP: " drop
@@ -1531,7 +1557,10 @@ in {
               ${dnatRules}
               ''}
 
-              ${cfg.firewall.extraNatRules}
+              ${optionalString (cfg.firewall.extraNatRules != []) ''
+              # Extra NAT rules
+              ${nft.rulesToStringIndented "              " cfg.firewall.extraNatRules}
+              ''}
             }
 
             chain postrouting {
