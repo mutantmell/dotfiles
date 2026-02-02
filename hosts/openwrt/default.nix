@@ -3,11 +3,18 @@
 # Each device is defined with its hardware profile, network settings,
 # and mesh configuration. Images are built using nix-openwrt-imagebuilder.
 #
+# SECRETS: Wifi/mesh passwords are NOT included in images (would expose them
+# in nix store). Instead, secrets are configured post-deployment via SSH.
+# Create hosts/openwrt/secrets/wifi.yaml with: sops hosts/openwrt/secrets/wifi.yaml
+#
 # Build an image:
 #   nix build .#openwrtImages.<device-name>
 #
-# Deploy to device:
+# Deploy to device (includes secrets configuration):
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
+#
+# Configure secrets on existing device:
+#   nix run .#openwrt-configure-secrets -- <device-ip>
 { lib, pkgs, openwrt }:
 
 let
@@ -15,10 +22,9 @@ let
   data = import ../../lib/common/data;
 
   # Shared mesh configuration matching yggdrasil's batman-adv setup
+  # Note: meshKey is intentionally omitted - configured via secrets post-deployment
   meshConfig = {
     meshId = "mmell-mesh";
-    # meshKey should be provided via secrets, not committed
-    # For initial setup, use null (open mesh) then configure via UCI
   };
 
   # VLANs matching yggdrasil's configuration
@@ -37,21 +43,22 @@ let
   ];
 
   # Common AP networks (can be overridden per-device)
+  # Note: Keys are intentionally omitted - configured via secrets post-deployment
+  # The deploy script matches networks by SSID pattern to apply keys
   defaultAPNetworks = {
-    # Main network (HOME VLAN)
+    # Main network (HOME VLAN) - key set from wifi_keys.main
     main = {
       ssid = "MyNetwork";
       network = "vlan_HOME";
       encryption = "sae-mixed";
-      # key should be provided via secrets
     };
-    # Guest network
+    # Guest network - key set from wifi_keys.guest
     guest = {
       ssid = "MyNetwork-Guest";
       network = "vlan_GUEST";
       encryption = "sae-mixed";
     };
-    # IoT network (hidden)
+    # IoT network (hidden) - key set from wifi_keys.iot
     iot = {
       ssid = "MyNetwork-IoT";
       network = "vlan_IOT";

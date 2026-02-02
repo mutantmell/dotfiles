@@ -92,3 +92,8 @@ creation_rules:
       - age:
         - *ad_skadi
         - *sv_yggdrasil
+  - path_regex: hosts/openwrt/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_skadi
+        # OpenWrt devices don't need keys - secrets are pushed via SSH at deploy time
