@@ -157,7 +157,6 @@
         nixpkgs-aarch = pkgsFor nixpkgs "aarch64-linux";
         nixpkgs-stable-x86_64 = pkgsFor nixpkgs-stable "x86_64-linux";
       in {
-        alfheim = nixpkgs-aarch;
         nidavellir = nixpkgs-aarch;
         yggdrasil = nixpkgs-stable-x86_64;
       };
@@ -165,9 +164,11 @@
       yggdrasil = {
         imports = [
           self.nixosModules.router6
+          microvm-stable.nixosModules.host
+          impermanence.nixosModules.impermanence
           ./hosts/yggdrasil/configuration.nix
         ];
-        tags = [ "mgmt" "infra" "router" ];
+        tags = [ "mgmt" "infra" "router" "dns" ];
       };
 
       vanaheim = {
@@ -179,14 +180,6 @@
           ./hosts/vanaheim/configuration.nix
         ];
         tags = [ "test" ];
-      };
-
-      alfheim = {
-        imports = [
-          nixos-hardware.nixosModules.raspberry-pi-4
-          ./hosts/alfheim/configuration.nix
-        ];
-        tags = [ "mgmt" "infra" "dns" ];
       };
 
       muspelheim = {
@@ -225,14 +218,6 @@
     };
 
     nixosConfigurations = {
-      alfheim = {
-        inherit nixpkgs;
-        system = "aarch64-linux";
-        modules = [
-          nixos-hardware.nixosModules.raspberry-pi-4
-          ./hosts/alfheim/configuration.nix
-        ];
-      };
       vanaheim = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
