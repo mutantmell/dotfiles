@@ -73,6 +73,7 @@
           # Services in DMZ
           ''"surtr.local. A 10.0.100.40"''
           ''"bragi.local. A 10.0.100.50"''
+          ''"njord.local. A 10.0.100.51"''
           ''"hrungnir.local. A 10.0.100.31"''
 
           # Home automation
@@ -81,6 +82,9 @@
           # MicroVMs on HOME network
           ''"skadi.local. A 10.0.20.40"''
           ''"ymir.local. A 10.0.20.41"''
+
+          # Test/dev hosts
+          ''"vanaheim.local. A 10.0.10.30"''
         ];
       };
       remote-control.control-enable = true;
