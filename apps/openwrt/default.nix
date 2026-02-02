@@ -1,10 +1,16 @@
 # OpenWrt management apps
 #
-# Usage:
+# Deployment:
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
 #   nix run .#openwrt-configure-secrets -- <device-ip>
+#
+# Discovery:
 #   nix run .#openwrt-profiles -- | grep -i <device>
 #   nix run .#openwrt-show-config -- <device-name>
+#
+# Migration (from existing devices):
+#   nix run .#openwrt-export-config -- <device-ip> [output-dir]
+#   nix run .#openwrt-analyze-packages -- <device-ip>
 #
 # Secrets file format (hosts/openwrt/secrets/wifi.yaml):
 #   mesh_key: "your-mesh-password"
@@ -315,6 +321,175 @@ in {
           find "$IMAGE_PATH" -name "99-nix-config" -exec cat {} \; 2>/dev/null || \
             echo "Could not find UCI defaults script"
         fi
+      '';
+    in "${script}";
+  };
+
+  # Export configuration from an existing OpenWrt device
+  openwrt-export-config = {
+    type = "app";
+    program = let
+      script = pkgs.writeShellScript "openwrt-export-config" ''
+        set -euo pipefail
+
+        if [ $# -lt 1 ]; then
+          echo "Usage: nix run .#openwrt-export-config -- <device-ip> [output-dir]"
+          echo ""
+          echo "Exports UCI configuration from an existing OpenWrt device."
+          echo "Useful for migrating existing devices to the declarative system."
+          echo ""
+          echo "Output includes:"
+          echo "  - Full UCI export (uci-export.txt)"
+          echo "  - Network config (network.txt)"
+          echo "  - Wireless config (wireless.txt) - keys redacted"
+          echo "  - System config (system.txt)"
+          echo "  - Installed packages (packages.txt)"
+          echo "  - Device info (device-info.txt)"
+          exit 1
+        fi
+
+        TARGET="$1"
+        OUTPUT_DIR="''${2:-.}"
+
+        echo "Exporting configuration from $TARGET..."
+        mkdir -p "$OUTPUT_DIR"
+
+        # Device info
+        echo "  - Device info..."
+        ${pkgs.openssh}/bin/ssh "root@$TARGET" "
+          echo '=== Board ==='
+          cat /tmp/sysinfo/board_name 2>/dev/null || echo 'unknown'
+          echo ''
+          echo '=== Model ==='
+          cat /tmp/sysinfo/model 2>/dev/null || echo 'unknown'
+          echo ''
+          echo '=== OpenWrt Version ==='
+          cat /etc/openwrt_release
+          echo ''
+          echo '=== Kernel ==='
+          uname -a
+        " > "$OUTPUT_DIR/device-info.txt"
+
+        # Full UCI export
+        echo "  - Full UCI config..."
+        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci export" > "$OUTPUT_DIR/uci-export.txt"
+
+        # Network config
+        echo "  - Network config..."
+        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show network" > "$OUTPUT_DIR/network.txt"
+
+        # Wireless config (redact keys)
+        echo "  - Wireless config (keys redacted)..."
+        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show wireless" | \
+          ${pkgs.gnused}/bin/sed "s/\(\.key='\)[^']*'/\1[REDACTED]'/g" > "$OUTPUT_DIR/wireless.txt"
+
+        # System config
+        echo "  - System config..."
+        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show system" > "$OUTPUT_DIR/system.txt"
+
+        # batman-adv config if present
+        if ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show batman-adv" >/dev/null 2>&1; then
+          echo "  - Batman-adv config..."
+          ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show batman-adv" > "$OUTPUT_DIR/batman-adv.txt"
+        fi
+
+        # Installed packages
+        echo "  - Installed packages..."
+        ${pkgs.openssh}/bin/ssh "root@$TARGET" "opkg list-installed" > "$OUTPUT_DIR/packages.txt"
+
+        echo ""
+        echo "Configuration exported to $OUTPUT_DIR/"
+        echo ""
+        echo "Files created:"
+        ls -la "$OUTPUT_DIR"/*.txt
+      '';
+    in "${script}";
+  };
+
+  # Analyze packages on an existing device to find minimal set
+  openwrt-analyze-packages = {
+    type = "app";
+    program = let
+      script = pkgs.writeShellScript "openwrt-analyze-packages" ''
+        set -euo pipefail
+
+        if [ $# -lt 1 ]; then
+          echo "Usage: nix run .#openwrt-analyze-packages -- <device-ip>"
+          echo ""
+          echo "Analyzes installed packages on an OpenWrt device to help determine"
+          echo "a minimal package set for migration."
+          echo ""
+          echo "Shows:"
+          echo "  - User-installed packages (not dependencies)"
+          echo "  - Packages related to mesh/batman-adv"
+          echo "  - Packages related to wireless"
+          echo "  - Suggested extraPackages for your Nix config"
+          exit 1
+        fi
+
+        TARGET="$1"
+
+        echo "Analyzing packages on $TARGET..."
+        echo ""
+
+        # Get all installed packages
+        PACKAGES=$(${pkgs.openssh}/bin/ssh "root@$TARGET" "opkg list-installed" | cut -d' ' -f1)
+
+        # Get user-installed packages (packages that were explicitly installed, not deps)
+        echo "=== User-Installed Packages ==="
+        echo "(These were explicitly installed, not pulled in as dependencies)"
+        echo ""
+        ${pkgs.openssh}/bin/ssh "root@$TARGET" "
+          # Packages in /usr/lib/opkg/status with 'Status: install user installed'
+          awk '/^Package:/{pkg=\$2} /^Status:.*user installed/{print pkg}' /usr/lib/opkg/status | sort
+        " || echo "(Could not determine user-installed packages)"
+        echo ""
+
+        # Mesh-related packages
+        echo "=== Mesh/Batman-adv Packages ==="
+        echo "$PACKAGES" | grep -E '(batman|mesh|batctl)' || echo "(none found)"
+        echo ""
+
+        # Wireless packages
+        echo "=== Wireless Packages ==="
+        echo "$PACKAGES" | grep -E '(wpad|hostapd|wireless|wifi|80211)' || echo "(none found)"
+        echo ""
+
+        # LuCI packages
+        echo "=== LuCI Packages ==="
+        echo "$PACKAGES" | grep -E '^luci' || echo "(none found)"
+        echo ""
+
+        # Kernel modules
+        echo "=== Kernel Modules (kmod-*) ==="
+        echo "$PACKAGES" | grep '^kmod-' | grep -v -E '(kmod-lib|kmod-crypto|kmod-nf-|kmod-ipt-)' || echo "(none found)"
+        echo ""
+
+        # Generate suggested extraPackages
+        echo "=== Suggested extraPackages for Nix config ==="
+        echo ""
+        echo "Based on analysis, consider adding these to extraPackages:"
+        echo ""
+        echo "extraPackages = ["
+
+        # User-installed that aren't in our defaults
+        ${pkgs.openssh}/bin/ssh "root@$TARGET" "
+          awk '/^Package:/{pkg=\$2} /^Status:.*user installed/{print pkg}' /usr/lib/opkg/status
+        " 2>/dev/null | while read -r pkg; do
+          # Skip packages we already include by default
+          case "$pkg" in
+            kmod-batman-adv|batctl*|wpad*|luci|luci-proto-batman-adv|htop|tcpdump|kmod-8021q)
+              continue
+              ;;
+            *)
+              echo "  \"$pkg\""
+              ;;
+          esac
+        done
+
+        echo "];"
+        echo ""
+        echo "Note: Review this list - some packages may be dependencies or device-specific."
       '';
     in "${script}";
   };
