@@ -72,13 +72,16 @@
 
         # DNS interception - redirect bypass attempts to router's DNS
         # This catches devices (e.g., Google/Nest) that ignore DHCP-provided DNS
+        # Excludes alfheim (10.0.10.2) so Unbound can make recursive queries
         {
+          ip.saddr = { not = "10.0.10.2"; };
           ip.daddr = { not = [ "10.0.10.1" "10.0.10.2" ]; };
           udp.dport = 53;
           verdict = { dnat = "10.0.10.1:53"; };
           comment = "Intercept DNS bypass (UDP)";
         }
         {
+          ip.saddr = { not = "10.0.10.2"; };
           ip.daddr = { not = [ "10.0.10.1" "10.0.10.2" ]; };
           tcp.dport = 53;
           verdict = { dnat = "10.0.10.1:53"; };
