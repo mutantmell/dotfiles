@@ -381,6 +381,9 @@ in {
       };
     };
 
+    # nftables is required for incus
+    networking.nftables.enable = true;
+
     # Ensure instances exist and are started on system activation
     system.activationScripts.incusEnsureInstances = lib.mkIf (cfg.containers != {}) {
       text = ''
