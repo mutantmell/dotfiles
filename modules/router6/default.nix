@@ -835,10 +835,13 @@ in {
       addr = firstIPv4 iface.network.addresses;
       parsed = if addr != null then parseCIDR addr else null;
       dhcpCfg = iface.network.dhcp;
+      # Use explicit null check since dhcpCfg.poolStart exists but may be null
+      poolStart = if dhcpCfg.poolStart != null then dhcpCfg.poolStart else parsed.poolStart;
+      poolEnd = if dhcpCfg.poolEnd != null then dhcpCfg.poolEnd else parsed.poolEnd;
     in if parsed == null then null else {
       subnet = "${parsed.networkAddr}/${toString parsed.prefix}";
       pools = [{
-        pool = "${dhcpCfg.poolStart or parsed.poolStart} - ${dhcpCfg.poolEnd or parsed.poolEnd}";
+        pool = "${poolStart} - ${poolEnd}";
       }];
       option-data = [
         { name = "routers"; data = parsed.gateway; }
