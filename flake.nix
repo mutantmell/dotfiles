@@ -262,13 +262,6 @@
           ./hosts/muspelheim/configuration.nix
         ];
       };
-      svartalfheim = self.lib.mk-nixos {
-        nixpkgs = nixpkgs-stable;
-        system = "x86_64-linux";
-        modules = [
-          ./hosts/svartalfheim/configuration.nix
-        ];
-      };
     };
 
     homeConfigurations = {
@@ -277,12 +270,6 @@
         system = "x86_64-linux";
         user = "mjollnir";
         langs = [ "agda" "rust" ];
-      };
-      svartalfheim = self.lib.mk-home-config {
-        inherit nixpkgs;
-        system = "x86_64-linux";
-        user = "mjollnir";
-        is-graphical = true;
       };
     };
 
