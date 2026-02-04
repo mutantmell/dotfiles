@@ -11,7 +11,11 @@
 
 let
   cfg = config.router6;
-  inherit (lib) mkOption mkEnableOption types;
+
+  inherit (lib) mkOption mkEnableOption types mkIf mkMerge optional optionals
+    mapAttrs mapAttrsToList filterAttrs concatMapAttrs optionalAttrs optionalString
+    concatStringsSep flatten filter elem;
+  inherit (builtins) attrNames attrValues hasAttr length head elemAt;
 
   # nftables DSL library for structured rule generation
   nft = import ../../lib/nftables.nix { inherit lib; };
@@ -224,11 +228,6 @@ let
 
   # Trusted interfaces (can access router services)
   trustedInterfaces = interfacesWithTrust ["management" "trusted"];
-
-  inherit (lib) mkOption mkEnableOption types mkIf mkMerge optional optionals
-    mapAttrs mapAttrsToList filterAttrs concatMapAttrs optionalAttrs optionalString
-    concatStringsSep flatten filter elem;
-  inherit (builtins) attrNames attrValues hasAttr length head elemAt;
 
 in {
   options.router6 = {
