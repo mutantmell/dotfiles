@@ -222,7 +222,7 @@
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
-          self.nixosModules.router2
+          self.nixosModules.router6
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
           impermanence.nixosModules.impermanence
