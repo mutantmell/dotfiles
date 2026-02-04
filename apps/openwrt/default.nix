@@ -356,13 +356,13 @@ in {
         ${pkgs.openssh}/bin/ssh "root@$TARGET" "
           echo '=== Board ==='
           cat /tmp/sysinfo/board_name 2>/dev/null || echo 'unknown'
-          echo ''
+          echo
           echo '=== Model ==='
           cat /tmp/sysinfo/model 2>/dev/null || echo 'unknown'
-          echo ''
+          echo
           echo '=== OpenWrt Version ==='
           cat /etc/openwrt_release
-          echo ''
+          echo
           echo '=== Kernel ==='
           uname -a
         " > "$OUTPUT_DIR/device-info.txt"
@@ -376,9 +376,9 @@ in {
         echo "  - Installed packages..."
         ${pkgs.openssh}/bin/ssh "root@$TARGET" "opkg list-installed" > "$OUTPUT_DIR/packages.txt"
 
-        echo ""
+        echo
         echo "Configuration exported to $OUTPUT_DIR/"
-        echo ""
+        echo
         echo "Files created:"
         ls -la "$OUTPUT_DIR"/*.txt
       '';
