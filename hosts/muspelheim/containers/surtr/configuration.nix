@@ -1,18 +1,16 @@
 { pkgs, config, lib, modulesPath, ... }:
 {
-  # Import LXC container module for Incus compatibility
-  imports = [
-    "${modulesPath}/virtualisation/lxc-container.nix"
-  ];
 
   # Enable flakes and nix command
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   # Networking
   networking.hostName = "surtr";
+  networking.useHostResolvConf = false;
 
   # Use systemd-networkd for network configuration
   systemd.network.enable = true;
+  services.resolved.enable = true;
   systemd.network.networks."50-eth0" = {
     matchConfig.Name = "eth0";
     networkConfig = {

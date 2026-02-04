@@ -1,6 +1,6 @@
 { pkgs, config, lib, ... }:
 {
-  microvm.hypervisor = "firecracker";
+  microvm.hypervisor = "cloud-hypervisor";
 
   microvm.shares = [{
     source = "/nix/store";
