@@ -390,7 +390,6 @@ in {
         # Ensure all instances exist and are started
         ${ensureInstancesScript}
       '';
-      deps = [ "incus" ];
     };
 
     # Auto-update containers on system activation

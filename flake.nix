@@ -164,7 +164,8 @@
       yggdrasil = {
         imports = [
           self.nixosModules.router6
-          microvm-stable.nixosModules.host
+          microvm.nixosModules.host
+          home-manager.nixosModules.home-manager
           impermanence.nixosModules.impermanence
           ./hosts/yggdrasil/configuration.nix
         ];
@@ -218,6 +219,18 @@
     };
 
     nixosConfigurations = {
+      yggdrasil = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          self.nixosModules.router6
+          microvm-stable.nixosModules.host
+          home-manager.nixosModules.home-manager
+          impermanence.nixosModules.impermanence
+          ./hosts/yggdrasil/configuration.nix
+        ];
+      };
+
       vanaheim = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
