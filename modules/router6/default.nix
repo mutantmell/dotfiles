@@ -11,9 +11,147 @@
 
 let
   cfg = config.router6;
+  inherit (lib) mkOption mkEnableOption types;
 
   # nftables DSL library for structured rule generation
   nft = import ../../lib/nftables.nix { inherit lib; };
+
+  # Shared network configuration submodule
+  # Used by topology interfaces, VLANs, bridges, and bonds
+  mkNetworkSubmodule = { allowedTypes ? ["disabled" "dhcp" "static" "pppoe"], defaultType ? "disabled" }: types.submodule {
+    options = {
+      type = mkOption {
+        type = types.enum allowedTypes;
+        default = defaultType;
+        description = ''
+          Network type:
+          - disabled: Interface exists but has no IP configuration
+          - dhcp: Get address via DHCP (typically WAN)
+          - static: Static IP address(es)
+          - pppoe: PPPoE connection (for DSL/fiber)
+        '';
+      };
+
+      addresses = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        description = "Static IPv4/IPv6 addresses in CIDR notation";
+        example = ["10.0.10.1/24" "fd00:10::1/64"];
+      };
+
+      gateway = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "Default gateway (for static WAN)";
+      };
+
+      dns = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        description = "DNS servers (for static WAN)";
+      };
+
+      trust = mkOption {
+        type = types.nullOr (types.enum [
+          "external"    # WAN - untrusted, NAT source
+          "management"  # Admin access, full router access
+          "trusted"     # Can access other internal networks
+          "untrusted"   # Internet only, isolated from other networks
+          "isolated"    # No internet, no internal access
+        ]);
+        default = null;
+        description = "Trust level for firewall rules";
+      };
+
+      nat = mkOption {
+        type = types.submodule {
+          options.enable = mkEnableOption "NAT/masquerade on this interface";
+        };
+        default = {};
+      };
+
+      defaultRoute = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Use this interface for the default route";
+      };
+
+      dhcp = mkOption {
+        description = "DHCP server configuration for this interface";
+        type = types.submodule {
+          options = {
+            enable = mkEnableOption "DHCP server on this interface";
+
+            poolStart = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "Start of DHCP pool (default: .100)";
+            };
+
+            poolEnd = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "End of DHCP pool (default: .200)";
+            };
+
+            reservations = mkOption {
+              type = types.listOf (types.submodule {
+                options = {
+                  mac = mkOption { type = types.str; };
+                  ip = mkOption { type = types.str; };
+                  hostname = mkOption {
+                    type = types.nullOr types.str;
+                    default = null;
+                  };
+                };
+              });
+              default = [];
+              description = "Static DHCP reservations";
+            };
+          };
+        };
+        default = {};
+      };
+
+      dhcp6 = mkOption {
+        description = "DHCPv6/SLAAC configuration";
+        type = types.submodule {
+          options = {
+            enable = mkEnableOption "DHCPv6 server / RA on this interface";
+            mode = mkOption {
+              type = types.enum ["slaac" "stateful" "stateless"];
+              default = "slaac";
+              description = "IPv6 address assignment mode";
+            };
+          };
+        };
+        default = {};
+      };
+
+      mtu = mkOption {
+        type = types.nullOr types.int;
+        default = null;
+        description = "Override interface MTU";
+      };
+
+      required = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Whether this interface is required for boot";
+      };
+
+      bridge = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = ''
+          Bridge to add this interface to. When set, the interface
+          will be added to the specified bridge and will not have
+          its own IP configuration (the bridge gets the IP config).
+        '';
+        example = "br0";
+      };
+    };
+  };
 
   # Type for nftables rules: either a raw string or a structured attribute set
   nftRuleType = lib.types.either lib.types.str lib.types.attrs;
@@ -129,140 +267,7 @@ in {
 
           # Network configuration
           network = mkOption {
-            type = types.submodule {
-              options = {
-                type = mkOption {
-                  type = types.enum ["disabled" "dhcp" "static" "pppoe"];
-                  default = "disabled";
-                  description = ''
-                    Network type:
-                    - disabled: Interface exists but has no IP configuration
-                    - dhcp: Get address via DHCP (typically WAN)
-                    - static: Static IP address(es)
-                    - pppoe: PPPoE connection (for DSL/fiber)
-                  '';
-                };
-
-                addresses = mkOption {
-                  type = types.listOf types.str;
-                  default = [];
-                  description = "Static IPv4/IPv6 addresses in CIDR notation";
-                  example = ["10.0.10.1/24" "fd00:10::1/64"];
-                };
-
-                gateway = mkOption {
-                  type = types.nullOr types.str;
-                  default = null;
-                  description = "Default gateway (for static WAN)";
-                };
-
-                dns = mkOption {
-                  type = types.listOf types.str;
-                  default = [];
-                  description = "DNS servers (for static WAN)";
-                };
-
-                trust = mkOption {
-                  type = types.nullOr (types.enum [
-                    "external"    # WAN - untrusted, NAT source
-                    "management"  # Admin access, full router access
-                    "trusted"     # Can access other internal networks
-                    "untrusted"   # Internet only, isolated from other networks
-                    "isolated"    # No internet, no internal access
-                  ]);
-                  default = null;
-                  description = "Trust level for firewall rules";
-                };
-
-                nat = mkOption {
-                  type = types.submodule {
-                    options.enable = mkEnableOption "NAT/masquerade on this interface";
-                  };
-                  default = {};
-                };
-
-                defaultRoute = mkOption {
-                  type = types.bool;
-                  default = false;
-                  description = "Use this interface for the default route";
-                };
-
-                dhcp = mkOption {
-                  description = "DHCP server configuration for this interface";
-                  type = types.submodule {
-                    options = {
-                      enable = mkEnableOption "DHCP server on this interface";
-
-                      poolStart = mkOption {
-                        type = types.nullOr types.str;
-                        default = null;
-                        description = "Start of DHCP pool (default: .100)";
-                      };
-
-                      poolEnd = mkOption {
-                        type = types.nullOr types.str;
-                        default = null;
-                        description = "End of DHCP pool (default: .200)";
-                      };
-
-                      reservations = mkOption {
-                        type = types.listOf (types.submodule {
-                          options = {
-                            mac = mkOption { type = types.str; };
-                            ip = mkOption { type = types.str; };
-                            hostname = mkOption {
-                              type = types.nullOr types.str;
-                              default = null;
-                            };
-                          };
-                        });
-                        default = [];
-                        description = "Static DHCP reservations";
-                      };
-                    };
-                  };
-                  default = {};
-                };
-
-                dhcp6 = mkOption {
-                  description = "DHCPv6/SLAAC configuration";
-                  type = types.submodule {
-                    options = {
-                      enable = mkEnableOption "DHCPv6 server / RA on this interface";
-                      mode = mkOption {
-                        type = types.enum ["slaac" "stateful" "stateless"];
-                        default = "slaac";
-                        description = "IPv6 address assignment mode";
-                      };
-                    };
-                  };
-                  default = {};
-                };
-
-                mtu = mkOption {
-                  type = types.nullOr types.int;
-                  default = null;
-                  description = "Override interface MTU";
-                };
-
-                required = mkOption {
-                  type = types.bool;
-                  default = true;
-                  description = "Whether this interface is required for boot";
-                };
-
-                bridge = mkOption {
-                  type = types.nullOr types.str;
-                  default = null;
-                  description = ''
-                    Bridge to add this interface to. When set, the interface
-                    will be added to the specified bridge and will not have
-                    its own IP configuration (the bridge gets the IP config).
-                  '';
-                  example = "br0";
-                };
-              };
-            };
+            type = mkNetworkSubmodule {};
             default = { type = "disabled"; };
           };
 
@@ -287,64 +292,9 @@ in {
                   example = "brMGMT";
                 };
                 network = mkOption {
-                  # Same as parent network option
-                  type = types.submodule {
-                    options = {
-                      type = mkOption {
-                        type = types.enum ["disabled" "static"];
-                        default = "static";
-                      };
-                      addresses = mkOption {
-                        type = types.listOf types.str;
-                        default = [];
-                      };
-                      trust = mkOption {
-                        type = types.nullOr (types.enum [
-                          "external" "management" "trusted" "untrusted" "isolated"
-                        ]);
-                        default = null;
-                      };
-                      nat = mkOption {
-                        type = types.submodule {
-                          options.enable = mkEnableOption "NAT";
-                        };
-                        default = {};
-                      };
-                      dhcp = mkOption {
-                        type = types.submodule {
-                          options = {
-                            enable = mkEnableOption "DHCP server";
-                            poolStart = mkOption { type = types.nullOr types.str; default = null; };
-                            poolEnd = mkOption { type = types.nullOr types.str; default = null; };
-                            reservations = mkOption {
-                              type = types.listOf (types.submodule {
-                                options = {
-                                  mac = mkOption { type = types.str; };
-                                  ip = mkOption { type = types.str; };
-                                  hostname = mkOption { type = types.nullOr types.str; default = null; };
-                                };
-                              });
-                              default = [];
-                            };
-                          };
-                        };
-                        default = {};
-                      };
-                      dhcp6 = mkOption {
-                        type = types.submodule {
-                          options = {
-                            enable = mkEnableOption "DHCPv6/RA";
-                            mode = mkOption {
-                              type = types.enum ["slaac" "stateful" "stateless"];
-                              default = "slaac";
-                            };
-                          };
-                        };
-                        default = {};
-                      };
-                      mtu = mkOption { type = types.nullOr types.int; default = null; };
-                      required = mkOption { type = types.bool; default = true; };
-                    };
+                  type = mkNetworkSubmodule {
+                    allowedTypes = ["disabled" "static"];
+                    defaultType = "static";
                   };
                 };
               };
@@ -449,64 +399,9 @@ in {
             example = 10;
           };
           network = mkOption {
-            type = types.submodule {
-              options = {
-                type = mkOption {
-                  type = types.enum ["disabled" "static"];
-                  default = "static";
-                };
-                addresses = mkOption {
-                  type = types.listOf types.str;
-                  default = [];
-                  description = "Static IPv4/IPv6 addresses in CIDR notation";
-                };
-                trust = mkOption {
-                  type = types.nullOr (types.enum [
-                    "external" "management" "trusted" "untrusted" "isolated"
-                  ]);
-                  default = null;
-                };
-                nat = mkOption {
-                  type = types.submodule {
-                    options.enable = mkEnableOption "NAT";
-                  };
-                  default = {};
-                };
-                dhcp = mkOption {
-                  type = types.submodule {
-                    options = {
-                      enable = mkEnableOption "DHCP server";
-                      poolStart = mkOption { type = types.nullOr types.str; default = null; };
-                      poolEnd = mkOption { type = types.nullOr types.str; default = null; };
-                      reservations = mkOption {
-                        type = types.listOf (types.submodule {
-                          options = {
-                            mac = mkOption { type = types.str; };
-                            ip = mkOption { type = types.str; };
-                            hostname = mkOption { type = types.nullOr types.str; default = null; };
-                          };
-                        });
-                        default = [];
-                      };
-                    };
-                  };
-                  default = {};
-                };
-                dhcp6 = mkOption {
-                  type = types.submodule {
-                    options = {
-                      enable = mkEnableOption "DHCPv6/RA";
-                      mode = mkOption {
-                        type = types.enum ["slaac" "stateful" "stateless"];
-                        default = "slaac";
-                      };
-                    };
-                  };
-                  default = {};
-                };
-                mtu = mkOption { type = types.nullOr types.int; default = null; };
-                required = mkOption { type = types.bool; default = true; };
-              };
+            type = mkNetworkSubmodule {
+              allowedTypes = ["disabled" "static"];
+              defaultType = "static";
             };
             default = {};
           };
@@ -563,63 +458,9 @@ in {
                   description = "Bridge to add this VLAN to";
                 };
                 network = mkOption {
-                  type = types.submodule {
-                    options = {
-                      type = mkOption {
-                        type = types.enum ["disabled" "static"];
-                        default = "static";
-                      };
-                      addresses = mkOption {
-                        type = types.listOf types.str;
-                        default = [];
-                      };
-                      trust = mkOption {
-                        type = types.nullOr (types.enum [
-                          "external" "management" "trusted" "untrusted" "isolated"
-                        ]);
-                        default = null;
-                      };
-                      nat = mkOption {
-                        type = types.submodule {
-                          options.enable = mkEnableOption "NAT";
-                        };
-                        default = {};
-                      };
-                      dhcp = mkOption {
-                        type = types.submodule {
-                          options = {
-                            enable = mkEnableOption "DHCP server";
-                            poolStart = mkOption { type = types.nullOr types.str; default = null; };
-                            poolEnd = mkOption { type = types.nullOr types.str; default = null; };
-                            reservations = mkOption {
-                              type = types.listOf (types.submodule {
-                                options = {
-                                  mac = mkOption { type = types.str; };
-                                  ip = mkOption { type = types.str; };
-                                  hostname = mkOption { type = types.nullOr types.str; default = null; };
-                                };
-                              });
-                              default = [];
-                            };
-                          };
-                        };
-                        default = {};
-                      };
-                      dhcp6 = mkOption {
-                        type = types.submodule {
-                          options = {
-                            enable = mkEnableOption "DHCPv6/RA";
-                            mode = mkOption {
-                              type = types.enum ["slaac" "stateful" "stateless"];
-                              default = "slaac";
-                            };
-                          };
-                        };
-                        default = {};
-                      };
-                      mtu = mkOption { type = types.nullOr types.int; default = null; };
-                      required = mkOption { type = types.bool; default = true; };
-                    };
+                  type = mkNetworkSubmodule {
+                    allowedTypes = ["disabled" "static"];
+                    defaultType = "static";
                   };
                   default = {};
                 };
@@ -631,30 +472,9 @@ in {
 
           network = mkOption {
             description = "Network configuration for the bond itself (if not using VLANs)";
-            type = types.submodule {
-              options = {
-                type = mkOption {
-                  type = types.enum ["disabled" "static" "dhcp"];
-                  default = "disabled";
-                };
-                addresses = mkOption {
-                  type = types.listOf types.str;
-                  default = [];
-                };
-                trust = mkOption {
-                  type = types.nullOr (types.enum [
-                    "external" "management" "trusted" "untrusted" "isolated"
-                  ]);
-                  default = null;
-                };
-                mtu = mkOption { type = types.nullOr types.int; default = null; };
-                required = mkOption { type = types.bool; default = false; };
-                bridge = mkOption {
-                  type = types.nullOr types.str;
-                  default = null;
-                  description = "Bridge to add this bond to";
-                };
-              };
+            type = mkNetworkSubmodule {
+              allowedTypes = ["disabled" "static" "dhcp"];
+              defaultType = "disabled";
             };
             default = {};
           };
@@ -1043,7 +863,7 @@ in {
             Address = effectiveAddrs;
           } // optionalAttrs (network.gateway != null) {
             Gateway = network.gateway;
-          } // optionalAttrs (length (network.dns or []) > 0) {
+          } // optionalAttrs (length network.dns > 0) {
             DNS = network.dns;
           } // optionalAttrs shouldSendRA {
             # Enable Router Advertisement on interfaces with dhcp6 enabled
