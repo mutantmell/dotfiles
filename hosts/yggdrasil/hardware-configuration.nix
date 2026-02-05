@@ -18,6 +18,13 @@
       fsType = "ext4";
     };
 
+  fileSystems."/persist" =
+    { device = "/nix/persist";
+      fsType = "none";
+      options = [ "bind" ];
+      neededForBoot = true;
+    };
+
   swapDevices = [ ];
 
   hardware.cpu.intel.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;

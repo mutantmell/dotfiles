@@ -84,7 +84,7 @@
 
     overlays = {
       packages = final: prev: {
-        mmell = (prev.mmell or {}) // self.packages.${prev.system};
+        mmell = (prev.mmell or {}) // self.packages.${prev.stdenv.hostPlatform.system};
       };
       lib = final: prev: {
         mmell = (prev.mmell or {}) // {

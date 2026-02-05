@@ -912,11 +912,9 @@ in {
             ipParts = lib.splitString "::" parsed.ip;
             networkPrefix = "${head ipParts}::/${toString parsed.prefix}";
           in {
-            ipv6PrefixConfig = {
-              Prefix = networkPrefix;
-              PreferredLifetimeSec = 3600;
-              ValidLifetimeSec = 7200;
-            };
+            Prefix = networkPrefix;
+            PreferredLifetimeSec = 3600;
+            ValidLifetimeSec = 7200;
           }) v6Addrs;
         };
 
