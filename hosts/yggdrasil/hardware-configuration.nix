@@ -14,12 +14,24 @@
   boot.extraModulePackages = [ ];
 
   fileSystems."/" =
-    { device = "/dev/disk/by-uuid/2b25c2bb-916d-4e14-bf56-15df91c5f524";
-      fsType = "ext4";
+    { device = "none";
+      fsType = "tmpfs";
+      options = [ "defaults" "size=2G" "mode=755" ];
+    };
+
+  fileSystems."/boot" =
+    { device = "/dev/disk/by-label/ESP";
+      fsType = "vfat";
     };
 
   fileSystems."/persist" =
-    { device = "/nix/persist";
+    { device = "/dev/disk/by-label/persist";
+      fsType = "ext4";
+      neededForBoot = true;
+    };
+
+  fileSystems."/nix" =
+    { device = "/persist/nix";
       fsType = "none";
       options = [ "bind" ];
       neededForBoot = true;
