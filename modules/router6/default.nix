@@ -14,7 +14,7 @@ let
 
   inherit (lib) mkOption mkEnableOption types mkIf mkMerge optional optionals
     mapAttrs mapAttrsToList filterAttrs concatMapAttrs optionalAttrs optionalString
-    concatStringsSep flatten filter elem;
+    concatStringsSep flatten filter elem splitString toInt;
   inherit (builtins) attrNames attrValues hasAttr length head elemAt;
 
   # nftables DSL library for structured rule generation
@@ -649,6 +649,15 @@ in {
     # Interfaces that have dhcp6/RA enabled
     dhcp6Interfaces = filter (i: i.network.dhcp6.enable or false) flattenTopology;
 
+    # Convert IPv4 address string to 32-bit integer for stable Kea subnet IDs
+    ipv4ToInt = ipStr: let
+      octets = splitString "." ipStr;
+    in
+      (toInt (elemAt octets 0)) * 16777216 +  # 2^24
+      (toInt (elemAt octets 1)) * 65536 +     # 2^16
+      (toInt (elemAt octets 2)) * 256 +       # 2^8
+      (toInt (elemAt octets 3));
+
     # Build Kea subnet4 config for an interface
     mkKeaSubnet4 = iface: let
       addr = firstIPv4 iface.network.addresses;
@@ -657,7 +666,11 @@ in {
       # Use explicit null check since dhcpCfg.poolStart exists but may be null
       poolStart = if dhcpCfg.poolStart != null then dhcpCfg.poolStart else parsed.poolStart;
       poolEnd = if dhcpCfg.poolEnd != null then dhcpCfg.poolEnd else parsed.poolEnd;
+      # Generate stable subnet ID from network address (unique per subnet)
+      subnetId = ipv4ToInt parsed.networkAddr;
     in if parsed == null then null else {
+      # Kea requires unique stable IDs for lease database integrity
+      id = subnetId;
       subnet = "${parsed.networkAddr}/${toString parsed.prefix}";
       pools = [{
         pool = "${poolStart} - ${poolEnd}";
@@ -677,7 +690,7 @@ in {
       }) (dhcpCfg.reservations or []);
     };
 
-    # Generate all Kea subnets
+    # Generate all Kea subnets (IDs derived from network address for stability)
     keaSubnets = filter (x: x != null) (map mkKeaSubnet4
       (filter (i: i.network.dhcp.enable or false) flattenTopology));
 
@@ -849,6 +862,9 @@ in {
         in {
           matchConfig.Name = iface;
 
+          # Static addresses (NixOS uses top-level 'address' list, not networkConfig.Address)
+          address = if network.type == "static" then effectiveAddrs else [];
+
           networkConfig = {
             DHCP = if network.type == "dhcp" then "yes" else "no";
             IPv6AcceptRA = network.type == "dhcp";
@@ -859,7 +875,7 @@ in {
           } // optionalAttrs (network.type == "dhcp" && network.defaultRoute) {
             DefaultRouteOnDevice = true;
           } // optionalAttrs (network.type == "static" && length effectiveAddrs > 0) {
-            Address = effectiveAddrs;
+            # Address = effectiveAddrs;
           } // optionalAttrs (network.gateway != null) {
             Gateway = network.gateway;
           } // optionalAttrs (length network.dns > 0) {
@@ -1168,10 +1184,8 @@ in {
           policy.add(policy.suffix(policy.DENY, policy.todnames({'${cfg.dns.localDomain}.'})))
           ''}
 
-          -- DNSSEC
-          ${if cfg.dns.enableDNSSEC then ''
-          trust_anchors.add_file('/var/lib/knot-resolver/root.keys')
-          '' else ''
+          -- DNSSEC (kresd has validation enabled by default with built-in root keys)
+          ${optionalString (!cfg.dns.enableDNSSEC) ''
           trust_anchors.negative = { '.' }
           ''}
 

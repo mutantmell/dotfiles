@@ -13,7 +13,7 @@
 , lib ? pkgs.lib
 }:
 
-pkgs.nixosTest {
+pkgs.testers.nixosTest {
   name = "router6-ipv6";
 
   nodes = {
@@ -72,32 +72,19 @@ pkgs.nixosTest {
     client = { config, pkgs, lib, ... }: {
       virtualisation.vlans = [ 2 ];
 
-      # Configure client to use VLAN 10
-      networking = {
-        useDHCP = false;
-        vlans.vlan10 = {
-          id = 10;
-          interface = "eth1";
-        };
-        interfaces.vlan10 = {
-          useDHCP = true;
-        };
+      # Use traditional networking with VLAN
+      networking.useDHCP = false;
+      networking.dhcpcd.enable = true;
+      networking.vlans.vlan10 = {
+        id = 10;
+        interface = "eth1";
       };
+      networking.interfaces.vlan10.useDHCP = true;
 
-      # Enable IPv6 autoconfiguration via SLAAC
+      # Enable IPv6 Router Advertisement acceptance
       boot.kernel.sysctl = {
         "net.ipv6.conf.vlan10.accept_ra" = 2;
         "net.ipv6.conf.vlan10.autoconf" = 1;
-      };
-
-      systemd.network.enable = true;
-      systemd.network.networks."40-vlan10" = {
-        matchConfig.Name = "vlan10";
-        networkConfig = {
-          DHCP = "ipv4";
-          IPv6AcceptRA = true;
-        };
-        linkConfig.RequiredForOnline = "routable";
       };
     };
   };
@@ -107,43 +94,42 @@ pkgs.nixosTest {
 
     # Wait for router to be ready
     router.wait_for_unit("network-online.target")
-    router.wait_for_unit("kresd.service")
+    router.wait_for_unit("kresd.target")
 
     # Test 1: Verify IPv6 forwarding is enabled
     router.succeed("sysctl net.ipv6.conf.all.forwarding | grep '= 1'")
 
     # Test 2: Verify router has auto-generated IPv6 address on VLAN
-    # VLAN 10 -> fdc6:55f2:0a5e:a::1/64
-    router.succeed("ip -6 addr show vlan10 | grep 'fdc6:55f2:0a5e:a::1'")
+    # VLAN 10 -> fdc6:55f2:a5e:a::1/64 (kernel normalizes 0a5e to a5e)
+    router.succeed("ip -6 addr show vlan10 | grep 'fdc6:55f2:a5e:a::1'")
 
     # Test 3: Verify Router Advertisements are configured
     # Check that IPv6SendRA is enabled in networkd
     router.succeed("networkctl status vlan10 | grep -i 'IPv6'")
 
     # Test 4: Verify nftables has IPv6 rules
-    router.succeed("nft list ruleset | grep 'ip6 nexthdr icmpv6'")
+    router.succeed("nft list ruleset | grep 'icmpv6 type'")
     router.succeed("nft list ruleset | grep 'table ip6 nat'")
 
     # Test 5: Verify kresd is listening on IPv6
     router.succeed("ss -6 -tulnp | grep ':53'")
     # Check kresd is listening on the router's IPv6 address
-    router.succeed("ss -tulnp | grep 'fdc6:55f2:0a5e:a::1'")
+    router.succeed("ss -tulnp | grep 'fdc6:55f2:a5e:a::1'")
 
     # Client tests
-    client.wait_for_unit("network-online.target")
-    client.wait_for_unit("systemd-networkd.service")
+    client.wait_for_unit("dhcpcd.service")
 
     # Wait for VLAN to come up
     client.wait_until_succeeds("ip link show vlan10 | grep 'state UP'", timeout=30)
 
     # Test 6: Client receives IPv6 via SLAAC
     # Wait for client to get an IPv6 address in the ULA range
-    client.wait_until_succeeds("ip -6 addr show vlan10 | grep 'fdc6:55f2:0a5e:a::'", timeout=60)
+    client.wait_until_succeeds("ip -6 addr show vlan10 | grep 'fdc6:55f2:a5e:a:'", timeout=60)
 
     # Test 7: Client can ping router over IPv6
-    client.succeed("ping -6 -c 3 fdc6:55f2:0a5e:a::1")
+    client.succeed("ping -6 -c 3 fdc6:55f2:a5e:a::1")
 
     # Test 8: Client can reach DNS over IPv6
-    client.succeed("${pkgs.dig}/bin/dig @fdc6:55f2:0a5e:a::1 -6 localhost AAAA +short || true")
+    client.succeed("${pkgs.dig}/bin/dig @fdc6:55f2:a5e:a::1 -6 localhost AAAA +short || true")
   '';
 }
