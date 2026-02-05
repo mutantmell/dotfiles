@@ -5,6 +5,7 @@
   services.cgit."hrungnir.local" = {
     enable = true;
     scanPath = config.users.users.git.home;
+    gitHttpBackend.checkExportOkFiles = false;
   };
   
   users.users.git = {

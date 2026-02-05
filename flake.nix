@@ -61,6 +61,7 @@
     });
 
     packages = forAllSystems ({ pkgs, ... }: {
+      cc = pkgs.claude-code;
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
       };
