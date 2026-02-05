@@ -390,7 +390,16 @@ iifname "eth1" drop''
     }
   ];
 
+  # When running as a flake check, wrap in a derivation
+  testResult = if runTests tests
+    then "All ${toString (builtins.length tests)} tests passed!"
+    else throw "Some tests failed";
+
 in
-  if runTests tests
-  then "All ${toString (builtins.length tests)} tests passed!"
-  else throw "Some tests failed"
+  # Return a derivation for flake checks
+  pkgs.runCommand "nftables-dsl-tests" {
+    preferLocalBuild = true;
+  } ''
+    # Run the tests by evaluating the result
+    echo "${testResult}" > $out
+  ''

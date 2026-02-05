@@ -73,9 +73,7 @@
     # NixOS integration tests
     checks = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
       pkgs = pkgsFor nixpkgs system;
-    in {
-      router6-ipv6 = import ./tests/modules/router6-ipv6.nix { inherit pkgs; lib = pkgs.lib; };
-    });
+    in import ./tests { inherit pkgs; lib = pkgs.lib; });
 
     nixosModules = let
       importModule = dir: value:
