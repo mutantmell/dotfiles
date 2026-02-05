@@ -91,9 +91,11 @@
     home.stateVersion = "23.11";
     programs.git = {
       enable = true;
-      userName = "mutantmell";
-      userEmail = "malaguy@gmail.com";
-      extraConfig.core.sshCommand = "ssh -i /etc/ssh/ssh_host_ed25519_key";
+      settings = {
+        user.name = "mutantmell";
+        user.email = "malaguy@gmail.com";
+        core.sshCommand = "ssh -i /etc/ssh/ssh_host_ed25519_key";
+      };
     };
   };
 

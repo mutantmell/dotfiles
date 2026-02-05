@@ -144,8 +144,10 @@
     home.stateVersion = "23.11";
     programs.git = {
       enable = true;
-      userName = "mutantmell";
-      userEmail = "malaguy@gmail.com";
+      settings = {
+        user.name = "mutantmell";
+        user.email = "malaguy@gmail.com";
+      };
     };
   };
 
