@@ -49,12 +49,6 @@
           targets = [ "jotunheimr.local:9003" ];
         }];
       }
-      {
-        job_name = "matrix_node";
-        static_configs = [{
-          targets = [ "10.100.20.10:9001" ];
-        }];
-      }
 
     ];
   };

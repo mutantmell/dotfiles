@@ -5,7 +5,6 @@ keys:
   - &sv_gridr age1u0pct8sypn6jtwwnzqgsdy3j7regwwqz5xw8d3mp6sd904xx2d0ql2qhju
   - &sv_hrungnir age1t8499a2tna8pzn448ylnpwach59l6m38s33pzdmy4vhy492nevpqq7l6tc
   - &sv_jotunheimr age1smvmkjl0csqh3wmx9744xqatghnrpnj0y8hmv88gy5llrpujmetqhu9l4g
-  - &sv_matrix age1f58klxxdsk02cqrzprvfa4rt4spn7ch5v37thk35j8yzhfglhpgqhsh0n7
   - &sv_muspelheim age1328qtjtudgc3zgg7su05ja20kckx50jehs0v3q3mw6k64j0dzefs752tu2
   - &sv_nidavellir age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
   - &sv_njord age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
@@ -15,11 +14,6 @@ keys:
   - &sv_ymir age1anrdj6swtlq5ll4e369gz3lh6aj2sz6pj5zh25uhltjfk4z86azsfsxk9a
   - &sv_yggdrasil age1yejm0ghvycctg868ag2u0awkf7crpuh59nfvy73dvsuuuns9davsxc6ssz
 creation_rules:
-  - path_regex: cloud/matrix/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_skadi
-        - *sv_matrix
   - path_regex: hosts/alfheim/secrets/[^/]+\.yaml$
     key_groups:
       - age:

@@ -231,28 +231,6 @@
         };
       };
 
-      # Wireguard - External tunnel to matrix server
-      "wg-mx" = {
-        network = {
-          type = "static";
-          addresses = [
-            "10.100.20.1/24"
-            "fdc6:55f2:0a5e:6414::1/64"  # Manual IPv6 for WG
-          ];
-          trust = "external";
-          required = false;
-        };
-        wireguard = {
-          privateKeyFile = config.sops.secrets."wg-mx-privatekey".path;
-          port = 53973;
-          peers = [{
-            publicKey = "hTmV7qOLXHCQnTWljCiNHf2P22GBd0n339Fcq4tVdlw=";
-            allowedIPs = [ "10.100.20.10/32" "fdc6:55f2:0a5e:6414::a/128" ];
-            endpoint = "helveticastandard.com:58156";
-            persistentKeepalive = 25;
-          }];
-        };
-      };
     };
 
     # Bridges combining physical and batman VLANs into unified networks
