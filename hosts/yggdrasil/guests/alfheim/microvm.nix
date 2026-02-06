@@ -1,6 +1,7 @@
 { pkgs, config, lib, ... }:
 {
   microvm.hypervisor = "cloud-hypervisor";
+  microvm.vsock.cid = 3;
 
   microvm.shares = [{
     source = "/nix/store";

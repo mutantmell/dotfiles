@@ -63,6 +63,7 @@
     hostName = "muspelheim";
     hostId = "518f0054";
     useNetworkd = true;
+    useDHCP = false;
     dhcpcd.enable = false;
   };
 

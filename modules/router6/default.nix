@@ -799,14 +799,12 @@ in {
               ListenPort = iface.wireguard.port;
             };
             wireguardPeers = map (peer: {
-              wireguardPeerConfig = {
-                PublicKey = peer.publicKey;
-                AllowedIPs = peer.allowedIPs;
-              } // optionalAttrs (peer.endpoint != null) {
-                Endpoint = peer.endpoint;
-              } // optionalAttrs (peer.persistentKeepalive != null) {
-                PersistentKeepalive = peer.persistentKeepalive;
-              };
+              PublicKey = peer.publicKey;
+              AllowedIPs = peer.allowedIPs;
+            } // optionalAttrs (peer.endpoint != null) {
+              Endpoint = peer.endpoint;
+            } // optionalAttrs (peer.persistentKeepalive != null) {
+              PersistentKeepalive = peer.persistentKeepalive;
             }) iface.wireguard.peers;
           } else null
         ) cfg.topology);

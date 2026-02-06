@@ -13,6 +13,8 @@
   ];
 
   networking.hostName = "surtr";
+  networking.useNetworkd = true;
+  networking.useDHCP = false;
   common.openssh.enable = true;
   services.openssh.hostKeys = [{
     path = "/static/etc/ssh/ssh_host_ed25519_key";
