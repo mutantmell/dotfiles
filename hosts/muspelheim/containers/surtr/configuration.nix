@@ -7,6 +7,8 @@
   # Networking
   networking.hostName = "surtr";
   networking.useHostResolvConf = false;
+  networking.useNetworkd = true;
+  networking.useDHCP = false;
 
   # Use systemd-networkd for network configuration
   systemd.network.enable = true;
@@ -28,7 +30,7 @@
 
   # Users
   # TODO: Add your user accounts here
-  users.users.root.initialPassword = "changeme";  # Change on first login
+  # Root user configured via common.openssh module with SSH keys
 
   # SSH configuration
   services.openssh = {

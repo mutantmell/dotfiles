@@ -13,6 +13,8 @@
     type = "ed25519";
   }];
 
+  networking.useNetworkd = true;
+  networking.useDHCP = false;
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";

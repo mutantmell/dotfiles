@@ -7,6 +7,8 @@
   ];
 
   networking.hostName = "bragi";
+  networking.useNetworkd = true;
+  networking.useDHCP = false;
 
   nixpkgs.overlays = [(final: prev: {
     vaapiIntel = prev.vaapiIntel.override { enableHybridCodec = true; };
