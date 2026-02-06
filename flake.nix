@@ -27,7 +27,6 @@
       url = github:astro/microvm.nix;
       inputs.nixpkgs.follows = "nixpkgs-stable";
     };
-    colmena.url = github:zhaofengli/colmena;
     impermanence.url = github:nix-community/impermanence;
     openwrt-imagebuilder = {
       url = github:astro/nix-openwrt-imagebuilder;
@@ -36,7 +35,7 @@
   };
   outputs = {
     self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager,
-      sops-nix, jovian, microvm, impermanence, colmena,
+      sops-nix, jovian, microvm, impermanence,
       home-manager-stable, microvm-stable, openwrt-imagebuilder,
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
@@ -54,7 +53,6 @@
       default = pkgs.mkShell {
         packages = [
           pkgs.bashInteractive
-          colmena.defaultPackage.${system}
           pkgs.sops
         ];
       };
@@ -109,23 +107,6 @@
           sops-nix.nixosModules.sops
         ] ++ args.modules;
       };
-      mk-colmena = host: args: {
-        imports = [
-          sops-nix.nixosModules.sops
-          self.nixosModules.common
-        ] ++ args.imports;
-
-        deployment = {
-          targetUser = "root";
-          targetHost = args.host or self.lib.common.data.network.hosts.${host}.ipv4;
-          tags = args.tags;
-        };
-      };
-      mk-hive = meta: hosts: (
-        builtins.mapAttrs self.lib.mk-colmena hosts
-      ) // {
-        inherit meta;
-      };
       mk-home-config = args @ { nixpkgs, system, ... }: let
         pkgs = pkgsFor nixpkgs system;
       in home-manager.lib.homeManagerConfiguration {
@@ -146,75 +127,6 @@
           self.nixosModules.common
         ];
       }];
-    };
-
-    colmenaHive = colmena.lib.makeHive self.outputs.colmena;
-
-    colmena = self.lib.mk-hive {
-      nixpkgs = pkgsFor nixpkgs "x86_64-linux";
-      nodeNixpkgs = let
-        nixpkgs-aarch = pkgsFor nixpkgs "aarch64-linux";
-        nixpkgs-stable-x86_64 = pkgsFor nixpkgs-stable "x86_64-linux";
-      in {
-        nidavellir = nixpkgs-aarch;
-        yggdrasil = nixpkgs-stable-x86_64;
-      };
-    } {
-      yggdrasil = {
-        imports = [
-          self.nixosModules.router6
-          microvm.nixosModules.host
-          home-manager.nixosModules.home-manager
-          impermanence.nixosModules.impermanence
-          ./hosts/yggdrasil/configuration.nix
-        ];
-        tags = [ "mgmt" "infra" "router" "dns" ];
-      };
-
-      vanaheim = {
-        imports = [
-          self.nixosModules.router6
-          microvm.nixosModules.host
-          home-manager.nixosModules.home-manager
-          impermanence.nixosModules.impermanence
-          ./hosts/vanaheim/configuration.nix
-        ];
-        tags = [ "test" ];
-      };
-
-      muspelheim = {
-        imports = [
-          microvm.nixosModules.host
-          impermanence.nixosModules.impermanence
-          home-manager.nixosModules.home-manager
-          self.nixosModules.incus
-          ./hosts/muspelheim/configuration.nix
-        ];
-        tags = [ "host" ];
-      };
-
-      matrix = {
-        imports = [
-          ./cloud/matrix/configuration.nix
-        ];
-        tags = [ "digitalocean" "cloud" "matrix" "public" ];
-      };
-
-      nidavellir = {
-        imports = [
-          nixos-hardware.nixosModules.raspberry-pi-4
-          ./hosts/nidavellir/configuration.nix
-        ];
-        tags = [ "svc" "home" ];
-      };
-
-      thunarr = {
-        imports = [
-          jovian.nixosModules.jovian
-          ./hosts/thunarr/configuration.nix
-        ];
-        tags = [ "game" "htpc" ];
-      };
     };
 
     nixosConfigurations = {
@@ -259,6 +171,32 @@
           home-manager.nixosModules.home-manager
           self.nixosModules.incus
           ./hosts/muspelheim/configuration.nix
+        ];
+      };
+      matrix = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          home-manager.nixosModules.home-manager
+          ./cloud/matrix/configuration.nix
+        ];
+      };
+      nidavellir = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "aarch64-linux";
+        modules = [
+          home-manager.nixosModules.home-manager
+          nixos-hardware.nixosModules.raspberry-pi-4
+          ./hosts/nidavellir/configuration.nix
+        ];
+      };
+      thunarr = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          home-manager.nixosModules.home-manager
+          jovian.nixosModules.jovian
+          ./hosts/thunarr/configuration.nix
         ];
       };
     };
