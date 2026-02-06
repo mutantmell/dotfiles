@@ -173,14 +173,6 @@
           ./hosts/muspelheim/configuration.nix
         ];
       };
-      matrix = self.lib.mk-nixos {
-        inherit nixpkgs;
-        system = "x86_64-linux";
-        modules = [
-          home-manager.nixosModules.home-manager
-          ./cloud/matrix/configuration.nix
-        ];
-      };
       nidavellir = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "aarch64-linux";
