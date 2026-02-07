@@ -14,7 +14,7 @@ let
 
   inherit (lib) mkOption mkEnableOption types mkIf mkMerge optional optionals
     mapAttrs mapAttrsToList filterAttrs concatMapAttrs optionalAttrs optionalString
-    concatStringsSep flatten filter elem splitString toInt;
+    concatStringsSep flatten filter elem splitString toInt any;
   inherit (builtins) attrNames attrValues hasAttr length head elemAt;
 
   # nftables DSL library for structured rule generation
@@ -22,7 +22,7 @@ let
 
   # Shared network configuration submodule
   # Used by topology interfaces, VLANs, bridges, and bonds
-  mkNetworkSubmodule = { allowedTypes ? ["disabled" "dhcp" "static" "pppoe"], defaultType ? "disabled" }: types.submodule {
+  mkNetworkSubmodule = { allowedTypes ? ["disabled" "dhcp" "static" "pppoe"], defaultType ? "disabled" }: types.submodule ({ config, ... }: {
     options = {
       type = mkOption {
         type = types.enum allowedTypes;
@@ -140,8 +140,11 @@ let
 
       required = mkOption {
         type = types.bool;
-        default = true;
-        description = "Whether this interface is required for boot";
+        default = config.type != "disabled";
+        description = ''
+          Whether this interface is required for boot.
+          Defaults to false for disabled interfaces, true otherwise.
+        '';
       };
 
       bridge = mkOption {
@@ -154,57 +157,104 @@ let
         '';
         example = "br0";
       };
+
+      subnetId = mkOption {
+        type = types.nullOr types.int;
+        default = null;
+        description = "Subnet ID for auto-generating IPv6 addresses from ULA prefix. For VLANs, defaults to VLAN tag.";
+      };
     };
-  };
+  });
 
   # Type for nftables rules: either a raw string or a structured attribute set
   nftRuleType = lib.types.either lib.types.str lib.types.attrs;
 
+  # ============================================================================
+  # Device Kind Queries
+  # ============================================================================
+
+  # Get all devices of a specific kind from topology
+  # Example: devicesByKind "bond" returns all bond devices
+  devicesByKind = kind: filterAttrs (n: v: v.kind == kind) cfg.topology;
+
+  # ============================================================================
+  # Bond/Bridge Membership
+  # ============================================================================
+
+  # Check if a device is a member of any bridge
+  # Used to determine if VLANs should join a bridge vs have own IP
+  isBridgeMember = devName:
+    any (bridge: elem devName (bridge.members or []))
+        (attrValues (devicesByKind "bridge"));
+
+  # Check if a device is a member of any bond
+  # Used to determine if physical interfaces should join a bond
+  isBondMember = devName:
+    any (bond: elem devName (bond.members or []))
+        (attrValues (devicesByKind "bond"));
+
+  # Check if a device is a member of any batman-adv mesh
+  # Used to determine if interfaces should attach to batman
+  isBatmanMember = devName:
+    any (batman: elem devName (batman.members or []))
+        (attrValues (devicesByKind "batman"));
+
+  # Find which bridge contains this member (returns name or null)
+  findBridgeContaining = member:
+    let bridges = filter (b: elem member (b.members or []))
+                         (mapAttrsToList (n: v: v // { name = n; }) (devicesByKind "bridge"));
+    in if bridges == [] then null else (head bridges).name;
+
+  # Find which bond contains this member (returns name or null)
+  findBondContaining = member:
+    let bonds = filter (b: elem member (b.members or []))
+                       (mapAttrsToList (n: v: v // { name = n; }) (devicesByKind "bond"));
+    in if bonds == [] then null else (head bonds).name;
+
+  # Find which batman device contains this member (returns name or null)
+  findBatmanContaining = member:
+    let batmans = filter (b: elem member (b.members or []))
+                         (mapAttrsToList (n: v: v // { name = n; }) (devicesByKind "batman"));
+    in if batmans == [] then null else (head batmans).name;
+
+  # ============================================================================
+  # Topology Processing
+  # ============================================================================
+
   # Helper to flatten topology into a list of all network interfaces
   flattenTopology = let
-    flattenInterface = name: iface:
-      [{ inherit name; inherit (iface) network; isVlan = false; parent = null; isBridge = false; isBond = false; }]
-      ++ (lib.mapAttrsToList (vlanName: vlan: {
-        name = vlanName;
-        # If VLAN is bridged, it has no network config (the bridge has it)
-        network = if vlan.bridge or null != null
-                  then { type = "disabled"; }
-                  else vlan.network;
-        isVlan = true;
-        parent = name;
-        tag = vlan.tag;
-        bridge = vlan.bridge or null;
-        isBridge = false;
-        isBond = false;
-      }) (iface.vlans or {}));
-    # Include bridges in the flattened list
-    bridgeInterfaces = lib.mapAttrsToList (name: bridge: {
-      inherit name;
-      inherit (bridge) network;
-      isVlan = false;
-      parent = null;
-      isBridge = true;
-      isBond = false;
-      # Use vlanTag for IPv6 auto-generation (bridges act like VLANs for this purpose)
-      tag = bridge.vlanTag or null;
-    }) (cfg.bridges or {});
-    # Include bonds and their VLANs in the flattened list
-    bondInterfaces = lib.flatten (lib.mapAttrsToList (name: bond:
-      [{ inherit name; inherit (bond) network; isVlan = false; parent = null; isBridge = false; isBond = true; }]
-      ++ (lib.mapAttrsToList (vlanName: vlan: {
-        name = vlanName;
-        network = if vlan.bridge or null != null
-                  then { type = "disabled"; }
-                  else vlan.network;
-        isVlan = true;
-        parent = name;
-        tag = vlan.tag;
-        bridge = vlan.bridge or null;
-        isBridge = false;
-        isBond = false;
-      }) (bond.vlans or {}))
-    ) (cfg.bonds or {}));
-  in lib.flatten (lib.mapAttrsToList flattenInterface cfg.topology) ++ bridgeInterfaces ++ bondInterfaces;
+    flattenDevice = name: device:
+      let
+        baseInterface = {
+          inherit name;
+          network = device.network or { type = "disabled"; };
+          kind = device.kind;
+          isVlan = false;
+          parent = null;
+          tag = null;
+          isBridge = device.kind == "bridge";
+          isBond = device.kind == "bond";
+        };
+
+        # VLANs nested under this device
+        vlans = mapAttrsToList (vlanName: vlan: {
+          name = vlanName;
+          # If VLAN is a bridge member, no network config
+          network = if isBridgeMember vlanName
+                    then { type = "disabled"; }
+                    else vlan.network;
+          isVlan = true;
+          parent = name;
+          tag = vlan.tag;
+          bridge = if isBridgeMember vlanName then findBridgeContaining vlanName else null;
+          kind = "vlan";
+          isBridge = false;
+          isBond = false;
+        }) (device.vlans or {});
+
+      in [baseInterface] ++ vlans;
+
+  in flatten (mapAttrsToList flattenDevice cfg.topology);
 
   # Get all interfaces matching a predicate
   interfacesWhere = pred: map (i: i.name) (filter pred flattenTopology);
@@ -247,8 +297,32 @@ in {
     topology = mkOption {
       description = "Network topology definition";
       default = {};
-      type = types.attrsOf (types.submodule ({ name, ... }: {
+      type = types.attrsOf (types.submodule ({ name, config, ... }: {
         options = {
+          # Device kind (with smart default for physical interfaces)
+          kind = mkOption {
+            type = types.enum ["physical" "bond" "bridge" "batman" "wireguard"];
+            default =
+              # Auto-default ONLY for unambiguous physical interfaces
+              if config.mac != null || config.hardwareName != null then "physical"
+              # Everything else must be explicit
+              else throw ''
+                Device '${name}' must specify 'kind'.
+
+                Valid kinds: "bond", "bridge", "batman", "wireguard"
+                (Physical interfaces with mac/hardwareName auto-default to "physical")
+              '';
+            description = ''
+              Device type.
+
+              - "physical": Network interface card (auto-detected if mac/hardwareName present)
+              - "bond": Link aggregation device (requires mode and members)
+              - "bridge": Layer 2 bridge (requires members)
+              - "batman": Batman-adv mesh device (requires batman config)
+              - "wireguard": WireGuard VPN tunnel (requires wireguard config)
+            '';
+          };
+
           # Interface identification (one of these required for physical interfaces)
           mac = mkOption {
             type = types.nullOr types.str;
@@ -264,6 +338,35 @@ in {
             example = "enp0s3";
           };
 
+          # Members (for bonds and bridges)
+          members = mkOption {
+            type = types.listOf types.str;
+            default = [];
+            description = "For bonds: physical interface names. For bridges: VLAN/interface names.";
+          };
+
+          # Bond-specific options
+          mode = mkOption {
+            type = types.nullOr (types.enum [
+              "balance-rr" "active-backup" "balance-xor" "broadcast"
+              "802.3ad" "balance-tlb" "balance-alb"
+            ]);
+            default = null;
+            description = "Bonding mode (required for bond devices)";
+          };
+
+          lacpTransmitRate = mkOption {
+            type = types.nullOr (types.enum ["slow" "fast"]);
+            default = null;
+            description = "LACP transmit rate (only for 802.3ad mode)";
+          };
+
+          miiMonitorSec = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = "MII link monitoring interval";
+          };
+
           # Network configuration
           network = mkOption {
             type = mkNetworkSubmodule {};
@@ -277,18 +380,6 @@ in {
                 tag = mkOption {
                   type = types.int;
                   description = "VLAN ID (1-4094)";
-                };
-                bridge = mkOption {
-                  type = types.nullOr types.str;
-                  default = null;
-                  description = ''
-                    Bridge to add this VLAN to. When set, the VLAN interface
-                    will be added to the specified bridge and will not have
-                    its own IP configuration (the bridge gets the IP config).
-                    Use this to bond VLANs from different parent interfaces
-                    (e.g., physical + batman) into a single Layer 2 network.
-                  '';
-                  example = "brMGMT";
                 };
                 network = mkOption {
                   type = mkNetworkSubmodule {
@@ -317,22 +408,6 @@ in {
             });
             default = null;
             description = "Batman-adv mesh configuration (makes this a batadv interface)";
-          };
-
-          # Attach to batman device
-          batmanDevice = mkOption {
-            type = types.nullOr types.str;
-            default = null;
-            description = "Batman-adv device to attach this interface to";
-            example = "bat0";
-          };
-
-          # Attach to bond device
-          bondDevice = mkOption {
-            type = types.nullOr types.str;
-            default = null;
-            description = "Bond device to attach this interface to";
-            example = "bond0";
           };
 
           # Wireguard configuration
@@ -376,117 +451,6 @@ in {
           };
         };
       }));
-    };
-
-    bridges = mkOption {
-      description = ''
-        Bridge definitions for combining VLANs from different parent interfaces.
-        VLANs that specify bridge = "brName" will be added to that bridge.
-        The bridge gets the IP configuration; bridged VLANs have no IP.
-      '';
-      default = {};
-      type = types.attrsOf (types.submodule {
-        options = {
-          vlanTag = mkOption {
-            type = types.nullOr types.int;
-            default = null;
-            description = ''
-              VLAN tag for IPv6 auto-generation. When set and dhcp6 is enabled,
-              an IPv6 address will be auto-generated from the ULA prefix using
-              this VLAN tag, just like for regular VLANs.
-            '';
-            example = 10;
-          };
-          network = mkOption {
-            type = mkNetworkSubmodule {
-              allowedTypes = ["disabled" "static"];
-              defaultType = "static";
-            };
-            default = {};
-          };
-        };
-      });
-    };
-
-    bonds = mkOption {
-      description = ''
-        Bond definitions for combining physical interfaces for increased
-        bandwidth (LACP) or redundancy (active-backup).
-        Interfaces that specify bondDevice = "bondName" will be added to that bond.
-      '';
-      default = {};
-      type = types.attrsOf (types.submodule {
-        options = {
-          mode = mkOption {
-            type = types.enum [
-              "balance-rr"     # Round-robin for load balancing
-              "active-backup"  # Failover
-              "balance-xor"    # XOR based on MAC
-              "broadcast"      # Transmit on all slaves
-              "802.3ad"        # LACP - requires switch support
-              "balance-tlb"    # Adaptive transmit load balancing
-              "balance-alb"    # Adaptive load balancing
-            ];
-            default = "802.3ad";
-            description = "Bonding mode";
-          };
-
-          lacpTransmitRate = mkOption {
-            type = types.enum ["slow" "fast"];
-            default = "fast";
-            description = "LACP transmit rate (only for 802.3ad mode)";
-          };
-
-          miiMonitorSec = mkOption {
-            type = types.str;
-            default = "100ms";
-            description = "MII link monitoring interval";
-          };
-
-          # Bond can have VLANs on top of it
-          vlans = mkOption {
-            type = types.attrsOf (types.submodule {
-              options = {
-                tag = mkOption {
-                  type = types.int;
-                  description = "VLAN ID (1-4094)";
-                };
-                bridge = mkOption {
-                  type = types.nullOr types.str;
-                  default = null;
-                  description = "Bridge to add this VLAN to";
-                };
-                network = mkOption {
-                  type = mkNetworkSubmodule {
-                    allowedTypes = ["disabled" "static"];
-                    defaultType = "static";
-                  };
-                  default = {};
-                };
-              };
-            });
-            default = {};
-            description = "VLANs to create on this bond";
-          };
-
-          network = mkOption {
-            description = "Network configuration for the bond itself (if not using VLANs)";
-            type = mkNetworkSubmodule {
-              allowedTypes = ["disabled" "static" "dhcp"];
-              defaultType = "disabled";
-            };
-            default = {};
-          };
-
-          # Attach bond to batman device (for mesh networking over bonded interfaces)
-          batmanDevice = mkOption {
-            type = types.nullOr types.str;
-            default = null;
-            description = "Batman-adv device to attach this bond to";
-            example = "bat0";
-          };
-        };
-      });
     };
 
     dns = mkOption {
@@ -593,6 +557,10 @@ in {
   };
 
   config = mkIf cfg.enable (let
+    # ============================================================================
+    # Address Generation & Parsing
+    # ============================================================================
+
     # Parse CIDR address to get network info
     parseCIDR = addr: let
       parts = lib.splitString "/" addr;
@@ -637,12 +605,13 @@ in {
       let
         explicit = iface.network.addresses or [];
         hasExplicitV6 = lib.any (a: lib.hasInfix ":" a) explicit;
-        # Auto-generate IPv6 for VLANs or bridges with a tag, if dhcp6 enabled and no explicit IPv6
-        hasTag = (iface.tag or null) != null;
-        isVlanOrBridge = (iface.isVlan or false) || (iface.isBridge or false);
-        autoV6 = if !hasExplicitV6 && isVlanOrBridge && hasTag
-                    && (iface.network.dhcp6.enable or false)
-                 then mkAutoIPv6 iface.tag
+
+        # Get subnetId: from network.subnetId, or default to VLAN tag
+        subnetId = iface.network.subnetId or (iface.tag or null);
+
+        # Auto-generate IPv6 if dhcp6 enabled, no explicit IPv6, and have subnetId
+        autoV6 = if !hasExplicitV6 && (iface.network.dhcp6.enable or false) && subnetId != null
+                 then mkAutoIPv6 subnetId
                  else null;
       in explicit ++ (optional (autoV6 != null) autoV6);
 
@@ -693,6 +662,10 @@ in {
     # Generate all Kea subnets (IDs derived from network address for stability)
     keaSubnets = filter (x: x != null) (map mkKeaSubnet4
       (filter (i: i.network.dhcp.enable or false) flattenTopology));
+
+    # ============================================================================
+    # nftables Helpers
+    # ============================================================================
 
     # Quote interface name for nftables
     quote = s: ''"${s}"'';
@@ -761,6 +734,28 @@ in {
     # ==========================
     {
       systemd.network.netdevs = let
+        # Bond netdevs (from topology)
+        bondDevs = mapAttrs (name: device: {
+          netdevConfig = {
+            Name = name;
+            Kind = "bond";
+          };
+          bondConfig = {
+            Mode = device.mode;
+            MIIMonitorSec = device.miiMonitorSec or "100ms";
+          } // optionalAttrs (device.mode == "802.3ad") {
+            LACPTransmitRate = device.lacpTransmitRate or "fast";
+          };
+        }) (devicesByKind "bond");
+
+        # Bridge netdevs (from topology)
+        bridgeDevs = mapAttrs (name: device: {
+          netdevConfig = {
+            Name = name;
+            Kind = "bridge";
+          };
+        }) (devicesByKind "bridge");
+
         # VLAN netdevs
         vlanDevs = concatMapAttrs (parentName: parent:
           mapAttrs (vlanName: vlan: {
@@ -809,40 +804,7 @@ in {
           } else null
         ) cfg.topology);
 
-        # Bridge netdevs
-        bridgeDevs = mapAttrs (name: bridge: {
-          netdevConfig = {
-            Name = name;
-            Kind = "bridge";
-          };
-        }) (cfg.bridges or {});
-
-        # Bond netdevs
-        bondDevs = mapAttrs (name: bond: {
-          netdevConfig = {
-            Name = name;
-            Kind = "bond";
-          };
-          bondConfig = {
-            Mode = bond.mode;
-            MIIMonitorSec = bond.miiMonitorSec;
-          } // optionalAttrs (bond.mode == "802.3ad") {
-            LACPTransmitRate = bond.lacpTransmitRate;
-          };
-        }) (cfg.bonds or {});
-
-        # VLANs on bonds
-        bondVlanDevs = concatMapAttrs (bondName: bond:
-          mapAttrs (vlanName: vlan: {
-            netdevConfig = {
-              Name = vlanName;
-              Kind = "vlan";
-            };
-            vlanConfig.Id = vlan.tag;
-          }) (bond.vlans or {})
-        ) (cfg.bonds or {});
-
-      in vlanDevs // batmanDevs // wgDevs // bridgeDevs // bondDevs // bondVlanDevs;
+      in bondDevs // bridgeDevs // vlanDevs // batmanDevs // wgDevs;
     }
 
     # ============================
@@ -916,96 +878,75 @@ in {
           }) v6Addrs;
         };
 
-        # Physical/main interface networks
-        mainNetworks = mapAttrs (name: iface: let
+        # Physical and virtual device networks
+        deviceNetworks = mapAttrs (name: device: let
           ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
-          isBonded = iface.bondDevice or null != null;
-          isBridged = iface.network.bridge or null != null;
+          deviceIsBondMember = isBondMember name;
+          deviceIsBatmanMember = isBatmanMember name;
+
+          # Physical interface in a bond: attach to bond, no IP
+          bondMemberConfig = {
+            matchConfig.Name = name;
+            networkConfig.Bond = findBondContaining name;
+            linkConfig.RequiredForOnline = "no";
+          };
+
+          # Device in batman mesh: attach to batman, no IP
+          batmanMemberConfig = {
+            matchConfig.Name = name;
+            networkConfig.BatmanAdvanced = findBatmanContaining name;
+            linkConfig.RequiredForOnline = "no";
+          };
+
+          # Device with VLANs (bond, batman, or physical with VLANs)
+          deviceWithVlans =
+            (mkNetworkConfig name device.network ifaceData) // {
+              vlan = attrNames (device.vlans or {});
+            };
+
+          # Simple device (bridge, wireguard, standalone physical)
+          simpleDevice =
+            mkNetworkConfig name device.network ifaceData;
+
         in
-          if isBonded then {
-            # Bonded interface: join the bond, no IP config
-            matchConfig.Name = name;
-            networkConfig.Bond = iface.bondDevice;
-            linkConfig.RequiredForOnline = "no";
-          } else if isBridged then {
-            # Bridged interface: join the bridge, no IP config
-            matchConfig.Name = name;
-            networkConfig.Bridge = iface.network.bridge;
-            linkConfig.RequiredForOnline = "no";
-          } else
-            (mkNetworkConfig name iface.network ifaceData) // {
-              # Add VLAN references
-              vlan = attrNames (iface.vlans or {});
-            } // optionalAttrs (iface.batmanDevice != null) {
-              networkConfig.BatmanAdvanced = iface.batmanDevice;
-            }
+          # Dispatch based on device kind and membership
+          if device.kind == "physical" && deviceIsBondMember then
+            bondMemberConfig
+          else if device.kind == "bond" && deviceIsBatmanMember then
+            batmanMemberConfig
+          else if device.kind == "bond" then
+            deviceWithVlans
+          else if device.kind == "bridge" then
+            simpleDevice
+          else if device.kind == "batman" then
+            deviceWithVlans
+          else
+            # wireguard, standalone physical
+            simpleDevice
         ) cfg.topology;
 
         # VLAN networks
         vlanNetworks = concatMapAttrs (parentName: parent:
           mapAttrs (vlanName: vlan: let
             ifaceData = lib.findFirst (i: i.name == vlanName) null flattenTopology;
-            isBridged = vlan.bridge or null != null;
-          in
-            if isBridged then {
-              # Bridged VLAN: join the bridge, no IP config
+
+            # Bridged VLAN: attach to bridge, no own IP config
+            bridgedVlan = {
               matchConfig.Name = vlanName;
-              networkConfig = {
-                Bridge = vlan.bridge;
-              };
+              networkConfig.Bridge = findBridgeContaining vlanName;
               linkConfig.RequiredForOnline = "no";
-            } else
-              # Non-bridged VLAN: normal config
-              mkNetworkConfig vlanName vlan.network ifaceData
+            };
+
+            # Standalone VLAN: has own network config
+            standaloneVlan =
+              mkNetworkConfig vlanName vlan.network ifaceData;
+
+          in
+            if isBridgeMember vlanName then bridgedVlan else standaloneVlan
           ) (parent.vlans or {})
         ) cfg.topology;
 
-        # Bridge networks
-        bridgeNetworks = mapAttrs (name: bridge: let
-          ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
-        in
-          mkNetworkConfig name bridge.network ifaceData
-        ) (cfg.bridges or {});
-
-        # Bond networks
-        bondNetworks = mapAttrs (name: bond: let
-          ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
-          isBridged = bond.network.bridge or null != null;
-        in
-          if isBridged then {
-            # Bridged bond: join the bridge, no IP config
-            matchConfig.Name = name;
-            networkConfig.Bridge = bond.network.bridge;
-            linkConfig.RequiredForOnline = "no";
-          } else
-            (mkNetworkConfig name bond.network ifaceData) // {
-              # Add VLAN references for the bond
-              vlan = attrNames (bond.vlans or {});
-            } // optionalAttrs (bond.batmanDevice or null != null) {
-              networkConfig.BatmanAdvanced = bond.batmanDevice;
-            }
-        ) (cfg.bonds or {});
-
-        # Bond VLAN networks
-        bondVlanNetworks = concatMapAttrs (bondName: bond:
-          mapAttrs (vlanName: vlan: let
-            ifaceData = lib.findFirst (i: i.name == vlanName) null flattenTopology;
-            isBridged = vlan.bridge or null != null;
-          in
-            if isBridged then {
-              # Bridged VLAN: join the bridge, no IP config
-              matchConfig.Name = vlanName;
-              networkConfig = {
-                Bridge = vlan.bridge;
-              };
-              linkConfig.RequiredForOnline = "no";
-            } else
-              # Non-bridged VLAN: normal config
-              mkNetworkConfig vlanName vlan.network ifaceData
-          ) (bond.vlans or {})
-        ) (cfg.bonds or {});
-
-      in mainNetworks // vlanNetworks // bridgeNetworks // bondNetworks // bondVlanNetworks;
+      in deviceNetworks // vlanNetworks;
     }
 
     # ===================
@@ -1437,78 +1378,31 @@ in {
         assertion = !(iface.wireguard.openFirewall or false) || (iface.wireguard.port or null) != null;
         message = "Wireguard interface ${name}: openFirewall requires port to be set";
       }) (filterAttrs (n: v: v.wireguard != null) cfg.topology))
-      # Bridge assertions: ensure all referenced bridges are defined
-      ++ (let
-        # Collect all bridge references from VLANs (topology and bonds)
-        vlanBridgeRefs = flatten (mapAttrsToList (parentName: parent:
-          mapAttrsToList (vlanName: vlan:
-            if vlan.bridge or null != null then { name = vlanName; bridge = vlan.bridge; kind = "VLAN"; } else null
-          ) (parent.vlans or {})
-        ) cfg.topology)
-        ++ flatten (mapAttrsToList (bondName: bond:
-          mapAttrsToList (vlanName: vlan:
-            if vlan.bridge or null != null then { name = vlanName; bridge = vlan.bridge; kind = "VLAN"; } else null
-          ) (bond.vlans or {})
-        ) (cfg.bonds or {}));
-        # Collect bridge references from interfaces
-        ifaceBridgeRefs = mapAttrsToList (name: iface:
-          if iface.network.bridge or null != null then { inherit name; bridge = iface.network.bridge; kind = "interface"; } else null
-        ) cfg.topology;
-        # Collect bridge references from bonds
-        bondBridgeRefs = mapAttrsToList (name: bond:
-          if bond.network.bridge or null != null then { inherit name; bridge = bond.network.bridge; kind = "bond"; } else null
-        ) (cfg.bonds or {});
-        allBridgeRefs = vlanBridgeRefs ++ ifaceBridgeRefs ++ bondBridgeRefs;
-        definedBridges = attrNames (cfg.bridges or {});
-      in filter (x: x != null) (map (ref:
-        if ref != null && !(elem ref.bridge definedBridges) then {
-          assertion = false;
-          message = "${ref.kind} '${ref.name}' references undefined bridge '${ref.bridge}'. Define it in router6.bridges.";
-        } else null
-      ) allBridgeRefs))
-      # Ensure each bridge has at least one member (VLAN, interface, or bond)
-      ++ (let
-        # All potential bridge members
-        allBridgeMembers =
-          # VLANs from topology
-          flatten (mapAttrsToList (parentName: parent:
-            mapAttrsToList (vlanName: vlan: { name = vlanName; bridge = vlan.bridge or null; }) (parent.vlans or {})
-          ) cfg.topology)
-          # VLANs from bonds
-          ++ flatten (mapAttrsToList (bondName: bond:
-            mapAttrsToList (vlanName: vlan: { name = vlanName; bridge = vlan.bridge or null; }) (bond.vlans or {})
-          ) (cfg.bonds or {}))
-          # Interfaces
-          ++ mapAttrsToList (name: iface: { inherit name; bridge = iface.network.bridge or null; }) cfg.topology
-          # Bonds
-          ++ mapAttrsToList (name: bond: { inherit name; bridge = bond.network.bridge or null; }) (cfg.bonds or {});
-        bridgeMembers = bridge: filter (i: (i.bridge or null) == bridge) allBridgeMembers;
-      in mapAttrsToList (name: bridge: {
-        assertion = (bridgeMembers name) != [];
-        message = "Bridge '${name}' has no members. Add VLANs, interfaces, or bonds with bridge = \"${name}\".";
-      }) (cfg.bridges or {}))
-      # Bond assertions: ensure all referenced bonds are defined
-      ++ (let
-        # Collect all bond references from interfaces
-        ifaceBondRefs = mapAttrsToList (name: iface:
-          if iface.bondDevice or null != null then { ifaceName = name; bond = iface.bondDevice; } else null
-        ) cfg.topology;
-        definedBonds = attrNames (cfg.bonds or {});
-      in filter (x: x != null) (map (ref:
-        if ref != null && !(elem ref.bond definedBonds) then {
-          assertion = false;
-          message = "Interface ${ref.ifaceName} references undefined bond '${ref.bond}'. Define it in router6.bonds.";
-        } else null
-      ) ifaceBondRefs))
-      # Ensure each bond has at least one interface member
-      ++ (let
-        bondMembers = bond: filter (i: (i.bondDevice or null) == bond) (
-          mapAttrsToList (name: iface: { name = name; bondDevice = iface.bondDevice or null; }) cfg.topology
-        );
-      in mapAttrsToList (name: bond: {
-        assertion = (bondMembers name) != [];
-        message = "Bond '${name}' has no interface members. Add interfaces with bondDevice = \"${name}\".";
-      }) (cfg.bonds or {}));
+      # Bond member validation
+      ++ flatten (mapAttrsToList (bondName: bond:
+        map (member: {
+          assertion = hasAttr member cfg.topology;
+          message = "Bond '${bondName}' references non-existent member '${member}'";
+        }) (bond.members or [])
+      ) (devicesByKind "bond"))
+      # Bridge member validation (members can be VLANs)
+      ++ flatten (mapAttrsToList (bridgeName: bridge:
+        map (member: {
+          assertion = hasAttr member cfg.topology ||
+                      any (dev: hasAttr member (dev.vlans or {})) (attrValues cfg.topology);
+          message = "Bridge '${bridgeName}' references non-existent member '${member}'";
+        }) (bridge.members or [])
+      ) (devicesByKind "bridge"))
+      # Bonds and bridges must have members
+      ++ mapAttrsToList (name: device: {
+        assertion = !(device.kind == "bond" || device.kind == "bridge") || length (device.members or []) > 0;
+        message = "${device.kind} '${name}' has no members defined";
+      }) cfg.topology
+      # Bonds must have mode
+      ++ mapAttrsToList (name: device: {
+        assertion = device.mode != null;
+        message = "Bond '${name}' must have mode defined";
+      }) (devicesByKind "bond");
     }
   ]);
 }

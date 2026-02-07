@@ -12,6 +12,7 @@
   # NixOS integration tests
   router6-ipv6 = import ./modules/router6-ipv6.nix { inherit pkgs lib; };
   router6-firewall = import ./modules/router6-firewall.nix { inherit pkgs lib; };
+  router6-bond-bridge = import ./modules/router6-bond-bridge.nix { inherit pkgs lib; };
 
   # Unit tests (pure Nix evaluation)
   nftables-dsl = import ./lib/nftables.nix { inherit pkgs lib; };
