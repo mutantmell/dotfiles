@@ -820,7 +820,19 @@ in {
     # ============================
     {
       systemd.network.networks = let
-        mkNetworkConfig = iface: network: ifaceData: let
+        mkNetworkConfig = name: ifaceData: { network, kind, vlans ? {}, ... }: let
+          # Build membership config by merging all applicable memberships
+          membershipConfig =
+            (if kind == "physical" && isMember "bond" name
+             then { Bond = findContaining "bond" name; }
+             else {}) //
+            (if (kind == "physical" || kind == "bond") && isMember "batman" name
+             then { BatmanAdvanced = findContaining "batman" name; }
+             else {}) //
+            (if isMember "bridge" name
+             then { Bridge = findContaining "bridge" name; }
+             else {});
+
           # Get effective addresses (including auto-generated IPv6)
           effectiveAddrs = if ifaceData != null then getEffectiveAddresses ifaceData else network.addresses or [];
           # Check if this interface should send Router Advertisements
@@ -828,7 +840,7 @@ in {
           # Get IPv6 addresses for RA prefix configuration
           v6Addrs = filter (a: lib.hasInfix ":" a) effectiveAddrs;
         in {
-          matchConfig.Name = iface;
+          matchConfig.Name = name;
 
           # Static addresses (NixOS uses top-level 'address' list, not networkConfig.Address)
           address = if network.type == "static" then effectiveAddrs else [];
@@ -851,7 +863,7 @@ in {
           } // optionalAttrs shouldSendRA {
             # Enable Router Advertisement on interfaces with dhcp6 enabled
             IPv6SendRA = true;
-          };
+          } // membershipConfig;  # Merge membership settings (Bond=, BatmanAdvanced=, Bridge=)
 
           linkConfig = {
             RequiredForOnline = if network.required then "routable" else "no";
@@ -884,6 +896,9 @@ in {
             PreferredLifetimeSec = 3600;
             ValidLifetimeSec = 7200;
           }) v6Addrs;
+        } // optionalAttrs (vlans != {}) {
+          # Add VLAN list if device has VLANs
+          vlan = attrNames vlans;
         };
 
         # Determine numeric prefix for a device network
@@ -892,80 +907,10 @@ in {
           if device.kind == "wireguard" then "40-" else "10-";
 
         # Physical and virtual device networks
-        deviceNetworks = mapAttrs (name: device: let
-          ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
-          deviceIsBondMember = isMember "bond" name;
-          deviceIsBatmanMember = isMember "batman" name;
-          deviceIsBridgeMember = isMember "bridge" name;
-
-          # Physical interface in a bond: attach to bond, no IP
-          bondMemberConfig = {
-            name = "10-${name}";
-            value = {
-              matchConfig.Name = name;
-              networkConfig.Bond = findContaining "bond" name;
-              linkConfig.RequiredForOnline = "no";
-            };
-          };
-
-          # Device in batman mesh: attach to batman, no IP
-          batmanMemberConfig = {
-            name = "10-${name}";
-            value = {
-              matchConfig.Name = name;
-              networkConfig.BatmanAdvanced = findContaining "batman" name;
-              linkConfig.RequiredForOnline = "no";
-            };
-          };
-
-          # Device in a bridge: attach to bridge, no IP
-          bridgeMemberConfig = {
-            name = "10-${name}";
-            value = {
-              matchConfig.Name = name;
-              networkConfig.Bridge = findContaining "bridge" name;
-              linkConfig.RequiredForOnline = "no";
-            };
-          };
-
-          # Device with VLANs (bond, batman, or physical with VLANs)
-          deviceWithVlans = {
-            name = "${devicePrefix device}${name}";
-            value = (mkNetworkConfig name device.network ifaceData) // {
-              vlan = attrNames (device.vlans or {});
-            };
-          };
-
-          # Simple device (bridge, wireguard, standalone physical without VLANs)
-          simpleDevice = {
-            name = "${devicePrefix device}${name}";
-            value = mkNetworkConfig name device.network ifaceData;
-          };
-
-          # Check if device has VLANs
-          hasVlans = (device.vlans or {}) != {};
-
-        in
-          # Dispatch based on device kind and membership
-          # Priority: membership > VLANs > simple
-          if device.kind == "physical" && deviceIsBondMember then
-            bondMemberConfig
-          else if device.kind == "physical" && deviceIsBatmanMember then
-            batmanMemberConfig
-          else if device.kind == "physical" && deviceIsBridgeMember then
-            bridgeMemberConfig
-          else if device.kind == "bond" && deviceIsBatmanMember then
-            batmanMemberConfig
-          else if hasVlans then
-            # Any device with VLANs (bond, batman, physical)
-            deviceWithVlans
-          else if device.kind == "bridge" then
-            # Bridges don't have VLANs themselves (their members do)
-            simpleDevice
-          else
-            # Simple device without VLANs (wireguard, standalone physical, bond/batman without VLANs)
-            simpleDevice
-        ) cfg.topology;
+        deviceNetworks = mapAttrs (name: device: {
+          name = "${devicePrefix device}${name}";
+          value = mkNetworkConfig name (lib.findFirst (i: i.name == name) null flattenTopology) device;
+        }) cfg.topology;
 
         # VLAN networks - 21- prefix
         vlanNetworks = concatMapAttrs (parentName: parent:
@@ -985,7 +930,10 @@ in {
             # Standalone VLAN: has own network config
             standaloneVlan = {
               name = "21-${vlanName}";
-              value = mkNetworkConfig vlanName vlan.network ifaceData;
+              value = mkNetworkConfig vlanName ifaceData {
+                network = vlan.network;
+                kind = "vlan";
+              };
             };
 
           in

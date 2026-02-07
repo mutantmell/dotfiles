@@ -51,7 +51,7 @@
     firewall = {
       # Forward from DMZ to wg-ba
       extraForwardRules = [
-        { iifname = "vDMZ.bond0"; oifname = "wg-ba"; verdict = "accept"; }
+        { iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }
         { iifname = "wg-ba"; ip.daddr = "10.0.100.40"; verdict = "accept"; }
       ];
 
@@ -120,34 +120,8 @@
         miiMonitorSec = "100ms";
         members = ["lan" "opt1"];
         network = {
+          type = "disabled";
           mtu = 1536;
-        };
-        vlans = {
-          # Bridged VLANs - network config is on the bridge
-          "vMGMT.bond0" = { tag = 10; network.type = "disabled"; };
-          "vHOME.bond0" = { tag = 20; network.type = "disabled"; };
-
-          # Bond-only VLANs (no batman counterpart needed now)
-          "vADU.bond0" = {
-            tag = 31;  # -> fdc6:55f2:0a5e:1f::1/64
-            network = {
-              type = "static";
-              addresses = [ "10.0.31.1/24" ];
-              trust = "untrusted";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
-          "vDMZ.bond0" = {
-            tag = 100;  # -> fdc6:55f2:0a5e:64::1/64
-            network = {
-              type = "static";
-              addresses = [ "10.0.100.1/24" ];
-              trust = "untrusted";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
         };
       };
 
@@ -159,13 +133,45 @@
           gatewayMode = "off";
           routingAlgorithm = "batman-v";
         };
-        vlans = {
-          # Bridged VLANs - network config is on the bridge
-          "vMGMT.bat0" = { tag = 10; network.type = "disabled"; };
-          "vHOME.bat0" = { tag = 20; network.type = "disabled"; };
+        network.type = "disabled";
+      };
 
-          # Batman-only VLANs (no physical counterpart)
-          "vGUEST.bat0" = {
+      # Bridge combining bond0 and bat0 - all VLANs created on top
+      # bond0 is both a batman member (via bat0.members) and a bridge member
+      # bat0 is also a bridge member
+      br0 = {
+        kind = "bridge";
+        members = ["bond0" "bat0"];
+        network.type = "disabled";
+        vlans = {
+          # Management network - trusted devices and infrastructure
+          "vMGMT.br0" = {
+            tag = 10;  # -> fdc6:55f2:0a5e:a::1/64
+            network = {
+              type = "static";
+              addresses = [ "10.0.10.1/24" ];
+              subnetId = 10;
+              trust = "management";
+              dhcp.enable = true;
+              dhcp6.enable = true;
+            };
+          };
+
+          # Home network - trusted devices
+          "vHOME.br0" = {
+            tag = 20;  # -> fdc6:55f2:0a5e:14::1/64
+            network = {
+              type = "static";
+              addresses = [ "10.0.20.1/24" ];
+              subnetId = 20;
+              trust = "trusted";
+              dhcp.enable = true;
+              dhcp6.enable = true;
+            };
+          };
+
+          # Guest network - untrusted devices
+          "vGUEST.br0" = {
             tag = 30;  # -> fdc6:55f2:0a5e:1e::1/64
             network = {
               type = "static";
@@ -175,7 +181,21 @@
               dhcp6.enable = true;
             };
           };
-          "vIOT.bat0" = {
+
+          # ADU network - separate dwelling unit
+          "vADU.br0" = {
+            tag = 31;  # -> fdc6:55f2:0a5e:1f::1/64
+            network = {
+              type = "static";
+              addresses = [ "10.0.31.1/24" ];
+              trust = "untrusted";
+              dhcp.enable = true;
+              dhcp6.enable = true;
+            };
+          };
+
+          # IoT network - smart home devices
+          "vIOT.br0" = {
             tag = 40;  # -> fdc6:55f2:0a5e:28::1/64
             network = {
               type = "static";
@@ -185,7 +205,9 @@
               dhcp6.enable = true;
             };
           };
-          "vGAME.bat0" = {
+
+          # Gaming network - consoles and gaming devices
+          "vGAME.br0" = {
             tag = 41;  # -> fdc6:55f2:0a5e:29::1/64
             network = {
               type = "static";
@@ -195,33 +217,18 @@
               dhcp6.enable = true;
             };
           };
-        };
-      };
 
-      # Bridges combining physical and batman VLANs into unified networks
-      brMGMT = {
-        kind = "bridge";
-        members = ["vMGMT.bond0" "vMGMT.bat0"];
-        network = {
-          type = "static";
-          addresses = [ "10.0.10.1/24" ];
-          subnetId = 10;  # -> fdc6:55f2:0a5e:a::1/64
-          trust = "management";
-          dhcp.enable = true;
-          dhcp6.enable = true;
-        };
-      };
-
-      brHOME = {
-        kind = "bridge";
-        members = ["vHOME.bond0" "vHOME.bat0"];
-        network = {
-          type = "static";
-          addresses = [ "10.0.20.1/24" ];
-          subnetId = 20;  # -> fdc6:55f2:0a5e:14::1/64
-          trust = "trusted";
-          dhcp.enable = true;
-          dhcp6.enable = true;
+          # DMZ network - exposed services
+          "vDMZ.br0" = {
+            tag = 100;  # -> fdc6:55f2:0a5e:64::1/64
+            network = {
+              type = "static";
+              addresses = [ "10.0.100.1/24" ];
+              trust = "untrusted";
+              dhcp.enable = true;
+              dhcp6.enable = true;
+            };
+          };
         };
       };
 
@@ -287,11 +294,11 @@
   };
 
   # Bridge microVM tap interfaces into the management network
-  # The vm-10-alfheim tap interface is created by microvm and needs to be bridged to brMGMT
+  # The vm-10-alfheim tap interface is created by microvm and needs to be bridged to vMGMT.br0
   systemd.network.networks."10-vm-mgmt" = {
     matchConfig.Name = "vm-10-*";
     networkConfig = {
-      Bridge = "brMGMT";
+      Bridge = "vMGMT.br0";
       DHCP = "no";
       LinkLocalAddressing = "no";
     };
