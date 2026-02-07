@@ -941,23 +941,21 @@ in {
 
         in
           # Dispatch based on device kind and membership
+          # Priority: membership > VLANs > simple
           if device.kind == "physical" && deviceIsBondMember then
             bondMemberConfig
           else if device.kind == "physical" && deviceIsBridgeMember then
             bridgeMemberConfig
           else if device.kind == "bond" && deviceIsBatmanMember then
             batmanMemberConfig
-          else if device.kind == "bond" then
+          else if hasVlans then
+            # Any device with VLANs (bond, batman, physical)
             deviceWithVlans
           else if device.kind == "bridge" then
+            # Bridges don't have VLANs themselves (their members do)
             simpleDevice
-          else if device.kind == "batman" then
-            deviceWithVlans
-          else if device.kind == "physical" && hasVlans then
-            # Physical device with VLANs
-            deviceWithVlans
           else
-            # wireguard, standalone physical without VLANs
+            # Simple device without VLANs (wireguard, standalone physical, bond/batman without VLANs)
             simpleDevice
         ) cfg.topology;
 
