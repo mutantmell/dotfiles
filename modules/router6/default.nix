@@ -220,9 +220,9 @@ let
         # VLANs nested under this device
         vlans = mapAttrsToList (vlanName: vlan: {
           name = vlanName;
-          # If VLAN is a bridge member, no network config
-          network = if isMember "bridge" vlanName
-                    then { type = "disabled"; }
+          # If VLAN is a bridge member, then fail if network is not disabled
+          network = if isMember "bridge" vlanName && vlan.network.type != "disabled"
+                    then throw "vlan cannot be a member of a bridge and have a network"
                     else vlan.network;
           isVlan = true;
           parent = name;
@@ -587,8 +587,12 @@ in {
         explicit = iface.network.addresses or [];
         hasExplicitV6 = lib.any (a: lib.hasInfix ":" a) explicit;
 
-        # Get subnetId: from network.subnetId, or default to VLAN tag
-        subnetId = iface.network.subnetId or (iface.tag or null);
+        # Get subnetId: from network.subnetId if not null, otherwise default to VLAN tag
+        # Note: Can't use 'or' alone because it doesn't distinguish between null and missing
+        subnetId =
+          if (iface.network.subnetId or null) != null
+          then iface.network.subnetId
+          else (iface.tag or null);
 
         # Auto-generate IPv6 if dhcp6 enabled, no explicit IPv6, and have subnetId
         autoV6 = if !hasExplicitV6 && (iface.network.dhcp6.enable or false) && subnetId != null
@@ -715,77 +719,94 @@ in {
     # ==========================
     {
       systemd.network.netdevs = let
-        # Bond netdevs (from topology)
+        # Bond netdevs (from topology) - 03- prefix
         bondDevs = mapAttrs (name: device: {
-          netdevConfig = {
-            Name = name;
-            Kind = "bond";
-          };
-          bondConfig = {
-            Mode = device.mode;
-            MIIMonitorSec = device.miiMonitorSec or "100ms";
-          } // optionalAttrs (device.mode == "802.3ad") {
-            LACPTransmitRate = device.lacpTransmitRate or "fast";
+          name = "03-${name}";
+          value = {
+            netdevConfig = {
+              Name = name;
+              Kind = "bond";
+            };
+            bondConfig = {
+              Mode = device.mode;
+              MIIMonitorSec = device.miiMonitorSec or "100ms";
+            } // optionalAttrs (device.mode == "802.3ad") {
+              LACPTransmitRate = device.lacpTransmitRate or "fast";
+            };
           };
         }) (devicesByKind "bond");
 
-        # Bridge netdevs (from topology)
+        # Bridge netdevs (from topology) - 02- prefix
         bridgeDevs = mapAttrs (name: device: {
-          netdevConfig = {
-            Name = name;
-            Kind = "bridge";
+          name = "02-${name}";
+          value = {
+            netdevConfig = {
+              Name = name;
+              Kind = "bridge";
+            };
           };
         }) (devicesByKind "bridge");
 
-        # VLAN netdevs
+        # VLAN netdevs - 01- prefix
         vlanDevs = concatMapAttrs (parentName: parent:
           mapAttrs (vlanName: vlan: {
-            netdevConfig = {
-              Name = vlanName;
-              Kind = "vlan";
+            name = "01-${vlanName}";
+            value = {
+              netdevConfig = {
+                Name = vlanName;
+                Kind = "vlan";
+              };
+              vlanConfig.Id = vlan.tag;
             };
-            vlanConfig.Id = vlan.tag;
           }) (parent.vlans or {})
         ) cfg.topology;
 
-        # Batman netdevs
+        # Batman netdevs - 00- prefix (same as links for early initialization)
         batmanDevs = filterAttrs (n: v: v != null) (mapAttrs (name: iface:
           if iface.batman != null then {
-            netdevConfig = {
-              Name = name;
-              Kind = "batadv";
-            };
-            batmanAdvancedConfig = {
-              GatewayMode = iface.batman.gatewayMode;
-              RoutingAlgorithm = iface.batman.routingAlgorithm;
+            name = "00-${name}";
+            value = {
+              netdevConfig = {
+                Name = name;
+                Kind = "batadv";
+              };
+              batmanAdvancedConfig = {
+                GatewayMode = iface.batman.gatewayMode;
+                RoutingAlgorithm = iface.batman.routingAlgorithm;
+              };
             };
           } else null
         ) cfg.topology);
 
-        # Wireguard netdevs
+        # Wireguard netdevs - 30- prefix
         wgDevs = filterAttrs (n: v: v != null) (mapAttrs (name: iface:
           if iface.wireguard != null then {
-            netdevConfig = {
-              Name = name;
-              Kind = "wireguard";
+            name = "30-${name}";
+            value = {
+              netdevConfig = {
+                Name = name;
+                Kind = "wireguard";
+              };
+              wireguardConfig = {
+                PrivateKeyFile = iface.wireguard.privateKeyFile;
+              } // optionalAttrs (iface.wireguard.port != null) {
+                ListenPort = iface.wireguard.port;
+              };
+              wireguardPeers = map (peer: {
+                PublicKey = peer.publicKey;
+                AllowedIPs = peer.allowedIPs;
+              } // optionalAttrs (peer.endpoint != null) {
+                Endpoint = peer.endpoint;
+              } // optionalAttrs (peer.persistentKeepalive != null) {
+                PersistentKeepalive = peer.persistentKeepalive;
+              }) iface.wireguard.peers;
             };
-            wireguardConfig = {
-              PrivateKeyFile = iface.wireguard.privateKeyFile;
-            } // optionalAttrs (iface.wireguard.port != null) {
-              ListenPort = iface.wireguard.port;
-            };
-            wireguardPeers = map (peer: {
-              PublicKey = peer.publicKey;
-              AllowedIPs = peer.allowedIPs;
-            } // optionalAttrs (peer.endpoint != null) {
-              Endpoint = peer.endpoint;
-            } // optionalAttrs (peer.persistentKeepalive != null) {
-              PersistentKeepalive = peer.persistentKeepalive;
-            }) iface.wireguard.peers;
           } else null
         ) cfg.topology);
 
-      in bondDevs // bridgeDevs // vlanDevs // batmanDevs // wgDevs;
+      in lib.listToAttrs (
+        mapAttrsToList (n: v: v) (bondDevs // bridgeDevs // vlanDevs // batmanDevs // wgDevs)
+      );
     }
 
     # ============================
@@ -859,40 +880,71 @@ in {
           }) v6Addrs;
         };
 
+        # Determine numeric prefix for a device network
+        # 10- for regular devices, 40- for wireguard
+        devicePrefix = device:
+          if device.kind == "wireguard" then "40-" else "10-";
+
         # Physical and virtual device networks
         deviceNetworks = mapAttrs (name: device: let
           ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
           deviceIsBondMember = isMember "bond" name;
           deviceIsBatmanMember = isMember "batman" name;
+          deviceIsBridgeMember = isMember "bridge" name;
 
           # Physical interface in a bond: attach to bond, no IP
           bondMemberConfig = {
-            matchConfig.Name = name;
-            networkConfig.Bond = findContaining "bond" name;
-            linkConfig.RequiredForOnline = "no";
+            name = "10-${name}";
+            value = {
+              matchConfig.Name = name;
+              networkConfig.Bond = findContaining "bond" name;
+              linkConfig.RequiredForOnline = "no";
+            };
           };
 
           # Device in batman mesh: attach to batman, no IP
           batmanMemberConfig = {
-            matchConfig.Name = name;
-            networkConfig.BatmanAdvanced = findContaining "batman" name;
-            linkConfig.RequiredForOnline = "no";
+            name = "10-${name}";
+            value = {
+              matchConfig.Name = name;
+              networkConfig.BatmanAdvanced = findContaining "batman" name;
+              linkConfig.RequiredForOnline = "no";
+            };
+          };
+
+          # Device in a bridge: attach to bridge, no IP
+          bridgeMemberConfig = {
+            name = "10-${name}";
+            value = {
+              matchConfig.Name = name;
+              networkConfig.Bridge = findContaining "bridge" name;
+              linkConfig.RequiredForOnline = "no";
+            };
           };
 
           # Device with VLANs (bond, batman, or physical with VLANs)
-          deviceWithVlans =
-            (mkNetworkConfig name device.network ifaceData) // {
+          deviceWithVlans = {
+            name = "${devicePrefix device}${name}";
+            value = (mkNetworkConfig name device.network ifaceData) // {
               vlan = attrNames (device.vlans or {});
             };
+          };
 
-          # Simple device (bridge, wireguard, standalone physical)
-          simpleDevice =
-            mkNetworkConfig name device.network ifaceData;
+          # Simple device (bridge, wireguard, standalone physical without VLANs)
+          simpleDevice = {
+            name = "${devicePrefix device}${name}";
+            value = mkNetworkConfig name device.network ifaceData;
+          };
+
+          # Check if device has VLANs
+          hasVlans = (device.vlans or {}) != {};
 
         in
           # Dispatch based on device kind and membership
           if device.kind == "physical" && deviceIsBondMember then
             bondMemberConfig
+          else if device.kind == "physical" && deviceIsBridgeMember then
+            bridgeMemberConfig
           else if device.kind == "bond" && deviceIsBatmanMember then
             batmanMemberConfig
           else if device.kind == "bond" then
@@ -901,33 +953,43 @@ in {
             simpleDevice
           else if device.kind == "batman" then
             deviceWithVlans
+          else if device.kind == "physical" && hasVlans then
+            # Physical device with VLANs
+            deviceWithVlans
           else
-            # wireguard, standalone physical
+            # wireguard, standalone physical without VLANs
             simpleDevice
         ) cfg.topology;
 
-        # VLAN networks
+        # VLAN networks - 21- prefix
         vlanNetworks = concatMapAttrs (parentName: parent:
           mapAttrs (vlanName: vlan: let
             ifaceData = lib.findFirst (i: i.name == vlanName) null flattenTopology;
 
             # Bridged VLAN: attach to bridge, no own IP config
             bridgedVlan = {
-              matchConfig.Name = vlanName;
-              networkConfig.Bridge = findContaining "bridge" vlanName;
-              linkConfig.RequiredForOnline = "no";
+              name = "21-${vlanName}";
+              value = {
+                matchConfig.Name = vlanName;
+                networkConfig.Bridge = findContaining "bridge" vlanName;
+                linkConfig.RequiredForOnline = "no";
+              };
             };
 
             # Standalone VLAN: has own network config
-            standaloneVlan =
-              mkNetworkConfig vlanName vlan.network ifaceData;
+            standaloneVlan = {
+              name = "21-${vlanName}";
+              value = mkNetworkConfig vlanName vlan.network ifaceData;
+            };
 
           in
             if isMember "bridge" vlanName then bridgedVlan else standaloneVlan
           ) (parent.vlans or {})
         ) cfg.topology;
 
-      in deviceNetworks // vlanNetworks;
+      in lib.listToAttrs (
+        mapAttrsToList (n: v: v) (deviceNetworks // vlanNetworks)
+      );
     }
 
     # ===================
