@@ -102,40 +102,67 @@
         };
       };
 
-      # LAN interface - bonded with opt1
+      # LAN interface - will be bonded
       lan = {
         mac = "00:e0:67:1b:70:35";
-        bondDevice = "bond0";
-        network = {
-          type = "disabled";
-          required = false;
-        };
       };
 
-      # Second LAN interface - bonded with lan
+      # Second LAN interface - will be bonded
       opt1 = {
         mac = "00:e0:67:1b:70:36";
-        bondDevice = "bond0";
+      };
+
+      # Bond combining lan + opt1 for increased bandwidth (LACP)
+      bond0 = {
+        kind = "bond";
+        mode = "802.3ad";
+        lacpTransmitRate = "fast";
+        miiMonitorSec = "100ms";
+        members = ["lan" "opt1"];
         network = {
-          type = "disabled";
-          required = false;
+          mtu = 1536;
+        };
+        vlans = {
+          # Bridged VLANs - network config is on the bridge
+          "vMGMT.bond0" = { tag = 10; network.type = "disabled"; };
+          "vHOME.bond0" = { tag = 20; network.type = "disabled"; };
+
+          # Bond-only VLANs (no batman counterpart needed now)
+          "vADU.bond0" = {
+            tag = 31;  # -> fdc6:55f2:0a5e:1f::1/64
+            network = {
+              type = "static";
+              addresses = [ "10.0.31.1/24" ];
+              trust = "untrusted";
+              dhcp.enable = true;
+              dhcp6.enable = true;
+            };
+          };
+          "vDMZ.bond0" = {
+            tag = 100;  # -> fdc6:55f2:0a5e:64::1/64
+            network = {
+              type = "static";
+              addresses = [ "10.0.100.1/24" ];
+              trust = "untrusted";
+              dhcp.enable = true;
+              dhcp6.enable = true;
+            };
+          };
         };
       };
 
       # Batman-adv mesh device
       bat0 = {
+        kind = "batman";
+        members = ["bond0"];  # Batman lists its members
         batman = {
           gatewayMode = "off";
           routingAlgorithm = "batman-v";
         };
-        network = {
-          type = "disabled";
-          required = false;
-        };
         vlans = {
           # Bridged VLANs - network config is on the bridge
-          "vMGMT.bat0" = { tag = 10; bridge = "brMGMT"; };
-          "vHOME.bat0" = { tag = 20; bridge = "brHOME"; };
+          "vMGMT.bat0" = { tag = 10; network.type = "disabled"; };
+          "vHOME.bat0" = { tag = 20; network.type = "disabled"; };
 
           # Batman-only VLANs (no physical counterpart)
           "vGUEST.bat0" = {
@@ -171,17 +198,41 @@
         };
       };
 
+      # Bridges combining physical and batman VLANs into unified networks
+      brMGMT = {
+        kind = "bridge";
+        members = ["vMGMT.bond0" "vMGMT.bat0"];
+        network = {
+          type = "static";
+          addresses = [ "10.0.10.1/24" ];
+          subnetId = 10;  # -> fdc6:55f2:0a5e:a::1/64
+          trust = "management";
+          dhcp.enable = true;
+          dhcp6.enable = true;
+        };
+      };
+
+      brHOME = {
+        kind = "bridge";
+        members = ["vHOME.bond0" "vHOME.bat0"];
+        network = {
+          type = "static";
+          addresses = [ "10.0.20.1/24" ];
+          subnetId = 20;  # -> fdc6:55f2:0a5e:14::1/64
+          trust = "trusted";
+          dhcp.enable = true;
+          dhcp6.enable = true;
+        };
+      };
+
       # Spare interface
       opt2 = {
         mac = "00:e0:67:1b:70:37";
-        network = {
-          type = "disabled";
-          required = false;
-        };
       };
 
       # Wireguard - BA tunnel (isolated/lockdown)
       "wg-ba" = {
+        kind = "wireguard";
         network = {
           type = "static";
           addresses = [
@@ -189,7 +240,7 @@
             "fdc6:55f2:0a5e:6400::1/64"  # Manual IPv6 for WG
           ];
           trust = "isolated";
-          required = false;
+          required = false;  # External connection, don't block boot
         };
         wireguard = {
           privateKeyFile = config.sops.secrets."wg-ba-privatekey".path;
@@ -205,6 +256,7 @@
 
       # Wireguard - VPN for mobile devices
       "wg-vpn" = {
+        kind = "wireguard";
         network = {
           type = "static";
           addresses = [
@@ -212,7 +264,7 @@
             "fdc6:55f2:0a5e:640a::1/64"  # Manual IPv6 for WG
           ];
           trust = "trusted";
-          required = false;
+          required = false;  # External connection, don't block boot
         };
         wireguard = {
           privateKeyFile = config.sops.secrets."wg-vpn-privatekey".path;
@@ -231,72 +283,6 @@
         };
       };
 
-    };
-
-    # Bridges combining physical and batman VLANs into unified networks
-    bridges = {
-      brMGMT = {
-        vlanTag = 10;  # -> fdc6:55f2:0a5e:a::1/64
-        network = {
-          type = "static";
-          addresses = [ "10.0.10.1/24" ];
-          trust = "management";
-          dhcp.enable = true;
-          dhcp6.enable = true;
-        };
-      };
-      brHOME = {
-        vlanTag = 20;  # -> fdc6:55f2:0a5e:14::1/64
-        network = {
-          type = "static";
-          addresses = [ "10.0.20.1/24" ];
-          trust = "trusted";
-          dhcp.enable = true;
-          dhcp6.enable = true;
-        };
-      };
-    };
-
-    # Bond combining lan + opt1 for increased bandwidth (LACP)
-    bonds = {
-      bond0 = {
-        mode = "802.3ad";
-        lacpTransmitRate = "fast";
-        miiMonitorSec = "100ms";
-        batmanDevice = "bat0";
-        network = {
-          type = "disabled";
-          mtu = 1536;
-          required = false;
-        };
-        vlans = {
-          # Bridged VLANs - network config is on the bridge
-          "vMGMT.bond0" = { tag = 10; bridge = "brMGMT"; };
-          "vHOME.bond0" = { tag = 20; bridge = "brHOME"; };
-
-          # Bond-only VLANs (no batman counterpart needed now)
-          "vADU.bond0" = {
-            tag = 31;  # -> fdc6:55f2:0a5e:1f::1/64
-            network = {
-              type = "static";
-              addresses = [ "10.0.31.1/24" ];
-              trust = "untrusted";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
-          "vDMZ.bond0" = {
-            tag = 100;  # -> fdc6:55f2:0a5e:64::1/64
-            network = {
-              type = "static";
-              addresses = [ "10.0.100.1/24" ];
-              trust = "untrusted";
-              dhcp.enable = true;
-              dhcp6.enable = true;
-            };
-          };
-        };
-      };
     };
   };
 
