@@ -181,41 +181,22 @@ let
   # Bond/Bridge Membership
   # ============================================================================
 
-  # Check if a device is a member of any bridge
-  # Used to determine if VLANs should join a bridge vs have own IP
-  isBridgeMember = devName:
-    any (bridge: elem devName (bridge.members or []))
-        (attrValues (devicesByKind "bridge"));
+  # Generic helper: check if a device is a member of any container of given kind
+  isMember = kind: devName:
+    any (container: elem devName (container.members or []))
+        (attrValues (devicesByKind kind));
 
-  # Check if a device is a member of any bond
-  # Used to determine if physical interfaces should join a bond
-  isBondMember = devName:
-    any (bond: elem devName (bond.members or []))
-        (attrValues (devicesByKind "bond"));
-
-  # Check if a device is a member of any batman-adv mesh
-  # Used to determine if interfaces should attach to batman
-  isBatmanMember = devName:
-    any (batman: elem devName (batman.members or []))
-        (attrValues (devicesByKind "batman"));
-
-  # Find which bridge contains this member (returns name or null)
-  findBridgeContaining = member:
-    let bridges = filter (b: elem member (b.members or []))
-                         (mapAttrsToList (n: v: v // { name = n; }) (devicesByKind "bridge"));
-    in if bridges == [] then null else (head bridges).name;
-
-  # Find which bond contains this member (returns name or null)
-  findBondContaining = member:
-    let bonds = filter (b: elem member (b.members or []))
-                       (mapAttrsToList (n: v: v // { name = n; }) (devicesByKind "bond"));
-    in if bonds == [] then null else (head bonds).name;
-
-  # Find which batman device contains this member (returns name or null)
-  findBatmanContaining = member:
-    let batmans = filter (b: elem member (b.members or []))
-                         (mapAttrsToList (n: v: v // { name = n; }) (devicesByKind "batman"));
-    in if batmans == [] then null else (head batmans).name;
+  # Generic helper: find which container of given kind contains this member
+  # Throws an error if the member is in multiple containers (invalid config)
+  findContaining = kind: member:
+    let
+      containers = filter (c: elem member (c.members or []))
+                          (mapAttrsToList (n: v: v // { name = n; }) (devicesByKind kind));
+      count = length containers;
+    in
+      if count == 0 then null
+      else if count == 1 then (head containers).name
+      else throw "Device '${member}' is in multiple ${kind}s: ${lib.concatStringsSep ", " (map (c: c.name) containers)}. Each device can only be in one ${kind}.";
 
   # ============================================================================
   # Topology Processing
@@ -240,13 +221,13 @@ let
         vlans = mapAttrsToList (vlanName: vlan: {
           name = vlanName;
           # If VLAN is a bridge member, no network config
-          network = if isBridgeMember vlanName
+          network = if isMember "bridge" vlanName
                     then { type = "disabled"; }
                     else vlan.network;
           isVlan = true;
           parent = name;
           tag = vlan.tag;
-          bridge = if isBridgeMember vlanName then findBridgeContaining vlanName else null;
+          bridge = if isMember "bridge" vlanName then findContaining "bridge" vlanName else null;
           kind = "vlan";
           isBridge = false;
           isBond = false;
@@ -881,20 +862,20 @@ in {
         # Physical and virtual device networks
         deviceNetworks = mapAttrs (name: device: let
           ifaceData = lib.findFirst (i: i.name == name) null flattenTopology;
-          deviceIsBondMember = isBondMember name;
-          deviceIsBatmanMember = isBatmanMember name;
+          deviceIsBondMember = isMember "bond" name;
+          deviceIsBatmanMember = isMember "batman" name;
 
           # Physical interface in a bond: attach to bond, no IP
           bondMemberConfig = {
             matchConfig.Name = name;
-            networkConfig.Bond = findBondContaining name;
+            networkConfig.Bond = findContaining "bond" name;
             linkConfig.RequiredForOnline = "no";
           };
 
           # Device in batman mesh: attach to batman, no IP
           batmanMemberConfig = {
             matchConfig.Name = name;
-            networkConfig.BatmanAdvanced = findBatmanContaining name;
+            networkConfig.BatmanAdvanced = findContaining "batman" name;
             linkConfig.RequiredForOnline = "no";
           };
 
@@ -933,7 +914,7 @@ in {
             # Bridged VLAN: attach to bridge, no own IP config
             bridgedVlan = {
               matchConfig.Name = vlanName;
-              networkConfig.Bridge = findBridgeContaining vlanName;
+              networkConfig.Bridge = findContaining "bridge" vlanName;
               linkConfig.RequiredForOnline = "no";
             };
 
@@ -942,7 +923,7 @@ in {
               mkNetworkConfig vlanName vlan.network ifaceData;
 
           in
-            if isBridgeMember vlanName then bridgedVlan else standaloneVlan
+            if isMember "bridge" vlanName then bridgedVlan else standaloneVlan
           ) (parent.vlans or {})
         ) cfg.topology;
 
