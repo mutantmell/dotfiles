@@ -24,7 +24,7 @@ pkgs.testers.nixosTest {
     router = { config, pkgs, ... }: {
       imports = [ ../../modules/router6 ];
 
-      # Virtual network setup - eth0 is implicit, eth1/eth2 for bonding, VLAN 10 for bridge
+      # Virtual network setup - eth0 is WAN, eth1/eth2 for bonding, VLAN 10 for bridge
       virtualisation.vlans = [ 1 2 10 ];
 
       router6 = {
@@ -82,24 +82,16 @@ pkgs.testers.nixosTest {
             };
           };
 
-          # Another device with VLAN 10 to bridge
-          bat0 = {
-            kind = "batman";
-            batman = {
-              gatewayMode = "off";
-            };
-            vlans = {
-              vlan10bat = {
-                tag = 10;
-                network.type = "disabled";  # Will be bridged
-              };
-            };
+          # Physical interface on the client network (VLAN 10)
+          eth3 = {
+            hardwareName = "eth3";
+            network.type = "disabled";  # No IP, will be bridged
           };
 
-          # Bridge aggregating VLANs from bond0 and bat0
+          # Bridge with VLAN from bond and physical interface
           brMGMT = {
             kind = "bridge";
-            members = ["vlan10" "vlan10bat"];
+            members = ["vlan10" "eth3"];
             network = {
               type = "static";
               addresses = ["10.0.10.1/24"];
@@ -147,29 +139,29 @@ pkgs.testers.nixosTest {
     # Test 4: Bridge exists
     router.succeed("ip link show brMGMT")
 
-    # Test 5: Bridge members are attached
+    # Test 5: Bridge members are attached (VLAN and physical interface)
     router.succeed("bridge link | grep vlan10")
-    router.succeed("bridge link | grep vlan10bat")
+    router.succeed("bridge link | grep eth3")
 
     # Test 6: Bridge has correct IPv4 address
     router.succeed("ip addr show brMGMT | grep '10.0.10.1/24'")
 
-    # Test 7: Bridge has auto-generated IPv6 from subnetId
-    router.succeed("ip addr show brMGMT | grep 'fdc6:55f2:0a5e:a::1/64'")
+    # Test 7: Bridge has auto-generated (normalized) IPv6 from subnetId
+    router.succeed("ip addr show brMGMT | grep 'fdc6:55f2:a5e:a::1/64'")
 
     # Test 8: Non-bridged VLAN (vlan20) has its own config
     router.succeed("ip addr show vlan20 | grep '10.0.20.1/24'")
-    router.succeed("ip addr show vlan20 | grep 'fdc6:55f2:0a5e:14::1/64'")
+    router.succeed("ip addr show vlan20 | grep 'fdc6:55f2:a5e:14::1/64'")
 
     # Test 9: DHCP works through bridge
-    client.wait_for_unit("network-online.target")
+    # Note: Don't wait for network-online.target as it may not activate with legacy networking
     client.wait_until_succeeds("ip addr show eth1 | grep '10.0.10'", timeout=30)
 
     # Test 10: IPv6 SLAAC works through bridge
-    client.wait_until_succeeds("ip -6 addr show eth1 | grep 'fdc6:55f2:0a5e:a'", timeout=60)
+    client.wait_until_succeeds("ip -6 addr show eth1 | grep 'fdc6:55f2:a5e:a'", timeout=60)
 
     # Test 11: Client can reach router
     client.succeed("ping -c 1 10.0.10.1")
-    client.succeed("ping -c 1 fdc6:55f2:0a5e:a::1")
+    client.succeed("ping -c 1 fdc6:55f2:a5e:a::1")
   '';
 }

@@ -173,24 +173,24 @@
           ./hosts/muspelheim/configuration.nix
         ];
       };
-      nidavellir = self.lib.mk-nixos {
-        inherit nixpkgs;
-        system = "aarch64-linux";
-        modules = [
-          home-manager.nixosModules.home-manager
-          nixos-hardware.nixosModules.raspberry-pi-4
-          ./hosts/nidavellir/configuration.nix
-        ];
-      };
-      thunarr = self.lib.mk-nixos {
-        inherit nixpkgs;
-        system = "x86_64-linux";
-        modules = [
-          home-manager.nixosModules.home-manager
-          jovian.nixosModules.jovian
-          ./hosts/thunarr/configuration.nix
-        ];
-      };
+#      nidavellir = self.lib.mk-nixos {
+#        inherit nixpkgs;
+#        system = "aarch64-linux";
+#        modules = [
+#          home-manager.nixosModules.home-manager
+#          nixos-hardware.nixosModules.raspberry-pi-4
+#          ./hosts/nidavellir/configuration.nix
+#        ];
+#      };
+#      thunarr = self.lib.mk-nixos {
+#        inherit nixpkgs;
+#        system = "x86_64-linux";
+#        modules = [
+#          home-manager.nixosModules.home-manager
+#          jovian.nixosModules.jovian
+#          ./hosts/thunarr/configuration.nix
+#        ];
+#      };
     };
 
     homeConfigurations = {
