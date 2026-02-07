@@ -323,7 +323,7 @@ in {
           members = mkOption {
             type = types.listOf types.str;
             default = [];
-            description = "For bonds: physical interface names. For bridges: VLAN/interface names.";
+            description = "For bonds: physical interface names. For bridges: VLAN/interface names. For batman: physical interface or bond names.";
           };
 
           # Bond-specific options
@@ -545,11 +545,15 @@ in {
     # Parse CIDR address to get network info
     parseCIDR = addr: let
       parts = lib.splitString "/" addr;
-      ip = head parts;
-      prefix = lib.toInt (lib.elemAt parts 1);
-      octets = lib.splitString "." ip;
-      isV6 = lib.hasInfix ":" ip;
-    in {
+    in
+      if length parts != 2 then
+        throw "Invalid CIDR address '${addr}' - must be in format 'ip/prefix'"
+      else let
+        ip = head parts;
+        prefix = lib.toInt (lib.elemAt parts 1);
+        octets = lib.splitString "." ip;
+        isV6 = lib.hasInfix ":" ip;
+      in {
       inherit ip prefix isV6;
       # For IPv4, calculate network address and pool defaults
       networkAddr = if isV6 then null else
@@ -583,7 +587,8 @@ in {
 
     # Get effective addresses including auto-generated IPv6
     getEffectiveAddresses = iface:
-      let
+      if iface == null then []
+      else let
         explicit = iface.network.addresses or [];
         hasExplicitV6 = lib.any (a: lib.hasInfix ":" a) explicit;
 
@@ -617,12 +622,13 @@ in {
       addr = firstIPv4 iface.network.addresses;
       parsed = if addr != null then parseCIDR addr else null;
       dhcpCfg = iface.network.dhcp;
+    in if parsed == null then null else let
       # Use explicit null check since dhcpCfg.poolStart exists but may be null
       poolStart = if dhcpCfg.poolStart != null then dhcpCfg.poolStart else parsed.poolStart;
       poolEnd = if dhcpCfg.poolEnd != null then dhcpCfg.poolEnd else parsed.poolEnd;
       # Generate stable subnet ID from network address (unique per subnet)
       subnetId = ipv4ToInt parsed.networkAddr;
-    in if parsed == null then null else {
+    in {
       # Kea requires unique stable IDs for lease database integrity
       id = subnetId;
       subnet = "${parsed.networkAddr}/${toString parsed.prefix}";
@@ -719,9 +725,9 @@ in {
     # ==========================
     {
       systemd.network.netdevs = let
-        # Bond netdevs (from topology) - 03- prefix
+        # Bond netdevs (from topology) - 01- prefix (early, can be batman members)
         bondDevs = mapAttrs (name: device: {
-          name = "03-${name}";
+          name = "01-${name}";
           value = {
             netdevConfig = {
               Name = name;
@@ -736,9 +742,9 @@ in {
           };
         }) (devicesByKind "bond");
 
-        # Bridge netdevs (from topology) - 02- prefix
+        # Bridge netdevs (from topology) - 03- prefix (after bonds/batman, before VLANs)
         bridgeDevs = mapAttrs (name: device: {
-          name = "02-${name}";
+          name = "03-${name}";
           value = {
             netdevConfig = {
               Name = name;
@@ -747,10 +753,10 @@ in {
           };
         }) (devicesByKind "bridge");
 
-        # VLAN netdevs - 01- prefix
+        # VLAN netdevs - 04- prefix (after all potential parent netdevs, before any network files)
         vlanDevs = concatMapAttrs (parentName: parent:
           mapAttrs (vlanName: vlan: {
-            name = "01-${vlanName}";
+            name = "04-${vlanName}";
             value = {
               netdevConfig = {
                 Name = vlanName;
@@ -761,10 +767,10 @@ in {
           }) (parent.vlans or {})
         ) cfg.topology;
 
-        # Batman netdevs - 00- prefix (same as links for early initialization)
+        # Batman netdevs - 02- prefix (after bonds, can use bonds as members)
         batmanDevs = filterAttrs (n: v: v != null) (mapAttrs (name: iface:
           if iface.batman != null then {
-            name = "00-${name}";
+            name = "02-${name}";
             value = {
               netdevConfig = {
                 Name = name;
@@ -944,6 +950,8 @@ in {
           # Priority: membership > VLANs > simple
           if device.kind == "physical" && deviceIsBondMember then
             bondMemberConfig
+          else if device.kind == "physical" && deviceIsBatmanMember then
+            batmanMemberConfig
           else if device.kind == "physical" && deviceIsBridgeMember then
             bridgeMemberConfig
           else if device.kind == "bond" && deviceIsBatmanMember then
@@ -1412,7 +1420,7 @@ in {
           message = "Router needs at least one external interface with trust = \"external\"";
         }
         {
-          assertion = length externalInterfaces <= 1 || (lib.any (i: i.network.defaultRoute) (attrValues cfg.topology));
+          assertion = length externalInterfaces <= 1 || (lib.any (i: i.network.defaultRoute or false) (attrValues cfg.topology));
           message = "With multiple external interfaces, at least one must have defaultRoute = true";
         }
       ] ++ (mapAttrsToList (name: iface: {
@@ -1422,10 +1430,19 @@ in {
       # Bond member validation
       ++ flatten (mapAttrsToList (bondName: bond:
         map (member: {
-          assertion = hasAttr member cfg.topology;
-          message = "Bond '${bondName}' references non-existent member '${member}'";
+          assertion = hasAttr member cfg.topology
+                     && cfg.topology.${member}.kind == "physical";
+          message = "Bond '${bondName}' member '${member}' must exist and be a physical interface";
         }) (bond.members or [])
       ) (devicesByKind "bond"))
+      # Batman member validation
+      ++ flatten (mapAttrsToList (batmanName: batman:
+        map (member: {
+          assertion = hasAttr member cfg.topology
+                     && elem cfg.topology.${member}.kind ["physical" "bond"];
+          message = "Batman '${batmanName}' member '${member}' must exist and be a physical interface or bond";
+        }) (batman.members or [])
+      ) (devicesByKind "batman"))
       # Bridge member validation (members can be VLANs)
       ++ flatten (mapAttrsToList (bridgeName: bridge:
         map (member: {
@@ -1434,16 +1451,30 @@ in {
           message = "Bridge '${bridgeName}' references non-existent member '${member}'";
         }) (bridge.members or [])
       ) (devicesByKind "bridge"))
-      # Bonds and bridges must have members
+      # Bonds must have members; bridges must have members OR VLANs
       ++ mapAttrsToList (name: device: {
-        assertion = !(device.kind == "bond" || device.kind == "bridge") || length (device.members or []) > 0;
-        message = "${device.kind} '${name}' has no members defined";
+        assertion =
+          if device.kind == "bond" then
+            length (device.members or []) > 0
+          else if device.kind == "bridge" then
+            length (device.members or []) > 0 || length (attrNames (device.vlans or {})) > 0
+          else true;
+        message =
+          if device.kind == "bond" then
+            "Bond '${name}' has no members defined"
+          else
+            "Bridge '${name}' has no members and no VLANs defined";
       }) cfg.topology
       # Bonds must have mode
       ++ mapAttrsToList (name: device: {
         assertion = device.mode != null;
         message = "Bond '${name}' must have mode defined";
-      }) (devicesByKind "bond");
+      }) (devicesByKind "bond")
+      # Port forwards require source interface or external interface
+      ++ map (pf: {
+        assertion = pf.sourceInterface != null || externalInterfaces != [];
+        message = "Port forward to ${pf.destination}:${toString pf.sourcePort} requires either sourceInterface or at least one external interface";
+      }) cfg.firewall.portForwards;
     }
   ]);
 }

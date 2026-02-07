@@ -139,6 +139,12 @@ pkgs.testers.nixosTest {
     # Test 4: Bridge exists
     router.succeed("ip link show brMGMT")
 
+    # Verify correct netdev ordering (bond before VLAN before bridge, VLAN before network files)
+    router.succeed("ls /etc/systemd/network/01-bond0.netdev")
+    router.succeed("ls /etc/systemd/network/03-brMGMT.netdev")
+    router.succeed("ls /etc/systemd/network/04-vlan10.netdev")
+    router.succeed("ls /etc/systemd/network/04-vlan20.netdev")
+
     # Test 5: Bridge members are attached (VLAN and physical interface)
     router.succeed("bridge link | grep vlan10")
     router.succeed("bridge link | grep eth3")

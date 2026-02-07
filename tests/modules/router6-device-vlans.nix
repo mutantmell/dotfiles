@@ -23,7 +23,7 @@ pkgs.testers.nixosTest {
       imports = [ ../../modules/router6 ];
 
       # Virtual network setup
-      virtualisation.vlans = [ 1 2 3 ];
+      virtualisation.vlans = [ 1 2 3 4 ];
 
       router6 = {
         enable = true;
@@ -67,6 +67,12 @@ pkgs.testers.nixosTest {
                 };
               };
             };
+          };
+
+          # Physical interface for batman mesh
+          eth4 = {
+            hardwareName = "eth4";
+            network.type = "disabled";
           };
 
           # Bond without VLANs (simple bond with IP)
@@ -113,6 +119,20 @@ pkgs.testers.nixosTest {
               };
             };
           };
+
+          # Batman device with members (physical interface)
+          bat2 = {
+            kind = "batman";
+            members = ["eth4"];
+            batman = {
+              gatewayMode = "client";
+            };
+            network = {
+              type = "static";
+              addresses = ["10.0.40.1/24"];
+              trust = "trusted";
+            };
+          };
         };
       };
     };
@@ -124,7 +144,7 @@ pkgs.testers.nixosTest {
     # Wait for router networking
     router.wait_for_unit("network-online.target")
 
-    # Test 1: Batman device without VLANs exists and has IP
+    # Test 1: Batman device without VLANs or members exists and has IP
     router.succeed("ip link show bat0")
     router.succeed("ip addr show bat0 | grep '10.0.10.1/24'")
 
@@ -148,17 +168,27 @@ pkgs.testers.nixosTest {
     router.succeed("ip link show vlan30")
     router.succeed("ip addr show vlan30 | grep '10.0.30.1/24'")
 
-    # Test 7: Verify systemd-networkd files have correct numeric prefixes
-    # Batman netdevs should have 00- prefix
-    router.succeed("ls /etc/systemd/network/00-bat0.netdev")
-    router.succeed("ls /etc/systemd/network/00-bat1.netdev")
+    # Test 7: Batman device with members - member is attached
+    router.succeed("ip link show bat2")
+    router.succeed("ip addr show bat2 | grep '10.0.40.1/24'")
+    # Verify eth4 is attached to bat2 (check systemd-networkd config)
+    router.succeed("grep -q 'BatmanAdvanced=bat2' /etc/systemd/network/10-eth4.network")
 
-    # VLAN netdevs should have 01- prefix
-    router.succeed("ls /etc/systemd/network/01-vlan20.netdev")
-    router.succeed("ls /etc/systemd/network/01-vlan30.netdev")
+    # Test 8: Verify systemd-networkd files have correct numeric prefixes (dependency order)
+    # Bonds should have 01- prefix (early, can be batman members)
+    router.succeed("ls /etc/systemd/network/01-bond0.netdev")
 
-    # Bond netdev should have 03- prefix
-    router.succeed("ls /etc/systemd/network/03-bond0.netdev")
+    # Batman netdevs should have 02- prefix (after bonds)
+    router.succeed("ls /etc/systemd/network/02-bat0.netdev")
+    router.succeed("ls /etc/systemd/network/02-bat1.netdev")
+    router.succeed("ls /etc/systemd/network/02-bat2.netdev")
+
+    # Bridge netdevs should have 03- prefix (after bonds/batman)
+    # (No bridges in this test, but would be 03- if present)
+
+    # VLAN netdevs should have 04- prefix (after parent netdevs, before network files)
+    router.succeed("ls /etc/systemd/network/04-vlan20.netdev")
+    router.succeed("ls /etc/systemd/network/04-vlan30.netdev")
 
     # Regular networks should have 10- prefix
     router.succeed("ls /etc/systemd/network/10-bat0.network")
