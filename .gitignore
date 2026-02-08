@@ -3,3 +3,6 @@ secrets/*
 .gcroots
 result
 *~
+# LUKS encryption keyfiles
+.keys/
+*.key

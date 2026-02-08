@@ -4,13 +4,30 @@
   imports =
     [
       ./hardware-configuration.nix
+      (import ../../profiles/disko/router.nix { })
       ./impermanence.nix
       ./sops.nix
       ./microvm.nix
     ];
 
+  # Boot loader configuration is handled by disko
   boot.loader.grub.enable = true;
-  boot.loader.grub.device = "/dev/sda";
+
+  # LUKS automatic unlock configuration
+  # Note: UUID will be determined after deployment - update this after first boot
+  # The keyFile here (/boot/secrets/disk.key) is for normal boots
+  # During installation, disko uses /tmp/secret.key temporarily (see disko profile)
+  boot.initrd.luks.devices."cryptroot" = {
+    device = "/dev/disk/by-uuid/PLACEHOLDER-UPDATE-AFTER-DEPLOYMENT";
+    keyFile = "/boot/secrets/disk.key";
+    allowDiscards = true;
+  };
+
+  # Ensure /boot/secrets directory exists
+  system.activationScripts.createBootSecrets = ''
+    mkdir -p /boot/secrets
+    chmod 700 /boot/secrets
+  '';
 
   networking.hostName = "yggdrasil";
   time.timeZone = "America/Los_Angeles";
