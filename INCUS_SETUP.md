@@ -14,7 +14,7 @@ The `incus-manager` module provides fully declarative Incus container management
 
 ### 1. Define Container Image Configuration
 
-Create `containers/<name>/configuration.nix`:
+Create `containers/<name>/default.nix`:
 
 ```nix
 { pkgs, modulesPath, ... }:
@@ -43,7 +43,7 @@ mycontainer-image = self.lib.mk-nixos {
   system = "x86_64-linux";
   modules = [
     home-manager.nixosModules.home-manager
-    ./containers/mycontainer/configuration.nix
+    ./containers/mycontainer
   ];
 };
 ```
@@ -101,7 +101,7 @@ In `hosts/<hostname>/incus.nix`:
 
 ### 4. Import and Deploy
 
-Add to host `configuration.nix`:
+Add to host `default.nix`:
 
 ```nix
 imports = [
@@ -232,7 +232,7 @@ incus start mycontainer
 
 ## Example: Adding a New Container
 
-1. Create `containers/devbox/configuration.nix`
+1. Create `containers/devbox/default.nix`
 2. Add to `flake.nix` nixosConfigurations and packages
 3. Add to `hosts/<host>/incus.nix` containers section
 4. Run `sudo nixos-rebuild switch`

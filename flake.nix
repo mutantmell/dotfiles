@@ -150,7 +150,7 @@
           microvm-stable.nixosModules.host
           home-manager.nixosModules.home-manager
           impermanence.nixosModules.impermanence
-          ./hosts/yggdrasil/configuration.nix
+          ./hosts/yggdrasil
         ];
       };
 
@@ -162,7 +162,7 @@
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
           impermanence.nixosModules.impermanence
-          ./hosts/vanaheim/configuration.nix
+          ./hosts/vanaheim
         ];
       };
       jotunheimr = self.lib.mk-nixos {
@@ -171,7 +171,7 @@
         modules = [
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
-          ./hosts/jotunheimr/configuration.nix
+          ./hosts/jotunheimr
         ];
       };
       muspelheim = self.lib.mk-nixos {
@@ -182,7 +182,7 @@
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
           self.nixosModules.incus
-          ./hosts/muspelheim/configuration.nix
+          ./hosts/muspelheim
         ];
       };
 #      nidavellir = self.lib.mk-nixos {
@@ -191,7 +191,7 @@
 #        modules = [
 #          home-manager.nixosModules.home-manager
 #          nixos-hardware.nixosModules.raspberry-pi-4
-#          ./hosts/nidavellir/configuration.nix
+#          ./hosts/nidavellir
 #        ];
 #      };
 #      thunarr = self.lib.mk-nixos {
@@ -200,7 +200,7 @@
 #        modules = [
 #          home-manager.nixosModules.home-manager
 #          jovian.nixosModules.jovian
-#          ./hosts/thunarr/configuration.nix
+#          ./hosts/thunarr
 #        ];
 #      };
     };
