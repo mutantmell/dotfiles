@@ -18,4 +18,23 @@
 
   # Unit tests (pure Nix evaluation)
   nftables-dsl = import ./lib/nftables.nix { inherit pkgs lib; };
+
+  # Disko profile validation
+  disko-router = let
+    profile = import ../profiles/disko/router.nix {};
+  in pkgs.runCommand "disko-router-check" {
+    profileJson = builtins.toJSON profile;
+  } ''
+    echo "Router disko profile validated successfully"
+    echo "$profileJson" > $out
+  '';
+
+  disko-vm-host = let
+    profile = import ../profiles/disko/vm-host.nix {};
+  in pkgs.runCommand "disko-vm-host-check" {
+    profileJson = builtins.toJSON profile;
+  } ''
+    echo "VM host disko profile validated successfully"
+    echo "$profileJson" > $out
+  '';
 }

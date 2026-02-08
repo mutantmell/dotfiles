@@ -28,6 +28,10 @@
       inputs.nixpkgs.follows = "nixpkgs-stable";
     };
     impermanence.url = github:nix-community/impermanence;
+    disko = {
+      url = github:nix-community/disko;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     openwrt-imagebuilder = {
       url = github:astro/nix-openwrt-imagebuilder;
       inputs.nixpkgs.follows = "nixpkgs";
@@ -35,7 +39,7 @@
   };
   outputs = {
     self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager,
-      sops-nix, jovian, microvm, impermanence,
+      sops-nix, jovian, microvm, impermanence, disko,
       home-manager-stable, microvm-stable, openwrt-imagebuilder,
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
@@ -86,7 +90,10 @@
       };
       lib = final: prev: {
         mmell = (prev.mmell or {}) // {
-          lib = self.lib.common // { builders = { inherit (self.lib) mk-microvm; }; };
+          lib = self.lib.common // {
+            builders = { inherit (self.lib) mk-microvm; };
+            inherit (self.lib) diskoProfiles;
+          };
         };
       };
     };
@@ -94,6 +101,10 @@
     lib = {
       common = import ./lib/common { inherit (nixpkgs) lib; };
       openwrt = import ./lib/openwrt { inherit (nixpkgs) lib; inherit openwrt-imagebuilder; };
+      diskoProfiles = {
+        router = import ./profiles/disko/router.nix;
+        vm-host = import ./profiles/disko/vm-host.nix;
+      };
       mk-nixos = args @ { nixpkgs, system, ... }: nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
@@ -134,6 +145,7 @@
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
+          disko.nixosModules.disko
           self.nixosModules.router6
           microvm-stable.nixosModules.host
           home-manager.nixosModules.home-manager
