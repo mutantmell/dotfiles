@@ -36,7 +36,7 @@
               allowDiscards = true;
               # Keyfile path during installation only
               # nixos-anywhere/install-to-disk scripts pass the key here temporarily
-              # After installation, the key lives in /boot/secrets/disk.key (see configuration.nix)
+              # After installation, the key lives in /boot/secrets/disk.key (see host configuration)
               keyFile = "/tmp/secret.key";
             };
             content = {

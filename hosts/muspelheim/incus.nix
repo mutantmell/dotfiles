@@ -55,7 +55,7 @@
     containers = {
       # surtr container (migrated from microVM)
       surtr = {
-        configurationFile = ./containers/surtr/configuration.nix;
+        configurationFile = ./containers/surtr;
         autoUpdate = true;
         profile = "dev";
         network = "incusbr20";

@@ -260,7 +260,7 @@ in {
               When set, the container image will be built automatically.
               Mutually exclusive with setting imagePackage explicitly.
             '';
-            example = literalExpression "./containers/surtr/configuration.nix";
+            example = literalExpression "./containers/surtr";
           };
 
           image = mkOption {

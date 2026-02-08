@@ -53,7 +53,7 @@ Output will look like:
 /dev/sda3: UUID="a1b2c3d4-..." TYPE="crypto_LUKS" PARTLABEL="persist"
 ```
 
-Copy the UUID and update `hosts/yggdrasil/configuration.nix`:
+Copy the UUID and update `hosts/yggdrasil/default.nix`:
 
 ```nix
 boot.initrd.luks.devices."cryptroot" = {
@@ -75,7 +75,7 @@ The `--no-filesystems` flag is important - disko already handles filesystem conf
 #### d. Commit and Rebuild
 
 ```bash
-git add hosts/yggdrasil/configuration.nix hosts/yggdrasil/hardware-configuration.nix
+git add hosts/yggdrasil/default.nix hosts/yggdrasil/hardware-configuration.nix
 git commit -m "Update yggdrasil post-deployment config"
 
 # Rebuild on the router
@@ -195,7 +195,7 @@ LUKS supports 8 key slots - can have multiple unlock methods.
 3. **Check LUKS UUID matches:**
    ```bash
    blkid /dev/sda3
-   # Compare with configuration.nix
+   # Compare with default.nix
    ```
 
 ### Can't SSH After Deployment
@@ -240,7 +240,7 @@ cryptsetup luksRemoveKey /dev/sda3
 Override default `/dev/sda`:
 
 ```nix
-# In configuration.nix
+# In default.nix
 disko.devices.disk.main.device = "/dev/nvme0n1";
 ```
 
