@@ -1266,14 +1266,58 @@ in {
 ```
 
 This gives every consumer exactly what it needs:
-- **Quick lookup:** `network.hosts.alfheim.ipv4` → `"10.97.11.2"`
+- **Programmatic lookup:** `network.hosts.alfheim.ipv4` → `"10.97.11.2"`
 - **Router zone data:** `network.hosts.alfheim.zoneName` → `"infrastructure"`,
   `.hostId` → `2` — the router can use these to construct topology
 - **Dual-stack:** `.ipv4`, `.ipv6`, `.cidr4`, `.cidr6` all derived automatically
 - **Subnets:** `.subnet4`, `.subnet6` for NFS exports and firewall rules
 - **Zone metadata:** `network.zones.infrastructure.vlanId` → `11`
+- **Human-readable lookup:** see 8.2 below
 
-### 8.2 Consuming the registry
+### 8.2 Human-readable IP lookup
+
+The registry replaces `network.json` as the source of truth, but you still need to be
+able to quickly look up an IP address without mentally evaluating Nix. Add a `summary`
+attribute to the registry that generates a formatted table:
+
+```nix
+# At the end of network.nix, inside the returned attrset:
+summary = lib.concatStringsSep "\n" (
+  [ "Host              Zone              IPv4              IPv6" ]
+  ++ lib.mapAttrsToList (name: h:
+    let
+      pad = s: n: s + lib.fixedWidthString (n - lib.stringLength s) " " "";
+    in "${pad name 18}${pad h.zoneName 18}${pad h.ipv4 18}${h.ipv6}"
+  ) hosts
+) + "\n";
+```
+
+Then look up addresses with:
+```bash
+nix eval .#lib.common.data.network.summary --raw
+```
+
+Output:
+```
+Host              Zone              IPv4              IPv6
+alfheim           infrastructure    10.97.11.2        fdc6:55f2:0a5e:b::2
+bragi             dmz               10.97.100.50      fdc6:55f2:0a5e:64::32
+gridr             home              10.97.20.30       fdc6:55f2:0a5e:14::1e
+...
+```
+
+For looking up a single host:
+```bash
+nix eval .#lib.common.data.network.hosts.alfheim.ipv4 --raw
+# 10.97.11.2
+```
+
+Optionally, add a shell alias to `~/.bashrc` or a flake app:
+```bash
+alias netinfo='nix eval .#lib.common.data.network.summary --raw'
+```
+
+### 8.3 Consuming the registry programmatically
 
 **In host configs** (e.g. `hosts/jotunheimr/default.nix`):
 ```nix
@@ -1328,7 +1372,7 @@ in ''
 ''
 ```
 
-### 8.3 Relationship to router6 zones
+### 8.4 Relationship to router6 zones
 
 The registry's `zones` attrset defines the network topology (zone names → VLAN IDs).
 The router6 module's `zones` option defines the *firewall policy* (zone names → access
@@ -1341,7 +1385,7 @@ assert builtins.attrNames network.zones == builtins.attrNames cfg.zones
   || throw "network.nix zones and router6 zones are out of sync";
 ```
 
-### 8.4 Migration path from network.json
+### 8.5 Migration path from network.json
 
 1. Create `lib/common/data/network.nix` alongside `network.json`
 2. Update `lib/common/data/default.nix` to load the `.nix` file instead of `.fromJSON`
@@ -1352,7 +1396,7 @@ assert builtins.attrNames network.zones == builtins.attrNames cfg.zones
 The migration is mechanical: each hardcoded IP string becomes a reference to the
 registry. This can be done file-by-file alongside the other changes in this plan.
 
-### 8.5 Search for remaining `10.0.10.` references
+### 8.6 Search for remaining `10.0.10.` references
 
 Grep the codebase for `10.0.10.` to find remaining references:
 - MicroVM guest configs referencing jotunheimr's NAS IP
