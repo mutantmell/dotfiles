@@ -63,13 +63,29 @@ flowchart LR
    services.openssh = {
      extraConfig = ''
        TrustedUserCAKeys /etc/ssh/ca.pub
-       # Optional: map certificate principals to local users
        AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u
      '';
    };
    ```
    They trust the CA's public key, not individual user keys. No
    `authorized_keys` management needed.
+
+   **Principals vs Unix users:** `admin` and `deploy` are certificate principal
+   names, not Unix user accounts. All admin SSH sessions log in as **root** —
+   this is the pragmatic choice for NixOS, where nearly every management
+   operation (`nixos-rebuild switch`, deploy-rs, sops-nix activation) requires
+   root. A separate admin user that immediately `sudo`s to root adds an extra
+   step without adding a security boundary.
+
+   The certificate principal provides the audit/identity layer that a separate
+   Unix user would normally provide: sshd logs which principal authenticated,
+   and the cert itself records who obtained it (via Keycloak) and when. The
+   principals file for root lists which roles are allowed:
+   ```
+   # /etc/ssh/auth_principals/root
+   admin          — human admin via Keycloak OIDC login
+   deploy         — CI/CD via client_credentials grant (on deploy targets only)
+   ```
 
 ## Authentication flow
 
@@ -86,9 +102,9 @@ sequenceDiagram
     Keycloak-->>step-ca: OIDC token
     step-ca-->>Admin: Signed SSH certificate<br/>(principal: "admin", validity: 12h,<br/>extensions: permit-pty, permit-agent-forwarding)
     Note over Admin: Cert written to<br/>~/.ssh/id_ed25519-cert.pub
-    Admin->>sshd: ssh yggdrasil.local
-    sshd->>sshd: Verify cert against TrustedUserCAKeys<br/>Check principal vs AuthorizedPrincipalsFile
-    sshd-->>Admin: Access granted
+    Admin->>sshd: ssh root@yggdrasil.local
+    sshd->>sshd: Verify cert against TrustedUserCAKeys<br/>Check "admin" principal is in /etc/ssh/auth_principals/root
+    sshd-->>Admin: Root access granted
 ```
 
 ## Relationship to the vMGMT VLAN plan
@@ -164,25 +180,28 @@ step ssh certificate cicd@home.local /tmp/cicd_key \
   --provisioner keycloak --token "$TOKEN" \
   --not-after=1h
 
-# Deploy using the cert
-ssh -i /tmp/cicd_key deploy@target-host.local "deploy-image.sh $IMAGE_TAG"
+# Deploy using the cert (logs in as root, principal "deploy" in cert)
+ssh -i /tmp/cicd_key root@target-host.local "deploy-image.sh $IMAGE_TAG"
 ```
 
 ### Principals and least privilege
 
-CI/CD certs get a narrow principal (e.g. `deploy`), not `admin`. Target hosts
-control this via `AuthorizedPrincipalsFile`:
+CI/CD certs get a narrow principal (e.g. `deploy`), not `admin`. Both log in
+as root, but the principals file on each host controls *which* principals are
+accepted:
 
 ```
-# /etc/ssh/auth_principals/deploy  (the deploy user account)
-deploy
-cicd
-
-# /etc/ssh/auth_principals/admin  (the admin user account)
+# /etc/ssh/auth_principals/root  (on all managed hosts)
 admin
+
+# /etc/ssh/auth_principals/root  (on deploy targets only — append deploy)
+admin
+deploy
 ```
 
-Even if CI/CD credentials are compromised, the cert can only act as `deploy`.
+Even if CI/CD credentials are compromised, the `deploy` principal is only
+accepted on hosts that explicitly list it. Hosts that only list `admin` will
+reject the CI/CD certificate entirely.
 
 ### Comparison with static deploy keys
 
