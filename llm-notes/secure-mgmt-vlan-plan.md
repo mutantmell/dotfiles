@@ -39,7 +39,7 @@ vMGMT (VLAN 10) — trust: management — 10.0.10.0/24
 vMGMT (VLAN 10) — zone: network — 10.0.10.0/24
 ├── yggdrasil    10.0.10.1   (router gateway)
 └── APs/Switch   10.0.10.100-200 (DHCP pool) or static
-    Devices can ONLY reach the router for DHCP/NTP.
+    Devices can ONLY reach the router for NTP.
     No internet. No access to other VLANs.
     SSH only FROM the router TO the devices.
 
@@ -207,6 +207,21 @@ zones = mkOption {
 
     Networks reference zones via their `zone` field (required on every network).
   '';
+  default = {};
+  example = {
+    wan = {
+      icmpEcho = "disable";
+      accessTo = [];
+      inputRules = [];
+    };
+    lan = {
+      icmpEcho = "enable";
+      accessTo = [ "wan" ];
+      inputRules = [
+        { verdict = "accept"; }
+      ];
+    };
+  };
   type = types.attrsOf (types.submodule ({ name, ... }: {
     options = {
 
@@ -333,42 +348,10 @@ Every network interface must explicitly declare its zone — no more `null` defa
 
 This also requires updating all host configs to use `zone = "..."` instead of `trust = "..."`, and updating `interfacesWithTrust` to `interfacesInZone` (reading `i.network.zone` instead of `i.network.trust`).
 
-### 1.4 Default zone definitions
+### 1.4 Zone definitions
 
-The module provides minimal OpenWRT-style defaults: a `wan` zone (locked down) and a `lan` zone
-(can reach wan, ICMP echo enabled). These give new users a sensible starting point.
-
-Network-specific zones (management, trusted, untrusted, isolated, network) are defined in
-`hosts/yggdrasil/default.nix` — not in the module defaults — since they're specific to this
-network's architecture.
-
-```nix
-# In the module's config section:
-config = mkIf cfg.enable (mkMerge [
-  # ... existing config ...
-
-  # Minimal OpenWRT-style defaults (can be overridden/extended by the user)
-  {
-    router6.zones = {
-      wan = {
-        # WAN: no access to anything, no router services, no ICMP echo
-        icmpEcho = "disable";
-        accessTo = [];
-        inputRules = [];
-      };
-
-      lan = {
-        # LAN: can reach WAN (internet), full router access, ICMP echo
-        icmpEcho = "enable";
-        accessTo = [ "wan" ];
-        inputRules = [
-          { verdict = "accept"; comment = "Full router service access"; }
-        ];
-      };
-    };
-  }
-]);
-```
+The module has no built-in zone defaults (`default = {};`). An OpenWRT-style wan/lan example
+is provided on the option for documentation. Each host defines all its zones explicitly.
 
 Our network's zones are defined in `hosts/yggdrasil/default.nix` and reproduce the current
 hardcoded behavior:
@@ -511,12 +494,7 @@ chain input {
   ${nft.rulesToStringIndented "  " cfg.firewall.extraInputRules}
   ''}
 
-  # Explicit drop for external zone (before the implicit policy drop,
-  # useful for logging differentiation)
-  ${let extIfaces = zoneInterfaces "external"; in
-    optionalString (extIfaces != [])
-      "iifname ${quoteList extIfaces} drop"
-  }
+  # Policy drop handles everything else — no hardcoded zone references
 }
 ```
 
@@ -616,9 +594,8 @@ assertions = concatMap (zoneName:
   ) (attrNames zone.forwardRules)
 ) (attrNames cfg.zones)
 
-# 5. Keep existing assertion: at least one external interface
-# (could be relaxed to: at least one zone named "external", or removed entirely
-#  since zones are user-defined now — but keeping it for safety)
+# 5. Remove the old "at least one external interface" assertion — zone names are
+# user-defined now, so there's no guaranteed "external" zone.
 ```
 
 ### 1.7 Update existing tests
@@ -685,12 +662,16 @@ router6.zones.management = {
   # Filtered internet access (not in accessTo — uses forwardRules instead)
   forwardRules = {
     external = [
+      { udp.dport = 53; verdict = "accept";
+        comment = "DNS recursive queries (Unbound on alfheim)"; }
+      { tcp.dport = 53; verdict = "accept";
+        comment = "DNS recursive queries (TCP fallback)"; }
+      { tcp.dport = 80; verdict = "accept";
+        comment = "HTTP for package mirrors"; }
       { tcp.dport = 443; verdict = "accept";
         comment = "HTTPS for updates (cache.nixos.org, github)"; }
       { udp.dport = 123; verdict = "accept";
         comment = "NTP to internet pools"; }
-      { verdict = "drop";
-        comment = "Block all other internet-bound traffic"; }
     ];
   };
   inputRules = [
@@ -699,7 +680,10 @@ router6.zones.management = {
 };
 ```
 
-Note: `"external"` is NOT in `accessTo` — instead, `forwardRules.external` provides filtered access. The assertion from Phase 1.6 enforces this mutual exclusion.
+Note: `"external"` is NOT in `accessTo` — instead, `forwardRules.external` provides filtered
+access. The assertion from Phase 1.6 enforces this mutual exclusion. There is no trailing
+`{ verdict = "drop"; }` — the forward chain's `policy drop` handles unmatched traffic, keeping
+the rules declarative (only what's allowed, not what's denied).
 
 ### 2.3 Add vINFRA VLAN
 
@@ -863,6 +847,39 @@ networking.extraHosts = ''
 '';
 ```
 
+**File:** `hosts/yggdrasil/guests/alfheim/modules/dns.nix` — **critical, DNS breaks if missed**
+
+Update Adguard Home `allowed_clients`:
+```nix
+allowed_clients = [
+  "127.0.0.1"
+  "10.0.11.1"   # Yggdrasil (router) — changed from 10.0.10.1
+  "10.0.11.2"   # Self — changed from 10.0.10.2
+  "10.97.10.1"  # Router migration network
+  "10.97.10.2"  # Self migration network
+];
+```
+
+Update Unbound `local-data` records (all infra hosts moving to 10.0.11.x):
+```nix
+local-data = [
+  ''"local. A 10.0.11.1"''                # was 10.0.10.1
+  ''"yggdrasil.local. A 10.0.11.1"''      # was 10.0.10.1
+  ''"alfheim.local. A 10.0.11.2"''        # was 10.0.10.2
+  ''"gridr.local. A 10.0.20.30"''         # unchanged
+  ''"jotunheimr.local. A 10.0.11.32"''    # was 10.0.10.32
+  ''"muspelheim.local. A 10.0.11.31"''    # was 10.0.10.31
+  ''"surtr.local. A 10.0.100.40"''        # unchanged
+  ''"bragi.local. A 10.0.100.50"''        # unchanged
+  ''"njord.local. A 10.0.100.51"''        # unchanged
+  ''"hrungnir.local. A 10.0.100.31"''     # unchanged
+  ''"nidavellir.local. A 10.1.20.50"''    # unchanged
+  ''"skadi.local. A 10.0.20.40"''         # unchanged
+  ''"ymir.local. A 10.0.20.41"''          # unchanged
+  ''"vanaheim.local. A 10.0.11.30"''      # was 10.0.10.30
+];
+```
+
 ### 3.2 vanaheim (VM host)
 
 **File:** `hosts/vanaheim/default.nix` — initrd network (for ZFS remote unlock)
@@ -942,30 +959,29 @@ fileSystems."/mnt/media".device = "10.0.11.32:/data/media/";
 
 ### 5.1 jotunheimr (NAS)
 
-Replace blanket open ports with source-restricted rules:
+Replace blanket open ports with source-restricted nftables rules. NixOS 23.11+ defaults to
+nftables, so we use `networking.firewall.extraInputRules` (nftables syntax):
+
 ```nix
 networking.firewall = {
   enable = true;
-  extraCommands = ''
+  # Remove blanket allowedTCPPorts/allowedUDPPorts — replaced by source-restricted rules
+  extraInputRules = ''
     # NFS from VM hosts only
-    iptables -A INPUT -s 10.0.11.30 -p tcp --dport 2049 -j ACCEPT
-    iptables -A INPUT -s 10.0.11.31 -p tcp --dport 2049 -j ACCEPT
-    iptables -A INPUT -s 10.0.20.0/24 -p tcp --dport 2049 -j ACCEPT
+    ip saddr { 10.0.11.30, 10.0.11.31 } tcp dport 2049 accept
+    ip saddr 10.0.20.0/24 tcp dport 2049 accept
 
     # SMB from vHOME only
-    iptables -A INPUT -s 10.0.20.0/24 -p tcp --dport 445 -j ACCEPT
-    iptables -A INPUT -s 10.0.20.0/24 -p tcp --dport 139 -j ACCEPT
-    iptables -A INPUT -s 10.0.20.0/24 -p udp --dport 137 -j ACCEPT
-    iptables -A INPUT -s 10.0.20.0/24 -p udp --dport 138 -j ACCEPT
+    ip saddr 10.0.20.0/24 tcp dport { 139, 445 } accept
+    ip saddr 10.0.20.0/24 udp dport { 137, 138 } accept
 
     # WSDD from vHOME only
-    iptables -A INPUT -s 10.0.20.0/24 -p tcp --dport 5357 -j ACCEPT
-    iptables -A INPUT -s 10.0.20.0/24 -p udp --dport 3702 -j ACCEPT
+    ip saddr 10.0.20.0/24 tcp dport 5357 accept
+    ip saddr 10.0.20.0/24 udp dport 3702 accept
 
     # SSH only from router and admin workstation
-    iptables -I INPUT -p tcp --dport 22 -s 10.0.11.1 -j ACCEPT
-    iptables -I INPUT -p tcp --dport 22 -s 10.0.20.0/24 -j ACCEPT
-    iptables -I INPUT -p tcp --dport 22 -j DROP
+    ip saddr { 10.0.11.1, 10.0.20.0/24 } tcp dport 22 accept
+    tcp dport 22 drop
   '';
 };
 ```
@@ -976,10 +992,9 @@ SSH only from router and admin workstation:
 ```nix
 networking.firewall = {
   enable = true;
-  extraCommands = ''
-    iptables -I INPUT -p tcp --dport 22 -s 10.0.11.1 -j ACCEPT
-    iptables -I INPUT -p tcp --dport 22 -s 10.0.20.0/24 -j ACCEPT
-    iptables -I INPUT -p tcp --dport 22 -j DROP
+  extraInputRules = ''
+    ip saddr { 10.0.11.1, 10.0.20.0/24 } tcp dport 22 accept
+    tcp dport 22 drop
   '';
 };
 ```
@@ -1032,7 +1047,6 @@ nft add rule inet filter input iifname "lo" accept
 nft add rule inet filter input icmp type echo-request accept
 nft add rule inet filter input icmpv6 type '{ nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert }' accept
 nft add rule inet filter input ip saddr 10.0.10.1 tcp dport 22 accept
-nft add rule inet filter input udp dport 68 accept
 ```
 
 Keep `nftables` package on APs (remove `firewall4` framework only, not `nftables`).
@@ -1123,6 +1137,7 @@ Grep the codebase for `10.0.10.` to find remaining references:
 | `hosts/yggdrasil/default.nix` | 2 | Add vINFRA VLAN, define `network` zone, override `management` zone with `forwardRules`, change vMGMT trust to "network", update DNS config, update DNS interception, update extraHosts, update MicroVM bridge rules, add NTP server |
 | `hosts/yggdrasil/guests/alfheim/microvm.nix` | 3 | Change tap interface name and MAC |
 | `hosts/yggdrasil/guests/alfheim/default.nix` | 3 | Update IP, gateway, MAC, extraHosts |
+| `hosts/yggdrasil/guests/alfheim/modules/dns.nix` | 3 | Update allowed_clients IPs, Unbound local-data records (7 IPs) |
 | `hosts/vanaheim/default.nix` | 3 | Change VLAN 10→11 in initrd network, update IP/gateway/DNS |
 | `hosts/vanaheim/microvm.nix` | 3 | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall |
 | `hosts/muspelheim/default.nix` | 3, 4 | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall |
