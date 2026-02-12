@@ -203,20 +203,34 @@ zones = mkOption {
     - accessTo: which zones this zone can freely forward traffic to
     - forwardRules: per-destination-zone nftables rules (for filtered forwarding)
     - inputRules: nftables rules for traffic from this zone to the router itself
+    - icmpEcho: whether the zone can ping the router
 
     Networks reference zones via their `zone` field (required on every network).
   '';
-  default = {};
   type = types.attrsOf (types.submodule ({ name, ... }: {
     options = {
 
+      icmpEcho = mkOption {
+        type = types.enum [ "enable" "ipv4-only" "ipv6-only" "disable" ];
+        default = "disable";
+        description = ''
+          Whether interfaces in this zone can ping the router.
+          - "enable": allow ICMPv4 + ICMPv6 echo-request/echo-reply
+          - "ipv4-only": allow only ICMPv4 echo
+          - "ipv6-only": allow only ICMPv6 echo
+          - "disable": no ICMP echo (PMTUD and NDP are always allowed by baseRules)
+        '';
+      };
+
       accessTo = mkOption {
-        type = types.listOf types.str;
+        type = types.listOf (types.enum (builtins.attrNames cfg.zones));
         default = [];
         description = ''
           Zones this zone can freely forward traffic to (blanket accept).
           A zone listed here means: all interfaces in this zone can reach
           all interfaces in the target zone.
+
+          Values are restricted to defined zone names (validated by type).
         '';
         example = [ "trusted" "untrusted" "external" ];
       };
@@ -232,6 +246,7 @@ zones = mkOption {
           set from the source and destination zone's interfaces.
 
           A destination zone must NOT also appear in accessTo (assertion enforced).
+          Keys are validated by assertion to be defined zone names.
         '';
         example = {
           external = [
@@ -260,6 +275,16 @@ zones = mkOption {
   }));
 };
 ```
+
+**Type-level validation notes:**
+
+- `accessTo` uses `types.enum (builtins.attrNames cfg.zones)` — Nix laziness makes this
+  self-reference work (zone keys are known at definition time, values checked at eval time).
+  This means invalid zone names in `accessTo` produce a type error, no assertion needed.
+- `zone` on networks (Phase 1.3) uses the same `types.enum` trick.
+- `forwardRules` uses `types.attrsOf` which accepts any string key — we validate keys via
+  assertion (Phase 1.6) since `types.attrsOf` doesn't support restricting key names.
+- `inputRules` doesn't reference zones, so no special validation needed.
 
 ### 1.2 Global defaults option
 
@@ -310,84 +335,98 @@ This also requires updating all host configs to use `zone = "..."` instead of `t
 
 ### 1.4 Default zone definitions
 
-To preserve backward compatibility, define default zones that reproduce the current hardcoded behavior. These go in the `router6.zones` option default OR as a config set in the module:
+The module provides minimal OpenWRT-style defaults: a `wan` zone (locked down) and a `lan` zone
+(can reach wan, ICMP echo enabled). These give new users a sensible starting point.
+
+Network-specific zones (management, trusted, untrusted, isolated, network) are defined in
+`hosts/yggdrasil/default.nix` — not in the module defaults — since they're specific to this
+network's architecture.
 
 ```nix
-# In the module's config section (not the default, so users can override):
+# In the module's config section:
 config = mkIf cfg.enable (mkMerge [
   # ... existing config ...
 
-  # Default zone definitions (can be overridden/extended by the user)
+  # Minimal OpenWRT-style defaults (can be overridden/extended by the user)
   {
     router6.zones = {
-      external = {
-        # WAN: no access to anything, no router services
+      wan = {
+        # WAN: no access to anything, no router services, no ICMP echo
+        icmpEcho = "disable";
         accessTo = [];
         inputRules = [];
       };
 
-      management = {
-        # Infrastructure: full router access, can reach all internal + internet
-        accessTo = [ "management" "trusted" "untrusted" "external" ];
+      lan = {
+        # LAN: can reach WAN (internet), full router access, ICMP echo
+        icmpEcho = "enable";
+        accessTo = [ "wan" ];
         inputRules = [
           { verdict = "accept"; comment = "Full router service access"; }
         ];
-      };
-
-      trusted = {
-        # User devices: full router access, can reach all internal + internet
-        accessTo = [ "management" "trusted" "untrusted" "external" ];
-        inputRules = [
-          { verdict = "accept"; comment = "Full router service access"; }
-        ];
-      };
-
-      untrusted = {
-        # Guest/IoT: DNS + DHCP only, internet only, no lateral movement
-        accessTo = [ "external" ];
-        inputRules = [
-          { udp.dport = [ 53 67 547 ]; verdict = "accept"; comment = "DNS + DHCP"; }
-          { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
-        ];
-      };
-
-      isolated = {
-        # No forwarding, no router services
-        accessTo = [];
-        inputRules = [];
       };
     };
   }
 ]);
 ```
 
-These defaults produce **identical** nftables output to the current hardcoded logic. The existing `router6-firewall` test and the new Phase 0 tests validate this.
-
-Note: ICMP echo is currently allowed from `internalInterfaces` (management + trusted + untrusted). With zones, this needs to be either:
-- Part of each zone's `inputRules` (explicit), or
-- Part of the global default rules
-
-Since it's currently tied to the "internal" concept (management + trusted + untrusted but not external or isolated), the cleanest approach is to include ICMP echo rules in each zone's `inputRules`. This keeps the global default rules minimal (only PMTUD/NDP). The default zone definitions above would be extended:
+Our network's zones are defined in `hosts/yggdrasil/default.nix` and reproduce the current
+hardcoded behavior:
 
 ```nix
-management.inputRules = [
-  { icmp.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
-  { icmpv6.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
-  { verdict = "accept"; comment = "Full router service access"; }
-];
+router6.zones = {
+  external = {
+    # WAN: no access to anything, no router services
+    icmpEcho = "disable";
+    accessTo = [];
+    inputRules = [];
+  };
 
-# (Same for trusted — the blanket accept already covers ICMP,
-#  but listing it explicitly is clearer)
+  management = {
+    # Infrastructure: full router access, can reach all internal + internet
+    icmpEcho = "enable";
+    accessTo = [ "management" "trusted" "untrusted" "external" ];
+    inputRules = [
+      { verdict = "accept"; comment = "Full router service access"; }
+    ];
+  };
 
-untrusted.inputRules = [
-  { icmp.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
-  { icmpv6.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
-  { udp.dport = [ 53 67 547 ]; verdict = "accept"; comment = "DNS + DHCP"; }
-  { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
-];
+  trusted = {
+    # User devices: full router access, can reach all internal + internet
+    icmpEcho = "enable";
+    accessTo = [ "management" "trusted" "untrusted" "external" ];
+    inputRules = [
+      { verdict = "accept"; comment = "Full router service access"; }
+    ];
+  };
+
+  untrusted = {
+    # Guest/IoT: DNS + DHCP only, internet only, no lateral movement
+    icmpEcho = "enable";
+    accessTo = [ "external" ];
+    inputRules = [
+      { udp.dport = [ 53 67 547 ]; verdict = "accept"; comment = "DNS + DHCP"; }
+      { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
+    ];
+  };
+
+  isolated = {
+    # No forwarding, no router services
+    icmpEcho = "disable";
+    accessTo = [];
+    inputRules = [];
+  };
+};
 ```
 
-For management and trusted, the blanket `accept` already covers ICMP, so the explicit ICMP rules are redundant but harmless. For untrusted, ICMP echo must be listed explicitly since there's no blanket accept. For isolated and external, no ICMP echo rules — matching current behavior.
+These produce **identical** nftables output to the current hardcoded logic. The existing
+`router6-firewall` test and the new Phase 0 tests validate this.
+
+**ICMP echo handling:** The `icmpEcho` option replaces the old approach of manually adding
+ICMP echo rules to each zone's `inputRules`. The nftables generation (Phase 1.5) emits the
+appropriate `icmp type { echo-request, echo-reply } accept` and/or `icmpv6 type { ... } accept`
+rules based on the `icmpEcho` value, before any `inputRules` for that zone. Essential ICMP
+(PMTUD, NDP) remains in `baseRules` and is always allowed regardless of `icmpEcho`.
 
 ### 1.5 Rewrite nftables generation
 
@@ -442,16 +481,24 @@ chain input {
   icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
   ''}
 
-  # Zone input rules
+  # Zone ICMP echo + input rules
   ${concatStringsSep "\n" (map (zoneName:
     let
       zone = cfg.zones.${zoneName};
       ifaces = zoneInterfaces zoneName;
+      ifaceMatch = "iifname ${quoteList ifaces}";
+      icmpRules =
+        optionalString (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv4-only")
+          "${ifaceMatch} icmp type { echo-request, echo-reply } accept\n"
+        + optionalString (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv6-only")
+          "${ifaceMatch} icmpv6 type { echo-request, echo-reply } accept\n";
     in
-      optionalString (ifaces != [] && zone.inputRules != [])
-        (concatStringsSep "\n" (map (rule:
-          "iifname ${quoteList ifaces} ${nft.renderRule rule}"
-        ) zone.inputRules))
+      optionalString (ifaces != []) (
+        icmpRules
+        + concatStringsSep "\n" (map (rule:
+            "${ifaceMatch} ${nft.renderRule rule}"
+          ) zone.inputRules)
+      )
   ) activeZones)}
 
   # WireGuard ports (per-interface, independent of zones)
@@ -539,14 +586,11 @@ assertions = concatMap (zoneName:
   }) (attrNames zone.forwardRules)
 ) (attrNames cfg.zones)
 
-# 2. accessTo and forwardRules reference valid zones
+# 2. forwardRules keys reference valid zones
+# (accessTo is validated at the type level via types.enum — no assertion needed)
 ++ concatMap (zoneName:
   let zone = cfg.zones.${zoneName};
   in map (target: {
-    assertion = hasAttr target cfg.zones;
-    message = "Zone '${zoneName}': accessTo references unknown zone '${target}'";
-  }) zone.accessTo
-  ++ map (target: {
     assertion = hasAttr target cfg.zones;
     message = "Zone '${zoneName}': forwardRules references unknown zone '${target}'";
   }) (attrNames zone.forwardRules)
@@ -608,23 +652,24 @@ With the zone system in place, adding the `network` zone is just a configuration
 
 ### 2.1 Define `network` zone
 
-**File:** `hosts/yggdrasil/default.nix` (or in the module defaults)
+**File:** `hosts/yggdrasil/default.nix` (alongside the other zone definitions)
 
 ```nix
 router6.zones.network = {
   # Networking gear: NTP only, no internet, no lateral movement
   # APs and switches have static IPs — no DHCP needed
+  icmpEcho = "enable";
   accessTo = [];
   inputRules = [
     { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
-    { icmp.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
-    { icmpv6.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
   ];
 };
 ```
 
 This automatically generates:
-- Input: `iifname { "vMGMT.br0" } udp dport 123 accept` (plus ICMP echo)
+- Input: `iifname { "vMGMT.br0" } icmp type { echo-request, echo-reply } accept` (from icmpEcho)
+- Input: `iifname { "vMGMT.br0" } icmpv6 type { echo-request, echo-reply } accept` (from icmpEcho)
+- Input: `iifname { "vMGMT.br0" } udp dport 123 accept` (from inputRules)
 - Forward: nothing (empty `accessTo`, no `forwardRules`)
 - No hardcoded `networkInterfaces` selector needed
 
@@ -635,6 +680,7 @@ With the zone system, the vINFRA egress filtering that was previously planned as
 ```nix
 router6.zones.management = {
   # Full router access, can reach all internal zones
+  icmpEcho = "enable";
   accessTo = [ "management" "trusted" "untrusted" ];
   # Filtered internet access (not in accessTo — uses forwardRules instead)
   forwardRules = {
