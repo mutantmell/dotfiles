@@ -50,7 +50,7 @@ vINFRA (VLAN 11) — zone: management
 ├── alfheim      10.0.11.2  / fdc6:55f2:0a5e:b::2   (DNS MicroVM on yggdrasil)
 ├── vanaheim     10.0.11.30 / fdc6:55f2:0a5e:b::1e  (VM host)
 ├── muspelheim   10.0.11.31 / fdc6:55f2:0a5e:b::1f  (VM host)
-└── jotunheimr   10.0.11.32 / fdc6:55f2:0a5e:b::20  (NAS)
+└── jotunheimr   10.0.11.20 / fdc6:55f2:0a5e:b::14  (NAS)
     Devices can communicate with each other (NFS, monitoring).
     Internet access for updates (filtered egress).
     SSH from router + admin workstation on vHOME.
@@ -923,8 +923,8 @@ local-data = [
   ''"gridr.local. A 10.0.20.30"''
 
   # NAS
-  ''"jotunheimr.local. A 10.0.11.32"''
-  ''"jotunheimr.local. AAAA fdc6:55f2:0a5e:b::20"''
+  ''"jotunheimr.local. A 10.0.11.20"''
+  ''"jotunheimr.local. AAAA fdc6:55f2:0a5e:b::14"''
 
   # Media host
   ''"muspelheim.local. A 10.0.11.31"''
@@ -992,13 +992,14 @@ disable SLAAC (`IPv6AcceptRA = false`), add IPv6 gateway.
 
 Same pattern as vanaheim: `eno1.10` → `eno1.11`, address `10.0.10.31/24` → `10.0.11.31/24`,
 add static IPv6 `fdc6:55f2:0a5e:b::1f/64`, gateway/DNS `10.0.10.1` → `10.0.11.1` +
-`fdc6:55f2:0a5e:b::1`, NFS mounts `10.0.10.32` → `10.0.11.32`, disable SLAAC.
+`fdc6:55f2:0a5e:b::1`, NFS mounts `10.0.10.32` → `10.0.11.20`, disable SLAAC.
 
 ### 3.4 jotunheimr (NAS)
 
 **File:** `hosts/jotunheimr/default.nix`
 
-Change VLAN 10 to VLAN 11, add static IPv6 `fdc6:55f2:0a5e:b::20/64`,
+Change VLAN 10 to VLAN 11, update IP from `.32` to `.20` (reflects boot order — NAS
+available before VM hosts at `.30`/`.31`), add static IPv6 `fdc6:55f2:0a5e:b::14/64`,
 update addresses/gateway/DNS to 10.0.11.x + `fdc6:55f2:0a5e:b::1`, disable SLAAC.
 
 ---
@@ -1033,8 +1034,8 @@ services.nfs.server = {
 
 Use IPv6 addresses for NFS mounts (IPv6-first), with IPv4 as fallback:
 ```nix
-fileSystems."/mnt/data".device = "[fdc6:55f2:0a5e:b::20]:/data/data";
-fileSystems."/mnt/media".device = "[fdc6:55f2:0a5e:b::20]:/data/media/";
+fileSystems."/mnt/data".device = "[fdc6:55f2:0a5e:b::14]:/data/data";
+fileSystems."/mnt/media".device = "[fdc6:55f2:0a5e:b::14]:/data/media/";
 ```
 
 ---
@@ -1179,25 +1180,179 @@ Deploy from the router (SSH to APs on 10.0.10.x) or via ProxyJump.
 
 ---
 
-## Phase 8: Network Data Updates
+## Phase 8: Network Data Registry
 
-### 8.1 Update network.json
+### Problem: scattered IP addresses
 
-**File:** `lib/common/data/network.json`
+Currently, IP addresses are scattered as raw strings across host configs, the router
+topology, DNS config, NFS exports, and firewall rules. `network.json` was meant to be
+the canonical source, but there was a mismatch between what the router wanted (hosts
+associated with zones + a unique byte to construct addresses from) and what
+`network.json` provided (a flat hostname → IP lookup).
 
-```json
-{
-  "hosts": {
-    "alfheim": { "ipv4": "10.0.11.2", "ipv6": "fdc6:55f2:0a5e:b::2" },
-    "jotunheimr": { "ipv4": "10.0.11.32", "ipv6": "fdc6:55f2:0a5e:b::20" },
-    "muspelheim": { "ipv4": "10.0.11.31", "ipv6": "fdc6:55f2:0a5e:b::1f" },
-    "vanaheim": { "ipv4": "10.0.11.30", "ipv6": "fdc6:55f2:0a5e:b::1e" },
-    "yggdrasil": { "ipv4": "10.0.11.1", "ipv6": "fdc6:55f2:0a5e:b::1" }
-  }
+With three address families now (IPv4, IPv6, plus legacy IPv4 during migration), raw
+strings become increasingly error-prone. A host's addresses should be derived from
+two facts: **which zone it's in** and **its host ID within that zone**.
+
+### 8.1 Replace network.json with a Nix network registry
+
+**File:** `lib/common/data/network.nix` (replaces `network.json`)
+
+Move from a JSON lookup table to a Nix file that stores the *generative data* and
+derives all addresses:
+
+```nix
+# lib/common/data/network.nix
+{ lib }:
+let
+  ipv4Prefix = "10.97";
+  ulaPrefix = "fdc6:55f2:0a5e";
+
+  zones = {
+    network        = { vlanId = 10; };
+    infrastructure = { vlanId = 11; };
+    home           = { vlanId = 20; };
+    guest          = { vlanId = 30; };
+    adu            = { vlanId = 31; };
+    iot            = { vlanId = 40; };
+    game           = { vlanId = 41; };
+    dmz            = { vlanId = 100; };
+  };
+
+  vlanHex = vlanId: lib.toLower (lib.toHexString vlanId);
+  hostHex = hostId: lib.toLower (lib.toHexString hostId);
+
+  mkHost = zoneName: hostId: let
+    zone = zones.${zoneName};
+  in {
+    inherit zoneName hostId;
+    ipv4 = "${ipv4Prefix}.${toString zone.vlanId}.${toString hostId}";
+    ipv6 = "${ulaPrefix}:${vlanHex zone.vlanId}::${hostHex hostId}";
+    subnet4 = "${ipv4Prefix}.${toString zone.vlanId}.0/24";
+    subnet6 = "${ulaPrefix}:${vlanHex zone.vlanId}::/64";
+    cidr4 = "${ipv4Prefix}.${toString zone.vlanId}.${toString hostId}/24";
+    cidr6 = "${ulaPrefix}:${vlanHex zone.vlanId}::${hostHex hostId}/64";
+  };
+
+in {
+  inherit zones ipv4Prefix ulaPrefix mkHost;
+
+  hosts = {
+    # Infrastructure (VLAN 11) — ordered by boot dependency
+    yggdrasil  = mkHost "infrastructure" 1;
+    alfheim    = mkHost "infrastructure" 2;
+    jotunheimr = mkHost "infrastructure" 20;   # NAS — before VM hosts
+    vanaheim   = mkHost "infrastructure" 30;   # VM host
+    muspelheim = mkHost "infrastructure" 31;   # VM host
+
+    # Home (VLAN 20)
+    gridr = mkHost "home" 30;
+    skadi = mkHost "home" 40;
+    ymir  = mkHost "home" 41;
+
+    # DMZ (VLAN 100)
+    hrungnir = mkHost "dmz" 31;
+    surtr    = mkHost "dmz" 40;
+    bragi    = mkHost "dmz" 50;
+    njord    = mkHost "dmz" 51;
+
+    # ADU (VLAN 31)
+    gumba = mkHost "adu" 20;
+
+    # Mesh hosts (10.1.x.x — separate prefix, not yet migrated)
+    # gumby, pokey, prickle, goo, gumbo, nidavellir — keep in JSON or add later
+  };
 }
 ```
 
-### 8.2 Search for remaining `10.0.10.` references
+This gives every consumer exactly what it needs:
+- **Quick lookup:** `network.hosts.alfheim.ipv4` → `"10.97.11.2"`
+- **Router zone data:** `network.hosts.alfheim.zoneName` → `"infrastructure"`,
+  `.hostId` → `2` — the router can use these to construct topology
+- **Dual-stack:** `.ipv4`, `.ipv6`, `.cidr4`, `.cidr6` all derived automatically
+- **Subnets:** `.subnet4`, `.subnet6` for NFS exports and firewall rules
+- **Zone metadata:** `network.zones.infrastructure.vlanId` → `11`
+
+### 8.2 Consuming the registry
+
+**In host configs** (e.g. `hosts/jotunheimr/default.nix`):
+```nix
+let
+  net = pkgs.mmell.lib.data.network;
+  self = net.hosts.jotunheimr;
+  router = net.hosts.yggdrasil;
+in {
+  # systemd-networkd
+  networkConfig.Address = [ self.cidr4 self.cidr6 ];
+  networkConfig.Gateway = router.ipv4;
+  networkConfig.DNS = [ router.ipv4 router.ipv6 ];
+}
+```
+
+**In NFS exports** (`hosts/jotunheimr/nas.nix`):
+```nix
+let
+  net = pkgs.mmell.lib.data.network;
+  vanaheim = net.hosts.vanaheim;
+  muspelheim = net.hosts.muspelheim;
+  nfsOpts = "(rw,sync,no_subtree_check,no_root_squash)";
+in {
+  exports = ''
+    /data/media ${vanaheim.ipv4}${nfsOpts} ${vanaheim.ipv6}${nfsOpts} ${muspelheim.ipv4}${nfsOpts} ${muspelheim.ipv6}${nfsOpts}
+  '';
+}
+```
+
+**In DNS records** (`alfheim/modules/dns.nix`):
+```nix
+let
+  net = pkgs.mmell.lib.data.network;
+  mkRecords = name: host:
+    [ ''"${name}.local. A ${host.ipv4}"'' ]
+    ++ lib.optional (host ? ipv6) ''"${name}.local. AAAA ${host.ipv6}"'';
+in {
+  local-data = lib.concatLists (lib.mapAttrsToList mkRecords net.hosts);
+}
+```
+
+**In firewall rules** (`extraInputRules`):
+```nix
+let
+  net = pkgs.mmell.lib.data.network;
+  vmHosts = with net.hosts; [ vanaheim muspelheim ];
+  vmIpv4 = lib.concatMapStringsSep ", " (h: h.ipv4) vmHosts;
+  vmIpv6 = lib.concatMapStringsSep ", " (h: h.ipv6) vmHosts;
+in ''
+  ip saddr { ${vmIpv4} } tcp dport 2049 accept
+  ip6 saddr { ${vmIpv6} } tcp dport 2049 accept
+''
+```
+
+### 8.3 Relationship to router6 zones
+
+The registry's `zones` attrset defines the network topology (zone names → VLAN IDs).
+The router6 module's `zones` option defines the *firewall policy* (zone names → access
+rules, icmpEcho, forwardRules). They share zone names deliberately — the router6 module
+could optionally consume `network.zones` to auto-populate its zone list, but this
+coupling is optional. At minimum, an assertion can verify they stay in sync:
+
+```nix
+assert builtins.attrNames network.zones == builtins.attrNames cfg.zones
+  || throw "network.nix zones and router6 zones are out of sync";
+```
+
+### 8.4 Migration path from network.json
+
+1. Create `lib/common/data/network.nix` alongside `network.json`
+2. Update `lib/common/data/default.nix` to load the `.nix` file instead of `.fromJSON`
+3. Update `modules/common/networking.nix` — the interface is the same (`.hosts.X.ipv4`)
+4. Gradually replace hardcoded IP strings in host configs with registry references
+5. Delete `network.json` once no consumers remain
+
+The migration is mechanical: each hardcoded IP string becomes a reference to the
+registry. This can be done file-by-file alongside the other changes in this plan.
+
+### 8.5 Search for remaining `10.0.10.` references
 
 Grep the codebase for `10.0.10.` to find remaining references:
 - MicroVM guest configs referencing jotunheimr's NAS IP
@@ -1226,7 +1381,7 @@ the IPv4 last octet in hex:
 | alfheim | 10.0.11.2 | `fdc6:55f2:0a5e:b::2` |
 | vanaheim | 10.0.11.30 | `fdc6:55f2:0a5e:b::1e` |
 | muspelheim | 10.0.11.31 | `fdc6:55f2:0a5e:b::1f` |
-| jotunheimr | 10.0.11.32 | `fdc6:55f2:0a5e:b::20` |
+| jotunheimr | 10.0.11.20 | `fdc6:55f2:0a5e:b::14` |
 
 Previously these hosts used SLAAC with privacy extensions (`IPv6PrivacyExtensions = "kernel"`),
 producing unstable addresses. Switching to static IPv6 with `IPv6AcceptRA = false` gives
@@ -1274,9 +1429,11 @@ continue to use SLAAC as before.
 | `hosts/vanaheim/default.nix` | 3 | Change VLAN 10→11 in initrd network, update IP/gateway/DNS |
 | `hosts/vanaheim/microvm.nix` | 3 | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall |
 | `hosts/muspelheim/default.nix` | 3, 4 | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall |
-| `hosts/jotunheimr/default.nix` | 3 | Change VLAN 10→11, update IP/gateway/DNS, add host firewall |
+| `hosts/jotunheimr/default.nix` | 3 | Change VLAN 10→11, renumber `.32`→`.20` (boot-order), update IP/gateway/DNS, add host firewall |
 | `hosts/jotunheimr/nas.nix` | 4 | Tighten NFS exports to per-IP, update subnet references |
-| `lib/common/data/network.json` | 8 | Update IPs for alfheim, jotunheimr, muspelheim, vanaheim, yggdrasil |
+| `lib/common/data/network.nix` | 8 | Replace `network.json` with Nix registry (zone+hostId → derived addresses) |
+| `lib/common/data/default.nix` | 8 | Load `network.nix` instead of `network.json` |
+| `modules/common/networking.nix` | 8 | Consume new registry format (interface unchanged) |
 | `lib/openwrt/default.nix` | 6 | Keep nftables package, change NTP servers to router IP, add host firewall script |
 
 ---
@@ -1357,7 +1514,7 @@ All infra hosts:
 | alfheim | 10.0.11.2/24 | 10.97.11.2/24 | fdc6:55f2:0a5e:b::2/64 |
 | vanaheim | 10.0.11.30/24 | 10.97.11.30/24 | fdc6:55f2:0a5e:b::1e/64 |
 | muspelheim | 10.0.11.31/24 | 10.97.11.31/24 | fdc6:55f2:0a5e:b::1f/64 |
-| jotunheimr | 10.0.11.32/24 | 10.97.11.32/24 | fdc6:55f2:0a5e:b::20/64 |
+| jotunheimr | 10.0.11.20/24 | 10.97.11.20/24 | fdc6:55f2:0a5e:b::14/64 |
 
 Alfheim already has dual addresses (`10.0.10.2/24` + `10.97.10.2/24`), so just update
 the octets for the VLAN 11 move.
@@ -1476,11 +1633,25 @@ practice we want clients on the new range. This can be done by:
 - Or simply switching the DHCP pool to `10.97.x.x` only (clients on the old range
   keep their static/existing leases until renewal)
 
-### 9.11 network.json
+### 9.11 Network registry
 
-**File:** `lib/common/data/network.json`
+If the network registry (Phase 8) has been adopted by this point, dual-addressing is
+handled by the `ipv4Prefix` constant — changing it from `"10.97"` to `"10.0"` would
+regenerate all legacy addresses. During migration, a `legacyPrefix` can be added:
 
-Add both addresses:
+```nix
+# In lib/common/data/network.nix — temporary during migration
+ipv4Prefix = "10.97";
+legacyPrefix = "10.0";  # Remove after migration complete
+
+mkHost = zoneName: hostId: let zone = zones.${zoneName}; in {
+  # ... existing fields ...
+  ipv4Legacy = "${legacyPrefix}.${toString zone.vlanId}.${toString hostId}";
+  cidr4Legacy = "${legacyPrefix}.${toString zone.vlanId}.${toString hostId}/24";
+};
+```
+
+If still using `network.json` at this point, add both addresses manually:
 ```json
 {
   "hosts": {
@@ -1536,8 +1707,9 @@ Once all clients and services are confirmed working on `10.97.x.x`, remove the l
 - [ ] Update NTP server to `10.97.10.1`
 - [ ] Update AP firewall SSH allow from `10.0.10.1` → `10.97.10.1`
 
-### network.json
-- [ ] Remove `ipv4_legacy` field, rename `ipv4` values to `10.97.x.x` only
+### Network registry / network.json
+- [ ] Remove `legacyPrefix` and `ipv4Legacy`/`cidr4Legacy` from `network.nix`
+  (or remove `ipv4_legacy` field from `network.json` if still using JSON)
 
 ### WireGuard
 - [ ] Remove `10.0.0.0/16` from client AllowedIPs (keep `10.97.0.0/16`)
