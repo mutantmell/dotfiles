@@ -566,13 +566,196 @@ assertions = concatMap (zoneName:
 # user-defined now, so there's no guaranteed "external" zone.
 ```
 
-### 1.7 Update existing tests
+### 1.7 Update existing tests and add zone-system tests
 
 After the refactor, all Phase 0 tests must still pass. Additionally:
 
 - Update `router6-firewall.nix` to also define zones (or rely on defaults)
 - The snapshot test from Phase 0.2 must produce identical output
-- Add a new test that uses **custom** zones (not just the defaults) to verify the zone system itself works
+
+The following tests exercise new zone-system features that don't exist in the current
+hardcoded trust model. These validate that the zone abstraction actually works, not just
+that the migration was lossless.
+
+#### 1.7a forwardRules integration test
+
+The main new capability that `accessTo` alone doesn't cover. Define a zone that uses
+`forwardRules` for per-port filtered forwarding and verify the correct behavior.
+
+**Test config:**
+```nix
+zones = {
+  external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+  restricted = {
+    icmpEcho = "enable";
+    accessTo = [];
+    forwardRules.external = [
+      { tcp.dport = [ 443 80 ]; verdict = "accept"; comment = "HTTP(S) only"; }
+      { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+    ];
+    inputRules = [
+      { udp.dport = [ 53 67 ]; verdict = "accept"; comment = "DNS + DHCP"; }
+      { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
+    ];
+  };
+};
+```
+
+**Test cases:**
+- restricted → external on port 443: **allowed**
+- restricted → external on port 80: **allowed**
+- restricted → external on port 123/udp: **allowed**
+- restricted → external on port 22: **blocked** (not in forwardRules)
+- restricted → external ICMP: **blocked** (forwardRules doesn't include ICMP)
+
+This can be a VM integration test (to verify actual packet filtering) or a snapshot test
+(to verify the generated nftables rules are correct). VM test is preferred since it tests
+end-to-end behavior.
+
+#### 1.7b Multiple interfaces per zone
+
+Verify that a zone with multiple interfaces generates correct nftables `iifname` set syntax
+(`iifname { "eth1", "eth2" }` rather than only matching the first interface).
+
+**Test config:**
+```nix
+zones = {
+  external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+  lan = {
+    icmpEcho = "enable";
+    accessTo = [ "external" ];
+    inputRules = [ { verdict = "accept"; } ];
+  };
+};
+topology = {
+  # Two interfaces in the same zone
+  eth2 = { hardwareName = "eth2"; network = { zone = "lan"; ... }; };
+  eth3 = { hardwareName = "eth3"; network = { zone = "lan"; ... }; };
+};
+```
+
+**Test cases (pure Nix eval — snapshot or string check):**
+- Generated input rules contain `iifname { "eth2", "eth3" }` (set syntax, not two separate rules)
+- Generated forward rules contain `iifname { "eth2", "eth3" } oifname "eth1" accept`
+- Both interfaces can reach the router (VM test if desired)
+- Both interfaces can forward to external (VM test if desired)
+
+A pure eval test checking the generated ruleset string is sufficient here — this validates
+`quoteList` produces correct output for multi-interface zones.
+
+#### 1.7c icmpEcho ipv4-only and ipv6-only variants
+
+The `enable` and `disable` paths are already exercised by the Phase 0 tests (management
+uses `enable`, external uses `disable`). The `ipv4-only` and `ipv6-only` variants are new
+code paths that need explicit testing.
+
+**Test approach: pure Nix eval** — evaluate a config with `icmpEcho = "ipv4-only"` and
+verify the generated ruleset:
+- Contains `icmp type { echo-request, echo-reply } accept` (IPv4 ICMP)
+- Does NOT contain `icmpv6 type { echo-request, echo-reply } accept` (IPv6 ICMP echo)
+- Still contains essential ICMPv6 (NDP, PMTUD) from baseRules — only echo is suppressed
+
+And the inverse for `ipv6-only`:
+- Contains `icmpv6 type { echo-request, echo-reply } accept`
+- Does NOT contain `icmp type { echo-request, echo-reply } accept` (IPv4 ICMP echo)
+- Still contains essential ICMPv4 (PMTUD) from baseRules
+
+No VM needed — checking the generated string is definitive since we already trust nftables
+to evaluate rules correctly.
+
+#### 1.7d Self-forwarding within a zone
+
+Test that a zone can include itself in `accessTo` to allow hosts in the same zone to
+communicate through the router (e.g., two devices on the same VLAN that need L3 routing
+between subnets, or hairpin scenarios).
+
+**Test config:**
+```nix
+zones = {
+  internal = {
+    icmpEcho = "enable";
+    accessTo = [ "internal" ];  # self-reference
+    inputRules = [ { verdict = "accept"; } ];
+  };
+};
+```
+
+**Test cases:**
+- Generated forward chain contains a rule where `iifname` and `oifname` list the same interfaces
+- Traffic from one internal host to another internal host (through the router): **allowed**
+
+This is a correctness check — self-forwarding shouldn't be special-cased or accidentally
+broken. A pure eval test verifying the generated rule is sufficient.
+
+#### 1.7e Escape hatch interaction
+
+Verify that `extraInputRules` and `extraForwardRules` still work correctly alongside
+zone-generated rules. The escape hatches are meant for one-off rules that don't fit the
+zone model, and they must not be clobbered or reordered unexpectedly.
+
+**Test approach: pure Nix eval** — evaluate a config that uses both zones and escape hatches:
+```nix
+zones = {
+  lan = { icmpEcho = "enable"; accessTo = []; inputRules = [ { verdict = "accept"; } ]; };
+};
+firewall = {
+  extraInputRules = [
+    { tcp.dport = 8080; verdict = "accept"; comment = "Custom admin port"; }
+  ];
+  extraForwardRules = [
+    { iifname = "wg0"; oifname = "eth1"; verdict = "accept"; comment = "WireGuard bypass"; }
+  ];
+};
+```
+
+**Verify:**
+- Zone-generated input rules appear in the input chain
+- `extraInputRules` appear AFTER zone rules (as shown in Phase 1.5 template)
+- `extraForwardRules` appear AFTER zone forwarding rules
+- Both zone rules and escape hatch rules are present (not one replacing the other)
+
+#### 1.7f Lower priority tests
+
+These cover edge cases that are less likely to break but worth documenting for completeness:
+
+**Empty zones** — a zone is defined in `router6.zones` but no interface references it:
+- Should be silently skipped in nftables generation (no rules emitted)
+- Should not cause evaluation errors
+- Pure eval test: verify the generated ruleset doesn't mention the empty zone
+
+**`baseRules = false`** — disables connection tracking, loopback accept, and essential ICMP:
+- Generated ruleset should contain ONLY zone-defined rules and escape hatches
+- No `ct state established,related accept` in input or forward chains
+- No loopback accept, no essential ICMP/ICMPv6
+- Pure eval test: verify specific strings are absent from the generated ruleset
+- This is an advanced/expert knob, but it should work correctly if someone uses it
+
+**Zone ordering stability** — the order of rules in the generated nftables output should
+be deterministic regardless of the order zones are defined in the Nix attrset:
+- Nix attrsets are sorted by key name, so `attrNames cfg.zones` produces a stable order
+- Pure eval test: evaluate the same config twice (or with zones defined in different order
+  in an overlay) and verify identical output
+- This is more of a sanity check — Nix's determinism should guarantee this, but it's
+  worth verifying explicitly
+
+#### 1.7g Nice to have: Assertion negative tests
+
+NixOS assertions fail at Nix evaluation time (during `nix build`), not at runtime. This
+means a misconfigured zone system will fail to build — the blast radius is limited to
+"your deploy doesn't happen" rather than "your firewall is misconfigured in production."
+Because of this, assertion testing is lower priority than the behavioral tests above.
+
+That said, if we want to verify assertions are correctly defined, we can use
+`builtins.tryEval` to catch assertion failures in pure Nix tests:
+
+- `forwardRules` key referencing a nonexistent zone → build fails
+- Same zone in both `accessTo` and `forwardRules` → build fails
+- `inputRules` containing `iifname` → build fails
+- `forwardRules` rule containing `iifname` or `oifname` → build fails
+
+Note: `builtins.tryEval` catches `throw` and assertion failures but has subtleties —
+it doesn't catch all error types, and the module system's assertion evaluation path
+may need care. Test carefully if implementing these.
 
 ### 1.8 Migration of host configs
 
@@ -596,8 +779,8 @@ The existing test configs (`router6-firewall.nix`, etc.) must also be updated.
 | File | Phase | Changes |
 |------|-------|---------|
 | `modules/router6/default.nix` | 0, 1 | Add `zones` option, `baseRules` option, rename `trust` to `zone` (required), rewrite nftables generation to iterate zones, add zone assertions |
-| `tests/modules/router6-firewall-zones.nix` | 0, 2 | New comprehensive multi-zone firewall test |
-| `tests/lib/router6-firewall-snapshot.nix` | 0 | New snapshot test for nftables output stability |
+| `tests/modules/router6-firewall-zones.nix` | 0, 1.7 | New comprehensive multi-zone firewall test; forwardRules + multi-interface tests added in 1.7 |
+| `tests/lib/router6-firewall-snapshot.nix` | 0, 1.7 | New snapshot test for nftables output stability; icmpEcho variant + escape hatch + edge case tests in 1.7 |
 | `tests/default.nix` | 0 | Register new tests |
 | `hosts/yggdrasil/default.nix` | 1 | Define zone configs reproducing current trust behavior, change `trust` → `zone` on all interfaces |
 | All host configs with `trust =` | 1 | Mechanical rename `trust` → `zone` |
