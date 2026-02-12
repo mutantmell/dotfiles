@@ -204,8 +204,7 @@ zones = mkOption {
     - forwardRules: per-destination-zone nftables rules (for filtered forwarding)
     - inputRules: nftables rules for traffic from this zone to the router itself
 
-    Networks reference zones via their `trust` field (which will be renamed
-    or aliased to `zone` in a future update).
+    Networks reference zones via their `zone` field (required on every network).
   '';
   default = {};
   type = types.attrsOf (types.submodule ({ name, ... }: {
@@ -269,11 +268,11 @@ zones = mkOption {
 Add an option to control the hardcoded global rules (ICMP, connection tracking, etc.):
 
 ```nix
-firewall.enableDefaultRules = mkOption {
+firewall.baseRules = mkOption {
   type = types.bool;
   default = true;
   description = ''
-    Enable default global firewall rules:
+    Include base firewall rules that zones build on top of:
     - Connection tracking (ct state established,related accept)
     - Loopback accept
     - Essential ICMP/ICMPv6 (PMTUD, Neighbor Discovery)
@@ -283,29 +282,31 @@ firewall.enableDefaultRules = mkOption {
 };
 ```
 
-### 1.3 Change `trust` option to reference zone keys
+### 1.3 Rename `trust` to `zone`, make required
 
 **File:** `modules/router6/default.nix` — `mkNetworkSubmodule`
 
-Replace the hardcoded enum:
+Replace the hardcoded enum with a required zone reference:
 ```nix
 # Before:
 trust = mkOption {
   type = types.nullOr (types.enum [
     "external" "management" "trusted" "untrusted" "isolated"
   ]);
+  default = null;
   ...
 };
 
 # After:
-trust = mkOption {
-  type = types.nullOr (types.enum (builtins.attrNames cfg.zones));
-  default = null;
+zone = mkOption {
+  type = types.enum (builtins.attrNames cfg.zones);
   description = "Firewall zone for this network (must be a key in router6.zones)";
 };
 ```
 
-Nix's lazy evaluation ensures this self-reference works: the `zones` attrset keys are known at definition time, and `trust` values are only checked at evaluation time.
+Every network interface must explicitly declare its zone — no more `null` default. Nix's lazy evaluation ensures this self-reference works: the `zones` attrset keys are known at definition time, and `zone` values are only checked at evaluation time.
+
+This also requires updating all host configs to use `zone = "..."` instead of `trust = "..."`, and updating `interfacesWithTrust` to `interfacesInZone` (reading `i.network.zone` instead of `i.network.trust`).
 
 ### 1.4 Default zone definitions
 
@@ -400,14 +401,15 @@ Replace the hardcoded interface selectors with zone-driven iteration.
 externalInterfaces = interfacesWithTrust ["management" "trusted" "untrusted"];  # was internalInterfaces
 trustedInterfaces = interfacesWithTrust ["management" "trusted"];
 
-# Keep only this generic helper:
-interfacesWithTrust = trust: ...;  # Now means "interfaces in zone"
+# Rename the generic helper:
+interfacesInZone = zone:
+  interfacesWhere (i: (i.network.zone or null) == zone);
 ```
 
 **New helper functions:**
 ```nix
-# Get all interfaces for a zone
-zoneInterfaces = zoneName: interfacesWithTrust zoneName;
+# Get all interfaces for a zone (alias)
+zoneInterfaces = zoneName: interfacesInZone zoneName;
 
 # Get all interfaces for a list of zones
 zonesInterfaces = zoneNames:
@@ -425,7 +427,7 @@ activeZones = filter zoneHasInterfaces (attrNames cfg.zones);
 chain input {
   type filter hook input priority filter; policy drop;
 
-  ${optionalString cfg.firewall.enableDefaultRules ''
+  ${optionalString cfg.firewall.baseRules ''
   # Connection tracking
   ct state established,related accept
 
@@ -476,7 +478,7 @@ chain input {
 chain forward {
   type filter hook forward priority filter; policy drop;
 
-  ${optionalString cfg.firewall.enableDefaultRules ''
+  ${optionalString cfg.firewall.baseRules ''
   ct state established,related accept
   tcp flags syn tcp option maxseg size set rt mtu
   ''}
@@ -583,13 +585,20 @@ After the refactor, all Phase 0 tests must still pass. Additionally:
 - The snapshot test from Phase 0.2 must produce identical output
 - Add a new test that uses **custom** zones (not just the defaults) to verify the zone system itself works
 
-### 1.8 Migration path for host configs
+### 1.8 Migration of host configs
 
-Existing host configs (like yggdrasil) use `trust = "management"` etc. These continue to work unchanged because:
-1. The default zones define the same names as the old enum
-2. The `trust` field type is now `types.enum (attrNames cfg.zones)` — same values, just derived dynamically
+All host configs must be updated to use `zone = "..."` instead of `trust = "..."`. This is a mechanical find-and-replace across all topology definitions. Since every network interface previously had `trust = "someValue"` (none used `null` in practice), this is straightforward.
 
-No host config changes needed for the zone refactor alone.
+Example:
+```nix
+# Before:
+network = { type = "static"; trust = "external"; ... };
+
+# After:
+network = { type = "static"; zone = "external"; ... };
+```
+
+The existing test configs (`router6-firewall.nix`, etc.) must also be updated.
 
 ---
 
@@ -603,10 +612,11 @@ With the zone system in place, adding the `network` zone is just a configuration
 
 ```nix
 router6.zones.network = {
-  # Networking gear: DHCP + NTP only, no internet, no lateral movement
+  # Networking gear: NTP only, no internet, no lateral movement
+  # APs and switches have static IPs — no DHCP needed
   accessTo = [];
   inputRules = [
-    { udp.dport = [ 67 123 ]; verdict = "accept"; comment = "DHCP + NTP"; }
+    { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
     { icmp.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
     { icmpv6.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
   ];
@@ -614,7 +624,7 @@ router6.zones.network = {
 ```
 
 This automatically generates:
-- Input: `iifname { "vMGMT.br0" } udp dport { 67, 123 } accept` (plus ICMP echo)
+- Input: `iifname { "vMGMT.br0" } udp dport 123 accept` (plus ICMP echo)
 - Forward: nothing (empty `accessTo`, no `forwardRules`)
 - No hardcoded `networkInterfaces` selector needed
 
@@ -657,14 +667,14 @@ Note: `"external"` is NOT in `accessTo` — instead, `forwardRules.external` pro
     type = "static";
     addresses = [ "10.0.11.1/24" ];
     subnetId = 11;
-    trust = "management";
+    zone = "management";
     dhcp.enable = true;
     dhcp6.enable = true;
   };
 };
 ```
 
-### 2.4 Change vMGMT trust level
+### 2.4 Change vMGMT zone
 
 **File:** `hosts/yggdrasil/default.nix` — existing vMGMT definition
 
@@ -675,14 +685,13 @@ Note: `"external"` is NOT in `accessTo` — instead, `forwardRules.external` pro
     type = "static";
     addresses = [ "10.0.10.1/24" ];
     subnetId = 10;
-    trust = "network";  # Changed from "management"
-    dhcp.enable = true;
-    dhcp6.enable = true;
+    zone = "network";  # Changed from "management"
+    # No DHCP — APs and switches have static IPs
   };
 };
 ```
 
-Update the comment from "Management network - trusted devices and infrastructure" to "Network gear - APs and managed switch".
+Update the comment from "Management network - trusted devices and infrastructure" to "Network gear - APs and managed switch". Also disable DHCP on vMGMT since APs/switches have static IPs.
 
 ### 2.5 Update alfheim MicroVM bridge
 
@@ -761,7 +770,7 @@ networking.extraHosts = ''
 ### 2.9 Add tests for `network` zone
 
 Add test cases to `router6-firewall-zones.nix`:
-- **network → router: DHCP/NTP only** — can reach UDP 67/123, cannot reach DNS (53), cannot reach SSH (22)
+- **network → router: NTP only** — can reach UDP 123, cannot reach DNS (53), cannot reach SSH (22), cannot reach DHCP (67)
 - **network → any: no forwarding** — cannot reach any other zone
 - **network → internet: blocked** — no NAT/forwarding to external
 
@@ -995,7 +1004,7 @@ Same treatment as APs: stays on VLAN 10, host firewall, NTP from router. Must tr
 ```
 Admin workstation (vHOME, 10.0.20.X)
 ├── Direct SSH to infra devices (vINFRA)
-│   Allowed by: trusted zone → management zone forwarding
+│   Allowed by: trusted zone accessTo includes management zone
 │   Host firewall: accepts SSH from 10.0.20.X
 │
 ├── SSH to router (yggdrasil)
@@ -1061,7 +1070,7 @@ Grep the codebase for `10.0.10.` to find remaining references:
 
 | File | Phase | Changes |
 |------|-------|---------|
-| `modules/router6/default.nix` | 0, 1 | Add `zones` option, `enableDefaultRules` option, change `trust` type to reference zone keys, rewrite nftables generation to iterate zones, add zone assertions |
+| `modules/router6/default.nix` | 0, 1 | Add `zones` option, `baseRules` option, rename `trust` to `zone` (required), rewrite nftables generation to iterate zones, add zone assertions |
 | `tests/modules/router6-firewall-zones.nix` | 0, 2 | New comprehensive multi-zone firewall test |
 | `tests/lib/router6-firewall-snapshot.nix` | 0 | New snapshot test for nftables output stability |
 | `tests/default.nix` | 0 | Register new tests |
@@ -1080,8 +1089,7 @@ Grep the codebase for `10.0.10.` to find remaining references:
 
 ## Future Improvements (Out of Scope)
 
-1. **Rename `trust` field to `zone`** — Currently the network option is still called `trust` for backward compatibility. A future change can rename it to `zone` with a deprecation warning.
-2. **Samba authentication hardening:** Uncomment `valid users` / `force user` on shares
+1. **Samba authentication hardening:** Uncomment `valid users` / `force user` on shares
 3. **wg-vpn trust level:** Consider a "vpn" zone with different forwarding rules
 4. **Monitoring/alerting:** Prometheus exporters on infra devices
 5. **DoT/DoH blocking:** Block port 853 outbound from untrusted/IoT
