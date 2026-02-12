@@ -22,7 +22,7 @@ of what hardware you're using.
 flowchart LR
     Admin["Admin Desktop"]
     KC["Keycloak\n(vINFRA)"]
-    CA["step-ca\nor Vault"]
+    CA["step-ca\n(vMGMT microvm)"]
     Hosts["vMGMT / vINFRA hosts\n(TrustedUserCAKeys)"]
 
     Admin -- "OIDC login" --> KC
@@ -37,13 +37,20 @@ flowchart LR
    dedicated VM). Acts as the OIDC provider. Users authenticate with
    username + password + MFA (TOTP/WebAuthn).
 
-2. **SSH Certificate Authority** — either:
-   - **step-ca** (Smallstep): purpose-built for SSH certificates, has native
-     OIDC provisioner support. `step ssh certificate` handles the full flow.
-   - **HashiCorp Vault**: SSH secrets engine can sign certificates after Vault
-     authenticates the user via its OIDC auth method.
+2. **SSH Certificate Authority (step-ca)** — runs as a **dedicated microvm on a
+   NixOS host**, on the vMGMT network. step-ca (Smallstep) is purpose-built for
+   SSH certificates with native OIDC provisioner support. It holds the root CA
+   key material and issues both user and host certificates.
 
-   step-ca is simpler for this use case unless Vault is already deployed.
+   step-ca is infrastructure — it's in the same category as DNS, NTP, and routing.
+   It belongs in the management plane because everything above it (OAuth login,
+   user certificates, host identity) depends on it. A dedicated microvm provides
+   isolation for the CA key material while keeping it lightweight and within the
+   existing NixOS orchestration model.
+
+   > **Note:** step-ca is not a hard boot dependency for any host. Hosts load
+   > certificates from disk at boot. step-ca only needs to be reachable for
+   > certificate issuance and renewal — infrequent, out-of-band operations.
 
 3. **Admin desktop** — runs `step ssh login` (or equivalent), which:
    - Opens a browser to Keycloak for authentication
@@ -198,6 +205,131 @@ The Keycloak client secret is the one static credential. Options:
   instead of a shared secret, avoiding a static secret entirely. Best option
   if the CI/CD platform supports it.
 
+## Host certificates
+
+User certificates (above) handle humans and CI authenticating *to* hosts. Host
+certificates handle the other direction — clients verifying they're connecting to
+the *right* host without TOFU (trust on first use).
+
+### Problem with TOFU
+
+The first time you SSH to a host, you get a fingerprint prompt. Most people accept
+without verifying. Worse, rebuilding a NixOS host from scratch generates new host
+keys, causing `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED` on every client
+until they manually clean `known_hosts`.
+
+### How host certificates work
+
+The SSH CA signs each host's public key, producing a host certificate. sshd presents
+this certificate to connecting clients. Clients trust the CA rather than individual
+host fingerprints.
+
+**Host-side** — sshd presents the certificate:
+```nix
+services.openssh.extraConfig = ''
+  HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub
+'';
+```
+
+**Client-side** — one line in `~/.ssh/known_hosts` replaces all per-host entries:
+```
+@cert-authority *.home.local ssh-ed25519 AAAA...CA_PUBLIC_KEY...
+```
+
+No TOFU prompt, no per-host `known_hosts` entries needed.
+
+### Compatibility with sops-nix
+
+Host certificates do **not** replace host keys — they augment them. The host still
+has its private key at `/etc/ssh/ssh_host_ed25519_key`. The certificate is just the
+host's *public* key signed by the CA, stored alongside it.
+
+The sops-nix decryption flow is unchanged:
+
+1. Host boots with its SSH host key (as today)
+2. sops-nix converts the private key via `ssh-to-age` to derive an age key
+3. Secrets are decrypted using the age key (as today)
+4. sshd starts and presents the host certificate to clients (new)
+
+No circular dependency: the host certificate is a public artifact (signed public key).
+It doesn't need sops encryption and can be deployed via NixOS configuration, committed
+to the repo, or fetched from step-ca at provisioning time.
+
+### Certificate lifecycle
+
+Unlike user certificates (short-lived, 12h), host certificates can be long-lived.
+The host's identity is stable.
+
+| Approach | Cert lifetime | Complexity | Best for |
+|----------|--------------|------------|----------|
+| Sign once at provisioning | 1–5 years | Minimal | Small fleet, infrequent rebuilds |
+| Automatic renewal via systemd timer | 30–90 days | Low | Larger fleet, defense in depth |
+
+For a home network, **signing once at provisioning** is the right starting point.
+This avoids any runtime dependency on step-ca — the certificate is a static file
+loaded from disk at boot, no different from a TLS root cert in `/etc/ssl`.
+
+Key rotation (re-signing) is an infrequent, out-of-band operation: the admin runs
+`step ssh certificate` from their workstation and deploys the updated cert. This
+does require step-ca to be reachable, but since step-ca lives on vMGMT alongside
+the hosts being signed, there is no cross-layer dependency. A systemd timer calling
+`step ssh renew` is a straightforward upgrade path if desired.
+
+### Host rebuilds
+
+Since sops-nix already requires stable host keys (they're the decryption identity),
+host keys are preserved across rebuilds. The existing certificate remains valid. If
+the key does change (new machine), re-signing is a single `step ssh certificate`
+command.
+
+### NixOS module sketch
+
+A shared module deployable to all managed NixOS hosts:
+
+```nix
+# modules/common/ssh-ca.nix
+{ config, ... }:
+{
+  services.openssh.extraConfig = ''
+    TrustedUserCAKeys /etc/ssh/user_ca.pub
+    HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub
+  '';
+
+  # CA public key for verifying user certificates (same on all hosts)
+  environment.etc."ssh/user_ca.pub".source = ./keys/user_ca.pub;
+
+  # Host certificate is per-host (signed host public key)
+  environment.etc."ssh/ssh_host_ed25519_key-cert.pub".source =
+    ./host-certs/${config.networking.hostName}-cert.pub;
+}
+```
+
+### OpenWRT devices
+
+OpenWRT's default SSH server (dropbear) has **no SSH certificate support**. OpenSSH
+can be installed on OpenWRT but adds overhead on constrained devices.
+
+For OpenWRT devices (APs, managed switch), the approach is:
+
+| Concern | NixOS hosts | OpenWRT devices |
+|---------|-------------|-----------------|
+| Host identity | Host certificate (CA-signed) | Traditional host key (TOFU) |
+| User auth | SSH user certificate | SSH authorized_keys (public key) |
+| Management access | Via vMGMT, cert-verified both directions | Via vMGMT, key-based, firewall-restricted |
+
+This split is architecturally sound. OpenWRT devices are the *lowest* layer — they
+*are* the network infrastructure. They're already trusted implicitly (they route all
+traffic) and are secured by:
+
+- Being on vMGMT only (not reachable from other VLANs)
+- Traditional SSH key auth (admin's public key in `authorized_keys`)
+- Physical/network topology (they are the network boundary)
+- Host-level nftables restricting SSH to the router only
+
+The certificate infrastructure protects everything *above* them. If OpenWRT devices
+are later replaced with NixOS-based routing, they gain full certificate support
+naturally.
+
 ## Design philosophy: layered independence
 
 The network layer (VLANs, firewall rules) and identity layer (SSH certificates,
@@ -241,21 +373,37 @@ This means:
 - Configure realm, users, MFA policies
 - Expose on internal DNS: `auth.home.local`
 
-### Phase 2: Deploy step-ca with OIDC provisioner
-- NixOS service: step-ca with OIDC provisioner pointing at Keycloak
-- Generate SSH CA keypair; distribute `ca.pub` to all managed hosts
+### Phase 2: Deploy step-ca as a vMGMT microvm
+- Provision a dedicated microvm on an existing NixOS host (e.g. vanaheim or
+  muspelheim), on the vMGMT network
+- Generate SSH CA keypair (user CA + host CA — can be the same keypair or
+  separate for least-privilege)
+- Configure OIDC provisioner pointing at Keycloak
 - Configure provisioner to map Keycloak groups → SSH principals
+- Persistent storage for CA database and root key material
+- step-ca is infrastructure: treat with same care as DNS/NTP (backed up,
+  stable host key, minimal attack surface)
 
-### Phase 3: Configure target hosts
-- `TrustedUserCAKeys /etc/ssh/ca.pub` on all vMGMT/vINFRA hosts
+### Phase 3: Sign host certificates
+- For each NixOS host on vMGMT/vINFRA: sign its `ssh_host_ed25519_key.pub`
+  with the CA, producing a host certificate
+- Deploy host certificates via `modules/common/ssh-ca.nix` (shared module
+  adding `HostCertificate` and `TrustedUserCAKeys` to sshd config)
+- Configure admin `~/.ssh/known_hosts` with `@cert-authority *.home.local`
+  to trust the CA for host verification
+- OpenWRT devices: no change (continue using traditional TOFU/key-based auth)
+
+### Phase 4: Configure user certificate auth on target hosts
+- `TrustedUserCAKeys /etc/ssh/ca.pub` on all vMGMT/vINFRA NixOS hosts
+  (already in the shared `ssh-ca.nix` module from Phase 3)
 - `AuthorizedPrincipalsFile` to control which principals can log in where
-- This can be a shared NixOS module: `modules/common/ssh-ca.nix`
+- Verify both directions work: client trusts host cert, host trusts user cert
 
-### Phase 4: Client setup
+### Phase 5: Client setup
 - Install `step` CLI on admin machines
 - `step ssh login` for interactive use
 - Optionally: PAM integration so certificate is refreshed on desktop login
 
-### Phase 5: Remove MAC allowlist
+### Phase 6: Remove MAC allowlist
 - Update router firewall: vMGMT no longer filters by MAC
 - Security now comes from: network isolation (VLAN) + identity (certificate)
