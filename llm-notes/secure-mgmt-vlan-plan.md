@@ -1277,44 +1277,138 @@ This gives every consumer exactly what it needs:
 ### 8.2 Human-readable IP lookup
 
 The registry replaces `network.json` as the source of truth, but you still need to be
-able to quickly look up an IP address without mentally evaluating Nix. Add a `summary`
-attribute to the registry that generates a formatted table:
+able to quickly look up an IP address without mentally evaluating Nix. Two mechanisms
+make this easy: a **flake app** for terminal use and a **generated markdown file** for
+browsing in an editor or on GitHub.
+
+#### 8.2a `summary` attribute in the registry
+
+Add a `summary` attribute to `network.nix` that renders a formatted table grouped by
+zone:
 
 ```nix
 # At the end of network.nix, inside the returned attrset:
-summary = lib.concatStringsSep "\n" (
-  [ "Host              Zone              IPv4              IPv6" ]
-  ++ lib.mapAttrsToList (name: h:
-    let
-      pad = s: n: s + lib.fixedWidthString (n - lib.stringLength s) " " "";
-    in "${pad name 18}${pad h.zoneName 18}${pad h.ipv4 18}${h.ipv6}"
-  ) hosts
+summary = let
+  pad = s: n: s + lib.fixedWidthString (n - lib.stringLength s) " " "";
+  header = "Host              Zone              IPv4              IPv6";
+  row = name: h: "${pad name 18}${pad h.zoneName 18}${pad h.ipv4 18}${h.ipv6}";
+  hostsByZone = lib.groupBy (e: e.value.zoneName)
+    (lib.mapAttrsToList lib.nameValuePair hosts);
+  renderZone = zoneName: entries: lib.concatMapStringsSep "\n"
+    (e: row e.name e.value) entries;
+in lib.concatStringsSep "\n\n" (
+  [ header ]
+  ++ lib.mapAttrsToList renderZone hostsByZone
 ) + "\n";
 ```
 
-Then look up addresses with:
+This can be evaluated directly:
 ```bash
 nix eval .#lib.common.data.network.summary --raw
 ```
 
-Output:
-```
-Host              Zone              IPv4              IPv6
-alfheim           infrastructure    10.97.11.2        fdc6:55f2:0a5e:b::2
-bragi             dmz               10.97.100.50      fdc6:55f2:0a5e:64::32
-gridr             home              10.97.20.30       fdc6:55f2:0a5e:14::1e
-...
-```
-
-For looking up a single host:
+Single-host lookups also work:
 ```bash
 nix eval .#lib.common.data.network.hosts.alfheim.ipv4 --raw
 # 10.97.11.2
 ```
 
-Optionally, add a shell alias to `~/.bashrc` or a flake app:
+#### 8.2b Flake app: `nix run .#netinfo`
+
+**File:** `apps/netinfo.nix`
+
+A small flake app wrapping the above into an ergonomic command. Following the existing
+pattern in `apps/openwrt/default.nix`:
+
+```nix
+# apps/netinfo.nix
+{ pkgs }:
+let
+  script = pkgs.writeShellScript "netinfo" ''
+    set -euo pipefail
+    FLAKE_ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+    if [ $# -eq 0 ]; then
+      nix eval "$FLAKE_ROOT#lib.common.data.network.summary" --raw
+    else
+      # Look up a specific host: nix run .#netinfo -- alfheim
+      HOST="$1"
+      echo "IPv4: $(nix eval "$FLAKE_ROOT#lib.common.data.network.hosts.$HOST.ipv4" --raw)"
+      echo "IPv6: $(nix eval "$FLAKE_ROOT#lib.common.data.network.hosts.$HOST.ipv6" --raw)"
+      echo "Zone: $(nix eval "$FLAKE_ROOT#lib.common.data.network.hosts.$HOST.zoneName" --raw)"
+    fi
+  '';
+in {
+  netinfo = {
+    type = "app";
+    program = "${script}";
+  };
+}
+```
+
+Wire it into `flake.nix` alongside the existing OpenWrt apps:
+
+```nix
+# In flake.nix, update the apps output:
+apps = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
+  pkgs = pkgsFor nixpkgs system;
+in (import ./apps/openwrt { inherit pkgs; })
+   // (import ./apps/netinfo.nix { inherit pkgs; }));
+```
+
+Usage:
 ```bash
-alias netinfo='nix eval .#lib.common.data.network.summary --raw'
+# Full table
+nix run .#netinfo
+
+# Single host
+nix run .#netinfo -- alfheim
+#   IPv4: 10.97.11.2
+#   IPv6: fdc6:55f2:0a5e:b::2
+#   Zone: infrastructure
+```
+
+#### 8.2c Generated markdown: `docs/network-hosts.md`
+
+Add a `markdown` attribute to the registry that renders a markdown table, and a
+`netinfo --generate-docs` option to write it out:
+
+```nix
+# In network.nix, alongside summary:
+markdown = let
+  header = ''
+    # Network Host Registry
+
+    > **Auto-generated from `lib/common/data/network.nix`.** Do not edit manually.
+    > Regenerate with: `nix run .#netinfo -- --generate-docs`
+
+    | Host | Zone | IPv4 | IPv6 |
+    |------|------|------|------|
+  '';
+  row = name: h: "| ${name} | ${h.zoneName} | `${h.ipv4}` | `${h.ipv6}` |";
+in header + lib.concatStringsSep "\n" (lib.mapAttrsToList row hosts) + "\n";
+```
+
+Add `--generate-docs` to the netinfo script:
+
+```bash
+if [ "$1" = "--generate-docs" ]; then
+  DOCS_PATH="$FLAKE_ROOT/docs/network-hosts.md"
+  nix eval "$FLAKE_ROOT#lib.common.data.network.markdown" --raw > "$DOCS_PATH"
+  echo "Generated $DOCS_PATH"
+  exit 0
+fi
+```
+
+The resulting `docs/network-hosts.md` is committed to the repo and viewable on GitHub.
+It's essentially the human-readable equivalent of the old `network.json` — a file you
+can open and scan for addresses — but it can't drift out of sync because regenerating
+it is a one-liner. A CI check or pre-commit hook could verify it stays up to date:
+
+```bash
+# .github/ci or pre-commit: verify docs are current
+nix run .#netinfo -- --generate-docs
+git diff --exit-code docs/network-hosts.md || \
+  echo "docs/network-hosts.md is out of date — run: nix run .#netinfo -- --generate-docs"
 ```
 
 ### 8.3 Consuming the registry programmatically
