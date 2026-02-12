@@ -24,42 +24,42 @@ nftables output) and is tracked separately because of its distinct risk profile.
 ### Architecture: Before and After
 
 **Before:**
-```
-vMGMT (VLAN 10) — trust: management — 10.0.10.0/24
-├── yggdrasil    10.0.10.1   (router)
-├── alfheim      10.0.10.2   (DNS MicroVM on yggdrasil)
-├── vanaheim     10.0.10.30  (VM host)
-├── muspelheim   10.0.10.31  (VM host)
-├── jotunheimr   10.0.10.32  (NAS)
-└── APs          10.0.10.100-200 (DHCP pool)
-    All devices can freely communicate with each other.
-    All devices have full access to router services.
-    All devices can forward to internet.
+
+```mermaid
+flowchart TB
+    subgraph before["vMGMT (VLAN 10) — trust: management — 10.0.10.0/24"]
+        direction TB
+        B_ygg["yggdrasil — 10.0.10.1 (router)"]
+        B_alf["alfheim — 10.0.10.2 (DNS MicroVM)"]
+        B_van["vanaheim — 10.0.10.30 (VM host)"]
+        B_mus["muspelheim — 10.0.10.31 (VM host)"]
+        B_jot["jotunheimr — 10.0.10.32 (NAS)"]
+        B_aps["APs — 10.0.10.100-200 (DHCP pool)"]
+    end
+    B_note["All devices freely communicate.\nFull router service access.\nFull internet forwarding."]
+    before ~~~ B_note
 ```
 
 **After:**
-```
-vMGMT (VLAN 10) — zone: network
-  IPv4: 10.0.10.0/24 — IPv6: fdc6:55f2:0a5e:a::/64
-├── yggdrasil    10.0.10.1 / fdc6:55f2:0a5e:a::1   (router gateway)
-└── APs/Switch   static IPs
-    Devices can ONLY reach the router for NTP.
-    No internet. No access to other VLANs.
-    SSH only FROM the router TO the devices.
 
-vINFRA (VLAN 11) — zone: management
-  IPv4: 10.0.11.0/24 — IPv6: fdc6:55f2:0a5e:b::/64
-├── yggdrasil    10.0.11.1  / fdc6:55f2:0a5e:b::1   (router gateway)
-├── alfheim      10.0.11.2  / fdc6:55f2:0a5e:b::2   (DNS MicroVM on yggdrasil)
-├── vanaheim     10.0.11.30 / fdc6:55f2:0a5e:b::1e  (VM host)
-├── muspelheim   10.0.11.31 / fdc6:55f2:0a5e:b::1f  (VM host)
-└── jotunheimr   10.0.11.20 / fdc6:55f2:0a5e:b::14  (NAS)
-    Devices can communicate with each other (NFS, monitoring).
-    Internet access for updates (filtered egress).
-    SSH from router + admin workstation on vHOME.
+```mermaid
+flowchart TB
+    subgraph vmgmt["vMGMT (VLAN 10) — zone: network\n10.0.10.0/24 · fdc6:55f2:0a5e:a::/64"]
+        A_ygg1["yggdrasil — 10.0.10.1 (gateway)"]
+        A_aps["APs/Switch — static IPs"]
+    end
+    vmgmt_note["NTP only to router. No internet.\nNo access to other VLANs.\nSSH only FROM router TO devices."]
+    vmgmt ~~~ vmgmt_note
 
-IPv6 address scheme: static ULA assignments mirroring IPv4 last octet in hex.
-All infra hosts get explicit static IPv6 (not SLAAC) for stable addressing.
+    subgraph vinfra["vINFRA (VLAN 11) — zone: management\n10.0.11.0/24 · fdc6:55f2:0a5e:b::/64"]
+        A_ygg2["yggdrasil — .1 / ::1 (gateway)"]
+        A_alf["alfheim — .2 / ::2 (DNS MicroVM)"]
+        A_van["vanaheim — .30 / ::1e (VM host)"]
+        A_mus["muspelheim — .31 / ::1f (VM host)"]
+        A_jot["jotunheimr — .20 / ::14 (NAS)"]
+    end
+    vinfra_note["Inter-host communication (NFS, monitoring).\nFiltered internet egress.\nSSH from router + admin on vHOME.\nStatic ULA IPv6 mirroring IPv4 last octet in hex."]
+    vinfra ~~~ vinfra_note
 ```
 
 ---
@@ -588,20 +588,18 @@ Same treatment as APs: stays on VLAN 10, host firewall, NTP from router. Must tr
 
 ### 6.1 SSH access model
 
+```mermaid
+flowchart LR
+    Admin["Admin workstation\n(vHOME, 10.0.20.X)"]
+
+    Admin -- "Direct SSH\n(trusted → management)" --> Infra["vINFRA devices\nHost FW accepts 10.0.20.X"]
+    Admin -- "Direct SSH\nto 10.0.20.1" --> Router["yggdrasil\n(router)"]
+    Router -- "ProxyJump SSH\nto 10.0.10.X" --> NetGear["APs / Switch\n(vMGMT)"]
+
+    style NetGear stroke-dasharray: 5 5
 ```
-Admin workstation (vHOME, 10.0.20.X)
-├── Direct SSH to infra devices (vINFRA)
-│   Allowed by: trusted zone accessTo includes management zone
-│   Host firewall: accepts SSH from 10.0.20.X
-│
-├── SSH to router (yggdrasil)
-│   Direct: SSH to 10.0.20.1 (router's vHOME address)
-│
-└── SSH to networking gear (vMGMT) via ProxyJump
-    Step 1: SSH to yggdrasil
-    Step 2: yggdrasil SSH to AP/switch on 10.0.10.X
-    Required because: network zone has no forwarding
-```
+
+> Networking gear requires ProxyJump through the router because the `network` zone has no forwarding.
 
 ### 6.2 Deployment order
 

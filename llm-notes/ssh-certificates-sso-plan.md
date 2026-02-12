@@ -18,21 +18,17 @@ of what hardware you're using.
 
 ## Architecture overview
 
-```
-┌──────────┐     OIDC      ┌──────────────┐
-│  Admin    │──────────────▸│   Keycloak   │  (OIDC / OAuth2 provider)
-│  Desktop  │◂─────────────│   (vINFRA)   │
-│           │  short-lived  └──────────────┘
-│           │  SSH cert              │
-│           │                        │ signs certs via
-│           │                        ▼
-│           │               ┌──────────────┐
-│           │               │   step-ca     │  (SSH certificate authority)
-│           │               │   or vault    │
-│           │               └──────────────┘
-│           │
-│           │─── SSH w/ cert ──▸  vMGMT / vINFRA hosts
-└──────────┘                     (TrustedUserCAKeys configured)
+```mermaid
+flowchart LR
+    Admin["Admin Desktop"]
+    KC["Keycloak\n(vINFRA)"]
+    CA["step-ca\nor Vault"]
+    Hosts["vMGMT / vINFRA hosts\n(TrustedUserCAKeys)"]
+
+    Admin -- "OIDC login" --> KC
+    KC -- "short-lived\nSSH cert" --> Admin
+    KC -- "signs certs via" --> CA
+    Admin -- "SSH w/ cert" --> Hosts
 ```
 
 ### Components
@@ -70,19 +66,22 @@ of what hardware you're using.
 
 ## Authentication flow
 
-```
-1. Admin runs: step ssh login admin@home.local
-2. Browser opens → Keycloak login (password + MFA)
-3. Keycloak issues OIDC token → step-ca validates it
-4. step-ca signs an SSH certificate:
-     - Principal: "admin" (mapped from OIDC claim)
-     - Validity: 12 hours
-     - Extensions: permit-pty, permit-agent-forwarding
-5. Certificate written to ~/.ssh/id_ed25519-cert.pub
-6. Admin runs: ssh yggdrasil.local
-     - sshd verifies cert signature against TrustedUserCAKeys
-     - Checks principal "admin" against AuthorizedPrincipalsFile
-     - Grants access
+```mermaid
+sequenceDiagram
+    participant Admin
+    participant Browser
+    participant Keycloak
+    participant step-ca
+    participant sshd as sshd (target host)
+
+    Admin->>Browser: step ssh login admin@home.local
+    Browser->>Keycloak: Login (password + MFA)
+    Keycloak-->>step-ca: OIDC token
+    step-ca-->>Admin: Signed SSH certificate<br/>(principal: "admin", validity: 12h,<br/>extensions: permit-pty, permit-agent-forwarding)
+    Note over Admin: Cert written to<br/>~/.ssh/id_ed25519-cert.pub
+    Admin->>sshd: ssh yggdrasil.local
+    sshd->>sshd: Verify cert against TrustedUserCAKeys<br/>Check principal vs AuthorizedPrincipalsFile
+    sshd-->>Admin: Access granted
 ```
 
 ## Relationship to the vMGMT VLAN plan
@@ -122,9 +121,20 @@ CI/CD servers need non-interactive access — no human to open a browser. OAuth2
 
 ### Flow
 
-```
-Human:    Browser → Keycloak login → OIDC token → step-ca → SSH cert
-CI/CD:    Client ID + Secret → Keycloak → OIDC token → step-ca → SSH cert
+```mermaid
+flowchart LR
+    subgraph Human
+        H_Browser["Browser"] --> H_KC["Keycloak login"]
+        H_KC --> H_Token["OIDC token"]
+        H_Token --> H_CA["step-ca"]
+        H_CA --> H_Cert["SSH cert"]
+    end
+    subgraph CI/CD
+        C_Creds["Client ID + Secret"] --> C_KC["Keycloak"]
+        C_KC --> C_Token["OIDC token"]
+        C_Token --> C_CA["step-ca"]
+        C_CA --> C_Cert["SSH cert"]
+    end
 ```
 
 1. Register the CI/CD server as a **Keycloak service account** (a client with
@@ -193,10 +203,12 @@ The Keycloak client secret is the one static credential. Options:
 The network layer (VLANs, firewall rules) and identity layer (SSH certificates,
 Keycloak) are designed to operate **independently**:
 
-```
-Layer 3 — Identity:    SSH certificates, Keycloak, principals, MFA
-Layer 2 — Transport:   vMGMT VLAN, firewall rules, MAC allowlist (temporary)
-Layer 1 — Physical:    Managed switch, trunk ports, access ports
+```mermaid
+block-beta
+    columns 1
+    L3["Layer 3 — Identity: SSH certificates, Keycloak, principals, MFA"]
+    L2["Layer 2 — Transport: vMGMT VLAN, firewall rules, MAC allowlist (temporary)"]
+    L1["Layer 1 — Physical: Managed switch, trunk ports, access ports"]
 ```
 
 Each layer provides value on its own:
