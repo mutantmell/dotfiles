@@ -115,6 +115,112 @@ Because the MAC allowlist is temporary, the current plan should:
 This keeps the eventual swap to certificates minimal: replace one router
 firewall rule with "allow vMGMT subnet" and deploy TrustedUserCAKeys to hosts.
 
+## CI/CD integration
+
+CI/CD servers need non-interactive access — no human to open a browser. OAuth2's
+**client credentials grant** handles this: machine-to-machine auth, no browser.
+
+### Flow
+
+```
+Human:    Browser → Keycloak login → OIDC token → step-ca → SSH cert
+CI/CD:    Client ID + Secret → Keycloak → OIDC token → step-ca → SSH cert
+```
+
+1. Register the CI/CD server as a **Keycloak service account** (a client with
+   `client_credentials` grant enabled). This gives it a client ID + secret.
+2. step-ca validates the token the same way — same issuer, same signature
+   verification. It doesn't care whether the token came from a browser redirect
+   or a client credentials call.
+3. The pipeline requests a fresh cert at job start:
+
+```bash
+# Authenticate to Keycloak (no browser)
+TOKEN=$(curl -s -X POST https://auth.home.local/realms/home/protocol/openid-connect/token \
+  -d grant_type=client_credentials \
+  -d client_id=cicd-server \
+  -d client_secret="$CICD_CLIENT_SECRET" \
+  | jq -r .access_token)
+
+# Exchange token for short-lived SSH certificate
+step ssh certificate cicd@home.local /tmp/cicd_key \
+  --provisioner keycloak --token "$TOKEN" \
+  --not-after=1h
+
+# Deploy using the cert
+ssh -i /tmp/cicd_key deploy@target-host.local "deploy-image.sh $IMAGE_TAG"
+```
+
+### Principals and least privilege
+
+CI/CD certs get a narrow principal (e.g. `deploy`), not `admin`. Target hosts
+control this via `AuthorizedPrincipalsFile`:
+
+```
+# /etc/ssh/auth_principals/deploy  (the deploy user account)
+deploy
+cicd
+
+# /etc/ssh/auth_principals/admin  (the admin user account)
+admin
+```
+
+Even if CI/CD credentials are compromised, the cert can only act as `deploy`.
+
+### Comparison with static deploy keys
+
+| Aspect          | Static deploy key             | Certificate (client credentials)                    |
+|-----------------|-------------------------------|-----------------------------------------------------|
+| Lifetime        | Permanent until rotated       | Short-lived (30min–1h per job)                      |
+| Scope           | Any host trusting the key     | Principal-scoped (`deploy`, not `admin`)             |
+| Revocation      | Remove from every host        | Disable service account in Keycloak (one place)      |
+| Secret storage  | Private key on disk           | Client secret (or Vault-injected per-job)            |
+| Audit trail     | "A key was used"              | "cicd-server authed at 14:02, cert for `deploy`, 1h"|
+
+### Where to store the client secret
+
+The Keycloak client secret is the one static credential. Options:
+
+- **Environment variable** in CI/CD server config (encrypted at rest) — simplest
+- **Vault OIDC auth** — CI/CD authenticates to Vault, which authenticates to
+  Keycloak. Useful if Vault is already deployed.
+- **Keycloak `client_jwt` authentication** — CI/CD uses a signed JWT assertion
+  instead of a shared secret, avoiding a static secret entirely. Best option
+  if the CI/CD platform supports it.
+
+## Design philosophy: layered independence
+
+The network layer (VLANs, firewall rules) and identity layer (SSH certificates,
+Keycloak) are designed to operate **independently**:
+
+```
+Layer 3 — Identity:    SSH certificates, Keycloak, principals, MFA
+Layer 2 — Transport:   vMGMT VLAN, firewall rules, MAC allowlist (temporary)
+Layer 1 — Physical:    Managed switch, trunk ports, access ports
+```
+
+Each layer provides value on its own:
+
+- **Network isolation alone** (current plan) already prevents lateral movement —
+  a compromised IoT device can't reach management interfaces regardless of
+  what authentication is configured.
+- **SSH certificates alone** would prevent unauthorized access even if someone
+  gained network access to vMGMT — they still can't authenticate without a
+  valid certificate.
+- **Together**, they provide defense in depth: you need to be on the right
+  network *and* have the right identity.
+
+This means:
+
+- The VLAN plan can be implemented and provide immediate security value with
+  no OAuth infrastructure
+- Keycloak + certificates can be added later without rearchitecting the network
+- Either layer can be upgraded independently (e.g. replace MAC allowlist with
+  802.1X, or swap step-ca for Vault, without touching the other layer)
+- A failure in one layer (e.g. Keycloak goes down) doesn't cascade — the
+  network layer still restricts access, and emergency break-glass SSH keys
+  can bypass the certificate requirement if needed
+
 ## Implementation sketch (for when this becomes active)
 
 ### Phase 1: Deploy Keycloak
