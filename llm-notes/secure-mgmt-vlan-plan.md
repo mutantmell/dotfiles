@@ -7,6 +7,8 @@ Split the current `vMGMT` (VLAN 10) into two VLANs with distinct security profil
 - **vMGMT (VLAN 10)** — Networking gear (APs, managed switch). Heavily locked down: no internet, no inter-VLAN access, management SSH only from the router.
 - **vINFRA (VLAN 11)** — Infrastructure (NAS, VM hosts, DNS). Moderately locked down: inter-host communication for NFS, internet for self-updating, SSH from router and admin workstation.
 
+**Prerequisite refactor:** Replace the hardcoded trust enum with a configurable zone system (Phase 1), enabling the `network` zone and future extensibility. This is the most fundamental change and occurs first.
+
 ### Threat Model
 
 | Device Class | Compromise Risk | Compromise Impact | Lockdown Level |
@@ -34,14 +36,14 @@ vMGMT (VLAN 10) — trust: management — 10.0.10.0/24
 
 **After:**
 ```
-vMGMT (VLAN 10) — trust: network — 10.0.10.0/24
+vMGMT (VLAN 10) — zone: network — 10.0.10.0/24
 ├── yggdrasil    10.0.10.1   (router gateway)
 └── APs/Switch   10.0.10.100-200 (DHCP pool) or static
     Devices can ONLY reach the router for DHCP/NTP.
     No internet. No access to other VLANs.
     SSH only FROM the router TO the devices.
 
-vINFRA (VLAN 11) — trust: management — 10.0.11.0/24
+vINFRA (VLAN 11) — zone: management — 10.0.11.0/24
 ├── yggdrasil    10.0.11.1   (router gateway)
 ├── alfheim      10.0.11.2   (DNS MicroVM on yggdrasil)
 ├── vanaheim     10.0.11.30  (VM host)
@@ -54,105 +56,599 @@ vINFRA (VLAN 11) — trust: management — 10.0.11.0/24
 
 ---
 
-## 1. New Trust Level: `network`
+## Phase 0: Pre-Refactor Test Coverage
 
-### 1.1 Add to trust enum
+Before refactoring the trust system into zones, add tests that verify the current firewall behavior across all trust levels. These tests ensure the zone refactor produces identical nftables output.
 
-**File:** `modules/router6/default.nix` (line 59)
+### 0.1 New integration test: `router6-firewall-zones`
 
-Add `"network"` to the trust enum:
+**File:** `tests/modules/router6-firewall-zones.nix`
+
+A comprehensive multi-zone test with all current trust levels represented:
+
 ```nix
-trust = mkOption {
-  type = types.nullOr (types.enum [
-    "external"      # WAN - untrusted, NAT source
-    "management"    # Infrastructure - full router access, can reach internet
-    "trusted"       # User devices - can access other internal networks
-    "untrusted"     # Guest/IoT - internet only, isolated from other networks
-    "isolated"      # No internet, no internal access
-    "network"       # Networking gear - DHCP/NTP only, no internet, no forwarding
-  ]);
-  default = null;
-  description = "Trust level for firewall rules";
+nodes = {
+  router = {
+    imports = [ ../../modules/router6 ];
+    virtualisation.vlans = [ 1 2 3 4 5 ];
+
+    router6 = {
+      enable = true;
+      ulaPrefix = "fdc6:55f2:0a5e::/48";
+      dns.upstream = [ "1.1.1.1" ];
+      dns.useDHCPFallback = false;
+      dns.localDomain = "test.local";
+
+      topology = {
+        eth1 = {
+          hardwareName = "eth1";
+          network = {
+            type = "static";
+            addresses = [ "203.0.113.1/24" ];
+            trust = "external";
+            nat.enable = true;
+          };
+        };
+        eth2 = {
+          hardwareName = "eth2";
+          network = {
+            type = "static";
+            addresses = [ "10.0.10.1/24" ];
+            trust = "management";
+            dhcp.enable = true;
+          };
+        };
+        eth3 = {
+          hardwareName = "eth3";
+          network = {
+            type = "static";
+            addresses = [ "10.0.20.1/24" ];
+            trust = "trusted";
+            dhcp.enable = true;
+          };
+        };
+        eth4 = {
+          hardwareName = "eth4";
+          network = {
+            type = "static";
+            addresses = [ "10.0.30.1/24" ];
+            trust = "untrusted";
+            dhcp.enable = true;
+          };
+        };
+        eth5 = {
+          hardwareName = "eth5";
+          network = {
+            type = "static";
+            addresses = [ "10.0.40.1/24" ];
+            trust = "isolated";
+          };
+        };
+      };
+    };
+  };
+
+  # One node per trust zone
+  mgmt    = { ... };  # 10.0.10.100 on VLAN 2
+  trusted = { ... };  # 10.0.20.100 on VLAN 3
+  guest   = { ... };  # 10.0.30.100 on VLAN 4
+  isolated = { ... }; # 10.0.40.100 on VLAN 5
+  attacker = { ... }; # 203.0.113.100 on VLAN 1
 };
 ```
 
-### 1.2 Update interface selectors
+**Test cases (each becomes a named test function):**
 
-**File:** `modules/router6/default.nix` (lines 254-261)
+Input chain tests:
+1. **management → router: full access** — mgmt can reach all router ports (SSH, DNS, any service)
+2. **trusted → router: full access** — trusted can reach all router ports
+3. **untrusted → router: DNS/DHCP only** — guest can reach DNS (53/tcp, 53/udp) and DHCP (67/udp) but NOT SSH (22/tcp) or HTTP (80/tcp)
+4. **isolated → router: nothing** — isolated node cannot reach any router port (not even DNS/DHCP)
+5. **external → router: stealth** — attacker gets nothing (already covered by existing test, but good to have in the matrix)
+6. **ICMP echo: internal only** — mgmt/trusted/untrusted can ping router; external/isolated cannot
 
-The `network` trust level should NOT be included in `internalInterfaces` (no internet forwarding) and NOT in `trustedInterfaces` (no full router service access):
+Forward chain tests:
+7. **management → trusted: allowed** — mgmt can reach trusted node
+8. **management → untrusted: allowed** — mgmt can reach guest node
+9. **management → external: allowed** — mgmt can reach internet (via NAT)
+10. **trusted → management: allowed** — trusted can reach mgmt node
+11. **trusted → untrusted: allowed** — trusted can reach guest node
+12. **trusted → external: allowed** — trusted can reach internet
+13. **untrusted → external: allowed** — guest can reach internet
+14. **untrusted → management: blocked** — guest cannot reach mgmt node
+15. **untrusted → trusted: blocked** — guest cannot reach trusted node
+16. **isolated → anything: blocked** — isolated cannot forward anywhere
+17. **external → internal: blocked** — attacker cannot reach any internal network
 
-```nix
-# These remain unchanged — "network" is intentionally excluded from both:
-internalInterfaces = interfacesWithTrust ["management" "trusted" "untrusted"];
-trustedInterfaces = interfacesWithTrust ["management" "trusted"];
+### 0.2 Snapshot the nftables ruleset
 
-# Add a new selector for network gear:
-networkInterfaces = interfacesWithTrust "network";
-```
+Add a test that captures the generated nftables ruleset as a string and compares it against a golden file. This provides a safety net: after the zone refactor, the generated ruleset for the same logical configuration should be identical (or functionally equivalent).
 
-### 1.3 Add firewall rules for `network` trust
+**Approach:** A unit test (pure Nix evaluation) that evaluates the router6 module config and extracts `config.networking.nftables.ruleset`, then compares against a stored expected output.
 
-**File:** `modules/router6/default.nix` — input chain (after line 1261)
-
-```nix
-${optionalString (networkInterfaces != []) ''
-# Networking gear: DHCP and NTP only (no DNS, no other services)
-iifname ${netIfaces} udp dport { 67, 123 } accept
-iifname ${netIfaces} icmp type { echo-request, echo-reply } accept
-iifname ${netIfaces} icmpv6 type { echo-request, echo-reply } accept
-''}
-```
-
-The `network` trust level gets:
-- **DHCP** (UDP 67) — for IP assignment
-- **NTP** (UDP 123) — for time synchronization
-- **ICMP echo** — for debugging/monitoring
-- **IPv6 Neighbor Discovery** — already accepted globally (line 1245)
-- **Nothing else** — no DNS (APs don't need to resolve hostnames), no SSH to router, no internet forwarding
-
-Note: DNS is intentionally excluded. APs operate as L2 bridges and don't resolve hostnames. If a specific device needs DNS, it can be added as an extra input rule.
-
-The forward chain needs no changes — `network` interfaces are not in `internalInterfaces`, so they're already excluded from all forwarding rules. Traffic from networking gear cannot reach any other VLAN or the internet.
-
-### 1.4 Egress filtering for `management` (vINFRA)
-
-The `management` trust level currently has unrestricted internet access via the forward chain (it's in `internalInterfaces`). We should add targeted egress filtering so infra devices can only reach the internet for specific purposes.
-
-**File:** `modules/router6/default.nix` — forward chain, or via `extraForwardRules` in `hosts/yggdrasil/default.nix`
-
-This can be implemented via `extraForwardRules` on yggdrasil to avoid modifying the core module for now:
+**File:** `tests/lib/router6-firewall-snapshot.nix`
 
 ```nix
-extraForwardRules = [
-  # ... existing rules ...
-
-  # vINFRA egress: allow only update-related traffic to internet
-  { iifname = "vINFRA.br0"; oifname = "wan"; tcp.dport = 443; verdict = "accept";
-    comment = "vINFRA: HTTPS for updates (cache.nixos.org, github)"; }
-  { iifname = "vINFRA.br0"; oifname = "wan"; udp.dport = 123; verdict = "accept";
-    comment = "vINFRA: NTP to internet pools"; }
-  { iifname = "vINFRA.br0"; oifname = "wan"; verdict = "drop";
-    comment = "vINFRA: drop all other internet-bound traffic"; }
-];
+# Evaluate a minimal router6 config and verify the generated nftables ruleset
+let
+  result = (lib.nixosSystem {
+    modules = [
+      ../../modules/router6
+      { router6 = { /* same config as test above */ }; }
+    ];
+  }).config.networking.nftables.ruleset;
+in
+  assert result == builtins.readFile ./expected-ruleset.nft;
+  "PASS"
 ```
 
-This allows infra devices to:
-- Pull Nix substitutions / updates over HTTPS (port 443)
-- Sync time via NTP (port 123)
-- Nothing else outbound to the internet
-
-DNS resolution for infra devices goes to the router (10.0.11.1), which forwards to alfheim — this is intra-VLAN, not egress to the internet.
+This test will fail after the zone refactor if the output changes, forcing us to verify any differences are intentional.
 
 ---
 
-## 2. Router Changes (yggdrasil)
+## Phase 1: Zone-Based Firewall Refactor
 
-### 2.1 Add vINFRA VLAN
+Replace the hardcoded trust enum with a user-configurable `zones` attrset. This is inspired by OpenWRT's zone/forwarding model but fits naturally into the Nix module system.
+
+### 1.1 Zone configuration schema
+
+**File:** `modules/router6/default.nix`
+
+Add a new top-level option `router6.zones`:
+
+```nix
+zones = mkOption {
+  description = ''
+    Firewall zone definitions. Each zone defines:
+    - accessTo: which zones this zone can freely forward traffic to
+    - forwardRules: per-destination-zone nftables rules (for filtered forwarding)
+    - inputRules: nftables rules for traffic from this zone to the router itself
+
+    Networks reference zones via their `trust` field (which will be renamed
+    or aliased to `zone` in a future update).
+  '';
+  default = {};
+  type = types.attrsOf (types.submodule ({ name, ... }: {
+    options = {
+
+      accessTo = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        description = ''
+          Zones this zone can freely forward traffic to (blanket accept).
+          A zone listed here means: all interfaces in this zone can reach
+          all interfaces in the target zone.
+        '';
+        example = [ "trusted" "untrusted" "external" ];
+      };
+
+      forwardRules = mkOption {
+        type = types.attrsOf (types.listOf nftRuleType);
+        default = {};
+        description = ''
+          Per-destination-zone forwarding rules. Keys are target zone names,
+          values are lists of nftables rules (same DSL as extraForwardRules).
+
+          Rules must NOT specify iifname or oifname — these are automatically
+          set from the source and destination zone's interfaces.
+
+          A destination zone must NOT also appear in accessTo (assertion enforced).
+        '';
+        example = {
+          external = [
+            { tcp.dport = 443; verdict = "accept"; comment = "HTTPS for updates"; }
+            { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+            { verdict = "drop"; comment = "Block all other egress"; }
+          ];
+        };
+      };
+
+      inputRules = mkOption {
+        type = types.listOf nftRuleType;
+        default = [];
+        description = ''
+          Rules for traffic from this zone's interfaces to the router itself.
+          Same DSL as extraInputRules but must NOT specify iifname — it is
+          automatically set from the zone's interfaces.
+        '';
+        example = [
+          { udp.dport = [ 53 67 ]; verdict = "accept"; comment = "DNS + DHCP"; }
+          { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
+        ];
+      };
+
+    };
+  }));
+};
+```
+
+### 1.2 Global defaults option
+
+**File:** `modules/router6/default.nix`
+
+Add an option to control the hardcoded global rules (ICMP, connection tracking, etc.):
+
+```nix
+firewall.enableDefaultRules = mkOption {
+  type = types.bool;
+  default = true;
+  description = ''
+    Enable default global firewall rules:
+    - Connection tracking (ct state established,related accept)
+    - Loopback accept
+    - Essential ICMP/ICMPv6 (PMTUD, Neighbor Discovery)
+    - TCP MSS clamping in forward chain
+    When false, only zone-defined rules and extra*Rules are generated.
+  '';
+};
+```
+
+### 1.3 Change `trust` option to reference zone keys
+
+**File:** `modules/router6/default.nix` — `mkNetworkSubmodule`
+
+Replace the hardcoded enum:
+```nix
+# Before:
+trust = mkOption {
+  type = types.nullOr (types.enum [
+    "external" "management" "trusted" "untrusted" "isolated"
+  ]);
+  ...
+};
+
+# After:
+trust = mkOption {
+  type = types.nullOr (types.enum (builtins.attrNames cfg.zones));
+  default = null;
+  description = "Firewall zone for this network (must be a key in router6.zones)";
+};
+```
+
+Nix's lazy evaluation ensures this self-reference works: the `zones` attrset keys are known at definition time, and `trust` values are only checked at evaluation time.
+
+### 1.4 Default zone definitions
+
+To preserve backward compatibility, define default zones that reproduce the current hardcoded behavior. These go in the `router6.zones` option default OR as a config set in the module:
+
+```nix
+# In the module's config section (not the default, so users can override):
+config = mkIf cfg.enable (mkMerge [
+  # ... existing config ...
+
+  # Default zone definitions (can be overridden/extended by the user)
+  {
+    router6.zones = {
+      external = {
+        # WAN: no access to anything, no router services
+        accessTo = [];
+        inputRules = [];
+      };
+
+      management = {
+        # Infrastructure: full router access, can reach all internal + internet
+        accessTo = [ "management" "trusted" "untrusted" "external" ];
+        inputRules = [
+          { verdict = "accept"; comment = "Full router service access"; }
+        ];
+      };
+
+      trusted = {
+        # User devices: full router access, can reach all internal + internet
+        accessTo = [ "management" "trusted" "untrusted" "external" ];
+        inputRules = [
+          { verdict = "accept"; comment = "Full router service access"; }
+        ];
+      };
+
+      untrusted = {
+        # Guest/IoT: DNS + DHCP only, internet only, no lateral movement
+        accessTo = [ "external" ];
+        inputRules = [
+          { udp.dport = [ 53 67 547 ]; verdict = "accept"; comment = "DNS + DHCP"; }
+          { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
+        ];
+      };
+
+      isolated = {
+        # No forwarding, no router services
+        accessTo = [];
+        inputRules = [];
+      };
+    };
+  }
+]);
+```
+
+These defaults produce **identical** nftables output to the current hardcoded logic. The existing `router6-firewall` test and the new Phase 0 tests validate this.
+
+Note: ICMP echo is currently allowed from `internalInterfaces` (management + trusted + untrusted). With zones, this needs to be either:
+- Part of each zone's `inputRules` (explicit), or
+- Part of the global default rules
+
+Since it's currently tied to the "internal" concept (management + trusted + untrusted but not external or isolated), the cleanest approach is to include ICMP echo rules in each zone's `inputRules`. This keeps the global default rules minimal (only PMTUD/NDP). The default zone definitions above would be extended:
+
+```nix
+management.inputRules = [
+  { icmp.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
+  { icmpv6.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
+  { verdict = "accept"; comment = "Full router service access"; }
+];
+
+# (Same for trusted — the blanket accept already covers ICMP,
+#  but listing it explicitly is clearer)
+
+untrusted.inputRules = [
+  { icmp.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
+  { icmpv6.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
+  { udp.dport = [ 53 67 547 ]; verdict = "accept"; comment = "DNS + DHCP"; }
+  { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
+];
+```
+
+For management and trusted, the blanket `accept` already covers ICMP, so the explicit ICMP rules are redundant but harmless. For untrusted, ICMP echo must be listed explicitly since there's no blanket accept. For isolated and external, no ICMP echo rules — matching current behavior.
+
+### 1.5 Rewrite nftables generation
+
+**File:** `modules/router6/default.nix` — the `networking.nftables.ruleset` section
+
+Replace the hardcoded interface selectors with zone-driven iteration.
+
+**Remove** the fixed selectors:
+```nix
+# Remove these:
+externalInterfaces = interfacesWithTrust ["management" "trusted" "untrusted"];  # was internalInterfaces
+trustedInterfaces = interfacesWithTrust ["management" "trusted"];
+
+# Keep only this generic helper:
+interfacesWithTrust = trust: ...;  # Now means "interfaces in zone"
+```
+
+**New helper functions:**
+```nix
+# Get all interfaces for a zone
+zoneInterfaces = zoneName: interfacesWithTrust zoneName;
+
+# Get all interfaces for a list of zones
+zonesInterfaces = zoneNames:
+  lib.unique (concatMap zoneInterfaces zoneNames);
+
+# Check if a zone has any interfaces
+zoneHasInterfaces = zoneName: zoneInterfaces zoneName != [];
+
+# Active zones (zones that have at least one interface assigned)
+activeZones = filter zoneHasInterfaces (attrNames cfg.zones);
+```
+
+**Input chain generation:**
+```nix
+chain input {
+  type filter hook input priority filter; policy drop;
+
+  ${optionalString cfg.firewall.enableDefaultRules ''
+  # Connection tracking
+  ct state established,related accept
+
+  # Loopback
+  iifname "lo" accept
+
+  # Essential ICMP (PMTUD)
+  icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+  icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
+
+  # IPv6 Neighbor Discovery
+  icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+  ''}
+
+  # Zone input rules
+  ${concatStringsSep "\n" (map (zoneName:
+    let
+      zone = cfg.zones.${zoneName};
+      ifaces = zoneInterfaces zoneName;
+    in
+      optionalString (ifaces != [] && zone.inputRules != [])
+        (concatStringsSep "\n" (map (rule:
+          "iifname ${quoteList ifaces} ${nft.renderRule rule}"
+        ) zone.inputRules))
+  ) activeZones)}
+
+  # WireGuard ports (per-interface, independent of zones)
+  ${optionalString (wgPorts != []) ''
+  udp dport { ${concatStringsSep ", " (map toString wgPorts)} } accept
+  ''}
+
+  # Extra input rules (escape hatch)
+  ${optionalString (cfg.firewall.extraInputRules != []) ''
+  ${nft.rulesToStringIndented "  " cfg.firewall.extraInputRules}
+  ''}
+
+  # Explicit drop for external zone (before the implicit policy drop,
+  # useful for logging differentiation)
+  ${let extIfaces = zoneInterfaces "external"; in
+    optionalString (extIfaces != [])
+      "iifname ${quoteList extIfaces} drop"
+  }
+}
+```
+
+**Forward chain generation:**
+```nix
+chain forward {
+  type filter hook forward priority filter; policy drop;
+
+  ${optionalString cfg.firewall.enableDefaultRules ''
+  ct state established,related accept
+  tcp flags syn tcp option maxseg size set rt mtu
+  ''}
+
+  # Zone forwarding: blanket accessTo rules
+  ${concatStringsSep "\n" (map (zoneName:
+    let
+      zone = cfg.zones.${zoneName};
+      srcIfaces = zoneInterfaces zoneName;
+      dstIfaces = zonesInterfaces zone.accessTo;
+    in
+      optionalString (srcIfaces != [] && dstIfaces != [])
+        "iifname ${quoteList srcIfaces} oifname ${quoteList dstIfaces} accept"
+  ) activeZones)}
+
+  # Zone forwarding: per-destination forwardRules
+  ${concatStringsSep "\n" (concatMap (zoneName:
+    let
+      zone = cfg.zones.${zoneName};
+      srcIfaces = zoneInterfaces zoneName;
+    in
+      mapAttrsToList (dstZone: rules:
+        let dstIfaces = zoneInterfaces dstZone;
+        in optionalString (srcIfaces != [] && dstIfaces != [] && rules != [])
+          (concatStringsSep "\n" (map (rule:
+            "iifname ${quoteList srcIfaces} oifname ${quoteList dstIfaces} ${nft.renderRule rule}"
+          ) rules))
+      ) zone.forwardRules
+  ) activeZones)}
+
+  # Port forward accept rules
+  ${optionalString (cfg.firewall.portForwards != []) ''
+  ${forwardDnatRules}
+  ''}
+
+  # Extra forward rules (escape hatch)
+  ${optionalString (cfg.firewall.extraForwardRules != []) ''
+  ${nft.rulesToStringIndented "  " cfg.firewall.extraForwardRules}
+  ''}
+}
+```
+
+NAT chains remain unchanged — masquerade is per-interface (`nat.enable`), not per-zone.
+
+### 1.6 Assertions
+
+**File:** `modules/router6/default.nix`
+
+Add assertions for the zone system:
+
+```nix
+# 1. accessTo and forwardRules must not overlap
+assertions = concatMap (zoneName:
+  let zone = cfg.zones.${zoneName};
+  in map (dstZone: {
+    assertion = !elem dstZone zone.accessTo;
+    message = "Zone '${zoneName}': destination '${dstZone}' appears in both accessTo and forwardRules. Use one or the other.";
+  }) (attrNames zone.forwardRules)
+) (attrNames cfg.zones)
+
+# 2. accessTo and forwardRules reference valid zones
+++ concatMap (zoneName:
+  let zone = cfg.zones.${zoneName};
+  in map (target: {
+    assertion = hasAttr target cfg.zones;
+    message = "Zone '${zoneName}': accessTo references unknown zone '${target}'";
+  }) zone.accessTo
+  ++ map (target: {
+    assertion = hasAttr target cfg.zones;
+    message = "Zone '${zoneName}': forwardRules references unknown zone '${target}'";
+  }) (attrNames zone.forwardRules)
+) (attrNames cfg.zones)
+
+# 3. inputRules must not contain iifname (it's auto-set)
+++ concatMap (zoneName:
+  let zone = cfg.zones.${zoneName};
+  in lib.imap0 (i: rule: {
+    assertion = !(isAttrs rule && hasAttr "iifname" rule);
+    message = "Zone '${zoneName}': inputRules[${toString i}] must not specify iifname (auto-set from zone interfaces)";
+  }) zone.inputRules
+) (attrNames cfg.zones)
+
+# 4. forwardRules must not contain iifname or oifname
+++ concatMap (zoneName:
+  let zone = cfg.zones.${zoneName};
+  in concatMap (dstZone:
+    lib.imap0 (i: rule: {
+      assertion = !(isAttrs rule && (hasAttr "iifname" rule || hasAttr "oifname" rule));
+      message = "Zone '${zoneName}': forwardRules.${dstZone}[${toString i}] must not specify iifname/oifname (auto-set from zone interfaces)";
+    }) zone.forwardRules.${dstZone}
+  ) (attrNames zone.forwardRules)
+) (attrNames cfg.zones)
+
+# 5. Keep existing assertion: at least one external interface
+# (could be relaxed to: at least one zone named "external", or removed entirely
+#  since zones are user-defined now — but keeping it for safety)
+```
+
+### 1.7 Update existing tests
+
+After the refactor, all Phase 0 tests must still pass. Additionally:
+
+- Update `router6-firewall.nix` to also define zones (or rely on defaults)
+- The snapshot test from Phase 0.2 must produce identical output
+- Add a new test that uses **custom** zones (not just the defaults) to verify the zone system itself works
+
+### 1.8 Migration path for host configs
+
+Existing host configs (like yggdrasil) use `trust = "management"` etc. These continue to work unchanged because:
+1. The default zones define the same names as the old enum
+2. The `trust` field type is now `types.enum (attrNames cfg.zones)` — same values, just derived dynamically
+
+No host config changes needed for the zone refactor alone.
+
+---
+
+## Phase 2: New `network` Zone and vINFRA VLAN
+
+With the zone system in place, adding the `network` zone is just a configuration change.
+
+### 2.1 Define `network` zone
+
+**File:** `hosts/yggdrasil/default.nix` (or in the module defaults)
+
+```nix
+router6.zones.network = {
+  # Networking gear: DHCP + NTP only, no internet, no lateral movement
+  accessTo = [];
+  inputRules = [
+    { udp.dport = [ 67 123 ]; verdict = "accept"; comment = "DHCP + NTP"; }
+    { icmp.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
+    { icmpv6.type = [ "echo-request" "echo-reply" ]; verdict = "accept"; }
+  ];
+};
+```
+
+This automatically generates:
+- Input: `iifname { "vMGMT.br0" } udp dport { 67, 123 } accept` (plus ICMP echo)
+- Forward: nothing (empty `accessTo`, no `forwardRules`)
+- No hardcoded `networkInterfaces` selector needed
+
+### 2.2 Management egress filtering via `forwardRules`
+
+With the zone system, the vINFRA egress filtering that was previously planned as `extraForwardRules` with hardcoded interface names becomes a clean zone-level config:
+
+```nix
+router6.zones.management = {
+  # Full router access, can reach all internal zones
+  accessTo = [ "management" "trusted" "untrusted" ];
+  # Filtered internet access (not in accessTo — uses forwardRules instead)
+  forwardRules = {
+    external = [
+      { tcp.dport = 443; verdict = "accept";
+        comment = "HTTPS for updates (cache.nixos.org, github)"; }
+      { udp.dport = 123; verdict = "accept";
+        comment = "NTP to internet pools"; }
+      { verdict = "drop";
+        comment = "Block all other internet-bound traffic"; }
+    ];
+  };
+  inputRules = [
+    { verdict = "accept"; comment = "Full router service access"; }
+  ];
+};
+```
+
+Note: `"external"` is NOT in `accessTo` — instead, `forwardRules.external` provides filtered access. The assertion from Phase 1.6 enforces this mutual exclusion.
+
+### 2.3 Add vINFRA VLAN
 
 **File:** `hosts/yggdrasil/default.nix` — inside `router6.topology.br0.vlans`
 
-Add the new VLAN:
 ```nix
 # Infrastructure network - NAS, VM hosts, DNS
 "vINFRA.br0" = {
@@ -168,11 +664,10 @@ Add the new VLAN:
 };
 ```
 
-### 2.2 Change vMGMT trust level
+### 2.4 Change vMGMT trust level
 
 **File:** `hosts/yggdrasil/default.nix` — existing vMGMT definition
 
-Change from `management` to `network`:
 ```nix
 "vMGMT.br0" = {
   tag = 10;
@@ -187,17 +682,14 @@ Change from `management` to `network`:
 };
 ```
 
-Update the comment on vMGMT from "Management network - trusted devices and infrastructure" to "Network gear - APs and managed switch".
+Update the comment from "Management network - trusted devices and infrastructure" to "Network gear - APs and managed switch".
 
-### 2.3 Update alfheim MicroVM bridge
+### 2.5 Update alfheim MicroVM bridge
 
 **File:** `hosts/yggdrasil/default.nix` — systemd.network for MicroVM tap
 
-The current config bridges `vm-10-*` tap interfaces to `vMGMT.br0`. Alfheim's tap interface is named `vm-10-alfheim` (VLAN 10 prefix). We need to either:
-
-**Option A (recommended):** Rename alfheim's tap to `vm-11-alfheim` and add a new bridge rule:
+Rename alfheim's tap to `vm-11-alfheim` and add a new bridge rule:
 ```nix
-# Bridge microVM tap interfaces into the infrastructure network
 systemd.network.networks."10-vm-infra" = {
   matchConfig.Name = "vm-11-*";
   networkConfig = {
@@ -209,28 +701,21 @@ systemd.network.networks."10-vm-infra" = {
 };
 ```
 
-And in alfheim's microvm.nix, change the tap interface:
+And in alfheim's microvm.nix:
 ```nix
 microvm.interfaces = [{
   type = "tap";
-  id = "vm-11-alfheim";  # Changed from vm-10-alfheim
-  mac = "5E:11:AD:01:00:02";  # Updated MAC (VLAN 11 prefix)
+  id = "vm-11-alfheim";
+  mac = "5E:11:AD:01:00:02";
 }];
 ```
 
-**Option B:** Keep the tap name and add a specific match. Option A is cleaner since it follows the existing naming convention (VLAN tag in tap name).
+Remove the old `vm-10-*` bridge rule since no MicroVMs remain on vMGMT.
 
-Remove the old `vm-10-*` bridge rule (line 315-323) since no MicroVMs remain on vMGMT:
-```nix
-# Remove this block:
-# systemd.network.networks."10-vm-mgmt" = { ... };
-```
-
-### 2.4 Update DNS configuration
+### 2.6 Update DNS configuration
 
 **File:** `hosts/yggdrasil/default.nix`
 
-Update DNS upstream to alfheim's new IP:
 ```nix
 dns = {
   upstream = [ "10.0.11.2" ];  # Changed from 10.0.10.2
@@ -239,29 +724,24 @@ dns = {
 };
 ```
 
-### 2.5 Update DNS interception rules
+### 2.7 Update DNS interception rules
 
 **File:** `hosts/yggdrasil/default.nix` — `firewall.extraNatRules`
 
 Update alfheim's IP in DNS interception exclusions:
 ```nix
-# DNS interception - exclude alfheim on vINFRA
 {
-  ip.saddr = { not = "10.0.11.2"; };          # Changed from 10.0.10.2
-  ip.daddr = { not = [ "10.0.11.1" "10.0.11.2" ]; };  # Updated for vINFRA
+  ip.saddr = { not = "10.0.11.2"; };
+  ip.daddr = { not = [ "10.0.11.1" "10.0.11.2" ]; };
   udp.dport = 53;
-  verdict = { dnat = "10.0.11.1:53"; };       # Router's vINFRA address
+  verdict = { dnat = "10.0.11.1:53"; };
   comment = "Intercept DNS bypass (UDP)";
 }
 ```
 
-**Important consideration:** DNS interception currently uses hardcoded IPs. Since VLANs have different router gateway IPs (10.0.10.1 for vMGMT, 10.0.11.1 for vINFRA, 10.0.20.1 for vHOME, etc.), the DNAT target should match the source VLAN's gateway. However, since the router itself receives the redirected query on any interface and forwards to alfheim, using a single DNAT target that the router listens on is sufficient. The current approach of DNATting to the router's address on a specific interface works because kresd/kea listens on all internal interfaces.
+kresd binds to all internal interfaces, so any of the router's IPs works as the DNAT target. The main thing is updating the exclusion IPs so alfheim's traffic isn't redirected.
 
-The simplest correct approach: DNAT to 127.0.0.1:53 (localhost) or keep pointing to a specific interface. Since kresd binds to all trusted/internal interfaces, any of the router's IPs works. For clarity, update the existing rules to exclude alfheim's new IP (10.0.11.2) and DNAT to 10.0.11.1 (or keep using 10.0.10.1 — both are valid since they're both router addresses).
-
-Actually, the cleanest approach is to leave the DNAT target as-is and only update the exclusion IPs, since the router processes DNS on any of its interfaces. But we need to make sure that DNS interception covers ALL VLANs, including vINFRA. Since vINFRA is in `internalInterfaces` (via "management" trust), and the NAT rules apply to all traffic, this should work automatically.
-
-### 2.6 Update `/etc/hosts`
+### 2.8 Update `/etc/hosts`
 
 **File:** `hosts/yggdrasil/default.nix`
 
@@ -278,11 +758,16 @@ networking.extraHosts = ''
 '';
 ```
 
-Note: yggdrasil's canonical IP changes to its vINFRA address (10.0.11.1) since that's the infrastructure management interface. It also has 10.0.10.1 on vMGMT, but for hostname resolution, the infra address is more useful.
+### 2.9 Add tests for `network` zone
+
+Add test cases to `router6-firewall-zones.nix`:
+- **network → router: DHCP/NTP only** — can reach UDP 67/123, cannot reach DNS (53), cannot reach SSH (22)
+- **network → any: no forwarding** — cannot reach any other zone
+- **network → internet: blocked** — no NAT/forwarding to external
 
 ---
 
-## 3. Infrastructure Host Changes
+## Phase 3: Infrastructure Host Changes
 
 ### 3.1 alfheim (DNS MicroVM on yggdrasil)
 
@@ -305,16 +790,14 @@ systemd.network.networks."20-tap" = {
   matchConfig.Type = "ether";
   matchConfig.MACAddress = "5E:11:AD:01:00:02";
   networkConfig = {
-    Address = [ "10.0.11.2/24" ];  # Changed from 10.0.10.2
-    Gateway = "10.0.11.1";         # Changed from 10.0.10.1
+    Address = [ "10.0.11.2/24" ];
+    Gateway = "10.0.11.1";
     DNS = [ "127.0.0.1" ];
     IPv6AcceptRA = true;
     DHCP = "no";
   };
 };
 ```
-
-Remove the `10.97.10.2/24` address if it's no longer needed (appears to be a secondary/test address).
 
 Update `/etc/hosts`:
 ```nix
@@ -337,12 +820,6 @@ boot.initrd.systemd.network = {
     netdevConfig.Name = "enp88s0.11";
     vlanConfig.Id = 11;
   };
-  networks."20-enp88s0" = {
-    matchConfig.Name = "enp88s0";
-    networkConfig.DHCP = "no";
-    networkConfig.LinkLocalAddressing = "no";
-    vlan = [ "enp88s0.11" ];
-  };
   networks."20-enp88s0.11" = {
     matchConfig.Name = "enp88s0.11";
     networkConfig.DHCP = "no";
@@ -357,190 +834,70 @@ boot.initrd.systemd.network = {
 
 **File:** `hosts/vanaheim/microvm.nix` — runtime network
 
-Same pattern: change `.10` to `.11`, update addresses and gateway:
-```nix
-netdevs."20-enp88s0.11" = {
-  netdevConfig.Kind = "vlan";
-  netdevConfig.Name = "enp88s0.11";
-  vlanConfig.Id = 11;
-};
-```
-```nix
-networks."20-enp88s0" = {
-  matchConfig.Name = "enp88s0";
-  networkConfig.DHCP = "no";
-  networkConfig.LinkLocalAddressing = "no";
-  vlan = [
-    "enp88s0.11"   # Changed from .10
-    "enp88s0.20"
-    "enp88s0.100"
-  ];
-};
-networks."20-enp88s0.11" = {
-  matchConfig.Name = "enp88s0.11";
-  networkConfig.DHCP = "no";
-  networkConfig.IPv6PrivacyExtensions = "kernel";
-  networkConfig.Address = [ "10.0.11.30/24" ];
-  networkConfig.MulticastDNS = true;
-  routes = [{ Gateway = "10.0.11.1"; }];
-};
-```
+Same pattern: change `.10` to `.11`, update addresses and gateway.
 
 ### 3.3 muspelheim (VM host)
 
 **File:** `hosts/muspelheim/default.nix`
 
-Same pattern as vanaheim. Change all VLAN 10 references to VLAN 11:
-
-- initrd network: `eno1.10` -> `eno1.11`, address `10.0.10.31/24` -> `10.0.11.31/24`, gateway/DNS `10.0.10.1` -> `10.0.11.1`
-- runtime network (in same file): same changes
-- NFS mounts: `10.0.10.32` -> `10.0.11.32` (see section 4)
+Same pattern as vanaheim: `eno1.10` → `eno1.11`, address `10.0.10.31/24` → `10.0.11.31/24`, gateway/DNS `10.0.10.1` → `10.0.11.1`, NFS mounts `10.0.10.32` → `10.0.11.32`.
 
 ### 3.4 jotunheimr (NAS)
 
 **File:** `hosts/jotunheimr/default.nix`
 
-Change VLAN 10 to VLAN 11:
-```nix
-netdevs."20-enp4s0.11" = {
-  netdevConfig.Kind = "vlan";
-  netdevConfig.Name = "enp4s0.11";
-  vlanConfig.Id = 11;
-};
-```
-```nix
-networks."20-enp4s0" = {
-  matchConfig.Name = "enp4s0";
-  networkConfig.DHCP = "no";
-  networkConfig.LinkLocalAddressing = "no";
-  vlan = [
-    "enp4s0.11"   # Changed from .10
-    "enp4s0.20"
-    "enp4s0.100"
-  ];
-};
-networks."20-enp4s0.11" = {
-  matchConfig.Name = "enp4s0.11";
-  networkConfig.DHCP = "no";
-  networkConfig.IPv6PrivacyExtensions = "kernel";
-  networkConfig.Address = [ "10.0.11.32/24" ];
-  networkConfig.MulticastDNS = true;
-  networkConfig.LLMNR = true;
-  networkConfig.DNS = [ "10.0.11.1" ];
-  routes = [{ Gateway = "10.0.11.1"; }];
-};
-```
+Change VLAN 10 to VLAN 11, update addresses/gateway/DNS to 10.0.11.x.
 
 ---
 
-## 4. NFS/Storage Hardening
+## Phase 4: NFS/Storage Hardening
 
 ### 4.1 Tighten NFS exports
 
 **File:** `hosts/jotunheimr/nas.nix`
 
-Change subnet-wide exports to per-IP exports for VM hosts, and re-enable `root_squash` where possible:
+Change subnet-wide exports to per-IP exports for VM hosts:
 
 ```nix
 services.nfs.server = {
   enable = true;
   exports = ''
-    # Media: VM hosts get RW (for virtiofs passthrough to guests)
-    #        vHOME gets RW with root_squash (user workstations)
     /data/media 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
-
-    # Data: VM hosts get RW, vHOME gets RW with root_squash
     /data/data 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
-
-    # Read-only exports for controlled access
     /export/ro/media 10.0.11.0/24(ro) 10.0.20.0/24(ro)
     /export/rw/media 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
-
     /export/ro/data 10.0.11.0/24(ro) 10.0.20.0/24(ro)
     /export/rw/data 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
-
-    # Backup: broader access for backup clients
     /export/rw/backup 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
   '';
 };
 ```
 
-Key changes:
-- **VM hosts (10.0.11.30, 10.0.11.31):** Keep `no_root_squash` — they need root-level NFS operations for virtiofs passthrough with correct UID/GID mapping
-- **vHOME (10.0.20.0/24):** Enable `root_squash` (default) — user workstations should not have root access to NFS
-- **Old vMGMT subnet (10.0.10.0/24):** Removed entirely — networking gear has no business accessing NFS
-- Per-IP exports for VM hosts prevent any other device on vINFRA from mounting NFS shares with root privileges
-
 ### 4.2 Update NFS mount targets
 
 **File:** `hosts/muspelheim/default.nix`
-
 ```nix
-fileSystems."/mnt/data" = {
-  device = "10.0.11.32:/data/data";  # Changed from 10.0.10.32
-  fsType = "nfs";
-};
-fileSystems."/mnt/media" = {
-  device = "10.0.11.32:/data/media/";  # Changed from 10.0.10.32
-  fsType = "nfs";
-};
+fileSystems."/mnt/data".device = "10.0.11.32:/data/data";
+fileSystems."/mnt/media".device = "10.0.11.32:/data/media/";
 ```
-
-**File:** `hosts/vanaheim/default.nix` (currently commented out)
-
-If/when re-enabled:
-```nix
-fileSystems."/mnt/data" = {
-  device = "10.0.11.32:/data/data";
-  fsType = "nfs";
-};
-fileSystems."/mnt/media" = {
-  device = "10.0.11.32:/data/media/";
-  fsType = "nfs";
-};
-```
-
-### 4.3 Samba considerations
-
-The current Samba config uses `security = "user"` with `map to guest = "Bad User"`. This means unknown usernames fall through to guest access. The shares have `guest ok = "no"`, which means a valid user/password is required — this is already reasonable.
-
-However, the `valid users` and `force user` lines are commented out. Uncommenting these would restrict each share to the `mjollnir` user, which is better practice:
-
-```nix
-drive = {
-  path = "/data/drive";
-  browseable = "yes";
-  "guest ok" = "no";
-  "read only" = "no";
-  "valid users" = "mjollnir";
-  "force user" = "mjollnir";
-};
-```
-
-This is a separate change that can be done independently of the VLAN split.
 
 ---
 
-## 5. Host-Based Firewalls
+## Phase 5: Host-Based Firewalls
 
 ### 5.1 jotunheimr (NAS)
 
-**File:** `hosts/jotunheimr/nas.nix` or `hosts/jotunheimr/default.nix`
-
-Replace the current open firewall with restricted rules:
-
+Replace blanket open ports with source-restricted rules:
 ```nix
 networking.firewall = {
   enable = true;
-
-  # NFS: only from specific VM hosts on vINFRA
   extraCommands = ''
     # NFS from VM hosts only
     iptables -A INPUT -s 10.0.11.30 -p tcp --dport 2049 -j ACCEPT
     iptables -A INPUT -s 10.0.11.31 -p tcp --dport 2049 -j ACCEPT
     iptables -A INPUT -s 10.0.20.0/24 -p tcp --dport 2049 -j ACCEPT
 
-    # SMB from vHOME only (user workstations)
+    # SMB from vHOME only
     iptables -A INPUT -s 10.0.20.0/24 -p tcp --dport 445 -j ACCEPT
     iptables -A INPUT -s 10.0.20.0/24 -p tcp --dport 139 -j ACCEPT
     iptables -A INPUT -s 10.0.20.0/24 -p udp --dport 137 -j ACCEPT
@@ -549,45 +906,7 @@ networking.firewall = {
     # WSDD from vHOME only
     iptables -A INPUT -s 10.0.20.0/24 -p tcp --dport 5357 -j ACCEPT
     iptables -A INPUT -s 10.0.20.0/24 -p udp --dport 3702 -j ACCEPT
-  '';
 
-  # SSH: from router and admin workstation only
-  allowedTCPPorts = [ ];  # Remove the blanket port opens
-  # SSH is handled by openssh module, restrict via:
-  # TODO: Use nftables interface to restrict SSH sources
-};
-```
-
-**Better approach using NixOS firewall richRules (nftables):**
-
-Since NixOS 24.05+, the firewall supports nftables. The cleaner approach depends on which firewall backend is in use. If using the default iptables backend, use `extraCommands`. If using nftables, use `extraInputRules`.
-
-The key principle: remove the blanket `allowedTCPPorts = [ 445 139 2049 5357 ]` and replace with source-restricted rules.
-
-For SSH restriction, the `openssh` module opens port 22 globally. To restrict SSH sources, add rules before the openssh rule:
-
-```nix
-networking.firewall.extraCommands = ''
-  # SSH only from router and admin workstation (vHOME)
-  iptables -I INPUT -p tcp --dport 22 -s 10.0.11.1 -j ACCEPT
-  iptables -I INPUT -p tcp --dport 22 -s 10.0.20.0/24 -j ACCEPT
-  iptables -I INPUT -p tcp --dport 22 -j DROP
-'';
-```
-
-Note: The exact syntax depends on whether you use iptables or nftables as the firewall backend. The above uses iptables for compatibility with the current NixOS default.
-
-### 5.2 vanaheim (VM host)
-
-**File:** `hosts/vanaheim/microvm.nix` or `hosts/vanaheim/default.nix`
-
-VM hosts need minimal open ports — only SSH for management:
-
-```nix
-networking.firewall = {
-  enable = true;
-  allowedTCPPorts = [ ];  # No blanket open ports
-  extraCommands = ''
     # SSH only from router and admin workstation
     iptables -I INPUT -p tcp --dport 22 -s 10.0.11.1 -j ACCEPT
     iptables -I INPUT -p tcp --dport 22 -s 10.0.20.0/24 -j ACCEPT
@@ -596,16 +915,12 @@ networking.firewall = {
 };
 ```
 
-The bridges (br20, br100) for guest VMs operate at L2 and don't need firewall rules — the host's IP stack is not involved in bridged traffic.
+### 5.2 vanaheim / muspelheim (VM hosts)
 
-### 5.3 muspelheim (VM host)
-
-Same as vanaheim:
-
+SSH only from router and admin workstation:
 ```nix
 networking.firewall = {
   enable = true;
-  allowedTCPPorts = [ ];
   extraCommands = ''
     iptables -I INPUT -p tcp --dport 22 -s 10.0.11.1 -j ACCEPT
     iptables -I INPUT -p tcp --dport 22 -s 10.0.20.0/24 -j ACCEPT
@@ -614,104 +929,33 @@ networking.firewall = {
 };
 ```
 
-### 5.4 Admin workstation IP
+### 5.3 Admin workstation IP
 
-The above rules use `10.0.20.0/24` (entire vHOME subnet) as a placeholder for the admin workstation. Once the admin workstation has a static IP via DHCP reservation, tighten this to the specific IP:
-
-```nix
-# Replace 10.0.20.0/24 with specific admin IP, e.g.:
-iptables -I INPUT -p tcp --dport 22 -s 10.0.20.X -j ACCEPT
-```
-
-This should be done as a follow-up when the DHCP reservation is configured.
+The above rules use `10.0.20.0/24` as a placeholder. Tighten to a specific IP once a DHCP reservation is configured.
 
 ---
 
-## 6. OpenWRT AP Changes
+## Phase 6: OpenWRT AP Changes
 
-### 6.1 No VLAN changes needed for APs
+### 6.1 No VLAN changes needed
 
-APs stay on VLAN 10 (vMGMT). Their management interface remains on the same VLAN and subnet. The only thing that changes is the trust level of that VLAN on the router, which the APs don't control.
+APs stay on VLAN 10. The trust level change happens on the router side.
 
-The APs do NOT need to carry VLAN 11 (vINFRA) traffic. Infrastructure devices are wired and connect through the managed switch, not through the wireless mesh. VLAN 11 traffic on br0 goes over bond0 (wired) to the switch. The APs receive VLAN 11 frames over bat0 but drop them since their bridge VLAN filtering doesn't include VLAN 11.
+### 6.2 NTP server change
 
-### 6.2 Add host-level input protection
+**File:** `lib/openwrt/default.nix`
 
-**File:** `lib/openwrt/default.nix` — `mkMeshAPConfig` or via `extraConfig`
-
-APs currently have `firewall4` and `nftables` removed. This is correct for bridged traffic (L2 forwarding doesn't need a firewall). However, the AP's own management interface (SSH on port 22) is unprotected.
-
-Add lightweight nftables rules via a uci-defaults post-command or an extra file:
-
-**Option A: Add nftables rules file to the image**
-
-Create a file that gets included in the AP image at `/etc/nftables.d/10-mgmt-restrict.nft` (or use a uci-defaults script):
-
-```sh
-#!/bin/sh
-# Restrict management access to router only
-
-# Install minimal nftables (without firewall4 framework)
-# This is already available as a dependency we need to add back
-
-nft add table inet filter
-nft add chain inet filter input '{ type filter hook input priority 0; policy drop; }'
-nft add rule inet filter input ct state established,related accept
-nft add rule inet filter input iifname "lo" accept
-nft add rule inet filter input icmp type echo-request accept
-nft add rule inet filter input icmpv6 type '{ nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert }' accept
-nft add rule inet filter input ip saddr 10.0.10.1 tcp dport 22 accept
-nft add rule inet filter input udp dport 68 accept  # DHCP client
-```
-
-**Consideration:** This requires `nftables` to be available on the AP. Currently `-nftables` is in the removed packages list. We need to add `nftables` back (the package, not `firewall4`). The `firewall4` framework is the OpenWRT-specific firewall management layer — we don't need that. We just need the `nft` binary:
-
-```nix
-# In removeDefaultPackages, keep removing firewall4 but NOT nftables:
-removeDefaultPackages = [
-  "-dnsmasq"
-  "-odhcpd-ipv6only"
-  "-ppp"
-  "-ppp-mod-pppoe"
-  "-firewall4"         # Remove OpenWRT firewall framework
-  # "-nftables"        # Keep nftables for host protection
-  "-wpad-basic-mbedtls"
-];
-```
-
-**Option B: Use iptables instead (simpler)**
-
-OpenWRT images typically include iptables by default. A simpler approach:
-
-```sh
-#!/bin/sh
-# /etc/uci-defaults/50-host-firewall
-iptables -P INPUT DROP
-iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-iptables -A INPUT -i lo -j ACCEPT
-iptables -A INPUT -p icmp -j ACCEPT
-iptables -A INPUT -s 10.0.10.1 -p tcp --dport 22 -j ACCEPT
-iptables -A INPUT -p udp --dport 68 -j ACCEPT
-```
-
-This can be added as a `postCommands` in the UCI defaults script or as an extra file in the image.
-
-### 6.3 NTP server change
-
-**File:** `lib/openwrt/default.nix` — `mkSystemConfig`
-
-Currently APs use `0.openwrt.pool.ntp.org` etc. for NTP. Since networking gear won't have internet access, they need to use the router as their NTP server:
-
+APs need to use the router for NTP since they won't have internet:
 ```nix
 ntp = {
   _type = "timeserver";
   enabled = true;
   enable_server = false;
-  server = [ "10.0.10.1" ];  # Router as NTP server
+  server = [ "10.0.10.1" ];
 };
 ```
 
-The router (yggdrasil) needs to run an NTP server. Add to yggdrasil's config:
+Add chrony/NTP server to yggdrasil:
 ```nix
 services.chrony = {
   enable = true;
@@ -722,157 +966,63 @@ services.chrony = {
 };
 ```
 
-Or use `services.ntp` with appropriate access controls.
+### 6.3 Host-level input protection
 
-**Important:** The router's NTP service listens on a port (UDP 123). The `network` trust firewall rules already allow UDP 123, so this works.
+Add nftables rules to AP images restricting SSH to router only:
+```sh
+nft add table inet filter
+nft add chain inet filter input '{ type filter hook input priority 0; policy drop; }'
+nft add rule inet filter input ct state established,related accept
+nft add rule inet filter input iifname "lo" accept
+nft add rule inet filter input icmp type echo-request accept
+nft add rule inet filter input icmpv6 type '{ nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert }' accept
+nft add rule inet filter input ip saddr 10.0.10.1 tcp dport 22 accept
+nft add rule inet filter input udp dport 68 accept
+```
+
+Keep `nftables` package on APs (remove `firewall4` framework only, not `nftables`).
 
 ### 6.4 Managed switch
 
-The managed switch (OpenWRT-based, config being imported) needs the same treatment as APs:
-- Stays on VLAN 10 (vMGMT)
-- Host-level firewall: SSH only from router (10.0.10.1)
-- NTP from router
-- Must trunk VLAN 11 on ports connected to infrastructure devices
-
-Switch VLAN trunking requirements:
-- **Ports to infra hosts (vanaheim, muspelheim, jotunheimr):** Trunk VLANs 11, 20, 100
-- **Ports to APs:** Trunk VLANs 10, 20, 30, 40, 41 (existing)
-- **Uplink to router:** Trunk ALL VLANs (10, 11, 20, 30, 31, 40, 41, 100)
-
-Note: Infra host ports no longer need VLAN 10 since those devices are moving to VLAN 11.
+Same treatment as APs: stays on VLAN 10, host firewall, NTP from router. Must trunk VLAN 11 on ports connected to infra devices.
 
 ---
 
-## 7. Admin Access Pattern (Jump Box)
+## Phase 7: Deployment
 
 ### 7.1 SSH access model
 
 ```
 Admin workstation (vHOME, 10.0.20.X)
 ├── Direct SSH to infra devices (vINFRA)
-│   Allowed by: vHOME is "trusted", can forward to "management" (vINFRA)
+│   Allowed by: trusted zone → management zone forwarding
 │   Host firewall: accepts SSH from 10.0.20.X
 │
 ├── SSH to router (yggdrasil)
 │   Direct: SSH to 10.0.20.1 (router's vHOME address)
-│   Or: SSH to 10.0.11.1 (router's vINFRA address, via routing)
 │
 └── SSH to networking gear (vMGMT) via ProxyJump
     Step 1: SSH to yggdrasil
     Step 2: yggdrasil SSH to AP/switch on 10.0.10.X
-    Required because: vMGMT host firewalls only accept SSH from 10.0.10.1
-
-Remote access (via WireGuard wg-vpn):
-└── wg-vpn peer → yggdrasil → same paths as above
+    Required because: network zone has no forwarding
 ```
 
-### 7.2 SSH config for admin workstation
+### 7.2 Deployment order
 
-```
-Host yggdrasil
-  HostName 10.0.11.1
-  User root
+1. VM guests first (lowest risk)
+2. VM hosts
+3. NAS (ensure NFS exports come back up)
+4. Router LAST — use `magic_rollback` with deploy-rs
 
-Host vanaheim
-  HostName 10.0.11.30
-  User root
+### 7.3 OpenWRT deployment
 
-Host muspelheim
-  HostName 10.0.11.31
-  User root
-
-Host jotunheimr
-  HostName 10.0.11.32
-  User root
-
-# Networking gear - requires ProxyJump through router
-Host fenrir sleipnir hugin
-  ProxyJump yggdrasil
-  User root
-
-Host fenrir
-  HostName 10.0.10.10
-
-Host sleipnir
-  HostName 10.0.10.11
-```
-
-### 7.3 Admin VM considerations
-
-The user mentioned their admin workstation is Windows and may not be able to build NixOS/OpenWRT images. Options:
-
-1. **Build on a VM host:** Use muspelheim or jotunheimr as the build machine. SSH in, run `nix build`, then deploy from there. This keeps the build within vINFRA.
-2. **Build on a NixOS VM on the Windows machine:** Run a NixOS VM on the Windows workstation with Nix configured. The VM gets vHOME network access and can build + deploy.
-3. **Use the Attic cache (hrungnir):** Build on any capable machine, push to Attic cache, then trigger pulls from target machines.
-
-For deploy-rs specifically, the build host needs SSH access to target machines. The natural build host is one of the VM hosts (muspelheim has the most resources after jotunheimr) or a dedicated build VM.
+Deploy from the router (SSH to APs on 10.0.10.x) or via ProxyJump.
 
 ---
 
-## 8. Deployment Strategy
+## Phase 8: Network Data Updates
 
-### 8.1 Build and deploy approach
-
-Since management devices are too underpowered/important to build their own updates:
-
-1. **Build host:** A powerful machine (muspelheim, or a build VM on vHOME) builds all NixOS configurations
-2. **Binary cache:** Push built closures to the Attic cache on hrungnir (10.0.100.31) via HTTPS
-3. **Deployment:** Use deploy-rs (or `nixos-rebuild --target-host`) to push closures to each machine via SSH
-
-For deploy-rs, add it as a flake input and configure deployment profiles:
-
-```nix
-# In flake.nix
-deploy.nodes = {
-  yggdrasil = {
-    hostname = "10.0.11.1";
-    profiles.system = {
-      user = "root";
-      path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.yggdrasil;
-    };
-    # Enable magic rollback for the router
-    magicRollback = true;
-    autoRollback = true;
-  };
-  # ... similar for other hosts
-};
-```
-
-### 8.2 Deployment order
-
-When deploying updates, the order matters because of dependencies:
-
-1. **VM guests first** (lowest risk, easy rollback)
-   - alfheim, gridr, skadi, hrungnir, bragi, surtr, ymir
-2. **VM hosts** (ensure guests survive host update)
-   - vanaheim, muspelheim
-3. **NAS** (ensure NFS exports come back up)
-   - jotunheimr
-4. **Router LAST** (if this breaks, everything is offline)
-   - yggdrasil — use `magic_rollback` with deploy-rs
-
-### 8.3 Router update safety
-
-For the router specifically:
-- **deploy-rs magic_rollback:** After deploying, deploy-rs waits for confirmation. If no confirmation within timeout (default 240s), it automatically rolls back. This prevents bricking the router.
-- **Alternative:** `nixos-rebuild boot --target-host yggdrasil` + manual reboot. Previous generation remains in GRUB as fallback.
-- **Physical console:** Always maintain physical/serial console access to yggdrasil as last resort.
-
-### 8.4 OpenWRT deployment
-
-OpenWRT devices use the existing `openwrt-deploy` script (sysupgrade over SSH). Since APs only accept SSH from the router after the lockdown:
-
-- **Deploy from the router:** SSH to yggdrasil, then run the deploy script from there
-- **Or:** Deploy from the admin workstation using ProxyJump through the router
-- **Network path:** Admin workstation → yggdrasil (SSH) → AP (SCP + sysupgrade)
-
-The deploy script needs to be updated to support ProxyJump, or deployments should be run from yggdrasil itself.
-
----
-
-## 9. Network Data Updates
-
-### 9.1 Update network.json
+### 8.1 Update network.json
 
 **File:** `lib/common/data/network.json`
 
@@ -880,92 +1030,60 @@ The deploy script needs to be updated to support ProxyJump, or deployments shoul
 {
   "hosts": {
     "alfheim": { "ipv4": "10.0.11.2" },
-    "bragi": { "ipv4": "10.0.100.50" },
-    "goo": { "ipv4": "10.1.10.23" },
-    "gridr": { "ipv4": "10.0.20.30" },
-    "gumba": { "ipv4": "10.0.31.20" },
-    "gumbo": { "ipv4": "10.1.10.24" },
-    "gumby": { "ipv4": "10.1.10.20" },
-    "hrungnir": { "ipv4": "10.0.100.31" },
     "jotunheimr": { "ipv4": "10.0.11.32" },
     "muspelheim": { "ipv4": "10.0.11.31" },
-    "nidavellir": { "ipv4": "10.1.20.50" },
-    "njord": { "ipv4": "10.0.100.51" },
-    "pokey": { "ipv4": "10.1.10.21" },
-    "prickle": { "ipv4": "10.1.10.22" },
-    "skadi": { "ipv4": "10.0.20.40" },
-    "surtr": { "ipv4": "10.0.100.40" },
     "vanaheim": { "ipv4": "10.0.11.30" },
-    "yggdrasil": { "ipv4": "10.0.11.1" },
-    "ymir": { "ipv4": "10.0.20.41" }
+    "yggdrasil": { "ipv4": "10.0.11.1" }
   }
 }
 ```
 
-Changed entries: alfheim, jotunheimr, muspelheim, vanaheim, yggdrasil (canonical IP now on vINFRA).
+### 8.2 Search for remaining `10.0.10.` references
 
-### 9.2 Update any other IP references
-
-Search the codebase for `10.0.10.` to find any remaining references that need updating. Key places to check:
-- MicroVM guest configs that reference jotunheimr's NAS IP (e.g., skadi's SMB mount)
-- DNS configuration in alfheim's modules (dns.nix, proxy.nix)
-- Prometheus/monitoring targets in ymir
+Grep the codebase for `10.0.10.` to find remaining references:
+- MicroVM guest configs referencing jotunheimr's NAS IP
+- DNS configuration in alfheim's modules
+- Prometheus/monitoring targets
 - Any scripts or deployment tools
 
 ---
 
-## 10. IPv6 Considerations
-
-### 10.1 Auto-generated IPv6 addresses
-
-The router's ULA prefix `fdc6:55f2:0a5e::/48` auto-generates IPv6 addresses based on VLAN tags:
+## IPv6 Considerations
 
 - **VLAN 10 (vMGMT):** `fdc6:55f2:0a5e:a::1/64` — unchanged, now for networking gear
-- **VLAN 11 (vINFRA):** `fdc6:55f2:0a5e:b::1/64` — new, for infrastructure
-
-This is automatic via the `subnetId` and `dhcp6.enable` settings. No additional IPv6 configuration is needed.
-
-### 10.2 Host IPv6 addresses
-
-Infrastructure hosts should also have IPv6 addresses on vINFRA. Since they use SLAAC (stateless address auto-configuration) from the router's Router Advertisements, they'll automatically pick up addresses in the `fdc6:55f2:0a5e:b::/64` prefix.
-
-For static IPv6 configuration on hosts, add explicit addresses:
-```nix
-networkConfig.Address = [ "10.0.11.30/24" "fdc6:55f2:0a5e:b::30/64" ];
-```
-
-### 10.3 Firewall IPv6 rules
-
-The NFS host-firewall rules in section 5 need IPv6 equivalents if NFS over IPv6 is used. For simplicity, if all NFS traffic is IPv4, the IPv6 firewall can be more permissive on the NFS ports (or simply not open them for IPv6).
+- **VLAN 11 (vINFRA):** `fdc6:55f2:0a5e:b::1/64` — new, auto-generated from `subnetId = 11`
+- Host IPv6 via SLAAC from Router Advertisements — automatic
+- The zone system handles IPv6 firewall rules identically to IPv4 (nftables `inet` family)
 
 ---
 
-## 11. Complete File Change List
+## Complete File Change List
 
-| File | Changes |
-|------|---------|
-| `modules/router6/default.nix` | Add "network" trust level, add `networkInterfaces` selector, add input rules for network trust |
-| `hosts/yggdrasil/default.nix` | Add vINFRA VLAN, change vMGMT trust to "network", update DNS config, update DNS interception, update extraHosts, update MicroVM bridge rules, add NTP server, add egress filtering |
-| `hosts/yggdrasil/guests/alfheim/microvm.nix` | Change tap interface name and MAC |
-| `hosts/yggdrasil/guests/alfheim/default.nix` | Update IP, gateway, MAC, extraHosts |
-| `hosts/vanaheim/default.nix` | Change VLAN 10→11 in initrd network, update IP/gateway/DNS |
-| `hosts/vanaheim/microvm.nix` | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall |
-| `hosts/muspelheim/default.nix` | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall |
-| `hosts/jotunheimr/default.nix` | Change VLAN 10→11, update IP/gateway/DNS, add host firewall |
-| `hosts/jotunheimr/nas.nix` | Tighten NFS exports to per-IP, update subnet references, restrict firewall ports by source |
-| `lib/common/data/network.json` | Update IPs for alfheim, jotunheimr, muspelheim, vanaheim, yggdrasil |
-| `lib/openwrt/default.nix` | Keep nftables package, change NTP servers to router IP, add host firewall script |
-| `hosts/openwrt/default.nix` | No changes needed (APs stay on VLAN 10) |
+| File | Phase | Changes |
+|------|-------|---------|
+| `modules/router6/default.nix` | 0, 1 | Add `zones` option, `enableDefaultRules` option, change `trust` type to reference zone keys, rewrite nftables generation to iterate zones, add zone assertions |
+| `tests/modules/router6-firewall-zones.nix` | 0, 2 | New comprehensive multi-zone firewall test |
+| `tests/lib/router6-firewall-snapshot.nix` | 0 | New snapshot test for nftables output stability |
+| `tests/default.nix` | 0 | Register new tests |
+| `hosts/yggdrasil/default.nix` | 2 | Add vINFRA VLAN, define `network` zone, override `management` zone with `forwardRules`, change vMGMT trust to "network", update DNS config, update DNS interception, update extraHosts, update MicroVM bridge rules, add NTP server |
+| `hosts/yggdrasil/guests/alfheim/microvm.nix` | 3 | Change tap interface name and MAC |
+| `hosts/yggdrasil/guests/alfheim/default.nix` | 3 | Update IP, gateway, MAC, extraHosts |
+| `hosts/vanaheim/default.nix` | 3 | Change VLAN 10→11 in initrd network, update IP/gateway/DNS |
+| `hosts/vanaheim/microvm.nix` | 3 | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall |
+| `hosts/muspelheim/default.nix` | 3, 4 | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall |
+| `hosts/jotunheimr/default.nix` | 3 | Change VLAN 10→11, update IP/gateway/DNS, add host firewall |
+| `hosts/jotunheimr/nas.nix` | 4 | Tighten NFS exports to per-IP, update subnet references |
+| `lib/common/data/network.json` | 8 | Update IPs for alfheim, jotunheimr, muspelheim, vanaheim, yggdrasil |
+| `lib/openwrt/default.nix` | 6 | Keep nftables package, change NTP servers to router IP, add host firewall script |
 
 ---
 
-## 12. Future Improvements (Out of Scope)
+## Future Improvements (Out of Scope)
 
-These are worth doing but are independent of the VLAN split:
-
-1. **Samba authentication hardening:** Uncomment `valid users` / `force user` on shares
-2. **wg-vpn trust level:** Consider changing from "trusted" to a more restricted level, or creating a "vpn" trust that allows vHOME access but not vINFRA/vMGMT
-3. **Monitoring/alerting:** Add Prometheus exporters on infra devices, alert on unexpected connections
-4. **DoT/DoH blocking:** Block port 853 outbound from untrusted/IoT VLANs to prevent DNS bypass
-5. **deploy-rs integration:** Full deploy-rs flake configuration with per-host profiles and magic rollback
-6. **Nix store signing:** Configure build host to sign closures, infra devices to verify signatures
+1. **Rename `trust` field to `zone`** — Currently the network option is still called `trust` for backward compatibility. A future change can rename it to `zone` with a deprecation warning.
+2. **Samba authentication hardening:** Uncomment `valid users` / `force user` on shares
+3. **wg-vpn trust level:** Consider a "vpn" zone with different forwarding rules
+4. **Monitoring/alerting:** Prometheus exporters on infra devices
+5. **DoT/DoH blocking:** Block port 853 outbound from untrusted/IoT
+6. **deploy-rs integration:** Full deploy-rs flake configuration with magic rollback
+7. **Nix store signing:** Build host signs closures, infra devices verify signatures
