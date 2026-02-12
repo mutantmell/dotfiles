@@ -36,22 +36,27 @@ vMGMT (VLAN 10) — trust: management — 10.0.10.0/24
 
 **After:**
 ```
-vMGMT (VLAN 10) — zone: network — 10.0.10.0/24
-├── yggdrasil    10.0.10.1   (router gateway)
-└── APs/Switch   10.0.10.100-200 (DHCP pool) or static
+vMGMT (VLAN 10) — zone: network
+  IPv4: 10.0.10.0/24 — IPv6: fdc6:55f2:0a5e:a::/64
+├── yggdrasil    10.0.10.1 / fdc6:55f2:0a5e:a::1   (router gateway)
+└── APs/Switch   static IPs
     Devices can ONLY reach the router for NTP.
     No internet. No access to other VLANs.
     SSH only FROM the router TO the devices.
 
-vINFRA (VLAN 11) — zone: management — 10.0.11.0/24
-├── yggdrasil    10.0.11.1   (router gateway)
-├── alfheim      10.0.11.2   (DNS MicroVM on yggdrasil)
-├── vanaheim     10.0.11.30  (VM host)
-├── muspelheim   10.0.11.31  (VM host)
-└── jotunheimr   10.0.11.32  (NAS)
+vINFRA (VLAN 11) — zone: management
+  IPv4: 10.0.11.0/24 — IPv6: fdc6:55f2:0a5e:b::/64
+├── yggdrasil    10.0.11.1  / fdc6:55f2:0a5e:b::1   (router gateway)
+├── alfheim      10.0.11.2  / fdc6:55f2:0a5e:b::2   (DNS MicroVM on yggdrasil)
+├── vanaheim     10.0.11.30 / fdc6:55f2:0a5e:b::1e  (VM host)
+├── muspelheim   10.0.11.31 / fdc6:55f2:0a5e:b::1f  (VM host)
+└── jotunheimr   10.0.11.32 / fdc6:55f2:0a5e:b::20  (NAS)
     Devices can communicate with each other (NFS, monitoring).
     Internet access for updates (filtered egress).
     SSH from router + admin workstation on vHOME.
+
+IPv6 address scheme: static ULA assignments mirroring IPv4 last octet in hex.
+All infra hosts get explicit static IPv6 (not SLAAC) for stable addressing.
 ```
 
 ---
@@ -767,8 +772,9 @@ dns = {
 
 **File:** `hosts/yggdrasil/default.nix` — `firewall.extraNatRules`
 
-Update alfheim's IP in DNS interception exclusions:
+Update alfheim's IP in DNS interception exclusions (IPv4):
 ```nix
+# IPv4 DNS interception (in table ip nat)
 {
   ip.saddr = { not = "10.0.11.2"; };
   ip.daddr = { not = [ "10.0.11.1" "10.0.11.2" ]; };
@@ -776,9 +782,41 @@ Update alfheim's IP in DNS interception exclusions:
   verdict = { dnat = "10.0.11.1:53"; };
   comment = "Intercept DNS bypass (UDP)";
 }
+{
+  ip.saddr = { not = "10.0.11.2"; };
+  ip.daddr = { not = [ "10.0.11.1" "10.0.11.2" ]; };
+  tcp.dport = 53;
+  verdict = { dnat = "10.0.11.1:53"; };
+  comment = "Intercept DNS bypass (TCP)";
+}
 ```
 
-kresd binds to all internal interfaces, so any of the router's IPs works as the DNAT target. The main thing is updating the exclusion IPs so alfheim's traffic isn't redirected.
+**IPv6 DNS interception** — add parallel rules to the `table ip6 nat` prerouting chain
+(currently empty). These catch IPv6 DNS bypass attempts:
+```nix
+# IPv6 DNS interception (in table ip6 nat — currently empty, needs populating)
+{
+  ip6.saddr = { not = "fdc6:55f2:0a5e:b::2"; };
+  ip6.daddr = { not = [ "fdc6:55f2:0a5e:b::1" "fdc6:55f2:0a5e:b::2" ]; };
+  udp.dport = 53;
+  verdict = { dnat = "[fdc6:55f2:0a5e:b::1]:53"; };
+  comment = "Intercept IPv6 DNS bypass (UDP)";
+}
+{
+  ip6.saddr = { not = "fdc6:55f2:0a5e:b::2"; };
+  ip6.daddr = { not = [ "fdc6:55f2:0a5e:b::1" "fdc6:55f2:0a5e:b::2" ]; };
+  tcp.dport = 53;
+  verdict = { dnat = "[fdc6:55f2:0a5e:b::1]:53"; };
+  comment = "Intercept IPv6 DNS bypass (TCP)";
+}
+```
+
+Note: The router6 module's `table ip6 nat` prerouting chain is currently empty. Either add
+a new `firewall.extraNat6Rules` option or populate the chain directly. The nft DSL may need
+a small extension to support `ip6.saddr`/`ip6.daddr` if not already present.
+
+kresd binds to all internal interfaces, so any of the router's IPs works as the DNAT target.
+The main thing is updating the exclusion IPs so alfheim's traffic isn't redirected.
 
 ### 2.8 Update `/etc/hosts`
 
@@ -788,8 +826,10 @@ kresd binds to all internal interfaces, so any of the router's IPs works as the 
 networking.extraHosts = ''
   10.0.11.1 yggdrasil
   10.0.11.1 yggdrasil.local
+  fdc6:55f2:0a5e:b::1 yggdrasil yggdrasil.local
   10.0.11.2 alfheim
   10.0.11.2 alfheim.local
+  fdc6:55f2:0a5e:b::2 alfheim alfheim.local
   10.0.20.30 gridr.local
   10.0.100.40 surtr.local
   10.0.100.50 bragi.local
@@ -823,18 +863,19 @@ microvm.interfaces = [{
 
 **File:** `hosts/yggdrasil/guests/alfheim/default.nix`
 
-Update network configuration:
+Update network configuration — assign static IPv6 alongside IPv4:
 ```nix
 systemd.network.networks."20-tap" = {
   matchConfig.Type = "ether";
   matchConfig.MACAddress = "5E:11:AD:01:00:02";
   networkConfig = {
-    Address = [ "10.0.11.2/24" ];
+    Address = [ "10.0.11.2/24" "fdc6:55f2:0a5e:b::2/64" ];
     Gateway = "10.0.11.1";
-    DNS = [ "127.0.0.1" ];
-    IPv6AcceptRA = true;
+    DNS = [ "127.0.0.1" "::1" ];
+    IPv6AcceptRA = false;  # Static IPv6 now, disable SLAAC
     DHCP = "no";
   };
+  routes = [{ Gateway = "fdc6:55f2:0a5e:b::1"; }];
 };
 ```
 
@@ -842,6 +883,7 @@ Update `/etc/hosts`:
 ```nix
 networking.extraHosts = ''
   10.0.11.1 yggdrasil.local
+  fdc6:55f2:0a5e:b::1 yggdrasil.local
   10.0.20.30 gridr.local
   10.0.100.40 surtr.local
 '';
@@ -849,42 +891,74 @@ networking.extraHosts = ''
 
 **File:** `hosts/yggdrasil/guests/alfheim/modules/dns.nix` — **critical, DNS breaks if missed**
 
-Update Adguard Home `allowed_clients`:
+Update Adguard Home `allowed_clients` (add IPv6 addresses):
 ```nix
 allowed_clients = [
   "127.0.0.1"
-  "10.0.11.1"   # Yggdrasil (router) — changed from 10.0.10.1
-  "10.0.11.2"   # Self — changed from 10.0.10.2
-  "10.97.10.1"  # Router migration network
-  "10.97.10.2"  # Self migration network
+  "::1"
+  "10.0.11.1"              # Yggdrasil (router) — changed from 10.0.10.1
+  "fdc6:55f2:0a5e:b::1"   # Yggdrasil (router) IPv6
+  "10.0.11.2"              # Self — changed from 10.0.10.2
+  "fdc6:55f2:0a5e:b::2"   # Self IPv6
+  "10.97.10.1"             # Router migration network
+  "10.97.10.2"             # Self migration network
 ];
 ```
 
-Update Unbound `local-data` records (all infra hosts moving to 10.0.11.x):
+Update Unbound `local-data` records — add AAAA records for IPv6-first resolution,
+update all infra hosts to 10.0.11.x:
 ```nix
 local-data = [
-  ''"local. A 10.0.11.1"''                # was 10.0.10.1
-  ''"yggdrasil.local. A 10.0.11.1"''      # was 10.0.10.1
-  ''"alfheim.local. A 10.0.11.2"''        # was 10.0.10.2
-  ''"gridr.local. A 10.0.20.30"''         # unchanged
-  ''"jotunheimr.local. A 10.0.11.32"''    # was 10.0.10.32
-  ''"muspelheim.local. A 10.0.11.31"''    # was 10.0.10.31
-  ''"surtr.local. A 10.0.100.40"''        # unchanged
-  ''"bragi.local. A 10.0.100.50"''        # unchanged
-  ''"njord.local. A 10.0.100.51"''        # unchanged
-  ''"hrungnir.local. A 10.0.100.31"''     # unchanged
-  ''"nidavellir.local. A 10.1.20.50"''    # unchanged
-  ''"skadi.local. A 10.0.20.40"''         # unchanged
-  ''"ymir.local. A 10.0.20.41"''          # unchanged
-  ''"vanaheim.local. A 10.0.11.30"''      # was 10.0.10.30
+  # Router
+  ''"local. A 10.0.11.1"''
+  ''"local. AAAA fdc6:55f2:0a5e:b::1"''
+  ''"yggdrasil.local. A 10.0.11.1"''
+  ''"yggdrasil.local. AAAA fdc6:55f2:0a5e:b::1"''
+
+  # This microVM (DNS)
+  ''"alfheim.local. A 10.0.11.2"''
+  ''"alfheim.local. AAAA fdc6:55f2:0a5e:b::2"''
+
+  # Auth server (Gridr on jotunheimr)
+  ''"gridr.local. A 10.0.20.30"''
+
+  # NAS
+  ''"jotunheimr.local. A 10.0.11.32"''
+  ''"jotunheimr.local. AAAA fdc6:55f2:0a5e:b::20"''
+
+  # Media host
+  ''"muspelheim.local. A 10.0.11.31"''
+  ''"muspelheim.local. AAAA fdc6:55f2:0a5e:b::1f"''
+
+  # Services in DMZ
+  ''"surtr.local. A 10.0.100.40"''
+  ''"bragi.local. A 10.0.100.50"''
+  ''"njord.local. A 10.0.100.51"''
+  ''"hrungnir.local. A 10.0.100.31"''
+
+  # Home automation
+  ''"nidavellir.local. A 10.1.20.50"''
+
+  # MicroVMs on HOME network
+  ''"skadi.local. A 10.0.20.40"''
+  ''"ymir.local. A 10.0.20.41"''
+
+  # VM host
+  ''"vanaheim.local. A 10.0.11.30"''
+  ''"vanaheim.local. AAAA fdc6:55f2:0a5e:b::1e"''
 ];
 ```
+
+Note: AAAA records are only added for vINFRA hosts with known static IPv6. Other hosts
+(DMZ, HOME, etc.) use SLAAC with privacy extensions — their IPv6 is unstable and not
+suitable for static DNS records. AAAA records for those can be added later when they
+get static assignments.
 
 ### 3.2 vanaheim (VM host)
 
 **File:** `hosts/vanaheim/default.nix` — initrd network (for ZFS remote unlock)
 
-Change VLAN 10 to VLAN 11:
+Change VLAN 10 to VLAN 11, add static IPv6:
 ```nix
 boot.initrd.systemd.network = {
   netdevs."20-enp88s0.11" = {
@@ -895,30 +969,37 @@ boot.initrd.systemd.network = {
   networks."20-enp88s0.11" = {
     matchConfig.Name = "enp88s0.11";
     networkConfig.DHCP = "no";
-    networkConfig.IPv6PrivacyExtensions = "kernel";
-    networkConfig.Address = [ "10.0.11.30/24" ];
+    networkConfig.IPv6AcceptRA = false;
+    networkConfig.Address = [ "10.0.11.30/24" "fdc6:55f2:0a5e:b::1e/64" ];
     networkConfig.MulticastDNS = true;
-    networkConfig.DNS = [ "10.0.11.1" ];
-    routes = [{ Gateway = "10.0.11.1"; }];
+    networkConfig.DNS = [ "10.0.11.1" "fdc6:55f2:0a5e:b::1" ];
+    routes = [
+      { Gateway = "10.0.11.1"; }
+      { Gateway = "fdc6:55f2:0a5e:b::1"; }
+    ];
   };
 };
 ```
 
 **File:** `hosts/vanaheim/microvm.nix` — runtime network
 
-Same pattern: change `.10` to `.11`, update addresses and gateway.
+Same pattern: change `.10` to `.11`, add static IPv6 `fdc6:55f2:0a5e:b::1e/64`,
+disable SLAAC (`IPv6AcceptRA = false`), add IPv6 gateway.
 
 ### 3.3 muspelheim (VM host)
 
 **File:** `hosts/muspelheim/default.nix`
 
-Same pattern as vanaheim: `eno1.10` → `eno1.11`, address `10.0.10.31/24` → `10.0.11.31/24`, gateway/DNS `10.0.10.1` → `10.0.11.1`, NFS mounts `10.0.10.32` → `10.0.11.32`.
+Same pattern as vanaheim: `eno1.10` → `eno1.11`, address `10.0.10.31/24` → `10.0.11.31/24`,
+add static IPv6 `fdc6:55f2:0a5e:b::1f/64`, gateway/DNS `10.0.10.1` → `10.0.11.1` +
+`fdc6:55f2:0a5e:b::1`, NFS mounts `10.0.10.32` → `10.0.11.32`, disable SLAAC.
 
 ### 3.4 jotunheimr (NAS)
 
 **File:** `hosts/jotunheimr/default.nix`
 
-Change VLAN 10 to VLAN 11, update addresses/gateway/DNS to 10.0.11.x.
+Change VLAN 10 to VLAN 11, add static IPv6 `fdc6:55f2:0a5e:b::20/64`,
+update addresses/gateway/DNS to 10.0.11.x + `fdc6:55f2:0a5e:b::1`, disable SLAAC.
 
 ---
 
@@ -928,19 +1009,20 @@ Change VLAN 10 to VLAN 11, update addresses/gateway/DNS to 10.0.11.x.
 
 **File:** `hosts/jotunheimr/nas.nix`
 
-Change subnet-wide exports to per-IP exports for VM hosts:
+Change subnet-wide exports to per-IP exports for VM hosts. Include both IPv4 and IPv6
+addresses so NFS works over either protocol:
 
 ```nix
 services.nfs.server = {
   enable = true;
   exports = ''
-    /data/media 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
-    /data/data 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
-    /export/ro/media 10.0.11.0/24(ro) 10.0.20.0/24(ro)
-    /export/rw/media 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
-    /export/ro/data 10.0.11.0/24(ro) 10.0.20.0/24(ro)
-    /export/rw/data 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
-    /export/rw/backup 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+    /data/media 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) fdc6:55f2:0a5e:b::1e(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) fdc6:55f2:0a5e:b::1f(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
+    /data/data 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) fdc6:55f2:0a5e:b::1e(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) fdc6:55f2:0a5e:b::1f(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
+    /export/ro/media 10.0.11.0/24(ro) fdc6:55f2:0a5e:b::/64(ro) 10.0.20.0/24(ro)
+    /export/rw/media 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) fdc6:55f2:0a5e:b::1e(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) fdc6:55f2:0a5e:b::1f(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
+    /export/ro/data 10.0.11.0/24(ro) fdc6:55f2:0a5e:b::/64(ro) 10.0.20.0/24(ro)
+    /export/rw/data 10.0.11.30(rw,sync,no_subtree_check,no_root_squash) fdc6:55f2:0a5e:b::1e(rw,sync,no_subtree_check,no_root_squash) 10.0.11.31(rw,sync,no_subtree_check,no_root_squash) fdc6:55f2:0a5e:b::1f(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check)
+    /export/rw/backup 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash) fdc6:55f2:0a5e:b::/64(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
   '';
 };
 ```
@@ -948,9 +1030,11 @@ services.nfs.server = {
 ### 4.2 Update NFS mount targets
 
 **File:** `hosts/muspelheim/default.nix`
+
+Use IPv6 addresses for NFS mounts (IPv6-first), with IPv4 as fallback:
 ```nix
-fileSystems."/mnt/data".device = "10.0.11.32:/data/data";
-fileSystems."/mnt/media".device = "10.0.11.32:/data/media/";
+fileSystems."/mnt/data".device = "[fdc6:55f2:0a5e:b::20]:/data/data";
+fileSystems."/mnt/media".device = "[fdc6:55f2:0a5e:b::20]:/data/media/";
 ```
 
 ---
@@ -960,18 +1044,20 @@ fileSystems."/mnt/media".device = "10.0.11.32:/data/media/";
 ### 5.1 jotunheimr (NAS)
 
 Replace blanket open ports with source-restricted nftables rules. NixOS 23.11+ defaults to
-nftables, so we use `networking.firewall.extraInputRules` (nftables syntax):
+nftables, so we use `networking.firewall.extraInputRules` (nftables syntax). All rules
+specify both IPv4 and IPv6 sources:
 
 ```nix
 networking.firewall = {
   enable = true;
   # Remove blanket allowedTCPPorts/allowedUDPPorts — replaced by source-restricted rules
   extraInputRules = ''
-    # NFS from VM hosts only
+    # NFS from VM hosts only (IPv4 + IPv6)
     ip saddr { 10.0.11.30, 10.0.11.31 } tcp dport 2049 accept
+    ip6 saddr { fdc6:55f2:0a5e:b::1e, fdc6:55f2:0a5e:b::1f } tcp dport 2049 accept
     ip saddr 10.0.20.0/24 tcp dport 2049 accept
 
-    # SMB from vHOME only
+    # SMB from vHOME only (IPv4 — SMB over IPv6 can be added later)
     ip saddr 10.0.20.0/24 tcp dport { 139, 445 } accept
     ip saddr 10.0.20.0/24 udp dport { 137, 138 } accept
 
@@ -979,8 +1065,9 @@ networking.firewall = {
     ip saddr 10.0.20.0/24 tcp dport 5357 accept
     ip saddr 10.0.20.0/24 udp dport 3702 accept
 
-    # SSH only from router and admin workstation
+    # SSH from router and admin workstation (IPv4 + IPv6)
     ip saddr { 10.0.11.1, 10.0.20.0/24 } tcp dport 22 accept
+    ip6 saddr { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:14::/64 } tcp dport 22 accept
     tcp dport 22 drop
   '';
 };
@@ -988,12 +1075,13 @@ networking.firewall = {
 
 ### 5.2 vanaheim / muspelheim (VM hosts)
 
-SSH only from router and admin workstation:
+SSH only from router and admin workstation (dual-stack):
 ```nix
 networking.firewall = {
   enable = true;
   extraInputRules = ''
     ip saddr { 10.0.11.1, 10.0.20.0/24 } tcp dport 22 accept
+    ip6 saddr { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:14::/64 } tcp dport 22 accept
     tcp dport 22 drop
   '';
 };
@@ -1038,15 +1126,17 @@ services.chrony = {
 
 ### 6.3 Host-level input protection
 
-Add nftables rules to AP images restricting SSH to router only:
+Add nftables rules to AP images restricting SSH to router only (dual-stack):
 ```sh
 nft add table inet filter
 nft add chain inet filter input '{ type filter hook input priority 0; policy drop; }'
 nft add rule inet filter input ct state established,related accept
 nft add rule inet filter input iifname "lo" accept
 nft add rule inet filter input icmp type echo-request accept
+nft add rule inet filter input icmpv6 type '{ echo-request, echo-reply }' accept
 nft add rule inet filter input icmpv6 type '{ nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert }' accept
 nft add rule inet filter input ip saddr 10.0.10.1 tcp dport 22 accept
+nft add rule inet filter input ip6 saddr fdc6:55f2:0a5e:a::1 tcp dport 22 accept
 ```
 
 Keep `nftables` package on APs (remove `firewall4` framework only, not `nftables`).
@@ -1098,11 +1188,11 @@ Deploy from the router (SSH to APs on 10.0.10.x) or via ProxyJump.
 ```json
 {
   "hosts": {
-    "alfheim": { "ipv4": "10.0.11.2" },
-    "jotunheimr": { "ipv4": "10.0.11.32" },
-    "muspelheim": { "ipv4": "10.0.11.31" },
-    "vanaheim": { "ipv4": "10.0.11.30" },
-    "yggdrasil": { "ipv4": "10.0.11.1" }
+    "alfheim": { "ipv4": "10.0.11.2", "ipv6": "fdc6:55f2:0a5e:b::2" },
+    "jotunheimr": { "ipv4": "10.0.11.32", "ipv6": "fdc6:55f2:0a5e:b::20" },
+    "muspelheim": { "ipv4": "10.0.11.31", "ipv6": "fdc6:55f2:0a5e:b::1f" },
+    "vanaheim": { "ipv4": "10.0.11.30", "ipv6": "fdc6:55f2:0a5e:b::1e" },
+    "yggdrasil": { "ipv4": "10.0.11.1", "ipv6": "fdc6:55f2:0a5e:b::1" }
   }
 }
 ```
@@ -1119,10 +1209,53 @@ Grep the codebase for `10.0.10.` to find remaining references:
 
 ## IPv6 Considerations
 
-- **VLAN 10 (vMGMT):** `fdc6:55f2:0a5e:a::1/64` — unchanged, now for networking gear
-- **VLAN 11 (vINFRA):** `fdc6:55f2:0a5e:b::1/64` — new, auto-generated from `subnetId = 11`
-- Host IPv6 via SLAAC from Router Advertisements — automatic
-- The zone system handles IPv6 firewall rules identically to IPv4 (nftables `inet` family)
+### Addressing
+
+- **VLAN 10 (vMGMT):** `fdc6:55f2:0a5e:a::/64` — unchanged, now for networking gear
+- **VLAN 11 (vINFRA):** `fdc6:55f2:0a5e:b::/64` — new, auto-generated from `subnetId = 11`
+
+### Static IPv6 for infra hosts
+
+All vINFRA hosts get **static ULA addresses** (not SLAAC) so they can be referenced in
+firewall rules, NFS exports, DNS records, and service configs. The addressing scheme mirrors
+the IPv4 last octet in hex:
+
+| Host | IPv4 | IPv6 |
+|------|------|------|
+| yggdrasil | 10.0.11.1 | `fdc6:55f2:0a5e:b::1` |
+| alfheim | 10.0.11.2 | `fdc6:55f2:0a5e:b::2` |
+| vanaheim | 10.0.11.30 | `fdc6:55f2:0a5e:b::1e` |
+| muspelheim | 10.0.11.31 | `fdc6:55f2:0a5e:b::1f` |
+| jotunheimr | 10.0.11.32 | `fdc6:55f2:0a5e:b::20` |
+
+Previously these hosts used SLAAC with privacy extensions (`IPv6PrivacyExtensions = "kernel"`),
+producing unstable addresses. Switching to static IPv6 with `IPv6AcceptRA = false` gives
+predictable addresses suitable for ACLs, DNS AAAA records, and NFS exports.
+
+### Dual-stack coverage
+
+IPv6 addresses are included in:
+- **DNS** (AAAA records in Unbound for all infra hosts)
+- **DNS interception** (IPv6 DNAT rules in `table ip6 nat`)
+- **NFS exports** (IPv6 per-host ACLs alongside IPv4)
+- **NFS mounts** (IPv6-first mount targets)
+- **Host firewalls** (dual-stack `ip saddr` + `ip6 saddr` rules)
+- **AP firewalls** (IPv6 SSH allow from router)
+- **Adguard Home** (IPv6 `allowed_clients`)
+- **extraHosts** (IPv6 entries on router and alfheim)
+- **network.json** (IPv6 field added)
+
+### Zone-level firewall
+
+The zone system uses nftables `inet` family, so zone rules (`accessTo`, `forwardRules`,
+`inputRules`, `icmpEcho`) apply to both IPv4 and IPv6 automatically. No per-zone IPv6
+duplication is needed — `iifname`/`oifname` matching is protocol-agnostic.
+
+### Router Advertisements
+
+The router still sends RAs on vINFRA for link-layer discovery, but infra hosts ignore them
+for address configuration (`IPv6AcceptRA = false`). Non-infra VLANs (vHOME, vGUEST, etc.)
+continue to use SLAAC as before.
 
 ---
 
