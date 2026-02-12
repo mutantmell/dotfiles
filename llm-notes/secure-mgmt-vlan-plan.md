@@ -7,7 +7,10 @@ Split the current `vMGMT` (VLAN 10) into two VLANs with distinct security profil
 - **vMGMT (VLAN 10)** — Networking gear (APs, managed switch). Heavily locked down: no internet, no inter-VLAN access, management SSH only from the router.
 - **vINFRA (VLAN 11)** — Infrastructure (NAS, VM hosts, DNS). Moderately locked down: inter-host communication for NFS, internet for self-updating, SSH from router and admin workstation.
 
-**Prerequisite refactor:** Replace the hardcoded trust enum with a configurable zone system (Phase 1), enabling the `network` zone and future extensibility. This is the most fundamental change and occurs first.
+**Prerequisite:** This plan assumes the [zone-based firewall refactor](./zone-refactor-plan.md)
+has been completed. That refactor replaces the hardcoded trust enum with a configurable `zones`
+attrset, enabling the `network` zone used here. The zone refactor is a pure refactor (identical
+nftables output) and is tracked separately because of its distinct risk profile.
 
 ### Threat Model
 
@@ -61,578 +64,11 @@ All infra hosts get explicit static IPv6 (not SLAAC) for stable addressing.
 
 ---
 
-## Phase 0: Pre-Refactor Test Coverage
-
-Before refactoring the trust system into zones, add tests that verify the current firewall behavior across all trust levels. These tests ensure the zone refactor produces identical nftables output.
-
-### 0.1 New integration test: `router6-firewall-zones`
-
-**File:** `tests/modules/router6-firewall-zones.nix`
-
-A comprehensive multi-zone test with all current trust levels represented:
-
-```nix
-nodes = {
-  router = {
-    imports = [ ../../modules/router6 ];
-    virtualisation.vlans = [ 1 2 3 4 5 ];
-
-    router6 = {
-      enable = true;
-      ulaPrefix = "fdc6:55f2:0a5e::/48";
-      dns.upstream = [ "1.1.1.1" ];
-      dns.useDHCPFallback = false;
-      dns.localDomain = "test.local";
-
-      topology = {
-        eth1 = {
-          hardwareName = "eth1";
-          network = {
-            type = "static";
-            addresses = [ "203.0.113.1/24" ];
-            trust = "external";
-            nat.enable = true;
-          };
-        };
-        eth2 = {
-          hardwareName = "eth2";
-          network = {
-            type = "static";
-            addresses = [ "10.0.10.1/24" ];
-            trust = "management";
-            dhcp.enable = true;
-          };
-        };
-        eth3 = {
-          hardwareName = "eth3";
-          network = {
-            type = "static";
-            addresses = [ "10.0.20.1/24" ];
-            trust = "trusted";
-            dhcp.enable = true;
-          };
-        };
-        eth4 = {
-          hardwareName = "eth4";
-          network = {
-            type = "static";
-            addresses = [ "10.0.30.1/24" ];
-            trust = "untrusted";
-            dhcp.enable = true;
-          };
-        };
-        eth5 = {
-          hardwareName = "eth5";
-          network = {
-            type = "static";
-            addresses = [ "10.0.40.1/24" ];
-            trust = "isolated";
-          };
-        };
-      };
-    };
-  };
-
-  # One node per trust zone
-  mgmt    = { ... };  # 10.0.10.100 on VLAN 2
-  trusted = { ... };  # 10.0.20.100 on VLAN 3
-  guest   = { ... };  # 10.0.30.100 on VLAN 4
-  isolated = { ... }; # 10.0.40.100 on VLAN 5
-  attacker = { ... }; # 203.0.113.100 on VLAN 1
-};
-```
-
-**Test cases (each becomes a named test function):**
-
-Input chain tests:
-1. **management → router: full access** — mgmt can reach all router ports (SSH, DNS, any service)
-2. **trusted → router: full access** — trusted can reach all router ports
-3. **untrusted → router: DNS/DHCP only** — guest can reach DNS (53/tcp, 53/udp) and DHCP (67/udp) but NOT SSH (22/tcp) or HTTP (80/tcp)
-4. **isolated → router: nothing** — isolated node cannot reach any router port (not even DNS/DHCP)
-5. **external → router: stealth** — attacker gets nothing (already covered by existing test, but good to have in the matrix)
-6. **ICMP echo: internal only** — mgmt/trusted/untrusted can ping router; external/isolated cannot
-
-Forward chain tests:
-7. **management → trusted: allowed** — mgmt can reach trusted node
-8. **management → untrusted: allowed** — mgmt can reach guest node
-9. **management → external: allowed** — mgmt can reach internet (via NAT)
-10. **trusted → management: allowed** — trusted can reach mgmt node
-11. **trusted → untrusted: allowed** — trusted can reach guest node
-12. **trusted → external: allowed** — trusted can reach internet
-13. **untrusted → external: allowed** — guest can reach internet
-14. **untrusted → management: blocked** — guest cannot reach mgmt node
-15. **untrusted → trusted: blocked** — guest cannot reach trusted node
-16. **isolated → anything: blocked** — isolated cannot forward anywhere
-17. **external → internal: blocked** — attacker cannot reach any internal network
-
-### 0.2 Snapshot the nftables ruleset
-
-Add a test that captures the generated nftables ruleset as a string and compares it against a golden file. This provides a safety net: after the zone refactor, the generated ruleset for the same logical configuration should be identical (or functionally equivalent).
-
-**Approach:** A unit test (pure Nix evaluation) that evaluates the router6 module config and extracts `config.networking.nftables.ruleset`, then compares against a stored expected output.
-
-**File:** `tests/lib/router6-firewall-snapshot.nix`
-
-```nix
-# Evaluate a minimal router6 config and verify the generated nftables ruleset
-let
-  result = (lib.nixosSystem {
-    modules = [
-      ../../modules/router6
-      { router6 = { /* same config as test above */ }; }
-    ];
-  }).config.networking.nftables.ruleset;
-in
-  assert result == builtins.readFile ./expected-ruleset.nft;
-  "PASS"
-```
-
-This test will fail after the zone refactor if the output changes, forcing us to verify any differences are intentional.
-
----
-
-## Phase 1: Zone-Based Firewall Refactor
-
-Replace the hardcoded trust enum with a user-configurable `zones` attrset. This is inspired by OpenWRT's zone/forwarding model but fits naturally into the Nix module system.
-
-### 1.1 Zone configuration schema
-
-**File:** `modules/router6/default.nix`
-
-Add a new top-level option `router6.zones`:
-
-```nix
-zones = mkOption {
-  description = ''
-    Firewall zone definitions. Each zone defines:
-    - accessTo: which zones this zone can freely forward traffic to
-    - forwardRules: per-destination-zone nftables rules (for filtered forwarding)
-    - inputRules: nftables rules for traffic from this zone to the router itself
-    - icmpEcho: whether the zone can ping the router
-
-    Networks reference zones via their `zone` field (required on every network).
-  '';
-  default = {};
-  example = {
-    wan = {
-      icmpEcho = "disable";
-      accessTo = [];
-      inputRules = [];
-    };
-    lan = {
-      icmpEcho = "enable";
-      accessTo = [ "wan" ];
-      inputRules = [
-        { verdict = "accept"; }
-      ];
-    };
-  };
-  type = types.attrsOf (types.submodule ({ name, ... }: {
-    options = {
-
-      icmpEcho = mkOption {
-        type = types.enum [ "enable" "ipv4-only" "ipv6-only" "disable" ];
-        default = "disable";
-        description = ''
-          Whether interfaces in this zone can ping the router.
-          - "enable": allow ICMPv4 + ICMPv6 echo-request/echo-reply
-          - "ipv4-only": allow only ICMPv4 echo
-          - "ipv6-only": allow only ICMPv6 echo
-          - "disable": no ICMP echo (PMTUD and NDP are always allowed by baseRules)
-        '';
-      };
-
-      accessTo = mkOption {
-        type = types.listOf (types.enum (builtins.attrNames cfg.zones));
-        default = [];
-        description = ''
-          Zones this zone can freely forward traffic to (blanket accept).
-          A zone listed here means: all interfaces in this zone can reach
-          all interfaces in the target zone.
-
-          Values are restricted to defined zone names (validated by type).
-        '';
-        example = [ "trusted" "untrusted" "external" ];
-      };
-
-      forwardRules = mkOption {
-        type = types.attrsOf (types.listOf nftRuleType);
-        default = {};
-        description = ''
-          Per-destination-zone forwarding rules. Keys are target zone names,
-          values are lists of nftables rules (same DSL as extraForwardRules).
-
-          Rules must NOT specify iifname or oifname — these are automatically
-          set from the source and destination zone's interfaces.
-
-          A destination zone must NOT also appear in accessTo (assertion enforced).
-          Keys are validated by assertion to be defined zone names.
-        '';
-        example = {
-          external = [
-            { tcp.dport = 443; verdict = "accept"; comment = "HTTPS for updates"; }
-            { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
-            { verdict = "drop"; comment = "Block all other egress"; }
-          ];
-        };
-      };
-
-      inputRules = mkOption {
-        type = types.listOf nftRuleType;
-        default = [];
-        description = ''
-          Rules for traffic from this zone's interfaces to the router itself.
-          Same DSL as extraInputRules but must NOT specify iifname — it is
-          automatically set from the zone's interfaces.
-        '';
-        example = [
-          { udp.dport = [ 53 67 ]; verdict = "accept"; comment = "DNS + DHCP"; }
-          { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
-        ];
-      };
-
-    };
-  }));
-};
-```
-
-**Type-level validation notes:**
-
-- `accessTo` uses `types.enum (builtins.attrNames cfg.zones)` — Nix laziness makes this
-  self-reference work (zone keys are known at definition time, values checked at eval time).
-  This means invalid zone names in `accessTo` produce a type error, no assertion needed.
-- `zone` on networks (Phase 1.3) uses the same `types.enum` trick.
-- `forwardRules` uses `types.attrsOf` which accepts any string key — we validate keys via
-  assertion (Phase 1.6) since `types.attrsOf` doesn't support restricting key names.
-- `inputRules` doesn't reference zones, so no special validation needed.
-
-### 1.2 Global defaults option
-
-**File:** `modules/router6/default.nix`
-
-Add an option to control the hardcoded global rules (ICMP, connection tracking, etc.):
-
-```nix
-firewall.baseRules = mkOption {
-  type = types.bool;
-  default = true;
-  description = ''
-    Include base firewall rules that zones build on top of:
-    - Connection tracking (ct state established,related accept)
-    - Loopback accept
-    - Essential ICMP/ICMPv6 (PMTUD, Neighbor Discovery)
-    - TCP MSS clamping in forward chain
-    When false, only zone-defined rules and extra*Rules are generated.
-  '';
-};
-```
-
-### 1.3 Rename `trust` to `zone`, make required
-
-**File:** `modules/router6/default.nix` — `mkNetworkSubmodule`
-
-Replace the hardcoded enum with a required zone reference:
-```nix
-# Before:
-trust = mkOption {
-  type = types.nullOr (types.enum [
-    "external" "management" "trusted" "untrusted" "isolated"
-  ]);
-  default = null;
-  ...
-};
-
-# After:
-zone = mkOption {
-  type = types.enum (builtins.attrNames cfg.zones);
-  description = "Firewall zone for this network (must be a key in router6.zones)";
-};
-```
-
-Every network interface must explicitly declare its zone — no more `null` default. Nix's lazy evaluation ensures this self-reference works: the `zones` attrset keys are known at definition time, and `zone` values are only checked at evaluation time.
-
-This also requires updating all host configs to use `zone = "..."` instead of `trust = "..."`, and updating `interfacesWithTrust` to `interfacesInZone` (reading `i.network.zone` instead of `i.network.trust`).
-
-### 1.4 Zone definitions
-
-The module has no built-in zone defaults (`default = {};`). An OpenWRT-style wan/lan example
-is provided on the option for documentation. Each host defines all its zones explicitly.
-
-Our network's zones are defined in `hosts/yggdrasil/default.nix` and reproduce the current
-hardcoded behavior:
-
-```nix
-router6.zones = {
-  external = {
-    # WAN: no access to anything, no router services
-    icmpEcho = "disable";
-    accessTo = [];
-    inputRules = [];
-  };
-
-  management = {
-    # Infrastructure: full router access, can reach all internal + internet
-    icmpEcho = "enable";
-    accessTo = [ "management" "trusted" "untrusted" "external" ];
-    inputRules = [
-      { verdict = "accept"; comment = "Full router service access"; }
-    ];
-  };
-
-  trusted = {
-    # User devices: full router access, can reach all internal + internet
-    icmpEcho = "enable";
-    accessTo = [ "management" "trusted" "untrusted" "external" ];
-    inputRules = [
-      { verdict = "accept"; comment = "Full router service access"; }
-    ];
-  };
-
-  untrusted = {
-    # Guest/IoT: DNS + DHCP only, internet only, no lateral movement
-    icmpEcho = "enable";
-    accessTo = [ "external" ];
-    inputRules = [
-      { udp.dport = [ 53 67 547 ]; verdict = "accept"; comment = "DNS + DHCP"; }
-      { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
-    ];
-  };
-
-  isolated = {
-    # No forwarding, no router services
-    icmpEcho = "disable";
-    accessTo = [];
-    inputRules = [];
-  };
-};
-```
-
-These produce **identical** nftables output to the current hardcoded logic. The existing
-`router6-firewall` test and the new Phase 0 tests validate this.
-
-**ICMP echo handling:** The `icmpEcho` option replaces the old approach of manually adding
-ICMP echo rules to each zone's `inputRules`. The nftables generation (Phase 1.5) emits the
-appropriate `icmp type { echo-request, echo-reply } accept` and/or `icmpv6 type { ... } accept`
-rules based on the `icmpEcho` value, before any `inputRules` for that zone. Essential ICMP
-(PMTUD, NDP) remains in `baseRules` and is always allowed regardless of `icmpEcho`.
-
-### 1.5 Rewrite nftables generation
-
-**File:** `modules/router6/default.nix` — the `networking.nftables.ruleset` section
-
-Replace the hardcoded interface selectors with zone-driven iteration.
-
-**Remove** the fixed selectors:
-```nix
-# Remove these:
-externalInterfaces = interfacesWithTrust ["management" "trusted" "untrusted"];  # was internalInterfaces
-trustedInterfaces = interfacesWithTrust ["management" "trusted"];
-
-# Rename the generic helper:
-interfacesInZone = zone:
-  interfacesWhere (i: (i.network.zone or null) == zone);
-```
-
-**New helper functions:**
-```nix
-# Get all interfaces for a zone (alias)
-zoneInterfaces = zoneName: interfacesInZone zoneName;
-
-# Get all interfaces for a list of zones
-zonesInterfaces = zoneNames:
-  lib.unique (concatMap zoneInterfaces zoneNames);
-
-# Check if a zone has any interfaces
-zoneHasInterfaces = zoneName: zoneInterfaces zoneName != [];
-
-# Active zones (zones that have at least one interface assigned)
-activeZones = filter zoneHasInterfaces (attrNames cfg.zones);
-```
-
-**Input chain generation:**
-```nix
-chain input {
-  type filter hook input priority filter; policy drop;
-
-  ${optionalString cfg.firewall.baseRules ''
-  # Connection tracking
-  ct state established,related accept
-
-  # Loopback
-  iifname "lo" accept
-
-  # Essential ICMP (PMTUD)
-  icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
-  icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
-
-  # IPv6 Neighbor Discovery
-  icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
-  ''}
-
-  # Zone ICMP echo + input rules
-  ${concatStringsSep "\n" (map (zoneName:
-    let
-      zone = cfg.zones.${zoneName};
-      ifaces = zoneInterfaces zoneName;
-      ifaceMatch = "iifname ${quoteList ifaces}";
-      icmpRules =
-        optionalString (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv4-only")
-          "${ifaceMatch} icmp type { echo-request, echo-reply } accept\n"
-        + optionalString (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv6-only")
-          "${ifaceMatch} icmpv6 type { echo-request, echo-reply } accept\n";
-    in
-      optionalString (ifaces != []) (
-        icmpRules
-        + concatStringsSep "\n" (map (rule:
-            "${ifaceMatch} ${nft.renderRule rule}"
-          ) zone.inputRules)
-      )
-  ) activeZones)}
-
-  # WireGuard ports (per-interface, independent of zones)
-  ${optionalString (wgPorts != []) ''
-  udp dport { ${concatStringsSep ", " (map toString wgPorts)} } accept
-  ''}
-
-  # Extra input rules (escape hatch)
-  ${optionalString (cfg.firewall.extraInputRules != []) ''
-  ${nft.rulesToStringIndented "  " cfg.firewall.extraInputRules}
-  ''}
-
-  # Policy drop handles everything else — no hardcoded zone references
-}
-```
-
-**Forward chain generation:**
-```nix
-chain forward {
-  type filter hook forward priority filter; policy drop;
-
-  ${optionalString cfg.firewall.baseRules ''
-  ct state established,related accept
-  tcp flags syn tcp option maxseg size set rt mtu
-  ''}
-
-  # Zone forwarding: blanket accessTo rules
-  ${concatStringsSep "\n" (map (zoneName:
-    let
-      zone = cfg.zones.${zoneName};
-      srcIfaces = zoneInterfaces zoneName;
-      dstIfaces = zonesInterfaces zone.accessTo;
-    in
-      optionalString (srcIfaces != [] && dstIfaces != [])
-        "iifname ${quoteList srcIfaces} oifname ${quoteList dstIfaces} accept"
-  ) activeZones)}
-
-  # Zone forwarding: per-destination forwardRules
-  ${concatStringsSep "\n" (concatMap (zoneName:
-    let
-      zone = cfg.zones.${zoneName};
-      srcIfaces = zoneInterfaces zoneName;
-    in
-      mapAttrsToList (dstZone: rules:
-        let dstIfaces = zoneInterfaces dstZone;
-        in optionalString (srcIfaces != [] && dstIfaces != [] && rules != [])
-          (concatStringsSep "\n" (map (rule:
-            "iifname ${quoteList srcIfaces} oifname ${quoteList dstIfaces} ${nft.renderRule rule}"
-          ) rules))
-      ) zone.forwardRules
-  ) activeZones)}
-
-  # Port forward accept rules
-  ${optionalString (cfg.firewall.portForwards != []) ''
-  ${forwardDnatRules}
-  ''}
-
-  # Extra forward rules (escape hatch)
-  ${optionalString (cfg.firewall.extraForwardRules != []) ''
-  ${nft.rulesToStringIndented "  " cfg.firewall.extraForwardRules}
-  ''}
-}
-```
-
-NAT chains remain unchanged — masquerade is per-interface (`nat.enable`), not per-zone.
-
-### 1.6 Assertions
-
-**File:** `modules/router6/default.nix`
-
-Add assertions for the zone system:
-
-```nix
-# 1. accessTo and forwardRules must not overlap
-assertions = concatMap (zoneName:
-  let zone = cfg.zones.${zoneName};
-  in map (dstZone: {
-    assertion = !elem dstZone zone.accessTo;
-    message = "Zone '${zoneName}': destination '${dstZone}' appears in both accessTo and forwardRules. Use one or the other.";
-  }) (attrNames zone.forwardRules)
-) (attrNames cfg.zones)
-
-# 2. forwardRules keys reference valid zones
-# (accessTo is validated at the type level via types.enum — no assertion needed)
-++ concatMap (zoneName:
-  let zone = cfg.zones.${zoneName};
-  in map (target: {
-    assertion = hasAttr target cfg.zones;
-    message = "Zone '${zoneName}': forwardRules references unknown zone '${target}'";
-  }) (attrNames zone.forwardRules)
-) (attrNames cfg.zones)
-
-# 3. inputRules must not contain iifname (it's auto-set)
-++ concatMap (zoneName:
-  let zone = cfg.zones.${zoneName};
-  in lib.imap0 (i: rule: {
-    assertion = !(isAttrs rule && hasAttr "iifname" rule);
-    message = "Zone '${zoneName}': inputRules[${toString i}] must not specify iifname (auto-set from zone interfaces)";
-  }) zone.inputRules
-) (attrNames cfg.zones)
-
-# 4. forwardRules must not contain iifname or oifname
-++ concatMap (zoneName:
-  let zone = cfg.zones.${zoneName};
-  in concatMap (dstZone:
-    lib.imap0 (i: rule: {
-      assertion = !(isAttrs rule && (hasAttr "iifname" rule || hasAttr "oifname" rule));
-      message = "Zone '${zoneName}': forwardRules.${dstZone}[${toString i}] must not specify iifname/oifname (auto-set from zone interfaces)";
-    }) zone.forwardRules.${dstZone}
-  ) (attrNames zone.forwardRules)
-) (attrNames cfg.zones)
-
-# 5. Remove the old "at least one external interface" assertion — zone names are
-# user-defined now, so there's no guaranteed "external" zone.
-```
-
-### 1.7 Update existing tests
-
-After the refactor, all Phase 0 tests must still pass. Additionally:
-
-- Update `router6-firewall.nix` to also define zones (or rely on defaults)
-- The snapshot test from Phase 0.2 must produce identical output
-- Add a new test that uses **custom** zones (not just the defaults) to verify the zone system itself works
-
-### 1.8 Migration of host configs
-
-All host configs must be updated to use `zone = "..."` instead of `trust = "..."`. This is a mechanical find-and-replace across all topology definitions. Since every network interface previously had `trust = "someValue"` (none used `null` in practice), this is straightforward.
-
-Example:
-```nix
-# Before:
-network = { type = "static"; trust = "external"; ... };
-
-# After:
-network = { type = "static"; zone = "external"; ... };
-```
-
-The existing test configs (`router6-firewall.nix`, etc.) must also be updated.
-
----
-
-## Phase 2: New `network` Zone and vINFRA VLAN
+## Phase 1: New `network` Zone and vINFRA VLAN
 
 With the zone system in place, adding the `network` zone is just a configuration change.
 
-### 2.1 Define `network` zone
+### 1.1 Define `network` zone
 
 **File:** `hosts/yggdrasil/default.nix` (alongside the other zone definitions)
 
@@ -655,7 +91,7 @@ This automatically generates:
 - Forward: nothing (empty `accessTo`, no `forwardRules`)
 - No hardcoded `networkInterfaces` selector needed
 
-### 2.2 Management egress filtering via `forwardRules`
+### 1.2 Management egress filtering via `forwardRules`
 
 With the zone system, the vINFRA egress filtering that was previously planned as `extraForwardRules` with hardcoded interface names becomes a clean zone-level config:
 
@@ -686,11 +122,11 @@ router6.zones.management = {
 ```
 
 Note: `"external"` is NOT in `accessTo` — instead, `forwardRules.external` provides filtered
-access. The assertion from Phase 1.6 enforces this mutual exclusion. There is no trailing
+access. The zone refactor's assertion enforces this mutual exclusion. There is no trailing
 `{ verdict = "drop"; }` — the forward chain's `policy drop` handles unmatched traffic, keeping
 the rules declarative (only what's allowed, not what's denied).
 
-### 2.3 Add vINFRA VLAN
+### 1.3 Add vINFRA VLAN
 
 **File:** `hosts/yggdrasil/default.nix` — inside `router6.topology.br0.vlans`
 
@@ -709,7 +145,7 @@ the rules declarative (only what's allowed, not what's denied).
 };
 ```
 
-### 2.4 Change vMGMT zone
+### 1.4 Change vMGMT zone
 
 **File:** `hosts/yggdrasil/default.nix` — existing vMGMT definition
 
@@ -728,7 +164,7 @@ the rules declarative (only what's allowed, not what's denied).
 
 Update the comment from "Management network - trusted devices and infrastructure" to "Network gear - APs and managed switch". Also disable DHCP on vMGMT since APs/switches have static IPs.
 
-### 2.5 Update alfheim MicroVM bridge
+### 1.5 Update alfheim MicroVM bridge
 
 **File:** `hosts/yggdrasil/default.nix` — systemd.network for MicroVM tap
 
@@ -756,7 +192,7 @@ microvm.interfaces = [{
 
 Remove the old `vm-10-*` bridge rule since no MicroVMs remain on vMGMT.
 
-### 2.6 Update DNS configuration
+### 1.6 Update DNS configuration
 
 **File:** `hosts/yggdrasil/default.nix`
 
@@ -768,7 +204,7 @@ dns = {
 };
 ```
 
-### 2.7 Update DNS interception rules
+### 1.7 Update DNS interception rules
 
 **File:** `hosts/yggdrasil/default.nix` — `firewall.extraNatRules`
 
@@ -818,7 +254,7 @@ a small extension to support `ip6.saddr`/`ip6.daddr` if not already present.
 kresd binds to all internal interfaces, so any of the router's IPs works as the DNAT target.
 The main thing is updating the exclusion IPs so alfheim's traffic isn't redirected.
 
-### 2.8 Update `/etc/hosts`
+### 1.8 Update `/etc/hosts`
 
 **File:** `hosts/yggdrasil/default.nix`
 
@@ -837,7 +273,7 @@ networking.extraHosts = ''
 '';
 ```
 
-### 2.9 Add tests for `network` zone
+### 1.9 Add tests for `network` zone
 
 Add test cases to `router6-firewall-zones.nix`:
 - **network → router: NTP only** — can reach UDP 123, cannot reach DNS (53), cannot reach SSH (22), cannot reach DHCP (67)
@@ -846,9 +282,9 @@ Add test cases to `router6-firewall-zones.nix`:
 
 ---
 
-## Phase 3: Infrastructure Host Changes
+## Phase 2: Infrastructure Host Changes
 
-### 3.1 alfheim (DNS MicroVM on yggdrasil)
+### 2.1 alfheim (DNS MicroVM on yggdrasil)
 
 **File:** `hosts/yggdrasil/guests/alfheim/microvm.nix`
 
@@ -954,7 +390,7 @@ Note: AAAA records are only added for vINFRA hosts with known static IPv6. Other
 suitable for static DNS records. AAAA records for those can be added later when they
 get static assignments.
 
-### 3.2 vanaheim (VM host)
+### 2.2 vanaheim (VM host)
 
 **File:** `hosts/vanaheim/default.nix` — initrd network (for ZFS remote unlock)
 
@@ -986,7 +422,7 @@ boot.initrd.systemd.network = {
 Same pattern: change `.10` to `.11`, add static IPv6 `fdc6:55f2:0a5e:b::1e/64`,
 disable SLAAC (`IPv6AcceptRA = false`), add IPv6 gateway.
 
-### 3.3 muspelheim (VM host)
+### 2.3 muspelheim (VM host)
 
 **File:** `hosts/muspelheim/default.nix`
 
@@ -994,7 +430,7 @@ Same pattern as vanaheim: `eno1.10` → `eno1.11`, address `10.0.10.31/24` → `
 add static IPv6 `fdc6:55f2:0a5e:b::1f/64`, gateway/DNS `10.0.10.1` → `10.0.11.1` +
 `fdc6:55f2:0a5e:b::1`, NFS mounts `10.0.10.32` → `10.0.11.20`, disable SLAAC.
 
-### 3.4 jotunheimr (NAS)
+### 2.4 jotunheimr (NAS)
 
 **File:** `hosts/jotunheimr/default.nix`
 
@@ -1004,9 +440,9 @@ update addresses/gateway/DNS to 10.0.11.x + `fdc6:55f2:0a5e:b::1`, disable SLAAC
 
 ---
 
-## Phase 4: NFS/Storage Hardening
+## Phase 3: NFS/Storage Hardening
 
-### 4.1 Tighten NFS exports
+### 3.1 Tighten NFS exports
 
 **File:** `hosts/jotunheimr/nas.nix`
 
@@ -1028,7 +464,7 @@ services.nfs.server = {
 };
 ```
 
-### 4.2 Update NFS mount targets
+### 3.2 Update NFS mount targets
 
 **File:** `hosts/muspelheim/default.nix`
 
@@ -1040,9 +476,9 @@ fileSystems."/mnt/media".device = "[fdc6:55f2:0a5e:b::14]:/data/media/";
 
 ---
 
-## Phase 5: Host-Based Firewalls
+## Phase 4: Host-Based Firewalls
 
-### 5.1 jotunheimr (NAS)
+### 4.1 jotunheimr (NAS)
 
 Replace blanket open ports with source-restricted nftables rules. NixOS 23.11+ defaults to
 nftables, so we use `networking.firewall.extraInputRules` (nftables syntax). All rules
@@ -1074,7 +510,7 @@ networking.firewall = {
 };
 ```
 
-### 5.2 vanaheim / muspelheim (VM hosts)
+### 4.2 vanaheim / muspelheim (VM hosts)
 
 SSH only from router and admin workstation (dual-stack):
 ```nix
@@ -1088,19 +524,19 @@ networking.firewall = {
 };
 ```
 
-### 5.3 Admin workstation IP
+### 4.3 Admin workstation IP
 
 The above rules use `10.0.20.0/24` as a placeholder. Tighten to a specific IP once a DHCP reservation is configured.
 
 ---
 
-## Phase 6: OpenWRT AP Changes
+## Phase 5: OpenWRT AP Changes
 
-### 6.1 No VLAN changes needed
+### 5.1 No VLAN changes needed
 
 APs stay on VLAN 10. The trust level change happens on the router side.
 
-### 6.2 NTP server change
+### 5.2 NTP server change
 
 **File:** `lib/openwrt/default.nix`
 
@@ -1125,7 +561,7 @@ services.chrony = {
 };
 ```
 
-### 6.3 Host-level input protection
+### 5.3 Host-level input protection
 
 Add nftables rules to AP images restricting SSH to router only (dual-stack):
 ```sh
@@ -1142,15 +578,15 @@ nft add rule inet filter input ip6 saddr fdc6:55f2:0a5e:a::1 tcp dport 22 accept
 
 Keep `nftables` package on APs (remove `firewall4` framework only, not `nftables`).
 
-### 6.4 Managed switch
+### 5.4 Managed switch
 
 Same treatment as APs: stays on VLAN 10, host firewall, NTP from router. Must trunk VLAN 11 on ports connected to infra devices.
 
 ---
 
-## Phase 7: Deployment
+## Phase 6: Deployment
 
-### 7.1 SSH access model
+### 6.1 SSH access model
 
 ```
 Admin workstation (vHOME, 10.0.20.X)
@@ -1167,20 +603,20 @@ Admin workstation (vHOME, 10.0.20.X)
     Required because: network zone has no forwarding
 ```
 
-### 7.2 Deployment order
+### 6.2 Deployment order
 
 1. VM guests first (lowest risk)
 2. VM hosts
 3. NAS (ensure NFS exports come back up)
 4. Router LAST — use `magic_rollback` with deploy-rs
 
-### 7.3 OpenWRT deployment
+### 6.3 OpenWRT deployment
 
 Deploy from the router (SSH to APs on 10.0.10.x) or via ProxyJump.
 
 ---
 
-## Phase 8: Network Data Registry
+## Phase 7: Network Data Registry
 
 ### Problem: scattered IP addresses
 
@@ -1194,7 +630,7 @@ With three address families now (IPv4, IPv6, plus legacy IPv4 during migration),
 strings become increasingly error-prone. A host's addresses should be derived from
 two facts: **which zone it's in** and **its host ID within that zone**.
 
-### 8.1 Replace network.json with a Nix network registry
+### 7.1 Replace network.json with a Nix network registry
 
 **File:** `lib/common/data/network.nix` (replaces `network.json`)
 
@@ -1274,14 +710,14 @@ This gives every consumer exactly what it needs:
 - **Zone metadata:** `network.zones.infrastructure.vlanId` → `11`
 - **Human-readable lookup:** see 8.2 below
 
-### 8.2 Human-readable IP lookup
+### 7.2 Human-readable IP lookup
 
 The registry replaces `network.json` as the source of truth, but you still need to be
 able to quickly look up an IP address without mentally evaluating Nix. Two mechanisms
 make this easy: a **flake app** for terminal use and a **generated markdown file** for
 browsing in an editor or on GitHub.
 
-#### 8.2a `summary` attribute in the registry
+#### 7.2a `summary` attribute in the registry
 
 Add a `summary` attribute to `network.nix` that renders a formatted table grouped by
 zone:
@@ -1313,7 +749,7 @@ nix eval .#lib.common.data.network.hosts.alfheim.ipv4 --raw
 # 10.97.11.2
 ```
 
-#### 8.2b Flake app: `nix run .#netinfo`
+#### 7.2b Flake app: `nix run .#netinfo`
 
 **File:** `apps/netinfo.nix`
 
@@ -1367,7 +803,7 @@ nix run .#netinfo -- alfheim
 #   Zone: infrastructure
 ```
 
-#### 8.2c Generated markdown: `docs/network-hosts.md`
+#### 7.2c Generated markdown: `docs/network-hosts.md`
 
 Add a `markdown` attribute to the registry that renders a markdown table, and a
 `netinfo --generate-docs` option to write it out:
@@ -1411,7 +847,7 @@ git diff --exit-code docs/network-hosts.md || \
   echo "docs/network-hosts.md is out of date — run: nix run .#netinfo -- --generate-docs"
 ```
 
-### 8.3 Consuming the registry programmatically
+### 7.3 Consuming the registry programmatically
 
 **In host configs** (e.g. `hosts/jotunheimr/default.nix`):
 ```nix
@@ -1466,7 +902,7 @@ in ''
 ''
 ```
 
-### 8.4 Relationship to router6 zones
+### 7.4 Relationship to router6 zones
 
 The registry's `zones` attrset defines the network topology (zone names → VLAN IDs).
 The router6 module's `zones` option defines the *firewall policy* (zone names → access
@@ -1479,7 +915,7 @@ assert builtins.attrNames network.zones == builtins.attrNames cfg.zones
   || throw "network.nix zones and router6 zones are out of sync";
 ```
 
-### 8.5 Migration path from network.json
+### 7.5 Migration path from network.json
 
 1. Create `lib/common/data/network.nix` alongside `network.json`
 2. Update `lib/common/data/default.nix` to load the `.nix` file instead of `.fromJSON`
@@ -1490,7 +926,7 @@ assert builtins.attrNames network.zones == builtins.attrNames cfg.zones
 The migration is mechanical: each hardcoded IP string becomes a reference to the
 registry. This can be done file-by-file alongside the other changes in this plan.
 
-### 8.6 Search for remaining `10.0.10.` references
+### 7.6 Search for remaining `10.0.10.` references
 
 Grep the codebase for `10.0.10.` to find remaining references:
 - MicroVM guest configs referencing jotunheimr's NAS IP
@@ -1556,27 +992,24 @@ continue to use SLAAC as before.
 
 | File | Phase | Changes |
 |------|-------|---------|
-| `modules/router6/default.nix` | 0, 1 | Add `zones` option, `baseRules` option, rename `trust` to `zone` (required), rewrite nftables generation to iterate zones, add zone assertions |
-| `tests/modules/router6-firewall-zones.nix` | 0, 2 | New comprehensive multi-zone firewall test |
-| `tests/lib/router6-firewall-snapshot.nix` | 0 | New snapshot test for nftables output stability |
-| `tests/default.nix` | 0 | Register new tests |
-| `hosts/yggdrasil/default.nix` | 2 | Add vINFRA VLAN, define `network` zone, override `management` zone with `forwardRules`, change vMGMT trust to "network", update DNS config, update DNS interception, update extraHosts, update MicroVM bridge rules, add NTP server |
-| `hosts/yggdrasil/guests/alfheim/microvm.nix` | 3 | Change tap interface name and MAC |
-| `hosts/yggdrasil/guests/alfheim/default.nix` | 3 | Update IP, gateway, MAC, extraHosts |
-| `hosts/yggdrasil/guests/alfheim/modules/dns.nix` | 3 | Update allowed_clients IPs, Unbound local-data records (7 IPs) |
-| `hosts/vanaheim/default.nix` | 3 | Change VLAN 10→11 in initrd network, update IP/gateway/DNS |
-| `hosts/vanaheim/microvm.nix` | 3 | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall |
-| `hosts/muspelheim/default.nix` | 3, 4 | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall |
-| `hosts/jotunheimr/default.nix` | 3 | Change VLAN 10→11, renumber `.32`→`.20` (boot-order), update IP/gateway/DNS, add host firewall |
-| `hosts/jotunheimr/nas.nix` | 4 | Tighten NFS exports to per-IP, update subnet references |
-| `lib/common/data/network.nix` | 8 | Replace `network.json` with Nix registry (zone+hostId → derived addresses) |
-| `lib/common/data/default.nix` | 8 | Load `network.nix` instead of `network.json` |
-| `modules/common/networking.nix` | 8 | Consume new registry format (interface unchanged) |
-| `lib/openwrt/default.nix` | 6 | Keep nftables package, change NTP servers to router IP, add host firewall script |
+| `hosts/yggdrasil/default.nix` | 1 | Add vINFRA VLAN, define `network` zone, override `management` zone with `forwardRules`, change vMGMT zone to "network", update DNS config, update DNS interception, update extraHosts, update MicroVM bridge rules, add NTP server |
+| `tests/modules/router6-firewall-zones.nix` | 1 | New `network` zone test cases |
+| `hosts/yggdrasil/guests/alfheim/microvm.nix` | 2 | Change tap interface name and MAC |
+| `hosts/yggdrasil/guests/alfheim/default.nix` | 2 | Update IP, gateway, MAC, extraHosts |
+| `hosts/yggdrasil/guests/alfheim/modules/dns.nix` | 2 | Update allowed_clients IPs, Unbound local-data records (7 IPs) |
+| `hosts/vanaheim/default.nix` | 2 | Change VLAN 10→11 in initrd network, update IP/gateway/DNS |
+| `hosts/vanaheim/microvm.nix` | 2 | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall |
+| `hosts/muspelheim/default.nix` | 2, 3 | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall |
+| `hosts/jotunheimr/default.nix` | 2 | Change VLAN 10→11, renumber `.32`→`.20` (boot-order), update IP/gateway/DNS, add host firewall |
+| `hosts/jotunheimr/nas.nix` | 3 | Tighten NFS exports to per-IP, update subnet references |
+| `lib/common/data/network.nix` | 7 | Replace `network.json` with Nix registry (zone+hostId → derived addresses) |
+| `lib/common/data/default.nix` | 7 | Load `network.nix` instead of `network.json` |
+| `modules/common/networking.nix` | 7 | Consume new registry format (interface unchanged) |
+| `lib/openwrt/default.nix` | 5 | Keep nftables package, change NTP servers to router IP, add host firewall script |
 
 ---
 
-## Phase 9: Dual-Address Migration (10.0.x.x → 10.97.x.x)
+## Phase 8: Dual-Address Migration (10.0.x.x → 10.97.x.x)
 
 ### Background
 
@@ -1609,7 +1042,7 @@ to all VLANs on the router and all host addresses:
 WireGuard tunnels (`10.100.x.x`) are a separate /16 and don't conflict with typical
 home networks. They can be migrated later if needed.
 
-### 9.1 Dual addresses on router VLANs
+### 8.1 Dual addresses on router VLANs
 
 **File:** `hosts/yggdrasil/default.nix` — every VLAN in topology gets a secondary address
 
@@ -1635,7 +1068,7 @@ The router6 module should handle multiple addresses per interface already (syste
 supports it natively). DHCP pools for the `10.97.x.x` range need to be configured — either
 via a second Kea subnet or by migrating the pool range.
 
-### 9.2 Dual addresses on infra hosts
+### 8.2 Dual addresses on infra hosts
 
 Each infra host's systemd-networkd config gets a secondary address. Example for vanaheim:
 ```nix
@@ -1657,7 +1090,7 @@ All infra hosts:
 Alfheim already has dual addresses (`10.0.10.2/24` + `10.97.10.2/24`), so just update
 the octets for the VLAN 11 move.
 
-### 9.3 Dual addresses on guest VMs (non-infra)
+### 8.3 Dual addresses on guest VMs (non-infra)
 
 Guest VMs on other VLANs also need dual addresses if they have static IPs:
 
@@ -1671,7 +1104,7 @@ Guest VMs on other VLANs also need dual addresses if they have static IPs:
 | njord | vDMZ (100) | 10.0.100.51/24 | 10.97.100.51/24 |
 | hrungnir | vDMZ (100) | 10.0.100.31/24 | 10.97.100.31/24 |
 
-### 9.4 DNS dual records
+### 8.4 DNS dual records
 
 **File:** `hosts/yggdrasil/guests/alfheim/modules/dns.nix`
 
@@ -1695,7 +1128,7 @@ allowed_clients = [
 ];
 ```
 
-### 9.5 DNS interception dual rules
+### 8.5 DNS interception dual rules
 
 **File:** `hosts/yggdrasil/default.nix` — `firewall.extraNatRules`
 
@@ -1710,7 +1143,7 @@ DNS interception exclusions need to cover both alfheim addresses:
 }
 ```
 
-### 9.6 NFS exports dual ranges
+### 8.6 NFS exports dual ranges
 
 **File:** `hosts/jotunheimr/nas.nix`
 
@@ -1719,9 +1152,9 @@ NFS exports need both subnets (NFS matches source IP, so both ranges must be lis
 /data/media 10.0.11.30(...) 10.97.11.30(...) fdc6:55f2:0a5e:b::1e(...) 10.0.11.31(...) 10.97.11.31(...) fdc6:55f2:0a5e:b::1f(...) 10.0.20.0/24(...) 10.97.20.0/24(...)
 ```
 
-### 9.7 Host firewalls dual ranges
+### 8.7 Host firewalls dual ranges
 
-**Files:** Phase 5 host configs
+**Files:** Phase 4 host configs
 
 All `ip saddr` rules need both ranges:
 ```nix
@@ -1737,7 +1170,7 @@ extraInputRules = ''
 '';
 ```
 
-### 9.8 extraHosts dual entries
+### 8.8 extraHosts dual entries
 
 **File:** `hosts/yggdrasil/default.nix`
 ```nix
@@ -1752,7 +1185,7 @@ networking.extraHosts = ''
 '';
 ```
 
-### 9.9 WireGuard peer AllowedIPs
+### 8.9 WireGuard peer AllowedIPs
 
 **File:** `hosts/yggdrasil/default.nix` — wg-vpn peers
 
@@ -1761,7 +1194,7 @@ WireGuard peer configs on client devices to include `10.97.0.0/16` in AllowedIPs
 (alongside the existing `10.0.0.0/16`). The server-side `allowedIPs` for each peer
 doesn't change (it specifies the peer's tunnel IP, not routed subnets).
 
-### 9.10 DHCP pools
+### 8.10 DHCP pools
 
 The Kea DHCP4 server needs dual pools — one for each range — on every VLAN with DHCP
 enabled. DHCP clients will get addresses from whichever pool responds first, but in
@@ -1771,9 +1204,9 @@ practice we want clients on the new range. This can be done by:
 - Or simply switching the DHCP pool to `10.97.x.x` only (clients on the old range
   keep their static/existing leases until renewal)
 
-### 9.11 Network registry
+### 8.11 Network registry
 
-If the network registry (Phase 8) has been adopted by this point, dual-addressing is
+If the network registry (Phase 7) has been adopted by this point, dual-addressing is
 handled by the `ipv4Prefix` constant — changing it from `"10.97"` to `"10.0"` would
 regenerate all legacy addresses. During migration, a `legacyPrefix` can be added:
 
