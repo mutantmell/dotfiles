@@ -1281,6 +1281,281 @@ continue to use SLAAC as before.
 
 ---
 
+## Phase 9: Dual-Address Migration (10.0.x.x → 10.97.x.x)
+
+### Background
+
+The `10.0.0.0/16` range frequently overlaps with other private networks (home routers,
+corporate LANs, VPN providers). This causes routing conflicts when accessing internal
+services via WireGuard from networks that also use `10.0.x.x`. The target range
+`10.97.0.0/16` is far less common and avoids these collisions.
+
+The migration has already partially started:
+- alfheim already has `10.97.10.2/24` as a secondary address
+- Adguard's `allowed_clients` includes `10.97.10.1` and `10.97.10.2`
+- gridr's auth config already includes `10.97.0.0/16` in its allowed IP list
+
+### Address mapping
+
+The mapping is `10.0.X.Y` → `10.97.X.Y` — identical third and fourth octets. This applies
+to all VLANs on the router and all host addresses:
+
+| VLAN | Current | Migration |
+|------|---------|-----------|
+| vMGMT | 10.0.10.0/24 | 10.97.10.0/24 |
+| vINFRA (new) | 10.0.11.0/24 | 10.97.11.0/24 |
+| vHOME | 10.0.20.0/24 | 10.97.20.0/24 |
+| vGUEST | 10.0.30.0/24 | 10.97.30.0/24 |
+| vADU | 10.0.31.0/24 | 10.97.31.0/24 |
+| vIOT | 10.0.40.0/24 | 10.97.40.0/24 |
+| vGAME | 10.0.41.0/24 | 10.97.41.0/24 |
+| vDMZ | 10.0.100.0/24 | 10.97.100.0/24 |
+
+WireGuard tunnels (`10.100.x.x`) are a separate /16 and don't conflict with typical
+home networks. They can be migrated later if needed.
+
+### 9.1 Dual addresses on router VLANs
+
+**File:** `hosts/yggdrasil/default.nix` — every VLAN in topology gets a secondary address
+
+For each VLAN, add the `10.97.x.x` address alongside the `10.0.x.x` address:
+```nix
+# Example: vINFRA
+"vINFRA.br0" = {
+  tag = 11;
+  network = {
+    type = "static";
+    addresses = [ "10.0.11.1/24" "10.97.11.1/24" ];  # Dual addresses
+    subnetId = 11;
+    zone = "management";
+    dhcp.enable = true;
+    dhcp6.enable = true;
+  };
+};
+
+# Same pattern for vMGMT, vHOME, vGUEST, vADU, vIOT, vGAME, vDMZ
+```
+
+The router6 module should handle multiple addresses per interface already (systemd-networkd
+supports it natively). DHCP pools for the `10.97.x.x` range need to be configured — either
+via a second Kea subnet or by migrating the pool range.
+
+### 9.2 Dual addresses on infra hosts
+
+Each infra host's systemd-networkd config gets a secondary address. Example for vanaheim:
+```nix
+networkConfig.Address = [
+  "10.0.11.30/24" "10.97.11.30/24"
+  "fdc6:55f2:0a5e:b::1e/64"
+];
+```
+
+All infra hosts:
+
+| Host | Primary | Secondary | IPv6 |
+|------|---------|-----------|------|
+| alfheim | 10.0.11.2/24 | 10.97.11.2/24 | fdc6:55f2:0a5e:b::2/64 |
+| vanaheim | 10.0.11.30/24 | 10.97.11.30/24 | fdc6:55f2:0a5e:b::1e/64 |
+| muspelheim | 10.0.11.31/24 | 10.97.11.31/24 | fdc6:55f2:0a5e:b::1f/64 |
+| jotunheimr | 10.0.11.32/24 | 10.97.11.32/24 | fdc6:55f2:0a5e:b::20/64 |
+
+Alfheim already has dual addresses (`10.0.10.2/24` + `10.97.10.2/24`), so just update
+the octets for the VLAN 11 move.
+
+### 9.3 Dual addresses on guest VMs (non-infra)
+
+Guest VMs on other VLANs also need dual addresses if they have static IPs:
+
+| Guest | VLAN | Primary | Secondary |
+|-------|------|---------|-----------|
+| gridr | vHOME (20) | 10.0.20.30/24 | 10.97.20.30/24 |
+| skadi | vHOME (20) | 10.0.20.40/24 | 10.97.20.40/24 |
+| ymir | vHOME (20) | 10.0.20.41/24 | 10.97.20.41/24 |
+| surtr | vDMZ (100) | 10.0.100.40/24 | 10.97.100.40/24 |
+| bragi | vDMZ (100) | 10.0.100.50/24 | 10.97.100.50/24 |
+| njord | vDMZ (100) | 10.0.100.51/24 | 10.97.100.51/24 |
+| hrungnir | vDMZ (100) | 10.0.100.31/24 | 10.97.100.31/24 |
+
+### 9.4 DNS dual records
+
+**File:** `hosts/yggdrasil/guests/alfheim/modules/dns.nix`
+
+Add A records for both ranges in Unbound's `local-data`. Clients resolving `.local`
+names will get both IPs and prefer whichever route works:
+```nix
+# Each host gets two A records
+''"yggdrasil.local. A 10.0.11.1"''
+''"yggdrasil.local. A 10.97.11.1"''
+''"yggdrasil.local. AAAA fdc6:55f2:0a5e:b::1"''
+# ... same pattern for all hosts
+```
+
+Adguard `allowed_clients` needs both ranges for the router and self:
+```nix
+allowed_clients = [
+  "127.0.0.1" "::1"
+  "10.0.11.1" "10.97.11.1" "fdc6:55f2:0a5e:b::1"    # Router
+  "10.0.11.2" "10.97.11.2" "fdc6:55f2:0a5e:b::2"    # Self
+  "10.97.10.1" "10.97.10.2"                            # Migration network (keep)
+];
+```
+
+### 9.5 DNS interception dual rules
+
+**File:** `hosts/yggdrasil/default.nix` — `firewall.extraNatRules`
+
+DNS interception exclusions need to cover both alfheim addresses:
+```nix
+{
+  ip.saddr = { not = [ "10.0.11.2" "10.97.11.2" ]; };
+  ip.daddr = { not = [ "10.0.11.1" "10.0.11.2" "10.97.11.1" "10.97.11.2" ]; };
+  udp.dport = 53;
+  verdict = { dnat = "10.97.11.1:53"; };  # DNAT target can use new range
+  comment = "Intercept DNS bypass (UDP)";
+}
+```
+
+### 9.6 NFS exports dual ranges
+
+**File:** `hosts/jotunheimr/nas.nix`
+
+NFS exports need both subnets (NFS matches source IP, so both ranges must be listed):
+```nix
+/data/media 10.0.11.30(...) 10.97.11.30(...) fdc6:55f2:0a5e:b::1e(...) 10.0.11.31(...) 10.97.11.31(...) fdc6:55f2:0a5e:b::1f(...) 10.0.20.0/24(...) 10.97.20.0/24(...)
+```
+
+### 9.7 Host firewalls dual ranges
+
+**Files:** Phase 5 host configs
+
+All `ip saddr` rules need both ranges:
+```nix
+extraInputRules = ''
+  # NFS from VM hosts (10.0.x + 10.97.x + IPv6)
+  ip saddr { 10.0.11.30, 10.0.11.31, 10.97.11.30, 10.97.11.31 } tcp dport 2049 accept
+  ip6 saddr { fdc6:55f2:0a5e:b::1e, fdc6:55f2:0a5e:b::1f } tcp dport 2049 accept
+
+  # SSH from router + admin (10.0.x + 10.97.x + IPv6)
+  ip saddr { 10.0.11.1, 10.97.11.1, 10.0.20.0/24, 10.97.20.0/24 } tcp dport 22 accept
+  ip6 saddr { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:14::/64 } tcp dport 22 accept
+  tcp dport 22 drop
+'';
+```
+
+### 9.8 extraHosts dual entries
+
+**File:** `hosts/yggdrasil/default.nix`
+```nix
+networking.extraHosts = ''
+  10.0.11.1 yggdrasil yggdrasil.local
+  10.97.11.1 yggdrasil yggdrasil.local
+  fdc6:55f2:0a5e:b::1 yggdrasil yggdrasil.local
+  10.0.11.2 alfheim alfheim.local
+  10.97.11.2 alfheim alfheim.local
+  fdc6:55f2:0a5e:b::2 alfheim alfheim.local
+  ...
+'';
+```
+
+### 9.9 WireGuard peer AllowedIPs
+
+**File:** `hosts/yggdrasil/default.nix` — wg-vpn peers
+
+The WireGuard VPN peers need to route both ranges to the tunnel. Update the
+WireGuard peer configs on client devices to include `10.97.0.0/16` in AllowedIPs
+(alongside the existing `10.0.0.0/16`). The server-side `allowedIPs` for each peer
+doesn't change (it specifies the peer's tunnel IP, not routed subnets).
+
+### 9.10 DHCP pools
+
+The Kea DHCP4 server needs dual pools — one for each range — on every VLAN with DHCP
+enabled. DHCP clients will get addresses from whichever pool responds first, but in
+practice we want clients on the new range. This can be done by:
+- Adding a second Kea subnet for each VLAN's `10.97.x.x` range
+- Setting a shorter lease time on the `10.0.x.x` pools to encourage migration
+- Or simply switching the DHCP pool to `10.97.x.x` only (clients on the old range
+  keep their static/existing leases until renewal)
+
+### 9.11 network.json
+
+**File:** `lib/common/data/network.json`
+
+Add both addresses:
+```json
+{
+  "hosts": {
+    "alfheim": { "ipv4": "10.97.11.2", "ipv4_legacy": "10.0.11.2", "ipv6": "fdc6:55f2:0a5e:b::2" },
+    ...
+  }
+}
+```
+
+---
+
+## Appendix: 10.0.x.x Removal Checklist
+
+Once all clients and services are confirmed working on `10.97.x.x`, remove the legacy
+`10.0.x.x` addresses. This is a mechanical cleanup:
+
+### Router (yggdrasil)
+- [ ] Remove `10.0.x.1/24` secondary addresses from all VLAN topology entries
+- [ ] Remove `10.0.x.x` entries from `networking.extraHosts`
+- [ ] Remove `10.0.x.x` exclusions from DNS interception rules (`extraNatRules`)
+- [ ] Update DNAT targets to use only `10.97.x.x`
+- [ ] Update `dns.upstream` to `10.97.11.2` only
+- [ ] Remove `10.0.x.x` from chrony `allow` directives
+
+### DNS (alfheim)
+- [ ] Remove `10.0.x.x` A records from Unbound `local-data` (keep only `10.97.x.x` + AAAA)
+- [ ] Remove `10.0.x.x` entries from Adguard `allowed_clients`
+- [ ] Remove `10.0.x.x` from `networking.extraHosts`
+- [ ] Remove `10.0.11.2/24` from alfheim's interface `Address` list
+- [ ] Remove legacy migration entries (`10.97.10.1`, `10.97.10.2`) once VLAN 10→11 move is done
+
+### Infra hosts (vanaheim, muspelheim, jotunheimr)
+- [ ] Remove `10.0.x.x/24` from each host's `Address` list
+- [ ] Update `Gateway` to `10.97.x.1` only
+- [ ] Update `DNS` to `10.97.x.1` only
+- [ ] Update NFS mount targets to `10.97.x.x` only (muspelheim)
+
+### NAS (jotunheimr)
+- [ ] Remove `10.0.x.x` entries from NFS exports (keep `10.97.x.x` + IPv6)
+- [ ] Remove `10.0.x.x` from host firewall `ip saddr` rules
+
+### Guest VMs
+- [ ] Remove `10.0.x.x/24` from each guest's `Address` list
+- [ ] Update `Gateway` and `DNS` to `10.97.x.x`
+- [ ] Update `networking.extraHosts` entries
+
+### Auth (gridr)
+- [ ] Remove `10.0.0.0/16` from Keycloak allowed IP list (keep `10.97.0.0/16`)
+- [ ] Remove `10.1.0.0/16` if mesh network also migrated
+
+### OpenWRT APs
+- [ ] Update static IPs from `10.0.10.x` to `10.97.10.x`
+- [ ] Update NTP server to `10.97.10.1`
+- [ ] Update AP firewall SSH allow from `10.0.10.1` → `10.97.10.1`
+
+### network.json
+- [ ] Remove `ipv4_legacy` field, rename `ipv4` values to `10.97.x.x` only
+
+### WireGuard
+- [ ] Remove `10.0.0.0/16` from client AllowedIPs (keep `10.97.0.0/16`)
+- [ ] Consider migrating tunnel addresses (`10.100.x.x`) if needed
+
+### Tests
+- [ ] Update test IP addresses in `tests/modules/router6-*.nix` files
+  (these use `10.0.x.x` as test values — can be updated independently)
+
+### Verification
+- [ ] Confirm all services respond on `10.97.x.x`
+- [ ] Confirm WireGuard VPN works from external networks without conflicts
+- [ ] Confirm DNS resolution returns only `10.97.x.x` A records
+- [ ] Confirm NFS mounts use `10.97.x.x` or IPv6
+- [ ] Run `grep -r '10\.0\.' hosts/ modules/ lib/` and verify no stale references remain
+
+---
+
 ## Future Improvements (Out of Scope)
 
 1. **Samba authentication hardening:** Uncomment `valid users` / `force user` on shares
