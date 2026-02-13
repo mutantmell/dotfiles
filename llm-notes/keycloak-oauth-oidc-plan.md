@@ -1,7 +1,8 @@
 # Keycloak OAuth2 / OIDC Integration Plan
 
-> **Status:** Planning. Keycloak and step-ca are already deployed on gridr. oauth2-proxy
-> is deployed on surtr. This plan covers completing and hardening the integration.
+> **Status:** Planning. This plan describes the target architecture, not the current
+> deployment. Service placement reflects the intended state after the
+> [vMGMT/vINFRA split](./secure-mgmt-vlan-plan.md) and related refactors.
 
 ## Goals
 
@@ -18,17 +19,15 @@
    at runtime via the admin console or API, not in NixOS configuration (no credentials in
    a public repo).
 
-## Current State
+## Target Service Placement
 
-### Already deployed
-
-| Component | Location | Network | Config file |
-|-----------|----------|---------|-------------|
-| Keycloak | gridr | vHOME (10.0.20.30) | `hosts/jotunheimr/guests/gridr/modules/auth.nix` |
-| step-ca | gridr | vHOME (10.0.20.30) | same file |
-| oauth2-proxy | surtr | vDMZ (10.0.100.40) | `hosts/muspelheim/guests/surtr/proxy.nix` |
-| nginx (auth proxy) | gridr | vHOME | `hosts/jotunheimr/guests/gridr/modules/auth.nix` |
-| nginx (OAuth-gated Adguard) | alfheim | vMGMT (10.0.10.2) | `hosts/yggdrasil/guests/alfheim/modules/proxy.nix` |
+| Component | Host | Network | Notes |
+|-----------|------|---------|-------|
+| Keycloak | gridr | vHOME | OIDC provider, user directory |
+| step-ca | dedicated microvm | vINFRA | SSH CA + ACME CA, isolated key material |
+| oauth2-proxy | surtr | vDMZ | Web traffic gating |
+| nginx (Keycloak proxy) | gridr | vHOME | Reverse proxy for Keycloak + ACME passthrough |
+| nginx (OAuth-gated Adguard) | alfheim | vINFRA | Admin UI with auth_request to surtr |
 
 ### What exists in Keycloak today
 
@@ -36,62 +35,113 @@
 - Keycloak accessible at `https://gridr.local/auth`
 - OIDC issuer URL: `https://gridr.local/auth/realms/external`
 
-### What's missing
+### What this plan addresses
 
-- No OIDC provisioner on step-ca (SSH cert flow not wired up)
-- No declarative realm/client configuration (realm was set up manually)
-- No group/role structure for access control
-- No cross-VLAN firewall rules for vDMZ → gridr (currently relying on the pre-zone-refactor
-  trust model where `trusted` and `untrusted` forwarding is more permissive than intended)
-- External access architecture not designed (cloud host → WireGuard → oauth2-proxy → Keycloak)
-- gridr resource constraints (1GB RAM is tight for Keycloak + PostgreSQL + step-ca + nginx)
+- step-ca migration from gridr to a dedicated vINFRA microvm
+- OIDC provisioner on step-ca for SSH certificate issuance
+- Declarative realm/client configuration (currently manual)
+- Group/role structure for access control
+- Cross-VLAN firewall rules (vDMZ → gridr, vDMZ → step-ca)
+- External access architecture (cloud host → WireGuard → oauth2-proxy → Keycloak)
+- ACME endpoint reachability after step-ca moves to vINFRA
+- gridr resource constraints (1GB RAM is tight for Keycloak + PostgreSQL + nginx)
 
 ---
 
 ## Hosting Decision
 
-### Where Keycloak lives: gridr on vHOME
+### Keycloak: gridr on vHOME
 
-Keep Keycloak on gridr (vHOME, 10.0.20.30). The SSH certificates plan mentions vINFRA as a
-possible location, but gridr on vHOME is the better fit for the full set of use cases:
+Keycloak stays on gridr (vHOME). The SSH certificates plan mentions vINFRA as a possible
+location, but vHOME is the better fit:
 
 | Consideration | vHOME (gridr) | vINFRA |
 |---------------|---------------|--------|
-| Already deployed and working | Yes | Would require migration |
 | Can reach vDMZ services | Yes (trusted → untrusted) | Yes (management → untrusted) |
 | Can be reached from vDMZ | No (needs explicit rule) | No (needs explicit rule) |
-| User-facing auth service | Natural fit (user device zone) | Infrastructure zone feels wrong for user-facing login |
-| Co-located with step-ca | Yes (simplifies auth pipeline) | Would split auth components across zones |
+| User-facing auth service | Natural fit (user device zone) | Infrastructure zone is wrong for user-facing login |
 | Internet access for CRL/updates | Yes (trusted → external) | Yes (management → external, filtered) |
 
 The firewall situation is identical in both cases: the `untrusted` zone (vDMZ) cannot initiate
 connections to either `trusted` or `management` zones. Regardless of where Keycloak lives,
 surtr needs an explicit firewall rule to reach it for OIDC token exchange.
 
-### step-ca: stay on gridr for now
+### step-ca: dedicated microvm on vINFRA
 
-The SSH certificates plan envisions step-ca on a dedicated vMGMT microvm for key material
-isolation. That's a sound long-term goal, but for now step-ca and Keycloak are tightly coupled
-(the OIDC provisioner needs to reach Keycloak), and co-locating them avoids cross-network
-dependencies during the auth flow. When the SSH certificate work becomes active, splitting
-step-ca out can be revisited.
+step-ca moves to its own microvm on vINFRA, as specified in the
+[SSH certificates plan](./ssh-certificates-sso-plan.md). step-ca is infrastructure — it's in
+the same category as DNS and NTP, and belongs on the management plane. A dedicated microvm
+provides isolation for CA key material.
+
+**Connectivity from step-ca (vINFRA) to Keycloak (vHOME):** step-ca's OIDC provisioner needs
+to reach Keycloak for token validation. `management` → `trusted` is allowed by `accessTo`,
+so this works without extra firewall rules.
+
+**ACME reachability from vDMZ:** Hosts on vDMZ (surtr, bragi, hrungnir) currently get ACME
+certificates from gridr's step-ca. When step-ca moves to vINFRA, vDMZ hosts cannot reach it
+directly (`untrusted` → `management` is blocked). Two options:
+
+1. **Explicit firewall rule:** Allow vDMZ → step-ca on the ACME port (443 or 9443). This
+   is narrow (specific IPs, one port) and follows the same pattern as the surtr → gridr
+   rule. Simple and direct.
+
+2. **ACME proxy on gridr:** gridr already proxies step-ca's ACME endpoint at `/acme`. After
+   step-ca moves, gridr can continue proxying to the new step-ca host on vINFRA. vDMZ hosts
+   already have a firewall rule to reach gridr, so no additional rules needed. The ACME URL
+   stays `https://gridr.local/acme/acme/directory` — no config changes on any ACME client.
+
+**Recommendation:** Option 2 (ACME proxy on gridr). It avoids adding more cross-VLAN firewall
+exceptions, keeps ACME URLs stable across the step-ca migration, and leverages gridr's
+existing nginx proxy infrastructure. The proxy path is:
+
+```
+vDMZ host → gridr (vHOME, /acme) → step-ca (vINFRA, :9443/acme)
+```
+
+gridr can reach step-ca because `trusted` → `management` is allowed. Internal hosts on
+vHOME and vINFRA can reach step-ca directly or via gridr — either works.
+
+**step-ca microvm sizing:**
+
+| Resource | Value | Rationale |
+|----------|-------|-----------|
+| vCPU | 1 | Signing is infrequent, not compute-bound |
+| RAM | 256–512MB | Go binary (~30MB), badger DB, minimal overhead |
+| Persistent storage | Small volume | CA database, key material |
+
+### Architecture diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ vINFRA (management zone)                                        │
+│   step-ca ◄── OIDC provisioner validates tokens against ──┐    │
+│     │                                                      │    │
+│     │ ACME (direct access from vINFRA/vHOME hosts)         │    │
+│     │                                                      │    │
+├─────┼──────────────────────────────────────────────────────┼────┤
+│ vHOME (trusted zone)                                       │    │
+│   gridr                                                    │    │
+│     ├── Keycloak (OIDC provider) ──────────────────────────┘    │
+│     └── nginx (/acme proxies to step-ca on vINFRA)              │
+│              ↑                                                  │
+├──────────────┼──────────────────────────────────────────────────┤
+│ vDMZ (untrusted zone)                       [explicit FW rule]  │
+│   surtr ─────┘                                                  │
+│     ├── oauth2-proxy (OIDC tokens from Keycloak via gridr)      │
+│     ├── nginx (/auth proxies Keycloak for external users)       │
+│     └── nginx (/ proxies to backend services)                   │
+│   bragi, hrungnir (ACME certs via gridr /acme proxy)            │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### Update to SSH certificates plan
 
-The SSH certificates plan should be updated to reflect that Keycloak stays on gridr (vHOME)
-rather than moving to vINFRA. The architecture diagram changes from:
-
-```
-Keycloak (vINFRA) ← OIDC → step-ca (vMGMT microvm)
-```
-
-to:
-
-```
-Keycloak + step-ca (gridr, vHOME) — may split step-ca to vMGMT microvm later
-```
-
-The rest of the SSH certificate plan (TrustedUserCAKeys, principals, host certs) is unaffected.
+The SSH certificates plan should be updated to reflect:
+1. Keycloak stays on gridr (vHOME), not "a vINFRA host"
+2. step-ca moves to a dedicated vINFRA microvm (consistent with the plan's intent,
+   but updated to say vINFRA rather than vMGMT, since vMGMT becomes the locked-down
+   networking gear zone after the split)
+3. Reference the `homelab` realm and `step-ca` client defined in this plan
 
 ---
 
@@ -124,7 +174,7 @@ Additional clients added per-service as OIDC integrations are enabled (see
 
 **Client secrets** are stored in sops-nix on the hosts that need them:
 - `oauth2-proxy` secret → surtr's sops secrets
-- `step-ca` OIDC provisioner secret → gridr's sops secrets
+- `step-ca` OIDC provisioner secret → step-ca microvm's sops secrets
 - `cicd-deploy` secret → CI/CD server's environment (encrypted at rest)
 
 ### Groups and roles
@@ -168,17 +218,19 @@ After the [zone-based firewall refactor](./zone-refactor-plan.md), the forwardin
 The OAuth2/OIDC flow requires these cross-VLAN connections that are not covered by
 zone-level `accessTo`:
 
-| Source | Destination | Port | Purpose |
-|--------|-------------|------|---------|
-| surtr (vDMZ) | gridr (vHOME) | 443 | oauth2-proxy → Keycloak OIDC token exchange |
-| surtr (vDMZ) | gridr (vHOME) | 443 | oauth2-proxy → Keycloak OIDC discovery |
-| alfheim (vMGMT/vINFRA) | surtr (vDMZ) | 443 | alfheim nginx → surtr oauth2-proxy (auth_request) |
-| alfheim (vMGMT/vINFRA) | gridr (vHOME) | 443 | (already allowed — management/trusted → trusted) |
-| wg-ba peers | surtr (vDMZ) | 443 | External web traffic (already in extraForwardRules) |
+| Source | Destination | Port | Purpose | Status |
+|--------|-------------|------|---------|--------|
+| surtr (vDMZ) | gridr (vHOME) | 443 | oauth2-proxy → Keycloak OIDC | **Needs explicit rule** |
+| vDMZ ACME clients | gridr (vHOME) | 443 | ACME cert issuance (proxied to step-ca) | **Needs explicit rule** (same as above) |
+| step-ca (vINFRA) | gridr (vHOME) | 443 | OIDC provisioner → Keycloak token validation | Allowed (management → trusted) |
+| gridr (vHOME) | step-ca (vINFRA) | 9443 | ACME proxy passthrough | Allowed (trusted → management) |
+| alfheim (vINFRA) | surtr (vDMZ) | 443 | nginx auth_request → oauth2-proxy | Allowed (management → untrusted) |
+| alfheim (vINFRA) | gridr (vHOME) | 443 | Direct Keycloak access | Allowed (management → trusted) |
+| wg-ba peers | surtr (vDMZ) | 443 | External web traffic | Already in extraForwardRules |
 
-The first two rows are the critical addition. surtr must reach gridr for the server-side
-OIDC token exchange (authorization code → access token). This is a backend call, not a
-browser redirect.
+Only the first row requires a new explicit firewall rule. The vDMZ ACME clients (surtr,
+bragi, hrungnir) reach step-ca's ACME endpoint through gridr's `/acme` proxy, so they
+use the same surtr → gridr rule. All other paths are covered by zone-level `accessTo`.
 
 **Implementation** — add to `extraForwardRules` on yggdrasil:
 
@@ -188,26 +240,49 @@ firewall.extraForwardRules = [
   { iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }
   { iifname = "wg-ba"; ip.daddr = "10.0.100.40"; verdict = "accept"; }
 
-  # New: oauth2-proxy on surtr needs to reach Keycloak on gridr for OIDC
+  # vDMZ hosts need to reach gridr for:
+  #   - oauth2-proxy OIDC token exchange (surtr)
+  #   - ACME certificate issuance via gridr's /acme proxy (surtr, bragi, hrungnir)
   {
     iifname = "vDMZ.br0";
     oifname = "vHOME.br0";
-    ip.saddr = "10.0.100.40";
     ip.daddr = "10.0.20.30";
     tcp.dport = 443;
     verdict = "accept";
-    comment = "surtr oauth2-proxy -> gridr Keycloak OIDC";
+    comment = "vDMZ -> gridr (Keycloak OIDC + ACME proxy)";
   }
 ];
 ```
 
-This is deliberately narrow: only surtr's IP, only to gridr's IP, only port 443. No
-blanket vDMZ → vHOME forwarding.
+This allows any vDMZ host to reach gridr on port 443 (needed for both OIDC and ACME).
+It could be further narrowed to specific source IPs if desired, but all vDMZ hosts with
+ACME certificates need this path.
 
-**Note on alfheim → surtr:** alfheim currently proxies OAuth requests to surtr
+**Note on alfheim → surtr:** alfheim proxies OAuth requests to surtr
 (`https://surtr.local/oauth2/`). After the vMGMT/vINFRA split, alfheim moves to vINFRA
 (management zone). Since `management` → `untrusted` is in `accessTo`, this path is
 already allowed — no extra rule needed.
+
+### ACME proxy path after step-ca migration
+
+When step-ca moves to vINFRA, gridr's nginx `/acme` location changes from proxying to
+localhost to proxying to the step-ca microvm:
+
+```nix
+# On gridr — update /acme proxy target
+locations."/acme" = {
+  proxyPass = "https://step-ca.local:9443/acme";  # Changed from localhost:9443
+  extraConfig = ''
+    proxy_ssl_certificate /etc/nginx/nginx.cert;
+    proxy_ssl_certificate_key /etc/nginx/nginx.key;
+    proxy_ssl_protocols TLSv1.2 TLSv1.3;
+    proxy_ssl_ciphers HIGH:!aNULL:!MD5;
+  '';
+};
+```
+
+All existing ACME clients continue to use `https://gridr.local/acme/acme/directory` —
+no configuration changes needed on any ACME consumer.
 
 ---
 
@@ -335,8 +410,9 @@ services (e.g., alfheim's Adguard UI), the login URL can stay as `gridr.local`.
 | Component | Configuration | File |
 |-----------|--------------|------|
 | Keycloak service | Port, hostname, proxy-headers, database | `gridr/modules/auth.nix` |
-| step-ca service | Address, port, provisioners, policy | `gridr/modules/auth.nix` |
-| nginx reverse proxy | Virtual hosts, locations, TLS | `gridr/modules/auth.nix`, `surtr/proxy.nix` |
+| step-ca service | Address, port, provisioners, policy | step-ca microvm config (vINFRA) |
+| nginx (gridr) | Keycloak proxy, ACME proxy to step-ca | `gridr/modules/auth.nix` |
+| nginx (surtr) | Backend proxy, /auth Keycloak proxy | `surtr/proxy.nix` |
 | oauth2-proxy | Client ID, issuer URL, upstream, cookie settings | `surtr/proxy.nix` |
 | ACME | Server URL, email | Per-host ACME config |
 | Firewall rules | Cross-VLAN forwarding | `yggdrasil/default.nix` |
@@ -500,8 +576,8 @@ This can be included in the keycloak-config-cli JSON configuration.
 | Service | Host | Integration Type | Priority |
 |---------|------|-----------------|----------|
 | Jellyfin | bragi (vDMZ) | oauth2-proxy (already working) | Done |
-| Adguard Home | alfheim (vMGMT/vINFRA) | oauth2-proxy via surtr (already working) | Done |
-| step-ca | gridr (vHOME) | OIDC provisioner (SSH cert plan) | Phase 2 |
+| Adguard Home | alfheim (vINFRA) | oauth2-proxy via surtr (already working) | Done |
+| step-ca | dedicated microvm (vINFRA) | OIDC provisioner (SSH cert plan) | Phase 4 |
 | Future services | Various | Direct OIDC or oauth2-proxy | As deployed |
 
 For services that don't support OIDC natively, the oauth2-proxy pattern used by surtr
@@ -556,19 +632,19 @@ the OTP/WebAuthn step.
 
 ## Resource Requirements
 
-### gridr needs more RAM
+### gridr (Keycloak + PostgreSQL + nginx)
 
-gridr currently has 1GB RAM (`microvm.mem = 1024` in `gridr/microvm.nix`). It runs:
+gridr currently has 1GB RAM (`microvm.mem = 1024` in `gridr/microvm.nix`). After step-ca
+moves to its own microvm, gridr runs:
 
 | Service | Typical RAM | Notes |
 |---------|------------|-------|
 | Keycloak (JVM) | 512MB–768MB | Java heap + metaspace |
 | PostgreSQL | 128MB–256MB | Shared buffers + connections |
-| step-ca | ~30MB | Go binary, minimal |
-| nginx | ~10MB | Reverse proxy, minimal |
+| nginx | ~10MB | Reverse proxy (Keycloak + ACME passthrough) |
 
-**1GB is insufficient.** Keycloak alone can consume 512MB+ under normal operation, and
-JVM garbage collection pressure with only ~200MB headroom causes latency spikes and
+**1GB is tight.** Keycloak alone can consume 512MB+ under normal operation, and
+JVM garbage collection pressure with limited headroom causes latency spikes and
 potential OOM kills.
 
 **Recommendation:** Increase gridr's RAM to 2048MB:
@@ -582,20 +658,27 @@ Additionally, constrain Keycloak's JVM heap to prevent it from consuming all ava
 memory:
 
 ```nix
-services.keycloak.settings = {
-  # ... existing settings ...
-};
 # JVM options to cap heap usage
 systemd.services.keycloak.environment = {
   JAVA_OPTS_APPEND = "-Xms256m -Xmx768m";
 };
 ```
 
-### gridr persistent storage
+gridr's persist volume (100GB) is more than sufficient for Keycloak's PostgreSQL database.
 
-gridr's persist volume is currently 100MB × 1024 = 100GB (the `size` field in microvm
-volumes is in MiB). This is more than sufficient for Keycloak's PostgreSQL database and
-step-ca's badger database.
+### step-ca microvm (vINFRA)
+
+The dedicated step-ca microvm is lightweight:
+
+| Resource | Value | Rationale |
+|----------|-------|-----------|
+| vCPU | 1 | Certificate signing is infrequent |
+| RAM | 512MB | Go binary (~30MB) + badger DB + headroom |
+| Persistent storage | Small volume | CA database, key material (must be backed up) |
+
+step-ca's persistent storage holds the CA root key material and the badger database.
+This data is critical — loss means re-provisioning all certificates. Back up the
+persistent volume alongside other infrastructure secrets.
 
 ---
 
@@ -606,15 +689,17 @@ step-ca's badger database.
 The [SSH certificates plan](./ssh-certificates-sso-plan.md) depends on Keycloak being
 operational and properly configured. Specifically:
 
-- **Phase 1 (Deploy Keycloak):** Already done. This plan hardens and completes the setup.
+- **Phase 1 (Deploy Keycloak):** This plan hardens and completes the Keycloak setup.
 - **Phase 2 (Deploy step-ca with OIDC provisioner):** Requires:
+  - step-ca on its own vINFRA microvm (covered in this plan's hosting decision)
   - A `step-ca` client in Keycloak (defined in this plan's client table)
   - An OIDC provisioner added to step-ca's configuration
   - Group → principal mapping (this plan's groups map to SSH principals)
 
 The SSH cert plan should be updated to:
 1. Reference gridr (vHOME) instead of "a vINFRA host" for Keycloak's location
-2. Note that step-ca stays co-located with Keycloak for now (may split later)
+2. Clarify that step-ca moves to vINFRA (not vMGMT — vMGMT becomes the locked-down
+   networking gear zone after the split)
 3. Reference the `homelab` realm and `step-ca` client defined here
 
 ### Zone Refactor Plan
@@ -674,16 +759,21 @@ The [vMGMT split](./secure-mgmt-vlan-plan.md) moves alfheim to vINFRA. After thi
 6. **Test end-to-end:** External browser → cloud host → WireGuard → surtr → Keycloak
    login → surtr → backend service
 
-### Phase 4: step-ca OIDC provisioner (SSH certificates)
+### Phase 4: step-ca migration and OIDC provisioner
 
-**Goal:** Wire up step-ca to issue SSH certificates via Keycloak authentication.
-Detailed in the [SSH certificates plan](./ssh-certificates-sso-plan.md); listed here
-for sequencing.
+**Goal:** Move step-ca to a dedicated vINFRA microvm and wire up the OIDC provisioner
+for SSH certificate issuance. Detailed in the
+[SSH certificates plan](./ssh-certificates-sso-plan.md); listed here for sequencing.
 
-1. **Add OIDC provisioner** to step-ca config on gridr
-2. **Configure group → principal mapping** (admins → admin, deploy → deploy)
-3. **Test interactive SSH cert flow:** `step ssh login` → Keycloak → cert
-4. **Test CI/CD cert flow:** client_credentials → token → cert
+1. **Provision step-ca microvm** on a vINFRA host (e.g., vanaheim or jotunheimr)
+2. **Migrate CA key material** from gridr to the new microvm
+3. **Update gridr's nginx** `/acme` proxy to point at the new step-ca host
+4. **Verify ACME** still works for all hosts (gridr, surtr, bragi, alfheim, etc.)
+5. **Remove step-ca from gridr** once migration is confirmed
+6. **Add OIDC provisioner** to step-ca config, pointing at Keycloak on gridr
+7. **Configure group → principal mapping** (admins → admin, deploy → deploy)
+8. **Test interactive SSH cert flow:** `step ssh login` → Keycloak → cert
+9. **Test CI/CD cert flow:** client_credentials → token → cert
 
 ### Phase 5: Additional OIDC integrations
 
@@ -703,11 +793,12 @@ For each new service:
 | File | Phase | Changes |
 |------|-------|---------|
 | `hosts/jotunheimr/guests/gridr/microvm.nix` | 1 | `microvm.mem = 2048` |
-| `hosts/jotunheimr/guests/gridr/modules/auth.nix` | 1, 3 | JVM heap limits, `hostname-strict = false` |
-| `hosts/yggdrasil/default.nix` | 1 | Add surtr → gridr firewall rule |
+| `hosts/jotunheimr/guests/gridr/modules/auth.nix` | 1, 3, 4 | JVM heap limits, `hostname-strict = false`, update `/acme` proxy to point at step-ca microvm, remove step-ca service config |
+| `hosts/yggdrasil/default.nix` | 1 | Add vDMZ → gridr firewall rule |
 | `hosts/muspelheim/guests/surtr/proxy.nix` | 2, 3 | Update realm URL, add `/auth` proxy location, split oauth2-proxy URLs |
 | `hosts/yggdrasil/guests/alfheim/modules/proxy.nix` | 2 | Update realm URL if changed |
-| `hosts/jotunheimr/guests/gridr/sops.nix` | 4 | Add step-ca OIDC client secret |
-| `hosts/jotunheimr/guests/gridr/secrets/secrets.yaml` | 2, 4 | New secrets for client credentials |
+| step-ca microvm config (new, on vINFRA host) | 4 | New microvm: step-ca service, CA key material, sops secrets |
+| `hosts/jotunheimr/guests/gridr/sops.nix` | 4 | Remove step-ca secrets (moved to step-ca microvm) |
+| `hosts/jotunheimr/guests/gridr/secrets/secrets.yaml` | 2, 4 | Update secrets for realm change, remove step-ca secrets |
 | `hosts/muspelheim/guests/surtr/sops.nix` | 2 | Update oauth2-proxy key file if realm changes |
-| `llm-notes/ssh-certificates-sso-plan.md` | — | Update Keycloak location reference |
+| `llm-notes/ssh-certificates-sso-plan.md` | — | Update Keycloak location, step-ca zone (vINFRA not vMGMT) |
