@@ -329,12 +329,21 @@ External browser                        Internal network
 
 **surtr nginx addition:**
 ```nix
+# Block admin console — external users must not reach it (see S5)
+locations."/auth/admin" = {
+  return = "403";
+};
+locations."/auth/realms/master" = {
+  return = "403";
+};
+
+# Proxy OIDC endpoints to Keycloak
 locations."/auth" = {
   proxyPass = "https://<keycloak-host>.local/auth";
   extraConfig = ''
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-For $remote_addr;  # Overwrite, don't append (see S13)
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffer_size 128k;
     proxy_buffers 4 256k;
@@ -367,21 +376,23 @@ This splits the URLs:
 **Keycloak hostname configuration:**
 
 Keycloak needs to accept requests arriving via surtr's proxy (with a different `Host`
-header than `gridr.local`). Configure Keycloak to trust forwarded headers:
+header than the internal hostname). Configure Keycloak with an explicit hostname for
+browser-facing operations, while allowing internal backchannel access:
 
 ```nix
 services.keycloak.settings = {
   # ... existing settings ...
-  hostname-strict = false;  # Accept requests with any Host header
-  # OR for more control:
-  # hostname = "<external-domain>";
-  # hostname-backchannel-dynamic = true;  # Allow internal clients to use gridr.local
+  hostname = "<external-domain>";              # Fixed issuer URL for all tokens
+  hostname-backchannel-dynamic = true;         # Internal clients (oauth2-proxy redeem,
+                                               # step-ca) can use the internal hostname
 };
 ```
 
-`hostname-strict = false` is the simplest approach for a homelab with both internal and
-external access patterns. It tells Keycloak to derive its own URL from the incoming
-request's `Host` header rather than enforcing a fixed hostname.
+This ensures tokens always have a consistent issuer (`https://<external-domain>/auth/...`)
+regardless of which proxy path the request arrived through. Internal services use the
+backchannel for server-to-server operations (token exchange, JWKS fetching) via the
+internal hostname. See [Security Considerations S4](#security-considerations) for why
+`hostname-strict = false` should be avoided.
 
 ### Cloud host configuration (future work)
 
@@ -727,6 +738,11 @@ also on vINFRA:
 7. **Add explicit firewall rule:** vDMZ → Keycloak microvm:443
 8. **Update all ACME client configs** to point at the new Keycloak microvm's ACME URL
 9. **Update surtr's oauth2-proxy config** to point at the new Keycloak microvm
+   - Set `cookie.secure = true` (S1)
+   - Change `redirectURL` to HTTPS (S2)
+   - Remove `skip-jwt-bearer-tokens = true` (S3)
+   - Disable `passAccessToken` and `set-authorization-header` unless needed (S7)
+   - Replace `email.domains = ["*"]` with `--allowed-groups` once groups exist (S10)
 10. **Update alfheim's proxy config** to point at the new Keycloak microvm
 11. **Verify ACME, OIDC, oauth2-proxy** all work with the new locations
 12. **Decommission gridr** (or repurpose) once migration is confirmed
@@ -752,11 +768,16 @@ also on vINFRA:
 **Goal:** Enable authenticated external access to vDMZ services via the cloud host.
 
 1. **Add `/auth` proxy location** to surtr's nginx (proxies to Keycloak microvm)
+   - Block `/auth/admin/` and `/auth/realms/master/` (S5)
+   - Use `X-Forwarded-For $remote_addr` not `$proxy_add_x_forwarded_for` (S13)
 2. **Configure oauth2-proxy** with split URLs (external login-url, internal redeem-url)
-3. **Configure Keycloak** `hostname-strict = false` (accept multiple Host headers)
-4. **Deploy cloud host** with nginx + WireGuard + Let's Encrypt cert
-5. **Add WireGuard forwarding rules** if needed for the /auth proxy path
-6. **Test end-to-end:** External browser → cloud host → WireGuard → surtr → Keycloak
+   - Ensure `oidc-issuer-url` matches Keycloak's `hostname` setting (S6)
+3. **Configure Keycloak** `hostname = "<external-domain>"` + `hostname-backchannel-dynamic = true` (S4)
+4. **Add nginx rate limiting** on surtr for `/auth/` and `/oauth2/` paths (S11)
+5. **Deploy cloud host** with nginx + WireGuard + Let's Encrypt cert
+   - Strip/overwrite `X-Forwarded-For` at the cloud host (S13)
+6. **Add WireGuard forwarding rules** if needed for the /auth proxy path
+7. **Test end-to-end:** External browser → cloud host → WireGuard → surtr → Keycloak
    login → surtr → backend service
 
 ### Phase 4: step-ca OIDC provisioner (SSH certificates)
@@ -780,6 +801,312 @@ For each new service:
 3. Configure service's OIDC settings in Nix
 4. Test login flow
 5. Configure group-based access if needed
+
+---
+
+## Security Considerations
+
+> **Context:** Traffic from the internet reaches vDMZ via a WireGuard tunnel from a
+> cloud host. Even though WireGuard provides encryption and the firewall limits traffic
+> to HTTP(S), the services behind surtr are internet-facing and require hardening
+> appropriate for that exposure.
+
+### Critical — Must fix before external access
+
+**S1. `cookie.secure = false` in oauth2-proxy (surtr/proxy.nix:69)**
+
+The OAuth session cookie is sent over HTTP. Any network observer between the user and
+surtr can steal the cookie and hijack the session. This is currently mitigated by the
+fact that all traffic is on the LAN or inside a WireGuard tunnel, but:
+- The plan enables external access, where the cloud host terminates TLS and forwards
+  to surtr. If the cloud-to-surtr path ever drops to HTTP (misconfiguration, debugging),
+  cookies leak.
+- Defense in depth: `cookie.secure = true` costs nothing and prevents an entire class
+  of mistakes.
+
+**Fix:** Set `cookie.secure = true`. Ensure all paths to surtr use HTTPS (the cloud
+host should forward HTTPS-terminated traffic to surtr's HTTPS port, or surtr should
+enforce TLS on all cookie-bearing endpoints).
+
+**S2. `redirectURL = "http://surtr.local/oauth2/callback"` (surtr/proxy.nix:63)**
+
+The OAuth2 redirect URI uses `http://`. After the authorization code grant, Keycloak
+redirects the user's browser to this URL with the authorization code in the query
+string. Over HTTP, the authorization code is visible to any network observer. An
+attacker who captures it can exchange it for tokens (the auth code is single-use but
+the race window exists).
+
+**Fix:** Change to `https://surtr.local/oauth2/callback` for internal access and
+`https://<external-domain>/oauth2/callback` for external access (as already shown in
+the plan's oauth2-proxy reconfiguration section).
+
+**S3. `skip-jwt-bearer-tokens = true` (surtr/proxy.nix:78)**
+
+This tells oauth2-proxy to accept any request that includes a valid JWT bearer token
+in the `Authorization` header, **bypassing the entire OAuth login flow**. Any service
+or user that possesses a valid Keycloak access token (from any client, any flow) can
+access all oauth2-proxy-protected services by including it as a bearer token.
+
+The threat: if any Keycloak client is compromised, or if any service that receives
+access tokens (via `passAccessToken`) is compromised, the leaked token grants access
+to every oauth2-proxy-gated service.
+
+**Fix:** Remove `skip-jwt-bearer-tokens = true` unless there is a specific
+machine-to-machine use case that requires it. If needed, use `--skip-jwt-bearer-tokens`
+with `--extra-jwt-issuers` to restrict which issuers/audiences are accepted, rather
+than accepting all valid JWTs.
+
+**S4. `hostname-strict = false` for Keycloak (plan, Phase 3)**
+
+The plan recommends `hostname-strict = false` so Keycloak accepts requests with
+different `Host` headers (internal hostname vs. external domain). This tells Keycloak
+to derive its issuer URL from the incoming request's `Host` header. Risks:
+- **Token issuer confusion:** If an attacker can influence the `Host` header (e.g., via
+  a misconfigured upstream proxy or a direct request with a crafted Host), Keycloak
+  issues tokens with an attacker-controlled issuer URL. Downstream services that
+  validate the issuer may accept or reject tokens unpredictably.
+- **Open redirect:** Keycloak uses the derived hostname for redirect URIs. A crafted
+  `Host` header could redirect users to an attacker-controlled domain after login.
+
+**Fix:** Use explicit hostname configuration instead:
+```nix
+services.keycloak.settings = {
+  hostname = "<external-domain>";                  # Browser-facing URL
+  hostname-backchannel-dynamic = true;             # Internal clients use request Host
+  # hostname-strict = true;  (default, leave it)
+};
+```
+This way Keycloak uses a fixed hostname for browser-facing operations (login pages,
+token issuer) but allows internal clients (oauth2-proxy's redeem-url, step-ca) to
+reach it via the internal hostname for backchannel operations. This eliminates the
+Host header manipulation risk while still supporting dual-hostname access.
+
+**S5. Keycloak admin console exposed to external users (plan, Phase 3)**
+
+The plan adds a `/auth` proxy location on surtr that forwards all `/auth/*` requests
+to the Keycloak microvm. This includes `/auth/admin/` — the Keycloak admin console.
+External users can reach the admin login page and attempt credential attacks.
+
+**Fix:** Block the admin console path in surtr's nginx:
+```nginx
+location /auth/admin/ {
+    return 403;
+}
+location /auth/realms/homelab/protocol/ {
+    # Allow: OIDC endpoints needed by oauth2-proxy and user browsers
+    proxy_pass https://<keycloak-host>.local/auth/realms/homelab/protocol/;
+    ...
+}
+```
+Whitelist only the paths external users need:
+- `/auth/realms/homelab/protocol/openid-connect/*` (login, token, certs, userinfo)
+- `/auth/realms/homelab/login-actions/*` (login forms, consent)
+- `/auth/resources/*` (Keycloak static assets: CSS, JS, images for login theme)
+
+Block everything else (`/auth/admin/*`, `/auth/realms/master/*`, other realms).
+
+**S6. OIDC issuer mismatch between proxy paths (plan, Phase 3)**
+
+The plan's surtr `/auth` proxy forwards `Host $host` (the external domain) to
+Keycloak. If Keycloak's hostname is configured correctly per S4 above, the issuer in
+tokens will be `https://<external-domain>/auth/realms/homelab`. But oauth2-proxy's
+`oidc-issuer-url` is set to `https://<keycloak-host>.local/auth/realms/homelab`.
+
+Token validation will fail: oauth2-proxy fetches the OIDC discovery document from the
+internal URL (issuer = internal hostname), but the ID token's `iss` claim contains
+the external hostname.
+
+**Fix:** With the `hostname` / `hostname-backchannel-dynamic` approach from S4:
+- Set `oidc-issuer-url` in oauth2-proxy to `https://<external-domain>/auth/realms/homelab`
+  (matches what Keycloak puts in tokens for browser-initiated flows)
+- Set `redeem-url` and `oidc-jwks-url` to the internal hostname (backchannel, which
+  Keycloak serves with `hostname-backchannel-dynamic = true`)
+- Alternatively, configure oauth2-proxy to skip issuer verification
+  (`--insecure-oidc-skip-issuer-verification`), but this weakens security
+
+The cleanest approach is to ensure the issuer is consistent: Keycloak always stamps
+tokens with the external domain, and oauth2-proxy's `oidc-issuer-url` matches.
+
+### High — Should fix
+
+**S7. `passAccessToken = true` + `set-authorization-header = true` (surtr/proxy.nix:71,77)**
+
+oauth2-proxy passes the Keycloak access token to every backend service in the
+`Authorization` header and `X-Forwarded-Access-Token` header. If any backend service
+is compromised, the attacker obtains valid Keycloak access tokens for every user who
+accesses that service. These tokens can be used to:
+- Access other Keycloak-protected services (if `skip-jwt-bearer-tokens` is enabled)
+- Query Keycloak's userinfo endpoint to enumerate user data
+- Act as the user against any service that trusts Keycloak tokens
+
+**Fix:** Disable unless a specific backend needs it:
+```nix
+passAccessToken = false;
+extraConfig = {
+  "set-authorization-header" = false;
+};
+```
+If a specific backend needs the token (e.g., for user identity), pass it selectively
+via per-location nginx configuration rather than globally.
+
+**S8. SSH port forward from wg-ba to surtr:22 (yggdrasil/default.nix:76-82)**
+
+The current firewall config forwards port 22 from the wg-ba WireGuard tunnel directly
+to surtr's SSH daemon. wg-ba connects to the cloud host, which is internet-facing.
+If the cloud host is compromised, the attacker gets direct SSH access to surtr (gated
+only by SSH authentication, not by OAuth).
+
+This is outside the scope of this plan but is part of the same attack surface: the
+cloud host is the entry point for both web traffic (via HTTP) and SSH (via port
+forward).
+
+**Recommendation:** Remove the SSH port forward. Use WireGuard VPN (wg-vpn) for
+administrative SSH access instead — wg-vpn is trusted and intended for direct device
+access. If SSH from the cloud host is operationally required, restrict it with
+`AllowUsers` or a bastion pattern, and require key-only auth (no passwords).
+
+**S9. ACME provisioner has no authorization (gridr/modules/auth.nix:99-103)**
+
+step-ca's ACME provisioner has no access control beyond network reachability and the
+certificate policy (`*.local`, `10.0.0.0/16`, etc.). After the migration, any vDMZ
+host that can reach the Keycloak microvm's `/acme` proxy can request certificates for
+**any** `*.local` hostname — including `keycloak.local`, `alfheim.local`, or
+`yggdrasil.local`.
+
+A compromised vDMZ service (e.g., a vulnerable web app on bragi) could:
+1. Request a TLS certificate for `keycloak.local`
+2. Use it to MITM internal traffic (limited impact since vDMZ can't route to vINFRA
+   arbitrarily, but still a certificate integrity concern)
+
+**Fix options:**
+- **ACME account binding:** Require ACME accounts to be pre-registered (step-ca
+  supports external account binding)
+- **Narrower certificate policy per zone:** If possible, restrict the ACME
+  provisioner so vDMZ-sourced requests can only get certs for `*.local` names that
+  correspond to actual vDMZ services (e.g., `surtr.local`, `bragi.local`). This may
+  require multiple ACME provisioners or a webhook authorizer.
+- **IP-based policy in step-ca:** step-ca supports policy per provisioner; tie
+  allowed DNS names to the source network. (step-ca may not support source-IP-based
+  policy natively — investigate.)
+- **Minimum viable:** Accept the risk for now, since the firewall rule already
+  constrains which hosts can reach the ACME endpoint, and the cert policy is limited
+  to `*.local`. Document as a known risk.
+
+### Medium — Defense in depth
+
+**S10. `email.domains = ["*"]` (surtr/proxy.nix:64)**
+
+oauth2-proxy allows any email domain. Since Keycloak is the only identity source and
+user creation is manual, this is low risk in practice — but it removes a
+defense-in-depth layer.
+
+**Fix:** Set to a specific domain once user accounts use a consistent email domain.
+Alternatively, use `--allowed-groups` to restrict access by Keycloak group membership
+(more granular than email domain filtering).
+
+**S11. No rate limiting on externally-reachable endpoints**
+
+The oauth2-proxy login flow, Keycloak login page, and ACME endpoint are all reachable
+from the internet (via wg-ba → surtr). There is no network-level rate limiting.
+Keycloak has built-in brute force protection (enabled in the plan's realm config), but:
+- oauth2-proxy itself has no rate limiting
+- nginx on surtr has no `limit_req` zones configured
+- A flood of requests could exhaust resources on surtr or the Keycloak microvm
+
+**Fix:** Add nginx rate limiting on surtr for auth-related paths:
+```nginx
+limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/s;
+
+location /oauth2/ {
+    limit_req zone=auth burst=20;
+    ...
+}
+location /auth/ {
+    limit_req zone=auth burst=20;
+    ...
+}
+```
+
+**S12. vDMZ → Keycloak firewall rule is zone-wide (plan)**
+
+The plan's firewall rule allows `iifname = "vDMZ.br0"` → Keycloak microvm. This
+means any current or future vDMZ host can reach Keycloak. While all vDMZ hosts with
+ACME need this, a compromised host could also hit Keycloak's OIDC endpoints.
+
+**Fix (optional):** Restrict source IPs to known vDMZ hosts:
+```nix
+{
+  iifname = "vDMZ.br0";
+  oifname = "vINFRA.br0";
+  ip.saddr = { "10.0.100.40" "10.0.100.50" "10.0.100.51" };  # surtr, bragi, njord
+  ip.daddr = "<keycloak-microvm-ip>";
+  tcp.dport = 443;
+  verdict = "accept";
+}
+```
+This adds maintenance overhead (must update when adding vDMZ hosts) but limits blast
+radius. Whether this is worth it depends on how many vDMZ hosts there will be.
+
+**S13. X-Forwarded-For trust chain across multiple proxies**
+
+The external access path has three proxy hops: cloud host nginx → surtr nginx →
+Keycloak microvm nginx. Each adds `X-Forwarded-For`. Keycloak needs to know how
+many hops to trust (`proxy-headers = "forwarded|xforwarded"` is configured but
+without a trusted proxy count). If Keycloak trusts all `X-Forwarded-For` entries,
+an attacker can spoof their source IP by including a fake `X-Forwarded-For` header
+in the original request.
+
+**Fix:** Configure the cloud host nginx to strip/overwrite `X-Forwarded-For` (set
+it rather than append). On surtr and the Keycloak microvm, use
+`proxy_set_header X-Forwarded-For $remote_addr` (not `$proxy_add_x_forwarded_for`)
+to prevent spoofing from earlier hops, or configure trusted proxy addresses.
+
+### Low / Informational
+
+**S14. Cookie domain scoping**
+
+The commented-out `cookie.domain` in surtr's config means cookies are scoped to the
+request's domain. For external access, this could mean cookies scoped to the external
+domain don't apply to `surtr.local`, and vice versa. This is more of a functionality
+issue than security, but misconfigured cookie domains can lead to cookies leaking to
+unintended subdomains.
+
+**Recommendation:** Explicitly set `cookie.domain` to match the access pattern
+(external domain for external access, `.local` for internal).
+
+**S15. Revocation latency**
+
+When a user is disabled in Keycloak, existing oauth2-proxy cookies remain valid until
+the next refresh. With `cookie.refresh = "1m"`, the effective revocation window is
+~1 minute (the refresh call to Keycloak will fail, invalidating the session). For SSH
+certificates, the window is the certificate lifetime (12h in the SSH cert plan). This
+is acceptable for a homelab but should be documented.
+
+**S16. alfheim's auth_request passes Host as `$host` (alfheim/modules/proxy.nix:32,45)**
+
+alfheim's nginx sends `Host: alfheim.local` to surtr's oauth2-proxy for auth_request
+calls. oauth2-proxy may use this Host header for redirect construction, potentially
+sending users to `alfheim.local/oauth2/...` instead of `surtr.local/oauth2/...`. This
+is a functionality concern more than security, but could cause confused redirect loops
+if not tested carefully.
+
+### Summary of required changes to the plan
+
+| ID | Finding | Plan section to update |
+|----|---------|----------------------|
+| S1 | `cookie.secure = true` | Phase 1 (surtr proxy config) |
+| S2 | HTTPS redirect URL | Phase 1 (surtr proxy config) |
+| S3 | Remove `skip-jwt-bearer-tokens` | Phase 1 (surtr proxy config) |
+| S4 | Use `hostname` + `hostname-backchannel-dynamic` instead of `hostname-strict = false` | Phase 3 (External access, Keycloak hostname) |
+| S5 | Block admin console in surtr proxy | Phase 3 (External access, surtr /auth proxy) |
+| S6 | Align OIDC issuer URL with Keycloak hostname | Phase 3 (External access, oauth2-proxy URLs) |
+| S7 | Disable `passAccessToken` / `set-authorization-header` | Phase 1 (surtr proxy config) |
+| S8 | Remove SSH port forward from wg-ba | Separate task (not strictly this plan) |
+| S9 | Investigate ACME provisioner authorization | Phase 1 (step-ca config) |
+| S10 | Replace `email.domains = ["*"]` with group-based access | Phase 2 (realm restructuring) |
+| S11 | Add nginx rate limiting | Phase 3 (surtr nginx config) |
+| S12 | Consider narrowing firewall source IPs | Phase 1 (firewall rules) |
+| S13 | Fix X-Forwarded-For trust chain | Phase 3 (proxy chain config) |
 
 ---
 
