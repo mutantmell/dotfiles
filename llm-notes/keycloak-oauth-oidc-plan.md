@@ -811,7 +811,122 @@ For each new service:
 > to HTTP(S), the services behind surtr are internet-facing and require hardening
 > appropriate for that exposure.
 
-### Critical — Must fix before external access
+### Architectural assessment
+
+**What the plan gets right:**
+
+The core trust model is sound. The architecture establishes a clear security boundary:
+external traffic enters through a single chokepoint (surtr on vDMZ), must pass through
+OAuth2 authentication before reaching any backend, and the identity provider (Keycloak)
+lives on a more privileged zone (vINFRA) behind an explicit firewall rule. This is the
+right topology — the thing that makes authorization decisions should not be on the same
+trust level as the things it's protecting.
+
+Separating step-ca and Keycloak into distinct microvms is a good call. Keycloak's
+attack surface (JVM, PostgreSQL, admin console, complex web UI) is orders of magnitude
+larger than step-ca's (a Go binary with a simple API). CA key material deserves
+isolation from the most complex component on the network.
+
+The zone-based firewall model with explicit `extraForwardRules` for cross-zone access
+is the right pattern. The default-deny posture (untrusted cannot reach management)
+means new vDMZ services don't automatically gain access to Keycloak — an explicit rule
+must be added.
+
+**Where the architecture has structural tension:**
+
+1. **The ACME proxy co-location trades isolation for convenience.** The plan routes
+   ACME traffic through the Keycloak microvm's nginx (`/acme` → step-ca). This means
+   the Keycloak microvm is in the critical path for both authentication AND certificate
+   issuance. A successful attack against the Keycloak microvm (e.g., via a Keycloak CVE
+   or JVM exploit) gives the attacker not only the identity provider but also a proxy hop
+   toward the CA. The attacker can't reach step-ca's key material directly (it's a
+   separate microvm), but they can request certificates through the ACME proxy and
+   potentially intercept OIDC ↔ step-ca backchannel traffic.
+
+   This is an acceptable trade-off for a homelab — the alternative (a third vINFRA
+   microvm just for ACME proxying, or a separate firewall rule from vDMZ directly to
+   step-ca) adds operational complexity for marginal security gain. But it's worth
+   acknowledging: the Keycloak microvm is the highest-value target on vINFRA because
+   compromising it affects both auth and cert issuance.
+
+2. **surtr is a high-value target with a large role.** surtr handles: TLS termination
+   for external traffic, oauth2-proxy (authentication decisions), nginx reverse proxy
+   to all backends, the `/auth` Keycloak proxy for external users, and (currently) SSH
+   access from wg-ba. That's a lot of responsibility for one microvm on the least-trusted
+   internal zone. If surtr is compromised, the attacker gets:
+   - Access to every user's Keycloak access tokens (via `passAccessToken`, S7)
+   - The ability to bypass OAuth for backend access (surtr's nginx can proxy directly)
+   - A foothold on vDMZ with network access to Keycloak on vINFRA
+   - SSH daemon access (via port forward, S8)
+
+   The mitigation is that surtr is the *right* place for these responsibilities — it's
+   the choke point by design. But the plan should treat surtr as a hardened bastion:
+   minimal packages installed, no unnecessary services, tight firewall egress rules, and
+   the fixes from S1-S7 applied. Consider whether surtr should have any outbound access
+   beyond what's strictly needed (Keycloak:443, backend services, DNS).
+
+3. **The dual-hostname pattern (internal + external) adds fragile complexity.** The
+   plan requires Keycloak to serve two audiences (internal LAN users via
+   `keycloak.local`, external users via `<external-domain>`) and oauth2-proxy to use
+   split URLs (external login-url, internal redeem-url). This works, but every component
+   in the chain must agree on which hostname to use when:
+   - Keycloak's `hostname` setting determines the issuer in tokens
+   - oauth2-proxy's `oidc-issuer-url` must match the token issuer
+   - `login-url` must be browser-reachable
+   - `redeem-url` must be server-reachable
+   - Cookie domains must match the access domain
+   - Redirect URIs must match what Keycloak expects
+
+   A misconfiguration in any one of these causes authentication failures that are
+   notoriously difficult to debug (OIDC error messages are often opaque). The
+   `hostname` + `hostname-backchannel-dynamic` approach (S4) is the cleanest solution,
+   but it still requires careful testing of both access paths (internal and external)
+   after every configuration change. Consider writing a simple integration test (curl
+   the OIDC discovery endpoint from both paths, verify the issuer matches).
+
+4. **The "compromised cloud host" threat model deserves explicit treatment.** The cloud
+   host is internet-facing and the least trusted component in the chain. The plan
+   correctly describes it as a "dumb pipe" but doesn't fully analyze what a compromised
+   cloud host can do:
+   - **Can do:** See encrypted WireGuard traffic (opaque), attempt brute-force against
+     the OAuth login page, attempt to exploit surtr's nginx/TLS stack through the tunnel.
+   - **Can do (currently):** SSH directly to surtr via the port forward (S8).
+   - **Cannot do:** Decrypt WireGuard traffic without the private key, bypass OAuth
+     (assuming S3 is fixed), reach anything other than surtr (firewall restricts wg-ba
+     to surtr's IP).
+   - **Cannot do (but should be verified):** Reach hosts outside vDMZ via the tunnel.
+     The firewall rule `{ iifname = "wg-ba"; ip.daddr = "10.0.100.40"; verdict = "accept"; }`
+     restricts wg-ba traffic to surtr specifically. However, the other rule
+     `{ iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }` allows
+     vDMZ → wg-ba (for return traffic). Confirm that the nftables rules are stateful and
+     that this doesn't create an unintended path.
+
+   The cloud host threat model is overall sound: even full compromise yields only an
+   OAuth login page and (with S8 fixed) no direct service access. The WireGuard tunnel +
+   firewall + OAuth form a reasonable defense-in-depth stack for a homelab.
+
+5. **Single point of failure: Keycloak availability.** If the Keycloak microvm goes
+   down, oauth2-proxy cannot validate sessions (refresh fails after `cookie.refresh`
+   interval), new logins are impossible, and step-ca's OIDC provisioner stops working.
+   ACME renewals also fail (since they're proxied through the same microvm). This isn't a
+   security concern per se, but availability is part of the security posture — if
+   Keycloak goes down and an operator bypasses OAuth to restore access, that bypass could
+   leave a hole.
+
+   For a homelab, this is acceptable. Don't build HA Keycloak. But do ensure that
+   recovery is well-documented and doesn't require disabling security controls. Keycloak
+   data (PostgreSQL) should be backed up regularly; recovery means restoring the microvm
+   from backup or re-provisioning from Nix config + database backup.
+
+**Overall verdict:** The architecture is sound for a homelab. The trust boundaries are
+in the right places, the firewall model is restrictive by default, and the
+identity provider is appropriately isolated from the DMZ. The main risks are
+implementation-level (the S1-S13 findings below) rather than architectural. The two
+structural points worth tracking are: surtr's outsized role as the internet-facing
+bastion, and the ACME proxy co-location on the Keycloak microvm. Neither requires
+architectural changes, but both warrant extra care during implementation.
+
+### Specific findings: Critical — Must fix before external access
 
 **S1. `cookie.secure = false` in oauth2-proxy (surtr/proxy.nix:69)**
 
@@ -927,7 +1042,7 @@ the external hostname.
 The cleanest approach is to ensure the issuer is consistent: Keycloak always stamps
 tokens with the external domain, and oauth2-proxy's `oidc-issuer-url` matches.
 
-### High — Should fix
+### Specific findings: High — Should fix
 
 **S7. `passAccessToken = true` + `set-authorization-header = true` (surtr/proxy.nix:71,77)**
 
@@ -992,7 +1107,7 @@ A compromised vDMZ service (e.g., a vulnerable web app on bragi) could:
   constrains which hosts can reach the ACME endpoint, and the cert policy is limited
   to `*.local`. Document as a known risk.
 
-### Medium — Defense in depth
+### Specific findings: Medium — Defense in depth
 
 **S10. `email.domains = ["*"]` (surtr/proxy.nix:64)**
 
@@ -1061,7 +1176,7 @@ it rather than append). On surtr and the Keycloak microvm, use
 `proxy_set_header X-Forwarded-For $remote_addr` (not `$proxy_add_x_forwarded_for`)
 to prevent spoofing from earlier hops, or configure trusted proxy addresses.
 
-### Low / Informational
+### Specific findings: Low / Informational
 
 **S14. Cookie domain scoping**
 
