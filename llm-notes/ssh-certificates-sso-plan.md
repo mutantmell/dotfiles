@@ -100,12 +100,12 @@ sequenceDiagram
     participant step-ca
     participant sshd as sshd (target host)
 
-    Admin->>Browser: step ssh login admin@internal
+    Admin->>Browser: step ssh login admin@home.local
     Browser->>Keycloak: Login (password + MFA)
     Keycloak-->>step-ca: OIDC token
     step-ca-->>Admin: Signed SSH certificate<br/>(principal: "admin", validity: 12h,<br/>extensions: permit-pty, permit-agent-forwarding)
     Note over Admin: Cert written to<br/>~/.ssh/id_ed25519-cert.pub
-    Admin->>sshd: ssh root@yggdrasil.internal
+    Admin->>sshd: ssh root@yggdrasil.local
     sshd->>sshd: Verify cert against TrustedUserCAKeys<br/>Check "admin" principal is in /etc/ssh/auth_principals/root
     sshd-->>Admin: Root access granted
 ```
@@ -172,19 +172,19 @@ flowchart LR
 
 ```bash
 # Authenticate to Keycloak (no browser)
-TOKEN=$(curl -s -X POST https://auth.mutantmell.net/auth/realms/homelab/protocol/openid-connect/token \
+TOKEN=$(curl -s -X POST https://auth.home.local/realms/home/protocol/openid-connect/token \
   -d grant_type=client_credentials \
-  -d client_id=cicd-deploy \
+  -d client_id=cicd-server \
   -d client_secret="$CICD_CLIENT_SECRET" \
   | jq -r .access_token)
 
 # Exchange token for short-lived SSH certificate
-step ssh certificate cicd@internal /tmp/cicd_key \
+step ssh certificate cicd@home.local /tmp/cicd_key \
   --provisioner keycloak --token "$TOKEN" \
   --not-after=1h
 
 # Deploy using the cert (logs in as root, principal "deploy" in cert)
-ssh -i /tmp/cicd_key root@target-host.internal "deploy-image.sh $IMAGE_TAG"
+ssh -i /tmp/cicd_key root@target-host.local "deploy-image.sh $IMAGE_TAG"
 ```
 
 ### Principals and least privilege
@@ -255,7 +255,7 @@ services.openssh.extraConfig = ''
 
 **Client-side** — one line in `~/.ssh/known_hosts` replaces all per-host entries:
 ```
-@cert-authority *.internal.mutantmell.net,*.internal ssh-ed25519 AAAA...CA_PUBLIC_KEY...
+@cert-authority *.home.local ssh-ed25519 AAAA...CA_PUBLIC_KEY...
 ```
 
 No TOFU prompt, no per-host `known_hosts` entries needed.
@@ -393,7 +393,7 @@ This means:
 - Covered by the [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) (Phase 1):
   dedicated vINFRA microvm with Keycloak, PostgreSQL, nginx
 - Configure `homelab` realm, register `step-ca` client, users, MFA policies
-- Accessible at `auth.mutantmell.net` (split-horizon DNS resolves to vINFRA)
+- Expose on internal DNS: `auth.home.local`
 
 ### Phase 2: Deploy step-ca as a vINFRA microvm
 - Provision a dedicated microvm on an existing NixOS host (e.g. vanaheim or
@@ -411,9 +411,8 @@ This means:
   with the CA, producing a host certificate
 - Deploy host certificates via `modules/common/ssh-ca.nix` (shared module
   adding `HostCertificate` and `TrustedUserCAKeys` to sshd config)
-- Configure admin `~/.ssh/known_hosts` with
-  `@cert-authority *.internal.mutantmell.net,*.internal` to trust the CA for
-  host verification
+- Configure admin `~/.ssh/known_hosts` with `@cert-authority *.home.local`
+  to trust the CA for host verification
 - OpenWRT devices: no change (continue using traditional TOFU/key-based auth)
 
 ### Phase 4: Configure user certificate auth on target hosts
