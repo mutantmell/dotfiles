@@ -109,6 +109,13 @@ lightweight, the extra microvm nginx is negligible cost for meaningful isolation
 | step-ca | 1 | 512MB | Small (badger DB, CA keys) | step-ca, nginx (ACME endpoint) |
 | SSH bastion | 1 | 256MB | None (stateless) | sshd only |
 
+> **Note on bastion hosting:** The SSH bastion will likely need to be a VM hosted by
+> Incus rather than a cloud-hypervisor microvm, since it lives on vDMZ (hosted by
+> muspelheim, which runs Incus). We currently only run Incus containers — running an
+> Incus VM is a new capability that needs to be figured out (VM image configuration,
+> NixOS integration, networking with Incus VMs vs containers, etc.). This is a
+> prerequisite for Phase 3.
+
 step-ca's persistent storage holds the CA root key material and the badger database.
 This data is critical — loss means re-provisioning all certificates. Back up alongside
 other infrastructure secrets.
@@ -812,7 +819,8 @@ also on vINFRA:
 **Goal:** Enable authenticated external access to vDMZ services via the cloud host,
 and harden the wg-ba attack surface by splitting SSH to a dedicated bastion.
 
-1. **Provision SSH bastion microvm** on vDMZ (256MB RAM, 1 vCPU, sshd only) (S8)
+1. **Provision SSH bastion VM** on vDMZ via Incus (256MB RAM, 1 vCPU, sshd only) (S8)
+   - Requires figuring out Incus VM configuration (currently only containers)
    - Key-only auth, `AllowUsers`, minimal NixOS profile
    - No persistent storage (stateless)
 2. **Tighten wg-ba firewall rules** (S8)
