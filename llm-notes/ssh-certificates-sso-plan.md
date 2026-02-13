@@ -22,7 +22,7 @@ of what hardware you're using.
 flowchart LR
     Admin["Admin Desktop"]
     KC["Keycloak\n(vINFRA)"]
-    CA["step-ca\n(vMGMT microvm)"]
+    CA["step-ca\n(vINFRA microvm)"]
     Hosts["vMGMT / vINFRA hosts\n(TrustedUserCAKeys)"]
 
     Admin -- "OIDC login" --> KC
@@ -33,20 +33,23 @@ flowchart LR
 
 ### Components
 
-1. **Keycloak** — runs on a vINFRA host (e.g. alfheim alongside DNS, or a
-   dedicated VM). Acts as the OIDC provider. Users authenticate with
-   username + password + MFA (TOTP/WebAuthn).
+1. **Keycloak** — runs on a **dedicated vINFRA microvm** (see the
+   [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) for hosting details).
+   Acts as the OIDC provider. Users authenticate with username + password + MFA
+   (TOTP/WebAuthn). The `step-ca` client is registered in the `homelab` realm.
 
-2. **SSH Certificate Authority (step-ca)** — runs as a **dedicated microvm on a
-   NixOS host**, on the vMGMT network. step-ca (Smallstep) is purpose-built for
-   SSH certificates with native OIDC provisioner support. It holds the root CA
-   key material and issues both user and host certificates.
+2. **SSH Certificate Authority (step-ca)** — runs as a **dedicated microvm on
+   vINFRA** (not vMGMT — vMGMT becomes the locked-down networking gear zone
+   after the zone split). step-ca (Smallstep) is purpose-built for SSH
+   certificates with native OIDC provisioner support. It holds the root CA key
+   material and issues both user and host certificates.
 
    step-ca is infrastructure — it's in the same category as DNS, NTP, and routing.
-   It belongs in the management plane because everything above it (OAuth login,
-   user certificates, host identity) depends on it. A dedicated microvm provides
-   isolation for the CA key material while keeping it lightweight and within the
-   existing NixOS orchestration model.
+   It belongs on vINFRA because everything above it (OAuth login, user
+   certificates, host identity) depends on it, and Keycloak (which step-ca's OIDC
+   provisioner validates against) is also on vINFRA — keeping them intra-zone. A
+   dedicated microvm provides isolation for the CA key material while keeping it
+   lightweight and within the existing NixOS orchestration model.
 
    > **Note:** step-ca is not a hard boot dependency for any host. Hosts load
    > certificates from disk at boot. step-ca only needs to be reachable for
@@ -97,12 +100,12 @@ sequenceDiagram
     participant step-ca
     participant sshd as sshd (target host)
 
-    Admin->>Browser: step ssh login admin@home.local
+    Admin->>Browser: step ssh login admin@internal
     Browser->>Keycloak: Login (password + MFA)
     Keycloak-->>step-ca: OIDC token
     step-ca-->>Admin: Signed SSH certificate<br/>(principal: "admin", validity: 12h,<br/>extensions: permit-pty, permit-agent-forwarding)
     Note over Admin: Cert written to<br/>~/.ssh/id_ed25519-cert.pub
-    Admin->>sshd: ssh root@yggdrasil.local
+    Admin->>sshd: ssh root@yggdrasil.internal
     sshd->>sshd: Verify cert against TrustedUserCAKeys<br/>Check "admin" principal is in /etc/ssh/auth_principals/root
     sshd-->>Admin: Root access granted
 ```
@@ -169,19 +172,19 @@ flowchart LR
 
 ```bash
 # Authenticate to Keycloak (no browser)
-TOKEN=$(curl -s -X POST https://auth.home.local/realms/home/protocol/openid-connect/token \
+TOKEN=$(curl -s -X POST https://auth.mutantmell.net/auth/realms/homelab/protocol/openid-connect/token \
   -d grant_type=client_credentials \
-  -d client_id=cicd-server \
+  -d client_id=cicd-deploy \
   -d client_secret="$CICD_CLIENT_SECRET" \
   | jq -r .access_token)
 
 # Exchange token for short-lived SSH certificate
-step ssh certificate cicd@home.local /tmp/cicd_key \
+step ssh certificate cicd@internal /tmp/cicd_key \
   --provisioner keycloak --token "$TOKEN" \
   --not-after=1h
 
 # Deploy using the cert (logs in as root, principal "deploy" in cert)
-ssh -i /tmp/cicd_key root@target-host.local "deploy-image.sh $IMAGE_TAG"
+ssh -i /tmp/cicd_key root@target-host.internal "deploy-image.sh $IMAGE_TAG"
 ```
 
 ### Principals and least privilege
@@ -252,7 +255,7 @@ services.openssh.extraConfig = ''
 
 **Client-side** — one line in `~/.ssh/known_hosts` replaces all per-host entries:
 ```
-@cert-authority *.home.local ssh-ed25519 AAAA...CA_PUBLIC_KEY...
+@cert-authority *.internal.mutantmell.net,*.internal ssh-ed25519 AAAA...CA_PUBLIC_KEY...
 ```
 
 No TOFU prompt, no per-host `known_hosts` entries needed.
@@ -290,7 +293,7 @@ loaded from disk at boot, no different from a TLS root cert in `/etc/ssl`.
 
 Key rotation (re-signing) is an infrequent, out-of-band operation: the admin runs
 `step ssh certificate` from their workstation and deploys the updated cert. This
-does require step-ca to be reachable, but since step-ca lives on vMGMT alongside
+does require step-ca to be reachable, but since step-ca lives on vINFRA alongside
 the hosts being signed, there is no cross-layer dependency. A systemd timer calling
 `step ssh renew` is a straightforward upgrade path if desired.
 
@@ -387,14 +390,14 @@ This means:
 ## Implementation sketch (for when this becomes active)
 
 ### Phase 1: Deploy Keycloak
-- NixOS module: `services.keycloak`
-- Run on a vINFRA host (alfheim or dedicated VM)
-- Configure realm, users, MFA policies
-- Expose on internal DNS: `auth.home.local`
+- Covered by the [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) (Phase 1):
+  dedicated vINFRA microvm with Keycloak, PostgreSQL, nginx
+- Configure `homelab` realm, register `step-ca` client, users, MFA policies
+- Accessible at `auth.mutantmell.net` (split-horizon DNS resolves to vINFRA)
 
-### Phase 2: Deploy step-ca as a vMGMT microvm
+### Phase 2: Deploy step-ca as a vINFRA microvm
 - Provision a dedicated microvm on an existing NixOS host (e.g. vanaheim or
-  muspelheim), on the vMGMT network
+  muspelheim), on the vINFRA network
 - Generate SSH CA keypair (user CA + host CA — can be the same keypair or
   separate for least-privilege)
 - Configure OIDC provisioner pointing at Keycloak
@@ -408,8 +411,9 @@ This means:
   with the CA, producing a host certificate
 - Deploy host certificates via `modules/common/ssh-ca.nix` (shared module
   adding `HostCertificate` and `TrustedUserCAKeys` to sshd config)
-- Configure admin `~/.ssh/known_hosts` with `@cert-authority *.home.local`
-  to trust the CA for host verification
+- Configure admin `~/.ssh/known_hosts` with
+  `@cert-authority *.internal.mutantmell.net,*.internal` to trust the CA for
+  host verification
 - OpenWRT devices: no change (continue using traditional TOFU/key-based auth)
 
 ### Phase 4: Configure user certificate auth on target hosts
