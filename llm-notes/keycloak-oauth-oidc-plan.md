@@ -25,11 +25,11 @@
 |-----------|------|---------|-------|
 | Keycloak | dedicated microvm | vINFRA | OIDC provider, user directory |
 | step-ca | dedicated microvm | vINFRA | SSH CA + ACME CA, isolated key material |
-| oauth2-proxy + nginx | surtr | vDMZ | Web traffic gating, reverse proxy to backends |
+| oauth2-proxy (external) + nginx | surtr | vDMZ | Web traffic gating for externally-reachable services |
+| oauth2-proxy (internal) + nginx | alfheim | vINFRA | Auth gating for strictly internal services (Adguard, etc.) |
 | SSH bastion | dedicated microvm | vDMZ | SSH-only jump host, reachable from wg-ba |
 | nginx (Keycloak proxy) | Keycloak microvm | vINFRA | Reverse proxy for Keycloak |
 | nginx (ACME endpoint) | step-ca microvm | vINFRA | TLS termination + proxy to step-ca :9443 |
-| nginx (OAuth-gated Adguard) | alfheim | vINFRA | Admin UI with auth_request to surtr |
 
 ### What exists in Keycloak today
 
@@ -134,6 +134,11 @@ other infrastructure secrets.
 │     ├── step-ca (OIDC provisioner validates against Keycloak)   │
 │     └── nginx (/acme → step-ca :9443)                           │
 │                                                                 │
+│   alfheim ────→ Keycloak microvm (OIDC, intra-zone)             │
+│     ├── oauth2-proxy (internal, --allowed-groups=admins)        │
+│     ├── nginx (auth_request → local oauth2-proxy)               │
+│     └── nginx (/adguard → Adguard Home :3000)                   │
+│                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │ vHOME (trusted zone)                                            │
 │   User browsers → Keycloak (trusted → management, allowed)     │
@@ -141,7 +146,7 @@ other infrastructure secrets.
 ├─────────────────────────────────────────────────────────────────┤
 │ vDMZ (untrusted zone)                    [explicit FW rules]    │
 │   surtr ────→ Keycloak microvm (OIDC)                           │
-│     ├── oauth2-proxy (OIDC tokens from Keycloak)                │
+│     ├── oauth2-proxy (external, gates internet-facing traffic)  │
 │     ├── nginx (/auth proxies Keycloak for external users)       │
 │     └── nginx (/ proxies to backend services)                   │
 │   surtr, bragi, hrungnir ────→ step-ca microvm (ACME)           │
@@ -185,16 +190,22 @@ Each service that authenticates against Keycloak needs a registered client:
 
 | Client ID | Type | Grant Types | Purpose | Redirect URIs |
 |-----------|------|-------------|---------|---------------|
-| `oauth2-proxy` | Confidential | Authorization Code | Web traffic gating (surtr) | `https://surtr.local/oauth2/callback`, `https://<external-domain>/oauth2/callback` |
+| `oauth2-proxy` | Confidential | Authorization Code | External web traffic gating (surtr) | `https://surtr.local/oauth2/callback`, `https://<external-domain>/oauth2/callback` |
+| `oauth2-proxy-internal` | Confidential | Authorization Code | Internal service auth gating (alfheim) | `https://alfheim.local/oauth2/callback` |
 | `step-ca` | Confidential | Authorization Code | SSH certificate issuance (interactive) | `http://127.0.0.1:*` (localhost callback for `step ssh login`) |
 | `cicd-deploy` | Confidential | Client Credentials | CI/CD machine-to-machine auth | N/A (no browser redirect) |
-| `adguard-proxy` | (uses oauth2-proxy) | — | Alfheim admin UI protection | Shares `oauth2-proxy` client |
+
+The internal `oauth2-proxy-internal` client is separate from the external `oauth2-proxy`
+client so that each can have independent redirect URIs, group restrictions, and audit
+trails. The internal proxy should use `--allowed-groups=admins` since only administrators
+should access infrastructure UIs like Adguard Home.
 
 Additional clients added per-service as OIDC integrations are enabled (see
 [OIDC Integrations](#oidc-integrations) below).
 
 **Client secrets** are stored in sops-nix on the hosts that need them:
 - `oauth2-proxy` secret → surtr's sops secrets
+- `oauth2-proxy-internal` secret → alfheim's sops secrets
 - `step-ca` OIDC provisioner secret → step-ca microvm's sops secrets
 - `cicd-deploy` secret → CI/CD server's environment (encrypted at rest)
 
@@ -246,8 +257,7 @@ zone-level `accessTo`:
 | wg-ba peers | bastion microvm (vDMZ) | 22 | SSH from cloud host | **Needs explicit rule** (replaces surtr port forward) |
 | wg-ba peers | surtr (vDMZ) | 443 | External web traffic | Already in extraForwardRules |
 | step-ca (vINFRA) | Keycloak microvm (vINFRA) | 443 | OIDC provisioner → Keycloak token validation | Intra-zone (management → management) |
-| alfheim (vINFRA) | surtr (vDMZ) | 443 | nginx auth_request → oauth2-proxy | Allowed (management → untrusted) |
-| alfheim (vINFRA) | Keycloak microvm (vINFRA) | 443 | Direct Keycloak access | Intra-zone (management → management) |
+| alfheim (vINFRA) | Keycloak microvm (vINFRA) | 443 | Internal oauth2-proxy → Keycloak OIDC | Intra-zone (management → management) |
 | User browsers (vHOME) | Keycloak microvm (vINFRA) | 443 | OAuth login page | Allowed (trusted → management) |
 
 The first three rows require explicit firewall rules. The OIDC and ACME rules are
@@ -256,6 +266,11 @@ other). The wg-ba → bastion rule replaces the current wg-ba → surtr SSH port
 moving SSH to a dedicated microvm so surtr can drop its SSH daemon entirely. All
 intra-zone paths work without rules. User browsers on vHOME reach Keycloak via the
 existing `trusted` → `management` `accessTo` rule.
+
+Note that alfheim's auth_request no longer crosses to surtr (vDMZ). With a local
+oauth2-proxy on alfheim, the auth flow is entirely intra-zone (alfheim → Keycloak,
+both on vINFRA). This eliminates the previous management → untrusted dependency for
+internal service authentication.
 
 **Implementation** — add to `extraForwardRules` on yggdrasil:
 
@@ -304,9 +319,10 @@ old blanket `{ iifname = "wg-ba"; ip.daddr = "10.0.100.40"; verdict = "accept"; 
 (which allowed all ports to surtr) and the SSH port forward are both removed. This means
 wg-ba can only reach surtr on :443 and the bastion on :22 — nothing else.
 
-**Note on alfheim → surtr:** alfheim proxies OAuth requests to surtr
-(`https://surtr.local/oauth2/`). Both alfheim and surtr are reachable via zone-level
-`accessTo` (management → untrusted) — no extra rule needed.
+**Note on alfheim:** alfheim now runs its own oauth2-proxy instance for internal
+service auth (see [Internal vs External oauth2-proxy](#internal-vs-external-oauth2-proxy)).
+alfheim's auth flow is entirely intra-zone (alfheim → Keycloak, both on vINFRA) —
+no cross-zone dependency on surtr.
 
 ### ACME endpoint on the step-ca microvm
 
@@ -463,12 +479,68 @@ WireGuard traffic and an OAuth login page — no direct access to backend servic
 For users on vHOME or vINFRA, the flow is direct:
 - Browser goes directly to the Keycloak microvm for OAuth login
   (trusted → management is allowed by `accessTo`)
-- oauth2-proxy on surtr talks to the Keycloak microvm for token exchange
+- For externally-reachable services (Jellyfin, etc.): oauth2-proxy on surtr handles auth
+- For strictly internal services (Adguard, etc.): oauth2-proxy on alfheim handles auth
 - No cloud host or external proxy involved
 
-The oauth2-proxy `login-url` override only affects external access. For internal-only
-services (e.g., alfheim's Adguard UI), the login URL points at the Keycloak microvm's
-internal hostname.
+The oauth2-proxy `login-url` override only affects external access via surtr. The
+internal oauth2-proxy on alfheim always uses the Keycloak microvm's internal hostname.
+
+### Internal vs external oauth2-proxy
+
+Strictly internal services (like Adguard Home's admin UI) use a **dedicated oauth2-proxy
+instance on alfheim** (vINFRA) rather than routing auth_request calls to surtr (vDMZ).
+
+**Why separate proxies:**
+
+The previous design had alfheim (vINFRA, management zone) sending auth_request calls
+to surtr (vDMZ, untrusted zone). This meant a management-zone service depended on an
+untrusted-zone service for authentication decisions — the trust hierarchy flowing in
+the wrong direction. If surtr were compromised, the attacker could manipulate auth
+decisions for Adguard Home (an infrastructure DNS management service), creating a
+privilege escalation path from vDMZ into vINFRA service control.
+
+With a local oauth2-proxy on alfheim:
+- Auth decisions for internal services stay entirely within vINFRA
+- The oauth2-proxy → Keycloak OIDC path is intra-zone (no cross-zone dependency)
+- A surtr compromise has zero impact on internal service authentication
+- The internal proxy can enforce `--allowed-groups=admins` independently of what
+  the external proxy allows
+
+**alfheim oauth2-proxy configuration sketch:**
+
+```nix
+# On alfheim (vINFRA)
+services.oauth2-proxy = {
+  enable = true;
+  provider = "oidc";
+  clientID = "oauth2-proxy-internal";
+  keyFile = config.sops.secrets."oauth2-proxy-internal-keyfile".path;
+  extraConfig = {
+    "oidc-issuer-url" = "https://<keycloak-host>.local/auth/realms/homelab";
+    "allowed-groups" = "admins";         # Only admins access infrastructure UIs
+  };
+  cookie = {
+    secure = true;
+    refresh = "1m";
+    expire = "30m";
+  };
+  redirectURL = "https://alfheim.local/oauth2/callback";
+  email.domains = [ "*" ];               # Controlled by group restriction instead
+};
+```
+
+**What uses which proxy:**
+
+| Service | Proxy | Host | Why |
+|---------|-------|------|-----|
+| Jellyfin | surtr (external) | bragi (vDMZ) | Externally reachable via cloud host |
+| Adguard Home admin | alfheim (internal) | alfheim (vINFRA) | Strictly internal, infrastructure service |
+| Future internal UIs | alfheim (internal) | vINFRA hosts | Infrastructure services should not depend on vDMZ |
+| Future external services | surtr (external) | vDMZ hosts | Externally reachable via cloud host |
+
+Services that support OIDC natively (see [OIDC Integrations](#oidc-integrations)) bypass
+oauth2-proxy entirely and authenticate directly against Keycloak.
 
 ---
 
@@ -518,6 +590,17 @@ it multiple times produces the same result.
       "redirectUris": [
         "https://surtr.local/oauth2/callback",
         "https://EXTERNAL_DOMAIN/oauth2/callback"
+      ],
+      "defaultClientScopes": ["openid", "profile", "email", "groups"]
+    },
+    {
+      "clientId": "oauth2-proxy-internal",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "redirectUris": [
+        "https://alfheim.local/oauth2/callback"
       ],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
@@ -644,15 +727,19 @@ This can be included in the keycloak-config-cli JSON configuration.
 
 | Service | Host | Integration Type | Priority |
 |---------|------|-----------------|----------|
-| Jellyfin | bragi (vDMZ) | oauth2-proxy (already working) | Done |
-| Adguard Home | alfheim (vINFRA) | oauth2-proxy via surtr (already working) | Done |
+| Jellyfin | bragi (vDMZ) | oauth2-proxy via surtr (already working) | Done |
+| Adguard Home | alfheim (vINFRA) | oauth2-proxy on alfheim (migrating from surtr) | Phase 1 |
 | step-ca | dedicated microvm (vINFRA) | OIDC provisioner (SSH cert plan) | Phase 4 |
 | Future services | Various | Direct OIDC or oauth2-proxy | As deployed |
 
-For services that don't support OIDC natively, the oauth2-proxy pattern used by surtr
-and alfheim scales to any number of backends. Each new backend needs:
+For services that don't support OIDC natively, the oauth2-proxy pattern scales to any
+number of backends. Use the appropriate proxy instance based on zone:
+- **External services (vDMZ):** auth_request to surtr's oauth2-proxy
+- **Internal services (vINFRA):** auth_request to alfheim's oauth2-proxy
+
+Each new backend needs:
 - An nginx `location` block with `auth_request /oauth2/auth`
-- The oauth2-proxy instance on surtr handles all auth (shared across backends)
+- The oauth2-proxy instance on the appropriate host handles auth
 - Optionally, per-location group restrictions via `--allowed-groups` or
   `X-Auth-Request-Groups` header checks
 
@@ -767,8 +854,8 @@ interfaces set). This should be explicitly verified rather than assumed.
 
 The [vMGMT split](./secure-mgmt-vlan-plan.md) moves alfheim to vINFRA. With Keycloak
 also on vINFRA:
-- alfheim's OAuth auth_request to surtr still works (management → untrusted is allowed)
-- alfheim reaching Keycloak is intra-zone (management → management)
+- alfheim's oauth2-proxy talks directly to Keycloak (intra-zone, management → management)
+- No cross-zone dependency on surtr for internal auth decisions
 - The auth infrastructure is consolidated on vINFRA alongside DNS
 
 ---
@@ -794,8 +881,13 @@ also on vINFRA:
    - Remove `skip-jwt-bearer-tokens = true` (S3)
    - Disable `passAccessToken` and `set-authorization-header` unless needed (S7)
    - Replace `email.domains = ["*"]` with `--allowed-groups` once groups exist (S10)
-10. **Update alfheim's proxy config** to point at the new Keycloak microvm
-11. **Verify ACME, OIDC, oauth2-proxy** all work with the new locations
+10. **Deploy oauth2-proxy on alfheim** for internal service auth
+    - Register `oauth2-proxy-internal` client in Keycloak
+    - Store client secret in alfheim's sops secrets
+    - Configure with `--allowed-groups=admins`, `cookie.secure = true`
+    - Update alfheim's nginx to auth_request against the local oauth2-proxy
+      instead of surtr's (eliminates management → untrusted auth dependency)
+11. **Verify ACME, OIDC, both oauth2-proxy instances** all work with the new locations
 12. **Decommission gridr** (or repurpose) once migration is confirmed
 
 ### Phase 2: Realm restructuring
@@ -899,20 +991,26 @@ must be added.
 **Where the architecture has structural tension:**
 
 1. **surtr is a high-value target with a large role.** surtr handles: TLS termination
-   for external traffic, oauth2-proxy (authentication decisions), nginx reverse proxy
-   to all backends, and the `/auth` Keycloak proxy for external users. SSH access from
-   wg-ba is split off to a dedicated bastion microvm (S8), which removes one
-   responsibility. If surtr is compromised, the attacker gets:
+   for external traffic, oauth2-proxy (authentication decisions for external services),
+   nginx reverse proxy to all externally-reachable backends, and the `/auth` Keycloak
+   proxy for external users. SSH access from wg-ba is split off to a dedicated bastion
+   microvm (S8), and internal service auth is split to alfheim's own oauth2-proxy, which
+   together remove two responsibilities from surtr. If surtr is compromised, the attacker
+   gets:
    - Access to every user's Keycloak access tokens (via `passAccessToken`, S7)
-   - The ability to bypass OAuth for backend access (surtr's nginx can proxy directly)
+   - The ability to bypass OAuth for external backend access (surtr's nginx can proxy directly)
    - A foothold on vDMZ with network access to Keycloak on vINFRA
 
-   The mitigation is that surtr is the *right* place for these responsibilities — it's
-   the choke point by design. But the plan should treat surtr as a hardened bastion:
-   minimal packages installed, no unnecessary services (no SSH daemon), tight firewall
-   egress rules, and the fixes from S1-S7 applied. Consider whether surtr should have
-   any outbound access beyond what's strictly needed (Keycloak:443, backend services,
-   DNS).
+   Critically, a surtr compromise does **not** affect internal service authentication —
+   alfheim's oauth2-proxy operates independently on vINFRA, so Adguard Home and other
+   infrastructure UIs remain gated by their own auth path.
+
+   The mitigation is that surtr is the *right* place for external-facing responsibilities
+   — it's the external choke point by design. But the plan should treat surtr as a
+   hardened bastion: minimal packages installed, no unnecessary services (no SSH daemon),
+   tight firewall egress rules, and the fixes from S1-S7 applied. Consider whether surtr
+   should have any outbound access beyond what's strictly needed (Keycloak:443, backend
+   services, DNS).
 
 2. **The dual-hostname pattern (internal + external) adds fragile complexity.** The
    plan requires Keycloak to serve two audiences (internal LAN users via
@@ -1272,13 +1370,12 @@ the next refresh. With `cookie.refresh = "1m"`, the effective revocation window 
 certificates, the window is the certificate lifetime (12h in the SSH cert plan). This
 is acceptable for a homelab but should be documented.
 
-**S16. alfheim's auth_request passes Host as `$host` (alfheim/modules/proxy.nix:32,45)**
+**S16. ~~alfheim's auth_request passes Host as `$host`~~ — Resolved by design**
 
-alfheim's nginx sends `Host: alfheim.local` to surtr's oauth2-proxy for auth_request
-calls. oauth2-proxy may use this Host header for redirect construction, potentially
-sending users to `alfheim.local/oauth2/...` instead of `surtr.local/oauth2/...`. This
-is a functionality concern more than security, but could cause confused redirect loops
-if not tested carefully.
+This issue is eliminated by the internal oauth2-proxy split. alfheim's nginx now
+auth_requests against a local oauth2-proxy instance on alfheim itself, so the Host
+header is always `alfheim.local` — which is correct, since the redirect URI is
+`https://alfheim.local/oauth2/callback`. No cross-host confusion is possible.
 
 ### Summary of required changes to the plan
 
@@ -1310,7 +1407,8 @@ if not tested carefully.
 | `hosts/yggdrasil/default.nix` | 1, 3 | Add surtr → Keycloak + vDMZ → step-ca FW rules (Phase 1); replace wg-ba blanket rule + SSH port forward with per-service rules (Phase 3); add DNS entries |
 | `hosts/muspelheim/guests/surtr/proxy.nix` | 1, 2, 3 | Update OIDC issuer URL, update realm, add `/auth` proxy location, split oauth2-proxy URLs |
 | `hosts/muspelheim/guests/surtr/` (SSH removal) | 3 | Remove SSH daemon / openssh config from surtr |
-| `hosts/yggdrasil/guests/alfheim/modules/proxy.nix` | 1 | Update OAuth proxy URLs to Keycloak microvm |
+| `hosts/yggdrasil/guests/alfheim/modules/proxy.nix` | 1 | Deploy local oauth2-proxy, update nginx auth_request to local proxy (remove surtr dependency) |
+| `hosts/yggdrasil/guests/alfheim/sops.nix` | 1 | Add `oauth2-proxy-internal` client secret |
 | Per-host ACME configs | 1 | Update ACME server URL from gridr.local to step-ca microvm |
 | `hosts/muspelheim/guests/surtr/sops.nix` | 2 | Update oauth2-proxy key file for new realm |
 | gridr config (retire/repurpose) | 1 | Remove Keycloak, step-ca, and associated nginx/sops config |
