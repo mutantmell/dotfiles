@@ -137,7 +137,8 @@ other infrastructure secrets.
 │     └── nginx (/acme → step-ca :9443)                           │
 │                                                                 │
 │   alfheim ────→ Keycloak microvm (OIDC, intra-zone)             │
-│     ├── Unbound (split-horizon DNS for mutantmell.net)          │
+│     ├── Unbound (split-horizon: mutantmell.net, *.internal,     │
+│     │   *.internal.mutantmell.net)                              │
 │     ├── oauth2-proxy (internal, --allowed-groups=admins)        │
 │     ├── nginx (auth_request → local oauth2-proxy)               │
 │     └── nginx (/adguard → Adguard Home :3000)                   │
@@ -198,7 +199,7 @@ Each service that authenticates against Keycloak needs a registered client:
 | Client ID | Type | Grant Types | Purpose | Redirect URIs |
 |-----------|------|-------------|---------|---------------|
 | `oauth2-proxy` | Confidential | Authorization Code | External web traffic gating (surtr) | `https://mutantmell.net/oauth2/callback` |
-| `oauth2-proxy-internal` | Confidential | Authorization Code | Internal service auth gating (alfheim) | `https://alfheim.local/oauth2/callback` |
+| `oauth2-proxy-internal` | Confidential | Authorization Code | Internal service auth gating (alfheim) | `https://alfheim.internal.mutantmell.net/oauth2/callback` |
 | `step-ca` | Confidential | Authorization Code | SSH certificate issuance (interactive) | `http://127.0.0.1:*` (localhost callback for `step ssh login`) |
 | `cicd-deploy` | Confidential | Client Credentials | CI/CD machine-to-machine auth | N/A (no browser redirect) |
 
@@ -346,7 +347,7 @@ services.nginx = {
   recommendedTlsSettings = true;
   recommendedProxySettings = true;
 
-  virtualHosts."${config.networking.hostName}.local" = {
+  virtualHosts."${config.networking.hostName}.internal.mutantmell.net" = {
     forceSSL = true;
     enableACME = true;  # Bootstrap via step-ca's own ACME (localhost)
 
@@ -363,42 +364,52 @@ services.nginx = {
 };
 ```
 
-All ACME clients use `https://<step-ca-host>.local/acme/acme/directory` as their ACME
-server URL. This is a direct path — no intermediate proxy through Keycloak.
+All ACME clients use `https://<step-ca-host>.internal.mutantmell.net/acme/acme/directory`
+(or `https://<step-ca-host>.internal/acme/acme/directory` for short) as their ACME server
+URL. This is a direct path — no intermediate proxy through Keycloak.
 
 ---
 
 ## DNS and Naming Strategy
 
-### Problem: dual-hostname split logic
+### Problem: dual-hostname split logic and `.local` fragility
 
 Services accessible from both the LAN and the internet need a consistent identity. If
-internal users use `*.local` hostnames and external users use `mutantmell.net`, every
-component that bridges both audiences needs conditional configuration: oauth2-proxy
-needs separate `login-url` (external hostname) and `redeem-url` (internal hostname),
-Keycloak needs dual-hostname mode (`hostname` + `hostname-backchannel-dynamic`), cookie
-domains vary by access path, and OIDC issuer validation requires careful matching
-between what Keycloak stamps in tokens and what oauth2-proxy expects. A misconfiguration
-in any single component causes opaque authentication failures.
+internal users use one set of hostnames and external users use another, every component
+that bridges both audiences needs conditional configuration: oauth2-proxy needs separate
+`login-url` (external hostname) and `redeem-url` (internal hostname), Keycloak needs
+dual-hostname mode (`hostname` + `hostname-backchannel-dynamic`), cookie domains vary by
+access path, and OIDC issuer validation requires careful matching between what Keycloak
+stamps in tokens and what oauth2-proxy expects. A misconfiguration in any single
+component causes opaque authentication failures.
 
-### Solution: split-horizon DNS with canonical external names
+Additionally, `.local` is reserved by RFC 6762 for mDNS (multicast DNS / Bonjour /
+Avahi). Using it with unicast DNS (Unbound) creates a protocol conflict —
+systemd-resolved may route `.local` queries to mDNS instead of the configured DNS
+server, and macOS always prefers mDNS for `.local`. This works today by accident of
+client configuration but is fragile.
 
-Use the external domain (`mutantmell.net`) as the canonical name for any service that
-is accessible externally. Internal DNS (Unbound on alfheim) resolves these names to
-internal IPs, so LAN clients reach the same services directly without traversing the
-internet or the cloud host.
+### Solution: split-horizon DNS with `mutantmell.net` naming hierarchy
 
-Services that are strictly internal (AdGuard Home on alfheim, future vINFRA admin UIs)
-keep their `.local` names. Only services that need external accessibility get a
-`mutantmell.net` name.
+Use `mutantmell.net` as the root of all DNS naming:
+
+- **Externally-accessible services** use `mutantmell.net` subdomains directly
+  (e.g., `auth.mutantmell.net`). Internal DNS resolves these to internal IPs via
+  split-horizon; external DNS resolves them to the cloud host.
+- **Internal-only hosts** use `internal.mutantmell.net` subdomains as their canonical
+  name (e.g., `alfheim.internal.mutantmell.net`), with `.internal` as a short
+  convenience alias (e.g., `alfheim.internal`). Both resolve to the same IP. The
+  `.internal` TLD was reserved by ICANN (2024) for private network use — no collision
+  risk, no mDNS conflict.
 
 ### Naming scheme
 
-| Name | Internal DNS target | External DNS target | Service |
-|------|-------------------|-------------------|---------|
-| `auth.mutantmell.net` | Keycloak microvm (vINFRA) | Cloud host → surtr → Keycloak | OIDC provider |
-| `mutantmell.net` | surtr (vDMZ) | Cloud host → surtr | Externally-reachable services |
-| `*.local` | Per Unbound config | N/A (not resolvable) | Internal-only services |
+| Name | Zone type | Internal DNS target | External DNS target | Purpose |
+|------|-----------|-------------------|-------------------|---------|
+| `auth.mutantmell.net` | `transparent` | Keycloak microvm (vINFRA) | Cloud host → surtr → Keycloak | OIDC provider |
+| `mutantmell.net` | `transparent` | surtr (vDMZ) | Cloud host → surtr | Externally-reachable services |
+| `*.internal.mutantmell.net` | `static` | Per host | N/A (NXDOMAIN externally) | Internal-only hosts (canonical) |
+| `*.internal` | `static` | Per host (same IPs) | N/A | Internal-only hosts (short alias) |
 
 > **Note:** `mutantmell.net` is a placeholder — the specific domain/subdomain scheme for
 > externally-reachable services (e.g., `jellyfin.mutantmell.net` vs `mutantmell.net/jellyfin`)
@@ -406,6 +417,11 @@ keep their `.local` names. Only services that need external accessibility get a
 > `auth.mutantmell.net` for Keycloak, since the OIDC issuer URL must be stable and
 > consistent everywhere. `mutantmell.net` pointing to surtr is shown as the simplest
 > starting point.
+
+The `static` zones ensure internal names never leak to the internet: unknown names
+return NXDOMAIN locally without forwarding to upstream resolvers. The `transparent`
+zone for `mutantmell.net` answers overridden names locally but forwards other
+subdomains upstream normally.
 
 ### Why this eliminates split configuration
 
@@ -417,8 +433,8 @@ With split-horizon DNS, all components use the same canonical hostname:
   discovers the rest from the OIDC discovery document.
 - **Keycloak**: `hostname = "auth.mutantmell.net"` with `hostname-strict = true`
   (default). No `hostname-backchannel-dynamic` needed. All tokens have the same issuer.
-- **Cookie domain**: `mutantmell.net` for external services, `.local` for internal
-  services. No ambiguity.
+- **Cookie domain**: `mutantmell.net` for external services, `.internal` (or
+  `.internal.mutantmell.net`) for internal services. No ambiguity.
 - **OIDC issuer**: always `https://auth.mutantmell.net/auth/realms/homelab`, regardless
   of whether the request came from the LAN or the internet.
 
@@ -444,58 +460,122 @@ trust direction.
 
 ### Unbound configuration changes
 
-Add `mutantmell.net` entries to alfheim's Unbound config alongside the existing `.local`
-zone:
+Replace the existing `.local` zone with three zones:
 
 ```nix
-# In alfheim's dns.nix, add to Unbound settings
-local-zone = ''"mutantmell.net." transparent'';
+# In alfheim's dns.nix — replace the existing local-zone/local-data config
+local-zone = [
+  # External domain overrides (split-horizon): answers local-data, forwards the rest
+  ''"mutantmell.net." transparent''
+
+  # Internal hosts (canonical): authoritative, never forwards upstream
+  ''"internal.mutantmell.net." static''
+
+  # Internal hosts (short alias): authoritative, never forwards upstream
+  ''"internal." static''
+];
+
 local-data = [
-  # ... existing .local entries ...
+  # --- Split-horizon overrides for externally-accessible services ---
 
   # Auth (Keycloak) — internal clients connect directly to Keycloak microvm
   ''"auth.mutantmell.net. A <keycloak-microvm-ip>"''
 
   # External services — internal clients connect to surtr
   ''"mutantmell.net. A 10.0.100.40"''
+
+  # --- Internal hosts (canonical + short alias, same IPs) ---
+
+  # Router
+  ''"yggdrasil.internal.mutantmell.net. A 10.0.10.1"''
+  ''"yggdrasil.internal.                 A 10.0.10.1"''
+
+  # DNS (this microvm)
+  ''"alfheim.internal.mutantmell.net.    A 10.0.10.2"''
+  ''"alfheim.internal.                   A 10.0.10.2"''
+
+  # ... same dual-entry pattern for every internal host ...
 ];
 ```
 
-The `transparent` zone type means Unbound answers queries that match `local-data` but
-forwards all other `*.mutantmell.net` queries to the upstream recursive resolver
-normally. This avoids breaking any other subdomains.
+The `static` zones are authoritative: unknown names return NXDOMAIN locally without
+ever forwarding to upstream resolvers. No internal DNS queries leak to the internet.
+The `transparent` zone for `mutantmell.net` answers overridden names locally but
+forwards other subdomains upstream normally.
+
+> **Migration note:** The existing `.local` zone and all its entries are removed
+> entirely. All internal hostnames move to `*.internal.mutantmell.net` (canonical) +
+> `*.internal` (short alias). This is a coordinated change — every host's
+> `networking.hostName`, ACME config, nginx `server_name`, and any hardcoded hostname
+> references must be updated simultaneously. Phase 3 handles this migration.
 
 ### step-CA certificate policy changes
 
-Expand step-CA's certificate policy to allow `mutantmell.net` names:
+Replace the existing `*.local`-only policy to allow the full naming hierarchy:
 
 ```nix
 policy = let
-  allowLocal = {
+  allowInternal = {
     allow = {
-      dns = ["*.local" "*.mutantmell.net" "mutantmell.net"];
+      dns = [
+        "*.internal.mutantmell.net"   # Canonical internal names
+        "*.internal"                   # Short aliases
+        "*.mutantmell.net"             # External-facing names (auth.mutantmell.net, etc.)
+        "mutantmell.net"               # Bare domain
+      ];
       ip = [ "10.0.0.0/16" "10.1.0.0/16" "10.97.0.0/16" ];
     };
   };
 in {
-  x509 = allowLocal;
-  ssh.host = allowLocal;
+  x509 = allowInternal;
+  ssh.host = allowInternal;
 };
 ```
 
-This allows the Keycloak microvm to request a cert for `auth.mutantmell.net`, surtr to
-request a cert for `mutantmell.net`, etc. The same policy narrowing concerns from S9
-apply — a compromised vDMZ host could request a cert for `auth.mutantmell.net`. See
-S9 for mitigations.
+### Dual-SAN certificates
+
+Internal hosts request certificates with both the canonical name and the short alias
+as Subject Alternative Names (SANs). This way TLS works regardless of which name is
+used to access the host:
+
+```
+# Example: alfheim requests a cert via ACME with two SANs:
+#   - alfheim.internal.mutantmell.net  (canonical)
+#   - alfheim.internal                 (short alias)
+```
+
+step-CA's ACME provisioner supports multi-SAN certificate requests natively. The NixOS
+ACME module can request additional SANs via `extraDomainNames`:
+
+```nix
+# Example for alfheim's nginx ACME config
+security.acme.certs."alfheim.internal.mutantmell.net" = {
+  extraDomainNames = [ "alfheim.internal" ];
+};
+```
+
+Externally-accessible hosts (surtr, Keycloak microvm) similarly include both their
+internal and external names as SANs where appropriate:
+
+```nix
+# Keycloak microvm: cert covers both external OIDC name and internal admin name
+security.acme.certs."auth.mutantmell.net" = {
+  extraDomainNames = [ "<keycloak-host>.internal.mutantmell.net" "<keycloak-host>.internal" ];
+};
+```
+
+The same policy narrowing concerns from S9 apply — a compromised vDMZ host could
+request a cert for `auth.mutantmell.net`. See S9 for mitigations.
 
 ### TLS certificate strategy
 
-| Access path | Certificate issuer | Certificate name | Why it's trusted |
+| Access path | Certificate issuer | Certificate SANs | Why it's trusted |
 |------------|-------------------|-----------------|-----------------|
-| LAN → Keycloak | step-CA | `auth.mutantmell.net` | Internal hosts have step-CA root in `security.pki.certificates` |
-| LAN → surtr | step-CA | `mutantmell.net` | Same |
+| LAN → Keycloak (OIDC) | step-CA | `auth.mutantmell.net` + `<keycloak-host>.internal.mutantmell.net` + `<keycloak-host>.internal` | Internal hosts have step-CA root in `security.pki.certificates` |
+| LAN → surtr (services) | step-CA | `mutantmell.net` + `surtr.internal.mutantmell.net` + `surtr.internal` | Same |
+| LAN → alfheim (admin) | step-CA | `alfheim.internal.mutantmell.net` + `alfheim.internal` | Same |
 | Internet → cloud host | Let's Encrypt | `*.mutantmell.net` (or per-subdomain) | Browsers trust LE root |
-| Cloud host → surtr (WireGuard) | step-CA | `mutantmell.net` | Cloud host imports step-CA root |
+| Cloud host → surtr (WireGuard) | step-CA | (same as LAN → surtr) | Cloud host imports step-CA root |
 
 Internal hosts already trust the step-CA root (distributed via `security.pki.certificates`).
 External users never see step-CA certs — the cloud host terminates their TLS with a
@@ -503,21 +583,26 @@ Let's Encrypt certificate and forwards through WireGuard to surtr. The cloud hos
 the step-CA root installed to verify surtr's certificate over the WireGuard-internal
 HTTPS connection.
 
-### What stays on `.local`
+Dual-SAN certs mean both the canonical name (`alfheim.internal.mutantmell.net`) and
+the short alias (`alfheim.internal`) are valid for TLS — no certificate warnings
+regardless of which name is used.
 
-Internal-only services keep `.local` names. The split-horizon DNS only applies to
-services reachable from the internet:
+### Internal-only services
 
-| Service | Hostname | Why |
-|---------|----------|-----|
-| AdGuard Home admin | `alfheim.local` | Strictly internal, infrastructure |
-| Keycloak admin console | `<keycloak-host>.local` | Never exposed externally (S5) |
-| step-CA ACME endpoint | `<step-ca-host>.local` | Internal cert issuance only |
-| Future vINFRA admin UIs | `*.local` | Infrastructure services stay internal |
+Internal-only services use `*.internal.mutantmell.net` (canonical) and `*.internal`
+(short alias). These names are never reachable from the internet:
 
-Keycloak's `.local` hostname is still used for the admin console (accessed only from
-vINFRA/vHOME) and for the nginx vhost on the Keycloak microvm. The `auth.mutantmell.net`
-name is what appears in OIDC configuration and browser redirects.
+| Service | Canonical name | Short alias | Notes |
+|---------|---------------|-------------|-------|
+| AdGuard Home admin | `alfheim.internal.mutantmell.net` | `alfheim.internal` | Strictly internal, infrastructure |
+| Keycloak admin console | `<keycloak-host>.internal.mutantmell.net` | `<keycloak-host>.internal` | Never exposed externally (S5) |
+| step-CA ACME endpoint | `<step-ca-host>.internal.mutantmell.net` | `<step-ca-host>.internal` | Internal cert issuance only |
+| Future vINFRA admin UIs | `*.internal.mutantmell.net` | `*.internal` | Infrastructure services stay internal |
+
+The Keycloak microvm's nginx serves two vhosts: the internal name
+(`<keycloak-host>.internal.mutantmell.net`) for admin console access, and
+`auth.mutantmell.net` for OIDC operations (the name that appears in tokens and
+browser redirects).
 
 ---
 
@@ -586,7 +671,7 @@ virtualHosts."auth.mutantmell.net" = {
 
   # Proxy OIDC endpoints to Keycloak
   locations."/auth" = {
-    proxyPass = "https://<keycloak-host>.local/auth";
+    proxyPass = "https://<keycloak-host>.internal/auth";
     extraConfig = ''
       proxy_set_header Host $host;  # Passes auth.mutantmell.net to Keycloak
       proxy_set_header X-Real-IP $remote_addr;
@@ -615,7 +700,7 @@ virtualHosts."mutantmell.net" = {
   enableACME = true;  # step-CA cert for mutantmell.net
 
   locations."/" = {
-    proxyPass = "https://bragi.local";  # Jellyfin, etc.
+    proxyPass = "https://bragi.internal";  # Jellyfin, etc.
     extraConfig = ''
       auth_request /oauth2/auth;
       # ... proxy headers, websocket support, etc.
@@ -719,7 +804,7 @@ No cloud host, no external routing, no split URLs. Internal users use the same d
 names as external users; only the DNS resolution and network path differ.
 
 For strictly internal services (AdGuard Home, etc.): oauth2-proxy on alfheim handles
-auth using `.local` hostnames. See [Internal vs External oauth2-proxy](#internal-vs-external-oauth2-proxy).
+auth using `.internal` hostnames. See [Internal vs External oauth2-proxy](#internal-vs-external-oauth2-proxy).
 
 ### Internal vs external oauth2-proxy
 
@@ -762,7 +847,7 @@ services.oauth2-proxy = {
     refresh = "1m";
     expire = "30m";
   };
-  redirectURL = "https://alfheim.local/oauth2/callback";
+  redirectURL = "https://alfheim.internal.mutantmell.net/oauth2/callback";
   email.domains = [ "*" ];               # Controlled by group restriction instead
 };
 ```
@@ -836,7 +921,7 @@ it multiple times produces the same result.
       "directAccessGrantsEnabled": false,
       "standardFlowEnabled": true,
       "redirectUris": [
-        "https://alfheim.local/oauth2/callback"
+        "https://alfheim.internal.mutantmell.net/oauth2/callback"
       ],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
@@ -986,7 +1071,7 @@ Each new backend needs:
 ### Account provisioning
 
 User accounts are created dynamically via the Keycloak admin console
-(`https://<keycloak-host>.local/auth/admin/`). No user information is stored in NixOS
+(`https://<keycloak-host>.internal/auth/admin/`). No user information is stored in NixOS
 configuration or the git repository.
 
 **Initial admin account:** Keycloak creates a default admin account on first startup.
@@ -1148,16 +1233,27 @@ also on vINFRA:
 services via the cloud host, and harden the wg-ba attack surface by splitting SSH to
 a dedicated bastion.
 
-1. **Configure split-horizon DNS** on alfheim (Unbound)
-   - Add `mutantmell.net` transparent zone with local-data overrides
-   - `auth.mutantmell.net` → Keycloak microvm IP
-   - `mutantmell.net` → surtr IP (10.0.100.40)
+1. **Migrate DNS from `.local` to `mutantmell.net` hierarchy** on alfheim (Unbound)
+   - Replace `.local` static zone with three zones:
+     - `mutantmell.net` (`transparent`) — split-horizon overrides for external names
+     - `internal.mutantmell.net` (`static`) — canonical internal names
+     - `internal` (`static`) — short convenience aliases
+   - Add dual entries for every host (canonical + short alias)
+   - Add split-horizon overrides: `auth.mutantmell.net` → Keycloak microvm,
+     `mutantmell.net` → surtr (10.0.100.40)
    - Verify resolution from vHOME, vINFRA, and vDMZ clients
-2. **Expand step-CA certificate policy** to allow `*.mutantmell.net` DNS names
-   - Update the ACME provisioner's `allow.dns` to include `*.mutantmell.net` and
-     `mutantmell.net`
-3. **Issue step-CA certs** for `auth.mutantmell.net` (Keycloak microvm) and
-   `mutantmell.net` (surtr) via ACME
+2. **Expand step-CA certificate policy** to allow the full naming hierarchy
+   - `*.internal.mutantmell.net`, `*.internal`, `*.mutantmell.net`, `mutantmell.net`
+3. **Reissue step-CA certs** with new names and dual SANs
+   - Each internal host: `<host>.internal.mutantmell.net` + `<host>.internal`
+   - Keycloak microvm: `auth.mutantmell.net` + `<keycloak-host>.internal.mutantmell.net`
+     + `<keycloak-host>.internal`
+   - surtr: `mutantmell.net` + `surtr.internal.mutantmell.net` + `surtr.internal`
+4. **Update all host configs** that reference `.local` hostnames
+   - nginx `server_name` / virtualHosts
+   - ACME server URLs (`<step-ca-host>.internal.mutantmell.net/acme/...`)
+   - `networking.extraHosts` entries on hosts with hardcoded fallbacks
+   - oauth2-proxy redirect URLs
 4. **Configure Keycloak** `hostname = "auth.mutantmell.net"` (strict mode, no
    `hostname-backchannel-dynamic`)
 5. **Reconfigure surtr's nginx** with two virtual hosts:
@@ -1170,7 +1266,8 @@ a dedicated bastion.
    - `redirectURL = "https://mutantmell.net/oauth2/callback"`
    - `cookie.domain = ".mutantmell.net"`
    - No explicit login-url/redeem-url/oidc-jwks-url overrides needed
-7. **Update alfheim's oauth2-proxy** issuer URL to `auth.mutantmell.net`
+7. **Update alfheim's oauth2-proxy** issuer URL to `auth.mutantmell.net`, redirect URL
+   to `alfheim.internal.mutantmell.net`
 8. **Add nginx rate limiting** on surtr for `/auth/` and `/oauth2/` paths (S11)
 9. **Provision SSH bastion VM** on vDMZ via Incus (256MB RAM, 1 vCPU, sshd only) (S8)
    - Requires figuring out Incus VM configuration (currently only containers)
@@ -1401,7 +1498,7 @@ location /auth/admin/ {
 }
 location /auth/realms/homelab/protocol/ {
     # Allow: OIDC endpoints needed by oauth2-proxy and user browsers
-    proxy_pass https://<keycloak-host>.local/auth/realms/homelab/protocol/;
+    proxy_pass https://<keycloak-host>.internal/auth/realms/homelab/protocol/;
     ...
 }
 ```
@@ -1493,12 +1590,13 @@ access and web traffic gating should not share a host.
 **S9. ACME provisioner has no authorization (gridr/modules/auth.nix:99-103)**
 
 step-ca's ACME provisioner has no access control beyond network reachability and the
-certificate policy (`*.local`, `10.0.0.0/16`, etc.). After the migration, any vDMZ
-host that can reach the step-ca microvm can request certificates for **any** `*.local`
-hostname — including `keycloak.local`, `alfheim.local`, or `yggdrasil.local`.
+certificate policy (`*.internal.mutantmell.net`, `*.mutantmell.net`, etc.). After the
+migration, any vDMZ host that can reach the step-ca microvm can request certificates
+for **any** allowed hostname — including `auth.mutantmell.net`,
+`alfheim.internal.mutantmell.net`, or `yggdrasil.internal`.
 
 A compromised vDMZ service (e.g., a vulnerable web app on bragi) could:
-1. Request a TLS certificate for `keycloak.local`
+1. Request a TLS certificate for `auth.mutantmell.net`
 2. Use it to MITM internal traffic (limited impact since vDMZ can't route to vINFRA
    arbitrarily, but still a certificate integrity concern)
 
@@ -1506,15 +1604,15 @@ A compromised vDMZ service (e.g., a vulnerable web app on bragi) could:
 - **ACME account binding:** Require ACME accounts to be pre-registered (step-ca
   supports external account binding)
 - **Narrower certificate policy per zone:** If possible, restrict the ACME
-  provisioner so vDMZ-sourced requests can only get certs for `*.local` names that
-  correspond to actual vDMZ services (e.g., `surtr.local`, `bragi.local`). This may
-  require multiple ACME provisioners or a webhook authorizer.
+  provisioner so vDMZ-sourced requests can only get certs for names that correspond
+  to actual vDMZ services (e.g., `surtr.internal.mutantmell.net`,
+  `bragi.internal.mutantmell.net`, `mutantmell.net`). This may require multiple ACME
+  provisioners or a webhook authorizer.
 - **IP-based policy in step-ca:** step-ca supports policy per provisioner; tie
   allowed DNS names to the source network. (step-ca may not support source-IP-based
   policy natively — investigate.)
 - **Minimum viable:** Accept the risk for now, since the firewall rule already
-  constrains which hosts can reach the ACME endpoint, and the cert policy is limited
-  to `*.local`. Document as a known risk.
+  constrains which hosts can reach the ACME endpoint. Document as a known risk.
 
 ### Specific findings: Medium — Defense in depth
 
@@ -1562,7 +1660,7 @@ rule to interact with step-ca (requesting certs, see S9).
 {
   iifname = "vDMZ.br0";
   oifname = "vINFRA.br0";
-  ip.saddr = { "10.0.100.40" "10.0.100.50" "10.0.100.51" };  # surtr, bragi, njord
+  ip.saddr = { "10.0.100.40" "10.0.100.50" "10.0.100.51" };  # surtr.internal, bragi.internal, njord.internal
   ip.daddr = "<step-ca-microvm-ip>";
   tcp.dport = 443;
   verdict = "accept";
@@ -1590,13 +1688,13 @@ to prevent spoofing from earlier hops, or configure trusted proxy addresses.
 **S14. ~~Cookie domain scoping~~ — Resolved by DNS strategy**
 
 The original concern was that cookies scoped to the external domain wouldn't apply
-when accessing via `surtr.local`, and vice versa.
+when accessing via a different hostname.
 
 With split-horizon DNS, surtr's service vhost is always `mutantmell.net` — internal
 and external users access it via the same domain name. Set
 `cookie.domain = ".mutantmell.net"` and the cookie works consistently regardless of
-access path. alfheim's oauth2-proxy uses `alfheim.local` with cookies scoped to that
-domain. No ambiguity.
+access path. alfheim's oauth2-proxy uses `alfheim.internal.mutantmell.net` with cookies
+scoped to that domain. No ambiguity.
 
 **S15. Revocation latency**
 
@@ -1610,8 +1708,9 @@ is acceptable for a homelab but should be documented.
 
 This issue is eliminated by the internal oauth2-proxy split. alfheim's nginx now
 auth_requests against a local oauth2-proxy instance on alfheim itself, so the Host
-header is always `alfheim.local` — which is correct, since the redirect URI is
-`https://alfheim.local/oauth2/callback`. No cross-host confusion is possible.
+header is always `alfheim.internal.mutantmell.net` — which is correct, since the
+redirect URI is `https://alfheim.internal.mutantmell.net/oauth2/callback`. No cross-host
+confusion is possible.
 
 ### Summary of required changes to the plan
 
@@ -1645,7 +1744,8 @@ header is always `alfheim.local` — which is correct, since the redirect URI is
 | `hosts/muspelheim/guests/surtr/` (SSH removal) | 3 | Remove SSH daemon / openssh config from surtr |
 | `hosts/yggdrasil/guests/alfheim/modules/proxy.nix` | 1 | Deploy local oauth2-proxy, update nginx auth_request to local proxy (remove surtr dependency) |
 | `hosts/yggdrasil/guests/alfheim/sops.nix` | 1 | Add `oauth2-proxy-internal` client secret |
-| Per-host ACME configs | 1 | Update ACME server URL from gridr.local to step-ca microvm |
+| `hosts/yggdrasil/guests/alfheim/modules/dns.nix` | 3 | Replace `.local` zone with `internal.mutantmell.net` + `internal` + `mutantmell.net` zones |
+| Per-host ACME configs | 1, 3 | Update ACME server URL to step-ca microvm; update cert names from `*.local` to `*.internal.mutantmell.net` with dual SANs |
 | `hosts/muspelheim/guests/surtr/sops.nix` | 2 | Update oauth2-proxy key file for new realm |
 | gridr config (retire/repurpose) | 1 | Remove Keycloak, step-ca, and associated nginx/sops config |
 | `llm-notes/ssh-certificates-sso-plan.md` | — | Update Keycloak and step-ca placement (both vINFRA) |
