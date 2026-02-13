@@ -21,15 +21,16 @@
 
 ## Target Service Placement
 
-| Component | Host | Network | Notes |
-|-----------|------|---------|-------|
-| Keycloak | dedicated microvm | vINFRA | OIDC provider, user directory |
-| step-ca | dedicated microvm | vINFRA | SSH CA + ACME CA, isolated key material |
-| oauth2-proxy (external) + nginx | surtr | vDMZ | Web traffic gating for externally-reachable services |
-| oauth2-proxy (internal) + nginx | alfheim | vINFRA | Auth gating for strictly internal services (Adguard, etc.) |
-| SSH bastion | dedicated microvm | vDMZ | SSH-only jump host, reachable from wg-ba |
-| nginx (Keycloak proxy) | Keycloak microvm | vINFRA | Reverse proxy for Keycloak |
-| nginx (ACME endpoint) | step-ca microvm | vINFRA | TLS termination + proxy to step-ca :9443 |
+| Component | Host | Network | External Name | Notes |
+|-----------|------|---------|--------------|-------|
+| Keycloak | dedicated microvm | vINFRA | `auth.mutantmell.net` | OIDC provider, user directory |
+| step-ca | dedicated microvm | vINFRA | — (internal only) | SSH CA + ACME CA, isolated key material |
+| oauth2-proxy + nginx | surtr | vDMZ | `mutantmell.net` | Web traffic gating for externally-reachable services |
+| oauth2-proxy + nginx | alfheim | vINFRA | — (internal only) | Auth gating for strictly internal services (Adguard, etc.) |
+| SSH bastion | dedicated microvm | vDMZ | — (SSH only) | SSH-only jump host, reachable from wg-ba |
+| nginx (Keycloak proxy) | surtr | vDMZ | `auth.mutantmell.net` | Proxies Keycloak for external users (separate vhost) |
+| nginx (Keycloak local) | Keycloak microvm | vINFRA | — | Local reverse proxy for Keycloak |
+| nginx (ACME endpoint) | step-ca microvm | vINFRA | — | TLS termination + proxy to step-ca :9443 |
 
 ### What exists in Keycloak today
 
@@ -39,6 +40,7 @@
 
 ### What this plan addresses
 
+- DNS and naming strategy (split-horizon DNS with `mutantmell.net` canonical names)
 - Keycloak and step-ca placement on vINFRA (dedicated microvms)
 - OIDC provisioner on step-ca for SSH certificate issuance
 - Declarative realm/client configuration (currently manual)
@@ -126,8 +128,8 @@ other infrastructure secrets.
 ┌─────────────────────────────────────────────────────────────────┐
 │ vINFRA (management zone)                                        │
 │                                                                 │
-│   Keycloak microvm                                              │
-│     ├── Keycloak (OIDC provider)                                │
+│   Keycloak microvm  (auth.mutantmell.net → internal DNS)        │
+│     ├── Keycloak (OIDC provider, hostname=auth.mutantmell.net)  │
 │     └── nginx (/auth → Keycloak :9080)                          │
 │                                                                 │
 │   step-ca microvm                                               │
@@ -135,20 +137,23 @@ other infrastructure secrets.
 │     └── nginx (/acme → step-ca :9443)                           │
 │                                                                 │
 │   alfheim ────→ Keycloak microvm (OIDC, intra-zone)             │
+│     ├── Unbound (split-horizon DNS for mutantmell.net)          │
 │     ├── oauth2-proxy (internal, --allowed-groups=admins)        │
 │     ├── nginx (auth_request → local oauth2-proxy)               │
 │     └── nginx (/adguard → Adguard Home :3000)                   │
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │ vHOME (trusted zone)                                            │
-│   User browsers → Keycloak (trusted → management, allowed)     │
+│   User browsers → auth.mutantmell.net (DNS → Keycloak, direct) │
+│   User browsers → mutantmell.net (DNS → surtr, direct)          │
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │ vDMZ (untrusted zone)                    [explicit FW rules]    │
 │   surtr ────→ Keycloak microvm (OIDC)                           │
-│     ├── oauth2-proxy (external, gates internet-facing traffic)  │
-│     ├── nginx (/auth proxies Keycloak for external users)       │
-│     └── nginx (/ proxies to backend services)                   │
+│     ├── oauth2-proxy (gates internet-facing traffic)            │
+│     ├── nginx vhost: auth.mutantmell.net (Keycloak proxy,       │
+│     │   external users only)                                    │
+│     └── nginx vhost: mutantmell.net (services + oauth2-proxy)   │
 │   surtr, bragi, hrungnir ────→ step-ca microvm (ACME)           │
 │                                                                 │
 │   SSH bastion microvm (sshd only, no other services)            │
@@ -157,6 +162,8 @@ other infrastructure secrets.
 ├─── wg-ba (isolated) ────────────────────────────────────────────┤
 │   Cloud host → SSH:22 → bastion microvm (vDMZ)                  │
 │   Cloud host → HTTPS:443 → surtr (vDMZ)                         │
+│     ├── Host: auth.mutantmell.net → surtr → Keycloak            │
+│     └── Host: mutantmell.net → surtr → backend services         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -190,10 +197,13 @@ Each service that authenticates against Keycloak needs a registered client:
 
 | Client ID | Type | Grant Types | Purpose | Redirect URIs |
 |-----------|------|-------------|---------|---------------|
-| `oauth2-proxy` | Confidential | Authorization Code | External web traffic gating (surtr) | `https://surtr.local/oauth2/callback`, `https://<external-domain>/oauth2/callback` |
+| `oauth2-proxy` | Confidential | Authorization Code | External web traffic gating (surtr) | `https://mutantmell.net/oauth2/callback` |
 | `oauth2-proxy-internal` | Confidential | Authorization Code | Internal service auth gating (alfheim) | `https://alfheim.local/oauth2/callback` |
 | `step-ca` | Confidential | Authorization Code | SSH certificate issuance (interactive) | `http://127.0.0.1:*` (localhost callback for `step ssh login`) |
 | `cicd-deploy` | Confidential | Client Credentials | CI/CD machine-to-machine auth | N/A (no browser redirect) |
+
+Note that `oauth2-proxy` needs only a single redirect URI — split-horizon DNS means
+internal and external users both access surtr via `mutantmell.net`.
 
 The internal `oauth2-proxy-internal` client is separate from the external `oauth2-proxy`
 client so that each can have independent redirect URIs, group restrictions, and audit
@@ -358,6 +368,159 @@ server URL. This is a direct path — no intermediate proxy through Keycloak.
 
 ---
 
+## DNS and Naming Strategy
+
+### Problem: dual-hostname split logic
+
+Services accessible from both the LAN and the internet need a consistent identity. If
+internal users use `*.local` hostnames and external users use `mutantmell.net`, every
+component that bridges both audiences needs conditional configuration: oauth2-proxy
+needs separate `login-url` (external hostname) and `redeem-url` (internal hostname),
+Keycloak needs dual-hostname mode (`hostname` + `hostname-backchannel-dynamic`), cookie
+domains vary by access path, and OIDC issuer validation requires careful matching
+between what Keycloak stamps in tokens and what oauth2-proxy expects. A misconfiguration
+in any single component causes opaque authentication failures.
+
+### Solution: split-horizon DNS with canonical external names
+
+Use the external domain (`mutantmell.net`) as the canonical name for any service that
+is accessible externally. Internal DNS (Unbound on alfheim) resolves these names to
+internal IPs, so LAN clients reach the same services directly without traversing the
+internet or the cloud host.
+
+Services that are strictly internal (AdGuard Home on alfheim, future vINFRA admin UIs)
+keep their `.local` names. Only services that need external accessibility get a
+`mutantmell.net` name.
+
+### Naming scheme
+
+| Name | Internal DNS target | External DNS target | Service |
+|------|-------------------|-------------------|---------|
+| `auth.mutantmell.net` | Keycloak microvm (vINFRA) | Cloud host → surtr → Keycloak | OIDC provider |
+| `mutantmell.net` | surtr (vDMZ) | Cloud host → surtr | Externally-reachable services |
+| `*.local` | Per Unbound config | N/A (not resolvable) | Internal-only services |
+
+> **Note:** `mutantmell.net` is a placeholder — the specific domain/subdomain scheme for
+> externally-reachable services (e.g., `jellyfin.mutantmell.net` vs `mutantmell.net/jellyfin`)
+> can be decided per-service as they're deployed. The critical decision is using
+> `auth.mutantmell.net` for Keycloak, since the OIDC issuer URL must be stable and
+> consistent everywhere. `mutantmell.net` pointing to surtr is shown as the simplest
+> starting point.
+
+### Why this eliminates split configuration
+
+With split-horizon DNS, all components use the same canonical hostname:
+
+- **oauth2-proxy** (surtr and alfheim): `oidc-issuer-url`, `login-url`, `redeem-url`,
+  and `oidc-jwks-url` all use `auth.mutantmell.net`. No split. In fact, explicit URL
+  overrides become unnecessary — `oidc-issuer-url` alone suffices and oauth2-proxy
+  discovers the rest from the OIDC discovery document.
+- **Keycloak**: `hostname = "auth.mutantmell.net"` with `hostname-strict = true`
+  (default). No `hostname-backchannel-dynamic` needed. All tokens have the same issuer.
+- **Cookie domain**: `mutantmell.net` for external services, `.local` for internal
+  services. No ambiguity.
+- **OIDC issuer**: always `https://auth.mutantmell.net/auth/realms/homelab`, regardless
+  of whether the request came from the LAN or the internet.
+
+Internal clients (oauth2-proxy, step-ca) resolve the hostname to the internal IP and
+connect directly. External browsers resolve it to the cloud host. Same URLs, different
+network paths.
+
+### Key security benefit: internal auth bypasses vDMZ
+
+With `auth.mutantmell.net` resolving to the Keycloak microvm directly for internal users:
+
+```
+Internal browser → auth.mutantmell.net → (DNS: Keycloak microvm on vINFRA)
+```
+
+Internal OAuth login pages are served directly by Keycloak — surtr (vDMZ) is not in the
+path. The internal authentication flow never traverses the untrusted zone. Only external
+users' auth traffic goes through surtr's Keycloak proxy.
+
+Compare with the path-based alternative (`mutantmell.net/auth`), where internal DNS
+would point `mutantmell.net` at surtr, forcing internal auth through vDMZ — the wrong
+trust direction.
+
+### Unbound configuration changes
+
+Add `mutantmell.net` entries to alfheim's Unbound config alongside the existing `.local`
+zone:
+
+```nix
+# In alfheim's dns.nix, add to Unbound settings
+local-zone = ''"mutantmell.net." transparent'';
+local-data = [
+  # ... existing .local entries ...
+
+  # Auth (Keycloak) — internal clients connect directly to Keycloak microvm
+  ''"auth.mutantmell.net. A <keycloak-microvm-ip>"''
+
+  # External services — internal clients connect to surtr
+  ''"mutantmell.net. A 10.0.100.40"''
+];
+```
+
+The `transparent` zone type means Unbound answers queries that match `local-data` but
+forwards all other `*.mutantmell.net` queries to the upstream recursive resolver
+normally. This avoids breaking any other subdomains.
+
+### step-CA certificate policy changes
+
+Expand step-CA's certificate policy to allow `mutantmell.net` names:
+
+```nix
+policy = let
+  allowLocal = {
+    allow = {
+      dns = ["*.local" "*.mutantmell.net" "mutantmell.net"];
+      ip = [ "10.0.0.0/16" "10.1.0.0/16" "10.97.0.0/16" ];
+    };
+  };
+in {
+  x509 = allowLocal;
+  ssh.host = allowLocal;
+};
+```
+
+This allows the Keycloak microvm to request a cert for `auth.mutantmell.net`, surtr to
+request a cert for `mutantmell.net`, etc. The same policy narrowing concerns from S9
+apply — a compromised vDMZ host could request a cert for `auth.mutantmell.net`. See
+S9 for mitigations.
+
+### TLS certificate strategy
+
+| Access path | Certificate issuer | Certificate name | Why it's trusted |
+|------------|-------------------|-----------------|-----------------|
+| LAN → Keycloak | step-CA | `auth.mutantmell.net` | Internal hosts have step-CA root in `security.pki.certificates` |
+| LAN → surtr | step-CA | `mutantmell.net` | Same |
+| Internet → cloud host | Let's Encrypt | `*.mutantmell.net` (or per-subdomain) | Browsers trust LE root |
+| Cloud host → surtr (WireGuard) | step-CA | `mutantmell.net` | Cloud host imports step-CA root |
+
+Internal hosts already trust the step-CA root (distributed via `security.pki.certificates`).
+External users never see step-CA certs — the cloud host terminates their TLS with a
+Let's Encrypt certificate and forwards through WireGuard to surtr. The cloud host needs
+the step-CA root installed to verify surtr's certificate over the WireGuard-internal
+HTTPS connection.
+
+### What stays on `.local`
+
+Internal-only services keep `.local` names. The split-horizon DNS only applies to
+services reachable from the internet:
+
+| Service | Hostname | Why |
+|---------|----------|-----|
+| AdGuard Home admin | `alfheim.local` | Strictly internal, infrastructure |
+| Keycloak admin console | `<keycloak-host>.local` | Never exposed externally (S5) |
+| step-CA ACME endpoint | `<step-ca-host>.local` | Internal cert issuance only |
+| Future vINFRA admin UIs | `*.local` | Infrastructure services stay internal |
+
+Keycloak's `.local` hostname is still used for the admin console (accessed only from
+vINFRA/vHOME) and for the nginx vhost on the Keycloak microvm. The `auth.mutantmell.net`
+name is what appears in OIDC configuration and browser redirects.
+
+---
+
 ## External Access Architecture
 
 The intended external access path is:
@@ -369,122 +532,194 @@ External user → Cloud host (public IP) → WireGuard (wg-ba) → surtr (vDMZ) 
 ### The Keycloak reachability problem
 
 In a standard OAuth2 flow, the user's **browser** is redirected to Keycloak's login page.
-The oauth2-proxy tells the browser "go to `https://<keycloak-host>.local/auth/realms/homelab/...`
-to log in." But an external user's browser can't reach that — it's an internal hostname on
-a private network.
+oauth2-proxy tells the browser "go to `https://auth.mutantmell.net/auth/realms/homelab/...`
+to log in." Internal browsers resolve `auth.mutantmell.net` to the Keycloak microvm
+directly (via split-horizon DNS) — this path works without any proxying.
+
+External browsers resolve `auth.mutantmell.net` to the cloud host's public IP. The cloud
+host can only reach vDMZ through WireGuard, not the Keycloak microvm on vINFRA directly.
+So external auth traffic needs to be proxied through surtr.
 
 There are two sub-flows that need Keycloak:
 1. **Browser redirect** — user's browser loads Keycloak login page (needs browser → Keycloak)
 2. **Token exchange** — oauth2-proxy exchanges auth code for tokens (needs surtr → Keycloak)
 
-Flow (2) works with the firewall rule above. Flow (1) is the problem.
+For internal users, both flows work directly (split-horizon DNS resolves to Keycloak
+microvm, intra-zone or cross-zone with existing `accessTo` rules). For external users,
+flow (2) works via the explicit firewall rule (surtr → Keycloak). Flow (1) requires
+surtr to proxy `auth.mutantmell.net` to the Keycloak microvm.
 
-### Solution: proxy Keycloak through surtr
+### Solution: surtr proxies `auth.mutantmell.net` for external users
 
-Add a `/auth` location to surtr's nginx that reverse-proxies to the Keycloak microvm.
-This way, external users only ever talk to surtr (via the cloud host), and surtr handles
-routing to both the backend service and Keycloak:
+surtr gets a dedicated `auth.mutantmell.net` virtual host that reverse-proxies to the
+Keycloak microvm. This vhost only handles external auth traffic — internal users never
+hit it (their DNS resolves to Keycloak directly).
 
 ```
-External browser                        Internal network
-      │                                       │
-      ├── GET /auth/realms/... ──→ surtr ──→ Keycloak microvm (vINFRA)
-      ├── POST /oauth2/callback ──→ surtr (oauth2-proxy)
-      └── GET / ──────────────────→ surtr ──→ backend service
+External browser                               Internal network
+      │                                              │
+      ├── GET auth.mutantmell.net/auth/... ──→ surtr ──→ Keycloak microvm (vINFRA)
+      ├── POST mutantmell.net/oauth2/callback ──→ surtr (oauth2-proxy)
+      └── GET mutantmell.net/ ─────────────────→ surtr ──→ backend service
+
+Internal browser
+      │
+      ├── GET auth.mutantmell.net/auth/... ──→ Keycloak microvm directly (DNS)
+      ├── POST mutantmell.net/oauth2/callback ──→ surtr (oauth2-proxy)
+      └── GET mutantmell.net/ ─────────────────→ surtr ──→ backend service
 ```
 
-**surtr nginx addition:**
-```nix
-# Block admin console — external users must not reach it (see S5)
-locations."/auth/admin" = {
-  return = "403";
-};
-locations."/auth/realms/master" = {
-  return = "403";
-};
-
-# Proxy OIDC endpoints to Keycloak
-locations."/auth" = {
-  proxyPass = "https://<keycloak-host>.local/auth";
-  extraConfig = ''
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $remote_addr;  # Overwrite, don't append (see S13)
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_buffer_size 128k;
-    proxy_buffers 4 256k;
-    proxy_busy_buffers_size 256k;
-  '';
-};
-```
-
-**oauth2-proxy reconfiguration for external access:**
-
-oauth2-proxy needs to use surtr-relative URLs for browser-facing redirects, while still
-talking to the Keycloak microvm internally for token operations:
+**surtr nginx: `auth.mutantmell.net` virtual host (Keycloak proxy for external users):**
 
 ```nix
-extraConfig = {
-  "provider-display-name" = "Keycloak";
-  "oidc-issuer-url" = "https://<keycloak-host>.local/auth/realms/homelab";
-  "login-url" = "https://${externalDomain}/auth/realms/homelab/protocol/openid-connect/auth";
-  "redeem-url" = "https://<keycloak-host>.local/auth/realms/homelab/protocol/openid-connect/token";
-  "oidc-jwks-url" = "https://<keycloak-host>.local/auth/realms/homelab/protocol/openid-connect/certs";
+virtualHosts."auth.mutantmell.net" = {
+  forceSSL = true;
+  enableACME = true;  # step-CA cert for auth.mutantmell.net
+
+  # Block admin console — external users must not reach it (S5)
+  locations."/auth/admin" = {
+    return = "403";
+  };
+  locations."/auth/realms/master" = {
+    return = "403";
+  };
+
+  # Proxy OIDC endpoints to Keycloak
+  locations."/auth" = {
+    proxyPass = "https://<keycloak-host>.local/auth";
+    extraConfig = ''
+      proxy_set_header Host $host;  # Passes auth.mutantmell.net to Keycloak
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $remote_addr;  # Overwrite, don't append (S13)
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_buffer_size 128k;
+      proxy_buffers 4 256k;
+      proxy_busy_buffers_size 256k;
+    '';
+  };
 };
-redirectURL = "https://${externalDomain}/oauth2/callback";
 ```
 
-This splits the URLs:
-- `login-url` uses the external domain (browser-facing)
-- `redeem-url` and `oidc-jwks-url` use the internal Keycloak hostname (server-side, never seen by browser)
-- `oidc-issuer-url` uses the internal hostname for OIDC discovery (server-side)
+This is a simple, single-purpose vhost: proxy Keycloak for external users, block admin
+paths. No split logic — the `Host` header is always `auth.mutantmell.net`, which matches
+Keycloak's `hostname` setting.
+
+**surtr nginx: `mutantmell.net` virtual host (services + oauth2-proxy):**
+
+The service vhost is separate from the auth proxy vhost. It runs oauth2-proxy and
+proxies to backend services:
+
+```nix
+virtualHosts."mutantmell.net" = {
+  forceSSL = true;
+  enableACME = true;  # step-CA cert for mutantmell.net
+
+  locations."/" = {
+    proxyPass = "https://bragi.local";  # Jellyfin, etc.
+    extraConfig = ''
+      auth_request /oauth2/auth;
+      # ... proxy headers, websocket support, etc.
+    '';
+  };
+
+  locations."/oauth2/" = {
+    proxyPass = "http://127.0.0.1:4180";
+    # ... oauth2-proxy proxy config
+  };
+};
+```
+
+**oauth2-proxy configuration (simplified by split-horizon DNS):**
+
+With split-horizon DNS, all URLs use the canonical `auth.mutantmell.net` hostname.
+No split between "browser-facing" and "server-side" URLs — they're all the same:
+
+```nix
+services.oauth2-proxy = {
+  enable = true;
+  provider = "oidc";
+  clientID = "oauth2-proxy";
+  keyFile = config.sops.secrets."oauth2-proxy-keyfile".path;
+  extraConfig = {
+    "provider-display-name" = "Keycloak";
+    "oidc-issuer-url" = "https://auth.mutantmell.net/auth/realms/homelab";
+    # No explicit login-url, redeem-url, or oidc-jwks-url needed —
+    # oauth2-proxy discovers them from the OIDC discovery document.
+    # This works because auth.mutantmell.net resolves correctly for
+    # both the browser (login redirect) and the server (token exchange).
+  };
+  cookie = {
+    secure = true;                 # S1
+    refresh = "1m";
+    expire = "30m";
+    domain = ".mutantmell.net";    # Scoped to the external domain
+  };
+  redirectURL = "https://mutantmell.net/oauth2/callback";
+  email.domains = [ "*" ];         # Controlled by group restriction (see S10)
+};
+```
+
+Compare with the pre-split-horizon version, which needed four separate URL overrides
+with a mix of internal and external hostnames. The split-horizon approach reduces this
+to a single `oidc-issuer-url`.
 
 **Keycloak hostname configuration:**
 
-Keycloak needs to accept requests arriving via surtr's proxy (with a different `Host`
-header than the internal hostname). Configure Keycloak with an explicit hostname for
-browser-facing operations, while allowing internal backchannel access:
+Keycloak uses a single fixed hostname. No dual-mode configuration needed:
 
 ```nix
 services.keycloak.settings = {
   # ... existing settings ...
-  hostname = "<external-domain>";              # Fixed issuer URL for all tokens
-  hostname-backchannel-dynamic = true;         # Internal clients (oauth2-proxy redeem,
-                                               # step-ca) can use the internal hostname
+  hostname = "auth.mutantmell.net";   # Fixed issuer URL for all tokens
+  # hostname-strict = true;           # Default — leave it
+  # hostname-backchannel-dynamic is NOT set. All clients (oauth2-proxy,
+  # step-ca, browsers) use auth.mutantmell.net. Internal clients resolve
+  # it to the Keycloak microvm directly via split-horizon DNS.
 };
 ```
 
-This ensures tokens always have a consistent issuer (`https://<external-domain>/auth/...`)
-regardless of which proxy path the request arrived through. Internal services use the
-backchannel for server-to-server operations (token exchange, JWKS fetching) via the
-internal hostname. See [Security Considerations S4](#security-considerations) for why
-`hostname-strict = false` should be avoided.
+Tokens always have issuer `https://auth.mutantmell.net/auth/realms/homelab` regardless
+of access path. All oauth2-proxy instances and step-ca use the same issuer URL.
+See [Security Considerations S4](#security-considerations).
 
 ### Cloud host configuration (future work)
 
 The cloud host is not yet deployed. When it is, it needs:
 
-1. **nginx/caddy** — TLS termination with a real (Let's Encrypt) certificate for the
-   public domain
+1. **nginx/caddy** — TLS termination with a Let's Encrypt certificate for
+   `*.mutantmell.net` (wildcard via DNS-01 challenge) or per-subdomain certs
 2. **WireGuard client** — connects to yggdrasil's wg-ba tunnel
-3. **Reverse proxy rules** — forward all HTTPS traffic through WireGuard to surtr
+3. **step-CA root certificate** — imported so the cloud host can verify surtr's
+   step-CA-issued TLS cert over the WireGuard-internal HTTPS connection
+4. **Reverse proxy rules** — forward all HTTPS traffic through WireGuard to surtr,
+   routing by `Host` header:
+   - `auth.mutantmell.net` → surtr (which proxies to Keycloak)
+   - `mutantmell.net` → surtr (services)
+   - Strip/overwrite `X-Forwarded-For` at this layer (S13)
 
-The cloud host is intentionally minimal: it's a dumb pipe that terminates TLS and
+The cloud host is intentionally minimal: a dumb pipe that terminates public TLS and
 forwards to surtr. All authentication logic lives on surtr (oauth2-proxy) and the
-Keycloak microvm (vINFRA). If the cloud host is compromised, the attacker gets encrypted
-WireGuard traffic and an OAuth login page — no direct access to backend services.
+Keycloak microvm (vINFRA). If the cloud host is compromised, the attacker gets
+encrypted WireGuard traffic and an OAuth login page — no direct access to backend
+services.
 
 ### Internal access (LAN users)
 
-For users on vHOME or vINFRA, the flow is direct:
-- Browser goes directly to the Keycloak microvm for OAuth login
-  (trusted → management is allowed by `accessTo`)
-- For externally-reachable services (Jellyfin, etc.): oauth2-proxy on surtr handles auth
-- For strictly internal services (Adguard, etc.): oauth2-proxy on alfheim handles auth
-- No cloud host or external proxy involved
+For users on vHOME or vINFRA, split-horizon DNS makes the external domain names work
+transparently on the LAN:
 
-The oauth2-proxy `login-url` override only affects external access via surtr. The
-internal oauth2-proxy on alfheim always uses the Keycloak microvm's internal hostname.
+- `auth.mutantmell.net` resolves to the Keycloak microvm — browser loads the login page
+  directly from vINFRA (trusted → management is allowed by `accessTo`)
+- `mutantmell.net` resolves to surtr — oauth2-proxy handles auth, then proxies to
+  backend services
+- The oauth2-proxy → Keycloak server-side flow (token exchange, JWKS) also uses
+  `auth.mutantmell.net`, which resolves to Keycloak directly from surtr's perspective
+
+No cloud host, no external routing, no split URLs. Internal users use the same domain
+names as external users; only the DNS resolution and network path differ.
+
+For strictly internal services (AdGuard Home, etc.): oauth2-proxy on alfheim handles
+auth using `.local` hostnames. See [Internal vs External oauth2-proxy](#internal-vs-external-oauth2-proxy).
 
 ### Internal vs external oauth2-proxy
 
@@ -517,7 +752,9 @@ services.oauth2-proxy = {
   clientID = "oauth2-proxy-internal";
   keyFile = config.sops.secrets."oauth2-proxy-internal-keyfile".path;
   extraConfig = {
-    "oidc-issuer-url" = "https://<keycloak-host>.local/auth/realms/homelab";
+    "oidc-issuer-url" = "https://auth.mutantmell.net/auth/realms/homelab";
+    # auth.mutantmell.net resolves to Keycloak microvm via split-horizon DNS.
+    # Same issuer URL as surtr's oauth2-proxy — no mismatch possible.
     "allowed-groups" = "admins";         # Only admins access infrastructure UIs
   };
   cookie = {
@@ -588,8 +825,7 @@ it multiple times produces the same result.
       "directAccessGrantsEnabled": false,
       "standardFlowEnabled": true,
       "redirectUris": [
-        "https://surtr.local/oauth2/callback",
-        "https://EXTERNAL_DOMAIN/oauth2/callback"
+        "https://mutantmell.net/oauth2/callback"
       ],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
@@ -700,7 +936,7 @@ services.<service>.oidc = {
   enabled = true;
   clientId = "<service-name>";
   clientSecretFile = config.sops.secrets."<service>-oidc-secret".path;
-  issuerUrl = "https://<keycloak-host>.local/auth/realms/homelab";
+  issuerUrl = "https://auth.mutantmell.net/auth/realms/homelab";
   scopes = [ "openid" "profile" "email" "groups" ];
 };
 ```
@@ -906,31 +1142,54 @@ also on vINFRA:
 10. **Evaluate keycloak-config-cli:** Optionally set up declarative realm config
     as a systemd service to make the above reproducible
 
-### Phase 3: External access and bastion hardening
+### Phase 3: DNS strategy, external access, and bastion hardening
 
-**Goal:** Enable authenticated external access to vDMZ services via the cloud host,
-and harden the wg-ba attack surface by splitting SSH to a dedicated bastion.
+**Goal:** Implement split-horizon DNS, enable authenticated external access to vDMZ
+services via the cloud host, and harden the wg-ba attack surface by splitting SSH to
+a dedicated bastion.
 
-1. **Provision SSH bastion VM** on vDMZ via Incus (256MB RAM, 1 vCPU, sshd only) (S8)
+1. **Configure split-horizon DNS** on alfheim (Unbound)
+   - Add `mutantmell.net` transparent zone with local-data overrides
+   - `auth.mutantmell.net` → Keycloak microvm IP
+   - `mutantmell.net` → surtr IP (10.0.100.40)
+   - Verify resolution from vHOME, vINFRA, and vDMZ clients
+2. **Expand step-CA certificate policy** to allow `*.mutantmell.net` DNS names
+   - Update the ACME provisioner's `allow.dns` to include `*.mutantmell.net` and
+     `mutantmell.net`
+3. **Issue step-CA certs** for `auth.mutantmell.net` (Keycloak microvm) and
+   `mutantmell.net` (surtr) via ACME
+4. **Configure Keycloak** `hostname = "auth.mutantmell.net"` (strict mode, no
+   `hostname-backchannel-dynamic`)
+5. **Reconfigure surtr's nginx** with two virtual hosts:
+   - `auth.mutantmell.net` — Keycloak proxy for external users
+     - Block `/auth/admin/` and `/auth/realms/master/` (S5)
+     - Use `X-Forwarded-For $remote_addr` not `$proxy_add_x_forwarded_for` (S13)
+   - `mutantmell.net` — services + oauth2-proxy
+6. **Reconfigure surtr's oauth2-proxy** with canonical URLs
+   - `oidc-issuer-url = "https://auth.mutantmell.net/auth/realms/homelab"` (S4, S6)
+   - `redirectURL = "https://mutantmell.net/oauth2/callback"`
+   - `cookie.domain = ".mutantmell.net"`
+   - No explicit login-url/redeem-url/oidc-jwks-url overrides needed
+7. **Update alfheim's oauth2-proxy** issuer URL to `auth.mutantmell.net`
+8. **Add nginx rate limiting** on surtr for `/auth/` and `/oauth2/` paths (S11)
+9. **Provision SSH bastion VM** on vDMZ via Incus (256MB RAM, 1 vCPU, sshd only) (S8)
    - Requires figuring out Incus VM configuration (currently only containers)
    - Key-only auth, `AllowUsers`, minimal NixOS profile
    - No persistent storage (stateless)
-2. **Tighten wg-ba firewall rules** (S8)
-   - Remove blanket `wg-ba → surtr` rule and SSH port forward
-   - Add per-service rules: wg-ba → surtr:443 (HTTPS), wg-ba → bastion:22 (SSH)
-3. **Remove SSH daemon from surtr** — no interactive login from external paths
-4. **Add `/auth` proxy location** to surtr's nginx (proxies to Keycloak microvm)
-   - Block `/auth/admin/` and `/auth/realms/master/` (S5)
-   - Use `X-Forwarded-For $remote_addr` not `$proxy_add_x_forwarded_for` (S13)
-5. **Configure oauth2-proxy** with split URLs (external login-url, internal redeem-url)
-   - Ensure `oidc-issuer-url` matches Keycloak's `hostname` setting (S6)
-6. **Configure Keycloak** `hostname = "<external-domain>"` + `hostname-backchannel-dynamic = true` (S4)
-7. **Add nginx rate limiting** on surtr for `/auth/` and `/oauth2/` paths (S11)
-8. **Deploy cloud host** with nginx + WireGuard + Let's Encrypt cert
-   - Strip/overwrite `X-Forwarded-For` at the cloud host (S13)
-9. **Test end-to-end:** External browser → cloud host → WireGuard → surtr → Keycloak
-   login → surtr → backend service
-10. **Test SSH path:** Cloud host → WireGuard → bastion → SSH to vDMZ hosts
+10. **Tighten wg-ba firewall rules** (S8)
+    - Remove blanket `wg-ba → surtr` rule and SSH port forward
+    - Add per-service rules: wg-ba → surtr:443 (HTTPS), wg-ba → bastion:22 (SSH)
+11. **Remove SSH daemon from surtr** — no interactive login from external paths
+12. **Deploy cloud host** with nginx + WireGuard + Let's Encrypt cert
+    - Wildcard cert for `*.mutantmell.net` (DNS-01 challenge) or per-subdomain certs
+    - Import step-CA root cert (to verify surtr's TLS over WireGuard)
+    - Proxy by Host header: `auth.mutantmell.net` and `mutantmell.net` both → surtr
+    - Strip/overwrite `X-Forwarded-For` at the cloud host (S13)
+13. **Test end-to-end (internal):** LAN browser → `mutantmell.net` (DNS: surtr) →
+    oauth2-proxy → `auth.mutantmell.net` (DNS: Keycloak) → login → redirect back → service
+14. **Test end-to-end (external):** External browser → cloud host → WireGuard → surtr →
+    `auth.mutantmell.net` (surtr proxy to Keycloak) → login → redirect back → service
+15. **Test SSH path:** Cloud host → WireGuard → bastion → SSH to vDMZ hosts
 
 ### Phase 4: step-ca OIDC provisioner (SSH certificates)
 
@@ -1012,24 +1271,15 @@ must be added.
    should have any outbound access beyond what's strictly needed (Keycloak:443, backend
    services, DNS).
 
-2. **The dual-hostname pattern (internal + external) adds fragile complexity.** The
-   plan requires Keycloak to serve two audiences (internal LAN users via
-   `keycloak.local`, external users via `<external-domain>`) and oauth2-proxy to use
-   split URLs (external login-url, internal redeem-url). This works, but every component
-   in the chain must agree on which hostname to use when:
-   - Keycloak's `hostname` setting determines the issuer in tokens
-   - oauth2-proxy's `oidc-issuer-url` must match the token issuer
-   - `login-url` must be browser-reachable
-   - `redeem-url` must be server-reachable
-   - Cookie domains must match the access domain
-   - Redirect URIs must match what Keycloak expects
-
-   A misconfiguration in any one of these causes authentication failures that are
-   notoriously difficult to debug (OIDC error messages are often opaque). The
-   `hostname` + `hostname-backchannel-dynamic` approach (S4) is the cleanest solution,
-   but it still requires careful testing of both access paths (internal and external)
-   after every configuration change. Consider writing a simple integration test (curl
-   the OIDC discovery endpoint from both paths, verify the issuer matches).
+2. **~~The dual-hostname pattern (internal + external) adds fragile complexity.~~
+   Resolved by split-horizon DNS.** The [DNS and Naming Strategy](#dns-and-naming-strategy)
+   eliminates this tension. All components use the canonical `auth.mutantmell.net`
+   hostname for Keycloak, and split-horizon DNS routes internal clients directly to the
+   Keycloak microvm while external clients go through surtr. There is no split URL
+   configuration, no `hostname-backchannel-dynamic`, and no hostname matching to get
+   wrong. A simple integration test (curl the OIDC discovery endpoint, verify the
+   issuer matches `https://auth.mutantmell.net/auth/realms/homelab`) confirms the
+   entire chain is consistent.
 
 3. **The "compromised cloud host" threat model deserves explicit treatment.** The cloud
    host is internet-facing and the least trusted component in the chain. The plan
@@ -1097,9 +1347,9 @@ string. Over HTTP, the authorization code is visible to any network observer. An
 attacker who captures it can exchange it for tokens (the auth code is single-use but
 the race window exists).
 
-**Fix:** Change to `https://surtr.local/oauth2/callback` for internal access and
-`https://<external-domain>/oauth2/callback` for external access (as already shown in
-the plan's oauth2-proxy reconfiguration section).
+**Fix:** Change to `https://mutantmell.net/oauth2/callback`. With split-horizon DNS,
+internal and external users both use the same domain, so a single HTTPS redirect URI
+suffices.
 
 **S3. `skip-jwt-bearer-tokens = true` (surtr/proxy.nix:78)**
 
@@ -1117,30 +1367,26 @@ machine-to-machine use case that requires it. If needed, use `--skip-jwt-bearer-
 with `--extra-jwt-issuers` to restrict which issuers/audiences are accepted, rather
 than accepting all valid JWTs.
 
-**S4. `hostname-strict = false` for Keycloak (plan, Phase 3)**
+**S4. ~~`hostname-strict = false` for Keycloak~~ — Resolved by DNS strategy**
 
-The plan recommends `hostname-strict = false` so Keycloak accepts requests with
-different `Host` headers (internal hostname vs. external domain). This tells Keycloak
-to derive its issuer URL from the incoming request's `Host` header. Risks:
-- **Token issuer confusion:** If an attacker can influence the `Host` header (e.g., via
-  a misconfigured upstream proxy or a direct request with a crafted Host), Keycloak
-  issues tokens with an attacker-controlled issuer URL. Downstream services that
-  validate the issuer may accept or reject tokens unpredictably.
-- **Open redirect:** Keycloak uses the derived hostname for redirect URIs. A crafted
-  `Host` header could redirect users to an attacker-controlled domain after login.
+The original concern was that Keycloak needed to serve two audiences (internal via
+`*.local`, external via the public domain) and might require `hostname-strict = false`,
+which would let Keycloak derive its issuer URL from the incoming `Host` header — a
+security risk.
 
-**Fix:** Use explicit hostname configuration instead:
+The [DNS and Naming Strategy](#dns-and-naming-strategy) eliminates this entirely:
 ```nix
 services.keycloak.settings = {
-  hostname = "<external-domain>";                  # Browser-facing URL
-  hostname-backchannel-dynamic = true;             # Internal clients use request Host
-  # hostname-strict = true;  (default, leave it)
+  hostname = "auth.mutantmell.net";   # Single fixed hostname for all audiences
+  # hostname-strict = true;           # Default, leave it
+  # No hostname-backchannel-dynamic needed
 };
 ```
-This way Keycloak uses a fixed hostname for browser-facing operations (login pages,
-token issuer) but allows internal clients (oauth2-proxy's redeem-url, step-ca) to
-reach it via the internal hostname for backchannel operations. This eliminates the
-Host header manipulation risk while still supporting dual-hostname access.
+
+All clients (oauth2-proxy on surtr, oauth2-proxy on alfheim, step-ca, user browsers)
+use `auth.mutantmell.net` to reach Keycloak. Split-horizon DNS resolves it to the
+Keycloak microvm internally and to the cloud host externally. Keycloak runs in strict
+mode with a single fixed hostname — no Host header manipulation is possible.
 
 **S5. Keycloak admin console exposed to external users (plan, Phase 3)**
 
@@ -1166,27 +1412,17 @@ Whitelist only the paths external users need:
 
 Block everything else (`/auth/admin/*`, `/auth/realms/master/*`, other realms).
 
-**S6. OIDC issuer mismatch between proxy paths (plan, Phase 3)**
+**S6. ~~OIDC issuer mismatch between proxy paths~~ — Resolved by DNS strategy**
 
-The plan's surtr `/auth` proxy forwards `Host $host` (the external domain) to
-Keycloak. If Keycloak's hostname is configured correctly per S4 above, the issuer in
-tokens will be `https://<external-domain>/auth/realms/homelab`. But oauth2-proxy's
-`oidc-issuer-url` is set to `https://<keycloak-host>.local/auth/realms/homelab`.
+The original concern was that oauth2-proxy's `oidc-issuer-url` (internal hostname)
+would not match the token issuer (external domain), causing token validation failures.
 
-Token validation will fail: oauth2-proxy fetches the OIDC discovery document from the
-internal URL (issuer = internal hostname), but the ID token's `iss` claim contains
-the external hostname.
-
-**Fix:** With the `hostname` / `hostname-backchannel-dynamic` approach from S4:
-- Set `oidc-issuer-url` in oauth2-proxy to `https://<external-domain>/auth/realms/homelab`
-  (matches what Keycloak puts in tokens for browser-initiated flows)
-- Set `redeem-url` and `oidc-jwks-url` to the internal hostname (backchannel, which
-  Keycloak serves with `hostname-backchannel-dynamic = true`)
-- Alternatively, configure oauth2-proxy to skip issuer verification
-  (`--insecure-oidc-skip-issuer-verification`), but this weakens security
-
-The cleanest approach is to ensure the issuer is consistent: Keycloak always stamps
-tokens with the external domain, and oauth2-proxy's `oidc-issuer-url` matches.
+The [DNS and Naming Strategy](#dns-and-naming-strategy) eliminates this entirely. All
+components use `https://auth.mutantmell.net/auth/realms/homelab` as the issuer URL.
+Keycloak stamps this in all tokens (`hostname = "auth.mutantmell.net"`), and every
+oauth2-proxy instance uses the same URL for `oidc-issuer-url`. Split-horizon DNS
+ensures each client reaches Keycloak at this URL regardless of network location.
+No URL overrides, no issuer verification skipping, no mismatch possible.
 
 ### Specific findings: High — Should fix
 
@@ -1351,16 +1587,16 @@ to prevent spoofing from earlier hops, or configure trusted proxy addresses.
 
 ### Specific findings: Low / Informational
 
-**S14. Cookie domain scoping**
+**S14. ~~Cookie domain scoping~~ — Resolved by DNS strategy**
 
-The commented-out `cookie.domain` in surtr's config means cookies are scoped to the
-request's domain. For external access, this could mean cookies scoped to the external
-domain don't apply to `surtr.local`, and vice versa. This is more of a functionality
-issue than security, but misconfigured cookie domains can lead to cookies leaking to
-unintended subdomains.
+The original concern was that cookies scoped to the external domain wouldn't apply
+when accessing via `surtr.local`, and vice versa.
 
-**Recommendation:** Explicitly set `cookie.domain` to match the access pattern
-(external domain for external access, `.local` for internal).
+With split-horizon DNS, surtr's service vhost is always `mutantmell.net` — internal
+and external users access it via the same domain name. Set
+`cookie.domain = ".mutantmell.net"` and the cookie works consistently regardless of
+access path. alfheim's oauth2-proxy uses `alfheim.local` with cookies scoped to that
+domain. No ambiguity.
 
 **S15. Revocation latency**
 
@@ -1384,9 +1620,9 @@ header is always `alfheim.local` — which is correct, since the redirect URI is
 | S1 | `cookie.secure = true` | Phase 1 (surtr proxy config) |
 | S2 | HTTPS redirect URL | Phase 1 (surtr proxy config) |
 | S3 | Remove `skip-jwt-bearer-tokens` | Phase 1 (surtr proxy config) |
-| S4 | Use `hostname` + `hostname-backchannel-dynamic` instead of `hostname-strict = false` | Phase 3 (External access, Keycloak hostname) |
-| S5 | Block admin console in surtr proxy | Phase 3 (External access, surtr /auth proxy) |
-| S6 | Align OIDC issuer URL with Keycloak hostname | Phase 3 (External access, oauth2-proxy URLs) |
+| S4 | ~~Keycloak hostname~~ | Resolved by DNS strategy (single fixed hostname) |
+| S5 | Block admin console in surtr proxy | Phase 3 (surtr `auth.mutantmell.net` vhost) |
+| S6 | ~~OIDC issuer mismatch~~ | Resolved by DNS strategy (single canonical issuer URL) |
 | S7 | Disable `passAccessToken` / `set-authorization-header` | Phase 1 (surtr proxy config) |
 | S8 | Split SSH to dedicated bastion microvm on vDMZ | Phase 3 (bastion + firewall tightening) |
 | S9 | Investigate ACME provisioner authorization | Phase 1 (step-ca config) |
