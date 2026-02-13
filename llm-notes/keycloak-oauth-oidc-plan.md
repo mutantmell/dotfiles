@@ -26,7 +26,8 @@
 | Keycloak | dedicated microvm | vINFRA | OIDC provider, user directory |
 | step-ca | dedicated microvm | vINFRA | SSH CA + ACME CA, isolated key material |
 | oauth2-proxy | surtr | vDMZ | Web traffic gating |
-| nginx (Keycloak + ACME proxy) | Keycloak microvm | vINFRA | Reverse proxy for Keycloak + ACME passthrough to step-ca |
+| nginx (Keycloak proxy) | Keycloak microvm | vINFRA | Reverse proxy for Keycloak |
+| nginx (ACME endpoint) | step-ca microvm | vINFRA | TLS termination + proxy to step-ca :9443 |
 | nginx (OAuth-gated Adguard) | alfheim | vINFRA | Admin UI with auth_request to surtr |
 
 ### What exists in Keycloak today
@@ -43,8 +44,8 @@
 - Group/role structure for access control
 - Cross-VLAN firewall rules (vDMZ → Keycloak on vINFRA)
 - External access architecture (cloud host → WireGuard → oauth2-proxy → Keycloak)
-- ACME endpoint reachability for vDMZ hosts
-- Keycloak microvm resource sizing
+- ACME endpoint on step-ca microvm, reachable from vDMZ via dedicated firewall rule
+- Microvm resource sizing
 
 ---
 
@@ -84,26 +85,26 @@ isolation for CA key material. step-ca and Keycloak are on separate microvms des
 on the same zone — Keycloak runs a JVM + PostgreSQL with significant attack surface, while
 step-ca is a minimal Go binary holding the CA root key.
 
-### ACME proxy on the Keycloak microvm
+### ACME endpoint on the step-ca microvm
 
-The Keycloak microvm runs nginx to reverse-proxy Keycloak (at `/auth`) and already needs
-TLS termination. Adding an `/acme` location that proxies to step-ca is natural:
+step-ca already serves ACME over TLS on `:9443`. The step-ca microvm runs its own nginx
+to provide a clean `:443` ACME endpoint:
 
 ```
-vDMZ host → Keycloak microvm (vINFRA, /acme) → step-ca (vINFRA, :9443/acme)
+vDMZ host → step-ca microvm (vINFRA, :443/acme) → step-ca (localhost, :9443/acme)
 ```
 
-Since both are on vINFRA, the proxy-to-step-ca path is intra-zone — no firewall rules
-needed. vDMZ hosts reach the Keycloak microvm via the single explicit firewall rule
-(see [Cross-VLAN Firewall Requirements](#cross-vlan-firewall-requirements)), which covers
-both OIDC and ACME. vHOME and vINFRA hosts can reach step-ca directly or via the proxy.
+This keeps ACME completely decoupled from Keycloak. Each microvm has a single
+responsibility: Keycloak handles identity, step-ca handles certificates. A compromise
+of either doesn't affect the other's traffic path. Since cloud-hypervisor microvms are
+lightweight, the extra microvm nginx is negligible cost for meaningful isolation.
 
 ### Microvm sizing
 
 | Microvm | vCPU | RAM | Persistent Storage | Services |
 |---------|------|-----|-------------------|----------|
 | Keycloak | 2 | 2048MB | ~100GB (PostgreSQL) | Keycloak, PostgreSQL, nginx |
-| step-ca | 1 | 512MB | Small (badger DB, CA keys) | step-ca |
+| step-ca | 1 | 512MB | Small (badger DB, CA keys) | step-ca, nginx (ACME endpoint) |
 
 step-ca's persistent storage holds the CA root key material and the badger database.
 This data is critical — loss means re-provisioning all certificates. Back up alongside
@@ -117,24 +118,23 @@ other infrastructure secrets.
 │                                                                 │
 │   Keycloak microvm                                              │
 │     ├── Keycloak (OIDC provider)                                │
-│     └── nginx                                                   │
-│           ├── /auth → Keycloak (:9080)                          │
-│           └── /acme → step-ca (intra-zone, :9443)               │
-│                 ↑                                                │
+│     └── nginx (/auth → Keycloak :9080)                          │
+│                                                                 │
 │   step-ca microvm                                               │
-│     └── step-ca (OIDC provisioner validates against Keycloak)   │
+│     ├── step-ca (OIDC provisioner validates against Keycloak)   │
+│     └── nginx (/acme → step-ca :9443)                           │
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │ vHOME (trusted zone)                                            │
 │   User browsers → Keycloak (trusted → management, allowed)     │
 │                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
-│ vDMZ (untrusted zone)                       [explicit FW rule]  │
-│   surtr ────→ Keycloak microvm (OIDC + ACME)                    │
+│ vDMZ (untrusted zone)                    [explicit FW rules]    │
+│   surtr ────→ Keycloak microvm (OIDC)                           │
 │     ├── oauth2-proxy (OIDC tokens from Keycloak)                │
 │     ├── nginx (/auth proxies Keycloak for external users)       │
 │     └── nginx (/ proxies to backend services)                   │
-│   bragi, hrungnir (ACME certs via Keycloak microvm /acme proxy) │
+│   surtr, bragi, hrungnir ────→ step-ca microvm (ACME)           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -225,19 +225,19 @@ zone-level `accessTo`:
 | Source | Destination | Port | Purpose | Status |
 |--------|-------------|------|---------|--------|
 | surtr (vDMZ) | Keycloak microvm (vINFRA) | 443 | oauth2-proxy → Keycloak OIDC | **Needs explicit rule** |
-| vDMZ ACME clients | Keycloak microvm (vINFRA) | 443 | ACME cert issuance (proxied to step-ca) | **Needs explicit rule** (same as above) |
+| vDMZ ACME clients | step-ca microvm (vINFRA) | 443 | ACME cert issuance | **Needs explicit rule** |
 | step-ca (vINFRA) | Keycloak microvm (vINFRA) | 443 | OIDC provisioner → Keycloak token validation | Intra-zone (management → management) |
-| Keycloak microvm (vINFRA) | step-ca (vINFRA) | 9443 | ACME proxy → step-ca | Intra-zone (management → management) |
 | alfheim (vINFRA) | surtr (vDMZ) | 443 | nginx auth_request → oauth2-proxy | Allowed (management → untrusted) |
 | alfheim (vINFRA) | Keycloak microvm (vINFRA) | 443 | Direct Keycloak access | Intra-zone (management → management) |
 | User browsers (vHOME) | Keycloak microvm (vINFRA) | 443 | OAuth login page | Allowed (trusted → management) |
 | wg-ba peers | surtr (vDMZ) | 443 | External web traffic | Already in extraForwardRules |
 
-Only the first row requires a new explicit firewall rule. All intra-zone paths (step-ca,
-alfheim, ACME proxy) work without rules. User browsers on vHOME reach Keycloak via the
-existing `trusted` → `management` `accessTo` rule. The vDMZ ACME clients (surtr, bragi,
-hrungnir) reach step-ca's ACME endpoint through the Keycloak microvm's `/acme` proxy, so
-they use the same firewall rule as OIDC.
+The first two rows require new explicit firewall rules — one for OIDC (surtr → Keycloak)
+and one for ACME (vDMZ → step-ca). Keeping these as separate rules with separate
+destination IPs ensures that a compromise of either microvm doesn't grant access to the
+other's traffic path from vDMZ. All intra-zone paths (step-ca ↔ Keycloak, alfheim →
+Keycloak) work without rules. User browsers on vHOME reach Keycloak via the existing
+`trusted` → `management` `accessTo` rule.
 
 **Implementation** — add to `extraForwardRules` on yggdrasil:
 
@@ -247,48 +247,70 @@ firewall.extraForwardRules = [
   { iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }
   { iifname = "wg-ba"; ip.daddr = "10.0.100.40"; verdict = "accept"; }
 
-  # vDMZ hosts need to reach the Keycloak microvm on vINFRA for:
-  #   - oauth2-proxy OIDC token exchange (surtr)
-  #   - ACME certificate issuance via /acme proxy (surtr, bragi, hrungnir)
+  # surtr needs Keycloak for OIDC token exchange
   {
     iifname = "vDMZ.br0";
     oifname = "vINFRA.br0";
+    ip.saddr = "10.0.100.40";           # surtr only
     ip.daddr = "<keycloak-microvm-ip>";
     tcp.dport = 443;
     verdict = "accept";
-    comment = "vDMZ -> Keycloak microvm (OIDC + ACME proxy)";
+    comment = "surtr -> Keycloak microvm (OIDC)";
+  }
+
+  # vDMZ hosts need step-ca for ACME certificate issuance
+  {
+    iifname = "vDMZ.br0";
+    oifname = "vINFRA.br0";
+    ip.daddr = "<step-ca-microvm-ip>";
+    tcp.dport = 443;
+    verdict = "accept";
+    comment = "vDMZ -> step-ca microvm (ACME)";
   }
 ];
 ```
 
-This allows any vDMZ host to reach the Keycloak microvm on port 443 (needed for both OIDC
-and ACME). It could be further narrowed to specific source IPs if desired, but all vDMZ
-hosts with ACME certificates need this path.
+Two separate rules with distinct destination IPs. The OIDC rule is narrowed to surtr's
+IP since only oauth2-proxy needs Keycloak. The ACME rule allows all vDMZ hosts since
+any service with TLS certificates needs ACME access. This separation means a compromise
+of the Keycloak microvm doesn't give the attacker a path to intercept ACME traffic, and
+vice versa.
 
 **Note on alfheim → surtr:** alfheim proxies OAuth requests to surtr
 (`https://surtr.local/oauth2/`). Both alfheim and surtr are reachable via zone-level
 `accessTo` (management → untrusted) — no extra rule needed.
 
-### ACME proxy on the Keycloak microvm
+### ACME endpoint on the step-ca microvm
 
-The Keycloak microvm's nginx proxies `/acme` to step-ca. Since both microvms are on
-vINFRA, this is intra-zone traffic:
+The step-ca microvm runs nginx to provide a clean `:443` ACME endpoint, proxying to
+the local step-ca on `:9443`:
 
 ```nix
-# On the Keycloak microvm
-locations."/acme" = {
-  proxyPass = "https://<step-ca-host>.local:9443/acme";
-  extraConfig = ''
-    proxy_ssl_certificate /etc/nginx/nginx.cert;
-    proxy_ssl_certificate_key /etc/nginx/nginx.key;
-    proxy_ssl_protocols TLSv1.2 TLSv1.3;
-    proxy_ssl_ciphers HIGH:!aNULL:!MD5;
-  '';
+# On the step-ca microvm
+services.nginx = {
+  enable = true;
+  recommendedTlsSettings = true;
+  recommendedProxySettings = true;
+
+  virtualHosts."${config.networking.hostName}.local" = {
+    forceSSL = true;
+    enableACME = true;  # Bootstrap via step-ca's own ACME (localhost)
+
+    locations."/acme" = {
+      proxyPass = "https://127.0.0.1:9443/acme";
+      extraConfig = ''
+        proxy_ssl_certificate /etc/nginx/nginx.cert;
+        proxy_ssl_certificate_key /etc/nginx/nginx.key;
+        proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        proxy_ssl_ciphers HIGH:!aNULL:!MD5;
+      '';
+    };
+  };
 };
 ```
 
-All ACME clients use `https://<keycloak-host>.local/acme/acme/directory` as their ACME
-server URL.
+All ACME clients use `https://<step-ca-host>.local/acme/acme/directory` as their ACME
+server URL. This is a direct path — no intermediate proxy through Keycloak.
 
 ---
 
@@ -730,13 +752,14 @@ also on vINFRA:
 **Goal:** Stand up the target infrastructure on vINFRA.
 
 1. **Provision Keycloak microvm** on a vINFRA host with 2GB RAM, 2 vCPU
-2. **Configure Keycloak** service, PostgreSQL, nginx (with /auth and /acme proxy)
+2. **Configure Keycloak** service, PostgreSQL, nginx (with /auth proxy)
 3. **Add JVM heap limits** (`-Xms256m -Xmx768m`)
 4. **Provision step-ca microvm** on a vINFRA host with 512MB RAM, 1 vCPU
-5. **Migrate CA key material** from gridr to the new step-ca microvm
-6. **Configure ACME proxy** on the Keycloak microvm's nginx → step-ca
-7. **Add explicit firewall rule:** vDMZ → Keycloak microvm:443
-8. **Update all ACME client configs** to point at the new Keycloak microvm's ACME URL
+5. **Configure step-ca** with nginx for ACME endpoint on :443
+6. **Migrate CA key material** from gridr to the new step-ca microvm
+7. **Add explicit firewall rules:** surtr → Keycloak microvm:443 (OIDC),
+   vDMZ → step-ca microvm:443 (ACME)
+8. **Update all ACME client configs** to point at the step-ca microvm's ACME URL
 9. **Update surtr's oauth2-proxy config** to point at the new Keycloak microvm
    - Set `cookie.secure = true` (S1)
    - Change `redirectURL` to HTTPS (S2)
@@ -822,10 +845,14 @@ lives on a more privileged zone (vINFRA) behind an explicit firewall rule. This 
 right topology — the thing that makes authorization decisions should not be on the same
 trust level as the things it's protecting.
 
-Separating step-ca and Keycloak into distinct microvms is a good call. Keycloak's
-attack surface (JVM, PostgreSQL, admin console, complex web UI) is orders of magnitude
-larger than step-ca's (a Go binary with a simple API). CA key material deserves
-isolation from the most complex component on the network.
+Separating step-ca and Keycloak into distinct microvms with independent firewall rules
+is a good call. Keycloak's attack surface (JVM, PostgreSQL, admin console, complex web
+UI) is orders of magnitude larger than step-ca's (a Go binary with a simple API). CA
+key material deserves isolation from the most complex component on the network. Having
+each microvm serve its own traffic path (Keycloak for OIDC, step-ca for ACME) means a
+compromise of either doesn't grant vDMZ access to the other. Cloud-hypervisor microvms
+are lightweight enough that the extra nginx instance on the step-ca microvm is
+negligible cost for this isolation.
 
 The zone-based firewall model with explicit `extraForwardRules` for cross-zone access
 is the right pattern. The default-deny posture (untrusted cannot reach management)
@@ -834,22 +861,7 @@ must be added.
 
 **Where the architecture has structural tension:**
 
-1. **The ACME proxy co-location trades isolation for convenience.** The plan routes
-   ACME traffic through the Keycloak microvm's nginx (`/acme` → step-ca). This means
-   the Keycloak microvm is in the critical path for both authentication AND certificate
-   issuance. A successful attack against the Keycloak microvm (e.g., via a Keycloak CVE
-   or JVM exploit) gives the attacker not only the identity provider but also a proxy hop
-   toward the CA. The attacker can't reach step-ca's key material directly (it's a
-   separate microvm), but they can request certificates through the ACME proxy and
-   potentially intercept OIDC ↔ step-ca backchannel traffic.
-
-   This is an acceptable trade-off for a homelab — the alternative (a third vINFRA
-   microvm just for ACME proxying, or a separate firewall rule from vDMZ directly to
-   step-ca) adds operational complexity for marginal security gain. But it's worth
-   acknowledging: the Keycloak microvm is the highest-value target on vINFRA because
-   compromising it affects both auth and cert issuance.
-
-2. **surtr is a high-value target with a large role.** surtr handles: TLS termination
+1. **surtr is a high-value target with a large role.** surtr handles: TLS termination
    for external traffic, oauth2-proxy (authentication decisions), nginx reverse proxy
    to all backends, the `/auth` Keycloak proxy for external users, and (currently) SSH
    access from wg-ba. That's a lot of responsibility for one microvm on the least-trusted
@@ -865,7 +877,7 @@ must be added.
    the fixes from S1-S7 applied. Consider whether surtr should have any outbound access
    beyond what's strictly needed (Keycloak:443, backend services, DNS).
 
-3. **The dual-hostname pattern (internal + external) adds fragile complexity.** The
+2. **The dual-hostname pattern (internal + external) adds fragile complexity.** The
    plan requires Keycloak to serve two audiences (internal LAN users via
    `keycloak.local`, external users via `<external-domain>`) and oauth2-proxy to use
    split URLs (external login-url, internal redeem-url). This works, but every component
@@ -884,7 +896,7 @@ must be added.
    after every configuration change. Consider writing a simple integration test (curl
    the OIDC discovery endpoint from both paths, verify the issuer matches).
 
-4. **The "compromised cloud host" threat model deserves explicit treatment.** The cloud
+3. **The "compromised cloud host" threat model deserves explicit treatment.** The cloud
    host is internet-facing and the least trusted component in the chain. The plan
    correctly describes it as a "dumb pipe" but doesn't fully analyze what a compromised
    cloud host can do:
@@ -905,7 +917,7 @@ must be added.
    OAuth login page and (with S8 fixed) no direct service access. The WireGuard tunnel +
    firewall + OAuth form a reasonable defense-in-depth stack for a homelab.
 
-5. **Single point of failure: Keycloak availability.** If the Keycloak microvm goes
+4. **Single point of failure: Keycloak availability.** If the Keycloak microvm goes
    down, oauth2-proxy cannot validate sessions (refresh fails after `cookie.refresh`
    interval), new logins are impossible, and step-ca's OIDC provisioner stops working.
    ACME renewals also fail (since they're proxied through the same microvm). This isn't a
@@ -919,12 +931,12 @@ must be added.
    from backup or re-provisioning from Nix config + database backup.
 
 **Overall verdict:** The architecture is sound for a homelab. The trust boundaries are
-in the right places, the firewall model is restrictive by default, and the
-identity provider is appropriately isolated from the DMZ. The main risks are
-implementation-level (the S1-S13 findings below) rather than architectural. The two
-structural points worth tracking are: surtr's outsized role as the internet-facing
-bastion, and the ACME proxy co-location on the Keycloak microvm. Neither requires
-architectural changes, but both warrant extra care during implementation.
+in the right places, the firewall model is restrictive by default, and the identity
+provider is appropriately isolated from the DMZ. Keycloak and step-ca each have their
+own microvm with dedicated firewall rules, so a compromise of one doesn't grant vDMZ
+access to the other. The main risks are implementation-level (the S1-S13 findings below)
+rather than architectural. The structural point worth tracking is surtr's outsized role
+as the internet-facing bastion — it warrants hardening as described above.
 
 ### Specific findings: Critical — Must fix before external access
 
@@ -1084,9 +1096,8 @@ access. If SSH from the cloud host is operationally required, restrict it with
 
 step-ca's ACME provisioner has no access control beyond network reachability and the
 certificate policy (`*.local`, `10.0.0.0/16`, etc.). After the migration, any vDMZ
-host that can reach the Keycloak microvm's `/acme` proxy can request certificates for
-**any** `*.local` hostname — including `keycloak.local`, `alfheim.local`, or
-`yggdrasil.local`.
+host that can reach the step-ca microvm can request certificates for **any** `*.local`
+hostname — including `keycloak.local`, `alfheim.local`, or `yggdrasil.local`.
 
 A compromised vDMZ service (e.g., a vulnerable web app on bragi) could:
 1. Request a TLS certificate for `keycloak.local`
@@ -1142,19 +1153,19 @@ location /auth/ {
 }
 ```
 
-**S12. vDMZ → Keycloak firewall rule is zone-wide (plan)**
+**S12. vDMZ → step-ca firewall rule is zone-wide (plan)**
 
-The plan's firewall rule allows `iifname = "vDMZ.br0"` → Keycloak microvm. This
-means any current or future vDMZ host can reach Keycloak. While all vDMZ hosts with
-ACME need this, a compromised host could also hit Keycloak's OIDC endpoints.
+The plan's ACME firewall rule allows any vDMZ host to reach the step-ca microvm. The
+OIDC rule is already narrowed to surtr. A compromised vDMZ host could use the ACME
+rule to interact with step-ca (requesting certs, see S9).
 
-**Fix (optional):** Restrict source IPs to known vDMZ hosts:
+**Fix (optional):** Restrict ACME source IPs to known vDMZ hosts with ACME certs:
 ```nix
 {
   iifname = "vDMZ.br0";
   oifname = "vINFRA.br0";
   ip.saddr = { "10.0.100.40" "10.0.100.50" "10.0.100.51" };  # surtr, bragi, njord
-  ip.daddr = "<keycloak-microvm-ip>";
+  ip.daddr = "<step-ca-microvm-ip>";
   tcp.dport = 443;
   verdict = "accept";
 }
@@ -1220,7 +1231,7 @@ if not tested carefully.
 | S9 | Investigate ACME provisioner authorization | Phase 1 (step-ca config) |
 | S10 | Replace `email.domains = ["*"]` with group-based access | Phase 2 (realm restructuring) |
 | S11 | Add nginx rate limiting | Phase 3 (surtr nginx config) |
-| S12 | Consider narrowing firewall source IPs | Phase 1 (firewall rules) |
+| S12 | Consider narrowing ACME firewall source IPs | Phase 1 (firewall rules) |
 | S13 | Fix X-Forwarded-For trust chain | Phase 3 (proxy chain config) |
 
 ---
@@ -1229,9 +1240,9 @@ if not tested carefully.
 
 | File | Phase | Changes |
 |------|-------|---------|
-| Keycloak microvm config (new, on vINFRA host) | 1 | New microvm: Keycloak, PostgreSQL, nginx (/auth + /acme proxy), sops secrets |
-| step-ca microvm config (new, on vINFRA host) | 1 | New microvm: step-ca service, CA key material, sops secrets |
-| `hosts/yggdrasil/default.nix` | 1 | Add vDMZ → Keycloak microvm firewall rule, add DNS entries |
+| Keycloak microvm config (new, on vINFRA host) | 1 | New microvm: Keycloak, PostgreSQL, nginx (/auth proxy), sops secrets |
+| step-ca microvm config (new, on vINFRA host) | 1 | New microvm: step-ca, nginx (ACME endpoint), CA key material, sops secrets |
+| `hosts/yggdrasil/default.nix` | 1 | Add surtr → Keycloak + vDMZ → step-ca firewall rules, add DNS entries |
 | `hosts/muspelheim/guests/surtr/proxy.nix` | 1, 2, 3 | Update OIDC issuer URL, update realm, add `/auth` proxy location, split oauth2-proxy URLs |
 | `hosts/yggdrasil/guests/alfheim/modules/proxy.nix` | 1 | Update OAuth proxy URLs to Keycloak microvm |
 | Per-host ACME configs | 1 | Update ACME server URL from gridr.local to Keycloak microvm |
