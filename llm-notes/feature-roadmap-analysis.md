@@ -17,74 +17,7 @@ and providing a unified implementation guide.
 
 ## Contradictions
 
-### C1. DNS naming: `.home.local` vs `.local` vs `.mutantmell.net`
-
-**Plans involved:** SSH Certificates, Secure MGMT VLAN, Keycloak OIDC, Headscale
-
-The plans use three different DNS naming conventions for the same hosts:
-
-| Plan | DNS scheme | Example |
-|------|-----------|---------|
-| SSH Certificates | `*.home.local` | `auth.home.local`, `target-host.local` |
-| Secure MGMT VLAN | `*.local` | `yggdrasil.local`, `alfheim.local`, `gridr.local` |
-| Keycloak OIDC | `*.internal.mutantmell.net` + `*.internal` | `auth.mutantmell.net`, `alfheim.internal` |
-| Headscale | `*.internal.mutantmell.net` + `*.internal` | `headscale.internal`, `vpn.mutantmell.net` |
-
-The Keycloak OIDC plan explicitly mandates migrating away from `.local` (Phase 3)
-because `.local` conflicts with mDNS (RFC 6762). The SSH Certificates plan uses
-`home.local` which is a subdomain of `.local` and would also be removed. The Secure
-MGMT VLAN plan uses the current `.local` names throughout.
-
-**Impact:** The SSH Certificates plan has hardcoded URLs like
-`auth.home.local/realms/home` that won't exist after the Keycloak OIDC plan's DNS
-migration. The Secure MGMT VLAN plan's DNS records, `extraHosts`, and Unbound
-`local-data` entries all use `.local` and would be overwritten by the Keycloak plan.
-
-**Resolution options:**
-
-- **Option A (Recommended): Adopt `mutantmell.net` hierarchy everywhere.** The
-  Keycloak OIDC plan's DNS strategy is the most thoroughly considered. Update the SSH
-  Certificates plan and Secure MGMT VLAN plan to use `*.internal.mutantmell.net` /
-  `*.internal` / `*.mutantmell.net` instead of `.local`. This means:
-  - SSH cert plan: `auth.home.local` → `auth.mutantmell.net`
-  - SSH cert plan: `target-host.local` → `target-host.internal`
-  - MGMT VLAN plan: all `.local` references → `.internal` / `.internal.mutantmell.net`
-
-- **Option B: Defer DNS migration, use `.local` temporarily.** Implement the MGMT
-  VLAN plan with `.local` as written, then do a bulk rename when the Keycloak plan's
-  Phase 3 executes. More churn but allows the MGMT VLAN plan to proceed without
-  coupling to the Keycloak plan's DNS strategy.
-
----
-
-### C2. Keycloak realm name: `home` vs `homelab`
-
-**Plans involved:** SSH Certificates, Keycloak OIDC, Headscale
-
-The SSH Certificates plan references a Keycloak realm named `home`:
-- OIDC issuer URL: `https://auth.home.local/realms/home`
-- Token exchange URL: `https://auth.home.local/realms/home/protocol/openid-connect/token`
-
-The Keycloak OIDC plan defines the realm as `homelab`:
-- OIDC issuer URL: `https://auth.mutantmell.net/auth/realms/homelab`
-
-The Headscale plan follows the Keycloak OIDC plan and uses `homelab`.
-
-**Impact:** If implemented as-written, step-ca's OIDC provisioner would point at a
-nonexistent realm. Token issuer validation would fail.
-
-**Resolution options:**
-
-- **Option A (Recommended): Use `homelab` everywhere.** The Keycloak OIDC plan is
-  the authoritative source for realm configuration. Update the SSH Certificates plan
-  to reference `homelab` instead of `home`.
-
-- **Option B: Use `home`.** Shorter, simpler. Update the Keycloak and Headscale plans.
-  No functional difference — it's just a name.
-
----
-
-### C3. Network registry zone names vs router6 zone names
+### C1. Network registry zone names vs router6 zone names
 
 **Plans involved:** Secure MGMT VLAN (internal contradiction)
 
@@ -141,41 +74,85 @@ router6 zones need to be renamed to match.
 
 ---
 
-### C4. STUN port forward creates direct internet exposure for vINFRA
+### C2. Headscale on vINFRA is incompatible with the network architecture
 
-**Plans involved:** Headscale, Secure MGMT VLAN
+**Plans involved:** Headscale, Secure MGMT VLAN, Keycloak OIDC
 
-The Headscale plan requires a UDP port forward from the WAN interface to the
-headscale microvm on vINFRA (UDP 3478 for STUN). The headscale plan acknowledges
-this: *"The headscale microvm stays on vINFRA with no direct internet exposure
-except the STUN port forwarded through the router."*
+The Headscale plan places headscale on vINFRA and requires two internet-reachable
+network surfaces:
 
-However, a core principle of the MGMT VLAN plan and Keycloak OIDC plan is that
-vINFRA services are never directly internet-accessible. All external access is
-proxied through surtr on vDMZ. The STUN port forward breaks this principle by
-creating a direct internet → vINFRA data path.
+1. **DERP relay** (TCP 443) — relays encrypted WireGuard packets when direct
+   connections fail. DERP is embedded in headscale and cannot be separated into a
+   standalone service.
+2. **STUN** (UDP 3478) — helps Tailscale clients discover their public IP for NAT
+   traversal. Also embedded in headscale.
 
-**Impact:** A vulnerability in headscale's embedded STUN server would provide direct
-access to a vINFRA host, bypassing the vDMZ chokepoint entirely.
+The plan proposes a WAN port forward (UDP 3478) from the router to the headscale
+microvm on vINFRA, with DERP proxied through surtr. This has two problems:
 
-**Resolution options:**
+**Problem 1: No direct WAN path exists.** The network architecture routes all
+external traffic through a cloud host via the wg-ba WireGuard tunnel to surtr on
+vDMZ. There is no direct WAN exposure of the homelab's public IP — port forwards
+from the WAN interface don't fit this architecture. STUN served through a WireGuard
+tunnel would report the tunnel endpoint IP rather than the client's actual public
+IP, breaking NAT traversal entirely.
 
-- **Option A: Accept the exception.** STUN is a minimal UDP protocol (RFC 5389) with
-  a tiny attack surface. The port forward goes to a specific port on a specific host.
-  headscale verifies connecting clients against its node database. Document this as a
-  known exception to the "no direct vINFRA exposure" rule.
+**Problem 2: DERP is embedded, not separable.** The plan's DERP server runs inside
+the headscale process. You cannot split just DERP/STUN to vDMZ while keeping
+headscale's control plane on vINFRA — they're the same binary, same process.
 
-- **Option B (Recommended): Run a separate DERP/STUN relay on vDMZ.** Instead of
-  using headscale's embedded DERP server, deploy a standalone
-  `tailscale/derper` instance on vDMZ (could run on the fenrir subnet router, or a
-  dedicated microvm). This keeps all internet-facing network surfaces on vDMZ.
-  Headscale on vINFRA handles only the control plane (HTTPS, proxied through surtr).
-  The DERP relay on vDMZ handles data plane relay and STUN.
+**Impact:** As written, headscale's STUN and DERP cannot function on vINFRA. Friends'
+Tailscale clients would be unable to perform NAT traversal (STUN) or relay traffic
+(DERP) through the homelab.
 
-- **Option C: Use Tailscale's public DERP servers for STUN only.** Keep the
-  self-hosted DERP relay on headscale for encrypted relay traffic, but let Tailscale's
-  public STUN servers handle NAT traversal. This avoids the port forward entirely but
-  introduces a dependency on Tailscale Inc. for STUN (not for relay data).
+**Resolution: Move headscale entirely to vDMZ.**
+
+Since DERP and STUN are embedded in headscale and both need to be reachable from
+external users, headscale itself must live on vDMZ. This aligns with the broader
+architecture: vDMZ is where services reachable by external untrusted users belong.
+
+Changes required to the Headscale plan:
+
+| Aspect | Current (vINFRA) | Updated (vDMZ) |
+|--------|-----------------|----------------|
+| Microvm host | vINFRA host (jotunheimr or muspelheim) | muspelheim (vDMZ, alongside surtr/fenrir) |
+| Network | VLAN 11 (vINFRA) | VLAN 100 (vDMZ) |
+| Keycloak OIDC | Intra-zone (vINFRA → vINFRA) | Cross-zone, explicit firewall rule (vDMZ → vINFRA), same pattern as surtr → Keycloak |
+| Control plane proxy | Proxied through surtr | Can be proxied through surtr (intra-zone on vDMZ) or served directly |
+| DERP/STUN reachability | WAN port forward (broken) | Reachable via cloud host → wg-ba → headscale, or via surtr proxy |
+| Compromise impact | Attacker on vINFRA (worse) | Attacker on vDMZ (better — same as any DMZ service compromise) |
+
+The cross-zone firewall rule for headscale → Keycloak follows the established
+pattern. Add to `extraForwardRules`:
+
+```nix
+{
+  iifname = "vDMZ.br0";
+  oifname = "vINFRA.br0";
+  ip.saddr = "<headscale-microvm-ip>";
+  ip.daddr = "<keycloak-microvm-ip>";
+  tcp.dport = 443;
+  verdict = "accept";
+  comment = "headscale -> Keycloak (OIDC)";
+}
+```
+
+For DERP and STUN reachability from friends, the traffic path would be:
+- **DERP relay (HTTPS):** Friend → cloud host → wg-ba → surtr (proxy for
+  `vpn.mutantmell.net`) → headscale on vDMZ. Same path as the control plane.
+- **STUN (UDP 3478):** Needs investigation. UDP cannot be proxied through nginx.
+  Options include: forwarding STUN UDP through the wg-ba tunnel to headscale on
+  vDMZ (may work since the cloud host sees the friend's real IP and can relay the
+  STUN response), running a standalone STUN service on the cloud host itself, or
+  accepting that STUN won't work and relying on DERP relay for all connections
+  (higher latency but functional).
+
+Moving headscale to vDMZ also improves the security posture: a compromise of
+headscale now gives an attacker a vDMZ foothold (same as compromising any game
+server) rather than a vINFRA foothold (which would put them alongside Keycloak,
+step-ca, and DNS). The original plan's argument that "headscale is infrastructure"
+is reasonable in the abstract, but the embedded DERP/STUN requirement makes
+vINFRA placement impractical.
 
 ---
 
@@ -243,10 +220,6 @@ Keycloak, step-ca, and headscale microvms all need vINFRA to exist.
   deploying the router change
 - The management zone's internet access changes from blanket `accessTo` to filtered
   `forwardRules.external` — verify updates/package downloads still work
-- If **C1 Option A** is chosen, consider using `.internal` names from the start
-  instead of `.local`, since the Keycloak plan will replace them anyway. This
-  avoids doing the DNS rename twice. If **C1 Option B** is chosen, use `.local` as
-  written and plan for the bulk rename later.
 - NFS mount changes (Phase 3) should be tested before deploying host firewalls
   (Phase 4), since the firewalls will block NFS from unexpected sources
 
@@ -267,7 +240,7 @@ DNS migration — new DNS records can be generated programmatically from the reg
 It also simplifies the IP migration (Phase 8) by providing `legacyPrefix` support.
 
 **Key context:**
-- The zone naming issue (C3) must be resolved before implementing this
+- The zone naming issue (C1) must be resolved before implementing this
 - Start by creating `network.nix` alongside `network.json` (both active), then
   gradually migrate consumers
 - The `nix run .#netinfo` app provides immediate value for looking up addresses
@@ -301,8 +274,8 @@ across all plans.
 - The SSH bastion requires Incus VM support (currently only containers are used) —
   this is a new capability that needs investigation
 - All security findings (S1-S13) should be addressed as the relevant phases execute
-- After Phase 3, update the MGMT VLAN plan's DNS records and `extraHosts` entries
-  to use the new naming scheme (if C1 Option B was chosen and they still use `.local`)
+- After Phase 3, the `.local` DNS records from the MGMT VLAN plan will be superseded
+  by the new `mutantmell.net` naming hierarchy
 
 **Deliverable:** Keycloak on dedicated vINFRA microvm, step-ca on dedicated vINFRA
 microvm, split-horizon DNS operational, external access working through cloud host,
@@ -347,8 +320,9 @@ provisioner, replacing static SSH keys with short-lived certificates.
 Keycloak.
 
 **Key context:**
-- Update the plan to use `auth.mutantmell.net` instead of `auth.home.local` (C1)
-- Update the plan to use realm `homelab` instead of `home` (C2)
+- The SSH cert plan uses placeholder DNS names (`*.home.local`) and realm name
+  (`home`) — these will be resolved to the canonical names (`*.mutantmell.net`,
+  `homelab`) established by the Keycloak OIDC plan (Step 4) when this step executes
 - Host certificates can be signed during this step for all NixOS hosts
 - The MAC allowlist on vMGMT remains until Phase 6 of this plan (when it's
   removed in favor of certificate-based auth)
@@ -373,13 +347,18 @@ DNS (for `vpn.mutantmell.net`), and surtr proxying (for external access to the
 control plane). All of these are established in previous steps.
 
 **Key context:**
+- The headscale plan must be updated to place headscale on vDMZ instead of
+  vINFRA (C2) before implementation begins
 - Can start Phase 1 (deploy headscale) with pre-auth keys before Keycloak OIDC
   is wired up — useful for testing the control plane independently
-- The STUN port forward question (C4) should be decided before deployment
+- STUN reachability for friends needs investigation — UDP through the cloud host
+  wg-ba tunnel may or may not preserve the source IP information STUN needs
 - ACL policy is a separate JSON file — adding game servers and friends doesn't
   require NixOS rebuilds
-- The subnet router (fenrir) on vDMZ needs the same firewall rule pattern as
-  surtr → Keycloak (explicit `extraForwardRules` for vDMZ → vINFRA)
+- headscale → Keycloak needs an explicit cross-zone firewall rule (vDMZ → vINFRA),
+  same pattern as surtr → Keycloak
+- The subnet router (fenrir) is already on vDMZ — with headscale also on vDMZ,
+  fenrir → headscale becomes intra-zone (no firewall rule needed)
 - Update ACL IPs to use `10.97.x.x` if the IP migration (Step 5) is complete
 
 **Deliverable:** Friends can install Tailscale, authenticate via Keycloak, and
@@ -399,14 +378,30 @@ While the overall order above is sequential, some work can overlap:
   VLANs while working on Keycloak, since the dual-address mechanism is independent
   of identity infrastructure
 
-### Cross-Plan Updates Needed After Resolving Contradictions
+### Not Contradictions: Sequencing Differences
 
-Once the contradictions above are resolved, these plan files need updates:
+The following differences between plans are **not contradictions** — they reflect
+the natural progression of the implementation order, where earlier plans work with
+current infrastructure and later plans replace it.
+
+**DNS naming (`.local` → `.mutantmell.net`):** The SSH Certificates plan uses
+`*.home.local` and the Secure MGMT VLAN plan uses `*.local` because both are
+written against the current DNS infrastructure. The Keycloak OIDC plan (Step 4)
+performs the bulk DNS migration to `*.internal.mutantmell.net` / `*.internal` /
+`*.mutantmell.net`. When the SSH Certificates plan (Step 6) is implemented, it
+will use the canonical names established by the already-completed Keycloak plan.
+
+**Keycloak realm name (`home` vs `homelab`):** The SSH Certificates plan uses
+`home` as a placeholder realm name. The Keycloak OIDC plan (Step 4) defines the
+authoritative realm as `homelab`. When the SSH Certificates plan (Step 6) is
+implemented, it will reference the `homelab` realm that already exists.
+
+### Cross-Plan Updates Needed After Resolving Contradictions
 
 | File | Updates Needed |
 |------|---------------|
-| `ssh-certificates-sso-plan.md` | Replace `*.home.local` with `*.mutantmell.net` / `*.internal` naming (C1); replace realm `home` with `homelab` (C2) |
-| `secure-mgmt-vlan-plan.md` | Resolve zone name mismatch in Phase 7 registry (C3); optionally pre-adopt `*.internal` naming instead of `.local` (C1) |
-| `headscale-integration-plan.md` | Resolve STUN/DERP placement for vINFRA exposure (C4) |
-| `keycloak-oauth-oidc-plan.md` | No changes needed (this plan is the most internally consistent and is the source of truth for DNS and realm naming) |
-| `zone-refactor-plan.md` | No changes needed (this plan is self-contained and does not reference DNS names or Keycloak) |
+| `secure-mgmt-vlan-plan.md` | Resolve zone name mismatch in Phase 7 registry (C1) |
+| `headscale-integration-plan.md` | Move headscale from vINFRA to vDMZ, update VLAN placement rationale, update firewall rules, investigate STUN reachability via cloud host (C2) |
+| `keycloak-oauth-oidc-plan.md` | No changes needed |
+| `ssh-certificates-sso-plan.md` | No changes needed (placeholder names will be resolved at implementation time) |
+| `zone-refactor-plan.md` | No changes needed (self-contained, no DNS or Keycloak references) |
