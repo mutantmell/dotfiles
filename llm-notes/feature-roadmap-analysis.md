@@ -43,34 +43,28 @@ match for the three most important zones.
 builtins.attrNames cfg.zones`) would fail at build time. Either the registry or the
 router6 zones need to be renamed to match.
 
-**Resolution options:**
+**Resolution: Rename registry zones to match router6 (Option A).**
 
-- **Option A: Rename registry zones to match router6.** Keep `management`, `trusted`,
-  `untrusted` etc. in the registry. These are the names already used across all other
-  plans and the zone refactor. Adds new zones (`adu`, `iot`, `game`, `dmz`) to both
-  the registry and router6 as they're defined.
+Use the generic functional names (`management`, `trusted`, `untrusted`, etc.) in
+the registry, matching router6 and all other plans. The registry in Phase 7 should
+define:
 
-- **Option B: Rename router6 zones to match registry.** Use the more descriptive
-  `infrastructure`, `home`, `guest`, `dmz` names in router6. This requires updating
-  the zone refactor plan, all host configs, and all other plans that reference zone
-  names. Larger blast radius but more readable names.
+```nix
+zones = {
+  network    = { vlanId = 10; };  # vMGMT — already matches
+  management = { vlanId = 11; };  # vINFRA (was "infrastructure")
+  trusted    = { vlanId = 20; };  # vHOME (was "home")
+  untrusted  = { vlanId = 30; };  # vGUEST (was "guest")
+  adu        = { vlanId = 31; };  # new — add to router6 when defined
+  iot        = { vlanId = 40; };  # new — add to router6 when defined
+  game       = { vlanId = 41; };  # new — add to router6 when defined
+  dmz        = { vlanId = 100; }; # new — add to router6 when defined
+};
+```
 
-- **Option C (Recommended): Decouple the naming.** The registry zones represent the
-  *network topology* (which VLAN a host is on). The router6 zones represent *firewall
-  policy* (what traffic is allowed). These don't need to have a 1:1 mapping — multiple
-  VLANs could share a firewall policy zone (e.g., vADU and vGUEST might both use the
-  `untrusted` firewall zone). Remove the sync assertion and instead have the registry
-  store both the topology zone name and the firewall zone name:
-  ```nix
-  zones = {
-    infrastructure = { vlanId = 11; firewallZone = "management"; };
-    home           = { vlanId = 20; firewallZone = "trusted"; };
-    guest          = { vlanId = 30; firewallZone = "untrusted"; };
-    # ...
-  };
-  ```
-  This preserves the descriptive topology names while keeping the functional firewall
-  zone names stable across all plans.
+This is the lowest-friction option: all existing plans already use these names, the
+sync assertion works as written, and zone names are just strings — cheap to rename
+later if more descriptive names are ever wanted.
 
 ---
 
