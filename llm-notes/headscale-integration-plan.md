@@ -576,11 +576,11 @@ Headscale does **not** replace wg-vpn. The trust models are different:
 | Authentication | Static WireGuard keys | OIDC (Keycloak) |
 | Revocation | Remove peer from config, rebuild | Disable Keycloak account (instant) |
 
-**Future consideration:** You could eventually migrate your own devices from wg-vpn to
-Tailscale/headscale with an `admins` ACL granting full access. This would give you the
-same ease of use (no manual key management, OIDC login, automatic key rotation) while
-maintaining full access. But this is optional and independent of the friends-access use
-case.
+Migrating personal devices to headscale was considered and rejected: it would require
+replacing the native WireGuard app with the Tailscale app on every personal device. The
+WireGuard app is lightweight, does exactly what's needed, and is already configured. There
+is no operational benefit to consolidating since the two systems serve different trust
+levels and don't interact.
 
 ### wg-ba (isolated, cloud host tunnel) — KEEP
 
@@ -948,21 +948,22 @@ The [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) should be updated to inc
 
 ## Open Questions
 
-1. **Game server selection:** Which games will be hosted first? This determines resource
-   requirements for game server microvms and specific ACL port entries. Common homelab
-   game servers: Minecraft (TCP 25565), Factorio (UDP 34197), Valheim (UDP 2456-2458),
-   Terraria (TCP 7777), Satisfactory (UDP 7777, 15000, 15777).
-
-2. **DERP self-hosting timeline:** Tailscale's public DERP servers are a reasonable
+1. **DERP self-hosting timeline:** Tailscale's public DERP servers are a reasonable
    dependency for now. If the concern about Tailscale's long-term viability extends to
    their DERP infrastructure, a self-hosted DERP server on the cloud host can be added
    later without changing the rest of the architecture.
 
-3. **Admin device migration:** Should your own devices (currently on wg-vpn) also move
-   to headscale? This simplifies to one VPN system but changes the trust model for your
-   personal access. Can be decided independently and later.
+## Resolved Questions
 
-4. **Key expiry policy:** How long should node keys be valid before requiring
-   re-authentication? Tailscale defaults to 180 days. For friends, longer is more
-   convenient; shorter is more secure. A 90-day expiry balances both — friends
-   re-authenticate roughly quarterly.
+1. **Game server selection:** Deferred. The architecture supports any game server — specific
+   games don't affect the plan. ACL port entries are updated when game servers are deployed.
+   Common homelab game servers for reference: Minecraft (TCP 25565), Factorio (UDP 34197),
+   Valheim (UDP 2456-2458), Terraria (TCP 7777), Satisfactory (UDP 7777, 15000, 15777).
+
+2. **Admin device migration:** Decided against. Migrating personal devices from wg-vpn to
+   headscale would require replacing the native WireGuard app with the Tailscale app. The
+   WireGuard app is lightweight, already configured, and preferred for personal use.
+   wg-vpn and headscale serve different trust levels and coexist without interaction.
+
+3. **Key expiry policy:** 90 days. Friends re-authenticate roughly quarterly — reasonable
+   balance between convenience and security.
