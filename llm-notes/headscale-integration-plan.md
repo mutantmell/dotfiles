@@ -70,7 +70,7 @@ flowchart LR
         direction LR
         FC["Friends' devices"] -->|HTTPS| VPN["vpn.mutantmell.net"]
         VPN -->|proxy| Surtr["surtr\n(vDMZ, nginx)"]
-        Surtr --> HS["headscale\n(vINFRA)"]
+        Surtr --> HS["headscale\n(vDMZ)"]
         HS -->|OIDC| KC["Keycloak\n(vINFRA)"]
     end
 ```
@@ -91,24 +91,34 @@ flowchart LR
 
 ## VLAN Placement
 
-### Headscale control server: vINFRA
+### Headscale control server: vDMZ
 
-Headscale is infrastructure — it coordinates the overlay network, manages node identities,
-and distributes security policy (ACLs). This puts it in the same category as Keycloak
-(identity), step-ca (certificates), and alfheim (DNS). It belongs on vINFRA.
+Headscale is conceptually infrastructure (it coordinates the overlay network, manages
+node identities, and distributes security policy), which would suggest vINFRA placement.
+However, headscale embeds a DERP relay server and STUN listener that must be reachable
+from external users. DERP and STUN are built into the headscale binary — they cannot be
+split into a separate service on a different VLAN. This makes vINFRA placement impractical:
 
-| Consideration | vDMZ | vINFRA |
-|---------------|------|--------|
-| Role classification | External-facing services | Infrastructure services |
-| Keycloak integration (OIDC) | Cross-zone (untrusted → management) | Intra-zone |
-| Friends' browsers (OIDC login) | Direct | Via surtr proxy (same as Keycloak) |
-| Compromise impact | Attacker controls overlay network | Same, but better isolated from game servers |
-| Precedent | surtr (web proxy) | Keycloak, step-ca, alfheim |
+1. **No direct WAN path to vINFRA.** The network architecture routes all external traffic
+   through a cloud host via the wg-ba WireGuard tunnel to surtr on vDMZ. STUN served
+   through a WireGuard tunnel would report the tunnel endpoint IP rather than the friend's
+   actual public IP, breaking NAT traversal entirely.
 
-Headscale → Keycloak (OIDC token validation) is intra-zone on vINFRA. If headscale were
-on vDMZ, it would need a cross-zone firewall rule to Keycloak — the same pattern as surtr,
-but for a service that doesn't need to be externally reachable directly. External access
-is proxied through surtr (a new nginx vhost), keeping headscale unexposed.
+2. **DERP is embedded, not separable.** You cannot run just DERP/STUN on vDMZ while
+   keeping headscale's control plane on vINFRA — they're the same process.
+
+| Consideration | vDMZ (chosen) | vINFRA |
+|---------------|---------------|--------|
+| DERP/STUN reachability | Reachable via surtr proxy / wg-ba | Broken — no direct WAN path, STUN fails through WireGuard |
+| Keycloak integration (OIDC) | Cross-zone rule (vDMZ → vINFRA), same as surtr | Intra-zone |
+| Fenrir → headscale | Intra-zone (no firewall rule needed) | Cross-zone rule needed |
+| Compromise impact | Attacker on vDMZ (same as any DMZ service) | Attacker on vINFRA (alongside Keycloak, step-ca, DNS — worse) |
+| Precedent | surtr (web proxy), game servers | Keycloak, step-ca, alfheim |
+
+Headscale on vDMZ needs an explicit cross-zone firewall rule to reach Keycloak on
+vINFRA for OIDC validation — the same pattern as surtr → Keycloak. External access is
+proxied through surtr (a new nginx vhost at `vpn.mutantmell.net`). The fenrir subnet
+router is also on vDMZ, so fenrir → headscale is intra-zone (no firewall rule needed).
 
 ### Subnet router: vDMZ
 
@@ -124,8 +134,7 @@ The subnet router belongs on vDMZ because:
 - A compromise of the subnet router gives access to vDMZ (game servers) but not to
   vINFRA or vHOME
 
-The subnet router needs control plane access to headscale (vINFRA) — this requires an
-explicit firewall rule, identical in pattern to surtr → Keycloak.
+With headscale also on vDMZ, fenrir → headscale is intra-zone — no firewall rule needed.
 
 ### Game servers: vDMZ
 
@@ -159,12 +168,12 @@ can be revisited, but it's premature now.
 
 | Property | Value |
 |----------|-------|
-| Host | vINFRA host (jotunheimr or muspelheim, depending on resource availability) |
+| Host | muspelheim (vDMZ bridge already exists, alongside surtr/fenrir) |
 | vCPU | 1 |
 | RAM | 512MB |
 | Persistent storage | Small (SQLite database, private keys, ACL policy file) |
-| Network | vINFRA (VLAN 11 after split, VLAN 10 currently) |
-| IP | Next available vINFRA address |
+| Network | vDMZ (VLAN 100) |
+| IP | Next available vDMZ address |
 | Services | headscale, nginx (TLS termination + reverse proxy) |
 | DNS name | `headscale.internal.mutantmell.net` / `headscale.internal` (internal) |
 | External name | `vpn.mutantmell.net` (proxied through surtr for friends) |
@@ -619,15 +628,15 @@ After the zone refactor, these are expressed as `extraForwardRules`:
 firewall.extraForwardRules = [
   # Existing rules...
 
-  # Subnet router (fenrir) needs control plane access to headscale
+  # Headscale needs OIDC access to Keycloak (cross-zone: vDMZ → vINFRA)
   {
     iifname = "vDMZ.br0";
     oifname = "vINFRA.br0";
-    ip.saddr = "10.0.100.60";              # fenrir (subnet router)
-    ip.daddr = "<headscale-microvm-ip>";
+    ip.saddr = "<headscale-microvm-ip>";
+    ip.daddr = "<keycloak-microvm-ip>";
     tcp.dport = 443;
     verdict = "accept";
-    comment = "fenrir -> headscale (Tailscale control plane)";
+    comment = "headscale -> Keycloak (OIDC)";
   }
 ];
 ```
@@ -635,25 +644,34 @@ firewall.extraForwardRules = [
 This follows the same pattern as the surtr → Keycloak rule in the
 [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md).
 
-### Port forwarding for STUN (required for self-hosted DERP)
+**Note:** fenrir → headscale is now intra-zone on vDMZ, so no router-level
+forwarding rule is needed for that path.
+
+### STUN reachability (required for self-hosted DERP)
 
 The embedded DERP server's STUN listener (UDP 3478) must be reachable from the internet
-for NAT traversal. Add a port forward on yggdrasil:
+for NAT traversal. With headscale on vDMZ, STUN traffic must arrive via the cloud host
+and wg-ba tunnel (since there is no direct WAN exposure of the homelab's public IP).
 
-```nix
-portForwards = [
-  {
-    proto = "udp";
-    sourcePort = 3478;
-    destination = "<headscale-microvm-ip>:3478";
-    sourceInterface = "wan";
-  }
-];
-```
+STUN over a WireGuard tunnel is problematic: STUN helps clients discover their public
+IP, but traffic arriving through wg-ba has the tunnel endpoint as its source, not the
+friend's real IP. Options to investigate:
 
-STUN helps friends' Tailscale clients discover their public IP and NAT type, enabling
-direct WireGuard connections that bypass the DERP relay entirely. Without STUN, more
-connections will fall back to DERP relay (higher latency).
+1. **Run a standalone STUN service on the cloud host.** The cloud host sees friends'
+   real public IPs. A lightweight STUN server there (e.g., coturn in STUN-only mode)
+   would provide correct NAT traversal information. Headscale's DERP map can point
+   STUN at the cloud host's IP while DERP relay points at `vpn.mutantmell.net`.
+
+2. **Forward STUN UDP through wg-ba.** May partially work — the cloud host can relay
+   the UDP packets, but the STUN response would reflect the wg-ba tunnel IP rather
+   than the friend's real public IP. This likely breaks NAT traversal.
+
+3. **Accept DERP-only relay.** If STUN doesn't work, all connections fall back to DERP
+   relay (higher latency but functional). For gaming with friends in the same metro
+   area, relay latency through the homelab may be acceptable.
+
+Option 1 is the most correct solution. STUN on the cloud host, DERP relay through
+surtr's proxy to headscale on vDMZ.
 
 ### Surtr nginx vhost for headscale (external access + DERP relay)
 
@@ -734,26 +752,21 @@ For DERP and STUN to work, the headscale server must be reachable from the inter
 
 Two options for exposing these:
 
-**Option A: Via surtr proxy (TCP 443 only, STUN via port forward)**
+**Option A: Via surtr proxy (TCP 443, STUN on cloud host) — recommended**
 
 The HTTPS control plane is already proxied through surtr at `vpn.mutantmell.net`. DERP
 relay traffic uses the same HTTPS connection, so it works through the proxy automatically.
-STUN (UDP) cannot be proxied through nginx — it needs a direct port forward on yggdrasil:
+STUN (UDP) cannot be proxied through nginx and cannot reliably traverse the wg-ba tunnel
+(see "STUN reachability" in the firewall section). The recommended approach:
 
-```nix
-portForwards = [
-  {
-    proto = "udp";
-    sourcePort = 3478;
-    destination = "<headscale-microvm-ip>:3478";
-    sourceInterface = "wan";
-  }
-];
-```
+- **DERP relay:** friend → cloud host → wg-ba → surtr → headscale (vDMZ). Works via
+  the existing HTTPS proxy path.
+- **STUN:** Run a lightweight STUN service on the cloud host itself, where it can see
+  friends' real public IPs. Configure headscale's DERP map to point STUN at the cloud
+  host's public IP.
 
-This is the recommended approach: DERP relay goes through the existing surtr proxy path,
-STUN gets a single UDP port forward. The headscale microvm stays on vINFRA with no
-direct internet exposure except the STUN port forwarded through the router.
+This keeps headscale on vDMZ with no direct internet exposure. DERP relay goes through
+surtr, and STUN is handled at the network edge (cloud host).
 
 **Option B: Via the cloud host (if deployed)**
 
@@ -808,18 +821,41 @@ noticeable, but game traffic will typically use direct connections anyway.
 
 ### Zone refactor plan — no conflict
 
-Headscale adds one more service to vINFRA and one to vDMZ. The zone refactor's
+Headscale adds two services to vDMZ (headscale + fenrir). The zone refactor's
 configurable zones handle this naturally. No changes to the zone refactor plan needed.
 
-The subnet router → headscale firewall rule is expressed as `extraForwardRules` (same
-escape hatch used for surtr → Keycloak).
+The headscale → Keycloak firewall rule is expressed as `extraForwardRules` (same
+escape hatch used for surtr → Keycloak). Fenrir → headscale is intra-zone on vDMZ.
 
-### Secure MGMT VLAN plan (vINFRA split) — minor addition
+### Secure MGMT VLAN plan (vINFRA split) — egress filtering
 
-The headscale microvm is one more microvm on vINFRA, alongside Keycloak and step-ca.
-The vINFRA split plan's Phase 1 (adding the vINFRA VLAN) naturally accommodates it.
+Both headscale and fenrir are on vDMZ (hosted by muspelheim, which already has vDMZ
+bridge infrastructure). The vINFRA split is relevant only for the cross-zone firewall
+rule (headscale → Keycloak on vINFRA for OIDC).
 
-The subnet router is on vDMZ, which already has bridge infrastructure on muspelheim.
+Both hosts should have egress filtering per Phase 4.4 of the MGMT VLAN plan. Egress
+policies:
+
+**headscale:**
+
+| Destination | Protocol | Port | Purpose |
+|-------------|----------|------|---------|
+| Keycloak microvm (vINFRA) | TCP | 443 | OIDC authentication |
+| alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+
+Headscale has minimal egress needs — DERP/STUN are inbound, control plane API is
+also inbound. No internet access needed.
+
+**fenrir:**
+
+| Destination | Protocol | Port | Purpose |
+|-------------|----------|------|---------|
+| headscale (vDMZ) | TCP | control port | Tailscale control plane |
+| Game servers (vDMZ) | TCP/UDP | game ports | Subnet routing target |
+| alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+
+Fenrir only needs to reach services it routes to. No internet access — all
+Tailscale traffic arrives through the WireGuard mesh.
 
 ### Keycloak OIDC plan — natural extension
 
@@ -854,7 +890,7 @@ separate file (not compiled into NixOS config), this is a quick edit.
 |--------|-----------|
 | Friend's device compromised | ACLs restrict to game server ports only; no lateral movement to other vDMZ services, vINFRA, or vHOME |
 | Friend's Keycloak credentials stolen | Disable account in Keycloak → headscale rejects re-auth; existing sessions expire per `UseExpiryFromToken` |
-| Headscale control server compromised | Attacker can manipulate overlay network; contained to vINFRA microvm; game servers on vDMZ are separate |
+| Headscale control server compromised | Attacker can manipulate overlay network; contained to vDMZ microvm with egress filtering; cannot reach vINFRA/vHOME except Keycloak:443 |
 | Subnet router compromised | Attacker gains vDMZ network position; same as compromising any vDMZ service; no access to vINFRA/vHOME |
 | DERP relay operator (Tailscale Inc.) | Traffic is WireGuard-encrypted end-to-end; relay sees encrypted packets only; metadata (source/dest IPs, timing) visible |
 
@@ -924,7 +960,7 @@ ready.
 
 ### Phase 1: Deploy headscale control server
 
-1. Provision headscale microvm on vINFRA host
+1. Provision headscale microvm on muspelheim (vDMZ)
 2. Configure `services.headscale` with basic settings (no OIDC initially)
 3. Add nginx TLS termination on the headscale microvm
 4. Add DNS records for `headscale.internal` / `headscale.internal.mutantmell.net`
@@ -937,7 +973,7 @@ ready.
 
 1. Provision fenrir microvm on muspelheim (vDMZ)
 2. Install Tailscale, configure as subnet router
-3. Add firewall rule: fenrir → headscale (vDMZ → vINFRA, TCP 443)
+3. Add firewall rule: headscale → Keycloak (vDMZ → vINFRA, TCP 443)
 4. Register fenrir with headscale, approve routes
 5. Test: a Tailscale client on vHOME can reach vDMZ IPs through the tailnet
 
@@ -979,10 +1015,10 @@ ready.
 
 | File | Phase | Changes |
 |------|-------|---------|
-| New: headscale microvm config (vINFRA host) | 1 | New microvm: headscale, nginx, sops secrets |
+| New: headscale microvm config (muspelheim, vDMZ) | 1 | New microvm: headscale, nginx, sops secrets, egress filtering |
 | New: fenrir microvm config (muspelheim) | 2 | New microvm: tailscale daemon, subnet router |
 | New: `/etc/headscale/acl.json` (on headscale microvm) | 4 | ACL policy file |
-| `hosts/yggdrasil/default.nix` | 2 | Firewall rule: fenrir → headscale (vDMZ → vINFRA) |
+| `hosts/yggdrasil/default.nix` | 1 | Firewall rule: headscale → Keycloak (vDMZ → vINFRA) |
 | `hosts/muspelheim/guests/surtr/proxy.nix` | 1 | Add `vpn.mutantmell.net` vhost |
 | `hosts/yggdrasil/guests/alfheim/modules/dns.nix` | 1 | DNS records for headscale + fenrir |
 | `hosts/muspelheim/default.nix` | 2 | Bridge config for fenrir tap interface (if not already covered by vDMZ bridge) |
@@ -1016,5 +1052,6 @@ The [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) should be updated to inc
 
 4. **DERP self-hosting:** Yes — use headscale's embedded DERP server. Tailscale's public
    DERP servers are disabled (`urls = []`). This eliminates all runtime dependencies on
-   Tailscale Inc. STUN (UDP 3478) is port-forwarded through yggdrasil; DERP relay (TCP 443)
-   is proxied through surtr alongside the control plane.
+   Tailscale Inc. DERP relay (TCP 443) is proxied through surtr alongside the control
+   plane. STUN (UDP 3478) needs investigation — the recommended approach is a standalone
+   STUN service on the cloud host (see "STUN reachability" in the firewall section).
