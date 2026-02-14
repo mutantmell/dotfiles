@@ -42,43 +42,37 @@ terminal commands beyond the initial `tailscale login --login-server <url>`.
 
 ## Architecture Overview
 
-```
-                         Friends' devices
-                    (Tailscale client installed)
-                              │
-                    ┌─────────┴──────────┐
-                    │                    │
-              Direct WireGuard     DERP relay
-              (NAT hole-punch      (fallback)
-               via STUN)               │
-                    │           ┌──────┴──────┐
-                    │           │ Tailscale's │
-                    │           │ public DERP │
-                    │           │   servers   │
-                    │           └──────┬──────┘
-                    │                  │
-                    └──────┬───────────┘
-                           │
-                           ▼
-              ┌─────────────────────────┐
-              │  Subnet Router (vDMZ)   │
-              │  Tailscale node         │
-              │  Advertises routes to   │
-              │  game server IPs/ports  │
-              └────────────┬────────────┘
-                           │
-              ┌────────────┴────────────┐
-              │     Game Servers        │
-              │     (vDMZ)              │
-              │  Minecraft, Factorio,   │
-              │  etc.                   │
-              └─────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph friends["Friends' Devices (Tailscale client)"]
+        F["Friend's phone/laptop"]
+    end
 
-Control plane (registration, key exchange, ACLs):
-  Friends' devices ──HTTPS──→ vpn.mutantmell.net
-    ──→ surtr (vDMZ, nginx proxy)
-    ──→ headscale microvm (vINFRA)
-    ──→ Keycloak microvm (vINFRA, OIDC auth)
+    subgraph dataplane["Data Plane"]
+        direction TB
+        Direct["Direct WireGuard\n(NAT hole-punch via STUN)"]
+        DERP["Self-hosted DERP relay\n(embedded in headscale,\nfallback only)"]
+    end
+
+    subgraph vdmz["vDMZ"]
+        Fenrir["fenrir — Subnet Router\nAdvertises routes to\ngame server IPs/ports"]
+        GS["Game Servers\nMinecraft, Factorio, etc."]
+    end
+
+    F --> Direct & DERP
+    Direct & DERP --> Fenrir
+    Fenrir --> GS
+```
+
+```mermaid
+flowchart LR
+    subgraph control["Control Plane (HTTPS, infrequent)"]
+        direction LR
+        FC["Friends' devices"] -->|HTTPS| VPN["vpn.mutantmell.net"]
+        VPN -->|proxy| Surtr["surtr\n(vDMZ, nginx)"]
+        Surtr --> HS["headscale\n(vINFRA)"]
+        HS -->|OIDC| KC["Keycloak\n(vINFRA)"]
+    end
 ```
 
 ### Data plane vs control plane separation
@@ -90,8 +84,8 @@ Control plane (registration, key exchange, ACLs):
 - **Data plane** (continuous, WireGuard/UDP): actual game traffic flows directly between
   friends' devices and the subnet router via encrypted WireGuard tunnels. Tailscale
   clients use STUN-based NAT traversal to establish direct connections whenever possible.
-  DERP relay (Tailscale's public servers) is only used as fallback when direct connections
-  fail. Latency-sensitive — direct connections are critical for gaming.
+  The self-hosted DERP relay (embedded in headscale) is only used as fallback when direct
+  connections fail. Latency-sensitive — direct connections are critical for gaming.
 
 ---
 
@@ -604,10 +598,11 @@ supports headscale's control plane for external access.
 
 ### Summary: headscale supplements, does not replace
 
-```
-Your phone/laptop ──wg-vpn──→ yggdrasil ──→ Full homelab (trusted)
-Cloud host ─────────wg-ba───→ yggdrasil ──→ surtr/vDMZ (isolated)
-Friends ────────tailscale───→ fenrir ─────→ Game servers only (ACL-restricted)
+```mermaid
+flowchart LR
+    You["Your phone/laptop"] -->|wg-vpn| Y1["yggdrasil"] --> HL["Full homelab\n(trusted)"]
+    Cloud["Cloud host"] -->|wg-ba| Y2["yggdrasil"] --> Surtr["surtr / vDMZ\n(isolated)"]
+    Friends["Friends"] -->|tailscale| Fenrir["fenrir"] --> GS["Game servers only\n(ACL-restricted)"]
 ```
 
 Three independent access paths, three different trust levels, three different purposes.
