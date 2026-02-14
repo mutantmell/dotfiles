@@ -465,31 +465,165 @@ The practical priority:
 **Add to:** Keycloak OIDC plan Phase 5 (additional OIDC integrations), and note
 in the "architectural tension" section (point 1 about surtr) as a mitigation.
 
-#### R3. Restrict surtr's egress to only necessary destinations
+#### R3. Host-level egress filtering for all vDMZ hosts
 
-**Problem:** The Keycloak plan notes surtr's outsized role and suggests considering
-egress restrictions, but doesn't follow through. As an `untrusted` zone host, surtr
-currently has blanket internet access (`accessTo = [ "external" ]`) and unrestricted
-intra-zone access to all vDMZ services. A compromised surtr can exfiltrate data to
-the internet and pivot to any vDMZ service.
+**Problem:** The router's zone-level firewall controls inter-zone traffic, but
+intra-zone traffic on vDMZ is unrestricted — any vDMZ host can talk to any other
+vDMZ host on any port. Additionally, vDMZ hosts have blanket internet access. A
+compromised host can pivot to every other vDMZ service and exfiltrate data freely.
 
-**Fix:** Add host-level nftables on surtr (same pattern as the MGMT VLAN plan's
-Phase 4 host firewalls) restricting outbound connections to only what surtr needs:
+The MGMT VLAN plan's Phase 4 establishes the pattern of host-level firewalls, but
+only for inbound (input chain) filtering. NixOS's `networking.firewall` module
+doesn't manage output chains at all — egress is unfiltered by default.
 
-| Destination | Port | Purpose |
-|-------------|------|---------|
-| Keycloak microvm (vINFRA) | 443 | OIDC token exchange |
-| step-ca microvm (vINFRA) | 443 | ACME certificate renewal |
-| bragi (vDMZ) | 443/8096 | Jellyfin proxy |
-| alfheim (vINFRA) | 53 | DNS resolution |
-| Internet | 443 | ACME (Let's Encrypt on cloud host, if surtr does OCSP) |
+**Fix:** Extend the host firewall pattern from MGMT VLAN Phase 4 to include
+**output chain rules** on every vDMZ host. Since `networking.firewall` only handles
+input, output filtering requires a custom nftables table:
 
-Everything else — outbound internet, other vDMZ hosts, SSH to other machines — is
-dropped. This limits an attacker's ability to exfiltrate data, establish C2, or
-pivot to other vDMZ services like game servers.
+```nix
+# Pattern for vDMZ host egress filtering
+networking.nftables.tables.egress = {
+  family = "inet";
+  content = ''
+    chain output {
+      type filter hook output priority 0; policy drop;
 
-**Add to:** Keycloak OIDC plan Phase 3 (surtr hardening), cross-referenced with
-Secure MGMT VLAN plan Phase 4 (host-based firewalls).
+      # Always allow established/related, loopback, ICMP
+      ct state established,related accept
+      oifname "lo" accept
+      ip protocol icmp accept
+      ip6 nexthdr ipv6-icmp accept
+
+      # Per-host allow rules go here
+      # ...
+    }
+  '';
+};
+```
+
+Each vDMZ host gets a minimal set of allowed outbound destinations. The default
+policy is `drop` — anything not explicitly allowed is blocked.
+
+**Per-host egress policies:**
+
+**surtr** (reverse proxy + oauth2-proxy):
+
+| Destination | Protocol | Port | Purpose |
+|-------------|----------|------|---------|
+| Keycloak microvm (vINFRA) | TCP | 443 | OIDC token exchange |
+| step-ca microvm (vINFRA) | TCP | 443 | ACME certificate renewal |
+| bragi (vDMZ) | TCP | 443, 8096 | Jellyfin proxy target |
+| alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+| Internet | TCP | 443 | OCSP stapling |
+
+Surtr is the highest-priority target because it's the entry point for all external
+web traffic. An attacker here can currently pivot to every other vDMZ host and
+reach the internet freely. With egress filtering, a compromised surtr can only
+talk to the services it proxies — it can't reach game servers, headscale, or
+arbitrary internet hosts for C2.
+
+**bragi** (Jellyfin):
+
+| Destination | Protocol | Port | Purpose |
+|-------------|----------|------|---------|
+| Keycloak microvm (vINFRA) | TCP | 443 | OIDC token validation (R2 native OIDC) |
+| step-ca microvm (vINFRA) | TCP | 443 | ACME certificate renewal |
+| jotunheimr NFS (vINFRA) | TCP | 2049 | Media library access |
+| alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+| Internet | TCP | 443 | Metadata scraping (TMDB, TVDB) |
+
+Bragi currently exposes ports 80, 443, 8096, 8920 (TCP) and 1900, 5353, 7359
+(UDP) with no source restrictions. The input rules should also be tightened:
+8096 should only accept from surtr (its reverse proxy), and the discovery ports
+(1900, 5353, 7359) should be scoped to vHOME.
+
+**headscale** (after C2 relocation to vDMZ):
+
+| Destination | Protocol | Port | Purpose |
+|-------------|----------|------|---------|
+| Keycloak microvm (vINFRA) | TCP | 443 | OIDC authentication |
+| alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+
+Headscale has minimal egress needs — DERP/STUN are inbound services (friends
+connect to headscale), and control plane API is also inbound (via surtr proxy).
+Headscale should not need internet access at all.
+
+**fenrir** (Headscale subnet router):
+
+| Destination | Protocol | Port | Purpose |
+|-------------|----------|------|---------|
+| headscale (vDMZ) | TCP | control port | Tailscale control plane |
+| Game servers (vDMZ) | TCP/UDP | game ports | Subnet routing target |
+| alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+
+Fenrir only needs to reach the services it routes traffic to. It should not have
+internet access — all Tailscale traffic arrives through the WireGuard mesh, not
+the internet directly.
+
+**SSH bastion** (future, from Keycloak plan):
+
+| Destination | Protocol | Port | Purpose |
+|-------------|----------|------|---------|
+| vINFRA hosts | TCP | 22 | SSH forwarding to infrastructure |
+| vHOME hosts | TCP | 22 | SSH forwarding to user machines |
+| alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+
+The bastion should not have internet access or be able to reach non-SSH ports.
+This is critical: a compromised bastion with unrestricted egress would be a
+pivot point to every host on every VLAN.
+
+**Game servers** (future):
+
+| Destination | Protocol | Port | Purpose |
+|-------------|----------|------|---------|
+| alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+| Internet | TCP | 443 | Game updates (if needed) |
+
+Game servers have the simplest egress profile. They serve connections inbound
+from fenrir and shouldn't need to initiate connections to other vDMZ hosts.
+
+**Implementation approach:**
+
+The egress nftables table can be defined as a shared NixOS module that each
+vDMZ host imports, parameterized by allowed destinations:
+
+```nix
+# modules/dmz-egress/default.nix (sketch)
+{ config, lib, ... }:
+let cfg = config.mmell.dmzEgress; in {
+  options.mmell.dmzEgress.allowedOutputs = lib.mkOption {
+    type = lib.types.listOf (lib.types.submodule { ... });
+    default = [];
+    description = "Allowed outbound connections for this vDMZ host";
+  };
+
+  config = lib.mkIf (cfg.allowedOutputs != []) {
+    networking.nftables.tables.egress = {
+      family = "inet";
+      content = ''
+        chain output {
+          type filter hook output priority 0; policy drop;
+          ct state established,related accept
+          oifname "lo" accept
+          ip protocol icmp accept
+          ip6 nexthdr ipv6-icmp accept
+          ${lib.concatMapStringsSep "\n" renderRule cfg.allowedOutputs}
+        }
+      '';
+    };
+  };
+}
+```
+
+This fits naturally alongside the MGMT VLAN plan's Phase 4 host firewalls (which
+handle input). Together, input + output host firewalls on vDMZ create a
+microsegmentation layer that survives router compromise and limits intra-zone
+lateral movement.
+
+**Add to:** Secure MGMT VLAN plan Phase 4 (extend host-based firewalls to include
+output chains). Apply to all vDMZ hosts as they're provisioned. Cross-reference
+from the Keycloak OIDC plan Phase 3 (surtr hardening) and the Headscale plan
+(headscale + fenrir provisioning).
 
 #### R4. Scope the `oauth2-proxy` client's Keycloak permissions
 
@@ -520,8 +654,8 @@ verification step when registering clients.
 
 | File | Updates Needed |
 |------|---------------|
-| `secure-mgmt-vlan-plan.md` | Resolve zone name mismatch in Phase 7 registry (C1) |
-| `headscale-integration-plan.md` | Move headscale from vINFRA to vDMZ, update VLAN placement rationale, update firewall rules, investigate STUN reachability via cloud host (C2) |
-| `keycloak-oauth-oidc-plan.md` | Add `hostname-admin` config (R1), call out native OIDC as security hardening (R2), add surtr egress restrictions (R3), add client scope verification (R4) |
+| `secure-mgmt-vlan-plan.md` | Resolve zone name mismatch in Phase 7 registry (C1); extend Phase 4 host firewalls with output chain egress filtering for vDMZ hosts (R3) |
+| `headscale-integration-plan.md` | Move headscale from vINFRA to vDMZ, update VLAN placement rationale, update firewall rules, investigate STUN reachability via cloud host (C2); define egress policies for headscale + fenrir (R3) |
+| `keycloak-oauth-oidc-plan.md` | Add `hostname-admin` config (R1), call out native OIDC as security hardening (R2), define surtr + bastion egress policies (R3), add client scope verification (R4) |
 | `ssh-certificates-sso-plan.md` | No changes needed (placeholder names will be resolved at implementation time) |
 | `zone-refactor-plan.md` | No changes needed (self-contained, no DNS or Keycloak references) |
