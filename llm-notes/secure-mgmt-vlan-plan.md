@@ -528,6 +528,47 @@ networking.firewall = {
 
 The above rules use `10.0.20.0/24` as a placeholder. Tighten to a specific IP once a DHCP reservation is configured.
 
+### 4.4 Egress filtering for vDMZ hosts
+
+Sections 4.1-4.2 use `extraInputRules` to restrict *inbound* connections. NixOS's
+`networking.firewall` module doesn't manage output chains — egress is unfiltered by
+default. On vDMZ, where hosts face untrusted traffic and a compromise should be
+contained, egress filtering is critical. Without it, a compromised vDMZ host can pivot
+to every other vDMZ service (intra-zone) and exfiltrate to the internet freely.
+
+Add a custom nftables output chain to each vDMZ host with a default-drop policy:
+
+```nix
+# Pattern for vDMZ host egress filtering
+networking.nftables.tables.egress = {
+  family = "inet";
+  content = ''
+    chain output {
+      type filter hook output priority 0; policy drop;
+
+      # Always allow established/related, loopback, ICMP
+      ct state established,related accept
+      oifname "lo" accept
+      ip protocol icmp accept
+      ip6 nexthdr ipv6-icmp accept
+
+      # Per-host allow rules go here (see per-host tables below)
+      # ...
+    }
+  '';
+};
+```
+
+Each vDMZ host gets a minimal allowlist. Per-host policies are defined in the
+Keycloak OIDC plan (surtr, SSH bastion) and Headscale plan (headscale, fenrir).
+The general principle: a vDMZ host should only be able to initiate connections to
+the services it directly depends on, plus DNS. No blanket internet, no intra-zone
+free-for-all.
+
+This can be implemented as a shared NixOS module (`modules/dmz-egress/`) that
+parameterizes the allowed destinations, similar to how `extraInputRules` works
+but for output.
+
 ---
 
 ## Phase 5: OpenWRT AP Changes
@@ -643,14 +684,14 @@ let
   ulaPrefix = "fdc6:55f2:0a5e";
 
   zones = {
-    network        = { vlanId = 10; };
-    infrastructure = { vlanId = 11; };
-    home           = { vlanId = 20; };
-    guest          = { vlanId = 30; };
-    adu            = { vlanId = 31; };
-    iot            = { vlanId = 40; };
-    game           = { vlanId = 41; };
-    dmz            = { vlanId = 100; };
+    network    = { vlanId = 10; };
+    management = { vlanId = 11; };
+    trusted    = { vlanId = 20; };
+    untrusted  = { vlanId = 30; };
+    adu        = { vlanId = 31; };
+    iot        = { vlanId = 40; };
+    game       = { vlanId = 41; };
+    dmz        = { vlanId = 100; };
   };
 
   vlanHex = vlanId: lib.toLower (lib.toHexString vlanId);
@@ -672,17 +713,17 @@ in {
   inherit zones ipv4Prefix ulaPrefix mkHost;
 
   hosts = {
-    # Infrastructure (VLAN 11) — ordered by boot dependency
-    yggdrasil  = mkHost "infrastructure" 1;
-    alfheim    = mkHost "infrastructure" 2;
-    jotunheimr = mkHost "infrastructure" 20;   # NAS — before VM hosts
-    vanaheim   = mkHost "infrastructure" 30;   # VM host
-    muspelheim = mkHost "infrastructure" 31;   # VM host
+    # Management (VLAN 11) — ordered by boot dependency
+    yggdrasil  = mkHost "management" 1;
+    alfheim    = mkHost "management" 2;
+    jotunheimr = mkHost "management" 20;   # NAS — before VM hosts
+    vanaheim   = mkHost "management" 30;   # VM host
+    muspelheim = mkHost "management" 31;   # VM host
 
-    # Home (VLAN 20)
-    gridr = mkHost "home" 30;
-    skadi = mkHost "home" 40;
-    ymir  = mkHost "home" 41;
+    # Trusted (VLAN 20)
+    gridr = mkHost "trusted" 30;
+    skadi = mkHost "trusted" 40;
+    ymir  = mkHost "trusted" 41;
 
     # DMZ (VLAN 100)
     hrungnir = mkHost "dmz" 31;
@@ -701,11 +742,11 @@ in {
 
 This gives every consumer exactly what it needs:
 - **Programmatic lookup:** `network.hosts.alfheim.ipv4` → `"10.97.11.2"`
-- **Router zone data:** `network.hosts.alfheim.zoneName` → `"infrastructure"`,
+- **Router zone data:** `network.hosts.alfheim.zoneName` → `"management"`,
   `.hostId` → `2` — the router can use these to construct topology
 - **Dual-stack:** `.ipv4`, `.ipv6`, `.cidr4`, `.cidr6` all derived automatically
 - **Subnets:** `.subnet4`, `.subnet6` for NFS exports and firewall rules
-- **Zone metadata:** `network.zones.infrastructure.vlanId` → `11`
+- **Zone metadata:** `network.zones.management.vlanId` → `11`
 - **Human-readable lookup:** see 8.2 below
 
 ### 7.2 Human-readable IP lookup

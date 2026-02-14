@@ -755,13 +755,33 @@ Keycloak uses a single fixed hostname. No dual-mode configuration needed:
 ```nix
 services.keycloak.settings = {
   # ... existing settings ...
-  hostname = "auth.mutantmell.net";   # Fixed issuer URL for all tokens
+  hostname = "https://auth.mutantmell.net";   # Fixed issuer URL for all tokens
   # hostname-strict = true;           # Default — leave it
   # hostname-backchannel-dynamic is NOT set. All clients (oauth2-proxy,
   # step-ca, browsers) use auth.mutantmell.net. Internal clients resolve
   # it to the Keycloak microvm directly via split-horizon DNS.
+
+  # Admin console restricted to internal hostname only. Prevents the admin
+  # console UI from being served via auth.mutantmell.net — even if surtr's
+  # nginx /auth/admin/ block (S5) is bypassed, Keycloak itself refuses to
+  # serve the admin console on the public hostname.
+  # Note: hostname must be a full URL (not just hostname) when hostname-admin is set.
+  hostname-admin = "https://<keycloak-host>.internal.mutantmell.net";
 };
 ```
+
+**Admin console access control (defense in depth):**
+
+The `hostname-admin` setting ensures the admin console UI is only accessible via the
+internal hostname (reachable from vINFRA and vHOME, not from vDMZ through the surtr →
+Keycloak firewall rule). This is the second line of defense behind S5's nginx path
+blocks on surtr — critically, `hostname-admin` survives a surtr compromise because
+it's enforced by Keycloak itself on vINFRA.
+
+**Caveat:** `hostname-admin` only restricts the admin console UI. The admin REST API
+endpoints (`/auth/admin/realms/...`) remain accessible via the public hostname, but
+they require valid admin credentials + MFA, and Keycloak's brute force protection
+rate-limits attempts. The S5 nginx blocks should still be kept as the first layer.
 
 Tokens always have issuer `https://auth.mutantmell.net/auth/realms/homelab` regardless
 of access path. All oauth2-proxy instances and step-ca use the same issuer URL.
@@ -1217,14 +1237,22 @@ also on vINFRA:
 
 1. **Create `homelab` realm** in Keycloak admin console
 2. **Register clients:** `oauth2-proxy`, `step-ca`, `cicd-deploy`
-3. **Create groups:** `admins`, `media-users`, `deploy`
-4. **Add `groups` protocol mapper** (client scope for group claims)
-5. **Configure authentication flows:** Conditional MFA for admins
-6. **Create initial user accounts**
-7. **Update surtr's oauth2-proxy config** to point at `homelab` realm
-8. **Update alfheim's proxy config** if realm URL changed
-9. **Retire `external` realm** once all clients are migrated
-10. **Evaluate keycloak-config-cli:** Optionally set up declarative realm config
+3. **Verify client scope restrictions:** For each client, confirm minimal permissions:
+   - `oauth2-proxy`: **No** service account roles, **no** admin API access, Authorization
+     Code grant only. The client secret lives on surtr — if surtr is compromised, the
+     stolen secret should be useless beyond its intended purpose (exchanging authorization
+     codes for user tokens). Verify no `realm-admin` or `manage-users` role mappings.
+   - `step-ca`: Authorization Code grant (for OIDC provisioner). No admin roles.
+   - `cicd-deploy`: Client Credentials grant (lives on CI/CD server, not surtr — its
+     secret is not exposed by a surtr compromise). Scope limited to deploy actions.
+4. **Create groups:** `admins`, `media-users`, `deploy`
+5. **Add `groups` protocol mapper** (client scope for group claims)
+6. **Configure authentication flows:** Conditional MFA for admins
+7. **Create initial user accounts**
+8. **Update surtr's oauth2-proxy config** to point at `homelab` realm
+9. **Update alfheim's proxy config** if realm URL changed
+10. **Retire `external` realm** once all clients are migrated
+11. **Evaluate keycloak-config-cli:** Optionally set up declarative realm config
     as a systemd service to make the above reproducible
 
 ### Phase 3: DNS strategy, external access, and bastion hardening
@@ -1277,7 +1305,29 @@ a dedicated bastion.
     - Remove blanket `wg-ba → surtr` rule and SSH port forward
     - Add per-service rules: wg-ba → surtr:443 (HTTPS), wg-ba → bastion:22 (SSH)
 11. **Remove SSH daemon from surtr** — no interactive login from external paths
-12. **Deploy cloud host** with nginx + WireGuard + Let's Encrypt cert
+12. **Configure host-level egress filtering on surtr and bastion** — restrict outbound
+    connections via custom nftables output chain (see MGMT VLAN plan Phase 4.4):
+
+    **surtr egress allowlist:**
+    | Destination | Protocol | Port | Purpose |
+    |-------------|----------|------|---------|
+    | Keycloak microvm (vINFRA) | TCP | 443 | OIDC token exchange |
+    | step-ca microvm (vINFRA) | TCP | 443 | ACME certificate renewal |
+    | bragi (vDMZ) | TCP | 443, 8096 | Jellyfin proxy target |
+    | alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+    | Internet | TCP | 443 | OCSP stapling |
+
+    **SSH bastion egress allowlist:**
+    | Destination | Protocol | Port | Purpose |
+    |-------------|----------|------|---------|
+    | vINFRA hosts | TCP | 22 | SSH forwarding to infrastructure |
+    | vHOME hosts | TCP | 22 | SSH forwarding to user machines |
+    | alfheim (vINFRA) | UDP/TCP | 53 | DNS resolution |
+
+    Everything else is dropped. This limits lateral movement and exfiltration if either
+    host is compromised. A compromised surtr can't reach game servers, headscale, or
+    arbitrary internet hosts; a compromised bastion can only reach SSH ports.
+13. **Deploy cloud host** with nginx + WireGuard + Let's Encrypt cert
     - Wildcard cert for `*.mutantmell.net` (DNS-01 challenge) or per-subdomain certs
     - Import step-CA root cert (to verify surtr's TLS over WireGuard)
     - Proxy by Host header: `auth.mutantmell.net` and `mutantmell.net` both → surtr
@@ -1303,10 +1353,22 @@ already on vINFRA from Phase 1. Detailed in the
 
 **Goal:** Connect additional services directly to Keycloak as they are deployed.
 
+**Security hardening note:** Where backends support OIDC natively, prefer configuring
+them to authenticate directly against Keycloak rather than relying solely on surtr's
+oauth2-proxy. This creates a defense-in-depth layer: even if surtr is compromised and
+the attacker strips `auth_request` from nginx, the backend itself rejects
+unauthenticated requests. This matters most for vDMZ services reachable through surtr:
+
+- **Jellyfin** (bragi): Supports OIDC via SSO plugin — configure it to validate tokens
+  against Keycloak directly. This means even without oauth2-proxy gating, anonymous
+  access is rejected by Jellyfin itself.
+- **Future services**: Prefer services with native OIDC support when choosing alternatives.
+- **Services without OIDC support**: Continue relying on oauth2-proxy; accept the risk.
+
 For each new service:
 1. Register client in Keycloak (admin console or keycloak-config-cli)
 2. Store client secret in sops
-3. Configure service's OIDC settings in Nix
+3. Configure service's OIDC settings in Nix (native OIDC preferred over oauth2-proxy)
 4. Test login flow
 5. Configure group-based access if needed
 
@@ -1361,12 +1423,21 @@ must be added.
    alfheim's oauth2-proxy operates independently on vINFRA, so Adguard Home and other
    infrastructure UIs remain gated by their own auth path.
 
-   The mitigation is that surtr is the *right* place for external-facing responsibilities
-   — it's the external choke point by design. But the plan should treat surtr as a
-   hardened bastion: minimal packages installed, no unnecessary services (no SSH daemon),
-   tight firewall egress rules, and the fixes from S1-S7 applied. Consider whether surtr
-   should have any outbound access beyond what's strictly needed (Keycloak:443, backend
-   services, DNS).
+   Mitigations (defense in depth, each survives surtr compromise independently):
+   - surtr is the *right* place for external-facing responsibilities — it's the external
+     choke point by design, treated as a hardened bastion: minimal packages, no SSH daemon,
+     fixes from S1-S7 applied
+   - **Host-level egress filtering** (Phase 3, step 12): surtr can only reach its direct
+     dependencies (Keycloak, step-ca, bragi, DNS, OCSP). No game servers, no headscale,
+     no arbitrary internet for C2 or exfiltration
+   - **`hostname-admin`** (Phase 1): Keycloak refuses to serve the admin console UI on
+     `auth.mutantmell.net`, even if surtr's S5 nginx blocks are removed by an attacker
+   - **Native OIDC on vDMZ backends** (Phase 5): backends that authenticate directly
+     against Keycloak reject unauthenticated requests even if surtr's auth_request is
+     stripped. Jellyfin (bragi) is the priority target for this hardening
+   - **Minimal client scope** (Phase 2, step 3): the `oauth2-proxy` client secret on
+     surtr's disk is useless for admin API access, user enumeration, or token issuance
+     without a user present
 
 2. **~~The dual-hostname pattern (internal + external) adds fragile complexity.~~
    Resolved by split-horizon DNS.** The [DNS and Naming Strategy](#dns-and-naming-strategy)
