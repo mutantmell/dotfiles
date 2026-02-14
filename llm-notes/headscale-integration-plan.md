@@ -199,12 +199,18 @@ Headscale has a native NixOS module (`services.headscale`) available in nixpkgs:
 
       derp = {
         server = {
-          # Disable embedded DERP — use Tailscale's public DERP servers
-          # plus optionally a custom DERP server later
-          enabled = false;
+          # Self-hosted DERP — no dependency on Tailscale Inc.
+          enabled = true;
+          region_id = 900;
+          region_code = "home";
+          region_name = "Homelab";
+          # STUN listener for NAT traversal (UDP, must be reachable from internet)
+          stun_listen_addr = "0.0.0.0:3478";
+          # Automatically determine public IP, or set explicitly:
+          # ipv4 = "<public-ip>";
         };
-        # Tailscale's public DERP servers (free, globally distributed)
-        urls = [ "https://controlplane.tailscale.com/derpmap/default" ];
+        # No Tailscale public DERP servers — fully self-hosted
+        urls = [];
       };
 
       dns = {
@@ -634,38 +640,31 @@ firewall.extraForwardRules = [
 This follows the same pattern as the surtr → Keycloak rule in the
 [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md).
 
-### Port forwarding for STUN (optional, improves direct connections)
+### Port forwarding for STUN (required for self-hosted DERP)
 
-For optimal NAT traversal (direct WireGuard connections between friends and the subnet
-router), STUN traffic needs to reach the subnet router. Two options:
-
-**Option A: Use Tailscale's public STUN servers (default, no config needed)**
-
-Tailscale's STUN servers help with NAT type detection. Direct connections are established
-using the discovered NAT mapping. This works in most cases without any port forwarding.
-
-**Option B: Port forward STUN to improve connectivity**
-
-If friends behind restrictive NATs have trouble establishing direct connections:
+The embedded DERP server's STUN listener (UDP 3478) must be reachable from the internet
+for NAT traversal. Add a port forward on yggdrasil:
 
 ```nix
 portForwards = [
   {
     proto = "udp";
     sourcePort = 3478;
-    destination = "10.0.100.60:41641";  # fenrir's Tailscale WireGuard port
+    destination = "<headscale-microvm-ip>:3478";
     sourceInterface = "wan";
   }
 ];
 ```
 
-Start with Option A. Only add port forwarding if direct connections fail for specific
-friends.
+STUN helps friends' Tailscale clients discover their public IP and NAT type, enabling
+direct WireGuard connections that bypass the DERP relay entirely. Without STUN, more
+connections will fall back to DERP relay (higher latency).
 
-### Surtr nginx vhost for headscale (external access)
+### Surtr nginx vhost for headscale (external access + DERP relay)
 
-Add a virtual host on surtr to proxy headscale's control plane for external users
-(friend registration, OIDC callbacks):
+Add a virtual host on surtr to proxy headscale's control plane and DERP relay for
+external users. DERP relay traffic uses the same HTTPS connection as the control plane,
+so a single proxy handles both:
 
 ```nix
 # On surtr — new vhost for headscale
@@ -689,7 +688,9 @@ virtualHosts."vpn.mutantmell.net" = {
 };
 ```
 
-This is analogous to surtr's `auth.mutantmell.net` vhost that proxies Keycloak.
+DERP relay traffic is multiplexed over the same HTTPS connection as the control plane
+(using HTTP upgrades), so this single vhost handles both control plane and relay. This
+is analogous to surtr's `auth.mutantmell.net` vhost that proxies Keycloak.
 
 ### DNS entries
 
@@ -712,42 +713,99 @@ Add to alfheim's Unbound config (split-horizon):
 
 ---
 
-## DERP Strategy
+## DERP Strategy — Self-Hosted
 
 DERP (Designated Encrypted Relay for Packets) relays encrypted WireGuard traffic when
 direct connections can't be established. Every Tailscale connection first goes through
-DERP, then upgrades to direct once NAT traversal succeeds.
+DERP, then upgrades to direct once NAT traversal succeeds. Self-hosting DERP eliminates
+the dependency on Tailscale Inc.'s infrastructure entirely.
 
-### Use Tailscale's public DERP servers (recommended starting point)
+### Embedded DERP server in headscale
 
-Tailscale operates free, globally distributed DERP servers. Headscale includes them by
-default:
+Headscale includes a built-in DERP server that runs in the same process. This is the
+simplest self-hosted option — no separate service to deploy.
+
+The embedded DERP server provides:
+- **DERP relay** (TCP/HTTPS) — relays encrypted WireGuard packets when direct connections
+  fail
+- **STUN** (UDP 3478) — helps clients discover their public IP and perform NAT traversal
+  for direct connections
+
+### Network requirements
+
+For DERP and STUN to work, the headscale server must be reachable from the internet on:
+- **TCP 443** — DERP relay traffic (piggybacks on the HTTPS port)
+- **UDP 3478** — STUN for NAT traversal
+
+Two options for exposing these:
+
+**Option A: Via surtr proxy (TCP 443 only, STUN via port forward)**
+
+The HTTPS control plane is already proxied through surtr at `vpn.mutantmell.net`. DERP
+relay traffic uses the same HTTPS connection, so it works through the proxy automatically.
+STUN (UDP) cannot be proxied through nginx — it needs a direct port forward on yggdrasil:
+
+```nix
+portForwards = [
+  {
+    proto = "udp";
+    sourcePort = 3478;
+    destination = "<headscale-microvm-ip>:3478";
+    sourceInterface = "wan";
+  }
+];
+```
+
+This is the recommended approach: DERP relay goes through the existing surtr proxy path,
+STUN gets a single UDP port forward. The headscale microvm stays on vINFRA with no
+direct internet exposure except the STUN port forwarded through the router.
+
+**Option B: Via the cloud host (if deployed)**
+
+If the cloud host from the Keycloak OIDC plan is deployed, both DERP and STUN can be
+forwarded through the wg-ba tunnel to headscale. This adds latency to the DERP relay
+path but keeps everything behind the cloud host. Not recommended for gaming latency
+unless the cloud host is geographically close.
+
+### Client verification
+
+The embedded DERP server can verify connecting clients against headscale's node database,
+preventing unauthorized use of the relay:
 
 ```yaml
 derp:
-  urls: ["https://controlplane.tailscale.com/derpmap/default"]
   server:
-    enabled: false
+    enabled: true
+    automatically_add_embedded_derp_region: true
+    # Client verification is automatic with the embedded server —
+    # headscale checks connecting nodes against its own database
 ```
 
-Pros:
-- Zero maintenance
-- Low latency (geographically distributed)
-- Reliable (run by Tailscale Inc.)
+This means only registered tailnet nodes can use the DERP relay. Random internet users
+cannot abuse it as a proxy.
 
-Cons:
-- Depends on Tailscale Inc. continuing to offer them for free
-- Traffic passes through Tailscale's infrastructure (encrypted, but metadata visible)
+### No Tailscale public DERP servers
 
-For a homelab game server use case, this is the right tradeoff. DERP is only a relay
-fallback — most connections will be direct. If Tailscale ever discontinues free DERP,
-self-hosting a DERP server is straightforward.
+The configuration explicitly sets `urls = []` to disable loading Tailscale's public DERP
+map. All DERP relay traffic stays on self-hosted infrastructure. If the embedded DERP
+server goes down, connections fall back to direct-only (which works for most NAT
+configurations). There is no Tailscale Inc. dependency.
 
-### Self-hosted DERP (future enhancement)
+### Tradeoffs vs Tailscale's public DERP
 
-If desired later, headscale's embedded DERP server can be enabled, or a standalone
-`derper` binary can be run. This would be deployed alongside or on the cloud host
-(which already has a public IP). Not needed for initial deployment.
+| Aspect | Self-hosted (embedded) | Tailscale public DERP |
+|--------|----------------------|----------------------|
+| Dependency on Tailscale Inc. | None | Full |
+| Maintenance | Runs with headscale (minimal) | Zero |
+| Geographic distribution | Single location (your ISP) | Global |
+| Relay latency | Depends on friend-to-homelab distance | Low (nearest POP) |
+| Metadata visibility | You control the server | Tailscale sees connection metadata |
+| Availability | Single point of failure | Redundant global fleet |
+
+For a homelab serving friends in roughly the same geographic area, single-location DERP
+is fine. DERP is only a relay fallback — most connections will be direct via STUN NAT
+traversal. For friends in distant regions, relay latency through the homelab may be
+noticeable, but game traffic will typically use direct connections anyway.
 
 ---
 
@@ -946,13 +1004,6 @@ The [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) should be updated to inc
 
 ---
 
-## Open Questions
-
-1. **DERP self-hosting timeline:** Tailscale's public DERP servers are a reasonable
-   dependency for now. If the concern about Tailscale's long-term viability extends to
-   their DERP infrastructure, a self-hosted DERP server on the cloud host can be added
-   later without changing the rest of the architecture.
-
 ## Resolved Questions
 
 1. **Game server selection:** Deferred. The architecture supports any game server — specific
@@ -967,3 +1018,8 @@ The [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) should be updated to inc
 
 3. **Key expiry policy:** 90 days. Friends re-authenticate roughly quarterly — reasonable
    balance between convenience and security.
+
+4. **DERP self-hosting:** Yes — use headscale's embedded DERP server. Tailscale's public
+   DERP servers are disabled (`urls = []`). This eliminates all runtime dependencies on
+   Tailscale Inc. STUN (UDP 3478) is port-forwarded through yggdrasil; DERP relay (TCP 443)
+   is proxied through surtr alongside the control plane.
