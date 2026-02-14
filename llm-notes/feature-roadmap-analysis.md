@@ -396,12 +396,132 @@ will use the canonical names established by the already-completed Keycloak plan.
 authoritative realm as `homelab`. When the SSH Certificates plan (Step 6) is
 implemented, it will reference the `homelab` realm that already exists.
 
+### Additional Security Recommendations for the Keycloak Plan
+
+The Keycloak OIDC plan already identifies surtr as a high-value target (architectural
+tension point 1) and includes security findings S1-S13. The following recommendations
+address gaps that become apparent when considering surtr compromise holistically —
+specifically, protections that must survive an attacker with shell access on surtr.
+
+The common thread: **defenses that live on surtr are useless after surtr is
+compromised.** Protections must be enforced by Keycloak itself (on vINFRA), by
+backend services, or by the network layer.
+
+#### R1. Use `hostname-admin` to restrict admin console access at the Keycloak level
+
+**Problem:** S5 blocks the admin console via nginx path rules on surtr. An attacker
+who controls surtr removes those rules and reaches `/auth/admin/` via the existing
+surtr → Keycloak firewall rule.
+
+**Fix:** Configure Keycloak's native `hostname-admin` option to bind the admin
+console to the internal hostname only:
+
+```nix
+services.keycloak.settings = {
+  hostname = "https://auth.mutantmell.net";
+  hostname-admin = "https://<keycloak-host>.internal.mutantmell.net";
+};
+```
+
+With this configuration, Keycloak itself refuses to serve the admin console UI on
+`auth.mutantmell.net` — it only works on the internal hostname, which is reachable
+from vINFRA and vHOME (via `accessTo`) but not from vDMZ through the surtr →
+Keycloak firewall rule (that rule allows HTTPS connectivity, but Keycloak checks
+the `Host` header).
+
+**Caveat:** Keycloak's `hostname-admin` only restricts the admin console UI. The
+admin REST API endpoints (`/auth/admin/realms/...`) remain accessible via the
+public hostname. However, these require valid admin credentials + MFA, and
+Keycloak's brute force protection rate-limits attempts. The S5 nginx blocks in
+surtr should still be kept as a first line of defense — `hostname-admin` is the
+second line that survives surtr compromise.
+
+**Add to:** Keycloak OIDC plan Phase 1 (Keycloak service configuration).
+
+#### R2. Prefer native OIDC on vDMZ backends over oauth2-proxy gating
+
+**Problem:** If surtr is compromised, the attacker can strip `auth_request`
+directives from nginx and proxy directly to backend services without
+authentication. Every service gated solely by surtr's oauth2-proxy becomes
+accessible.
+
+**Fix:** Where backends support OIDC natively, configure them to authenticate
+directly against Keycloak rather than relying on surtr's oauth2-proxy. This
+creates a second authentication layer that survives surtr compromise — even if
+the attacker bypasses nginx's auth_request, the backend itself rejects
+unauthenticated requests.
+
+This is already mentioned in the Keycloak plan's "OIDC Integrations" section as a
+general pattern, but it should be explicitly called out as a **security hardening
+measure for vDMZ services**, not just a convenience feature.
+
+The practical priority:
+- **Jellyfin** (bragi): Supports OIDC via SSO plugin — configure it to validate
+  tokens against Keycloak directly, so even without oauth2-proxy gating, anonymous
+  access is rejected
+- **Future services**: Prefer services with native OIDC when choosing alternatives
+- **Services without OIDC support**: Still rely on oauth2-proxy, accept the risk
+
+**Add to:** Keycloak OIDC plan Phase 5 (additional OIDC integrations), and note
+in the "architectural tension" section (point 1 about surtr) as a mitigation.
+
+#### R3. Restrict surtr's egress to only necessary destinations
+
+**Problem:** The Keycloak plan notes surtr's outsized role and suggests considering
+egress restrictions, but doesn't follow through. As an `untrusted` zone host, surtr
+currently has blanket internet access (`accessTo = [ "external" ]`) and unrestricted
+intra-zone access to all vDMZ services. A compromised surtr can exfiltrate data to
+the internet and pivot to any vDMZ service.
+
+**Fix:** Add host-level nftables on surtr (same pattern as the MGMT VLAN plan's
+Phase 4 host firewalls) restricting outbound connections to only what surtr needs:
+
+| Destination | Port | Purpose |
+|-------------|------|---------|
+| Keycloak microvm (vINFRA) | 443 | OIDC token exchange |
+| step-ca microvm (vINFRA) | 443 | ACME certificate renewal |
+| bragi (vDMZ) | 443/8096 | Jellyfin proxy |
+| alfheim (vINFRA) | 53 | DNS resolution |
+| Internet | 443 | ACME (Let's Encrypt on cloud host, if surtr does OCSP) |
+
+Everything else — outbound internet, other vDMZ hosts, SSH to other machines — is
+dropped. This limits an attacker's ability to exfiltrate data, establish C2, or
+pivot to other vDMZ services like game servers.
+
+**Add to:** Keycloak OIDC plan Phase 3 (surtr hardening), cross-referenced with
+Secure MGMT VLAN plan Phase 4 (host-based firewalls).
+
+#### R4. Scope the `oauth2-proxy` client's Keycloak permissions
+
+**Problem:** The `oauth2-proxy` client secret is stored on surtr's disk (in sops).
+A compromised surtr exposes this secret. The blast radius depends on what the
+client is authorized to do in Keycloak.
+
+**Fix:** Ensure the `oauth2-proxy` client in Keycloak has minimal permissions:
+- **No service account roles** — the client cannot call Keycloak's admin API
+- **No `realm-admin` or `manage-users` role mappings** — even with the client
+  secret, the attacker cannot enumerate users, create accounts, or modify realm
+  settings
+- **Authorization Code grant only** — cannot use client credentials grant to
+  obtain tokens without a user present
+- **`confidential` client type** — already the case, but verify
+
+This is largely the default for Keycloak clients, but should be explicitly
+verified and documented. The keycloak-config-cli JSON should not include any
+service account roles for the `oauth2-proxy` client.
+
+The `cicd-deploy` client (which does have client credentials grant) lives on the
+CI/CD server, not on surtr — its secret is not exposed by a surtr compromise.
+
+**Add to:** Keycloak OIDC plan Phase 2 (realm restructuring), as an explicit
+verification step when registering clients.
+
 ### Cross-Plan Updates Needed After Resolving Contradictions
 
 | File | Updates Needed |
 |------|---------------|
 | `secure-mgmt-vlan-plan.md` | Resolve zone name mismatch in Phase 7 registry (C1) |
 | `headscale-integration-plan.md` | Move headscale from vINFRA to vDMZ, update VLAN placement rationale, update firewall rules, investigate STUN reachability via cloud host (C2) |
-| `keycloak-oauth-oidc-plan.md` | No changes needed |
+| `keycloak-oauth-oidc-plan.md` | Add `hostname-admin` config (R1), call out native OIDC as security hardening (R2), add surtr egress restrictions (R3), add client scope verification (R4) |
 | `ssh-certificates-sso-plan.md` | No changes needed (placeholder names will be resolved at implementation time) |
 | `zone-refactor-plan.md` | No changes needed (self-contained, no DNS or Keycloak references) |
