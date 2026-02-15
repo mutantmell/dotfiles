@@ -27,7 +27,7 @@
 | step-ca | dedicated microvm | vINFRA | — (internal only) | SSH CA + ACME CA, isolated key material |
 | oauth2-proxy + nginx | surtr | vDMZ | `mutantmell.net` | Web traffic gating for externally-reachable services |
 | oauth2-proxy + nginx | alfheim | vINFRA | — (internal only) | Auth gating for strictly internal services (Adguard, etc.) |
-| SSH bastion | dedicated microvm | vDMZ | — (SSH only) | SSH-only jump host, reachable from wg-ba |
+| SSH bastion | dedicated microvm | vDMZ | — (SSH only) | SSH-only jump host, reachable from wg-cloud |
 | nginx (Keycloak proxy) | surtr | vDMZ | `auth.mutantmell.net` | Proxies Keycloak for external users (separate vhost) |
 | nginx (Keycloak local) | Keycloak microvm | vINFRA | — | Local reverse proxy for Keycloak |
 | nginx (ACME endpoint) | step-ca microvm | vINFRA | — | TLS termination + proxy to step-ca :9443 |
@@ -45,7 +45,7 @@
 - OIDC provisioner on step-ca for SSH certificate issuance
 - Declarative realm/client configuration (currently manual)
 - Group/role structure for access control
-- Cross-VLAN firewall rules (vDMZ → Keycloak, vDMZ → step-ca, wg-ba per-service rules)
+- Cross-VLAN firewall rules (vDMZ → Keycloak, vDMZ → step-ca, wg-cloud per-service rules)
 - External access architecture (cloud host → WireGuard → oauth2-proxy → Keycloak)
 - SSH bastion microvm on vDMZ (split from surtr for hardening)
 - ACME endpoint on step-ca microvm, reachable from vDMZ via dedicated firewall rule
@@ -158,9 +158,9 @@ other infrastructure secrets.
 │   surtr, bragi, hrungnir ────→ step-ca microvm (ACME)           │
 │                                                                 │
 │   SSH bastion microvm (sshd only, no other services)            │
-│     └── reachable from wg-ba:22 via port forward                │
+│     └── reachable from wg-cloud:22 via port forward                │
 │                                                                 │
-├─── wg-ba (isolated) ────────────────────────────────────────────┤
+├─── wg-cloud (isolated) ────────────────────────────────────────────┤
 │   Cloud host → SSH:22 → bastion microvm (vDMZ)                  │
 │   Cloud host → HTTPS:443 → surtr (vDMZ)                         │
 │     ├── Host: auth.mutantmell.net → surtr → Keycloak            │
@@ -254,7 +254,7 @@ After the [zone-based firewall refactor](./zone-refactor-plan.md), the forwardin
 - `trusted` (vHOME) → `untrusted` (vDMZ): **allowed** (via `accessTo`)
 - `untrusted` (vDMZ) → `trusted` (vHOME): **blocked** (not in `accessTo`)
 - `management` (vINFRA) → `untrusted` (vDMZ): **allowed**
-- `isolated` (wg-ba) → anything: **blocked** (except via `extraForwardRules`)
+- `isolated` (wg-cloud) → anything: **blocked** (except via `extraForwardRules`)
 
 ### Required firewall rules
 
@@ -265,15 +265,15 @@ zone-level `accessTo`:
 |--------|-------------|------|---------|--------|
 | surtr (vDMZ) | Keycloak microvm (vINFRA) | 443 | oauth2-proxy → Keycloak OIDC | **Needs explicit rule** |
 | vDMZ ACME clients | step-ca microvm (vINFRA) | 443 | ACME cert issuance | **Needs explicit rule** |
-| wg-ba peers | bastion microvm (vDMZ) | 22 | SSH from cloud host | **Needs explicit rule** (replaces surtr port forward) |
-| wg-ba peers | surtr (vDMZ) | 443 | External web traffic | Already in extraForwardRules |
+| wg-cloud peers | bastion microvm (vDMZ) | 22 | SSH from cloud host | **Needs explicit rule** (replaces surtr port forward) |
+| wg-cloud peers | surtr (vDMZ) | 443 | External web traffic | Already in extraForwardRules |
 | step-ca (vINFRA) | Keycloak microvm (vINFRA) | 443 | OIDC provisioner → Keycloak token validation | Intra-zone (management → management) |
 | alfheim (vINFRA) | Keycloak microvm (vINFRA) | 443 | Internal oauth2-proxy → Keycloak OIDC | Intra-zone (management → management) |
 | User browsers (vHOME) | Keycloak microvm (vINFRA) | 443 | OAuth login page | Allowed (trusted → management) |
 
 The first three rows require explicit firewall rules. The OIDC and ACME rules are
 separate with distinct destination IPs (compromise of one doesn't grant access to the
-other). The wg-ba → bastion rule replaces the current wg-ba → surtr SSH port forward,
+other). The wg-cloud → bastion rule replaces the current wg-cloud → surtr SSH port forward,
 moving SSH to a dedicated microvm so surtr can drop its SSH daemon entirely. All
 intra-zone paths work without rules. User browsers on vHOME reach Keycloak via the
 existing `trusted` → `management` `accessTo` rule.
@@ -287,14 +287,14 @@ internal service authentication.
 
 ```nix
 firewall.extraForwardRules = [
-  # Existing rule: vDMZ return traffic to wg-ba
-  { iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }
+  # Existing rule: vDMZ return traffic to wg-cloud
+  { iifname = "vDMZ.br0"; oifname = "wg-cloud"; verdict = "accept"; }
 
-  # wg-ba → surtr (HTTPS only) and bastion (SSH only)
-  { iifname = "wg-ba"; ip.daddr = "10.0.100.40"; tcp.dport = 443; verdict = "accept";
-    comment = "wg-ba -> surtr (HTTPS)"; }
-  { iifname = "wg-ba"; ip.daddr = "<bastion-microvm-ip>"; tcp.dport = 22; verdict = "accept";
-    comment = "wg-ba -> bastion (SSH)"; }
+  # wg-cloud → surtr (HTTPS only) and bastion (SSH only)
+  { iifname = "wg-cloud"; ip.daddr = "10.0.100.40"; tcp.dport = 443; verdict = "accept";
+    comment = "wg-cloud -> surtr (HTTPS)"; }
+  { iifname = "wg-cloud"; ip.daddr = "<bastion-microvm-ip>"; tcp.dport = 22; verdict = "accept";
+    comment = "wg-cloud -> bastion (SSH)"; }
 
   # surtr needs Keycloak for OIDC token exchange
   {
@@ -321,14 +321,14 @@ firewall.extraForwardRules = [
 # Remove the old SSH port forward to surtr — replaced by bastion
 # portForwards = [
 #   { proto = "tcp"; sourcePort = 22; destination = "10.0.100.40:22";
-#     sourceInterface = "wg-ba"; }
+#     sourceInterface = "wg-cloud"; }
 # ];
 ```
 
-The wg-ba rules are now explicit per-service: HTTPS to surtr, SSH to the bastion. The
-old blanket `{ iifname = "wg-ba"; ip.daddr = "10.0.100.40"; verdict = "accept"; }` rule
+The wg-cloud rules are now explicit per-service: HTTPS to surtr, SSH to the bastion. The
+old blanket `{ iifname = "wg-cloud"; ip.daddr = "10.0.100.40"; verdict = "accept"; }` rule
 (which allowed all ports to surtr) and the SSH port forward are both removed. This means
-wg-ba can only reach surtr on :443 and the bastion on :22 — nothing else.
+wg-cloud can only reach surtr on :443 and the bastion on :22 — nothing else.
 
 **Note on alfheim:** alfheim now runs its own oauth2-proxy instance for internal
 service auth (see [Internal vs External oauth2-proxy](#internal-vs-external-oauth2-proxy)).
@@ -611,7 +611,7 @@ browser redirects).
 The intended external access path is:
 
 ```
-External user → Cloud host (public IP) → WireGuard (wg-ba) → surtr (vDMZ) → backend services
+External user → Cloud host (public IP) → WireGuard (wg-cloud) → surtr (vDMZ) → backend services
 ```
 
 ### The Keycloak reachability problem
@@ -793,7 +793,7 @@ The cloud host is not yet deployed. When it is, it needs:
 
 1. **nginx/caddy** — TLS termination with a Let's Encrypt certificate for
    `*.mutantmell.net` (wildcard via DNS-01 challenge) or per-subdomain certs
-2. **WireGuard client** — connects to yggdrasil's wg-ba tunnel
+2. **WireGuard client** — connects to yggdrasil's wg-cloud tunnel
 3. **step-CA root certificate** — imported so the cloud host can verify surtr's
    step-CA-issued TLS cert over the WireGuard-internal HTTPS connection
 4. **Reverse proxy rules** — forward all HTTPS traffic through WireGuard to surtr,
@@ -1258,7 +1258,7 @@ also on vINFRA:
 ### Phase 3: DNS strategy, external access, and bastion hardening
 
 **Goal:** Implement split-horizon DNS, enable authenticated external access to vDMZ
-services via the cloud host, and harden the wg-ba attack surface by splitting SSH to
+services via the cloud host, and harden the wg-cloud attack surface by splitting SSH to
 a dedicated bastion.
 
 1. **Migrate DNS from `.local` to `mutantmell.net` hierarchy** on alfheim (Unbound)
@@ -1301,9 +1301,9 @@ a dedicated bastion.
    - Requires figuring out Incus VM configuration (currently only containers)
    - Key-only auth, `AllowUsers`, minimal NixOS profile
    - No persistent storage (stateless)
-10. **Tighten wg-ba firewall rules** (S8)
-    - Remove blanket `wg-ba → surtr` rule and SSH port forward
-    - Add per-service rules: wg-ba → surtr:443 (HTTPS), wg-ba → bastion:22 (SSH)
+10. **Tighten wg-cloud firewall rules** (S8)
+    - Remove blanket `wg-cloud → surtr` rule and SSH port forward
+    - Add per-service rules: wg-cloud → surtr:443 (HTTPS), wg-cloud → bastion:22 (SSH)
 11. **Remove SSH daemon from surtr** — no interactive login from external paths
 12. **Configure host-level egress filtering on surtr and bastion** — restrict outbound
     connections via custom nftables output chain (see MGMT VLAN plan Phase 4.4):
@@ -1411,7 +1411,7 @@ must be added.
 1. **surtr is a high-value target with a large role.** surtr handles: TLS termination
    for external traffic, oauth2-proxy (authentication decisions for external services),
    nginx reverse proxy to all externally-reachable backends, and the `/auth` Keycloak
-   proxy for external users. SSH access from wg-ba is split off to a dedicated bastion
+   proxy for external users. SSH access from wg-cloud is split off to a dedicated bastion
    microvm (S8), and internal service auth is split to alfheim's own oauth2-proxy, which
    together remove two responsibilities from surtr. If surtr is compromised, the attacker
    gets:
@@ -1460,9 +1460,9 @@ must be added.
      (assuming S3 is fixed), reach anything other than surtr:443 and bastion:22 (firewall
      rules are per-service).
    - **Cannot do (but should be verified):** Reach hosts outside vDMZ via the tunnel.
-     The firewall rules restrict wg-ba to specific destination IP:port pairs. However,
-     the return traffic rule `{ iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }`
-     allows vDMZ → wg-ba. Confirm that the nftables rules are stateful and that this
+     The firewall rules restrict wg-cloud to specific destination IP:port pairs. However,
+     the return traffic rule `{ iifname = "vDMZ.br0"; oifname = "wg-cloud"; verdict = "accept"; }`
+     allows vDMZ → wg-cloud. Confirm that the nftables rules are stateful and that this
      doesn't create an unintended path.
 
    The cloud host threat model is sound: even full compromise yields only an OAuth login
@@ -1614,10 +1614,10 @@ extraConfig = {
 If a specific backend needs the token (e.g., for user identity), pass it selectively
 via per-location nginx configuration rather than globally.
 
-**S8. SSH access from wg-ba — split to dedicated bastion (yggdrasil/default.nix:76-82)**
+**S8. SSH access from wg-cloud — split to dedicated bastion (yggdrasil/default.nix:76-82)**
 
-The current config forwards port 22 from the wg-ba WireGuard tunnel to surtr's SSH
-daemon. wg-ba connects to the cloud host, which is internet-facing. If the cloud host
+The current config forwards port 22 from the wg-cloud WireGuard tunnel to surtr's SSH
+daemon. wg-cloud connects to the cloud host, which is internet-facing. If the cloud host
 is compromised, the attacker gets direct SSH access to surtr — which also runs
 oauth2-proxy, nginx, and has a firewall exception to reach Keycloak on vINFRA. SSH
 access and web traffic gating should not share a host.
@@ -1625,8 +1625,8 @@ access and web traffic gating should not share a host.
 **Fix:** Provision a dedicated SSH bastion microvm on vDMZ:
 
 - **Why vDMZ:** The bastion is reachable from the most untrusted path (internet →
-  cloud host → wg-ba). Placing it on vINFRA or vHOME would require letting the
-  `isolated` wg-ba tunnel reach a trusted/management zone — strictly worse. vDMZ is
+  cloud host → wg-cloud). Placing it on vINFRA or vHOME would require letting the
+  `isolated` wg-cloud tunnel reach a trusted/management zone — strictly worse. vDMZ is
   the right trust level for something exposed to an isolated tunnel. The concern that
   "vDMZ has the biggest attack surface" is about the services *on* vDMZ, not the zone
   itself; the bastion's attack surface (sshd with key-only auth) is minimal regardless
@@ -1641,12 +1641,12 @@ access and web traffic gating should not share a host.
   - No persistent storage needed (stateless, config from Nix)
 
 - **Firewall changes:**
-  - Remove: `{ iifname = "wg-ba"; ip.daddr = "10.0.100.40"; verdict = "accept"; }`
+  - Remove: `{ iifname = "wg-cloud"; ip.daddr = "10.0.100.40"; verdict = "accept"; }`
     (blanket access to surtr)
-  - Remove: SSH port forward from wg-ba to surtr:22
-  - Add: `{ iifname = "wg-ba"; ip.daddr = "10.0.100.40"; tcp.dport = 443; ... }`
+  - Remove: SSH port forward from wg-cloud to surtr:22
+  - Add: `{ iifname = "wg-cloud"; ip.daddr = "10.0.100.40"; tcp.dport = 443; ... }`
     (HTTPS only to surtr)
-  - Add: `{ iifname = "wg-ba"; ip.daddr = "<bastion-ip>"; tcp.dport = 22; ... }`
+  - Add: `{ iifname = "wg-cloud"; ip.daddr = "<bastion-ip>"; tcp.dport = 22; ... }`
     (SSH only to bastion)
 
 - **surtr hardening:** With SSH moved off, surtr can drop its SSH daemon entirely.
@@ -1700,7 +1700,7 @@ Alternatively, use `--allowed-groups` to restrict access by Keycloak group membe
 **S11. No rate limiting on externally-reachable endpoints**
 
 The oauth2-proxy login flow, Keycloak login page, and ACME endpoint are all reachable
-from the internet (via wg-ba → surtr). There is no network-level rate limiting.
+from the internet (via wg-cloud → surtr). There is no network-level rate limiting.
 Keycloak has built-in brute force protection (enabled in the plan's realm config), but:
 - oauth2-proxy itself has no rate limiting
 - nginx on surtr has no `limit_req` zones configured
@@ -1810,7 +1810,7 @@ confusion is possible.
 | Keycloak microvm config (new, on vINFRA host) | 1 | New microvm: Keycloak, PostgreSQL, nginx (/auth proxy), sops secrets |
 | step-ca microvm config (new, on vINFRA host) | 1 | New microvm: step-ca, nginx (ACME endpoint), CA key material, sops secrets |
 | SSH bastion microvm config (new, on vDMZ host) | 3 | New microvm: sshd only, key-only auth, minimal profile, 256MB RAM |
-| `hosts/yggdrasil/default.nix` | 1, 3 | Add surtr → Keycloak + vDMZ → step-ca FW rules (Phase 1); replace wg-ba blanket rule + SSH port forward with per-service rules (Phase 3); add DNS entries |
+| `hosts/yggdrasil/default.nix` | 1, 3 | Add surtr → Keycloak + vDMZ → step-ca FW rules (Phase 1); replace wg-cloud blanket rule + SSH port forward with per-service rules (Phase 3); add DNS entries |
 | `hosts/muspelheim/guests/surtr/proxy.nix` | 1, 2, 3 | Update OIDC issuer URL, update realm, add `/auth` proxy location, split oauth2-proxy URLs |
 | `hosts/muspelheim/guests/surtr/` (SSH removal) | 3 | Remove SSH daemon / openssh config from surtr |
 | `hosts/yggdrasil/guests/alfheim/modules/proxy.nix` | 1 | Deploy local oauth2-proxy, update nginx auth_request to local proxy (remove surtr dependency) |

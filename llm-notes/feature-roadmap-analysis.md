@@ -182,7 +182,7 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [ ] Implement split-horizon DNS (`mutantmell.net` hierarchy)
 - [ ] Add surtr nginx rate limiting for `/auth/` and `/oauth2/` (S11)
 - [ ] Provision SSH bastion VM on vDMZ (Incus VM — new capability)
-- [ ] Tighten wg-ba firewall rules (per-service instead of blanket)
+- [ ] Tighten wg-cloud firewall rules (per-service instead of blanket)
 - [ ] Remove SSH daemon from surtr
 - [ ] Configure egress filtering on surtr and bastion (R3)
 - [ ] Deploy cloud host (see Step 8 for hardening checklist)

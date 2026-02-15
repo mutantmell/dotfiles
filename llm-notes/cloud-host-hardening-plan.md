@@ -19,7 +19,7 @@ within minutes of provisioning.
 | 443 | TCP | HTTPS — all web traffic (Jellyfin, Keycloak auth, headscale control plane, DERP relay) |
 | 22 | TCP | SSH — administration (should be restricted or removed from public interface) |
 | 3478 | UDP | STUN — NAT traversal for headscale (if standalone STUN is deployed here) |
-| wg-ba port | UDP | WireGuard tunnel to homelab (silent — doesn't respond to non-peers) |
+| wg-cloud port | UDP | WireGuard tunnel to homelab (silent — doesn't respond to non-peers) |
 
 WireGuard is inherently stealthy — it drops packets that aren't from valid peers
 without responding. Scanners see it as a closed port.
@@ -71,8 +71,8 @@ networking.nftables.tables.firewall = {
       ip protocol icmp accept
       ip6 nexthdr ipv6-icmp accept
 
-      # WireGuard (wg-ba tunnel to homelab)
-      udp dport <wg-ba-port> accept
+      # WireGuard (wg-cloud tunnel to homelab)
+      udp dport <wg-cloud-port> accept
 
       # HTTPS (all web traffic)
       tcp dport 443 accept
@@ -163,7 +163,7 @@ reducing load from known attackers to near zero.
 Three options, in order of preference:
 
 **Option A (recommended): SSH only over WireGuard.** The cloud host's SSH daemon
-listens only on the wg-ba interface, not the public interface. Zero SSH attack
+listens only on the wg-cloud interface, not the public interface. Zero SSH attack
 surface on the public IP. Administration requires connecting through the homelab's
 WireGuard tunnel first.
 
@@ -171,13 +171,13 @@ WireGuard tunnel first.
 services.openssh = {
   enable = true;
   listenAddresses = [
-    { addr = "<wg-ba-cloud-host-ip>"; port = 22; }
+    { addr = "<wg-cloud-cloud-host-ip>"; port = 22; }
   ];
 };
 ```
 
 **Option B: SSH on public IP with key-only auth + fail2ban.** If Option A is
-impractical during initial provisioning (before wg-ba is established), allow SSH
+impractical during initial provisioning (before wg-cloud is established), allow SSH
 on the public IP temporarily with strict controls:
 
 ```nix
@@ -192,7 +192,7 @@ services.openssh = {
 services.fail2ban.enable = true;
 ```
 
-Migrate to Option A once wg-ba is established.
+Migrate to Option A once wg-cloud is established.
 
 **Option C: Non-standard SSH port.** Not real security (port scanners find it
 trivially), but reduces log noise. Only useful as a complement to Option A or B,

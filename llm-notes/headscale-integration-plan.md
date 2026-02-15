@@ -100,7 +100,7 @@ from external users. DERP and STUN are built into the headscale binary — they 
 split into a separate service on a different VLAN. This makes vINFRA placement impractical:
 
 1. **No direct WAN path to vINFRA.** The network architecture routes all external traffic
-   through a cloud host via the wg-ba WireGuard tunnel to surtr on vDMZ. STUN served
+   through a cloud host via the wg-cloud WireGuard tunnel to surtr on vDMZ. STUN served
    through a WireGuard tunnel would report the tunnel endpoint IP rather than the friend's
    actual public IP, breaking NAT traversal entirely.
 
@@ -109,7 +109,7 @@ split into a separate service on a different VLAN. This makes vINFRA placement i
 
 | Consideration | vDMZ (chosen) | vINFRA |
 |---------------|---------------|--------|
-| DERP/STUN reachability | Reachable via surtr proxy / wg-ba | Broken — no direct WAN path, STUN fails through WireGuard |
+| DERP/STUN reachability | Reachable via surtr proxy / wg-cloud | Broken — no direct WAN path, STUN fails through WireGuard |
 | Keycloak integration (OIDC) | Cross-zone rule (vDMZ → vINFRA), same as surtr | Intra-zone |
 | Fenrir → headscale | Intra-zone (no firewall rule needed) | Cross-zone rule needed |
 | Compromise impact | Attacker on vDMZ (same as any DMZ service) | Attacker on vINFRA (alongside Keycloak, step-ca, DNS — worse) |
@@ -591,18 +591,18 @@ WireGuard app is lightweight, does exactly what's needed, and is already configu
 is no operational benefit to consolidating since the two systems serve different trust
 levels and don't interact.
 
-### wg-ba (isolated, cloud host tunnel) — KEEP
+### wg-cloud (isolated, cloud host tunnel) — KEEP
 
-wg-ba is the tunnel between the cloud host and the homelab for proxying web traffic
+wg-cloud is the tunnel between the cloud host and the homelab for proxying web traffic
 (surtr → services). It serves a completely different purpose: it's the ingress path for
 the public-facing web presence (Jellyfin via oauth2-proxy, Keycloak for external auth).
 
-Headscale does **not** replace wg-ba. The cloud host still needs its dedicated tunnel for
+Headscale does **not** replace wg-cloud. The cloud host still needs its dedicated tunnel for
 web traffic proxying. Game traffic from friends flows through Tailscale's overlay network
-(direct WireGuard connections), not through wg-ba.
+(direct WireGuard connections), not through wg-cloud.
 
 However, headscale's control plane traffic (OIDC registration, key exchange) is proxied
-through surtr, which is reached via wg-ba from external users. So wg-ba indirectly
+through surtr, which is reached via wg-cloud from external users. So wg-cloud indirectly
 supports headscale's control plane for external access.
 
 ### Summary: headscale supplements, does not replace
@@ -610,7 +610,7 @@ supports headscale's control plane for external access.
 ```mermaid
 flowchart LR
     You["Your phone/laptop"] -->|wg-vpn| Y1["yggdrasil"] --> HL["Full homelab\n(trusted)"]
-    Cloud["Cloud host"] -->|wg-ba| Y2["yggdrasil"] --> Surtr["surtr / vDMZ\n(isolated)"]
+    Cloud["Cloud host"] -->|wg-cloud| Y2["yggdrasil"] --> Surtr["surtr / vDMZ\n(isolated)"]
     Friends["Friends"] -->|tailscale| Fenrir["fenrir"] --> GS["Game servers only\n(ACL-restricted)"]
 ```
 
@@ -651,10 +651,10 @@ forwarding rule is needed for that path.
 
 The embedded DERP server's STUN listener (UDP 3478) must be reachable from the internet
 for NAT traversal. With headscale on vDMZ, STUN traffic must arrive via the cloud host
-and wg-ba tunnel (since there is no direct WAN exposure of the homelab's public IP).
+and wg-cloud tunnel (since there is no direct WAN exposure of the homelab's public IP).
 
 STUN over a WireGuard tunnel is problematic: STUN helps clients discover their public
-IP, but traffic arriving through wg-ba has the tunnel endpoint as its source, not the
+IP, but traffic arriving through wg-cloud has the tunnel endpoint as its source, not the
 friend's real IP. Options to investigate:
 
 1. **Run a standalone STUN service on the cloud host.** The cloud host sees friends'
@@ -662,8 +662,8 @@ friend's real IP. Options to investigate:
    would provide correct NAT traversal information. Headscale's DERP map can point
    STUN at the cloud host's IP while DERP relay points at `vpn.mutantmell.net`.
 
-2. **Forward STUN UDP through wg-ba.** May partially work — the cloud host can relay
-   the UDP packets, but the STUN response would reflect the wg-ba tunnel IP rather
+2. **Forward STUN UDP through wg-cloud.** May partially work — the cloud host can relay
+   the UDP packets, but the STUN response would reflect the wg-cloud tunnel IP rather
    than the friend's real public IP. This likely breaks NAT traversal.
 
 3. **Accept DERP-only relay.** If STUN doesn't work, all connections fall back to DERP
@@ -756,10 +756,10 @@ Two options for exposing these:
 
 The HTTPS control plane is already proxied through surtr at `vpn.mutantmell.net`. DERP
 relay traffic uses the same HTTPS connection, so it works through the proxy automatically.
-STUN (UDP) cannot be proxied through nginx and cannot reliably traverse the wg-ba tunnel
+STUN (UDP) cannot be proxied through nginx and cannot reliably traverse the wg-cloud tunnel
 (see "STUN reachability" in the firewall section). The recommended approach:
 
-- **DERP relay:** friend → cloud host → wg-ba → surtr → headscale (vDMZ). Works via
+- **DERP relay:** friend → cloud host → wg-cloud → surtr → headscale (vDMZ). Works via
   the existing HTTPS proxy path.
 - **STUN:** Run a lightweight STUN service on the cloud host itself, where it can see
   friends' real public IPs. Configure headscale's DERP map to point STUN at the cloud
@@ -771,7 +771,7 @@ surtr, and STUN is handled at the network edge (cloud host).
 **Option B: Via the cloud host (if deployed)**
 
 If the cloud host from the Keycloak OIDC plan is deployed, both DERP and STUN can be
-forwarded through the wg-ba tunnel to headscale. This adds latency to the DERP relay
+forwarded through the wg-cloud tunnel to headscale. This adds latency to the DERP relay
 path but keeps everything behind the cloud host. Not recommended for gaming latency
 unless the cloud host is geographically close.
 
