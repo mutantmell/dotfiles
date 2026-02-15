@@ -12,6 +12,7 @@ and providing a unified implementation guide.
 | Keycloak OIDC | `keycloak-oauth-oidc-plan.md` | Centralized identity infrastructure with OAuth2/OIDC |
 | SSH Certificates | `ssh-certificates-sso-plan.md` | SSH certificate auth via Keycloak + step-ca |
 | Headscale | `headscale-integration-plan.md` | Self-hosted Tailscale for friend game server access |
+| Cloud Host Hardening | `cloud-host-hardening-plan.md` | Geo-blocking, rate limiting, CrowdSec for the public-facing cloud host |
 
 ---
 
@@ -58,6 +59,7 @@ flowchart TD
     IP["Step 5: IP Migration\n(Phase 8)"]
     SSH["Step 6: SSH Certificates"]
     HS["Step 7: Headscale"]
+    CH["Step 8: Cloud Host Hardening"]
 
     ZR --> VLAN
     VLAN --> REG
@@ -66,6 +68,7 @@ flowchart TD
     KC --> IP
     KC --> SSH
     KC --> HS
+    KC --> CH
     IP --> SSH
     IP --> HS
 ```
@@ -78,6 +81,8 @@ flowchart TD
   early and migrate consumers as you touch host configs
 - **Step 5** (IP Migration) can start during Step 4 — dual addresses are independent
   of identity infrastructure
+- **Step 8** (Cloud Host Hardening) is applied at the same time as the cloud host
+  deployment in Step 4 Phase 3
 
 ### Not Contradictions: Sequencing Differences
 
@@ -180,7 +185,7 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [ ] Tighten wg-ba firewall rules (per-service instead of blanket)
 - [ ] Remove SSH daemon from surtr
 - [ ] Configure egress filtering on surtr and bastion (R3)
-- [ ] Deploy cloud host with nginx + WireGuard + Let's Encrypt
+- [ ] Deploy cloud host (see Step 8 for hardening checklist)
 - [ ] Test end-to-end: internal + external auth flows + SSH bastion path
 
 ### Step 5: IP Migration
@@ -234,3 +239,20 @@ router for friend access to game servers. Uses canonical names from Step 4.
 - [ ] Phase 5: Create friend accounts, send onboarding guide
 - [ ] Phase 6: Deploy production game servers, update ACLs
 - [ ] Investigate: STUN reachability (standalone STUN on cloud host)
+
+### Step 8: Cloud Host Hardening
+
+**Plan:** `cloud-host-hardening-plan.md`
+
+Applied at cloud host provisioning time (Step 4, Phase 3). The cloud host has a
+public IPv4 and will be found by automated scanners immediately.
+
+- [ ] Choose VPS provider, verify L3/L4 DDoS protection
+- [ ] Configure nftables input rules (minimal port exposure)
+- [ ] Set up GeoIP database download and nftables set generation
+- [ ] Configure nginx rate limiting and Host header validation
+- [ ] Deploy CrowdSec with nginx parser and nftables bouncer
+- [ ] Configure SSH access (WireGuard-only preferred, key-only fallback during bootstrap)
+- [ ] Verify: port scan from external host shows only expected ports
+- [ ] Verify: requests from blocked countries are dropped
+- [ ] Verify: rate limiting engages under load
