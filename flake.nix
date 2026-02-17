@@ -36,11 +36,16 @@
       url = github:astro/nix-openwrt-imagebuilder;
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    deploy-rs = {
+      url = github:serokell/deploy-rs;
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = {
     self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager,
       sops-nix, jovian, microvm, impermanence, disko,
       home-manager-stable, microvm-stable, openwrt-imagebuilder,
+      deploy-rs,
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
       inherit system;
@@ -72,11 +77,6 @@
       };
     });
 
-    # NixOS integration tests
-    checks = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
-      pkgs = pkgsFor nixpkgs system;
-    in import ./tests { inherit pkgs; lib = pkgs.lib; });
-
     nixosModules = let
       importModule = dir: value:
         if value == "directory"
@@ -107,6 +107,10 @@
       };
       mk-nixos = args @ { nixpkgs, system, ... }: nixpkgs.lib.nixosSystem {
         inherit system;
+        specialArgs = {
+          inherit self;
+          inputs = { inherit nixpkgs nixpkgs-stable sops-nix microvm disko deploy-rs; };
+        };
         modules = [
           {
             nixpkgs = {
@@ -225,5 +229,34 @@
     apps = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
       pkgs = pkgsFor nixpkgs system;
     in import ./apps/openwrt { inherit pkgs; });
+
+    # deploy-rs deployment configurations
+    deploy = {
+      sshUser = "root";
+      user = "root";
+
+      nodes = {
+        yggdrasil = {
+          hostname = "yggdrasil.local";
+          profiles.system = {
+            sshUser = "root";
+            user = "root";
+            path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.yggdrasil;
+
+            # Test activation before making it boot default
+            # This allows rollback if something goes wrong
+            magicRollback = true;
+            autoRollback = true;
+          };
+        };
+      };
+    };
+
+    # Merge NixOS tests and deploy-rs checks
+    checks = nixpkgs.lib.recursiveUpdate
+      (nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
+        pkgs = pkgsFor nixpkgs system;
+      in import ./tests { inherit pkgs; lib = pkgs.lib; }))
+      (builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib);
   };
 }
