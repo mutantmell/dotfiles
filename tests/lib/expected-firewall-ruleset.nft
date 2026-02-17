@@ -1,0 +1,86 @@
+          table inet filter {
+            chain input {
+              type filter hook input priority filter; policy drop;
+
+              # Accept established/related
+              ct state established,related accept
+
+              # Accept loopback
+              iifname "lo" accept
+
+              # Accept essential ICMP/ICMPv6 from anywhere (required for network operation)
+              # - destination-unreachable: connection handling
+              # - packet-too-big (v6) / frag-needed (v4): Path MTU Discovery (critical)
+              # - time-exceeded: traceroute, TTL expiry
+              # - parameter-problem: malformed packet notification
+              icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+              icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
+
+              # Accept Neighbor Discovery (required for IPv6 to function - like ARP for IPv4)
+              icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+
+              iifname { "eth2" } icmp type { echo-request, echo-reply } accept
+              iifname { "eth2" } icmpv6 type { echo-request, echo-reply } accept
+              iifname { "eth2" } accept
+              iifname { "eth3" } icmp type { echo-request, echo-reply } accept
+              iifname { "eth3" } icmpv6 type { echo-request, echo-reply } accept
+              iifname { "eth3" } accept
+              iifname { "eth4" } icmp type { echo-request, echo-reply } accept
+              iifname { "eth4" } icmpv6 type { echo-request, echo-reply } accept
+              iifname { "eth4" } udp dport { 53, 67, 547 } accept
+              iifname { "eth4" } tcp dport 53 accept
+
+
+            }
+
+            chain forward {
+              type filter hook forward priority filter; policy drop;
+
+              # Accept established/related
+              ct state established,related accept
+
+              # Clamp MSS to path MTU
+              tcp flags syn tcp option maxseg size set rt mtu
+
+              iifname { "eth2" } oifname { "eth2", "eth3", "eth4", "eth1" } accept
+              iifname { "eth3" } oifname { "eth2", "eth3", "eth4", "eth1" } accept
+              iifname { "eth4" } oifname { "eth1" } accept
+
+
+
+            }
+
+            chain output {
+              type filter hook output priority filter; policy accept;
+            }
+          }
+
+          table ip nat {
+            chain prerouting {
+              type nat hook prerouting priority dstnat;
+
+              
+
+              
+            }
+
+            chain postrouting {
+              type nat hook postrouting priority srcnat;
+
+              # Masquerade outgoing traffic on NAT interfaces
+oifname { "eth1" } masquerade
+
+            }
+          }
+
+          # IPv6 NAT table (empty - no NAT66 needed for internal-only IPv6)
+          # ULA addresses are used for internal IPv6 communication only
+          table ip6 nat {
+            chain prerouting {
+              type nat hook prerouting priority dstnat;
+            }
+
+            chain postrouting {
+              type nat hook postrouting priority srcnat;
+            }
+          }

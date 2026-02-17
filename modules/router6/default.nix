@@ -55,16 +55,10 @@ let
         description = "DNS servers (for static WAN)";
       };
 
-      trust = mkOption {
-        type = types.nullOr (types.enum [
-          "external"    # WAN - untrusted, NAT source
-          "management"  # Admin access, full router access
-          "trusted"     # Can access other internal networks
-          "untrusted"   # Internet only, isolated from other networks
-          "isolated"    # No internet, no internal access
-        ]);
+      zone = mkOption {
+        type = types.nullOr (types.enum (builtins.attrNames cfg.zones));
         default = null;
-        description = "Trust level for firewall rules";
+        description = "Firewall zone for this network (must be a key in router6.zones)";
       };
 
       nat = mkOption {
@@ -240,25 +234,30 @@ let
   # Get all interfaces matching a predicate
   interfacesWhere = pred: map (i: i.name) (filter pred flattenTopology);
 
-  # Get interfaces by trust level
-  interfacesWithTrust = trust:
-    let trusts = if lib.isList trust then trust else [trust];
-    in interfacesWhere (i: lib.elem (i.network.trust or null) trusts);
+  # Get interfaces in a specific zone
+  interfacesInZone = zoneName:
+    interfacesWhere (i: (i.network.zone or null) == zoneName);
+
+  # Get interfaces for a list of zones
+  zonesInterfaces = zoneNames:
+    lib.unique (lib.concatMap interfacesInZone zoneNames);
+
+  # Active zones (zones that have at least one interface assigned)
+  activeZones = filter (z: interfacesInZone z != []) (attrNames cfg.zones);
+
+  # Interfaces that should accept IPv6 Router Advertisements (DHCP/WAN interfaces)
+  raInterfaces = interfacesWhere (i: i.network.type == "dhcp");
+
+  # Interfaces whose zones provide DNS service (non-empty inputRules — kresd should listen)
+  dnsInterfaces = interfacesWhere (i:
+    let z = i.network.zone or null;
+    in z != null && hasAttr z cfg.zones && cfg.zones.${z}.inputRules != []);
 
   # Get interfaces with DHCP server enabled
   dhcpServerInterfaces = interfacesWhere (i: i.network.dhcp.enable or false);
 
   # Get interfaces that need NAT
   natInterfaces = interfacesWhere (i: i.network.nat.enable or false);
-
-  # Get the external/WAN interfaces
-  externalInterfaces = interfacesWithTrust "external";
-
-  # All internal interfaces (for forwarding)
-  internalInterfaces = interfacesWithTrust ["management" "trusted" "untrusted"];
-
-  # Trusted interfaces (can access router services)
-  trustedInterfaces = interfacesWithTrust ["management" "trusted"];
 
 in {
   options.router6 = {
@@ -273,6 +272,65 @@ in {
         based on their VLAN tag (e.g., VLAN 10 -> prefix:a::/64).
       '';
       example = "fdc6:55f2:0a5e::/48";
+    };
+
+    zones = mkOption {
+      description = ''
+        Firewall zone definitions. Each zone defines:
+        - accessTo: which zones this zone can freely forward traffic to
+        - forwardRules: per-destination-zone nftables rules (for filtered forwarding)
+        - inputRules: nftables rules for traffic from this zone to the router itself
+        - icmpEcho: whether the zone can ping the router
+
+        Networks reference zones via their `zone` field (required on every network).
+      '';
+      default = {};
+      type = types.attrsOf (types.submodule ({ name, ... }: {
+        options = {
+
+          icmpEcho = mkOption {
+            type = types.enum [ "enable" "ipv4-only" "ipv6-only" "disable" ];
+            default = "disable";
+            description = ''
+              Whether interfaces in this zone can ping the router.
+              - "enable": allow ICMPv4 + ICMPv6 echo-request/echo-reply
+              - "ipv4-only": allow only ICMPv4 echo
+              - "ipv6-only": allow only ICMPv6 echo
+              - "disable": no ICMP echo (PMTUD and NDP are always allowed by baseRules)
+            '';
+          };
+
+          accessTo = mkOption {
+            type = types.listOf (types.enum (builtins.attrNames cfg.zones));
+            default = [];
+            description = ''
+              Zones this zone can freely forward traffic to (blanket accept).
+              Values are restricted to defined zone names (validated by type).
+            '';
+          };
+
+          forwardRules = mkOption {
+            type = types.attrsOf (types.listOf nftRuleType);
+            default = {};
+            description = ''
+              Per-destination-zone forwarding rules. Keys are target zone names,
+              values are lists of nftables rules (same DSL as extraForwardRules).
+              Rules must NOT specify iifname or oifname (auto-set from zones).
+              A destination zone must NOT also appear in accessTo.
+            '';
+          };
+
+          inputRules = mkOption {
+            type = types.listOf nftRuleType;
+            default = [];
+            description = ''
+              Rules for traffic from this zone's interfaces to the router itself.
+              Same DSL as extraInputRules but must NOT specify iifname (auto-set).
+            '';
+          };
+
+        };
+      }));
     };
 
     topology = mkOption {
@@ -477,6 +535,19 @@ in {
     firewall = mkOption {
       type = types.submodule {
         options = {
+          baseRules = mkOption {
+            type = types.bool;
+            default = true;
+            description = ''
+              Include base firewall rules that zones build on top of:
+              - Connection tracking (ct state established,related accept)
+              - Loopback accept
+              - Essential ICMP/ICMPv6 (PMTUD, Neighbor Discovery)
+              - TCP MSS clamping in forward chain
+              When false, only zone-defined rules and extra*Rules are generated.
+            '';
+          };
+
           extraInputRules = mkOption {
             type = types.listOf nftRuleType;
             default = [];
@@ -678,7 +749,7 @@ in {
       } // lib.listToAttrs (map (iface: {
         name = "net.ipv6.conf.${iface}.accept_ra";
         value = 2;
-      }) externalInterfaces);
+      }) raInterfaces);
 
       networking = {
         useDHCP = false;
@@ -1002,7 +1073,7 @@ in {
           in
             (optional (v4 != null) "${(parseCIDR v4).ip}:53")
             ++ (optional (v6 != null) "[${(parseCIDR v6).ip}]:53")
-        ) (trustedInterfaces ++ interfacesWithTrust "untrusted")));
+        ) dnsInterfaces));
 
         extraConfig = let
           primaryServers = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.upstream);
@@ -1191,9 +1262,6 @@ in {
       networking.nftables = {
         enable = true;
         ruleset = let
-          extIfaces = if externalInterfaces == [] then "" else quoteList externalInterfaces;
-          trustIfaces = if trustedInterfaces == [] then "" else quoteList trustedInterfaces;
-          intIfaces = if internalInterfaces == [] then "" else quoteList internalInterfaces;
           natIfaces = if natInterfaces == [] then "" else quoteList natInterfaces;
 
           # Wireguard ports that need to be opened
@@ -1203,114 +1271,154 @@ in {
             else null
           ) cfg.topology);
 
-          # Port forwarding rules
-          dnatRules = concatStringsSep "\n          " (map (pf: let
+          # Port forwarding rules (sourceInterface takes precedence, otherwise no iifname restriction)
+          dnatRules = concatStringsSep "\n              " (map (pf: let
             protoMatch = if pf.proto == "both" then "meta l4proto { tcp, udp }"
                         else pf.proto;
             ifaceMatch = if pf.sourceInterface != null
                         then ''iifname "${pf.sourceInterface}"''
-                        else if externalInterfaces != []
-                        then "iifname ${extIfaces}"
                         else "";
           in ''${ifaceMatch} ${protoMatch} dport ${toString pf.sourcePort} dnat to ${pf.destination}'')
           cfg.firewall.portForwards);
 
-          forwardDnatRules = concatStringsSep "\n          " (map (pf: let
+          forwardDnatRules = concatStringsSep "\n              " (map (pf: let
             destParts = lib.splitString ":" pf.destination;
             destIP = head destParts;
             protoMatch = if pf.proto == "both" then "meta l4proto { tcp, udp }" else pf.proto;
           in ''${protoMatch} dport ${toString pf.sourcePort} ip daddr ${destIP} accept'')
           cfg.firewall.portForwards);
 
+          # Indentation helper
+          ind = "              ";
+
+          # Base rules for input chain
+          inputBaseRules = optionalString cfg.firewall.baseRules (concatStringsSep "\n" [
+            ""
+            "${ind}# Accept established/related"
+            "${ind}ct state established,related accept"
+            ""
+            "${ind}# Accept loopback"
+            "${ind}iifname \"lo\" accept"
+            ""
+            "${ind}# Accept essential ICMP/ICMPv6 from anywhere (required for network operation)"
+            "${ind}# - destination-unreachable: connection handling"
+            "${ind}# - packet-too-big (v6) / frag-needed (v4): Path MTU Discovery (critical)"
+            "${ind}# - time-exceeded: traceroute, TTL expiry"
+            "${ind}# - parameter-problem: malformed packet notification"
+            "${ind}icmp type { destination-unreachable, time-exceeded, parameter-problem } accept"
+            "${ind}icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept"
+            ""
+            "${ind}# Accept Neighbor Discovery (required for IPv6 to function - like ARP for IPv4)"
+            "${ind}icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept"
+          ]);
+
+          # Generate zone input rules (ICMP echo + inputRules)
+          zoneInputRules = let
+            rules = lib.concatMap (zoneName:
+              let
+                zone = cfg.zones.${zoneName};
+                ifaces = interfacesInZone zoneName;
+                ifaceMatch = "iifname ${quoteList ifaces}";
+                icmpV4 = optionalString (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv4-only")
+                  "${ind}${ifaceMatch} icmp type { echo-request, echo-reply } accept";
+                icmpV6 = optionalString (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv6-only")
+                  "${ind}${ifaceMatch} icmpv6 type { echo-request, echo-reply } accept";
+                inputLines = map (rule:
+                  "${ind}${ifaceMatch} ${nft.renderRule rule}"
+                ) zone.inputRules;
+              in
+                if ifaces == [] then []
+                else filter (s: s != "") ([icmpV4 icmpV6] ++ inputLines)
+            ) activeZones;
+          in if rules == [] then "" else "\n" + concatStringsSep "\n" rules;
+
+          # Wireguard port rules
+          wgRules = optionalString (wgPorts != []) (concatStringsSep "\n" [
+            ""
+            "${ind}# Wireguard ports"
+            "${ind}udp dport { ${concatStringsSep ", " (map toString wgPorts)} } accept"
+          ]);
+
+          # Extra input rules
+          extraInputStr = optionalString (cfg.firewall.extraInputRules != []) (concatStringsSep "\n" [
+            ""
+            "${ind}# Extra input rules"
+            "${ind}${nft.rulesToStringIndented ind cfg.firewall.extraInputRules}"
+          ]);
+
+          # Base rules for forward chain
+          forwardBaseRules = optionalString cfg.firewall.baseRules (concatStringsSep "\n" [
+            ""
+            "${ind}# Accept established/related"
+            "${ind}ct state established,related accept"
+            ""
+            "${ind}# Clamp MSS to path MTU"
+            "${ind}tcp flags syn tcp option maxseg size set rt mtu"
+          ]);
+
+          # Generate zone forward rules (accessTo)
+          zoneForwardAccessRules = let
+            rules = filter (s: s != "") (map (zoneName:
+              let
+                zone = cfg.zones.${zoneName};
+                srcIfaces = interfacesInZone zoneName;
+                dstIfaces = zonesInterfaces zone.accessTo;
+              in
+                if srcIfaces != [] && dstIfaces != [] then
+                  "${ind}iifname ${quoteList srcIfaces} oifname ${quoteList dstIfaces} accept"
+                else ""
+            ) activeZones);
+          in if rules == [] then "" else "\n" + concatStringsSep "\n" rules;
+
+          # Generate zone forward filter rules (forwardRules)
+          zoneForwardFilterRules = let
+            rules = filter (s: s != "") (lib.concatMap (zoneName:
+              let
+                zone = cfg.zones.${zoneName};
+                srcIfaces = interfacesInZone zoneName;
+              in
+                lib.mapAttrsToList (dstZone: rulesList:
+                  let dstIfaces = interfacesInZone dstZone;
+                  in if srcIfaces != [] && dstIfaces != [] && rulesList != [] then
+                    concatStringsSep "\n" (map (rule:
+                      "${ind}iifname ${quoteList srcIfaces} oifname ${quoteList dstIfaces} ${nft.renderRule rule}"
+                    ) rulesList)
+                  else ""
+                ) zone.forwardRules
+            ) activeZones);
+          in if rules == [] then "" else "\n" + concatStringsSep "\n" rules;
+
+          # Port forward accept rules for forward chain
+          forwardDnatStr = optionalString (cfg.firewall.portForwards != []) (concatStringsSep "\n" [
+            ""
+            "${ind}# Port forward destinations"
+            "${ind}${forwardDnatRules}"
+          ]);
+
+          # Extra forward rules
+          extraForwardStr = optionalString (cfg.firewall.extraForwardRules != []) (concatStringsSep "\n" [
+            ""
+            "${ind}# Extra forward rules"
+            "${ind}${nft.rulesToStringIndented ind cfg.firewall.extraForwardRules}"
+          ]);
+
         in ''
           table inet filter {
             chain input {
               type filter hook input priority filter; policy drop;
-
-              # Accept established/related
-              ct state established,related accept
-
-              # Accept loopback
-              iifname "lo" accept
-
-              # Accept essential ICMP/ICMPv6 from anywhere (required for network operation)
-              # - destination-unreachable: connection handling
-              # - packet-too-big (v6) / frag-needed (v4): Path MTU Discovery (critical)
-              # - time-exceeded: traceroute, TTL expiry
-              # - parameter-problem: malformed packet notification
-              icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
-              icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
-
-              # Accept Neighbor Discovery (required for IPv6 to function - like ARP for IPv4)
-              icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
-
-              ${optionalString (internalInterfaces != []) ''
-              # Accept echo (ping) only from internal networks (stealth mode for external)
-              iifname ${intIfaces} icmp type { echo-request, echo-reply } accept
-              iifname ${intIfaces} icmpv6 type { echo-request, echo-reply } accept
-              ''}
-
-              ${optionalString (trustedInterfaces != []) ''
-              # Trusted networks can access all router services
-              iifname ${trustIfaces} accept
-              ''}
-
-              ${optionalString (internalInterfaces != []) ''
-              # Internal networks can access DNS and DHCP
-              iifname ${intIfaces} udp dport { 53, 67, 547 } accept
-              iifname ${intIfaces} tcp dport 53 accept
-              ''}
-
-              ${optionalString (wgPorts != []) ''
-              # Wireguard ports
-              udp dport { ${concatStringsSep ", " (map toString wgPorts)} } accept
-              ''}
-
-              ${optionalString (cfg.firewall.extraInputRules != []) ''
-              # Extra input rules
-              ${nft.rulesToStringIndented "              " cfg.firewall.extraInputRules}
-              ''}
-
-              ${optionalString (externalInterfaces != []) ''
-              # Drop everything else from external
-              iifname ${extIfaces} drop
-              ''}
-
-              # Log and drop anything else
-              # log prefix "INPUT DROP: " drop
+${inputBaseRules}
+${zoneInputRules}
+${wgRules}
+${extraInputStr}
             }
 
             chain forward {
               type filter hook forward priority filter; policy drop;
-
-              # Accept established/related
-              ct state established,related accept
-
-              # Clamp MSS to path MTU
-              tcp flags syn tcp option maxseg size set rt mtu
-
-              ${optionalString (trustedInterfaces != [] && internalInterfaces != []) ''
-              # Trusted can access all internal networks
-              iifname ${trustIfaces} oifname ${intIfaces} accept
-              ''}
-
-              ${optionalString (internalInterfaces != [] && externalInterfaces != []) ''
-              # Internal networks can access external (internet)
-              iifname ${intIfaces} oifname ${extIfaces} accept
-              ''}
-
-              ${optionalString (cfg.firewall.portForwards != []) ''
-              # Port forward destinations
-              ${forwardDnatRules}
-              ''}
-
-              ${optionalString (cfg.firewall.extraForwardRules != []) ''
-              # Extra forward rules
-              ${nft.rulesToStringIndented "              " cfg.firewall.extraForwardRules}
-              ''}
-
-              # Log and drop anything else
-              # log prefix "FORWARD DROP: " drop
+${forwardBaseRules}
+${zoneForwardAccessRules}
+${zoneForwardFilterRules}
+${forwardDnatStr}
+${extraForwardStr}
             }
 
             chain output {
@@ -1362,16 +1470,47 @@ in {
     # Assertions
     # ===================
     {
-      assertions = [
-        {
-          assertion = externalInterfaces != [] || cfg.topology == {};
-          message = "Router needs at least one external interface with trust = \"external\"";
-        }
-        {
-          assertion = length externalInterfaces <= 1 || (lib.any (i: i.network.defaultRoute or false) (attrValues cfg.topology));
-          message = "With multiple external interfaces, at least one must have defaultRoute = true";
-        }
-      ] ++ (mapAttrsToList (name: iface: {
+      assertions =
+      # Zone assertions: accessTo and forwardRules must not overlap
+      lib.concatMap (zoneName:
+        let zone = cfg.zones.${zoneName};
+        in map (dstZone: {
+          assertion = !elem dstZone zone.accessTo;
+          message = "Zone '${zoneName}': destination '${dstZone}' appears in both accessTo and forwardRules. Use one or the other.";
+        }) (attrNames zone.forwardRules)
+      ) (attrNames cfg.zones)
+
+      # forwardRules keys reference valid zones
+      ++ lib.concatMap (zoneName:
+        let zone = cfg.zones.${zoneName};
+        in map (target: {
+          assertion = hasAttr target cfg.zones;
+          message = "Zone '${zoneName}': forwardRules references unknown zone '${target}'";
+        }) (attrNames zone.forwardRules)
+      ) (attrNames cfg.zones)
+
+      # inputRules must not contain iifname (it's auto-set)
+      ++ lib.concatMap (zoneName:
+        let zone = cfg.zones.${zoneName};
+        in lib.imap0 (i: rule: {
+          assertion = !(lib.isAttrs rule && hasAttr "iifname" rule);
+          message = "Zone '${zoneName}': inputRules[${toString i}] must not specify iifname (auto-set from zone interfaces)";
+        }) zone.inputRules
+      ) (attrNames cfg.zones)
+
+      # forwardRules must not contain iifname or oifname
+      ++ lib.concatMap (zoneName:
+        let zone = cfg.zones.${zoneName};
+        in lib.concatMap (dstZone:
+          lib.imap0 (i: rule: {
+            assertion = !(lib.isAttrs rule && (hasAttr "iifname" rule || hasAttr "oifname" rule));
+            message = "Zone '${zoneName}': forwardRules.${dstZone}[${toString i}] must not specify iifname/oifname (auto-set from zone interfaces)";
+          }) zone.forwardRules.${dstZone}
+        ) (attrNames zone.forwardRules)
+      ) (attrNames cfg.zones)
+
+      # Wireguard openFirewall requires port
+      ++ (mapAttrsToList (name: iface: {
         assertion = !(iface.wireguard.openFirewall or false) || (iface.wireguard.port or null) != null;
         message = "Wireguard interface ${name}: openFirewall requires port to be set";
       }) (filterAttrs (n: v: v.wireguard != null) cfg.topology))
@@ -1417,12 +1556,7 @@ in {
       ++ mapAttrsToList (name: device: {
         assertion = device.mode != null;
         message = "Bond '${name}' must have mode defined";
-      }) (devicesByKind "bond")
-      # Port forwards require source interface or external interface
-      ++ map (pf: {
-        assertion = pf.sourceInterface != null || externalInterfaces != [];
-        message = "Port forward to ${pf.destination}:${toString pf.sourcePort} requires either sourceInterface or at least one external interface";
-      }) cfg.firewall.portForwards;
+      }) (devicesByKind "bond");
     }
   ]);
 }

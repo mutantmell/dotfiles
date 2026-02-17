@@ -31,6 +31,20 @@ pkgs.testers.nixosTest {
         enable = true;
         ulaPrefix = "fdc6:55f2:0a5e::/48";
 
+        zones = {
+          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          management = {
+            icmpEcho = "enable";
+            accessTo = [ "management" "trusted" "external" ];
+            inputRules = [{ verdict = "accept"; }];
+          };
+          trusted = {
+            icmpEcho = "enable";
+            accessTo = [ "management" "trusted" "external" ];
+            inputRules = [{ verdict = "accept"; }];
+          };
+        };
+
         topology = {
           # Physical interfaces for bonding
           eth1 = {
@@ -49,7 +63,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = ["192.168.1.1/24"];
-              trust = "external";
+              zone = "external";
               nat.enable = true;
             };
           };
@@ -74,7 +88,7 @@ pkgs.testers.nixosTest {
                 network = {
                   type = "static";
                   addresses = ["10.0.20.1/24"];
-                  trust = "trusted";
+                  zone = "trusted";
                   dhcp.enable = true;
                   dhcp6.enable = true;
                 };
@@ -96,7 +110,7 @@ pkgs.testers.nixosTest {
               type = "static";
               addresses = ["10.0.10.1/24"];
               subnetId = 10;  # Should generate fdc6:55f2:0a5e:a::1/64
-              trust = "management";
+              zone = "management";
               dhcp.enable = true;
               dhcp6.enable = true;
             };
