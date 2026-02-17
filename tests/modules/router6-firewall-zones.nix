@@ -10,12 +10,12 @@
 #  3. untrusted → router: DNS/DHCP only
 #  4. isolated → router: nothing (not even DNS/DHCP)
 #  5. external → router: stealth (nothing)
-#  6. ICMP echo: internal only (mgmt/trusted/untrusted can ping, external/isolated cannot)
+#  6. ICMP echo: internal only (mgmt/trusted/untrusted/network can ping, external/isolated cannot)
 #
 # Forward chain:
 #  7.  management → trusted: allowed
 #  8.  management → untrusted: allowed
-#  9.  management → external: allowed (NAT)
+#  9.  management → external: allowed (forwardRules: HTTP/S, DNS, NTP)
 # 10.  trusted → management: allowed
 # 11.  trusted → untrusted: allowed
 # 12.  trusted → external: allowed (NAT)
@@ -24,6 +24,11 @@
 # 15.  untrusted → trusted: blocked
 # 16.  isolated → anything: blocked
 # 17.  external → internal: blocked
+# 18.  network → router: NTP only
+# 19.  network → router: DNS blocked
+# 20.  network → router: SSH blocked
+# 21.  network → any: no forwarding
+# 22.  management → external: forwardRules (HTTP/S allowed, SSH blocked)
 
 { pkgs ? import <nixpkgs> { }
 , lib ? pkgs.lib
@@ -42,7 +47,8 @@ pkgs.testers.nixosTest {
       # eth3 (vlan3) = trusted     (10.0.20.0/24)
       # eth4 (vlan4) = untrusted   (10.0.30.0/24)
       # eth5 (vlan5) = isolated    (10.0.40.0/24)
-      virtualisation.vlans = [ 1 2 3 4 5 ];
+      # eth6 (vlan6) = network     (10.0.50.0/24)
+      virtualisation.vlans = [ 1 2 3 4 5 6 ];
 
       router6 = {
         enable = true;
@@ -50,9 +56,23 @@ pkgs.testers.nixosTest {
 
         zones = {
           external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          network = {
+            icmpEcho = "enable";
+            accessTo = [];
+            inputRules = [
+              { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+            ];
+          };
           management = {
             icmpEcho = "enable";
-            accessTo = [ "management" "trusted" "untrusted" "external" ];
+            accessTo = [ "management" "trusted" "untrusted" ];
+            forwardRules.external = [
+              { udp.dport = 53; verdict = "accept"; comment = "DNS recursive queries"; }
+              { tcp.dport = 53; verdict = "accept"; comment = "DNS recursive queries (TCP)"; }
+              { tcp.dport = 80; verdict = "accept"; comment = "HTTP for package mirrors"; }
+              { tcp.dport = 443; verdict = "accept"; comment = "HTTPS for updates"; }
+              { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+            ];
             inputRules = [{ verdict = "accept"; }];
           };
           trusted = {
@@ -122,6 +142,14 @@ pkgs.testers.nixosTest {
               zone = "isolated";
             };
           };
+          eth6 = {
+            hardwareName = "eth6";
+            network = {
+              type = "static";
+              addresses = [ "10.0.50.1/24" ];
+              zone = "network";
+            };
+          };
         };
       };
     };
@@ -170,6 +198,17 @@ pkgs.testers.nixosTest {
       environment.systemPackages = with pkgs; [ netcat-gnu ];
     };
 
+    # Network gear node (APs, switches)
+    netgear = { config, pkgs, lib, ... }: {
+      virtualisation.vlans = [ 6 ];
+      networking = {
+        useDHCP = false;
+        interfaces.eth1.ipv4.addresses = [{ address = "10.0.50.100"; prefixLength = 24; }];
+        defaultGateway = "10.0.50.1";
+      };
+      environment.systemPackages = with pkgs; [ netcat-gnu ];
+    };
+
     # External attacker node
     attacker = { config, pkgs, lib, ... }: {
       virtualisation.vlans = [ 1 ];
@@ -197,6 +236,7 @@ pkgs.testers.nixosTest {
     trusted.wait_until_succeeds("ip addr show eth1 | grep '10.0.20.100'")
     guest.wait_until_succeeds("ip addr show eth1 | grep '10.0.30.100'")
     isolated.wait_until_succeeds("ip addr show eth1 | grep '10.0.40.100'")
+    netgear.wait_until_succeeds("ip addr show eth1 | grep '10.0.50.100'")
     attacker.wait_until_succeeds("ip addr show eth1 | grep '203.0.113.100'")
 
     # Wait for DNS to be ready
@@ -244,6 +284,7 @@ pkgs.testers.nixosTest {
     mgmt.succeed("ping -c 1 -W 2 10.0.10.1")
     trusted.succeed("ping -c 1 -W 2 10.0.20.1")
     guest.succeed("ping -c 1 -W 2 10.0.30.1")
+    netgear.succeed("ping -c 1 -W 2 10.0.50.1")
     isolated.fail("ping -c 1 -W 2 10.0.40.1")
     attacker.fail("ping -c 1 -W 2 203.0.113.1")
     print("PASS")
@@ -264,11 +305,11 @@ pkgs.testers.nixosTest {
     mgmt.succeed("ping -c 1 -W 2 10.0.30.100")
     print("PASS")
 
-    # Test 9: management → external: allowed (via NAT)
-    # We can't actually reach the internet, but we can verify the forward
-    # chain allows the traffic by checking nftables rules
-    print("Test 9: management -> external: allowed (verified via rules)")
-    router.succeed("nft list chain inet filter forward | grep -E 'iifname.*eth2.*oifname.*eth1.*accept'")
+    # Test 9: management → external: allowed via forwardRules (HTTP/S, DNS, NTP)
+    print("Test 9: management -> external: filtered via forwardRules (verified via rules)")
+    router.succeed("nft list chain inet filter forward | grep -E 'iifname.*eth2.*oifname.*eth1.*udp dport 53 accept'")
+    router.succeed("nft list chain inet filter forward | grep -E 'iifname.*eth2.*oifname.*eth1.*tcp dport 80 accept'")
+    router.succeed("nft list chain inet filter forward | grep -E 'iifname.*eth2.*oifname.*eth1.*tcp dport 443 accept'")
     print("PASS")
 
     # Test 10: trusted → management: allowed
@@ -316,13 +357,46 @@ pkgs.testers.nixosTest {
     print("PASS")
 
     # ======================================================================
+    # NETWORK ZONE TESTS
+    # ======================================================================
+
+    # Test 18: network → router: NTP (UDP 123) allowed
+    print("Test 18: network -> router: NTP allowed")
+    # Verify the NTP input rule exists for network zone
+    router.succeed("nft list chain inet filter input | grep -E 'iifname.*eth6.*udp dport 123 accept'")
+    print("PASS")
+
+    # Test 19: network → router: DNS blocked
+    print("Test 19: network -> router: DNS blocked")
+    netgear.fail("timeout 3 nc -z -w 2 10.0.50.1 53")
+    print("PASS")
+
+    # Test 20: network → router: SSH blocked
+    print("Test 20: network -> router: SSH blocked")
+    netgear.fail("timeout 3 nc -z -w 2 10.0.50.1 22")
+    print("PASS")
+
+    # Test 21: network → any: no forwarding
+    print("Test 21: network -> any: no forwarding")
+    netgear.fail("ping -c 1 -W 2 10.0.10.100")
+    netgear.fail("ping -c 1 -W 2 10.0.20.100")
+    netgear.fail("ping -c 1 -W 2 10.0.30.100")
+    print("PASS")
+
+    # Test 22: management → external: forwardRules (SSH blocked)
+    print("Test 22: management -> external: SSH blocked by forwardRules")
+    # Verify there is no blanket accept from management to external
+    router.fail("nft list chain inet filter forward | grep -E 'iifname.*eth2.*oifname.*eth1[^a-z].*accept$'")
+    print("PASS")
+
+    # ======================================================================
     # Summary
     # ======================================================================
     print("")
     print("=" * 70)
     print("FIREWALL ZONE TESTS COMPLETE")
     print("=" * 70)
-    print("All 17 tests passed.")
+    print("All 22 tests passed.")
     print("=" * 70)
   '';
 }

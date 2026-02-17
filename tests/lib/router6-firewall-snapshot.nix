@@ -37,9 +37,23 @@ let
 
           zones = {
             external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+            network = {
+              icmpEcho = "enable";
+              accessTo = [];
+              inputRules = [
+                { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+              ];
+            };
             management = {
               icmpEcho = "enable";
-              accessTo = [ "management" "trusted" "untrusted" "external" ];
+              accessTo = [ "management" "trusted" "untrusted" ];
+              forwardRules.external = [
+                { udp.dport = 53; verdict = "accept"; comment = "DNS recursive queries"; }
+                { tcp.dport = 53; verdict = "accept"; comment = "DNS recursive queries (TCP)"; }
+                { tcp.dport = 80; verdict = "accept"; comment = "HTTP for package mirrors"; }
+                { tcp.dport = 443; verdict = "accept"; comment = "HTTPS for updates"; }
+                { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+              ];
               inputRules = [{ verdict = "accept"; }];
             };
             trusted = {
@@ -101,6 +115,14 @@ let
                 type = "static";
                 addresses = [ "10.0.40.1/24" ];
                 zone = "isolated";
+              };
+            };
+            eth6 = {
+              hardwareName = "eth6";
+              network = {
+                type = "static";
+                addresses = [ "10.0.50.1/24" ];
+                zone = "network";
               };
             };
           };

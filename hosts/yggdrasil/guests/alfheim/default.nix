@@ -19,18 +19,22 @@
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
-    matchConfig.MACAddress = "5E:10:AD:01:00:02";
+    matchConfig.MACAddress = "5E:11:AD:01:00:02";
     networkConfig = {
-      Address = [ "10.0.10.2/24" "10.97.10.2/24" ];
-      Gateway = "10.0.10.1";
+      Address = [ "10.0.11.2/24" "fdc6:55f2:0a5e:b::2/64" ];
+      Gateway = "10.0.11.1";
       DNS = [ "127.0.0.1" ];  # Use local DNS (Adguard -> Unbound)
-      IPv6AcceptRA = true;
+      IPv6AcceptRA = false;
       DHCP = "no";
     };
+    routes = [
+      { Gateway = "10.0.11.1"; }
+      { Gateway = "fdc6:55f2:0a5e:b::1"; }
+    ];
   };
 
   networking.extraHosts = ''
-    10.0.10.1 yggdrasil.local
+    10.0.11.1 yggdrasil.local
     10.0.20.30 gridr.local
     10.0.100.40 surtr.local
   '';

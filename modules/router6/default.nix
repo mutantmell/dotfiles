@@ -580,6 +580,15 @@ in {
             '';
           };
 
+          extraNat6Rules = mkOption {
+            type = types.listOf nftRuleType;
+            default = [];
+            description = ''
+              Extra nftables rules for IPv6 NAT prerouting chain.
+              Each rule can be either a raw string or a structured attribute set.
+            '';
+          };
+
           portForwards = mkOption {
             type = types.listOf (types.submodule {
               options = {
@@ -1451,11 +1460,16 @@ ${extraForwardStr}
             }
           }
 
-          # IPv6 NAT table (empty - no NAT66 needed for internal-only IPv6)
+          # IPv6 NAT table
           # ULA addresses are used for internal IPv6 communication only
           table ip6 nat {
             chain prerouting {
               type nat hook prerouting priority dstnat;
+
+              ${optionalString (cfg.firewall.extraNat6Rules != []) ''
+              # Extra IPv6 NAT rules
+              ${nft.rulesToStringIndented "              " cfg.firewall.extraNat6Rules}
+              ''}
             }
 
             chain postrouting {

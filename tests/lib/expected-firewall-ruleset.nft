@@ -22,6 +22,9 @@
               iifname { "eth2" } icmp type { echo-request, echo-reply } accept
               iifname { "eth2" } icmpv6 type { echo-request, echo-reply } accept
               iifname { "eth2" } accept
+              iifname { "eth6" } icmp type { echo-request, echo-reply } accept
+              iifname { "eth6" } icmpv6 type { echo-request, echo-reply } accept
+              iifname { "eth6" } udp dport 123 accept comment "NTP"
               iifname { "eth3" } icmp type { echo-request, echo-reply } accept
               iifname { "eth3" } icmpv6 type { echo-request, echo-reply } accept
               iifname { "eth3" } accept
@@ -42,10 +45,15 @@
               # Clamp MSS to path MTU
               tcp flags syn tcp option maxseg size set rt mtu
 
-              iifname { "eth2" } oifname { "eth2", "eth3", "eth4", "eth1" } accept
+              iifname { "eth2" } oifname { "eth2", "eth3", "eth4" } accept
               iifname { "eth3" } oifname { "eth2", "eth3", "eth4", "eth1" } accept
               iifname { "eth4" } oifname { "eth1" } accept
 
+              iifname { "eth2" } oifname { "eth1" } udp dport 53 accept comment "DNS recursive queries"
+              iifname { "eth2" } oifname { "eth1" } tcp dport 53 accept comment "DNS recursive queries (TCP)"
+              iifname { "eth2" } oifname { "eth1" } tcp dport 80 accept comment "HTTP for package mirrors"
+              iifname { "eth2" } oifname { "eth1" } tcp dport 443 accept comment "HTTPS for updates"
+              iifname { "eth2" } oifname { "eth1" } udp dport 123 accept comment "NTP"
 
 
             }
@@ -73,11 +81,13 @@ oifname { "eth1" } masquerade
             }
           }
 
-          # IPv6 NAT table (empty - no NAT66 needed for internal-only IPv6)
+          # IPv6 NAT table
           # ULA addresses are used for internal IPv6 communication only
           table ip6 nat {
             chain prerouting {
               type nat hook prerouting priority dstnat;
+
+              
             }
 
             chain postrouting {
