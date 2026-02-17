@@ -13,6 +13,14 @@ and providing a unified implementation guide.
 | SSH Certificates | `ssh-certificates-sso-plan.md` | SSH certificate auth via Keycloak + step-ca |
 | Headscale | `headscale-integration-plan.md` | Self-hosted Tailscale for friend game server access |
 
+## MicroVM Inventory
+
+A complete inventory of all existing and planned microvms — names, hosts, zones, IPs,
+and responsibilities — is maintained in [`microvm-inventory.md`](./microvm-inventory.md).
+All planned microvms are assigned to muspelheim and follow the Norse naming convention:
+mimir (Keycloak), tyr (step-ca), ratatosk (Headscale), fenrir (subnet router), and
+heimdall (SSH bastion).
+
 ---
 
 ## Resolved Contradictions
