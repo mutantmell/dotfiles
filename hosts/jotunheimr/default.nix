@@ -57,10 +57,10 @@
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br100";
     };
-    netdevs."20-enp4s0.10" = {
+    netdevs."20-enp4s0.11" = {
       netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "enp4s0.10";
-      vlanConfig.Id = 10;
+      netdevConfig.Name = "enp4s0.11";
+      vlanConfig.Id = 11;
     };
     netdevs."20-enp4s0.20" = {
       netdevConfig.Kind = "vlan";
@@ -77,20 +77,23 @@
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       vlan = [
-        "enp4s0.10"
+        "enp4s0.11"
         "enp4s0.20"
         "enp4s0.100"
       ];
     };
-    networks."20-enp4s0.10" = {
-      matchConfig.Name = "enp4s0.10";
+    networks."20-enp4s0.11" = {
+      matchConfig.Name = "enp4s0.11";
       networkConfig.DHCP = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-      networkConfig.Address = [ "10.0.10.32/24" ];
+      networkConfig.IPv6AcceptRA = false;
+      networkConfig.Address = [ "10.0.11.20/24" "fdc6:55f2:0a5e:b::14/64" ];
       networkConfig.MulticastDNS = true;
       networkConfig.LLMNR = true;
-      networkConfig.DNS = [ "10.0.10.1" ];
-      routes = [ { Gateway = "10.0.10.1"; }];
+      networkConfig.DNS = [ "10.0.11.1" "fdc6:55f2:0a5e:b::1" ];
+      routes = [
+        { Gateway = "10.0.11.1"; }
+        { Gateway = "fdc6:55f2:0a5e:b::1"; }
+      ];
     };
     networks."20-vm20-bridge" = {
       matchConfig.Name = [ "enp4s0.20" "vm-20-*" ];
@@ -120,9 +123,28 @@
     };
   };
   services.resolved.enable = true;
-  #services.resolved.extraConfig = ''
-  #  MulticastDNS=true
-  #'';
+
+  # Host-based input firewall: restrict services by source
+  networking.firewall = {
+    enable = true;
+    extraInputRules = ''
+      # NFS from VM hosts and vHOME
+      ip saddr { 10.0.11.30, 10.0.11.31, 10.0.20.0/24 } tcp dport 2049 accept
+      ip6 saddr { fdc6:55f2:0a5e:b::1e, fdc6:55f2:0a5e:b::1f, fdc6:55f2:0a5e:14::/64 } tcp dport 2049 accept
+      # SMB from vHOME only
+      ip saddr 10.0.20.0/24 tcp dport { 139, 445 } accept
+      ip6 saddr fdc6:55f2:0a5e:14::/64 tcp dport { 139, 445 } accept
+      # WSDD from vHOME only
+      ip saddr 10.0.20.0/24 tcp dport 5357 accept
+      ip saddr 10.0.20.0/24 udp dport 3702 accept
+      ip6 saddr fdc6:55f2:0a5e:14::/64 tcp dport 5357 accept
+      ip6 saddr fdc6:55f2:0a5e:14::/64 udp dport 3702 accept
+      # SSH from router + vHOME, drop all else
+      ip saddr { 10.0.11.1, 10.0.20.0/24 } tcp dport 22 accept
+      ip6 saddr { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:14::/64 } tcp dport 22 accept
+      tcp dport 22 drop
+    '';
+  };
 
   services.avahi.enable = true;
   services.avahi.publish.enable = true;

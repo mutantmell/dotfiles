@@ -21,10 +21,11 @@
         # The router forwards DNS queries here
         allowed_clients = [
           "127.0.0.1"
-          "10.0.10.1"   # Yggdrasil (router)
-          "10.0.10.2"   # Self
-          "10.97.10.1"  # Router migration network
-          "10.97.10.2"  # Self migration network
+          "::1"
+          "10.0.11.1"             # Yggdrasil (router)
+          "10.0.11.2"             # Self
+          "fdc6:55f2:0a5e:b::1"   # Yggdrasil (router IPv6)
+          "fdc6:55f2:0a5e:b::2"   # Self IPv6
         ];
       };
       # Web interface binds to localhost only - accessed via nginx with OAuth
@@ -55,20 +56,24 @@
         local-zone = ''"local." static'';
         local-data = [
           # Router
-          ''"local. A 10.0.10.1"''
-          ''"yggdrasil.local. A 10.0.10.1"''
+          ''"local. A 10.0.11.1"''
+          ''"yggdrasil.local. A 10.0.11.1"''
+          ''"yggdrasil.local. AAAA fdc6:55f2:0a5e:b::1"''
 
           # This microVM (DNS)
-          ''"alfheim.local. A 10.0.10.2"''
+          ''"alfheim.local. A 10.0.11.2"''
+          ''"alfheim.local. AAAA fdc6:55f2:0a5e:b::2"''
 
           # Auth server (Gridr on jotunheimr)
           ''"gridr.local. A 10.0.20.30"''
 
           # NAS
-          ''"jotunheimr.local. A 10.0.10.32"''
+          ''"jotunheimr.local. A 10.0.11.20"''
+          ''"jotunheimr.local. AAAA fdc6:55f2:0a5e:b::14"''
 
           # Media host
-          ''"muspelheim.local. A 10.0.10.31"''
+          ''"muspelheim.local. A 10.0.11.31"''
+          ''"muspelheim.local. AAAA fdc6:55f2:0a5e:b::1f"''
 
           # Services in DMZ
           ''"surtr.local. A 10.0.100.40"''
@@ -84,7 +89,8 @@
           ''"ymir.local. A 10.0.20.41"''
 
           # Test/dev hosts
-          ''"vanaheim.local. A 10.0.10.30"''
+          ''"vanaheim.local. A 10.0.11.30"''
+          ''"vanaheim.local. AAAA fdc6:55f2:0a5e:b::1e"''
         ];
       };
       remote-control.control-enable = true;

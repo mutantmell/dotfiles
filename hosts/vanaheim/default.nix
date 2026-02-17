@@ -20,27 +20,30 @@
   # todo: add after creating an initrd host key
   boot.initrd.availableKernelModules = [ "e1000e" "8021q" ];
   boot.initrd.systemd.network = {
-    netdevs."20-enp88s0.10" = {
+    netdevs."20-enp88s0.11" = {
       netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "enp88s0.10";
-      vlanConfig.Id = 10;
+      netdevConfig.Name = "enp88s0.11";
+      vlanConfig.Id = 11;
     };
     networks."20-enp88s0" = {
       matchConfig.Name = "enp88s0";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       vlan = [
-        "enp88s0.10"
+        "enp88s0.11"
       ];
     };
-    networks."20-enp88s0.10" = {
-      matchConfig.Name = "enp88s0.10";
+    networks."20-enp88s0.11" = {
+      matchConfig.Name = "enp88s0.11";
       networkConfig.DHCP = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-      networkConfig.Address = [ "10.0.10.30/24" ];
+      networkConfig.IPv6AcceptRA = false;
+      networkConfig.Address = [ "10.0.11.30/24" "fdc6:55f2:0a5e:b::1e/64" ];
       networkConfig.MulticastDNS = true;
-      networkConfig.DNS = [ "10.0.10.1" ];
-      routes = [ { Gateway = "10.0.10.1"; }];
+      networkConfig.DNS = [ "10.0.11.1" "fdc6:55f2:0a5e:b::1" ];
+      routes = [
+        { Gateway = "10.0.11.1"; }
+        { Gateway = "fdc6:55f2:0a5e:b::1"; }
+      ];
     };
   };
 

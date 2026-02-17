@@ -8,17 +8,7 @@
     sshfs
   ];
   
-  networking.firewall.allowedTCPPorts = [
-    445   # smb
-    139   # smb
-    2049  # nfs
-    5357  # wsdd
-  ];
-  networking.firewall.allowedUDPPorts = [
-    137  # smb
-    138  # smb
-    3702 # wsdd
-  ];
+  # Firewall ports are handled by source-restricted extraInputRules in default.nix
 
   fileSystems = let
     media = {
@@ -45,16 +35,16 @@
     enable = true;
     #    createMountPoints = true;
     exports = ''
-      /data/media 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash)
-      /data/data 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /data/media 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /data/data 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/ro/media 10.0.10.0/24(ro) 10.0.20.0/24(ro)
-      /export/rw/media 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /export/ro/media 10.0.11.0/24(ro) 10.0.20.0/24(ro)
+      /export/rw/media 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/ro/data 10.0.10.0/24(ro) 10.0.20.0/24(ro)
-      /export/rw/data 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /export/ro/data 10.0.11.0/24(ro) 10.0.20.0/24(ro)
+      /export/rw/data 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/rw/backup 10.0.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /export/rw/backup 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
     '';
   };
 

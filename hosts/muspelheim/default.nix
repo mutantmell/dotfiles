@@ -19,27 +19,30 @@
   boot.extraModprobeConfig = "options kvm_intel nested=1";
   boot.initrd.availableKernelModules = [ "e1000e" "8021q" ];
   boot.initrd.systemd.network = {
-    netdevs."20-eno1.10" = {
+    netdevs."20-eno1.11" = {
       netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.10";
-      vlanConfig.Id = 10;
+      netdevConfig.Name = "eno1.11";
+      vlanConfig.Id = 11;
     };
     networks."20-eno1" = {
       matchConfig.Name = "eno1";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       vlan = [
-        "eno1.10"
+        "eno1.11"
       ];
     };
-    networks."20-eno1.10" = {
-      matchConfig.Name = "eno1.10";
+    networks."20-eno1.11" = {
+      matchConfig.Name = "eno1.11";
       networkConfig.DHCP = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-      networkConfig.Address = [ "10.0.10.31/24" ];
+      networkConfig.IPv6AcceptRA = false;
+      networkConfig.Address = [ "10.0.11.31/24" "fdc6:55f2:0a5e:b::1f/64" ];
       networkConfig.MulticastDNS = true;
-      networkConfig.DNS = [ "10.0.10.1" ];
-      routes = [ { Gateway = "10.0.10.1"; }];
+      networkConfig.DNS = [ "10.0.11.1" "fdc6:55f2:0a5e:b::1" ];
+      routes = [
+        { Gateway = "10.0.11.1"; }
+        { Gateway = "fdc6:55f2:0a5e:b::1"; }
+      ];
     };
   };
 
@@ -77,10 +80,10 @@
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br100";
     };
-    netdevs."20-eno1.10" = {
+    netdevs."20-eno1.11" = {
       netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.10";
-      vlanConfig.Id = 10;
+      netdevConfig.Name = "eno1.11";
+      vlanConfig.Id = 11;
     };
     netdevs."20-eno1.20" = {
       netdevConfig.Kind = "vlan";
@@ -97,18 +100,21 @@
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       vlan = [
-        "eno1.10"
+        "eno1.11"
         "eno1.20"
         "eno1.100"
       ];
     };
-    networks."20-eno1.10" = {
-      matchConfig.Name = "eno1.10";
+    networks."20-eno1.11" = {
+      matchConfig.Name = "eno1.11";
       networkConfig.DHCP = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-      networkConfig.Address = [ "10.0.10.31/24" ];
+      networkConfig.IPv6AcceptRA = false;
+      networkConfig.Address = [ "10.0.11.31/24" "fdc6:55f2:0a5e:b::1f/64" ];
       networkConfig.MulticastDNS = true;
-      routes = [ { Gateway = "10.0.10.1"; }];
+      routes = [
+        { Gateway = "10.0.11.1"; }
+        { Gateway = "fdc6:55f2:0a5e:b::1"; }
+      ];
     };
     networks."20-vm20-bridge" = {
       matchConfig.Name = [ "eno1.20" "vm-20-*" ];
@@ -139,14 +145,24 @@
   };
   services.resolved.enable = true;
 
+  # Host-based input firewall: restrict SSH to router + vHOME
+  networking.firewall = {
+    enable = true;
+    extraInputRules = ''
+      ip saddr { 10.0.11.1, 10.0.20.0/24 } tcp dport 22 accept
+      ip6 saddr { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:14::/64 } tcp dport 22 accept
+      tcp dport 22 drop
+    '';
+  };
+
   i18n.defaultLocale = "en_US.UTF-8";
 
   fileSystems."/mnt/data" = {
-    device = "10.0.10.32:/data/data";
+    device = "10.0.11.20:/data/data";
     fsType = "nfs";
   };
   fileSystems."/mnt/media" = {
-    device = "10.0.10.32:/data/media/";
+    device = "10.0.11.20:/data/media/";
     fsType = "nfs";
   };
 

@@ -67,10 +67,26 @@
         inputRules = [];
       };
 
-      management = {
-        # Infrastructure: full router access, can reach all internal + internet
+      network = {
+        # Network gear (APs, switches): NTP only, no internet, no lateral movement
         icmpEcho = "enable";
-        accessTo = [ "management" "trusted" "untrusted" "external" ];
+        accessTo = [];
+        inputRules = [
+          { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+        ];
+      };
+
+      management = {
+        # Infrastructure: full router access, filtered internet egress
+        icmpEcho = "enable";
+        accessTo = [ "management" "trusted" "untrusted" ];
+        forwardRules.external = [
+          { udp.dport = 53; verdict = "accept"; comment = "DNS recursive queries"; }
+          { tcp.dport = 53; verdict = "accept"; comment = "DNS recursive queries (TCP)"; }
+          { tcp.dport = 80; verdict = "accept"; comment = "HTTP for package mirrors"; }
+          { tcp.dport = 443; verdict = "accept"; comment = "HTTPS for updates"; }
+          { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+        ];
         inputRules = [
           { verdict = "accept"; comment = "Full router service access"; }
         ];
@@ -104,7 +120,7 @@
     };
 
     dns = {
-      upstream = [ "10.0.10.2" ];  # alfheim microVM (primary - has local hostnames)
+      upstream = [ "10.0.11.2" ];  # alfheim microVM (primary - has local hostnames)
       useDHCPFallback = true;      # fall back to ISP DNS when alfheim microVM is down
       localDomain = "local";
     };
@@ -133,20 +149,39 @@
 
         # DNS interception - redirect bypass attempts to router's DNS
         # This catches devices (e.g., Google/Nest) that ignore DHCP-provided DNS
-        # Excludes alfheim (10.0.10.2) so Unbound can make recursive queries
+        # Excludes alfheim (10.0.11.2) so Unbound can make recursive queries
         {
-          ip.saddr = { not = "10.0.10.2"; };
-          ip.daddr = { not = [ "10.0.10.1" "10.0.10.2" ]; };
+          ip.saddr = { not = "10.0.11.2"; };
+          ip.daddr = { not = [ "10.0.11.1" "10.0.11.2" ]; };
           udp.dport = 53;
-          verdict = { dnat = "10.0.10.1:53"; };
+          verdict = { dnat = "10.0.11.1:53"; };
           comment = "Intercept DNS bypass (UDP)";
         }
         {
-          ip.saddr = { not = "10.0.10.2"; };
-          ip.daddr = { not = [ "10.0.10.1" "10.0.10.2" ]; };
+          ip.saddr = { not = "10.0.11.2"; };
+          ip.daddr = { not = [ "10.0.11.1" "10.0.11.2" ]; };
           tcp.dport = 53;
-          verdict = { dnat = "10.0.10.1:53"; };
+          verdict = { dnat = "10.0.11.1:53"; };
           comment = "Intercept DNS bypass (TCP)";
+        }
+      ];
+
+      # IPv6 DNS interception - same as IPv4 but for ULA addresses
+      # Excludes alfheim's IPv6 so Unbound can make recursive queries
+      extraNat6Rules = [
+        {
+          ip6.saddr = { not = "fdc6:55f2:0a5e:b::2"; };
+          ip6.daddr = { not = [ "fdc6:55f2:0a5e:b::1" "fdc6:55f2:0a5e:b::2" ]; };
+          udp.dport = 53;
+          verdict = { dnat = "[fdc6:55f2:0a5e:b::1]:53"; };
+          comment = "Intercept IPv6 DNS bypass (UDP)";
+        }
+        {
+          ip6.saddr = { not = "fdc6:55f2:0a5e:b::2"; };
+          ip6.daddr = { not = [ "fdc6:55f2:0a5e:b::1" "fdc6:55f2:0a5e:b::2" ]; };
+          tcp.dport = 53;
+          verdict = { dnat = "[fdc6:55f2:0a5e:b::1]:53"; };
+          comment = "Intercept IPv6 DNS bypass (TCP)";
         }
       ];
     };
@@ -205,13 +240,25 @@
         members = ["bond0" "bat0"];
         network.type = "disabled";
         vlans = {
-          # Management network - trusted devices and infrastructure
+          # Network gear - APs and switches (locked down: NTP only)
           "vMGMT.br0" = {
             tag = 10;  # -> fdc6:55f2:0a5e:a::1/64
             network = {
               type = "static";
               addresses = [ "10.0.10.1/24" ];
               subnetId = 10;
+              zone = "network";
+              dhcp6.enable = true;
+            };
+          };
+
+          # Infrastructure - NAS, VM hosts, DNS
+          "vINFRA.br0" = {
+            tag = 11;  # -> fdc6:55f2:0a5e:b::1/64
+            network = {
+              type = "static";
+              addresses = [ "10.0.11.1/24" ];
+              subnetId = 11;
               zone = "management";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -354,12 +401,12 @@
     };
   };
 
-  # Bridge microVM tap interfaces into the management network
-  # The vm-10-alfheim tap interface is created by microvm and needs to be bridged to vMGMT.br0
-  systemd.network.networks."10-vm-mgmt" = {
-    matchConfig.Name = "vm-10-*";
+  # Bridge microVM tap interfaces into the infrastructure network
+  # The vm-11-alfheim tap interface is created by microvm and needs to be bridged to vINFRA.br0
+  systemd.network.networks."10-vm-infra" = {
+    matchConfig.Name = "vm-11-*";
     networkConfig = {
-      Bridge = "vMGMT.br0";
+      Bridge = "vINFRA.br0";
       DHCP = "no";
       LinkLocalAddressing = "no";
     };
@@ -367,15 +414,26 @@
   };
 
   networking.extraHosts = ''
-    10.0.10.1 yggdrasil
-    10.0.10.1 yggdrasil.local
-    10.0.10.2 alfheim
-    10.0.10.2 alfheim.local
+    10.0.11.1 yggdrasil
+    10.0.11.1 yggdrasil.local
+    fdc6:55f2:0a5e:b::1 yggdrasil.local
+    10.0.11.2 alfheim
+    10.0.11.2 alfheim.local
+    fdc6:55f2:0a5e:b::2 alfheim.local
     10.0.20.30 gridr.local
     10.0.100.40 surtr.local
     10.0.100.50 bragi.local
     10.0.100.51 njord.local
   '';
+
+  # NTP server for network gear and infrastructure
+  services.chrony = {
+    enable = true;
+    extraConfig = ''
+      allow 10.0.10.0/24
+      allow 10.0.11.0/24
+    '';
+  };
 
   # Persistence for router state
   environment.persistence."/persist".directories = [

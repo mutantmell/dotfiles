@@ -29,7 +29,7 @@
 
   microvm.interfaces = [{
     type = "tap";
-    id = "vm-10-alfheim";
-    mac = "5E:10:AD:01:00:02";
+    id = "vm-11-alfheim";
+    mac = "5E:11:AD:01:00:02";
   }];
 }
