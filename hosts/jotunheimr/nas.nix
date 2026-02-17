@@ -8,7 +8,20 @@
     sshfs
   ];
   
-  # Firewall ports are handled by source-restricted extraInputRules in default.nix
+  # Source-restricted firewall rules for NAS services
+  networking.firewall.extraInputRules = ''
+    # NFS from VM hosts and vHOME
+    ip saddr { 10.0.11.30, 10.0.11.31, 10.0.20.0/24 } tcp dport 2049 accept
+    ip6 saddr { fdc6:55f2:0a5e:b::1e, fdc6:55f2:0a5e:b::1f, fdc6:55f2:0a5e:14::/64 } tcp dport 2049 accept
+    # SMB from vHOME only
+    ip saddr 10.0.20.0/24 tcp dport { 139, 445 } accept
+    ip6 saddr fdc6:55f2:0a5e:14::/64 tcp dport { 139, 445 } accept
+    # WSDD from vHOME only
+    ip saddr 10.0.20.0/24 tcp dport 5357 accept
+    ip saddr 10.0.20.0/24 udp dport 3702 accept
+    ip6 saddr fdc6:55f2:0a5e:14::/64 tcp dport 5357 accept
+    ip6 saddr fdc6:55f2:0a5e:14::/64 udp dport 3702 accept
+  '';
 
   fileSystems = let
     media = {
@@ -57,7 +70,7 @@
     enable = true;
     #enableNmbd = false;
     #enableWinbindd = false;
-    openFirewall = true;
+    openFirewall = false;  # Handled by source-restricted extraInputRules above
     settings.global = {
       "invalid users" = [ "root" ];
       "passwd program" = "/run/wrappers/bin/passwd %u";

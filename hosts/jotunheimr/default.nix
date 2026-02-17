@@ -124,21 +124,10 @@
   };
   services.resolved.enable = true;
 
-  # Host-based input firewall: restrict services by source
+  # Host-based input firewall
   networking.firewall = {
     enable = true;
     extraInputRules = ''
-      # NFS from VM hosts and vHOME
-      ip saddr { 10.0.11.30, 10.0.11.31, 10.0.20.0/24 } tcp dport 2049 accept
-      ip6 saddr { fdc6:55f2:0a5e:b::1e, fdc6:55f2:0a5e:b::1f, fdc6:55f2:0a5e:14::/64 } tcp dport 2049 accept
-      # SMB from vHOME only
-      ip saddr 10.0.20.0/24 tcp dport { 139, 445 } accept
-      ip6 saddr fdc6:55f2:0a5e:14::/64 tcp dport { 139, 445 } accept
-      # WSDD from vHOME only
-      ip saddr 10.0.20.0/24 tcp dport 5357 accept
-      ip saddr 10.0.20.0/24 udp dport 3702 accept
-      ip6 saddr fdc6:55f2:0a5e:14::/64 tcp dport 5357 accept
-      ip6 saddr fdc6:55f2:0a5e:14::/64 udp dport 3702 accept
       # SSH from router + vHOME, drop all else
       ip saddr { 10.0.11.1, 10.0.20.0/24 } tcp dport 22 accept
       ip6 saddr { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:14::/64 } tcp dport 22 accept
