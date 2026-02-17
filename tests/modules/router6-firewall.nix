@@ -39,6 +39,15 @@ pkgs.testers.nixosTest {
         enable = true;
         ulaPrefix = "fdc6:55f2:0a5e::/48";
 
+        zones = {
+          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          trusted = {
+            icmpEcho = "enable";
+            accessTo = [ "trusted" "external" ];
+            inputRules = [{ verdict = "accept"; }];
+          };
+        };
+
         dns = {
           upstream = [ "1.1.1.1" ];
           useDHCPFallback = false;
@@ -52,7 +61,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = [ "203.0.113.1/24" ];
-              trust = "external";
+              zone = "external";
               nat.enable = true;
             };
           };
@@ -63,7 +72,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = [ "10.0.10.1/24" ];
-              trust = "trusted";
+              zone = "trusted";
               dhcp.enable = true;
             };
           };
@@ -155,14 +164,15 @@ pkgs.testers.nixosTest {
     print("PASS: Firewall uses drop policy, no reject rules found")
 
     # ==========================================================================
-    # Test 2: Verify external interface has explicit drop rule
+    # Test 2: Verify external zone has no accept rules (stealth via policy drop)
     # ==========================================================================
-    print("Test 2: Checking external interface drop rule...")
+    print("Test 2: Checking external zone has no accept rules...")
 
-    # The firewall should have an explicit drop rule for external interface
-    router.succeed("nft list chain inet filter input | grep 'iifname.*eth1.*drop'")
+    # The external zone should not appear in any accept rule in the input chain
+    # (policy drop handles all external traffic)
+    router.fail("nft list chain inet filter input | grep 'iifname.*eth1.*accept'")
 
-    print("PASS: External interface has explicit drop rule")
+    print("PASS: External zone has no accept rules (policy drop handles it)")
 
     # ==========================================================================
     # Test 3: TCP SYN to closed port is silently dropped (stealth mode)

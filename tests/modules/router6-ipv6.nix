@@ -27,6 +27,15 @@ pkgs.testers.nixosTest {
         enable = true;
         ulaPrefix = "fdc6:55f2:0a5e::/48";
 
+        zones = {
+          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          trusted = {
+            icmpEcho = "enable";
+            accessTo = [ "trusted" "external" ];
+            inputRules = [{ verdict = "accept"; }];
+          };
+        };
+
         dns = {
           upstream = [ "1.1.1.1" ];
           useDHCPFallback = false;
@@ -40,7 +49,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = [ "192.168.1.1/24" ];
-              trust = "external";
+              zone = "external";
               nat.enable = true;
             };
           };
@@ -58,7 +67,7 @@ pkgs.testers.nixosTest {
                 network = {
                   type = "static";
                   addresses = [ "10.0.10.1/24" ];
-                  trust = "trusted";
+                  zone = "trusted";
                   dhcp.enable = true;
                   dhcp6.enable = true;
                 };

@@ -29,6 +29,20 @@ pkgs.testers.nixosTest {
         enable = true;
         ulaPrefix = "fd00::/48";
 
+        zones = {
+          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          management = {
+            icmpEcho = "enable";
+            accessTo = [ "management" "trusted" "external" ];
+            inputRules = [{ verdict = "accept"; }];
+          };
+          trusted = {
+            icmpEcho = "enable";
+            accessTo = [ "management" "trusted" "external" ];
+            inputRules = [{ verdict = "accept"; }];
+          };
+        };
+
         topology = {
           # WAN interface
           wan = {
@@ -36,7 +50,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = ["192.168.1.1/24"];
-              trust = "external";
+              zone = "external";
               nat.enable = true;
             };
           };
@@ -63,7 +77,7 @@ pkgs.testers.nixosTest {
                 network = {
                   type = "static";
                   addresses = ["10.0.30.1/24"];
-                  trust = "trusted";
+                  zone = "trusted";
                 };
               };
             };
@@ -83,7 +97,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = ["10.0.1.1/24"];
-              trust = "management";
+              zone = "management";
             };
           };
 
@@ -97,7 +111,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = ["10.0.10.1/24"];
-              trust = "trusted";
+              zone = "trusted";
             };
           };
 
@@ -114,7 +128,7 @@ pkgs.testers.nixosTest {
                 network = {
                   type = "static";
                   addresses = ["10.0.20.1/24"];
-                  trust = "trusted";
+                  zone = "trusted";
                 };
               };
             };
@@ -130,7 +144,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = ["10.0.40.1/24"];
-              trust = "trusted";
+              zone = "trusted";
             };
           };
         };

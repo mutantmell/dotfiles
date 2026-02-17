@@ -17,11 +17,11 @@
   # Note: UUID will be determined after deployment - update this after first boot
   # The keyFile here (/boot/secrets/disk.key) is for normal boots
   # During installation, disko uses /tmp/secret.key temporarily (see disko profile)
-  boot.initrd.luks.devices."cryptroot" = {
-    device = "/dev/disk/by-uuid/PLACEHOLDER-UPDATE-AFTER-DEPLOYMENT";
-    keyFile = "/boot/secrets/disk.key";
-    allowDiscards = true;
-  };
+  # boot.initrd.luks.devices."cryptroot" = {
+  #   device = "/dev/disk/by-uuid/PLACEHOLDER-UPDATE-AFTER-DEPLOYMENT";
+  #   keyFile = "/boot/secrets/disk.key";
+  #   allowDiscards = true;
+  # };
 
   # Ensure /boot/secrets directory exists
   system.activationScripts.createBootSecrets = ''
@@ -58,6 +58,50 @@
     # ULA prefix for internal IPv6 addressing
     # IPv6 addresses auto-generated from VLAN tags (e.g., VLAN 10 -> fdc6:55f2:0a5e:a::1/64)
     ulaPrefix = "fdc6:55f2:0a5e::/48";
+
+    zones = {
+      external = {
+        # WAN: no access to anything, no router services
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
+
+      management = {
+        # Infrastructure: full router access, can reach all internal + internet
+        icmpEcho = "enable";
+        accessTo = [ "management" "trusted" "untrusted" "external" ];
+        inputRules = [
+          { verdict = "accept"; comment = "Full router service access"; }
+        ];
+      };
+
+      trusted = {
+        # User devices: full router access, can reach all internal + internet
+        icmpEcho = "enable";
+        accessTo = [ "management" "trusted" "untrusted" "external" ];
+        inputRules = [
+          { verdict = "accept"; comment = "Full router service access"; }
+        ];
+      };
+
+      untrusted = {
+        # Guest/IoT: DNS + DHCP only, internet only, no lateral movement
+        icmpEcho = "enable";
+        accessTo = [ "external" ];
+        inputRules = [
+          { udp.dport = [ 53 67 547 ]; verdict = "accept"; comment = "DNS + DHCP"; }
+          { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
+        ];
+      };
+
+      isolated = {
+        # No forwarding, no router services
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
+    };
 
     dns = {
       upstream = [ "10.0.10.2" ];  # alfheim microVM (primary - has local hostnames)
@@ -113,7 +157,7 @@
         mac = "00:e0:67:1b:70:34";
         network = {
           type = "dhcp";
-          trust = "external";
+          zone = "external";
           nat.enable = true;
           defaultRoute = true;
         };
@@ -168,7 +212,7 @@
               type = "static";
               addresses = [ "10.0.10.1/24" ];
               subnetId = 10;
-              trust = "management";
+              zone = "management";
               dhcp.enable = true;
               dhcp6.enable = true;
             };
@@ -181,7 +225,7 @@
               type = "static";
               addresses = [ "10.0.20.1/24" ];
               subnetId = 20;
-              trust = "trusted";
+              zone = "trusted";
               dhcp.enable = true;
               dhcp6.enable = true;
             };
@@ -193,7 +237,7 @@
             network = {
               type = "static";
               addresses = [ "10.0.30.1/24" ];
-              trust = "untrusted";
+              zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
             };
@@ -205,7 +249,7 @@
             network = {
               type = "static";
               addresses = [ "10.0.31.1/24" ];
-              trust = "untrusted";
+              zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
             };
@@ -217,7 +261,7 @@
             network = {
               type = "static";
               addresses = [ "10.0.40.1/24" ];
-              trust = "untrusted";
+              zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
             };
@@ -229,7 +273,7 @@
             network = {
               type = "static";
               addresses = [ "10.0.41.1/24" ];
-              trust = "untrusted";
+              zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
             };
@@ -241,7 +285,7 @@
             network = {
               type = "static";
               addresses = [ "10.0.100.1/24" ];
-              trust = "untrusted";
+              zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
             };
@@ -263,7 +307,7 @@
             "10.100.0.1/24"
             "fdc6:55f2:0a5e:6400::1/64"  # Manual IPv6 for WG
           ];
-          trust = "isolated";
+          zone = "isolated";
           required = false;  # External connection, don't block boot
         };
         wireguard = {
@@ -287,7 +331,7 @@
             "10.100.10.1/24"
             "fdc6:55f2:0a5e:640a::1/64"  # Manual IPv6 for WG
           ];
-          trust = "trusted";
+          zone = "trusted";
           required = false;  # External connection, don't block boot
         };
         wireguard = {

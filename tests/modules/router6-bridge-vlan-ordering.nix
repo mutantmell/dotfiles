@@ -27,13 +27,22 @@ pkgs.testers.nixosTest {
         enable = true;
         ulaPrefix = "fd00::/48";
 
+        zones = {
+          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          trusted = {
+            icmpEcho = "enable";
+            accessTo = [ "trusted" "external" ];
+            inputRules = [{ verdict = "accept"; }];
+          };
+        };
+
         topology = {
           wan = {
             hardwareName = "eth0";
             network = {
               type = "static";
               addresses = ["192.168.1.1/24"];
-              trust = "external";
+              zone = "external";
             };
           };
 
@@ -78,7 +87,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = ["10.0.1.1/24"];
-              trust = "trusted";
+              zone = "trusted";
             };
           };
 
@@ -94,7 +103,7 @@ pkgs.testers.nixosTest {
                 network = {
                   type = "static";
                   addresses = ["10.0.30.1/24"];
-                  trust = "trusted";
+                  zone = "trusted";
                 };
               };
               vlan40 = {
@@ -102,7 +111,7 @@ pkgs.testers.nixosTest {
                 network = {
                   type = "static";
                   addresses = ["10.0.40.1/24"];
-                  trust = "trusted";
+                  zone = "trusted";
                 };
               };
             };
