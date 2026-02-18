@@ -118,13 +118,13 @@ generated nftables output must be identical. Highest-risk step (firewall
 misconfiguration can break everything) but also the most testable (snapshot tests
 ensure identical output).
 
-- [ ] Phase 0: Add nftables snapshot tests for current router6 output
-- [ ] Phase 1: Define `zones` option type in router6 module
-- [ ] Phase 2: Replace hardcoded trust enum with zone-based config
-- [ ] Phase 3: Add `extraForwardRules` escape hatch for cross-zone rules
-- [ ] Phase 4: Rename `trust` → `zone` in all host configs (mechanical)
-- [ ] Verify: snapshot tests pass (identical nftables output)
-- [ ] Deploy to router with `magic_rollback` via deploy-rs
+- [x] Phase 0: Add nftables snapshot tests for current router6 output
+- [x] Phase 1: Define `zones` option type in router6 module
+- [x] Phase 2: Replace hardcoded trust enum with zone-based config
+- [x] Phase 3: Add `extraForwardRules` escape hatch for cross-zone rules
+- [x] Phase 4: Rename `trust` → `zone` in all host configs (mechanical)
+- [x] Verify: snapshot tests pass (identical nftables output)
+- [x] Deploy to router with `magic_rollback` via deploy-rs
 
 ### Step 2: Secure MGMT VLAN Split (Phases 1-6)
 
@@ -133,10 +133,10 @@ ensure identical output).
 Creates vINFRA VLAN, defines `network` zone, migrates infrastructure hosts,
 hardens NFS, adds host firewalls (input + egress), updates OpenWRT.
 
-- [ ] Phase 1: Add VLAN 11 (vINFRA) to router, switch trunk, define `network` zone
-- [ ] Phase 2: Migrate hosts to vINFRA (alfheim, jotunheimr, vanaheim, muspelheim)
-- [ ] Phase 3: Update NFS mounts to use vINFRA addresses
-- [ ] Phase 4.1-4.3: Add host-level input firewalls (jotunheimr, vanaheim, muspelheim)
+- [x] Phase 1: Add VLAN 11 (vINFRA) to router, switch trunk, define `network` zone
+- [x] Phase 2: Migrate hosts to vINFRA (alfheim, jotunheimr, vanaheim, muspelheim)
+- [x] Phase 3: Update NFS mounts to use vINFRA addresses
+- [x] Phase 4.1-4.3: Add host-level input firewalls (jotunheimr, vanaheim, muspelheim)
 - [ ] Phase 4.4: Add egress filtering module for vDMZ hosts (nftables output chain)
 - [ ] Phase 5: Update OpenWRT APs (NTP, host firewall)
 - [ ] Phase 6: Coordinated deployment (VM guests → VM hosts → NAS → Router)
