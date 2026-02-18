@@ -151,11 +151,11 @@ to Step 8.
 Replaces `network.json` with Nix-based registry. Zone names use functional names
 (`management`, `trusted`, `untrusted`) matching router6.
 
-- [ ] Create `lib/common/data/network.nix` alongside `network.json`
-- [ ] Add `summary` attribute and `nix run .#netinfo` app
-- [ ] Update `lib/common/data/default.nix` to load `.nix` instead of `.fromJSON`
+- [x] Create `lib/common/data/network.nix` alongside `network.json`
+- [x] Add `summary` attribute and `nix run .#netinfo` app
+- [x] Update `lib/common/data/default.nix` to load `.nix` instead of `.fromJSON`
 - [ ] Gradually replace hardcoded IPs in host configs with registry references
-- [ ] Remove `network.json` once no consumers remain
+- [x] Remove `network.json` once no consumers remain
 
 ### Step 4: Keycloak OIDC (Phases 1-3)
 
