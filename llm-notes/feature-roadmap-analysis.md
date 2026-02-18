@@ -60,12 +60,13 @@ are useless after surtr is compromised.**
 ```mermaid
 flowchart TD
     ZR["Step 1: Zone Refactor"]
-    VLAN["Step 2: MGMT VLAN Split\n(Phases 1-6)"]
+    VLAN["Step 2: MGMT VLAN Split\n(Phases 1-4, 6)"]
     REG["Step 3: Network Data Registry\n(Phase 7)"]
     KC["Step 4: Keycloak OIDC\n(Phases 1-3)"]
     IP["Step 5: IP Migration\n(Phase 8)"]
     SSH["Step 6: SSH Certificates"]
     HS["Step 7: Headscale"]
+    OW["Step 8: OpenWRT Updates\n(Phase 5)"]
 
     ZR --> VLAN
     VLAN --> REG
@@ -76,6 +77,7 @@ flowchart TD
     KC --> HS
     IP --> SSH
     IP --> HS
+    IP --> OW
 ```
 
 ### Parallelization
@@ -126,19 +128,19 @@ ensure identical output).
 - [x] Verify: snapshot tests pass (identical nftables output)
 - [x] Deploy to router with `magic_rollback` via deploy-rs
 
-### Step 2: Secure MGMT VLAN Split (Phases 1-6)
+### Step 2: Secure MGMT VLAN Split (Phases 1-4, 6)
 
-**Plan:** `secure-mgmt-vlan-plan.md` Phases 1-6
+**Plan:** `secure-mgmt-vlan-plan.md` Phases 1-4, 6
 
 Creates vINFRA VLAN, defines `network` zone, migrates infrastructure hosts,
-hardens NFS, adds host firewalls (input + egress), updates OpenWRT.
+hardens NFS, adds host firewalls (input + egress). OpenWRT updates deferred
+to Step 8.
 
 - [x] Phase 1: Add VLAN 11 (vINFRA) to router, switch trunk, define `network` zone
 - [x] Phase 2: Migrate hosts to vINFRA (alfheim, jotunheimr, vanaheim, muspelheim)
 - [x] Phase 3: Update NFS mounts to use vINFRA addresses
 - [x] Phase 4.1-4.3: Add host-level input firewalls (jotunheimr, vanaheim, muspelheim)
 - [x] Phase 4.4: Add egress filtering module for vDMZ hosts (nftables output chain)
-- [ ] Phase 5: Update OpenWRT APs (NTP, host firewall)
 - [ ] Phase 6: Coordinated deployment (VM guests → VM hosts → NAS → Router)
 - [ ] Verify: all hosts reachable, DNS working, NFS mounts operational
 
@@ -242,3 +244,16 @@ router for friend access to game servers. Uses canonical names from Step 4.
 - [ ] Phase 5: Create friend accounts, send onboarding guide
 - [ ] Phase 6: Deploy production game servers, update ACLs
 - [ ] Investigate: STUN reachability (standalone STUN on cloud host)
+
+### Step 8: OpenWRT Updates
+
+**Plan:** `secure-mgmt-vlan-plan.md` Phase 5
+
+Updates OpenWRT APs with NTP changes and host firewalls. Deferred to the end
+because the OpenWRT configuration checked into the repo is stale — a fresh
+config import from the running devices is needed before any changes can be made.
+
+- [ ] Import current OpenWRT configuration from running devices into the repo
+- [ ] Phase 5: Update NTP server to router IP
+- [ ] Phase 5: Add host firewall script to APs
+- [ ] Deploy to OpenWRT APs
