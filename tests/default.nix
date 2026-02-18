@@ -16,6 +16,7 @@
   router6-bond-bridge = import ./modules/router6-bond-bridge.nix { inherit pkgs lib; };
   router6-device-vlans = import ./modules/router6-device-vlans.nix { inherit pkgs lib; };
   router6-bridge-vlan-ordering = import ./modules/router6-bridge-vlan-ordering.nix { inherit pkgs lib; };
+  egress-filter = import ./modules/egress-filter.nix { inherit pkgs lib; };
 
   # Unit tests (pure Nix evaluation)
   nftables-dsl = import ./lib/nftables.nix { inherit pkgs lib; };
