@@ -137,7 +137,7 @@ hardens NFS, adds host firewalls (input + egress), updates OpenWRT.
 - [x] Phase 2: Migrate hosts to vINFRA (alfheim, jotunheimr, vanaheim, muspelheim)
 - [x] Phase 3: Update NFS mounts to use vINFRA addresses
 - [x] Phase 4.1-4.3: Add host-level input firewalls (jotunheimr, vanaheim, muspelheim)
-- [ ] Phase 4.4: Add egress filtering module for vDMZ hosts (nftables output chain)
+- [x] Phase 4.4: Add egress filtering module for vDMZ hosts (nftables output chain)
 - [ ] Phase 5: Update OpenWRT APs (NTP, host firewall)
 - [ ] Phase 6: Coordinated deployment (VM guests → VM hosts → NAS → Router)
 - [ ] Verify: all hosts reachable, DNS working, NFS mounts operational

@@ -46,5 +46,14 @@
     ];
   };
 
+  # Egress filtering — default-drop with explicit allowlist
+  networking.nftables.enable = true;
+  networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter [
+    "ip daddr 10.0.100.1 udp dport 53 accept"   # DNS to gateway
+    "ip daddr 10.0.100.1 tcp dport 53 accept"
+    "ip daddr 224.0.0.251 udp dport 5353 accept"  # mDNS multicast
+    "ip daddr 224.0.0.252 udp dport 5355 accept"  # LLMNR multicast
+  ];
+
   system.stateVersion = "23.11";
 }
