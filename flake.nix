@@ -228,7 +228,7 @@
     # Apps for OpenWrt management
     apps = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
       pkgs = pkgsFor nixpkgs system;
-    in import ./apps/openwrt { inherit pkgs; });
+    in import ./apps { inherit pkgs; });
 
     # deploy-rs deployment configurations
     deploy = {

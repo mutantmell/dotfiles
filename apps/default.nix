@@ -1,0 +1,28 @@
+# Flake apps for managing the dotfiles infrastructure
+#
+# Network registry:
+#   nix run .#netinfo                         # Show all hosts
+#   nix run .#netinfo -- <hostname>            # Look up a specific host
+#   nix run .#netinfo -- --generate-docs       # Generate docs/network-hosts.md
+#
+# OpenWrt management:
+#   nix run .#openwrt-deploy -- <device> <ip>  # Deploy image to device
+#   nix run .#openwrt-show-config -- <device>  # Show UCI config
+#   nix run .#openwrt-profiles                 # List device profiles
+{ pkgs }:
+
+let
+  openwrt = import ./openwrt { inherit pkgs; };
+in {
+  # Network registry lookup
+  netinfo = import ./netinfo.nix { inherit pkgs; };
+
+  # OpenWrt device management
+  inherit (openwrt)
+    openwrt-deploy
+    openwrt-configure-secrets
+    openwrt-profiles
+    openwrt-show-config
+    openwrt-export-config
+    openwrt-analyze-packages;
+}

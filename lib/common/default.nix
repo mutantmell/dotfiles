@@ -1,7 +1,7 @@
 { lib, ... }:
 
 {
-  data = import ./data;
+  data = import ./data { inherit lib; };
   network = let
     format-ipv4 = lib.concatStringsSep ".";
     parse-ipv4 = input: let
