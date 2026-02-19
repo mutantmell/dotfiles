@@ -1,5 +1,10 @@
 { pkgs, config, ... }:
-{
+
+let
+  hostname = "alfheim";
+  net = pkgs.mmell.lib.data.network;
+  inherit (net.forHost hostname) host zone;
+in {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
     ./microvm.nix
@@ -8,7 +13,7 @@
     ./modules/proxy.nix
   ];
 
-  networking.hostName = "alfheim";
+  networking.hostName = hostname;
 
   common.openssh.enable = true;
   services.openssh.hostKeys = [{
@@ -21,22 +26,22 @@
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:11:AD:01:00:02";
     networkConfig = {
-      Address = [ "10.0.11.2/24" "fdc6:55f2:0a5e:b::2/64" ];
-      Gateway = "10.0.11.1";
+      Address = [ host.cidr4 host.cidr6 ];
+      Gateway = zone.gateway4;
       DNS = [ "127.0.0.1" ];  # Use local DNS (Adguard -> Unbound)
       IPv6AcceptRA = false;
       DHCP = "no";
     };
     routes = [
-      { Gateway = "10.0.11.1"; }
-      { Gateway = "fdc6:55f2:0a5e:b::1"; }
+      { Gateway = zone.gateway4; }
+      { Gateway = zone.gateway6; }
     ];
   };
 
   networking.extraHosts = ''
-    10.0.11.1 yggdrasil.local
-    10.0.20.30 gridr.local
-    10.0.100.40 surtr.local
+    ${zone.gateway4} yggdrasil.local
+    ${net.hosts.gridr.ipv4} gridr.local
+    ${net.hosts.surtr.ipv4} surtr.local
   '';
 
   time.timeZone = "UTC";

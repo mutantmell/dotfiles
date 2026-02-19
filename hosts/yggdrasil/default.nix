@@ -1,6 +1,15 @@
 { config, pkgs, ... }:
 
-{
+let
+  hostname = "yggdrasil";
+  net = pkgs.mmell.lib.data.network;
+  inherit (net.forHost hostname) host;
+  alfheim = net.hosts.alfheim;
+  surtr = net.hosts.surtr;
+  bragi = net.hosts.bragi;
+  njord = net.hosts.njord;
+  gridr = net.hosts.gridr;
+in {
   imports =
     [
       ./hardware-configuration.nix
@@ -29,7 +38,7 @@
     chmod 700 /boot/secrets
   '';
 
-  networking.hostName = "yggdrasil";
+  networking.hostName = hostname;
   time.timeZone = "America/Los_Angeles";
 
   nix.settings.auto-optimise-store = true;
@@ -120,8 +129,8 @@
     };
 
     dns = {
-      upstream = [ "10.0.11.2" ];  # alfheim microVM (primary - has local hostnames)
-      useDHCPFallback = true;      # fall back to ISP DNS when alfheim microVM is down
+      upstream = [ alfheim.ipv4 ];  # alfheim microVM (primary - has local hostnames)
+      useDHCPFallback = true;       # fall back to ISP DNS when alfheim microVM is down
       localDomain = "local";
     };
 
@@ -129,7 +138,7 @@
       # Forward from DMZ to wg-ba
       extraForwardRules = [
         { iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }
-        { iifname = "wg-ba"; ip.daddr = "10.0.100.40"; verdict = "accept"; }
+        { iifname = "wg-ba"; ip.daddr = surtr.ipv4; verdict = "accept"; }
       ];
 
       # Port forward SSH from wg-ba to surtr
@@ -137,7 +146,7 @@
         {
           proto = "tcp";
           sourcePort = 22;
-          destination = "10.0.100.40:22";
+          destination = "${surtr.ipv4}:22";
           sourceInterface = "wg-ba";
         }
       ];
@@ -145,23 +154,23 @@
       extraNatRules = [
         # Wireguard BA tunnel masquerading
         { oifname = "wg-ba"; masquerade = true; }
-        { iifname = "wg-ba"; ip.daddr = "10.0.100.40"; masquerade = true; }
+        { iifname = "wg-ba"; ip.daddr = surtr.ipv4; masquerade = true; }
 
         # DNS interception - redirect bypass attempts to router's DNS
         # This catches devices (e.g., Google/Nest) that ignore DHCP-provided DNS
-        # Excludes alfheim (10.0.11.2) so Unbound can make recursive queries
+        # Excludes alfheim so Unbound can make recursive queries
         {
-          ip.saddr = { not = "10.0.11.2"; };
-          ip.daddr = { not = [ "10.0.11.1" "10.0.11.2" ]; };
+          ip.saddr = { not = alfheim.ipv4; };
+          ip.daddr = { not = [ host.ipv4 alfheim.ipv4 ]; };
           udp.dport = 53;
-          verdict = { dnat = "10.0.11.1:53"; };
+          verdict = { dnat = "${host.ipv4}:53"; };
           comment = "Intercept DNS bypass (UDP)";
         }
         {
-          ip.saddr = { not = "10.0.11.2"; };
-          ip.daddr = { not = [ "10.0.11.1" "10.0.11.2" ]; };
+          ip.saddr = { not = alfheim.ipv4; };
+          ip.daddr = { not = [ host.ipv4 alfheim.ipv4 ]; };
           tcp.dport = 53;
-          verdict = { dnat = "10.0.11.1:53"; };
+          verdict = { dnat = "${host.ipv4}:53"; };
           comment = "Intercept DNS bypass (TCP)";
         }
       ];
@@ -170,17 +179,17 @@
       # Excludes alfheim's IPv6 so Unbound can make recursive queries
       extraNat6Rules = [
         {
-          ip6.saddr = { not = "fdc6:55f2:0a5e:b::2"; };
-          ip6.daddr = { not = [ "fdc6:55f2:0a5e:b::1" "fdc6:55f2:0a5e:b::2" ]; };
+          ip6.saddr = { not = alfheim.ipv6; };
+          ip6.daddr = { not = [ host.ipv6 alfheim.ipv6 ]; };
           udp.dport = 53;
-          verdict = { dnat = "[fdc6:55f2:0a5e:b::1]:53"; };
+          verdict = { dnat = "[${host.ipv6}]:53"; };
           comment = "Intercept IPv6 DNS bypass (UDP)";
         }
         {
-          ip6.saddr = { not = "fdc6:55f2:0a5e:b::2"; };
-          ip6.daddr = { not = [ "fdc6:55f2:0a5e:b::1" "fdc6:55f2:0a5e:b::2" ]; };
+          ip6.saddr = { not = alfheim.ipv6; };
+          ip6.daddr = { not = [ host.ipv6 alfheim.ipv6 ]; };
           tcp.dport = 53;
-          verdict = { dnat = "[fdc6:55f2:0a5e:b::1]:53"; };
+          verdict = { dnat = "[${host.ipv6}]:53"; };
           comment = "Intercept IPv6 DNS bypass (TCP)";
         }
       ];
@@ -414,24 +423,24 @@
   };
 
   networking.extraHosts = ''
-    10.0.11.1 yggdrasil
-    10.0.11.1 yggdrasil.local
-    fdc6:55f2:0a5e:b::1 yggdrasil.local
-    10.0.11.2 alfheim
-    10.0.11.2 alfheim.local
-    fdc6:55f2:0a5e:b::2 alfheim.local
-    10.0.20.30 gridr.local
-    10.0.100.40 surtr.local
-    10.0.100.50 bragi.local
-    10.0.100.51 njord.local
+    ${host.ipv4} yggdrasil
+    ${host.ipv4} yggdrasil.local
+    ${host.ipv6} yggdrasil.local
+    ${alfheim.ipv4} alfheim
+    ${alfheim.ipv4} alfheim.local
+    ${alfheim.ipv6} alfheim.local
+    ${gridr.ipv4} gridr.local
+    ${surtr.ipv4} surtr.local
+    ${bragi.ipv4} bragi.local
+    ${njord.ipv4} njord.local
   '';
 
   # NTP server for network gear and infrastructure
   services.chrony = {
     enable = true;
     extraConfig = ''
-      allow 10.0.10.0/24
-      allow 10.0.11.0/24
+      allow ${net.networks.network.subnet4}
+      allow ${net.networks.management.subnet4}
     '';
   };
 

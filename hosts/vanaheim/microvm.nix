@@ -1,4 +1,9 @@
-{
+{ pkgs, ... }:
+
+let
+  net = pkgs.mmell.lib.data.network;
+  inherit (net.forHost "vanaheim") host zone;
+in {
   systemd.network = {
     enable = true;
     netdevs."20-br20" = {
@@ -38,11 +43,11 @@
       matchConfig.Name = "enp88s0.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ "10.0.11.30/24" "fdc6:55f2:0a5e:b::1e/64" ];
+      networkConfig.Address = [ host.cidr4 host.cidr6 ];
       networkConfig.MulticastDNS = true;
       routes = [
-        { Gateway = "10.0.11.1"; }
-        { Gateway = "fdc6:55f2:0a5e:b::1"; }
+        { Gateway = zone.gateway4; }
+        { Gateway = zone.gateway6; }
       ];
     };
     networks."20-vm20-bridge" = {
@@ -78,8 +83,8 @@
   networking.firewall = {
     enable = true;
     extraInputRules = ''
-      ip saddr { 10.0.11.1, 10.0.20.0/24 } tcp dport 22 accept
-      ip6 saddr { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:14::/64 } tcp dport 22 accept
+      ip saddr { ${zone.gateway4}, ${net.networks.trusted.subnet4} } tcp dport 22 accept
+      ip6 saddr { ${zone.gateway6}, ${net.networks.trusted.subnet6} } tcp dport 22 accept
       tcp dport 22 drop
     '';
   };

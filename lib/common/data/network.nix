@@ -8,7 +8,7 @@ let
 
   # Network definitions — each network carries its zone, VLAN ID, and hosts.
   # Host values are host IDs (last octet / interface identifier).
-  networks = {
+  rawNetworks = {
     network = {
       vlanId = 10;
       hosts = {};
@@ -59,6 +59,14 @@ let
       };
     };
   };
+
+  # Enhance each network with derived subnet and gateway addresses
+  networks = lib.mapAttrs (_: net: net // {
+    subnet4 = "${ipv4Prefix}.${toString net.vlanId}.0/24";
+    subnet6 = "${ulaPrefix}:${vlanHex net.vlanId}::/64";
+    gateway4 = "${ipv4Prefix}.${toString net.vlanId}.1";
+    gateway6 = "${ulaPrefix}:${vlanHex net.vlanId}::1";
+  }) rawNetworks;
 
   # Derive a full host record from network membership and host ID
   mkHost = zoneName: vlanId: hostId: {
@@ -128,6 +136,12 @@ let
     |------|------|------|------|
   '' + lib.concatStringsSep "\n" (lib.mapAttrsToList markdownRow hosts) + "\n";
 
+  forHost = hostname: let
+    h = hosts.${hostname} or (throw "Host '${hostname}' not found in network registry");
+    z = if networks ? ${h.zoneName} then networks.${h.zoneName}
+        else throw "Zone '${h.zoneName}' for host '${hostname}' not found in network registry";
+  in { host = h; zone = z; };
+
 in {
-  inherit networks ipv4Prefix ulaPrefix mkHost hosts summary markdown;
+  inherit networks ipv4Prefix ulaPrefix mkHost hosts summary markdown forHost;
 }

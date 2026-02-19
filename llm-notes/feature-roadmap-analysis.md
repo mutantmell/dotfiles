@@ -154,7 +154,7 @@ Replaces `network.json` with Nix-based registry. Zone names use functional names
 - [x] Create `lib/common/data/network.nix` alongside `network.json`
 - [x] Add `summary` attribute and `nix run .#netinfo` app
 - [x] Update `lib/common/data/default.nix` to load `.nix` instead of `.fromJSON`
-- [ ] Gradually replace hardcoded IPs in host configs with registry references
+- [x] Gradually replace hardcoded IPs in host configs with registry references
 - [x] Remove `network.json` once no consumers remain
 
 ### Step 4: Keycloak OIDC (Phases 1-3)

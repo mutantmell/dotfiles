@@ -1,6 +1,8 @@
 { config, pkgs, ... }:
 
-{
+let
+  h = pkgs.mmell.lib.data.network.hosts;
+in {
   networking.firewall.allowedUDPPorts = [
     53    # DNS
   ];
@@ -22,10 +24,10 @@
         allowed_clients = [
           "127.0.0.1"
           "::1"
-          "10.0.11.1"             # Yggdrasil (router)
-          "10.0.11.2"             # Self
-          "fdc6:55f2:0a5e:b::1"   # Yggdrasil (router IPv6)
-          "fdc6:55f2:0a5e:b::2"   # Self IPv6
+          h.yggdrasil.ipv4     # Yggdrasil (router)
+          h.alfheim.ipv4       # Self
+          h.yggdrasil.ipv6     # Yggdrasil (router IPv6)
+          h.alfheim.ipv6       # Self IPv6
         ];
       };
       # Web interface binds to localhost only - accessed via nginx with OAuth
@@ -56,41 +58,41 @@
         local-zone = ''"local." static'';
         local-data = [
           # Router
-          ''"local. A 10.0.11.1"''
-          ''"yggdrasil.local. A 10.0.11.1"''
-          ''"yggdrasil.local. AAAA fdc6:55f2:0a5e:b::1"''
+          ''"local. A ${h.yggdrasil.ipv4}"''
+          ''"yggdrasil.local. A ${h.yggdrasil.ipv4}"''
+          ''"yggdrasil.local. AAAA ${h.yggdrasil.ipv6}"''
 
           # This microVM (DNS)
-          ''"alfheim.local. A 10.0.11.2"''
-          ''"alfheim.local. AAAA fdc6:55f2:0a5e:b::2"''
+          ''"alfheim.local. A ${h.alfheim.ipv4}"''
+          ''"alfheim.local. AAAA ${h.alfheim.ipv6}"''
 
           # Auth server (Gridr on jotunheimr)
-          ''"gridr.local. A 10.0.20.30"''
+          ''"gridr.local. A ${h.gridr.ipv4}"''
 
           # NAS
-          ''"jotunheimr.local. A 10.0.11.20"''
-          ''"jotunheimr.local. AAAA fdc6:55f2:0a5e:b::14"''
+          ''"jotunheimr.local. A ${h.jotunheimr.ipv4}"''
+          ''"jotunheimr.local. AAAA ${h.jotunheimr.ipv6}"''
 
           # Media host
-          ''"muspelheim.local. A 10.0.11.31"''
-          ''"muspelheim.local. AAAA fdc6:55f2:0a5e:b::1f"''
+          ''"muspelheim.local. A ${h.muspelheim.ipv4}"''
+          ''"muspelheim.local. AAAA ${h.muspelheim.ipv6}"''
 
           # Services in DMZ
-          ''"surtr.local. A 10.0.100.40"''
-          ''"bragi.local. A 10.0.100.50"''
-          ''"njord.local. A 10.0.100.51"''
-          ''"hrungnir.local. A 10.0.100.31"''
+          ''"surtr.local. A ${h.surtr.ipv4}"''
+          ''"bragi.local. A ${h.bragi.ipv4}"''
+          ''"njord.local. A ${h.njord.ipv4}"''
+          ''"hrungnir.local. A ${h.hrungnir.ipv4}"''
 
           # Home automation
-          ''"nidavellir.local. A 10.1.20.50"''
+          ''"nidavellir.local. A ${h.nidavellir.ipv4}"''
 
           # MicroVMs on HOME network
-          ''"skadi.local. A 10.0.20.40"''
-          ''"ymir.local. A 10.0.20.41"''
+          ''"skadi.local. A ${h.skadi.ipv4}"''
+          ''"ymir.local. A ${h.ymir.ipv4}"''
 
           # Test/dev hosts
-          ''"vanaheim.local. A 10.0.11.30"''
-          ''"vanaheim.local. AAAA fdc6:55f2:0a5e:b::1e"''
+          ''"vanaheim.local. A ${h.vanaheim.ipv4}"''
+          ''"vanaheim.local. AAAA ${h.vanaheim.ipv6}"''
         ];
       };
       remote-control.control-enable = true;

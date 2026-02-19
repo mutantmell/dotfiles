@@ -1,6 +1,8 @@
 { config, pkgs, ...}:
 
-{
+let
+  net = pkgs.mmell.lib.data.network;
+in {
   systemd.services."jellyfin-cert-renew" = {
     serviceConfig.Type = "oneshot";
     description = "Mangage Jellyfin's pkcs12 key";
@@ -115,7 +117,7 @@
     };
   };
   networking.extraHosts = ''
-    10.0.20.30 gridr.local
+    ${net.hosts.gridr.ipv4} gridr.local
   '';
   security.acme = {
     defaults = {

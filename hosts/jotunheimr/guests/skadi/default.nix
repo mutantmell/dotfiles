@@ -1,6 +1,9 @@
 { config, pkgs, lib, ... }:
 
-{
+let
+  hostname = "skadi";
+  inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
+in {
   nix = {
     package = pkgs.nixVersions.stable;
     extraOptions = ''
@@ -16,15 +19,15 @@
 
   boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
 
-  networking.hostName = "skadi";
+  networking.hostName = hostname;
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:A4:B9:D2:F8:03";
     networkConfig = {
-      Address = [ "10.0.20.40/24" ];
-      Gateway = "10.0.20.1";
-      DNS = [ "10.0.20.1" ];
+      Address = [ host.cidr4 ];
+      Gateway = zone.gateway4;
+      DNS = [ zone.gateway4 ];
       IPv6AcceptRA = true;
       DHCP = "no";
     };
