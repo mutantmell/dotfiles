@@ -1,6 +1,9 @@
 { config, pkgs, ... }:
 
-{
+let
+  hostname = "vanaheim";
+  inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
+in {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
     ./hardware-configuration.nix
@@ -37,12 +40,12 @@
       matchConfig.Name = "enp88s0.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ "10.0.11.30/24" "fdc6:55f2:0a5e:b::1e/64" ];
+      networkConfig.Address = [ host.cidr4 host.cidr6 ];
       networkConfig.MulticastDNS = true;
-      networkConfig.DNS = [ "10.0.11.1" "fdc6:55f2:0a5e:b::1" ];
+      networkConfig.DNS = [ zone.gateway4 zone.gateway6 ];
       routes = [
-        { Gateway = "10.0.11.1"; }
-        { Gateway = "fdc6:55f2:0a5e:b::1"; }
+        { Gateway = zone.gateway4; }
+        { Gateway = zone.gateway6; }
       ];
     };
   };
@@ -64,7 +67,7 @@
   security.polkit.enable = true;
 
   networking = {
-    hostName = "vanaheim";
+    hostName = hostname;
     hostId = "007f0200";
     useNetworkd = true;
     dhcpcd.enable = false;

@@ -1,11 +1,17 @@
 { pkgs, lib, config, ... }:
-{
+
+let
+  hostname = "ymir";
+  inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
+in {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   imports = [
     ./monit.nix
     ./microvm.nix
   ];
+
+  networking.hostName = hostname;
 
   common.openssh.enable = true;
   services.openssh.hostKeys = [{
@@ -20,9 +26,9 @@
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:A2:E4:CB:05:DA";
     networkConfig = {
-      Address = [ "10.0.20.41/24" ];
-      Gateway = "10.0.20.1";
-      DNS = [ "10.0.20.1" ];
+      Address = [ host.cidr4 ];
+      Gateway = zone.gateway4;
+      DNS = [ zone.gateway4 ];
       IPv6AcceptRA = true;
       DHCP = "no";
     };

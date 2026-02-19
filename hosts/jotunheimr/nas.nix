@@ -1,5 +1,11 @@
 { config, pkgs, lib, ... }:
-{
+
+let
+  net = pkgs.mmell.lib.data.network;
+  h = net.hosts;
+  mgmt = net.networks.management;
+  trusted = net.networks.trusted;
+in {
   environment.systemPackages = with pkgs; [
     smartmontools
     jdupes
@@ -11,16 +17,16 @@
   # Source-restricted firewall rules for NAS services
   networking.firewall.extraInputRules = ''
     # NFS from VM hosts and vHOME
-    ip saddr { 10.0.11.30, 10.0.11.31, 10.0.20.0/24 } tcp dport 2049 accept
-    ip6 saddr { fdc6:55f2:0a5e:b::1e, fdc6:55f2:0a5e:b::1f, fdc6:55f2:0a5e:14::/64 } tcp dport 2049 accept
+    ip saddr { ${h.vanaheim.ipv4}, ${h.muspelheim.ipv4}, ${trusted.subnet4} } tcp dport 2049 accept
+    ip6 saddr { ${h.vanaheim.ipv6}, ${h.muspelheim.ipv6}, ${trusted.subnet6} } tcp dport 2049 accept
     # SMB from vHOME only
-    ip saddr 10.0.20.0/24 tcp dport { 139, 445 } accept
-    ip6 saddr fdc6:55f2:0a5e:14::/64 tcp dport { 139, 445 } accept
+    ip saddr ${trusted.subnet4} tcp dport { 139, 445 } accept
+    ip6 saddr ${trusted.subnet6} tcp dport { 139, 445 } accept
     # WSDD from vHOME only
-    ip saddr 10.0.20.0/24 tcp dport 5357 accept
-    ip saddr 10.0.20.0/24 udp dport 3702 accept
-    ip6 saddr fdc6:55f2:0a5e:14::/64 tcp dport 5357 accept
-    ip6 saddr fdc6:55f2:0a5e:14::/64 udp dport 3702 accept
+    ip saddr ${trusted.subnet4} tcp dport 5357 accept
+    ip saddr ${trusted.subnet4} udp dport 3702 accept
+    ip6 saddr ${trusted.subnet6} tcp dport 5357 accept
+    ip6 saddr ${trusted.subnet6} udp dport 3702 accept
   '';
 
   fileSystems = let
@@ -48,16 +54,16 @@
     enable = true;
     #    createMountPoints = true;
     exports = ''
-      /data/media 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash)
-      /data/data 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /data/media ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash)
+      /data/data ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/ro/media 10.0.11.0/24(ro) 10.0.20.0/24(ro)
-      /export/rw/media 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /export/ro/media ${mgmt.subnet4}(ro) ${trusted.subnet4}(ro)
+      /export/rw/media ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/ro/data 10.0.11.0/24(ro) 10.0.20.0/24(ro)
-      /export/rw/data 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /export/ro/data ${mgmt.subnet4}(ro) ${trusted.subnet4}(ro)
+      /export/rw/data ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/rw/backup 10.0.11.0/24(rw,sync,no_subtree_check,no_root_squash) 10.0.20.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /export/rw/backup ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
     '';
   };
 

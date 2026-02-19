@@ -1,5 +1,9 @@
 { pkgs, config, ... }:
-{
+
+let
+  hostname = "gridr";
+  inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
+in {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
     ./microvm.nix
@@ -8,7 +12,7 @@
     #./modules/unifi.nix
   ];
 
-  networking.hostName = "gridr";
+  networking.hostName = hostname;
 
   common.openssh.enable = true;
   services.openssh.hostKeys = [{
@@ -21,9 +25,9 @@
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:6D:F8:D1:E8:AA";
     networkConfig = {
-      Address = [ "10.0.20.30/24" ];
-      Gateway = "10.0.20.1";
-      DNS = [ "10.0.20.1" ];
+      Address = [ host.cidr4 ];
+      Gateway = zone.gateway4;
+      DNS = [ zone.gateway4 ];
       IPv6AcceptRA = true;
       DHCP = "no";
     };

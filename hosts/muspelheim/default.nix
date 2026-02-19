@@ -1,6 +1,11 @@
 { config, pkgs, ... }:
 
-{
+let
+  hostname = "muspelheim";
+  net = pkgs.mmell.lib.data.network;
+  inherit (net.forHost hostname) host zone;
+  nas = net.hosts.jotunheimr;
+in {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
     ./hardware-configuration.nix
@@ -36,12 +41,12 @@
       matchConfig.Name = "eno1.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ "10.0.11.31/24" "fdc6:55f2:0a5e:b::1f/64" ];
+      networkConfig.Address = [ host.cidr4 host.cidr6 ];
       networkConfig.MulticastDNS = true;
-      networkConfig.DNS = [ "10.0.11.1" "fdc6:55f2:0a5e:b::1" ];
+      networkConfig.DNS = [ zone.gateway4 zone.gateway6 ];
       routes = [
-        { Gateway = "10.0.11.1"; }
-        { Gateway = "fdc6:55f2:0a5e:b::1"; }
+        { Gateway = zone.gateway4; }
+        { Gateway = zone.gateway6; }
       ];
     };
   };
@@ -63,7 +68,7 @@
   security.polkit.enable = true;
 
   networking = {
-    hostName = "muspelheim";
+    hostName = hostname;
     hostId = "518f0054";
     useNetworkd = true;
     useDHCP = false;
@@ -109,11 +114,11 @@
       matchConfig.Name = "eno1.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ "10.0.11.31/24" "fdc6:55f2:0a5e:b::1f/64" ];
+      networkConfig.Address = [ host.cidr4 host.cidr6 ];
       networkConfig.MulticastDNS = true;
       routes = [
-        { Gateway = "10.0.11.1"; }
-        { Gateway = "fdc6:55f2:0a5e:b::1"; }
+        { Gateway = zone.gateway4; }
+        { Gateway = zone.gateway6; }
       ];
     };
     networks."20-vm20-bridge" = {
@@ -149,8 +154,8 @@
   networking.firewall = {
     enable = true;
     extraInputRules = ''
-      ip saddr { 10.0.11.1, 10.0.20.0/24 } tcp dport 22 accept
-      ip6 saddr { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:14::/64 } tcp dport 22 accept
+      ip saddr { ${zone.gateway4}, ${net.networks.trusted.subnet4} } tcp dport 22 accept
+      ip6 saddr { ${zone.gateway6}, ${net.networks.trusted.subnet6} } tcp dport 22 accept
       tcp dport 22 drop
     '';
   };
@@ -158,11 +163,11 @@
   i18n.defaultLocale = "en_US.UTF-8";
 
   fileSystems."/mnt/data" = {
-    device = "10.0.11.20:/data/data";
+    device = "${nas.ipv4}:/data/data";
     fsType = "nfs";
   };
   fileSystems."/mnt/media" = {
-    device = "10.0.11.20:/data/media/";
+    device = "${nas.ipv4}:/data/media/";
     fsType = "nfs";
   };
 
