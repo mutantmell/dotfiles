@@ -1,12 +1,12 @@
 { config, pkgs, ... }:
 
 # OAuth-protected reverse proxy for Adguard Home web UI
-# Uses nginx auth_request to validate against Surtr's oauth2-proxy
+# Uses a local oauth2-proxy instance that authenticates directly against Keycloak (on mimir)
 #
 # Flow:
 # 1. User accesses https://alfheim.local/adguard/
-# 2. Nginx makes auth_request to Surtr's oauth2-proxy
-# 3. If not authenticated, Surtr redirects to Keycloak (on Gridr)
+# 2. Nginx makes auth_request to local oauth2-proxy
+# 3. If not authenticated, oauth2-proxy redirects to Keycloak (on mimir)
 # 4. After successful OAuth, user is redirected back
 # 5. Nginx proxies authenticated requests to local Adguard Home
 
@@ -25,9 +25,9 @@
       forceSSL = true;
       enableACME = true;
 
-      # OAuth2 authentication endpoints - proxy to Surtr
+      # OAuth2 authentication endpoints - proxy to local oauth2-proxy
       locations."/oauth2/" = {
-        proxyPass = "https://surtr.local/oauth2/";
+        proxyPass = "http://127.0.0.1:4180/oauth2/";
         extraConfig = ''
           proxy_set_header Host                    $host;
           proxy_set_header X-Real-IP               $remote_addr;
@@ -38,7 +38,7 @@
 
       # Internal auth_request endpoint
       locations."= /oauth2/auth" = {
-        proxyPass = "https://surtr.local/oauth2/auth";
+        proxyPass = "http://127.0.0.1:4180/oauth2/auth";
         extraConfig = ''
           proxy_set_header Host             $host;
           proxy_set_header X-Real-IP        $remote_addr;
@@ -89,10 +89,28 @@
     };
   };
 
-  # ACME certificate configuration - get certs from Gridr's Step CA
+  services.oauth2-proxy = {
+    enable = true;
+    keyFile = config.sops.secrets."oauth2-proxy-internal-keyfile".path;
+    provider = "oidc";
+    clientID = "oauth2-proxy-internal";
+    redirectURL = "https://alfheim.local/oauth2/callback";
+    email.domains = ["*"];
+    httpAddress = "127.0.0.1:4180";
+    cookie.refresh = "1m";
+    cookie.expire = "30m";
+    cookie.secure = true;
+    setXauthrequest = true;
+    extraConfig = {
+      "provider-display-name" = "Keycloak";
+      "oidc-issuer-url" = "https://mimir.local/auth/realms/external";
+    };
+  };
+
+  # ACME certificate configuration - get certs from tyr's Step CA
   security.acme = {
     defaults = {
-      server = "https://gridr.local/acme/acme/directory";
+      server = "https://tyr.local/acme/acme/directory";
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;

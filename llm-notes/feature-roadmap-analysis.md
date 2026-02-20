@@ -165,12 +165,12 @@ Provisions Keycloak + step-ca on vINFRA, creates `homelab` realm, implements
 split-horizon DNS, deploys SSH bastion, enables external access.
 
 **Phase 1: Infrastructure migration**
-- [ ] Provision Keycloak microvm on vINFRA
-- [ ] Configure `hostname-admin` for internal-only admin console (R1)
-- [ ] Provision step-ca microvm on vINFRA
-- [ ] Deploy oauth2-proxy on alfheim (internal service auth)
-- [ ] Apply security fixes S1 (cookie.secure), S2 (cookie.domain), S3 (skip-jwt-bearer-tokens)
-- [ ] Apply S7 (passAccessToken removal)
+- [x] Provision Keycloak microvm on vINFRA
+- [x] Configure `hostname-admin` for internal-only admin console (R1)
+- [x] Provision step-ca microvm on vINFRA
+- [x] Deploy oauth2-proxy on alfheim (internal service auth)
+- [x] Apply security fixes S1 (cookie.secure), S2 (cookie.domain), S3 (skip-jwt-bearer-tokens)
+- [x] Apply S7 (passAccessToken removal)
 - [ ] Migrate from gridr, decommission gridr
 
 **Phase 2: Realm restructuring**

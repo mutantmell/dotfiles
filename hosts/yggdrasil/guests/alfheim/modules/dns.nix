@@ -66,8 +66,14 @@ in {
           ''"alfheim.local. A ${h.alfheim.ipv4}"''
           ''"alfheim.local. AAAA ${h.alfheim.ipv6}"''
 
-          # Auth server (Gridr on jotunheimr)
+          # Auth server (Gridr on jotunheimr — keep until decommission)
           ''"gridr.local. A ${h.gridr.ipv4}"''
+
+          # Identity infrastructure (muspelheim vINFRA)
+          ''"mimir.local. A ${h.mimir.ipv4}"''
+          ''"mimir.local. AAAA ${h.mimir.ipv6}"''
+          ''"tyr.local. A ${h.tyr.ipv4}"''
+          ''"tyr.local. AAAA ${h.tyr.ipv6}"''
 
           # NAS
           ''"jotunheimr.local. A ${h.jotunheimr.ipv4}"''

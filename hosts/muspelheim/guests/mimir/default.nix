@@ -1,35 +1,41 @@
-{ config, pkgs, ...}:
+{ pkgs, config, ... }:
 
 let
-  hostname = "bragi";
+  hostname = "mimir";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
 in {
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
     ./microvm.nix
-    ./modules/jellyfin.nix
+    ./sops.nix
+    ./modules/keycloak.nix
   ];
 
   networking.hostName = hostname;
   networking.useNetworkd = true;
   networking.useDHCP = false;
 
-  nixpkgs.overlays = [(final: prev: {
-    vaapiIntel = prev.vaapiIntel.override { enableHybridCodec = true; };
-  })];
-
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
-    matchConfig.MACAddress = "5E:45:07:58:F0:82";
+    matchConfig.MACAddress = "5E:0B:11:03:00:01";
     networkConfig = {
-      Address = [ host.cidr4 ];
+      Address = [ host.cidr4 host.cidr6 ];
       Gateway = zone.gateway4;
       DNS = [ zone.gateway4 ];
-      IPv6AcceptRA = true;
+      IPv6AcceptRA = false;
       DHCP = "no";
     };
+    routes = [
+      { Gateway = zone.gateway4; }
+      { Gateway = zone.gateway6; }
+    ];
   };
+
+  networking.extraHosts = ''
+    ${net.hosts.tyr.ipv4} tyr.local
+  '';
 
   time.timeZone = "UTC";
   common.openssh.enable = true;
@@ -56,9 +62,9 @@ in {
   networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter [
     "ip daddr ${zone.gateway4} udp dport 53 accept"   # DNS to gateway
     "ip daddr ${zone.gateway4} tcp dport 53 accept"
-    "ip daddr ${net.hosts.tyr.ipv4} tcp dport 443 accept"     # ACME certs from tyr
-    "ip daddr 224.0.0.251 udp dport 5353 accept"  # mDNS multicast
-    "ip daddr 239.255.255.250 udp dport 1900 accept"  # SSDP/UPnP multicast
+    "ip daddr ${zone.gateway4} tcp dport { 80, 443 } accept"  # HTTP/HTTPS for package mirrors
+    "ip daddr ${zone.gateway4} udp dport 123 accept"  # NTP
+    "ip daddr ${net.hosts.tyr.ipv4} tcp dport 443 accept"  # ACME certs from tyr
   ];
 
   system.stateVersion = "23.11";

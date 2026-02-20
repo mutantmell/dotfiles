@@ -77,6 +77,10 @@ in {
 
   systemd.network = {
     enable = true;
+    netdevs."20-br11" = {
+      netdevConfig.Kind = "bridge";
+      netdevConfig.Name = "br11";
+    };
     netdevs."20-br20" = {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br20";
@@ -110,8 +114,15 @@ in {
         "eno1.100"
       ];
     };
-    networks."20-eno1.11" = {
-      matchConfig.Name = "eno1.11";
+    networks."20-vm11-bridge" = {
+      matchConfig.Name = [ "eno1.11" "vm-11-*" ];
+      networkConfig.Bridge = "br11";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+    networks."20-br11" = {
+      matchConfig.Name = "br11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
       networkConfig.Address = [ host.cidr4 host.cidr6 ];
