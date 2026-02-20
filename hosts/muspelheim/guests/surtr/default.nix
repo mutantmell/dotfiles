@@ -40,7 +40,8 @@ in {
   };
   networking.extraHosts = ''
     ${net.hosts.alfheim.ipv4} alfheim.local
-    ${net.hosts.gridr.ipv4} gridr.local
+    ${net.hosts.mimir.ipv4} mimir.local
+    ${net.hosts.tyr.ipv4} tyr.local
     ${net.hosts.bragi.ipv4} bragi.local
   '';
 
@@ -51,7 +52,8 @@ in {
   networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter [
     "ip daddr ${zone.gateway4} udp dport 53 accept"   # DNS to gateway
     "ip daddr ${zone.gateway4} tcp dport 53 accept"
-    "ip daddr ${net.hosts.gridr.ipv4} tcp dport 443 accept"   # OIDC auth + ACME certs to gridr
+    "ip daddr ${net.hosts.mimir.ipv4} tcp dport 443 accept"   # OIDC auth to mimir
+    "ip daddr ${net.hosts.tyr.ipv4} tcp dport 443 accept"    # ACME certs from tyr
     "ip daddr ${net.hosts.bragi.ipv4} tcp dport { 80, 443 } accept"  # Backend proxy to bragi
   ];
 

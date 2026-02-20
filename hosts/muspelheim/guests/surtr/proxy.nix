@@ -4,7 +4,7 @@
     networking.firewall.allowedTCPPorts = [ 80 443 ];
     security.acme = {
       defaults = {
-        server = "https://gridr.local/acme/acme/directory";
+        server = "https://tyr.local/acme/acme/directory";
         email = "malaguy@gmail.com";
       };
       acceptTerms = true;
@@ -60,22 +60,18 @@
       upstream = [
         "https://bragi.local"
       ];
-      redirectURL = "http://surtr.local/oauth2/callback";
+      redirectURL = "https://surtr.local/oauth2/callback";
       email.domains = ["*"];
       httpAddress = ":4180";
-      #cookie.domain = ".surtr.local";  # todo change
       cookie.refresh = "1m";
       cookie.expire = "30m";
-      cookie.secure = false;
+      cookie.secure = true;
 
       setXauthrequest = true;
-      passAccessToken = true;
-      
+
       extraConfig = {
         "provider-display-name" = "Keycloak";
-        "oidc-issuer-url" = "https://gridr.local/auth/realms/external";
-        "set-authorization-header" = true;
-        "skip-jwt-bearer-tokens" = true;
+        "oidc-issuer-url" = "https://mimir.local/auth/realms/external";
       };
     };
   };

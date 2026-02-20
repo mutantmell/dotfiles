@@ -9,6 +9,8 @@ let
   bragi = net.hosts.bragi;
   njord = net.hosts.njord;
   gridr = net.hosts.gridr;
+  mimir = net.hosts.mimir;
+  tyr = net.hosts.tyr;
 in {
   imports =
     [
@@ -139,6 +141,14 @@ in {
       extraForwardRules = [
         { iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }
         { iifname = "wg-ba"; ip.daddr = surtr.ipv4; verdict = "accept"; }
+        # surtr → mimir (OIDC token exchange)
+        { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+          ip.saddr = surtr.ipv4; ip.daddr = mimir.ipv4;
+          tcp.dport = 443; verdict = "accept"; comment = "surtr -> mimir (OIDC)"; }
+        # vDMZ → tyr (ACME certificate issuance)
+        { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+          ip.daddr = tyr.ipv4; tcp.dport = 443;
+          verdict = "accept"; comment = "vDMZ -> tyr (ACME)"; }
       ];
 
       # Port forward SSH from wg-ba to surtr
@@ -430,6 +440,8 @@ in {
     ${alfheim.ipv4} alfheim.local
     ${alfheim.ipv6} alfheim.local
     ${gridr.ipv4} gridr.local
+    ${mimir.ipv4} mimir.local
+    ${tyr.ipv4} tyr.local
     ${surtr.ipv4} surtr.local
     ${bragi.ipv4} bragi.local
     ${njord.ipv4} njord.local

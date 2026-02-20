@@ -18,6 +18,8 @@ let
       hosts = {
         yggdrasil  = 1;
         alfheim    = 2;
+        mimir      = 3;    # Keycloak OIDC
+        tyr        = 4;    # step-ca / PKI
         jotunheimr = 20;   # NAS — before VM hosts
         vanaheim   = 30;   # VM host
         muspelheim = 31;   # VM host

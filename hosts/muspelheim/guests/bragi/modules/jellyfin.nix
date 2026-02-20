@@ -117,11 +117,11 @@ in {
     };
   };
   networking.extraHosts = ''
-    ${net.hosts.gridr.ipv4} gridr.local
+    ${net.hosts.tyr.ipv4} tyr.local
   '';
   security.acme = {
     defaults = {
-      server = "https://gridr.local/acme/acme/directory";
+      server = "https://tyr.local/acme/acme/directory";
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;
