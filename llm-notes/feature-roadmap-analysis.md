@@ -62,6 +62,7 @@ flowchart TD
     ZR["Step 1: Zone Refactor"]
     VLAN["Step 2: MGMT VLAN Split\n(Phases 1-4, 6)"]
     REG["Step 3: Network Data Registry\n(Phase 7)"]
+    DS["Step 3.5: Dual-Stack IPv6\n(Helpers + Migration)"]
     KC["Step 4: Keycloak OIDC\n(Phases 1-3)"]
     IP["Step 5: IP Migration\n(Phase 8)"]
     SSH["Step 6: SSH Certificates"]
@@ -70,6 +71,7 @@ flowchart TD
 
     ZR --> VLAN
     VLAN --> REG
+    REG --> DS
     VLAN --> KC
     REG --> KC
     KC --> IP
@@ -156,6 +158,29 @@ Replaces `network.json` with Nix-based registry. Zone names use functional names
 - [x] Update `lib/common/data/default.nix` to load `.nix` instead of `.fromJSON`
 - [x] Gradually replace hardcoded IPs in host configs with registry references
 - [x] Remove `network.json` once no consumers remain
+
+### Step 3.5: Dual-Stack IPv6 Support
+
+**Scope:** Network helpers + host config migration
+
+Adds dual-stack helper functions (`mkExtraHosts`, `mkUnboundLocalData`,
+`mkDualEgressRules`) to the network data module, then migrates all host
+configurations to use them — fixing IPv6 gaps in extraHosts, DNS records,
+egress filters, forward rules, chrony, NFS exports, and step-ca policy.
+
+- [x] Add `mkExtraHosts` — dual-stack /etc/hosts generator
+- [x] Add `mkUnboundLocalData` — dual-stack DNS record generator (A + AAAA)
+- [x] Add `mkDualEgressRules` — dual-stack egress filter rule generator
+- [x] Create `tests/lib/network-helpers.nix` — pure eval tests for all helpers
+- [x] Migrate microVM systemd.network configs: add IPv6 addresses, routes, DNS
+- [x] Migrate egress filters to `mkDualEgressRules` (surtr, bragi, mimir, tyr, hrungnir)
+- [x] Migrate extraHosts to `mkExtraHosts` (yggdrasil, alfheim, surtr, mimir, bragi)
+- [x] Migrate Unbound DNS to `mkUnboundLocalData` (alfheim/dns.nix)
+- [x] Add IPv6 forward rules (yggdrasil extraForwardRules)
+- [x] Add IPv6 chrony allow subnets (yggdrasil)
+- [x] Add ULA prefix to step-ca policy (tyr)
+- [x] Add IPv6 subnets to NFS exports (jotunheimr/nas.nix)
+- [x] Update `common/networking.nix` extraHosts to use `mkExtraHosts`
 
 ### Step 4: Keycloak OIDC (Phases 1-3)
 

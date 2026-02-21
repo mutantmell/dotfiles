@@ -25,12 +25,16 @@ in {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:6D:F8:D1:E8:AA";
     networkConfig = {
-      Address = [ host.cidr4 ];
+      Address = [ host.cidr4 host.cidr6 ];
       Gateway = zone.gateway4;
-      DNS = [ zone.gateway4 ];
-      IPv6AcceptRA = true;
+      DNS = [ zone.gateway4 zone.gateway6 ];
+      IPv6AcceptRA = false;
       DHCP = "no";
     };
+    routes = [
+      { Gateway = zone.gateway4; }
+      { Gateway = zone.gateway6; }
+    ];
   };
 
   time.timeZone = "UTC";

@@ -1,7 +1,8 @@
 { config, pkgs, ... }:
 
 let
-  h = pkgs.mmell.lib.data.network.hosts;
+  net = pkgs.mmell.lib.data.network;
+  h = net.hosts;
 in {
   networking.firewall.allowedUDPPorts = [
     53    # DNS
@@ -57,48 +58,11 @@ in {
         # Local DNS zone for .local hostnames
         local-zone = ''"local." static'';
         local-data = [
-          # Router
           ''"local. A ${h.yggdrasil.ipv4}"''
-          ''"yggdrasil.local. A ${h.yggdrasil.ipv4}"''
-          ''"yggdrasil.local. AAAA ${h.yggdrasil.ipv6}"''
-
-          # This microVM (DNS)
-          ''"alfheim.local. A ${h.alfheim.ipv4}"''
-          ''"alfheim.local. AAAA ${h.alfheim.ipv6}"''
-
-          # Auth server (Gridr on jotunheimr — keep until decommission)
-          ''"gridr.local. A ${h.gridr.ipv4}"''
-
-          # Identity infrastructure (muspelheim vINFRA)
-          ''"mimir.local. A ${h.mimir.ipv4}"''
-          ''"mimir.local. AAAA ${h.mimir.ipv6}"''
-          ''"tyr.local. A ${h.tyr.ipv4}"''
-          ''"tyr.local. AAAA ${h.tyr.ipv6}"''
-
-          # NAS
-          ''"jotunheimr.local. A ${h.jotunheimr.ipv4}"''
-          ''"jotunheimr.local. AAAA ${h.jotunheimr.ipv6}"''
-
-          # Media host
-          ''"muspelheim.local. A ${h.muspelheim.ipv4}"''
-          ''"muspelheim.local. AAAA ${h.muspelheim.ipv6}"''
-
-          # Services in DMZ
-          ''"surtr.local. A ${h.surtr.ipv4}"''
-          ''"bragi.local. A ${h.bragi.ipv4}"''
-          ''"njord.local. A ${h.njord.ipv4}"''
-          ''"hrungnir.local. A ${h.hrungnir.ipv4}"''
-
-          # Home automation
-          ''"nidavellir.local. A ${h.nidavellir.ipv4}"''
-
-          # MicroVMs on HOME network
-          ''"skadi.local. A ${h.skadi.ipv4}"''
-          ''"ymir.local. A ${h.ymir.ipv4}"''
-
-          # Test/dev hosts
-          ''"vanaheim.local. A ${h.vanaheim.ipv4}"''
-          ''"vanaheim.local. AAAA ${h.vanaheim.ipv6}"''
+        ] ++ net.mkUnboundLocalData [
+          "yggdrasil" "alfheim" "mimir" "tyr" "gridr"
+          "jotunheimr" "muspelheim" "surtr" "bragi" "njord"
+          "hrungnir" "nidavellir" "skadi" "ymir" "vanaheim"
         ];
       };
       remote-control.control-enable = true;

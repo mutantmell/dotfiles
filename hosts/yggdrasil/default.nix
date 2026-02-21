@@ -141,14 +141,21 @@ in {
       extraForwardRules = [
         { iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }
         { iifname = "wg-ba"; ip.daddr = surtr.ipv4; verdict = "accept"; }
+        { iifname = "wg-ba"; ip6.daddr = surtr.ipv6; verdict = "accept"; }
         # surtr → mimir (OIDC token exchange)
         { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
           ip.saddr = surtr.ipv4; ip.daddr = mimir.ipv4;
           tcp.dport = 443; verdict = "accept"; comment = "surtr -> mimir (OIDC)"; }
+        { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+          ip6.saddr = surtr.ipv6; ip6.daddr = mimir.ipv6;
+          tcp.dport = 443; verdict = "accept"; comment = "surtr -> mimir (OIDC v6)"; }
         # vDMZ → tyr (ACME certificate issuance)
         { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
           ip.daddr = tyr.ipv4; tcp.dport = 443;
           verdict = "accept"; comment = "vDMZ -> tyr (ACME)"; }
+        { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+          ip6.daddr = tyr.ipv6; tcp.dport = 443;
+          verdict = "accept"; comment = "vDMZ -> tyr (ACME v6)"; }
       ];
 
       # Port forward SSH from wg-ba to surtr
@@ -439,20 +446,16 @@ in {
     ${alfheim.ipv4} alfheim
     ${alfheim.ipv4} alfheim.local
     ${alfheim.ipv6} alfheim.local
-    ${gridr.ipv4} gridr.local
-    ${mimir.ipv4} mimir.local
-    ${tyr.ipv4} tyr.local
-    ${surtr.ipv4} surtr.local
-    ${bragi.ipv4} bragi.local
-    ${njord.ipv4} njord.local
-  '';
+  '' + net.mkExtraHosts [ "gridr" "mimir" "tyr" "surtr" "bragi" "njord" ];
 
   # NTP server for network gear and infrastructure
   services.chrony = {
     enable = true;
     extraConfig = ''
       allow ${net.networks.network.subnet4}
+      allow ${net.networks.network.subnet6}
       allow ${net.networks.management.subnet4}
+      allow ${net.networks.management.subnet6}
     '';
   };
 

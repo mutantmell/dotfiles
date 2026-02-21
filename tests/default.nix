@@ -22,6 +22,7 @@
   nftables-dsl = import ./lib/nftables.nix { inherit pkgs lib; };
   router6-firewall-snapshot = import ./lib/router6-firewall-snapshot.nix { inherit pkgs lib; };
   router6-zone-system = import ./lib/router6-zone-system.nix { inherit pkgs lib; };
+  network-helpers = import ./lib/network-helpers.nix { inherit pkgs lib; };
 
   # Disko profile validation
   disko-router = let

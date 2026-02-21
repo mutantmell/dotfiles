@@ -116,9 +116,7 @@ in {
       mode = "0444";
     };
   };
-  networking.extraHosts = ''
-    ${net.hosts.tyr.ipv4} tyr.local
-  '';
+  networking.extraHosts = net.mkExtraHosts [ "tyr" ];
   security.acme = {
     defaults = {
       server = "https://tyr.local/acme/acme/directory";
