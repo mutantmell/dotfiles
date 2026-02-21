@@ -56,9 +56,7 @@ in {
       };
     }
     (lib.mkIf cfg.extraHosts.enable {
-      networking.extraHosts = lib.strings.concatStringsSep "\n" (
-        builtins.map (host: "${network-data.hosts.${host}.ipv4} ${host}.local") cfg.extraHosts.hosts
-      );
+      networking.extraHosts = network-data.mkExtraHosts cfg.extraHosts.hosts;
     })
   ]);
 }

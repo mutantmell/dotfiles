@@ -2,7 +2,8 @@
 
 let
   hostname = "hrungnir";
-  inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
+  net = pkgs.mmell.lib.data.network;
+  inherit (net.forHost hostname) host zone;
 in {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
@@ -24,14 +25,18 @@ in {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:A5:4D:A3:A0:1A";
     networkConfig = {
-      Address = [ host.cidr4 ];
+      Address = [ host.cidr4 host.cidr6 ];
       Gateway = zone.gateway4;
-      DNS = [ zone.gateway4 ];
-      IPv6AcceptRA = true;
+      DNS = [ zone.gateway4 zone.gateway6 ];
+      IPv6AcceptRA = false;
       DHCP = "no";
       MulticastDNS = true;
       LLMNR = true;
     };
+    routes = [
+      { Gateway = zone.gateway4; }
+      { Gateway = zone.gateway6; }
+    ];
   };
   services.resolved.enable = true;
 
@@ -52,12 +57,17 @@ in {
 
   # Egress filtering — default-drop with explicit allowlist
   networking.nftables.enable = true;
-  networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter [
-    "ip daddr ${zone.gateway4} udp dport 53 accept"   # DNS to gateway
-    "ip daddr ${zone.gateway4} tcp dport 53 accept"
-    "ip daddr 224.0.0.251 udp dport 5353 accept"  # mDNS multicast
-    "ip daddr 224.0.0.252 udp dport 5355 accept"  # LLMNR multicast
-  ];
+  networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter (
+    net.mkDualEgressRules zone [
+      { gateway = true; proto = "udp"; port = 53; }
+      { gateway = true; proto = "tcp"; port = 53; }
+    ] ++ [
+      "ip daddr 224.0.0.251 udp dport 5353 accept"    # mDNS IPv4
+      "ip6 daddr ff02::fb udp dport 5353 accept"       # mDNS IPv6
+      "ip daddr 224.0.0.252 udp dport 5355 accept"     # LLMNR IPv4
+      "ip6 daddr ff02::1:3 udp dport 5355 accept"      # LLMNR IPv6
+    ]
+  );
 
   system.stateVersion = "23.11";
 }

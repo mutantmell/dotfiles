@@ -54,16 +54,16 @@ in {
     enable = true;
     #    createMountPoints = true;
     exports = ''
-      /data/media ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash)
-      /data/data ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash)
+      /data/media ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash)
+      /data/data ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/ro/media ${mgmt.subnet4}(ro) ${trusted.subnet4}(ro)
-      /export/rw/media ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash)
+      /export/ro/media ${mgmt.subnet4}(ro) ${mgmt.subnet6}(ro) ${trusted.subnet4}(ro) ${trusted.subnet6}(ro)
+      /export/rw/media ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/ro/data ${mgmt.subnet4}(ro) ${trusted.subnet4}(ro)
-      /export/rw/data ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash)
+      /export/ro/data ${mgmt.subnet4}(ro) ${mgmt.subnet6}(ro) ${trusted.subnet4}(ro) ${trusted.subnet6}(ro)
+      /export/rw/data ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/rw/backup ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /export/rw/backup ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
     '';
   };
 

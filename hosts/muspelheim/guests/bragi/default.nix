@@ -23,12 +23,16 @@ in {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:45:07:58:F0:82";
     networkConfig = {
-      Address = [ host.cidr4 ];
+      Address = [ host.cidr4 host.cidr6 ];
       Gateway = zone.gateway4;
-      DNS = [ zone.gateway4 ];
-      IPv6AcceptRA = true;
+      DNS = [ zone.gateway4 zone.gateway6 ];
+      IPv6AcceptRA = false;
       DHCP = "no";
     };
+    routes = [
+      { Gateway = zone.gateway4; }
+      { Gateway = zone.gateway6; }
+    ];
   };
 
   time.timeZone = "UTC";
@@ -53,13 +57,18 @@ in {
 
   # Egress filtering — default-drop with explicit allowlist
   networking.nftables.enable = true;
-  networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter [
-    "ip daddr ${zone.gateway4} udp dport 53 accept"   # DNS to gateway
-    "ip daddr ${zone.gateway4} tcp dport 53 accept"
-    "ip daddr ${net.hosts.tyr.ipv4} tcp dport 443 accept"     # ACME certs from tyr
-    "ip daddr 224.0.0.251 udp dport 5353 accept"  # mDNS multicast
-    "ip daddr 239.255.255.250 udp dport 1900 accept"  # SSDP/UPnP multicast
-  ];
+  networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter (
+    net.mkDualEgressRules zone [
+      { gateway = true; proto = "udp"; port = 53; }
+      { gateway = true; proto = "tcp"; port = 53; }
+      { host = "tyr"; proto = "tcp"; port = 443; comment = "ACME certs from tyr"; }
+    ] ++ [
+      "ip daddr 224.0.0.251 udp dport 5353 accept"    # mDNS IPv4
+      "ip6 daddr ff02::fb udp dport 5353 accept"       # mDNS IPv6
+      "ip daddr 239.255.255.250 udp dport 1900 accept" # SSDP IPv4
+      "ip6 daddr ff02::c udp dport 1900 accept"        # SSDP IPv6
+    ]
+  );
 
   system.stateVersion = "23.11";
 }

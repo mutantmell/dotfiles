@@ -40,11 +40,8 @@ in {
 
   networking.extraHosts = ''
     ${zone.gateway4} yggdrasil.local
-    ${net.hosts.gridr.ipv4} gridr.local
-    ${net.hosts.mimir.ipv4} mimir.local
-    ${net.hosts.tyr.ipv4} tyr.local
-    ${net.hosts.surtr.ipv4} surtr.local
-  '';
+    ${zone.gateway6} yggdrasil.local
+  '' + net.mkExtraHosts [ "gridr" "mimir" "tyr" "surtr" ];
 
   time.timeZone = "UTC";
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];

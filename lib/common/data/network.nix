@@ -144,6 +144,44 @@ let
         else throw "Zone '${h.zoneName}' for host '${hostname}' not found in network registry";
   in { host = h; zone = z; };
 
+  # mkExtraHosts: Generate /etc/hosts entries for a list of hostnames
+  # Produces both IPv4 and IPv6 lines for each host (if available)
+  mkExtraHosts = hostnames:
+    lib.concatMapStringsSep "\n" (name: let
+      h = hosts.${name};
+    in lib.concatStringsSep "\n" (lib.filter (s: s != "") [
+      (lib.optionalString (h ? ipv4) "${h.ipv4} ${name}.local")
+      (lib.optionalString (h ? ipv6) "${h.ipv6} ${name}.local")
+    ])) hostnames;
+
+  # mkUnboundLocalData: Generate Unbound local-data entries (A + AAAA)
+  mkUnboundLocalData = hostnames:
+    lib.concatMap (name: let
+      h = hosts.${name};
+    in lib.filter (s: s != "") [
+      (lib.optionalString (h ? ipv4) ''"${name}.local. A ${h.ipv4}"'')
+      (lib.optionalString (h ? ipv6) ''"${name}.local. AAAA ${h.ipv6}"'')
+    ]) hostnames;
+
+  # mkDualEgressRules: Expand host-based egress rules into dual-stack nftables strings
+  # Each rule: { host OR gateway = true; proto = "tcp"|"udp"; port = int|string; comment? = string; }
+  # "gateway" uses the zone's gateway addresses instead of a host
+  mkDualEgressRules = zone: rules:
+    lib.concatMap (rule: let
+      addrs =
+        if rule ? gateway && rule.gateway then { v4 = zone.gateway4; v6 = zone.gateway6; }
+        else if rule ? host then { v4 = hosts.${rule.host}.ipv4; v6 = hosts.${rule.host}.ipv6 or null; }
+        else abort "mkDualEgressRules: rule must have 'gateway' or 'host'";
+      port = if builtins.isList rule.port
+             then "{ ${lib.concatMapStringsSep ", " toString rule.port} }"
+             else toString rule.port;
+      comment = lib.optionalString (rule ? comment) "  comment \"${rule.comment}\"";
+      v4 = "ip daddr ${addrs.v4} ${rule.proto} dport ${port} accept${comment}";
+      v6 = "ip6 daddr ${addrs.v6} ${rule.proto} dport ${port} accept${comment}";
+    in [ v4 ] ++ lib.optional (addrs.v6 != null) v6
+    ) rules;
+
 in {
-  inherit networks ipv4Prefix ulaPrefix mkHost hosts summary markdown forHost;
+  inherit networks ipv4Prefix ulaPrefix mkHost hosts summary markdown forHost
+          mkExtraHosts mkUnboundLocalData mkDualEgressRules;
 }

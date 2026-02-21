@@ -23,7 +23,7 @@ in {
     networkConfig = {
       Address = [ host.cidr4 host.cidr6 ];
       Gateway = zone.gateway4;
-      DNS = [ zone.gateway4 ];
+      DNS = [ zone.gateway4 zone.gateway6 ];
       IPv6AcceptRA = false;
       DHCP = "no";
     };
@@ -55,10 +55,12 @@ in {
 
   # Egress filtering — default-drop with explicit allowlist
   networking.nftables.enable = true;
-  networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter [
-    "ip daddr ${zone.gateway4} udp dport 53 accept"   # DNS to gateway
-    "ip daddr ${zone.gateway4} tcp dport 53 accept"
-  ];
+  networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter (
+    net.mkDualEgressRules zone [
+      { gateway = true; proto = "udp"; port = 53; }
+      { gateway = true; proto = "tcp"; port = 53; }
+    ]
+  );
 
   system.stateVersion = "23.11";
 }
