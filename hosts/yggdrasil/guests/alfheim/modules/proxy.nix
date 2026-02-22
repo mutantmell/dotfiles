@@ -103,7 +103,7 @@
     setXauthrequest = true;
     extraConfig = {
       "provider-display-name" = "Keycloak";
-      "oidc-issuer-url" = "https://mimir.local/auth/realms/external";
+      "oidc-issuer-url" = "https://mimir.local/auth/realms/homelab";
     };
   };
 

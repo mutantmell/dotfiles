@@ -60,7 +60,7 @@ in {
         local-data = [
           ''"local. A ${h.yggdrasil.ipv4}"''
         ] ++ net.mkUnboundLocalData [
-          "yggdrasil" "alfheim" "mimir" "tyr" "gridr"
+          "yggdrasil" "alfheim" "mimir" "tyr"
           "jotunheimr" "muspelheim" "surtr" "bragi" "njord"
           "hrungnir" "nidavellir" "skadi" "ymir" "vanaheim"
         ];
