@@ -14,7 +14,7 @@ keys:
   - &sv_ymir age1anrdj6swtlq5ll4e369gz3lh6aj2sz6pj5zh25uhltjfk4z86azsfsxk9a
   - &sv_yggdrasil age1yejm0ghvycctg868ag2u0awkf7crpuh59nfvy73dvsuuuns9davsxc6ssz
 creation_rules:
-  - path_regex: hosts/alfheim/secrets/[^/]+\.yaml$
+  - path_regex: hosts/yggdrasil/guests/alfheim/secrets/[^/]+\.yaml$
     key_groups:
       - age:
         - *ad_skadi

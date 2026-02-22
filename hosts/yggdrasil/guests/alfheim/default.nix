@@ -10,7 +10,8 @@ in {
     ./microvm.nix
     ./sops.nix
     ./modules/dns.nix
-    ./modules/proxy.nix
+    # TODO: Re-enable after mimir (Keycloak) + tyr (step-ca) are deployed
+    # ./modules/proxy.nix
   ];
 
   networking.hostName = hostname;

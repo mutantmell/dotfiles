@@ -1,7 +1,7 @@
 {
   sops = {
     defaultSopsFile = ./secrets/secrets.yaml;
-    age.sshKeyPaths = [ "/root/.ssh/id_ed25519" ];
+    age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
     secrets = {
       "upsmon.password" = {};
     };
