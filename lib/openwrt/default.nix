@@ -68,8 +68,9 @@ let
     meshId,
     routingAlgo ? "BATMAN_V",
     vlans ? {},
-    lanAddress ? null,
-    mgmtAddress ? null,
+    lanAddresses ? [],
+    mgmtAddresses ? [],
+    gateway ? null,
   }:
     let
       homeVlan = vlans.HOME or null;
@@ -79,6 +80,12 @@ let
       brLanPorts =
         [ "lan2" "lan3" "lan4" ]
         ++ lib.optional (homeVlan != null) "bat0.${toString homeVlan.tag}";
+
+      # Derive MGMT gateway from HOME gateway (same last octet, different VLAN subnet)
+      mgmtGateway = if gateway != null && mgmtVlan != null then
+        let parts = lib.splitString "." gateway;
+        in "${builtins.elemAt parts 0}.${builtins.elemAt parts 1}.${toString mgmtVlan.tag}.${builtins.elemAt parts 3}"
+      else null;
 
     in {
       network = {
@@ -144,19 +151,11 @@ let
         lan = {
           _type = "interface";
           device = "br-lan";
-          proto = if lanAddress != null then "static" else "dhcp";
-        } // lib.optionalAttrs (lanAddress != null) {
-          ipaddr = lanAddress;
-          netmask = "255.255.255.0";
-          gateway = lib.concatStringsSep "." (
-            lib.take 3 (lib.splitString "." lanAddress) ++ [ "1" ]
-          );
-          dns = lib.concatStringsSep "." (
-            lib.take 3 (lib.splitString "." lanAddress) ++ [ "1" ]
-          );
-          broadcast = lib.concatStringsSep "." (
-            lib.take 3 (lib.splitString "." lanAddress) ++ [ "255" ]
-          );
+          proto = if lanAddresses != [] then "static" else "dhcp";
+        } // lib.optionalAttrs (lanAddresses != []) {
+          ipaddr = lanAddresses;
+          gateway = gateway;
+          dns = gateway;
         };
 
       } // lib.optionalAttrs (mgmtVlan != null) {
@@ -171,17 +170,11 @@ let
 
         mgmt = {
           _type = "interface";
-          proto = if mgmtAddress != null then "static" else "dhcp";
+          proto = if mgmtAddresses != [] then "static" else "dhcp";
           device = "br-mgmt";
-        } // lib.optionalAttrs (mgmtAddress != null) {
-          ipaddr = mgmtAddress;
-          netmask = "255.255.255.0";
-          gateway = lib.concatStringsSep "." (
-            lib.take 3 (lib.splitString "." mgmtAddress) ++ [ "1" ]
-          );
-          broadcast = lib.concatStringsSep "." (
-            lib.take 3 (lib.splitString "." mgmtAddress) ++ [ "255" ]
-          );
+        } // lib.optionalAttrs (mgmtAddresses != []) {
+          ipaddr = mgmtAddresses;
+          gateway = mgmtGateway;
         };
       } // {
         # br-admin: emergency access on lan1
@@ -341,7 +334,8 @@ let
   # Generate network config for a managed switch (VLAN-filtering bridge)
   mkSwitchNetworkConfig = {
     hostname,
-    lanAddress,
+    lanAddresses,
+    gateway,
     vlans ? {},
     trunkPorts ? [ "lan1" "lan2" "lan3" "lan4" ],
     accessPorts ? {},
@@ -412,21 +406,16 @@ let
           _type = "interface";
           proto = "static";
           device = "lan-br";
-          ipaddr = lanAddress;
-          netmask = "255.255.255.0";
-          gateway = lib.concatStringsSep "." (
-            lib.take 3 (lib.splitString "." lanAddress) ++ [ "1" ]
-          );
-          dns = lib.concatStringsSep "." (
-            lib.take 3 (lib.splitString "." lanAddress) ++ [ "1" ]
-          );
+          ipaddr = lanAddresses;
+          inherit gateway;
+          dns = gateway;
         };
 
       } // portDevices // bridgeVlanConfigs;
     };
 
   # Generate simple AP network config (simple bridge, no batman)
-  mkSimpleAPNetworkConfig = { hostname, lanAddress ? null }: {
+  mkSimpleAPNetworkConfig = { hostname, lanAddresses ? [], gateway ? null }: {
     network = {
       loopback = {
         _type = "interface";
@@ -446,19 +435,11 @@ let
       lan = {
         _type = "interface";
         device = "br-lan";
-        proto = if lanAddress != null then "static" else "dhcp";
-      } // lib.optionalAttrs (lanAddress != null) {
-        ipaddr = lanAddress;
-        netmask = "255.255.255.0";
-        gateway = lib.concatStringsSep "." (
-          lib.take 3 (lib.splitString "." lanAddress) ++ [ "1" ]
-        );
-        broadcast = lib.concatStringsSep "." (
-          lib.take 3 (lib.splitString "." lanAddress) ++ [ "255" ]
-        );
-        dns = lib.concatStringsSep "." (
-          lib.take 3 (lib.splitString "." lanAddress) ++ [ "1" ]
-        );
+        proto = if lanAddresses != [] then "static" else "dhcp";
+      } // lib.optionalAttrs (lanAddresses != []) {
+        ipaddr = lanAddresses;
+        inherit gateway;
+        dns = gateway;
       };
     };
   };
@@ -514,8 +495,9 @@ let
     meshKey ? null,
     vlans ? {},
     apNetworks ? {},
-    lanAddress ? null,
-    mgmtAddress ? null,
+    lanAddresses ? [],
+    mgmtAddresses ? [],
+    gateway ? null,
     timezone ? "America/Los_Angeles",
     authorizedKeys ? [],
     country ? "US",
@@ -525,7 +507,7 @@ let
   }:
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
-      // mkMeshNetworkConfig { inherit hostname meshId vlans lanAddress mgmtAddress; }
+      // mkMeshNetworkConfig { inherit hostname meshId vlans lanAddresses mgmtAddresses gateway; }
       // mkMeshWirelessConfig { inherit meshId meshKey apNetworks country heBssColor legacyRates; }
       // mkDropbearConfig { inherit authorizedKeys; }
     ) extraConfig;
@@ -533,7 +515,8 @@ let
   # Build complete switch configuration
   mkSwitchConfig = {
     hostname,
-    lanAddress,
+    lanAddresses,
+    gateway,
     vlans ? {},
     trunkPorts ? [ "lan1" "lan2" "lan3" "lan4" ],
     accessPorts ? {},
@@ -543,14 +526,15 @@ let
   }:
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
-      // mkSwitchNetworkConfig { inherit hostname lanAddress vlans trunkPorts accessPorts; }
+      // mkSwitchNetworkConfig { inherit hostname lanAddresses gateway vlans trunkPorts accessPorts; }
       // mkDropbearConfig { inherit authorizedKeys; }
     ) extraConfig;
 
   # Build complete simple AP configuration
   mkSimpleAPConfig = {
     hostname,
-    lanAddress ? null,
+    lanAddresses ? [],
+    gateway ? null,
     ssid,
     ssidKey ? null,
     encryption ? "sae-mixed",
@@ -560,7 +544,7 @@ let
   }:
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
-      // mkSimpleAPNetworkConfig { inherit hostname lanAddress; }
+      // mkSimpleAPNetworkConfig { inherit hostname lanAddresses gateway; }
       // mkSimpleAPWirelessConfig { inherit ssid ssidKey encryption; }
       // mkDropbearConfig { inherit authorizedKeys; }
     ) extraConfig;
@@ -595,8 +579,9 @@ let
     meshKey ? null,
     vlans ? {},
     apNetworks ? {},
-    lanAddress ? null,
-    mgmtAddress ? null,
+    lanAddresses ? [],
+    mgmtAddresses ? [],
+    gateway ? null,
     timezone ? "America/Los_Angeles",
     authorizedKeys ? [],
     country ? "US",
@@ -608,8 +593,8 @@ let
   }:
     let
       config = mkMeshAPConfig {
-        inherit hostname meshId meshKey vlans apNetworks lanAddress mgmtAddress
-                timezone authorizedKeys country heBssColor legacyRates extraConfig;
+        inherit hostname meshId meshKey vlans apNetworks lanAddresses mgmtAddresses
+                gateway timezone authorizedKeys country heBssColor legacyRates extraConfig;
       };
 
       configFiles = pkgs.runCommand "openwrt-config-files-${hostname}" {} ''
@@ -644,7 +629,8 @@ let
     pkgs,
     profile,
     hostname,
-    lanAddress,
+    lanAddresses,
+    gateway,
     vlans ? {},
     trunkPorts ? [ "lan1" "lan2" "lan3" "lan4" ],
     accessPorts ? {},
@@ -656,7 +642,7 @@ let
   }:
     let
       config = mkSwitchConfig {
-        inherit hostname lanAddress vlans trunkPorts accessPorts timezone authorizedKeys extraConfig;
+        inherit hostname lanAddresses gateway vlans trunkPorts accessPorts timezone authorizedKeys extraConfig;
       };
 
       configFiles = pkgs.runCommand "openwrt-config-files-${hostname}" {} ''
@@ -691,7 +677,8 @@ let
     pkgs,
     profile,
     hostname,
-    lanAddress ? null,
+    lanAddresses ? [],
+    gateway ? null,
     ssid,
     ssidKey ? null,
     encryption ? "sae-mixed",
@@ -703,7 +690,7 @@ let
   }:
     let
       config = mkSimpleAPConfig {
-        inherit hostname lanAddress ssid ssidKey encryption timezone authorizedKeys extraConfig;
+        inherit hostname lanAddresses gateway ssid ssidKey encryption timezone authorizedKeys extraConfig;
       };
 
       configFiles = pkgs.runCommand "openwrt-config-files-${hostname}" {} ''

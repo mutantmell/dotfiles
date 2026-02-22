@@ -28,6 +28,16 @@ let
     meshId = "change-me-mesh-id";
   };
 
+  # IP prefixes — each device gets one address per prefix for migration compatibility
+  ipPrefixes = [ "10.0" "10.1" "10.97" ];
+
+  # Generate list of CIDR addresses for a given VLAN and host ID across all prefixes
+  mkAddresses = vlanId: hostId:
+    map (p: "${p}.${toString vlanId}.${toString hostId}/24") ipPrefixes;
+
+  # Gateway is always on the primary prefix (10.0)
+  mkGateway = vlanId: "10.0.${toString vlanId}.1";
+
   # VLANs matching actual deployed configuration
   # Mesh APs use 10xx tags on bat0 (bat0.1010, bat0.1020, etc.)
   meshVlans = {
@@ -75,18 +85,19 @@ let
   mkMeshAP = {
     hostname,
     profile,
-    lanAddress ? null,
-    mgmtAddress ? null,
+    hostId,
     heBssColor ? null,
     legacyRates ? false,
     extraPackages ? [],
     extraConfig ? {},
   }:
     openwrt.mkMeshAPImage {
-      inherit pkgs profile hostname lanAddress mgmtAddress
-              heBssColor legacyRates extraPackages extraConfig;
+      inherit pkgs profile hostname heBssColor legacyRates extraPackages extraConfig;
       inherit (meshConfig) meshId;
       inherit authorizedKeys;
+      lanAddresses = mkAddresses meshVlans.HOME.tag hostId;
+      mgmtAddresses = mkAddresses meshVlans.MGMT.tag hostId;
+      gateway = mkGateway meshVlans.HOME.tag;
       vlans = meshVlans;
       apNetworks = defaultAPNetworks;
       timezone = "America/Los_Angeles";
@@ -97,13 +108,16 @@ let
   mkSwitch = {
     hostname,
     profile,
-    lanAddress,
+    hostId,
+    vlanId,
     extraPackages ? [],
     extraConfig ? {},
   }:
     openwrt.mkSwitchImage {
-      inherit pkgs profile hostname lanAddress extraPackages extraConfig;
+      inherit pkgs profile hostname extraPackages extraConfig;
       inherit authorizedKeys;
+      lanAddresses = mkAddresses vlanId hostId;
+      gateway = mkGateway vlanId;
       vlans = switchVlans;
     };
 
@@ -111,7 +125,8 @@ let
   mkSimpleAP = {
     hostname,
     profile,
-    lanAddress ? null,
+    hostId,
+    vlanId,
     ssid,
     ssidKey ? null,
     encryption ? "sae-mixed",
@@ -119,9 +134,11 @@ let
     extraConfig ? {},
   }:
     openwrt.mkSimpleAPImage {
-      inherit pkgs profile hostname lanAddress ssid ssidKey encryption
+      inherit pkgs profile hostname ssid ssidKey encryption
               extraPackages extraConfig;
       inherit authorizedKeys;
+      lanAddresses = mkAddresses vlanId hostId;
+      gateway = mkGateway vlanId;
     };
 
 in {
@@ -133,16 +150,14 @@ in {
   goo = mkMeshAP {
     hostname = "goo";
     profile = "linksys_e8450-ubi";
-    lanAddress = "10.1.20.23";
-    mgmtAddress = "10.1.10.23";
+    hostId = 23;
     heBssColor = 49;
   };
 
   gumbo = mkMeshAP {
     hostname = "gumbo";
     profile = "linksys_e8450-ubi";
-    lanAddress = "10.1.20.24";
-    mgmtAddress = "10.1.10.24";
+    hostId = 24;
     heBssColor = 58;
     extraPackages = [ "usteer" ];
   };
@@ -150,8 +165,7 @@ in {
   gumby = mkMeshAP {
     hostname = "gumby";
     profile = "linksys_e8450-ubi";
-    lanAddress = "10.1.20.20";
-    mgmtAddress = "10.1.10.20";
+    hostId = 20;
     heBssColor = 8;
     legacyRates = true;
     extraPackages = [ "usteer" ];
@@ -160,8 +174,7 @@ in {
   pokey = mkMeshAP {
     hostname = "pokey";
     profile = "linksys_e8450-ubi";
-    lanAddress = "10.1.20.21";
-    mgmtAddress = "10.1.10.21";
+    hostId = 21;
     heBssColor = 25;
     legacyRates = true;
     extraPackages = [ "usteer" ];
@@ -172,11 +185,9 @@ in {
           _type = "interface";
           proto = "static";
           device = "bat0.1040";
-          ipaddr = "10.1.40.21";
-          netmask = "255.255.255.0";
-          gateway = "10.1.40.1";
-          broadcast = "10.1.40.255";
-          dns = "10.1.40.1";
+          ipaddr = mkAddresses 40 21;
+          gateway = mkGateway 40;
+          dns = mkGateway 40;
           type = "bridge";
         };
       };
@@ -197,8 +208,7 @@ in {
   prickle = mkMeshAP {
     hostname = "prickle";
     profile = "linksys_e8450-ubi";
-    lanAddress = "10.1.20.22";
-    mgmtAddress = "10.1.10.22";
+    hostId = 22;
     heBssColor = 8;
     extraPackages = [ "usteer" ];
   };
@@ -211,7 +221,8 @@ in {
   denali = mkSwitch {
     hostname = "denali";
     profile = "netgear_gs108t-v3";
-    lanAddress = "10.0.10.12";
+    hostId = 12;
+    vlanId = 10;
     extraPackages = openwrt.packages.luciPackages;
   };
 
@@ -224,7 +235,8 @@ in {
   gumba = mkSimpleAP {
     hostname = "gumba";
     profile = "tplink_eap615-wall-v1";  # UNCONFIRMED: verify before deploying
-    lanAddress = "10.0.31.20";
+    hostId = 20;
+    vlanId = 31;
     ssid = "MyAP";
     # Keep dnsmasq (removed by default) — gumba serves DHCP for the ADU network
     extraPackages = [ "dnsmasq" "odhcpd-ipv6only" ];
