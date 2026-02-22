@@ -12,7 +12,11 @@
       hostname-admin = "${config.networking.hostName}.local";
     };
     database.passwordFile = config.sops.secrets."keycloak_password_file".path;
+    realmFiles = [ ./homelab-realm.json ];
   };
+
+  # Cap JVM heap to prevent Keycloak from consuming all available RAM
+  systemd.services.keycloak.environment.JAVA_OPTS_APPEND = "-Xms256m -Xmx768m";
 
   networking.firewall.allowedTCPPorts = [ 80 443 ];
 

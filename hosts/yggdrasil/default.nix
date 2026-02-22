@@ -8,7 +8,6 @@ let
   surtr = net.hosts.surtr;
   bragi = net.hosts.bragi;
   njord = net.hosts.njord;
-  gridr = net.hosts.gridr;
   mimir = net.hosts.mimir;
   tyr = net.hosts.tyr;
 in {
@@ -446,7 +445,7 @@ in {
     ${alfheim.ipv4} alfheim
     ${alfheim.ipv4} alfheim.local
     ${alfheim.ipv6} alfheim.local
-  '' + net.mkExtraHosts [ "gridr" "mimir" "tyr" "surtr" "bragi" "njord" ];
+  '' + net.mkExtraHosts [ "mimir" "tyr" "surtr" "bragi" "njord" ];
 
   # NTP server for network gear and infrastructure
   services.chrony = {

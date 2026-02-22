@@ -196,16 +196,16 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [x] Deploy oauth2-proxy on alfheim (internal service auth)
 - [x] Apply security fixes S1 (cookie.secure), S2 (cookie.domain), S3 (skip-jwt-bearer-tokens)
 - [x] Apply S7 (passAccessToken removal)
-- [ ] Migrate from gridr, decommission gridr
+- [x] Migrate from gridr, decommission gridr
 
 **Phase 2: Realm restructuring**
-- [ ] Create `homelab` realm
-- [ ] Register clients: `oauth2-proxy`, `step-ca`, `cicd-deploy`
+- [x] Create `homelab` realm
+- [x] Register clients: `oauth2-proxy`, `step-ca`, `cicd-deploy`
 - [ ] Verify client scope restrictions — minimal permissions per client (R4)
-- [ ] Create groups: `admins`, `media-users`, `deploy`
-- [ ] Add `groups` protocol mapper
+- [x] Create groups: `admins`, `media-users`, `deploy`
+- [x] Add `groups` protocol mapper
 - [ ] Configure conditional MFA for admins
-- [ ] Update surtr + alfheim oauth2-proxy configs to `homelab` realm
+- [x] Update surtr + alfheim oauth2-proxy configs to `homelab` realm
 - [ ] Retire `external` realm
 
 **Phase 3: DNS, external access, hardening**

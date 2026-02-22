@@ -1,0 +1,107 @@
+{
+  "realm": "homelab",
+  "enabled": true,
+  "sslRequired": "all",
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "failureFactor": 10,
+  "accessTokenLifespan": 300,
+  "ssoSessionMaxLifespan": 43200,
+  "clientScopes": [
+    {
+      "name": "groups",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "defaultDefaultClientScopes": [
+    "openid",
+    "profile",
+    "email",
+    "groups"
+  ],
+  "clients": [
+    {
+      "clientId": "oauth2-proxy",
+      "name": "External OAuth2 Proxy (surtr)",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://surtr.local/oauth2/callback"
+      ],
+      "webOrigins": [
+        "https://surtr.local"
+      ],
+      "defaultClientScopes": ["openid", "profile", "email", "groups"]
+    },
+    {
+      "clientId": "oauth2-proxy-internal",
+      "name": "Internal OAuth2 Proxy (alfheim)",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://alfheim.local/oauth2/callback"
+      ],
+      "webOrigins": [
+        "https://alfheim.local"
+      ],
+      "defaultClientScopes": ["openid", "profile", "email", "groups"]
+    },
+    {
+      "clientId": "step-ca",
+      "name": "step-ca SSH Certificate OIDC Provisioner",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:*"
+      ],
+      "defaultClientScopes": ["openid", "profile", "email", "groups"]
+    },
+    {
+      "clientId": "cicd-deploy",
+      "name": "CI/CD Deploy Service Account",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false
+    }
+  ],
+  "groups": [
+    { "name": "admins" },
+    { "name": "media-users" },
+    { "name": "deploy" }
+  ]
+}

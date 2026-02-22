@@ -30,7 +30,6 @@ let
     trusted = {
       vlanId = 20;
       hosts = {
-        gridr = 30;
         skadi = 40;
         ymir  = 41;
       };
