@@ -1,4 +1,4 @@
-# OpenWrt mesh AP configurations
+# OpenWrt device configurations
 #
 # Each device is defined with its hardware profile, network settings,
 # and mesh configuration. Images are built using nix-openwrt-imagebuilder.
@@ -24,16 +24,28 @@ let
   # Shared mesh configuration matching yggdrasil's batman-adv setup
   # Note: meshKey is intentionally omitted - configured via secrets post-deployment
   meshConfig = {
-    meshId = "mmell-mesh";
+    # Override with actual mesh ID before building
+    meshId = "change-me-mesh-id";
   };
 
-  # VLANs matching yggdrasil's configuration
-  vlans = {
+  # VLANs matching actual deployed configuration
+  # Mesh APs use 10xx tags on bat0 (bat0.1010, bat0.1020, etc.)
+  meshVlans = {
     MGMT = { tag = 10; };
     HOME = { tag = 20; };
-    GUEST = { tag = 30; };
-    IOT = { tag = 40; };
-    GAME = { tag = 41; };
+  };
+
+  # Switch VLANs — denali uses standard VLAN tags on a bridge
+  # Trunk ports (lan1-4) carry all VLANs tagged; access ports are untagged
+  switchVlans = {
+    MGMT     = { tag = 10; accessPorts = [ "lan7" "lan8" ]; };
+    HOME     = { tag = 20; accessPorts = [ "lan5" "lan6" ]; };
+    GUEST    = { tag = 30; };
+    ADU      = { tag = 31; };
+    IOT      = { tag = 40; };
+    GAME     = { tag = 41; };
+    MEDIA    = { tag = 42; };
+    DMZ      = { tag = 100; };
   };
 
   # SSH authorized keys for deployment
@@ -46,91 +58,276 @@ let
   # Note: Keys are intentionally omitted - configured via secrets post-deployment
   # The deploy script matches networks by SSID pattern to apply keys
   defaultAPNetworks = {
-    # Main network (HOME VLAN) - key set from wifi_keys.main
     main = {
+      # Override with actual SSIDs before building
       ssid = "MyNetwork";
-      network = "vlan_HOME";
+      network = "lan";
       encryption = "sae-mixed";
     };
-    # Guest network - key set from wifi_keys.guest
-    guest = {
-      ssid = "MyNetwork-Guest";
-      network = "vlan_GUEST";
+    secondary = {
+      ssid = "MyNetwork-Alt";
+      network = "lan";
       encryption = "sae-mixed";
-    };
-    # IoT network (hidden) - key set from wifi_keys.iot
-    iot = {
-      ssid = "MyNetwork-IoT";
-      network = "vlan_IOT";
-      encryption = "psk2";
-      hidden = true;
     };
   };
 
   # Helper to create a mesh AP configuration
-  mkMeshAP = { hostname, profile, lanAddress ? null, extraPackages ? [], extraConfig ? {} }:
+  mkMeshAP = {
+    hostname,
+    profile,
+    lanAddress ? null,
+    mgmtAddress ? null,
+    heBssColor ? null,
+    legacyRates ? false,
+    extraPackages ? [],
+    extraConfig ? {},
+  }:
     openwrt.mkMeshAPImage {
-      inherit pkgs profile hostname lanAddress extraPackages extraConfig;
+      inherit pkgs profile hostname lanAddress mgmtAddress
+              heBssColor legacyRates extraPackages extraConfig;
       inherit (meshConfig) meshId;
-      inherit vlans authorizedKeys;
+      inherit authorizedKeys;
+      vlans = meshVlans;
       apNetworks = defaultAPNetworks;
       timezone = "America/Los_Angeles";
+      country = "US";
+    };
+
+  # Helper to create a managed switch configuration
+  mkSwitch = {
+    hostname,
+    profile,
+    lanAddress,
+    extraPackages ? [],
+    extraConfig ? {},
+  }:
+    openwrt.mkSwitchImage {
+      inherit pkgs profile hostname lanAddress extraPackages extraConfig;
+      inherit authorizedKeys;
+      vlans = switchVlans;
+    };
+
+  # Helper to create a simple AP configuration
+  mkSimpleAP = {
+    hostname,
+    profile,
+    lanAddress ? null,
+    ssid,
+    ssidKey ? null,
+    encryption ? "sae-mixed",
+    extraPackages ? [],
+    extraConfig ? {},
+  }:
+    openwrt.mkSimpleAPImage {
+      inherit pkgs profile hostname lanAddress ssid ssidKey encryption
+              extraPackages extraConfig;
+      inherit authorizedKeys;
     };
 
 in {
   # =============================================================================
-  # Device Definitions
-  # =============================================================================
-  # Add your OpenWrt mesh devices here. Each device needs:
-  # - hostname: Device hostname (used in config and for identification)
-  # - profile: OpenWrt device profile (run `nix run .#openwrt-profiles` to list)
-  # - lanAddress: Optional static IP on management VLAN
-  #
-  # Find your device profile:
-  #   nix run github:astro/nix-openwrt-imagebuilder -- list-profiles | grep -i <device>
+  # Mesh APs — batman-adv mesh, 802.11r/k roaming, wired backhaul
+  # All Linksys E8450 (UBI variant)
   # =============================================================================
 
-  # Example: Linksys WRT3200ACM mesh AP
-  # fenrir = mkMeshAP {
-  #   hostname = "fenrir";
-  #   profile = "linksys_wrt3200acm";
-  #   lanAddress = "10.0.10.10";
-  # };
+  goo = mkMeshAP {
+    hostname = "goo";
+    profile = "linksys_e8450-ubi";
+    lanAddress = "10.1.20.23";
+    mgmtAddress = "10.1.10.23";
+    heBssColor = 49;
+  };
 
-  # Example: TP-Link Archer C7 v5
-  # sleipnir = mkMeshAP {
-  #   hostname = "sleipnir";
-  #   profile = "tplink_archer-c7-v5";
-  #   lanAddress = "10.0.10.11";
-  # };
+  gumbo = mkMeshAP {
+    hostname = "gumbo";
+    profile = "linksys_e8450-ubi";
+    lanAddress = "10.1.20.24";
+    mgmtAddress = "10.1.10.24";
+    heBssColor = 58;
+    extraPackages = [ "usteer" ];
+  };
 
-  # Example: GL.iNet GL-AR750S (Slate)
-  # hugin = mkMeshAP {
-  #   hostname = "hugin";
-  #   profile = "glinet_gl-ar750s-nor-nand";
-  #   lanAddress = "10.0.10.12";
-  # };
+  gumby = mkMeshAP {
+    hostname = "gumby";
+    profile = "linksys_e8450-ubi";
+    lanAddress = "10.1.20.20";
+    mgmtAddress = "10.1.10.20";
+    heBssColor = 8;
+    legacyRates = true;
+    extraPackages = [ "usteer" ];
+  };
+
+  pokey = mkMeshAP {
+    hostname = "pokey";
+    profile = "linksys_e8450-ubi";
+    lanAddress = "10.1.20.21";
+    mgmtAddress = "10.1.10.21";
+    heBssColor = 25;
+    legacyRates = true;
+    extraPackages = [ "usteer" ];
+    extraConfig = {
+      # IoT VLAN — additional bat0.1040 interface with IoT SSID
+      network = {
+        iot = {
+          _type = "interface";
+          proto = "static";
+          device = "bat0.1040";
+          ipaddr = "10.1.40.21";
+          netmask = "255.255.255.0";
+          gateway = "10.1.40.1";
+          broadcast = "10.1.40.255";
+          dns = "10.1.40.1";
+          type = "bridge";
+        };
+      };
+      wireless = {
+        ap_2g_iot = {
+          _type = "wifi-iface";
+          _anonymous = true;
+          device = "radio0";
+          mode = "ap";
+          ssid = "MyNetwork-IoT";
+          encryption = "sae-mixed";
+          network = "iot";
+        };
+      };
+    };
+  };
+
+  prickle = mkMeshAP {
+    hostname = "prickle";
+    profile = "linksys_e8450-ubi";
+    lanAddress = "10.1.20.22";
+    mgmtAddress = "10.1.10.22";
+    heBssColor = 8;
+    extraPackages = [ "usteer" ];
+  };
 
   # =============================================================================
-  # Template: Uncomment and modify for your devices
-  # =============================================================================
-  #
-  # Default packages (minimal + debug tools, no LuCI):
-  #   kmod-batman-adv, batctl-full, wpad-mesh-openssl, kmod-8021q, htop, tcpdump
-  #
-  # To add LuCI web interface:
-  #   extraPackages = openwrt.packages.luciPackages;
-  #
-  # For truly minimal (no debug tools):
-  #   extraPackages = []; and set packages = openwrt.packages.minimalMeshPackages
-  #
+  # Managed Switch — VLAN-filtering bridge, no batman-adv
+  # NETGEAR GS108T v3
   # =============================================================================
 
-  # <device-name> = mkMeshAP {
-  #   hostname = "<device-name>";
-  #   profile = "<openwrt-profile>";
-  #   lanAddress = "10.0.10.XX";  # Optional: static IP on MGMT VLAN
-  #   extraPackages = [];          # Additional packages to install
-  #   extraConfig = {};            # Override/extend UCI configuration
-  # };
+  denali = mkSwitch {
+    hostname = "denali";
+    profile = "netgear_gs108t-v3";
+    lanAddress = "10.0.10.12";
+    extraPackages = openwrt.packages.luciPackages;
+  };
+
+  # =============================================================================
+  # ADU Router/AP — provides segmented internet access for an ADU
+  # Runs firewall + DHCP/DHCPv6/RA, no mesh, no batman-adv
+  # TP-Link EAP615-Wall v1 (UNCONFIRMED: verify before deploying)
+  # =============================================================================
+
+  gumba = mkSimpleAP {
+    hostname = "gumba";
+    profile = "tplink_eap615-wall-v1";  # UNCONFIRMED: verify before deploying
+    lanAddress = "10.0.31.20";
+    ssid = "MyAP";
+    # Keep dnsmasq (removed by default) — gumba serves DHCP for the ADU network
+    extraPackages = [ "dnsmasq" "odhcpd-ipv6only" ];
+    extraConfig = {
+      # Firewall — stricter defaults than mesh APs (acts as a gateway)
+      firewall = {
+        defaults = {
+          _type = "defaults";
+          _anonymous = true;
+          syn_flood = true;
+          input = "REJECT";
+          output = "ACCEPT";
+          forward = "REJECT";
+        };
+        zone_lan = {
+          _type = "zone";
+          _anonymous = true;
+          name = "lan";
+          input = "ACCEPT";
+          output = "ACCEPT";
+          forward = "ACCEPT";
+        };
+        zone_wan = {
+          _type = "zone";
+          _anonymous = true;
+          name = "wan";
+          network = [ "wan" "wan6" ];
+          input = "REJECT";
+          output = "ACCEPT";
+          forward = "REJECT";
+          masq = true;
+          mtu_fix = true;
+        };
+        fwd_lan_wan = {
+          _type = "forwarding";
+          _anonymous = true;
+          src = "lan";
+          dest = "wan";
+        };
+      };
+
+      # DHCP — serves IPv4 and IPv6 for ADU network
+      dhcp = {
+        dnsmasq = {
+          _type = "dnsmasq";
+          _anonymous = true;
+          domainneeded = true;
+          boguspriv = true;
+          localise_queries = true;
+          rebind_protection = true;
+          rebind_localhost = true;
+          local = "/lan/";
+          domain = "lan";
+          expandhosts = true;
+          authoritative = true;
+          readethers = true;
+          leasefile = "/tmp/dhcp.leases";
+          nonwildcard = true;
+          localservice = true;
+          ednspacket_max = 1232;
+          cachesize = 1000;
+        };
+        lan = {
+          _type = "dhcp";
+          interface = "lan";
+          start = 100;
+          limit = 150;
+          leasetime = "12h";
+          dhcpv4 = "server";
+          dhcpv6 = "server";
+          ra = "server";
+          ra_flags = [ "managed-config" "other-config" ];
+          ignore = false;
+        };
+      };
+
+      # LEDs disabled
+      system = {
+        led_status = {
+          _type = "led";
+          _anonymous = true;
+          name = "status-off";
+          sysfs = "white:status";
+          trigger = "none";
+          default = 0;
+        };
+        led_phy0 = {
+          _type = "led";
+          _anonymous = true;
+          name = "phy0-off";
+          sysfs = "mt76-phy0";
+          trigger = "none";
+          default = 0;
+        };
+        led_phy1 = {
+          _type = "led";
+          _anonymous = true;
+          name = "phy1-off";
+          sysfs = "mt76-phy1";
+          trigger = "none";
+          default = 0;
+        };
+      };
+    };
+  };
 }
