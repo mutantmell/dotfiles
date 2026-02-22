@@ -24,5 +24,6 @@ in {
     openwrt-profiles
     openwrt-show-config
     openwrt-export-config
-    openwrt-analyze-packages;
+    openwrt-analyze-packages
+    openwrt-analyze-local;
 }

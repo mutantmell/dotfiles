@@ -11,7 +11,9 @@ let
   rawNetworks = {
     network = {
       vlanId = 10;
-      hosts = {};
+      hosts = {
+        denali = 12;
+      };
     };
     management = {
       vlanId = 11;
