@@ -17,10 +17,15 @@
   router6-device-vlans = import ./modules/router6-device-vlans.nix { inherit pkgs lib; };
   router6-bridge-vlan-ordering = import ./modules/router6-bridge-vlan-ordering.nix { inherit pkgs lib; };
   egress-filter = import ./modules/egress-filter.nix { inherit pkgs lib; };
+  # Temporary: pre-deployment validation for yggdrasil router config.
+  # Remove after successful deployment to physical hardware.
+  router6-yggdrasil = import ./modules/router6-yggdrasil.nix { inherit pkgs lib; };
 
   # Unit tests (pure Nix evaluation)
   nftables-dsl = import ./lib/nftables.nix { inherit pkgs lib; };
   router6-firewall-snapshot = import ./lib/router6-firewall-snapshot.nix { inherit pkgs lib; };
+  # Temporary: pre-deployment validation. Remove after successful deployment.
+  yggdrasil-firewall-snapshot = import ./lib/yggdrasil-firewall-snapshot.nix { inherit pkgs lib; };
   router6-zone-system = import ./lib/router6-zone-system.nix { inherit pkgs lib; };
   network-helpers = import ./lib/network-helpers.nix { inherit pkgs lib; };
 
