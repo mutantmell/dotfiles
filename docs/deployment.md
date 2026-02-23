@@ -21,7 +21,7 @@ This guide covers deploying NixOS systems from scratch using nixos-anywhere with
 ### 1. Deploy to Target Machine
 
 ```bash
-./scripts/deploy-nixos-anywhere.sh yggdrasil root@192.168.1.100
+./scripts/deploy-nixos-anywhere.sh thebeyond root@192.168.1.100
 ```
 
 The script will:
@@ -29,7 +29,7 @@ The script will:
 - Boot target into kexec installer (no physical media needed)
 - Partition and encrypt disk using disko
 - Install NixOS
-- Save keyfile to `.keys/yggdrasil-disk.key`
+- Save keyfile to `.keys/thebeyond-disk.key`
 
 ### 2. Post-Deployment Configuration
 
@@ -38,7 +38,7 @@ After deployment completes, follow these steps:
 #### a. Copy Encryption Keyfile
 
 ```bash
-scp .keys/yggdrasil-disk.key root@192.168.1.100:/boot/secrets/disk.key
+scp .keys/thebeyond-disk.key root@192.168.1.100:/boot/secrets/disk.key
 ssh root@192.168.1.100 'chmod 600 /boot/secrets/disk.key'
 ```
 
@@ -53,7 +53,7 @@ Output will look like:
 /dev/sda3: UUID="a1b2c3d4-..." TYPE="crypto_LUKS" PARTLABEL="persist"
 ```
 
-Copy the UUID and update `hosts/yggdrasil/default.nix`:
+Copy the UUID and update `hosts/thebeyond/default.nix`:
 
 ```nix
 boot.initrd.luks.devices."cryptroot" = {
@@ -67,7 +67,7 @@ boot.initrd.luks.devices."cryptroot" = {
 
 ```bash
 ssh root@192.168.1.100 'nixos-generate-config --no-filesystems --show-hardware-config > /tmp/hw.nix'
-scp root@192.168.1.100:/tmp/hw.nix hosts/yggdrasil/hardware-configuration.nix
+scp root@192.168.1.100:/tmp/hw.nix hosts/thebeyond/hardware-configuration.nix
 ```
 
 The `--no-filesystems` flag is important - disko already handles filesystem configuration.
@@ -75,11 +75,11 @@ The `--no-filesystems` flag is important - disko already handles filesystem conf
 #### d. Commit and Rebuild
 
 ```bash
-git add hosts/yggdrasil/default.nix hosts/yggdrasil/hardware-configuration.nix
-git commit -m "Update yggdrasil post-deployment config"
+git add hosts/thebeyond/default.nix hosts/thebeyond/hardware-configuration.nix
+git commit -m "Update thebeyond post-deployment config"
 
 # Rebuild on the router
-ssh root@192.168.1.100 'nixos-rebuild switch --flake /etc/nixos#yggdrasil'
+ssh root@192.168.1.100 'nixos-rebuild switch --flake /etc/nixos#thebeyond'
 ```
 
 #### e. Test Autonomous Reboot
@@ -98,10 +98,10 @@ If it boots successfully without password prompts, encryption is working!
 
 ```bash
 # Store in password manager
-cat .keys/yggdrasil-disk.key  # Copy to password manager
+cat .keys/thebeyond-disk.key  # Copy to password manager
 
 # Store on encrypted backup drive
-cp .keys/yggdrasil-disk.key /path/to/secure/backup/
+cp .keys/thebeyond-disk.key /path/to/secure/backup/
 ```
 
 ### 3. Verify Deployment
@@ -144,7 +144,7 @@ Test full deployment in a VM before touching real hardware:
 ```bash
 # Create test VM (adjust as needed)
 # Deploy to VM
-./scripts/deploy-nixos-anywhere.sh yggdrasil root@<vm-ip> --vm-test
+./scripts/deploy-nixos-anywhere.sh thebeyond root@<vm-ip> --vm-test
 ```
 
 ## Encryption Details
@@ -253,7 +253,7 @@ To deploy a host without encryption, remove LUKS layer from disko profile and sk
 For slow local machines:
 
 ```bash
-./scripts/deploy-nixos-anywhere.sh yggdrasil root@<ip> --build-on-remote
+./scripts/deploy-nixos-anywhere.sh thebeyond root@<ip> --build-on-remote
 ```
 
 ## References

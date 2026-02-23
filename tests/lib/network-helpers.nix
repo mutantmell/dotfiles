@@ -20,28 +20,28 @@ let
 
   # --- mkExtraHosts tests ---
 
-  extraHostsBasic = net.mkExtraHosts [ "mimir" "tyr" ];
-  extraHostsMimir = contains "10.0.11.3 mimir.local" extraHostsBasic;
-  extraHostsMimirV6 = contains "fdc6:55f2:0a5e:b::3 mimir.local" extraHostsBasic;
-  extraHostsTyr = contains "10.0.11.4 tyr.local" extraHostsBasic;
-  extraHostsTyrV6 = contains "fdc6:55f2:0a5e:b::4 tyr.local" extraHostsBasic;
+  extraHostsBasic = net.mkExtraHosts [ "roer" "legram" ];
+  extraHostsRoer = contains "10.0.11.3 roer.local" extraHostsBasic;
+  extraHostsRoerV6 = contains "fdc6:55f2:0a5e:b::3 roer.local" extraHostsBasic;
+  extraHostsLegram = contains "10.0.11.4 legram.local" extraHostsBasic;
+  extraHostsLegramV6 = contains "fdc6:55f2:0a5e:b::4 legram.local" extraHostsBasic;
 
   # Mesh hosts have no IPv6 — should produce only IPv4 line
-  extraHostsMesh = net.mkExtraHosts [ "nidavellir" ];
-  extraHostsMeshV4 = contains "10.1.20.50 nidavellir.local" extraHostsMesh;
+  extraHostsMesh = net.mkExtraHosts [ "azoth" ];
+  extraHostsMeshV4 = contains "10.1.20.50 azoth.local" extraHostsMesh;
   extraHostsMeshNoV6 = !(contains "AAAA" extraHostsMesh || contains "fdc6" extraHostsMesh);
 
   # --- mkUnboundLocalData tests ---
 
-  unboundBasic = net.mkUnboundLocalData [ "alfheim" "surtr" ];
-  unboundAlfheimA = builtins.elem ''"alfheim.local. A ${net.hosts.alfheim.ipv4}"'' unboundBasic;
-  unboundAlfheimAAAA = builtins.elem ''"alfheim.local. AAAA ${net.hosts.alfheim.ipv6}"'' unboundBasic;
-  unboundSurtrA = builtins.elem ''"surtr.local. A ${net.hosts.surtr.ipv4}"'' unboundBasic;
-  unboundSurtrAAAA = builtins.elem ''"surtr.local. AAAA ${net.hosts.surtr.ipv6}"'' unboundBasic;
+  unboundBasic = net.mkUnboundLocalData [ "plantasma" "ordis" ];
+  unboundPlantasmaA = builtins.elem ''"plantasma.local. A ${net.hosts.plantasma.ipv4}"'' unboundBasic;
+  unboundPlantasmaAAAA = builtins.elem ''"plantasma.local. AAAA ${net.hosts.plantasma.ipv6}"'' unboundBasic;
+  unboundOrdisA = builtins.elem ''"ordis.local. A ${net.hosts.ordis.ipv4}"'' unboundBasic;
+  unboundOrdisAAAA = builtins.elem ''"ordis.local. AAAA ${net.hosts.ordis.ipv6}"'' unboundBasic;
 
   # Mesh hosts: A record only, no AAAA
-  unboundMesh = net.mkUnboundLocalData [ "nidavellir" ];
-  unboundMeshA = builtins.elem ''"nidavellir.local. A 10.1.20.50"'' unboundMesh;
+  unboundMesh = net.mkUnboundLocalData [ "azoth" ];
+  unboundMeshA = builtins.elem ''"azoth.local. A 10.1.20.50"'' unboundMesh;
   unboundMeshNoAAAA = builtins.length (builtins.filter (s: contains "AAAA" s) unboundMesh) == 0;
 
   # --- mkDualEgressRules tests ---
@@ -58,39 +58,39 @@ let
 
   # Host rule produces v4 + v6 for hosts with IPv6
   hostRules = net.mkDualEgressRules dmzZone [
-    { host = "tyr"; proto = "tcp"; port = 443; comment = "ACME certs from tyr"; }
+    { host = "legram"; proto = "tcp"; port = 443; comment = "ACME certs from legram"; }
   ];
-  hostV4 = builtins.elem ''ip daddr ${net.hosts.tyr.ipv4} tcp dport 443 accept  comment "ACME certs from tyr"'' hostRules;
-  hostV6 = builtins.elem ''ip6 daddr ${net.hosts.tyr.ipv6} tcp dport 443 accept  comment "ACME certs from tyr"'' hostRules;
+  hostV4 = builtins.elem ''ip daddr ${net.hosts.legram.ipv4} tcp dport 443 accept  comment "ACME certs from legram"'' hostRules;
+  hostV6 = builtins.elem ''ip6 daddr ${net.hosts.legram.ipv6} tcp dport 443 accept  comment "ACME certs from legram"'' hostRules;
 
   # Host rule for mesh host (no IPv6) produces v4 only
   meshRules = net.mkDualEgressRules mgmtZone [
-    { host = "nidavellir"; proto = "tcp"; port = 80; }
+    { host = "azoth"; proto = "tcp"; port = 80; }
   ];
   meshV4Only = assertEq "meshRules length" (builtins.length meshRules) 1;
   meshV4Content = builtins.elem "ip daddr 10.1.20.50 tcp dport 80 accept" meshRules;
 
   # Multi-port rule
   multiPortRules = net.mkDualEgressRules dmzZone [
-    { host = "bragi"; proto = "tcp"; port = [ 80 443 ]; }
+    { host = "heimdallr"; proto = "tcp"; port = [ 80 443 ]; }
   ];
-  multiPortV4 = builtins.elem "ip daddr ${net.hosts.bragi.ipv4} tcp dport { 80, 443 } accept" multiPortRules;
-  multiPortV6 = builtins.elem "ip6 daddr ${net.hosts.bragi.ipv6} tcp dport { 80, 443 } accept" multiPortRules;
+  multiPortV4 = builtins.elem "ip daddr ${net.hosts.heimdallr.ipv4} tcp dport { 80, 443 } accept" multiPortRules;
+  multiPortV6 = builtins.elem "ip6 daddr ${net.hosts.heimdallr.ipv6} tcp dport { 80, 443 } accept" multiPortRules;
 
   allTests = {
     # mkExtraHosts
-    "mkExtraHosts produces IPv4 for mimir" = extraHostsMimir;
-    "mkExtraHosts produces IPv6 for mimir" = extraHostsMimirV6;
-    "mkExtraHosts produces IPv4 for tyr" = extraHostsTyr;
-    "mkExtraHosts produces IPv6 for tyr" = extraHostsTyrV6;
+    "mkExtraHosts produces IPv4 for roer" = extraHostsRoer;
+    "mkExtraHosts produces IPv6 for roer" = extraHostsRoerV6;
+    "mkExtraHosts produces IPv4 for legram" = extraHostsLegram;
+    "mkExtraHosts produces IPv6 for legram" = extraHostsLegramV6;
     "mkExtraHosts produces IPv4 for mesh host" = extraHostsMeshV4;
     "mkExtraHosts skips IPv6 for mesh host" = extraHostsMeshNoV6;
 
     # mkUnboundLocalData
-    "mkUnboundLocalData produces A for alfheim" = unboundAlfheimA;
-    "mkUnboundLocalData produces AAAA for alfheim" = unboundAlfheimAAAA;
-    "mkUnboundLocalData produces A for surtr" = unboundSurtrA;
-    "mkUnboundLocalData produces AAAA for surtr" = unboundSurtrAAAA;
+    "mkUnboundLocalData produces A for plantasma" = unboundPlantasmaA;
+    "mkUnboundLocalData produces AAAA for plantasma" = unboundPlantasmaAAAA;
+    "mkUnboundLocalData produces A for ordis" = unboundOrdisA;
+    "mkUnboundLocalData produces AAAA for ordis" = unboundOrdisAAAA;
     "mkUnboundLocalData produces A for mesh host" = unboundMeshA;
     "mkUnboundLocalData skips AAAA for mesh host" = unboundMeshNoAAAA;
 

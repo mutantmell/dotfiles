@@ -54,7 +54,7 @@ The router is purely a deployment target. It doesn't manage its own updates.
 
 **Why**: Commits record input updates, but not whether the deployment succeeded. A tag after `deploy` succeeds tells you exactly what was deployed and when. You can:
 - `git log --tags` to see deployment timeline
-- `git diff deploy/yggdrasil/20260215.. deploy/yggdrasil/20260222..` to see what changed between deployments
+- `git diff deploy/thebeyond/20260215.. deploy/thebeyond/20260222..` to see what changed between deployments
 - Quickly identify the last successful deployment
 
 Tags are only created after deploy-rs succeeds, so they represent actual deployments, not attempts.

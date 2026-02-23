@@ -25,7 +25,7 @@ All options build the configuration **remotely** (not on the router) to avoid re
 ### Usage
 ```bash
 # Manual deployment
-deploy .#yggdrasil
+deploy .#thebeyond
 
 # Automated via systemd timer (on VM host)
 # See docs/scheduled-deploy-module.md
@@ -35,11 +35,11 @@ services.scheduled-deploy.enable = true;
 ### Configuration
 Already configured in `flake.nix`:
 ```nix
-deploy.nodes.yggdrasil = {
-  hostname = "yggdrasil.local";
+deploy.nodes.thebeyond = {
+  hostname = "thebeyond.local";
   profiles.system = {
     path = deploy-rs.lib.x86_64-linux.activate.nixos
-      self.nixosConfigurations.yggdrasil;
+      self.nixosConfigurations.thebeyond;
     magicRollback = true;
     autoRollback = true;
   };
@@ -66,24 +66,24 @@ deploy.nodes.yggdrasil = {
 ```bash
 # Build locally, deploy remotely
 nixos-rebuild switch \
-  --flake .#yggdrasil \
-  --target-host root@yggdrasil.local \
+  --flake .#thebeyond \
+  --target-host root@thebeyond.local \
   --build-host localhost
 
 # Build on VM host, deploy to router
 nixos-rebuild switch \
-  --flake .#yggdrasil \
-  --target-host root@yggdrasil.local
+  --flake .#thebeyond \
+  --target-host root@thebeyond.local
 
 # Test before switching
 nixos-rebuild test \
-  --flake .#yggdrasil \
-  --target-host root@yggdrasil.local
+  --flake .#thebeyond \
+  --target-host root@thebeyond.local
 
 # Then, if successful
 nixos-rebuild boot \
-  --flake .#yggdrasil \
-  --target-host root@yggdrasil.local
+  --flake .#thebeyond \
+  --target-host root@thebeyond.local
 ```
 
 ### Configuration
@@ -109,7 +109,7 @@ None needed - works with any NixOS configuration.
 colmena apply
 
 # Or specific host
-colmena apply --on yggdrasil
+colmena apply --on thebeyond
 ```
 
 ### Configuration (example)
@@ -120,12 +120,12 @@ colmena apply --on yggdrasil
     specialArgs = { inherit inputs; };
   };
 
-  yggdrasil = { name, nodes, ... }: {
+  thebeyond = { name, nodes, ... }: {
     deployment = {
-      targetHost = "yggdrasil.local";
+      targetHost = "thebeyond.local";
       targetUser = "root";
     };
-    imports = [ ./hosts/yggdrasil ];
+    imports = [ ./hosts/thebeyond ];
   };
 }
 ```
@@ -163,16 +163,16 @@ colmena apply --on yggdrasil
 ### Usage (example)
 ```bash
 # Build configuration
-nix build .#nixosConfigurations.yggdrasil.config.system.build.toplevel
+nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
 
 # Copy to router
-nix copy --to ssh://yggdrasil.local ./result
+nix copy --to ssh://thebeyond.local ./result
 
 # Activate (test first)
-ssh yggdrasil.local "sudo $(readlink ./result)/bin/switch-to-configuration test"
+ssh thebeyond.local "sudo $(readlink ./result)/bin/switch-to-configuration test"
 
 # Then switch
-ssh yggdrasil.local "sudo $(readlink ./result)/bin/switch-to-configuration switch"
+ssh thebeyond.local "sudo $(readlink ./result)/bin/switch-to-configuration switch"
 ```
 
 ## Comparison Table
@@ -201,16 +201,16 @@ ssh yggdrasil.local "sudo $(readlink ./result)/bin/switch-to-configuration switc
 **Alternative**: If you want to avoid dependencies, `nixos-rebuild` is perfectly fine, but requires manual safety steps:
 ```bash
 # Always test first
-nixos-rebuild test --flake .#yggdrasil --target-host yggdrasil.local
+nixos-rebuild test --flake .#thebeyond --target-host thebeyond.local
 
 # Verify it works
-ssh yggdrasil.local 'systemctl status'
+ssh thebeyond.local 'systemctl status'
 
 # Then make it permanent
-nixos-rebuild boot --flake .#yggdrasil --target-host yggdrasil.local
+nixos-rebuild boot --flake .#thebeyond --target-host thebeyond.local
 
 # Reboot when convenient
-ssh yggdrasil.local 'reboot'
+ssh thebeyond.local 'reboot'
 ```
 
 ## Testing Before Deployment
@@ -218,7 +218,7 @@ ssh yggdrasil.local 'reboot'
 Regardless of deployment method, always:
 
 1. **Run integration tests**: `nix build .#checks.x86_64-linux.router6-*`
-2. **Build locally first**: `nix build .#nixosConfigurations.yggdrasil.config.system.build.toplevel`
+2. **Build locally first**: `nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel`
 3. **Test activation**: Use `test` instead of `switch` first
 4. **Have console access**: Keep a way to recover if SSH breaks
 
@@ -237,7 +237,7 @@ git push → CI runs tests → CI deploys to router → Auto-rollback if fails
 
 ## Future Considerations
 
-- **Multiple routers**: If you add more routers (vanaheim), deploy-rs can handle them easily
+- **Multiple routers**: If you add more routers (calvard), deploy-rs can handle them easily
 - **CI/CD integration**: deploy-rs works well with GitHub Actions
 - **Monitoring**: Add deployment notifications/alerts
 - **Canary deployments**: Test on one router before others

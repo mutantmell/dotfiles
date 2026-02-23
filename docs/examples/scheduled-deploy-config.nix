@@ -20,15 +20,15 @@
 
     nodes = {
       # Router - deploy weekly on Sunday at 2 AM
-      yggdrasil = {
+      thebeyond = {
         schedule = "Sun 02:00";
-        flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/yggdrasil-deploy.git";
+        flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git";
       };
 
       # Second router with different schedule and repo
-      # vanaheim = {
+      # calvard = {
       #   schedule = "Mon 03:00";
-      #   flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/vanaheim-deploy.git";
+      #   flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/calvard-deploy.git";
       # };
     };
   };
@@ -56,17 +56,17 @@
 # MONITORING
 # ============================================================================
 # Each node gets individual systemd units:
-#   - scheduled-deploy-yggdrasil.service
-#   - scheduled-deploy-yggdrasil.timer
+#   - scheduled-deploy-thebeyond.service
+#   - scheduled-deploy-thebeyond.timer
 #
 # Check status:
 #   systemctl list-timers 'scheduled-deploy-*'
-#   systemctl status scheduled-deploy-yggdrasil.service
-#   journalctl -u scheduled-deploy-yggdrasil.service -n 50
+#   systemctl status scheduled-deploy-thebeyond.service
+#   journalctl -u scheduled-deploy-thebeyond.service -n 50
 #
 # Manually trigger:
-#   systemctl start scheduled-deploy-yggdrasil.service
+#   systemctl start scheduled-deploy-thebeyond.service
 #
 # Deployment history:
-#   cd /var/lib/scheduled-deploy/yggdrasil
+#   cd /var/lib/scheduled-deploy/thebeyond
 #   git tag -l 'deploy/*' --sort=-creatordate

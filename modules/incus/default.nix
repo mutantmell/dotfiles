@@ -260,7 +260,7 @@ in {
               When set, the container image will be built automatically.
               Mutually exclusive with setting imagePackage explicitly.
             '';
-            example = literalExpression "./containers/surtr";
+            example = literalExpression "./containers/ordis";
           };
 
           image = mkOption {
@@ -270,7 +270,7 @@ in {
               Image alias to use for this container.
               Defaults to the container name.
             '';
-            example = "surtr";
+            example = "ordis";
           };
 
           imagePackage = mkOption {
@@ -290,7 +290,7 @@ in {
               Package containing the container image (metadata.tar.xz and rootfs.tar.xz).
               Can be provided directly or built automatically from configurationFile.
             '';
-            example = literalExpression "pkgs.mmell.surtr-image";
+            example = literalExpression "pkgs.mmell.ordis-image";
           };
 
           autoUpdate = mkOption {

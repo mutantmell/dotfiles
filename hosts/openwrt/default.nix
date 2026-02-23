@@ -21,7 +21,7 @@ let
   # Import common data
   data = import ../../lib/common/data;
 
-  # Shared mesh configuration matching yggdrasil's batman-adv setup
+  # Shared mesh configuration matching thebeyond's batman-adv setup
   # Note: meshKey is intentionally omitted - configured via secrets post-deployment
   meshConfig = {
     # Override with actual mesh ID before building
@@ -45,7 +45,7 @@ let
     HOME = { tag = 20; };
   };
 
-  # Switch VLANs — denali uses standard VLAN tags on a bridge
+  # Switch VLANs — arseille uses standard VLAN tags on a bridge
   # Trunk ports (lan1-4) carry all VLANs tagged; access ports are untagged
   switchVlans = {
     MGMT     = { tag = 10; accessPorts = [ "lan7" "lan8" ]; };
@@ -147,23 +147,23 @@ in {
   # All Linksys E8450 (UBI variant)
   # =============================================================================
 
-  goo = mkMeshAP {
-    hostname = "goo";
+  bobcat = mkMeshAP {
+    hostname = "bobcat";
     profile = "linksys_e8450-ubi";
     hostId = 23;
     heBssColor = 49;
   };
 
-  gumbo = mkMeshAP {
-    hostname = "gumbo";
+  lusitania = mkMeshAP {
+    hostname = "lusitania";
     profile = "linksys_e8450-ubi";
     hostId = 24;
     heBssColor = 58;
     extraPackages = [ "usteer" ];
   };
 
-  gumby = mkMeshAP {
-    hostname = "gumby";
+  merkabah = mkMeshAP {
+    hostname = "merkabah";
     profile = "linksys_e8450-ubi";
     hostId = 20;
     heBssColor = 8;
@@ -171,8 +171,8 @@ in {
     extraPackages = [ "usteer" ];
   };
 
-  pokey = mkMeshAP {
-    hostname = "pokey";
+  derfflinger = mkMeshAP {
+    hostname = "derfflinger";
     profile = "linksys_e8450-ubi";
     hostId = 21;
     heBssColor = 25;
@@ -205,8 +205,8 @@ in {
     };
   };
 
-  prickle = mkMeshAP {
-    hostname = "prickle";
+  pantagruel = mkMeshAP {
+    hostname = "pantagruel";
     profile = "linksys_e8450-ubi";
     hostId = 22;
     heBssColor = 8;
@@ -218,8 +218,8 @@ in {
   # NETGEAR GS108T v3
   # =============================================================================
 
-  denali = mkSwitch {
-    hostname = "denali";
+  arseille = mkSwitch {
+    hostname = "arseille";
     profile = "netgear_gs108t-v3";
     hostId = 12;
     vlanId = 10;
@@ -232,13 +232,13 @@ in {
   # TP-Link EAP615-Wall v1 (UNCONFIRMED: verify before deploying)
   # =============================================================================
 
-  gumba = mkSimpleAP {
-    hostname = "gumba";
+  glorious = mkSimpleAP {
+    hostname = "glorious";
     profile = "tplink_eap615-wall-v1";  # UNCONFIRMED: verify before deploying
     hostId = 20;
     vlanId = 31;
     ssid = "MyAP";
-    # Keep dnsmasq (removed by default) — gumba serves DHCP for the ADU network
+    # Keep dnsmasq (removed by default) — glorious serves DHCP for the ADU network
     extraPackages = [ "dnsmasq" "odhcpd-ipv6only" ];
     extraConfig = {
       # Firewall — stricter defaults than mesh APs (acts as a gateway)

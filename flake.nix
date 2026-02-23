@@ -145,7 +145,7 @@
     };
 
     nixosConfigurations = {
-      yggdrasil = self.lib.mk-nixos {
+      thebeyond = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
@@ -154,11 +154,11 @@
           microvm-stable.nixosModules.host
           home-manager.nixosModules.home-manager
           impermanence.nixosModules.impermanence
-          ./hosts/yggdrasil
+          ./hosts/thebeyond
         ];
       };
 
-      vanaheim = self.lib.mk-nixos {
+      calvard = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
@@ -166,19 +166,19 @@
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
           impermanence.nixosModules.impermanence
-          ./hosts/vanaheim
+          ./hosts/calvard
         ];
       };
-      jotunheimr = self.lib.mk-nixos {
+      remiferia = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
-          ./hosts/jotunheimr
+          ./hosts/remiferia
         ];
       };
-      muspelheim = self.lib.mk-nixos {
+      erebonia = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
@@ -186,25 +186,25 @@
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
           self.nixosModules.incus
-          ./hosts/muspelheim
+          ./hosts/erebonia
         ];
       };
-#      nidavellir = self.lib.mk-nixos {
+#      azoth = self.lib.mk-nixos {
 #        inherit nixpkgs;
 #        system = "aarch64-linux";
 #        modules = [
 #          home-manager.nixosModules.home-manager
 #          nixos-hardware.nixosModules.raspberry-pi-4
-#          ./hosts/nidavellir
+#          ./hosts/azoth
 #        ];
 #      };
-#      thunarr = self.lib.mk-nixos {
+#      arcus = self.lib.mk-nixos {
 #        inherit nixpkgs;
 #        system = "x86_64-linux";
 #        modules = [
 #          home-manager.nixosModules.home-manager
 #          jovian.nixosModules.jovian
-#          ./hosts/thunarr
+#          ./hosts/arcus
 #        ];
 #      };
     };
@@ -236,12 +236,12 @@
       user = "root";
 
       nodes = {
-        yggdrasil = {
-          hostname = "yggdrasil.local";
+        thebeyond = {
+          hostname = "thebeyond.local";
           profiles.system = {
             sshUser = "root";
             user = "root";
-            path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.yggdrasil;
+            path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.thebeyond;
 
             # Test activation before making it boot default
             # This allows rollback if something goes wrong
