@@ -10,10 +10,10 @@ Each deployment target has a **wrapper flake** in its own git repository. The mo
 
 ### Wrapper Flake Repo
 
-Each target needs a git repo containing a wrapper `flake.nix`. For example, to deploy the router (yggdrasil):
+Each target needs a git repo containing a wrapper `flake.nix`. For example, to deploy the router (thebeyond):
 
 ```nix
-# flake.nix in the yggdrasil-deploy repo
+# flake.nix in the thebeyond-deploy repo
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -30,11 +30,11 @@ Create the repo and do an initial `nix flake update` to generate the first `flak
 
 ```bash
 # On the gitea server or wherever you host git repos
-git init --bare /var/lib/git/yggdrasil-deploy.git
+git init --bare /var/lib/git/thebeyond-deploy.git
 
 # On your workstation
-git clone ssh://git@10.0.100.31/var/lib/git/yggdrasil-deploy.git
-cd yggdrasil-deploy
+git clone ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git
+cd thebeyond-deploy
 # Create flake.nix as above
 nix flake update
 git add flake.nix flake.lock
@@ -58,9 +58,9 @@ The VM host needs SSH access to:
 
   services.scheduled-deploy = {
     enable = true;
-    nodes.yggdrasil = {
+    nodes.thebeyond = {
       schedule = "Sun 02:00";
-      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/yggdrasil-deploy.git";
+      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git";
     };
   };
 }
@@ -76,15 +76,15 @@ services.scheduled-deploy = {
   stateDirectory = "/var/lib/scheduled-deploy";
 
   nodes = {
-    yggdrasil = {
+    thebeyond = {
       # Systemd calendar expression (required)
       schedule = "Sun 02:00";
 
       # Git URL of the wrapper flake repo (required)
-      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/yggdrasil-deploy.git";
+      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git";
 
       # deploy-rs node name (defaults to attr name)
-      # deployNode = "yggdrasil";
+      # deployNode = "thebeyond";
     };
   };
 };
@@ -113,20 +113,20 @@ Each node gets individual units:
 systemctl list-timers 'scheduled-deploy-*'
 
 # Service status
-systemctl status scheduled-deploy-yggdrasil.service
+systemctl status scheduled-deploy-thebeyond.service
 
 # Recent logs
-journalctl -u scheduled-deploy-yggdrasil.service -n 50
+journalctl -u scheduled-deploy-thebeyond.service -n 50
 
 # Follow logs live
-journalctl -u scheduled-deploy-yggdrasil.service -f
+journalctl -u scheduled-deploy-thebeyond.service -f
 ```
 
 ### Manual Trigger
 
 ```bash
-systemctl start scheduled-deploy-yggdrasil.service
-journalctl -u scheduled-deploy-yggdrasil.service -f
+systemctl start scheduled-deploy-thebeyond.service
+journalctl -u scheduled-deploy-thebeyond.service -f
 ```
 
 ### Deployment History
@@ -135,11 +135,11 @@ The wrapper flake repo records all activity:
 
 ```bash
 # View deployment tags
-cd /var/lib/scheduled-deploy/yggdrasil
+cd /var/lib/scheduled-deploy/thebeyond
 git tag -l 'deploy/*' --sort=-creatordate
 
 # See what changed between two deployments
-git diff deploy/yggdrasil/20260208T020000Z deploy/yggdrasil/20260215T020000Z
+git diff deploy/thebeyond/20260208T020000Z deploy/thebeyond/20260215T020000Z
 
 # View input update history
 git log --oneline
@@ -167,13 +167,13 @@ Each node is fully independent with its own repo, checkout, schedule, and deploy
 services.scheduled-deploy = {
   enable = true;
   nodes = {
-    yggdrasil = {
+    thebeyond = {
       schedule = "Sun 02:00";
-      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/yggdrasil-deploy.git";
+      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git";
     };
-    vanaheim = {
+    calvard = {
       schedule = "Mon 03:00";
-      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/vanaheim-deploy.git";
+      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/calvard-deploy.git";
     };
   };
 };

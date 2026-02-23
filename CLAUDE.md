@@ -12,8 +12,8 @@ nix flake check --print-build-logs
 nix build .#checks.x86_64-linux.<name>
 # Available checks: router6-ipv6, router6-firewall, router6-firewall-zones,
 #   router6-bond-bridge, router6-device-vlans, router6-bridge-vlan-ordering,
-#   egress-filter, router6-yggdrasil, nftables-dsl, router6-firewall-snapshot,
-#   yggdrasil-firewall-snapshot, router6-zone-system, network-helpers,
+#   egress-filter, router6-thebeyond, nftables-dsl, router6-firewall-snapshot,
+#   thebeyond-firewall-snapshot, router6-zone-system, network-helpers,
 #   disko-router, disko-vm-host
 
 # Run pure Nix eval tests directly
@@ -25,7 +25,7 @@ nix build .#checks.x86_64-linux.<name>.driverInteractive && ./result/bin/nixos-t
 
 ## Architecture
 
-This is a NixOS flake-based infrastructure project managing a home network with a router, multiple VM hosts, and microVMs. Norse mythology naming theme throughout.
+This is a NixOS flake-based infrastructure project managing a home network with a router, multiple VM hosts, and microVMs. Trails series naming theme (countries, cities, persons).
 
 ### Key Directories
 
@@ -71,9 +71,9 @@ Topology defines devices (physical, bond, bridge, batman, wireguard) with VLANs,
 
 ### Primary Hosts
 
-- **yggdrasil** — Router (router6 module, microvm host, impermanence, disko)
-- **jotunheimr** — NAS (ZFS, NFS, microvm host)
-- **muspelheim** — VM host (Incus, microvm host)
+- **thebeyond** — Router (router6 module, microvm host, impermanence, disko)
+- **remiferia** — NAS (ZFS, NFS, microvm host)
+- **erebonia** — VM host (Incus, microvm host)
 
 ## Testing Patterns
 

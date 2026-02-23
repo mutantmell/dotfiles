@@ -12,25 +12,25 @@ let
     network = {
       vlanId = 10;
       hosts = {
-        denali = 12;
+        arseille = 12;
       };
     };
     management = {
       vlanId = 11;
       hosts = {
-        yggdrasil  = 1;
-        alfheim    = 2;
-        mimir      = 3;    # Keycloak OIDC
-        tyr        = 4;    # step-ca / PKI
-        jotunheimr = 20;   # NAS — before VM hosts
-        vanaheim   = 30;   # VM host
-        muspelheim = 31;   # VM host
+        thebeyond  = 1;
+        plantasma  = 2;
+        roer       = 3;    # Keycloak OIDC
+        legram     = 4;    # step-ca / PKI
+        remiferia  = 20;   # NAS — before VM hosts
+        calvard    = 30;   # VM host
+        erebonia   = 31;   # VM host
       };
     };
     trusted = {
       vlanId = 20;
       hosts = {
-        skadi = 40;
+        denai = 40;
         ymir  = 41;
       };
     };
@@ -41,7 +41,7 @@ let
     adu = {
       vlanId = 31;
       hosts = {
-        gumba = 20;
+        glorious = 20;
       };
     };
     iot = {
@@ -55,10 +55,10 @@ let
     dmz = {
       vlanId = 100;
       hosts = {
-        hrungnir = 31;
-        surtr    = 40;
-        bragi    = 50;
-        njord    = 51;
+        ardent    = 31;
+        ordis     = 40;
+        heimdallr = 50;
+        trista    = 51;
       };
     };
   };
@@ -95,12 +95,12 @@ let
     lib.mapAttrs (_: hostId: mkHost zoneName net.vlanId hostId) net.hosts
   ) networks) // {
     # Mesh hosts (10.1.x.x — separate prefix, not yet migrated)
-    gumby      = mkMeshHost 10 20;
-    pokey      = mkMeshHost 10 21;
-    prickle    = mkMeshHost 10 22;
-    goo        = mkMeshHost 10 23;
-    gumbo      = mkMeshHost 10 24;
-    nidavellir = mkMeshHost 20 50;
+    merkabah    = mkMeshHost 10 20;
+    derfflinger = mkMeshHost 10 21;
+    pantagruel  = mkMeshHost 10 22;
+    bobcat      = mkMeshHost 10 23;
+    lusitania   = mkMeshHost 10 24;
+    azoth       = mkMeshHost 20 50;
   };
 
   # Human-readable summary table

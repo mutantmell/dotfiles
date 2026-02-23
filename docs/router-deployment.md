@@ -1,6 +1,6 @@
 # Router Deployment Strategy
 
-This documents the automated deployment strategy for the router (yggdrasil).
+This documents the automated deployment strategy for the router (thebeyond).
 
 ## Overview
 
@@ -20,8 +20,8 @@ VM Host (builder)  -->  Build configuration
 ### Deploy from the Dotfiles Flake
 
 ```bash
-# Deploy to yggdrasil using the main flake's pinned inputs
-deploy .#yggdrasil
+# Deploy to thebeyond using the main flake's pinned inputs
+deploy .#thebeyond
 ```
 
 This builds locally and deploys with auto-rollback enabled.
@@ -57,16 +57,16 @@ Create a wrapper flake repo for the router (see `docs/scheduled-deploy-module.md
 ### Configuration
 
 ```nix
-# hosts/jotunheimr/scheduled-deploy.nix
+# hosts/remiferia/scheduled-deploy.nix
 { ... }:
 {
   imports = [ ../../modules/scheduled-deploy ];
 
   services.scheduled-deploy = {
     enable = true;
-    nodes.yggdrasil = {
+    nodes.thebeyond = {
       schedule = "Sun 02:00";
-      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/yggdrasil-deploy.git";
+      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git";
     };
   };
 }
@@ -74,7 +74,7 @@ Create a wrapper flake repo for the router (see `docs/scheduled-deploy-module.md
 
 Then import it:
 ```nix
-# hosts/jotunheimr/default.nix
+# hosts/remiferia/default.nix
 {
   imports = [
     # ... existing imports ...
@@ -90,13 +90,13 @@ Then import it:
 systemctl list-timers 'scheduled-deploy-*'
 
 # View logs
-journalctl -u scheduled-deploy-yggdrasil.service -n 50
+journalctl -u scheduled-deploy-thebeyond.service -n 50
 
 # Manually trigger
-systemctl start scheduled-deploy-yggdrasil.service
+systemctl start scheduled-deploy-thebeyond.service
 
 # View deployment history
-cd /var/lib/scheduled-deploy/yggdrasil
+cd /var/lib/scheduled-deploy/thebeyond
 git tag -l 'deploy/*' --sort=-creatordate
 ```
 
@@ -106,13 +106,13 @@ git tag -l 'deploy/*' --sort=-creatordate
 services.scheduled-deploy = {
   enable = true;
   nodes = {
-    yggdrasil = {
+    thebeyond = {
       schedule = "Sun 02:00";
-      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/yggdrasil-deploy.git";
+      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git";
     };
-    vanaheim = {
+    calvard = {
       schedule = "Mon 03:00";
-      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/vanaheim-deploy.git";
+      flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/calvard-deploy.git";
     };
   };
 };
@@ -144,7 +144,7 @@ nix build .#checks.x86_64-linux.router6-firewall
 
 Before deploying, the script builds the full system closure to ensure it evaluates correctly:
 ```bash
-nix build .#nixosConfigurations.yggdrasil.config.system.build.toplevel
+nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
 ```
 
 ### Deploy-rs Checks
@@ -165,18 +165,18 @@ deploy-rs includes automatic rollback protection:
 
 If something goes wrong:
 - The router will automatically rollback to the previous generation
-- You can manually rollback: `ssh yggdrasil 'sudo nixos-rebuild --rollback switch'`
-- Check previous generations: `ssh yggdrasil 'nix-env --list-generations --profile /nix/var/nix/profiles/system'`
+- You can manually rollback: `ssh thebeyond 'sudo nixos-rebuild --rollback switch'`
+- Check previous generations: `ssh thebeyond 'nix-env --list-generations --profile /nix/var/nix/profiles/system'`
 
 ## Deployment Workflow
 
 ### Standard Workflow
 
 1. Make changes to router configuration locally
-2. Test changes: `nix build .#nixosConfigurations.yggdrasil.config.system.build.toplevel`
+2. Test changes: `nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel`
 3. Run integration tests: `nix build .#checks.x86_64-linux.router6-ipv6` (etc.)
-4. Deploy: `deploy .#yggdrasil`
-5. Verify: `ssh yggdrasil.local 'nixos-version'`
+4. Deploy: `deploy .#thebeyond`
+5. Verify: `ssh thebeyond.local 'nixos-version'`
 
 ### Emergency Rollback
 
@@ -184,7 +184,7 @@ If something goes wrong and auto-rollback doesn't work:
 
 ```bash
 # SSH into router
-ssh yggdrasil.local
+ssh thebeyond.local
 
 # List generations
 sudo nix-env --list-generations --profile /nix/var/nix/profiles/system
@@ -209,13 +209,13 @@ deploy-rs builds the configuration on the machine you run it from, not on the ro
 The deployment configuration is in `flake.nix`:
 
 ```nix
-deploy.nodes.yggdrasil = {
-  hostname = "yggdrasil.local";
+deploy.nodes.thebeyond = {
+  hostname = "thebeyond.local";
   profiles.system = {
     sshUser = "root";
     user = "root";
     path = deploy-rs.lib.x86_64-linux.activate.nixos
-      self.nixosConfigurations.yggdrasil;
+      self.nixosConfigurations.thebeyond;
     magicRollback = true;
     autoRollback = true;
   };
@@ -229,14 +229,14 @@ deploy.nodes.yggdrasil = {
 Ensure SSH keys are configured:
 ```bash
 ssh-add ~/.ssh/id_ed25519  # or your deploy key
-ssh root@yggdrasil.local 'echo connected'
+ssh root@thebeyond.local 'echo connected'
 ```
 
 ### Build Failures
 
 Check the build locally first:
 ```bash
-nix build .#nixosConfigurations.yggdrasil.config.system.build.toplevel
+nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
 ```
 
 ### Test Failures
@@ -250,8 +250,8 @@ nix build .#checks.x86_64-linux.router6-ipv6
 ### Deployment Stuck
 
 If deployment hangs:
-1. Check router is reachable: `ping yggdrasil.local`
-2. Check SSH access: `ssh root@yggdrasil.local`
+1. Check router is reachable: `ping thebeyond.local`
+2. Check SSH access: `ssh root@thebeyond.local`
 3. Cancel deployment (Ctrl+C) - auto-rollback should trigger
 4. Manually rollback if needed (see Emergency Rollback above)
 
@@ -262,14 +262,14 @@ If you prefer not to use deploy-rs, you can use pure `nixos-rebuild`:
 ```bash
 # Build locally, deploy remotely
 nixos-rebuild switch \
-  --flake .#yggdrasil \
-  --target-host root@yggdrasil.local \
+  --flake .#thebeyond \
+  --target-host root@thebeyond.local \
   --build-host localhost
 
 # Or build and deploy on the VM host
 nixos-rebuild switch \
-  --flake .#yggdrasil \
-  --target-host root@yggdrasil.local
+  --flake .#thebeyond \
+  --target-host root@thebeyond.local
 ```
 
 However, this lacks the automatic rollback features of deploy-rs.

@@ -1,82 +1,81 @@
 keys:
-  - &ad_skadi age1mmqej3arlv2wx96m2gh9fgvqpkwaeselzfu4rqfn54artx058vys7g3ehq
-  - &sv_alfheim age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
-  - &sv_bragi age1exkagk0ztmnw7kvx3wwwqjgx3m2zxycgg46xmrt7pvqlngqgjyeqc4ajqh
+  - &ad_denai age1mmqej3arlv2wx96m2gh9fgvqpkwaeselzfu4rqfn54artx058vys7g3ehq
+  - &sv_plantasma age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
+  - &sv_heimdallr age1exkagk0ztmnw7kvx3wwwqjgx3m2zxycgg46xmrt7pvqlngqgjyeqc4ajqh
 
-  - &sv_hrungnir age1t8499a2tna8pzn448ylnpwach59l6m38s33pzdmy4vhy492nevpqq7l6tc
-  - &sv_jotunheimr age1smvmkjl0csqh3wmx9744xqatghnrpnj0y8hmv88gy5llrpujmetqhu9l4g
-  - &sv_muspelheim age1328qtjtudgc3zgg7su05ja20kckx50jehs0v3q3mw6k64j0dzefs752tu2
-  - &sv_nidavellir age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
-  - &sv_njord age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
-  - &sv_skadi age19d3g52d9vn37n9z2ezrj37n6svk9vjxdm6tmnjchklh9muhdpqfs4xvea7
-  - &sv_surtr age1fekpnwvr7xzkfmwx0t3ar3h0e6sdl5jxskupy2hnzc4d08c9mv2qz3ksx7
-  - &sv_vanaheim age1jnpyg8chayw6l9wfx209hvkddq9cult3qdyuf7trljs6t5vf3czseu8qlm
+  - &sv_ardent age1t8499a2tna8pzn448ylnpwach59l6m38s33pzdmy4vhy492nevpqq7l6tc
+  - &sv_remiferia age1smvmkjl0csqh3wmx9744xqatghnrpnj0y8hmv88gy5llrpujmetqhu9l4g
+  - &sv_erebonia age1328qtjtudgc3zgg7su05ja20kckx50jehs0v3q3mw6k64j0dzefs752tu2
+  - &sv_azoth age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
+  - &sv_trista age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
+  - &sv_denai age19d3g52d9vn37n9z2ezrj37n6svk9vjxdm6tmnjchklh9muhdpqfs4xvea7
+  - &sv_ordis age1fekpnwvr7xzkfmwx0t3ar3h0e6sdl5jxskupy2hnzc4d08c9mv2qz3ksx7
+  - &sv_calvard age1jnpyg8chayw6l9wfx209hvkddq9cult3qdyuf7trljs6t5vf3czseu8qlm
   - &sv_ymir age1anrdj6swtlq5ll4e369gz3lh6aj2sz6pj5zh25uhltjfk4z86azsfsxk9a
-  - &sv_yggdrasil age1yejm0ghvycctg868ag2u0awkf7crpuh59nfvy73dvsuuuns9davsxc6ssz
+  - &sv_thebeyond age1yejm0ghvycctg868ag2u0awkf7crpuh59nfvy73dvsuuuns9davsxc6ssz
 creation_rules:
-  - path_regex: hosts/yggdrasil/guests/alfheim/secrets/[^/]+\.yaml$
+  - path_regex: hosts/thebeyond/guests/plantasma/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_alfheim
-  - path_regex: hosts/jotunheimr/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_plantasma
+  - path_regex: hosts/remiferia/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_jotunheimr
-  - path_regex: hosts/jotunheimr/guests/hrungnir/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_remiferia
+  - path_regex: hosts/remiferia/guests/ardent/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_hrungnir
-  # TODO: move skadi to microvm-enabled vanaheim
-  - path_regex: hosts/jotunheimr/guests/skadi/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_ardent
+  - path_regex: hosts/remiferia/guests/denai/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_skadi
-  - path_regex: hosts/muspelheim/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_denai
+  - path_regex: hosts/erebonia/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_muspelheim
-  - path_regex: hosts/muspelheim/guests/surtr/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_erebonia
+  - path_regex: hosts/erebonia/guests/ordis/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_surtr
-  - path_regex: hosts/muspelheim/guests/ymir/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_ordis
+  - path_regex: hosts/erebonia/guests/ymir/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
+        - *ad_denai
         - *sv_ymir
-  - path_regex: hosts/nidavellir/secrets/[^/]+\.yaml$
+  - path_regex: hosts/azoth/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_nidavellir
-  - path_regex: hosts/vanaheim/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_azoth
+  - path_regex: hosts/calvard/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_vanaheim
-  - path_regex: hosts/vanaheim/guests/bragi/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_calvard
+  - path_regex: hosts/calvard/guests/heimdallr/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_bragi
-  - path_regex: hosts/vanaheim/guests/njord/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_heimdallr
+  - path_regex: hosts/calvard/guests/trista/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_njord
-  - path_regex: hosts/yggdrasil/secrets/[^/]+\.yaml$
+        - *ad_denai
+        - *sv_trista
+  - path_regex: hosts/thebeyond/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
-        - *sv_yggdrasil
+        - *ad_denai
+        - *sv_thebeyond
   - path_regex: hosts/openwrt/secrets/[^/]+\.yaml$
     key_groups:
       - age:
-        - *ad_skadi
+        - *ad_denai
         # OpenWrt devices don't need keys - secrets are pushed via SSH at deploy time

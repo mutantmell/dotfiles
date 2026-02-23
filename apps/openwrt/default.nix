@@ -165,7 +165,7 @@ in {
           echo "  --skip-secrets Skip secrets configuration after flash"
           echo ""
           echo "Example:"
-          echo "  nix run .#openwrt-deploy -- fenrir 10.0.10.10"
+          echo "  nix run .#openwrt-deploy -- bobcat 10.0.10.10"
           exit 1
         fi
 
@@ -494,8 +494,8 @@ in {
           echo "  - A UCI export file (e.g., temp/openwrt/uci/<device>.uci)"
           echo ""
           echo "Examples:"
-          echo "  nix run .#openwrt-analyze-local -- temp/openwrt/config/pokey/config"
-          echo "  nix run .#openwrt-analyze-local -- temp/openwrt/uci/denali.uci"
+          echo "  nix run .#openwrt-analyze-local -- temp/openwrt/config/derfflinger/config"
+          echo "  nix run .#openwrt-analyze-local -- temp/openwrt/uci/arseille.uci"
           exit 1
         fi
 

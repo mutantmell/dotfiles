@@ -13,7 +13,7 @@ let
 
       flakeRef = lib.mkOption {
         type = lib.types.str;
-        example = "git+ssh://git@10.0.100.31/var/lib/git/yggdrasil-deploy.git#main";
+        example = "git+ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git#main";
         description = ''
           Git URL of the flake repository for this node. Supports branch
           selection via a #branch suffix.
@@ -68,9 +68,9 @@ in {
       default = {};
       example = lib.literalExpression ''
         {
-          yggdrasil = {
+          thebeyond = {
             schedule = "Sun 02:00";
-            flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/yggdrasil-deploy.git";
+            flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git";
           };
         }
       '';

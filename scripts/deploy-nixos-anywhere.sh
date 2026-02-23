@@ -11,8 +11,8 @@ if [[ -z "$HOSTNAME" || -z "$TARGET" ]]; then
     echo "Usage: $0 <hostname> <target-ip> [extra-args]"
     echo ""
     echo "Examples:"
-    echo "  $0 yggdrasil root@192.168.1.100"
-    echo "  $0 vanaheim user@example.com --build-on-remote"
+    echo "  $0 thebeyond root@192.168.1.100"
+    echo "  $0 calvard user@example.com --build-on-remote"
     echo ""
     echo "Available hosts:"
     nix flake show 2>/dev/null | grep "nixosConfigurations" -A 10 | grep "├" | sed 's/.*├─ /  - /'
