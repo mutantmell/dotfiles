@@ -12,8 +12,9 @@ nix flake check --print-build-logs
 nix build .#checks.x86_64-linux.<name>
 # Available checks: router6-ipv6, router6-firewall, router6-firewall-zones,
 #   router6-bond-bridge, router6-device-vlans, router6-bridge-vlan-ordering,
-#   egress-filter, nftables-dsl, router6-firewall-snapshot, router6-zone-system,
-#   network-helpers, disko-router, disko-vm-host
+#   egress-filter, router6-yggdrasil, nftables-dsl, router6-firewall-snapshot,
+#   yggdrasil-firewall-snapshot, router6-zone-system, network-helpers,
+#   disko-router, disko-vm-host
 
 # Run pure Nix eval tests directly
 nix-instantiate --eval --strict tests/lib/<file>.nix

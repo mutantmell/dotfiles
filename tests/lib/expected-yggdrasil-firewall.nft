@@ -1,0 +1,118 @@
+          table inet filter {
+            chain input {
+              type filter hook input priority filter; policy drop;
+
+              # Accept established/related
+              ct state established,related accept
+
+              # Accept loopback
+              iifname "lo" accept
+
+              # Accept essential ICMP/ICMPv6 from anywhere (required for network operation)
+              # - destination-unreachable: connection handling
+              # - packet-too-big (v6) / frag-needed (v4): Path MTU Discovery (critical)
+              # - time-exceeded: traceroute, TTL expiry
+              # - parameter-problem: malformed packet notification
+              icmp type { destination-unreachable, time-exceeded, parameter-problem } accept
+              icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem } accept
+
+              # Accept Neighbor Discovery (required for IPv6 to function - like ARP for IPv4)
+              icmpv6 type { nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+
+              iifname { "vINFRA.br0" } icmp type { echo-request, echo-reply } accept
+              iifname { "vINFRA.br0" } icmpv6 type { echo-request, echo-reply } accept
+              iifname { "vINFRA.br0" } accept comment "Full router service access"
+              iifname { "vMGMT.br0" } icmp type { echo-request, echo-reply } accept
+              iifname { "vMGMT.br0" } icmpv6 type { echo-request, echo-reply } accept
+              iifname { "vMGMT.br0" } udp dport 123 accept comment "NTP"
+              iifname { "vHOME.br0", "wg-vpn" } icmp type { echo-request, echo-reply } accept
+              iifname { "vHOME.br0", "wg-vpn" } icmpv6 type { echo-request, echo-reply } accept
+              iifname { "vHOME.br0", "wg-vpn" } accept comment "Full router service access"
+              iifname { "vADU.br0", "vDMZ.br0", "vGAME.br0", "vGUEST.br0", "vIOT.br0" } icmp type { echo-request, echo-reply } accept
+              iifname { "vADU.br0", "vDMZ.br0", "vGAME.br0", "vGUEST.br0", "vIOT.br0" } icmpv6 type { echo-request, echo-reply } accept
+              iifname { "vADU.br0", "vDMZ.br0", "vGAME.br0", "vGUEST.br0", "vIOT.br0" } udp dport { 53, 67, 547 } accept comment "DNS + DHCP"
+              iifname { "vADU.br0", "vDMZ.br0", "vGAME.br0", "vGUEST.br0", "vIOT.br0" } tcp dport 53 accept comment "DNS over TCP"
+
+              # Wireguard ports
+              udp dport { 38506, 59362 } accept
+
+            }
+
+            chain forward {
+              type filter hook forward priority filter; policy drop;
+
+              # Accept established/related
+              ct state established,related accept
+
+              # Clamp MSS to path MTU
+              tcp flags syn tcp option maxseg size set rt mtu
+
+              iifname { "vINFRA.br0" } oifname { "vINFRA.br0", "vHOME.br0", "wg-vpn", "vADU.br0", "vDMZ.br0", "vGAME.br0", "vGUEST.br0", "vIOT.br0" } accept
+              iifname { "vHOME.br0", "wg-vpn" } oifname { "vINFRA.br0", "vHOME.br0", "wg-vpn", "vADU.br0", "vDMZ.br0", "vGAME.br0", "vGUEST.br0", "vIOT.br0", "wan" } accept
+              iifname { "vADU.br0", "vDMZ.br0", "vGAME.br0", "vGUEST.br0", "vIOT.br0" } oifname { "wan" } accept
+
+              iifname { "vINFRA.br0" } oifname { "wan" } udp dport 53 accept comment "DNS recursive queries"
+              iifname { "vINFRA.br0" } oifname { "wan" } tcp dport 53 accept comment "DNS recursive queries (TCP)"
+              iifname { "vINFRA.br0" } oifname { "wan" } tcp dport 80 accept comment "HTTP for package mirrors"
+              iifname { "vINFRA.br0" } oifname { "wan" } tcp dport 443 accept comment "HTTPS for updates"
+              iifname { "vINFRA.br0" } oifname { "wan" } udp dport 123 accept comment "NTP"
+
+              # Port forward destinations
+              tcp dport 22 ip daddr 10.0.100.40 accept
+
+              # Extra forward rules
+              iifname "vDMZ.br0" oifname "wg-ba" accept
+              iifname "wg-ba" ip daddr 10.0.100.40 accept
+              iifname "wg-ba" ip6 daddr fdc6:55f2:0a5e:64::28 accept
+              iifname "vDMZ.br0" ip saddr 10.0.100.40 ip daddr 10.0.11.3 oifname "vINFRA.br0" tcp dport 443 accept comment "surtr -> mimir (OIDC)"
+              iifname "vDMZ.br0" ip6 saddr fdc6:55f2:0a5e:64::28 ip6 daddr fdc6:55f2:0a5e:b::3 oifname "vINFRA.br0" tcp dport 443 accept comment "surtr -> mimir (OIDC v6)"
+              iifname "vDMZ.br0" ip daddr 10.0.11.4 oifname "vINFRA.br0" tcp dport 443 accept comment "vDMZ -> tyr (ACME)"
+              iifname "vDMZ.br0" ip6 daddr fdc6:55f2:0a5e:b::4 oifname "vINFRA.br0" tcp dport 443 accept comment "vDMZ -> tyr (ACME v6)"
+            }
+
+            chain output {
+              type filter hook output priority filter; policy accept;
+            }
+          }
+
+          table ip nat {
+            chain prerouting {
+              type nat hook prerouting priority dstnat;
+
+              # DNAT / Port forwarding
+iifname "wg-ba" tcp dport 22 dnat to 10.0.100.40:22
+
+
+              # Extra NAT rules
+oifname "wg-ba" masquerade
+              iifname "wg-ba" ip daddr 10.0.100.40 masquerade
+              ip saddr != 10.0.11.2 ip daddr != { 10.0.11.1, 10.0.11.2 } udp dport 53 dnat to 10.0.11.1:53 comment "Intercept DNS bypass (UDP)"
+              ip saddr != 10.0.11.2 ip daddr != { 10.0.11.1, 10.0.11.2 } tcp dport 53 dnat to 10.0.11.1:53 comment "Intercept DNS bypass (TCP)"
+
+            }
+
+            chain postrouting {
+              type nat hook postrouting priority srcnat;
+
+              # Masquerade outgoing traffic on NAT interfaces
+oifname { "wan" } masquerade
+
+            }
+          }
+
+          # IPv6 NAT table
+          # ULA addresses are used for internal IPv6 communication only
+          table ip6 nat {
+            chain prerouting {
+              type nat hook prerouting priority dstnat;
+
+              # Extra IPv6 NAT rules
+ip6 saddr != fdc6:55f2:0a5e:b::2 ip6 daddr != { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:b::2 } udp dport 53 dnat to [fdc6:55f2:0a5e:b::1]:53 comment "Intercept IPv6 DNS bypass (UDP)"
+              ip6 saddr != fdc6:55f2:0a5e:b::2 ip6 daddr != { fdc6:55f2:0a5e:b::1, fdc6:55f2:0a5e:b::2 } tcp dport 53 dnat to [fdc6:55f2:0a5e:b::1]:53 comment "Intercept IPv6 DNS bypass (TCP)"
+
+            }
+
+            chain postrouting {
+              type nat hook postrouting priority srcnat;
+            }
+          }
