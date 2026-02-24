@@ -42,7 +42,7 @@ in {
       { Gateway = zone.gateway6; }
     ];
   };
-  networking.extraHosts = net.mkExtraHosts [ "plantasma" "roer" "legram" "heimdallr" "ardent" ];
+  networking.extraHosts = net.mkExtraHosts [ "phantasma" "roer" "legram" "heimdallr" "ardent" ];
 
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
 

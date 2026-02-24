@@ -26,7 +26,7 @@
 let
   # Hardcoded IPs from network registry (same as hosts/thebeyond/default.nix)
   host      = { ipv4 = "10.0.11.1"; ipv6 = "fdc6:55f2:0a5e:b::1"; };
-  plantasma = { ipv4 = "10.0.11.2"; ipv6 = "fdc6:55f2:0a5e:b::2"; };
+  phantasma = { ipv4 = "10.0.11.2"; ipv6 = "fdc6:55f2:0a5e:b::2"; };
   ordis     = { ipv4 = "10.0.100.40"; ipv6 = "fdc6:55f2:0a5e:64::28"; };
   roer      = { ipv4 = "10.0.11.3"; ipv6 = "fdc6:55f2:0a5e:b::3"; };
   legram    = { ipv4 = "10.0.11.4"; ipv6 = "fdc6:55f2:0a5e:b::4"; };
@@ -132,15 +132,15 @@ pkgs.testers.nixosTest {
           # DNS interception rules (same IPs as thebeyond)
           extraNatRules = [
             {
-              ip.saddr = { not = plantasma.ipv4; };
-              ip.daddr = { not = [ host.ipv4 plantasma.ipv4 ]; };
+              ip.saddr = { not = phantasma.ipv4; };
+              ip.daddr = { not = [ host.ipv4 phantasma.ipv4 ]; };
               udp.dport = 53;
               verdict = { dnat = "${host.ipv4}:53"; };
               comment = "Intercept DNS bypass (UDP)";
             }
             {
-              ip.saddr = { not = plantasma.ipv4; };
-              ip.daddr = { not = [ host.ipv4 plantasma.ipv4 ]; };
+              ip.saddr = { not = phantasma.ipv4; };
+              ip.daddr = { not = [ host.ipv4 phantasma.ipv4 ]; };
               tcp.dport = 53;
               verdict = { dnat = "${host.ipv4}:53"; };
               comment = "Intercept DNS bypass (TCP)";
@@ -149,15 +149,15 @@ pkgs.testers.nixosTest {
 
           extraNat6Rules = [
             {
-              ip6.saddr = { not = plantasma.ipv6; };
-              ip6.daddr = { not = [ host.ipv6 plantasma.ipv6 ]; };
+              ip6.saddr = { not = phantasma.ipv6; };
+              ip6.daddr = { not = [ host.ipv6 phantasma.ipv6 ]; };
               udp.dport = 53;
               verdict = { dnat = "[${host.ipv6}]:53"; };
               comment = "Intercept IPv6 DNS bypass (UDP)";
             }
             {
-              ip6.saddr = { not = plantasma.ipv6; };
-              ip6.daddr = { not = [ host.ipv6 plantasma.ipv6 ]; };
+              ip6.saddr = { not = phantasma.ipv6; };
+              ip6.daddr = { not = [ host.ipv6 phantasma.ipv6 ]; };
               tcp.dport = 53;
               verdict = { dnat = "[${host.ipv6}]:53"; };
               comment = "Intercept IPv6 DNS bypass (TCP)";

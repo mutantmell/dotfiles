@@ -27,10 +27,10 @@ in {
           "::1"
           h.thebeyond.ipv4         # thebeyond (router) — 10.97
           h.thebeyond.ipv4Legacy   # thebeyond (router) — 10.0 legacy
-          h.plantasma.ipv4         # Self — 10.97
-          h.plantasma.ipv4Legacy   # Self — 10.0 legacy
+          h.phantasma.ipv4         # Self — 10.97
+          h.phantasma.ipv4Legacy   # Self — 10.0 legacy
           h.thebeyond.ipv6         # thebeyond (router IPv6)
-          h.plantasma.ipv6         # Self IPv6
+          h.phantasma.ipv6         # Self IPv6
         ];
       };
       # Web interface binds to localhost only - accessed via nginx with OAuth
@@ -70,7 +70,7 @@ in {
           ''"internal. A ${h.thebeyond.ipv4}"''
           ''"internal. A ${h.thebeyond.ipv4Legacy}"''
         ] ++ net.mkUnboundLocalData [
-          "thebeyond" "plantasma" "roer" "legram"
+          "thebeyond" "phantasma" "roer" "legram"
           "remiferia" "erebonia" "ordis" "heimdallr" "trista"
           "ardent" "azoth" "denai" "ymir" "calvard"
         ] ++ [

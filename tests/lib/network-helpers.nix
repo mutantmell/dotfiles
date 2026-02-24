@@ -37,18 +37,18 @@ let
 
   # --- mkUnboundLocalData tests ---
 
-  unboundBasic = net.mkUnboundLocalData [ "plantasma" "ordis" ];
+  unboundBasic = net.mkUnboundLocalData [ "phantasma" "ordis" ];
   # Canonical entries (primary 10.97)
-  unboundPlantasmaA = builtins.elem ''"plantasma.internal.mutantmell.net. A ${net.hosts.plantasma.ipv4}"'' unboundBasic;
-  unboundPlantasmaALegacy = builtins.elem ''"plantasma.internal.mutantmell.net. A ${net.hosts.plantasma.ipv4Legacy}"'' unboundBasic;
-  unboundPlantasmaAAAA = builtins.elem ''"plantasma.internal.mutantmell.net. AAAA ${net.hosts.plantasma.ipv6}"'' unboundBasic;
+  unboundPlantasmaA = builtins.elem ''"phantasma.internal.mutantmell.net. A ${net.hosts.phantasma.ipv4}"'' unboundBasic;
+  unboundPlantasmaALegacy = builtins.elem ''"phantasma.internal.mutantmell.net. A ${net.hosts.phantasma.ipv4Legacy}"'' unboundBasic;
+  unboundPlantasmaAAAA = builtins.elem ''"phantasma.internal.mutantmell.net. AAAA ${net.hosts.phantasma.ipv6}"'' unboundBasic;
   unboundOrdisA = builtins.elem ''"ordis.internal.mutantmell.net. A ${net.hosts.ordis.ipv4}"'' unboundBasic;
   unboundOrdisALegacy = builtins.elem ''"ordis.internal.mutantmell.net. A ${net.hosts.ordis.ipv4Legacy}"'' unboundBasic;
   unboundOrdisAAAA = builtins.elem ''"ordis.internal.mutantmell.net. AAAA ${net.hosts.ordis.ipv6}"'' unboundBasic;
   # Short alias entries
-  unboundPlantasmaAShort = builtins.elem ''"plantasma.internal. A ${net.hosts.plantasma.ipv4}"'' unboundBasic;
-  unboundPlantasmaAShortLegacy = builtins.elem ''"plantasma.internal. A ${net.hosts.plantasma.ipv4Legacy}"'' unboundBasic;
-  unboundPlantasmaAAAAShort = builtins.elem ''"plantasma.internal. AAAA ${net.hosts.plantasma.ipv6}"'' unboundBasic;
+  unboundPlantasmaAShort = builtins.elem ''"phantasma.internal. A ${net.hosts.phantasma.ipv4}"'' unboundBasic;
+  unboundPlantasmaAShortLegacy = builtins.elem ''"phantasma.internal. A ${net.hosts.phantasma.ipv4Legacy}"'' unboundBasic;
+  unboundPlantasmaAAAAShort = builtins.elem ''"phantasma.internal. AAAA ${net.hosts.phantasma.ipv6}"'' unboundBasic;
   unboundOrdisAShort = builtins.elem ''"ordis.internal. A ${net.hosts.ordis.ipv4}"'' unboundBasic;
   unboundOrdisAShortLegacy = builtins.elem ''"ordis.internal. A ${net.hosts.ordis.ipv4Legacy}"'' unboundBasic;
   unboundOrdisAAAAShort = builtins.elem ''"ordis.internal. AAAA ${net.hosts.ordis.ipv6}"'' unboundBasic;
@@ -115,16 +115,16 @@ let
     "mkExtraHosts skips legacy for mesh host" = extraHostsMeshNoLegacy;
 
     # mkUnboundLocalData — canonical entries
-    "mkUnboundLocalData produces canonical A for plantasma" = unboundPlantasmaA;
-    "mkUnboundLocalData produces canonical A legacy for plantasma" = unboundPlantasmaALegacy;
-    "mkUnboundLocalData produces canonical AAAA for plantasma" = unboundPlantasmaAAAA;
+    "mkUnboundLocalData produces canonical A for phantasma" = unboundPlantasmaA;
+    "mkUnboundLocalData produces canonical A legacy for phantasma" = unboundPlantasmaALegacy;
+    "mkUnboundLocalData produces canonical AAAA for phantasma" = unboundPlantasmaAAAA;
     "mkUnboundLocalData produces canonical A for ordis" = unboundOrdisA;
     "mkUnboundLocalData produces canonical A legacy for ordis" = unboundOrdisALegacy;
     "mkUnboundLocalData produces canonical AAAA for ordis" = unboundOrdisAAAA;
     # mkUnboundLocalData — short alias entries
-    "mkUnboundLocalData produces short A for plantasma" = unboundPlantasmaAShort;
-    "mkUnboundLocalData produces short A legacy for plantasma" = unboundPlantasmaAShortLegacy;
-    "mkUnboundLocalData produces short AAAA for plantasma" = unboundPlantasmaAAAAShort;
+    "mkUnboundLocalData produces short A for phantasma" = unboundPlantasmaAShort;
+    "mkUnboundLocalData produces short A legacy for phantasma" = unboundPlantasmaAShortLegacy;
+    "mkUnboundLocalData produces short AAAA for phantasma" = unboundPlantasmaAAAAShort;
     "mkUnboundLocalData produces short A for ordis" = unboundOrdisAShort;
     "mkUnboundLocalData produces short A legacy for ordis" = unboundOrdisAShortLegacy;
     "mkUnboundLocalData produces short AAAA for ordis" = unboundOrdisAAAAShort;

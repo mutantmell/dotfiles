@@ -1,7 +1,7 @@
 { pkgs, config, ... }:
 
 let
-  hostname = "plantasma";
+  hostname = "phantasma";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
 in {

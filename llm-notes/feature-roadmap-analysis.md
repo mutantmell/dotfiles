@@ -230,9 +230,9 @@ removal of the legacy range.
 - [x] Add `ipv4Legacy`/`cidr4Legacy`/`subnet4Legacy`/`gateway4Legacy` to all hosts and networks
 - [x] Update helpers (`mkExtraHosts`, `mkUnboundLocalData`, `mkDualEgressRules`) for dual records
 - [x] Add dual addresses to all router VLAN topology entries (10.0 first for DHCP compat)
-- [x] Add dual addresses to all infrastructure hosts (plantasma, remiferia, calvard, erebonia)
+- [x] Add dual addresses to all infrastructure hosts (phantasma, remiferia, calvard, erebonia)
 - [x] Add dual addresses to all guest VMs (ordis, heimdallr, roer, legram, ardent, denai, ymir)
-- [x] Update DNS interception to exclude both legacy and new plantasma/router addresses
+- [x] Update DNS interception to exclude both legacy and new phantasma/router addresses
 - [x] Update Adguard allowed_clients for dual addresses
 - [x] Update Unbound local-data with dual A records (via mkUnboundLocalData + manual entries)
 - [x] Update NFS exports with legacy subnet ranges
