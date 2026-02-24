@@ -4,7 +4,7 @@
     networking.firewall.allowedTCPPorts = [ 80 443 ];
     security.acme = {
       defaults = {
-        server = "https://legram.local/acme/acme/directory";
+        server = "https://legram.internal/acme/acme/directory";
         email = "malaguy@gmail.com";
       };
       acceptTerms = true;
@@ -14,17 +14,23 @@
       recommendedProxySettings = true;
       recommendedTlsSettings = true;
 
-      virtualHosts."git.local" = {
+      # Rate limiting for auth endpoints (S11)
+      commonHttpConfig = ''
+        limit_req_zone $binary_remote_addr zone=auth_limit:10m rate=10r/s;
+        limit_req_zone $binary_remote_addr zone=oauth2_limit:10m rate=10r/s;
+      '';
+
+      virtualHosts."git.internal" = {
         forceSSL = true;
         enableACME = true;
 
         locations."/" = {
-          proxyPass = "http://ardent.local:3000";
+          proxyPass = "http://ardent.internal:3000";
           proxyWebsockets = true;
         };
       };
 
-      virtualHosts."${config.networking.hostName}.local" = let
+      virtualHosts."mutantmell.net" = let
         jellyfinConf = ''
           add_header X-Frame-Options "SAMEORIGIN";
           add_header X-XSS-Protection "1; mode=block";
@@ -50,8 +56,36 @@
           proxy_busy_buffers_size   256k;
         '';
         locations."/" = {
-          proxyPass = "https://heimdallr.local";
+          proxyPass = "https://heimdallr.internal";
           extraConfig = jellyfinConf;
+        };
+      };
+
+      virtualHosts."auth.mutantmell.net" = {
+        forceSSL = true;
+        enableACME = true;
+
+        # Block admin console access from external users (S5)
+        locations."/auth/admin" = {
+          return = "403";
+        };
+        locations."/auth/realms/master" = {
+          return = "403";
+        };
+
+        locations."/auth" = {
+          proxyPass = "https://roer.internal/auth";
+          extraConfig = ''
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Host $host;
+
+            proxy_buffer_size   128k;
+            proxy_buffers   4 256k;
+            proxy_busy_buffers_size   256k;
+
+            limit_req zone=auth_limit burst=20 nodelay;
+          '';
         };
       };
     };
@@ -60,17 +94,17 @@
       nginx = {
         proxy = "http://127.0.0.1:4180";
         virtualHosts = {
-          "${config.networking.hostName}.local" = {};
+          "mutantmell.net" = {};
         };
-        domain = "ordis.local";
+        domain = ".mutantmell.net";
       };
       keyFile = config.sops.secrets."oauth-2-proxy-keyfile".path;
       provider = "oidc";
       clientID = "oauth2-proxy";
       upstream = [
-        "https://heimdallr.local"
+        "https://heimdallr.internal"
       ];
-      redirectURL = "https://ordis.local/oauth2/callback";
+      redirectURL = "https://mutantmell.net/oauth2/callback";
       email.domains = ["*"];
       httpAddress = ":4180";
       cookie.refresh = "1m";
@@ -81,7 +115,7 @@
 
       extraConfig = {
         "provider-display-name" = "Keycloak";
-        "oidc-issuer-url" = "https://roer.local/auth/realms/homelab";
+        "oidc-issuer-url" = "https://auth.mutantmell.net/auth/realms/homelab";
       };
     };
   };

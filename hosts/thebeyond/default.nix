@@ -132,7 +132,7 @@ in {
     dns = {
       upstream = [ plantasma.ipv4 ];  # plantasma microVM (primary - has local hostnames)
       useDHCPFallback = true;        # fall back to ISP DNS when plantasma microVM is down
-      localDomain = "local";
+      localDomain = "internal";
     };
 
     firewall = {
@@ -439,13 +439,11 @@ in {
   };
 
   networking.extraHosts = ''
-    ${host.ipv4} thebeyond
-    ${host.ipv4} thebeyond.local
-    ${host.ipv6} thebeyond.local
-    ${host.ipv4} yggdrasil yggdrasil.local
-    ${plantasma.ipv4} plantasma
-    ${plantasma.ipv4} plantasma.local
-    ${plantasma.ipv6} plantasma.local
+    ${host.ipv4} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
+    ${host.ipv6} thebeyond.internal.mutantmell.net thebeyond.internal
+    ${host.ipv4} yggdrasil.internal
+    ${plantasma.ipv4} plantasma plantasma.internal.mutantmell.net plantasma.internal
+    ${plantasma.ipv6} plantasma.internal.mutantmell.net plantasma.internal
   '' + net.mkExtraHosts [ "roer" "legram" "ordis" "heimdallr" "trista" ];
 
   # NTP server for network gear and infrastructure

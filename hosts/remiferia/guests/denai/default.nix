@@ -69,8 +69,7 @@ in {
     user = config.users.extraUsers.mjollnir;
     group = config.users.groups.users;
   in {
-    # Uses legacy hostname — jotunheimr.local resolves via DNS alias during migration
-    device = "//jotunheimr.local/drive";
+    device = "//remiferia.internal/drive";
     fsType = "cifs";
     options = let
       mount_opts = "uid=${toString user.uid},forceuid,gid=${toString group.gid},forcegid";

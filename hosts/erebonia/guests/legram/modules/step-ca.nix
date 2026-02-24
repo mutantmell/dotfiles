@@ -22,7 +22,7 @@
     openFirewall = true;
     intermediatePasswordFile = config.sops.secrets."intermediate-password-file".path;
     settings = {
-      dnsNames = [ "localhost" "${config.networking.hostName}" "${config.networking.hostName}.local" ];
+      dnsNames = [ "localhost" "${config.networking.hostName}" "${config.networking.hostName}.internal.mutantmell.net" "${config.networking.hostName}.internal" ];
       root = "/etc/step-ca/data/root_ca.crt";
       crt = "/etc/step-ca/data/intermediate_ca.crt";
       key = config.sops.secrets."intermediate_ca.key".path;
@@ -33,7 +33,12 @@
       policy = let
         allowLocal = {
           allow = {
-            dns = ["*.local"];
+            dns = [
+              "*.internal.mutantmell.net"
+              "*.internal"
+              "*.mutantmell.net"
+              "mutantmell.net"
+            ];
             ip = [ "10.0.0.0/16" "10.1.0.0/16" "10.97.0.0/16" "fdc6:55f2:0a5e::/48" ];
           };
         };
@@ -57,7 +62,7 @@
     recommendedTlsSettings = true;
     recommendedProxySettings = true;
 
-    virtualHosts."${config.networking.hostName}.local" = {
+    virtualHosts."${config.networking.hostName}.internal" = {
       forceSSL = true;
       enableACME = true;
 
@@ -83,7 +88,7 @@
   };
 
   systemd.services = {
-    "acme-${config.networking.hostName}.local" = let
+    "acme-${config.networking.hostName}.internal" = let
       deps = [ "step-ca.service" ];
     in {
       after = deps;
@@ -112,7 +117,7 @@
 
         mkdir -p /etc/nginx
         if [ ! -f /etc/nginx/nginx.cert ]; then
-          step ca certificate "${config.networking.hostName}.local" --ca-url=localhost:9443 --root=/etc/step-ca/data/root_ca.crt /etc/nginx/nginx.cert /etc/nginx/nginx.key || exit 1
+          step ca certificate "${config.networking.hostName}.internal" --ca-url=localhost:9443 --root=/etc/step-ca/data/root_ca.crt /etc/nginx/nginx.cert /etc/nginx/nginx.key || exit 1
           chown nginx:nginx /etc/nginx/nginx.cert /etc/nginx/nginx.key
         fi
       '';

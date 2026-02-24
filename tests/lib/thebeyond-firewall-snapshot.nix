@@ -104,7 +104,7 @@ let
           dns = {
             upstream = [ plantasma.ipv4 ];
             useDHCPFallback = true;
-            localDomain = "local";
+            localDomain = "internal";
           };
 
           firewall = {

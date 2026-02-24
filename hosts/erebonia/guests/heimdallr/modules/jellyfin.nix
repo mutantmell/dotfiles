@@ -8,7 +8,7 @@ in {
     description = "Mangage Jellyfin's pkcs12 key";
     path = [ pkgs.bash pkgs.openssl ];
     script = let
-      acmedir = "/var/lib/acme/${config.networking.hostName}.local";
+      acmedir = "/var/lib/acme/${config.networking.hostName}.internal";
       jellydir = config.systemd.services.jellyfin.serviceConfig.WorkingDirectory;
     in ''
       #!/usr/bin/env bash
@@ -17,8 +17,8 @@ in {
       chmod 640 ${jellydir}/key.pfx
       chown acme:acme-cert ${jellydir}/key.pfx
     '';
-    wantedBy = [ "acme-${config.networking.hostName}.local.service" ];
-    after = [ "acme-${config.networking.hostName}.local.service" ];
+    wantedBy = [ "acme-${config.networking.hostName}.internal.service" ];
+    after = [ "acme-${config.networking.hostName}.internal.service" ];
   };
 
   networking.firewall = {
@@ -70,7 +70,7 @@ in {
     recommendedGzipSettings = true;
     recommendedProxySettings = true;
 
-    virtualHosts."${config.networking.hostName}.local" = let
+    virtualHosts."${config.networking.hostName}.internal" = let
       jellyfinConf = ''
         add_header X-Frame-Options "SAMEORIGIN";
         add_header X-XSS-Protection "1; mode=block";
@@ -119,11 +119,11 @@ in {
   networking.extraHosts = net.mkExtraHosts [ "legram" ];
   security.acme = {
     defaults = {
-      server = "https://legram.local/acme/acme/directory";
+      server = "https://legram.internal/acme/acme/directory";
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;
-    certs."${config.networking.hostName}.local" = {
+    certs."${config.networking.hostName}.internal" = {
       group = "acme-cert";
     };
   };

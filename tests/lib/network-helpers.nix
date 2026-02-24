@@ -21,28 +21,39 @@ let
   # --- mkExtraHosts tests ---
 
   extraHostsBasic = net.mkExtraHosts [ "roer" "legram" ];
-  extraHostsRoer = contains "10.0.11.3 roer.local" extraHostsBasic;
-  extraHostsRoerV6 = contains "fdc6:55f2:0a5e:b::3 roer.local" extraHostsBasic;
-  extraHostsLegram = contains "10.0.11.4 legram.local" extraHostsBasic;
-  extraHostsLegramV6 = contains "fdc6:55f2:0a5e:b::4 legram.local" extraHostsBasic;
+  extraHostsRoerCanonical = contains "10.0.11.3 roer.internal.mutantmell.net roer.internal" extraHostsBasic;
+  extraHostsRoerV6Canonical = contains "fdc6:55f2:0a5e:b::3 roer.internal.mutantmell.net roer.internal" extraHostsBasic;
+  extraHostsLegramCanonical = contains "10.0.11.4 legram.internal.mutantmell.net legram.internal" extraHostsBasic;
+  extraHostsLegramV6Canonical = contains "fdc6:55f2:0a5e:b::4 legram.internal.mutantmell.net legram.internal" extraHostsBasic;
 
   # Mesh hosts have no IPv6 — should produce only IPv4 line
   extraHostsMesh = net.mkExtraHosts [ "azoth" ];
-  extraHostsMeshV4 = contains "10.1.20.50 azoth.local" extraHostsMesh;
+  extraHostsMeshV4 = contains "10.1.20.50 azoth.internal.mutantmell.net azoth.internal" extraHostsMesh;
   extraHostsMeshNoV6 = !(contains "AAAA" extraHostsMesh || contains "fdc6" extraHostsMesh);
 
   # --- mkUnboundLocalData tests ---
 
   unboundBasic = net.mkUnboundLocalData [ "plantasma" "ordis" ];
-  unboundPlantasmaA = builtins.elem ''"plantasma.local. A ${net.hosts.plantasma.ipv4}"'' unboundBasic;
-  unboundPlantasmaAAAA = builtins.elem ''"plantasma.local. AAAA ${net.hosts.plantasma.ipv6}"'' unboundBasic;
-  unboundOrdisA = builtins.elem ''"ordis.local. A ${net.hosts.ordis.ipv4}"'' unboundBasic;
-  unboundOrdisAAAA = builtins.elem ''"ordis.local. AAAA ${net.hosts.ordis.ipv6}"'' unboundBasic;
+  # Canonical entries
+  unboundPlantasmaA = builtins.elem ''"plantasma.internal.mutantmell.net. A ${net.hosts.plantasma.ipv4}"'' unboundBasic;
+  unboundPlantasmaAAAA = builtins.elem ''"plantasma.internal.mutantmell.net. AAAA ${net.hosts.plantasma.ipv6}"'' unboundBasic;
+  unboundOrdisA = builtins.elem ''"ordis.internal.mutantmell.net. A ${net.hosts.ordis.ipv4}"'' unboundBasic;
+  unboundOrdisAAAA = builtins.elem ''"ordis.internal.mutantmell.net. AAAA ${net.hosts.ordis.ipv6}"'' unboundBasic;
+  # Short alias entries
+  unboundPlantasmaAShort = builtins.elem ''"plantasma.internal. A ${net.hosts.plantasma.ipv4}"'' unboundBasic;
+  unboundPlantasmaAAAAShort = builtins.elem ''"plantasma.internal. AAAA ${net.hosts.plantasma.ipv6}"'' unboundBasic;
+  unboundOrdisAShort = builtins.elem ''"ordis.internal. A ${net.hosts.ordis.ipv4}"'' unboundBasic;
+  unboundOrdisAAAAShort = builtins.elem ''"ordis.internal. AAAA ${net.hosts.ordis.ipv6}"'' unboundBasic;
 
-  # Mesh hosts: A record only, no AAAA
+  # Mesh hosts: A record only, no AAAA (both canonical and short)
   unboundMesh = net.mkUnboundLocalData [ "azoth" ];
-  unboundMeshA = builtins.elem ''"azoth.local. A 10.1.20.50"'' unboundMesh;
+  unboundMeshA = builtins.elem ''"azoth.internal.mutantmell.net. A 10.1.20.50"'' unboundMesh;
+  unboundMeshAShort = builtins.elem ''"azoth.internal. A 10.1.20.50"'' unboundMesh;
   unboundMeshNoAAAA = builtins.length (builtins.filter (s: contains "AAAA" s) unboundMesh) == 0;
+
+  # Record count: 4 per dual-stack host (A+AAAA × canonical+short), 2 per mesh host (A × canonical+short)
+  unboundDualStackCount = assertEq "unboundBasic length" (builtins.length unboundBasic) 8;
+  unboundMeshCount = assertEq "unboundMesh length" (builtins.length unboundMesh) 2;
 
   # --- mkDualEgressRules tests ---
 
@@ -79,20 +90,29 @@ let
 
   allTests = {
     # mkExtraHosts
-    "mkExtraHosts produces IPv4 for roer" = extraHostsRoer;
-    "mkExtraHosts produces IPv6 for roer" = extraHostsRoerV6;
-    "mkExtraHosts produces IPv4 for legram" = extraHostsLegram;
-    "mkExtraHosts produces IPv6 for legram" = extraHostsLegramV6;
-    "mkExtraHosts produces IPv4 for mesh host" = extraHostsMeshV4;
+    "mkExtraHosts produces canonical+short IPv4 for roer" = extraHostsRoerCanonical;
+    "mkExtraHosts produces canonical+short IPv6 for roer" = extraHostsRoerV6Canonical;
+    "mkExtraHosts produces canonical+short IPv4 for legram" = extraHostsLegramCanonical;
+    "mkExtraHosts produces canonical+short IPv6 for legram" = extraHostsLegramV6Canonical;
+    "mkExtraHosts produces canonical+short IPv4 for mesh host" = extraHostsMeshV4;
     "mkExtraHosts skips IPv6 for mesh host" = extraHostsMeshNoV6;
 
-    # mkUnboundLocalData
-    "mkUnboundLocalData produces A for plantasma" = unboundPlantasmaA;
-    "mkUnboundLocalData produces AAAA for plantasma" = unboundPlantasmaAAAA;
-    "mkUnboundLocalData produces A for ordis" = unboundOrdisA;
-    "mkUnboundLocalData produces AAAA for ordis" = unboundOrdisAAAA;
-    "mkUnboundLocalData produces A for mesh host" = unboundMeshA;
+    # mkUnboundLocalData — canonical entries
+    "mkUnboundLocalData produces canonical A for plantasma" = unboundPlantasmaA;
+    "mkUnboundLocalData produces canonical AAAA for plantasma" = unboundPlantasmaAAAA;
+    "mkUnboundLocalData produces canonical A for ordis" = unboundOrdisA;
+    "mkUnboundLocalData produces canonical AAAA for ordis" = unboundOrdisAAAA;
+    # mkUnboundLocalData — short alias entries
+    "mkUnboundLocalData produces short A for plantasma" = unboundPlantasmaAShort;
+    "mkUnboundLocalData produces short AAAA for plantasma" = unboundPlantasmaAAAAShort;
+    "mkUnboundLocalData produces short A for ordis" = unboundOrdisAShort;
+    "mkUnboundLocalData produces short AAAA for ordis" = unboundOrdisAAAAShort;
+    # mkUnboundLocalData — mesh + counts
+    "mkUnboundLocalData produces canonical A for mesh host" = unboundMeshA;
+    "mkUnboundLocalData produces short A for mesh host" = unboundMeshAShort;
     "mkUnboundLocalData skips AAAA for mesh host" = unboundMeshNoAAAA;
+    "mkUnboundLocalData dual-stack host produces 8 records" = unboundDualStackCount;
+    "mkUnboundLocalData mesh host produces 2 records" = unboundMeshCount;
 
     # mkDualEgressRules
     "mkDualEgressRules gateway produces v4" = gatewayV4;

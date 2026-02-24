@@ -5,7 +5,7 @@
     instances.default = {
       enable = true;
       name = "ardent";
-      url = "https://ardent.local";
+      url = "https://ardent.internal";
       tokenFile = config.sops.secrets."forgejo-runner-token".path;
       labels = [
         "nix:host"

@@ -6,11 +6,11 @@
     settings = {
       DEFAULT.APP_NAME = "Forgejo";
       server = {
-        DOMAIN = "git.local";
-        ROOT_URL = "https://git.local/";
+        DOMAIN = "git.internal";
+        ROOT_URL = "https://git.internal/";
         HTTP_PORT = 3000;
         HTTP_ADDR = "0.0.0.0";
-        SSH_DOMAIN = "ardent.local";
+        SSH_DOMAIN = "ardent.internal";
         SSH_PORT = 2222;
         START_SSH_SERVER = true;
       };

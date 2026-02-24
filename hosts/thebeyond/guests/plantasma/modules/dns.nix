@@ -55,24 +55,48 @@ in {
         ];
         aggressive-nsec = true;
 
-        # Local DNS zone for .local hostnames
-        local-zone = ''"local." static'';
+        # Split-horizon DNS zones
+        local-zone = [
+          ''"mutantmell.net." transparent''         # split-horizon: local overrides, rest forwarded
+          ''"internal.mutantmell.net." static''      # canonical internal: authoritative, never forwards
+          ''"internal." static''                     # short alias: authoritative, never forwards
+        ];
         local-data = [
-          ''"local. A ${h.thebeyond.ipv4}"''
+          # Bare domain records — gateway
+          ''"internal.mutantmell.net. A ${h.thebeyond.ipv4}"''
+          ''"internal. A ${h.thebeyond.ipv4}"''
         ] ++ net.mkUnboundLocalData [
           "thebeyond" "plantasma" "roer" "legram"
           "remiferia" "erebonia" "ordis" "heimdallr" "trista"
           "ardent" "azoth" "denai" "ymir" "calvard"
         ] ++ [
+          # Split-horizon overrides — external names resolve to internal IPs
+          ''"auth.mutantmell.net. A ${h.roer.ipv4}"''
+          ''"auth.mutantmell.net. AAAA ${h.roer.ipv6}"''
+          ''"mutantmell.net. A ${h.ordis.ipv4}"''
+          ''"mutantmell.net. AAAA ${h.ordis.ipv6}"''
+
           # Service aliases — point to reverse proxy (ordis)
-          ''"git.local. A ${h.ordis.ipv4}"''
-          ''"git.local. AAAA ${h.ordis.ipv6}"''
+          ''"git.internal.mutantmell.net. A ${h.ordis.ipv4}"''
+          ''"git.internal.mutantmell.net. AAAA ${h.ordis.ipv6}"''
+          ''"git.internal. A ${h.ordis.ipv4}"''
+          ''"git.internal. AAAA ${h.ordis.ipv6}"''
+
+          # Ardent sub-service aliases
+          ''"attic.ardent.internal.mutantmell.net. A ${h.ardent.ipv4}"''
+          ''"attic.ardent.internal.mutantmell.net. AAAA ${h.ardent.ipv6}"''
+          ''"attic.ardent.internal. A ${h.ardent.ipv4}"''
+          ''"attic.ardent.internal. AAAA ${h.ardent.ipv6}"''
 
           # Backward-compat aliases during migration
-          ''"yggdrasil.local. A ${h.thebeyond.ipv4}"''
-          ''"yggdrasil.local. AAAA ${h.thebeyond.ipv6}"''
-          ''"jotunheimr.local. A ${h.remiferia.ipv4}"''
-          ''"jotunheimr.local. AAAA ${h.remiferia.ipv6}"''
+          ''"yggdrasil.internal.mutantmell.net. A ${h.thebeyond.ipv4}"''
+          ''"yggdrasil.internal.mutantmell.net. AAAA ${h.thebeyond.ipv6}"''
+          ''"yggdrasil.internal. A ${h.thebeyond.ipv4}"''
+          ''"yggdrasil.internal. AAAA ${h.thebeyond.ipv6}"''
+          ''"jotunheimr.internal.mutantmell.net. A ${h.remiferia.ipv4}"''
+          ''"jotunheimr.internal.mutantmell.net. AAAA ${h.remiferia.ipv6}"''
+          ''"jotunheimr.internal. A ${h.remiferia.ipv4}"''
+          ''"jotunheimr.internal. AAAA ${h.remiferia.ipv6}"''
         ];
       };
       remote-control.control-enable = true;

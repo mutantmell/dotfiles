@@ -50,10 +50,10 @@
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
       "redirectUris": [
-        "https://ordis.local/oauth2/callback"
+        "https://mutantmell.net/oauth2/callback"
       ],
       "webOrigins": [
-        "https://ordis.local"
+        "https://mutantmell.net"
       ],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
@@ -67,10 +67,10 @@
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
       "redirectUris": [
-        "https://plantasma.local/oauth2/callback"
+        "https://plantasma.internal/oauth2/callback"
       ],
       "webOrigins": [
-        "https://plantasma.local"
+        "https://plantasma.internal"
       ],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
