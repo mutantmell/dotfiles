@@ -16,16 +16,9 @@
   systemd.network.networks."50-eth0" = {
     matchConfig.Name = "eth0";
     networkConfig = {
-      # Container will get IP from Incus DHCP or static config
       DHCP = "yes";
       IPv6AcceptRA = true;
     };
-    # Override if you want static IP:
-    # networkConfig = {
-    #   Address = [ "10.0.20.42/24" ];
-    #   Gateway = "10.0.20.1";
-    #   DNS = [ "10.0.20.1" ];
-    # };
   };
 
   # Users
@@ -58,15 +51,6 @@
 
   # Time zone
   time.timeZone = "UTC";
-
-  # Security certificates (if needed)
-  # security.pki.certificates = [ (builtins.readFile ...) ];
-
-  # TODO: If you need SOPS secrets, set them up here
-  # For now, containers can access secrets via bind mounts or copy
-
-  # TODO: If you need the proxy configuration, migrate it here
-  # imports = [ ./proxy.nix ];
 
   system.stateVersion = "24.05";
 }
