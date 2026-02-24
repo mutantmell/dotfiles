@@ -14,6 +14,16 @@
       recommendedProxySettings = true;
       recommendedTlsSettings = true;
 
+      virtualHosts."git.local" = {
+        forceSSL = true;
+        enableACME = true;
+
+        locations."/" = {
+          proxyPass = "http://ardent.local:3000";
+          proxyWebsockets = true;
+        };
+      };
+
       virtualHosts."${config.networking.hostName}.local" = let
         jellyfinConf = ''
           add_header X-Frame-Options "SAMEORIGIN";
