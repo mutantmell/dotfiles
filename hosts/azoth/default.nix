@@ -52,22 +52,24 @@
     };
     useDHCP = false;
     defaultGateway.address = "10.1.20.1";
-    defaultGateway.interface = "wlan0";
+    defaultGateway.interface = "bond0";
     nameservers = [ "10.1.20.1" ];
-    # TODO: bond these together, once the ip addr space for wifi and ethernet are unified
-    interfaces.wlan0 = {
-      useDHCP = false;
-      ipv4.addresses = [{
-        address = "10.1.20.50";
-        prefixLength = 24;
-      }];
+    bonds.bond0 = {
+      interfaces = [ "wlan0" "end0" ];
+      driverOptions = {
+        mode = "active-backup";
+        primary = "wlan0";
+        fail_over_mac = "active";
+        miimon = "100";
+      };
     };
-    interfaces.end0 = {
+    interfaces.bond0 = {
       useDHCP = false;
-    #  ipv4.addresses = [{
-    #    address = "10.0.20.50";
-    #    prefixLength = 24;
-    #  }];
+      ipv4.addresses = [
+        { address = "10.0.20.50"; prefixLength = 24; }
+        { address = "10.1.20.50"; prefixLength = 24; }
+        { address = "10.97.20.50"; prefixLength = 24; }
+      ];
     };
   };
 

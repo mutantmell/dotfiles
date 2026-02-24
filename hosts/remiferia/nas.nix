@@ -52,7 +52,6 @@ in {
 
   services.nfs.server = {
     enable = true;
-    #    createMountPoints = true;
     exports = ''
       /data/media ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash)
       /data/data ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash)
@@ -74,8 +73,6 @@ in {
   services.samba-wsdd.enable = true;
   services.samba = {
     enable = true;
-    #enableNmbd = false;
-    #enableWinbindd = false;
     openFirewall = false;  # Handled by source-restricted extraInputRules above
     settings.global = {
       "invalid users" = [ "root" ];
@@ -94,24 +91,18 @@ in {
         browseable = "yes";
         "guest ok" = "no";
         "read only" = "no";
-        #        "valid users" = "mjollnir";
-        #        "force user" = "mjollnir";
       };
       media = {
         path = "/data/media";
         browseable = "yes";
         "guest ok" = "no";
         "read only" = "no";
-        #        "valid users" = "mjollnir";
-        #        "force user" = "mjollnir";
       };
       backup = {
         path = "/export/rw/backup";
         browseable = "yes";
         "guest ok" = "no";
         "read only" = "no";
-        #        "valid users" = "mjollnir";
-        #        "force user" = "mjollnir";
       };
     };
   };
