@@ -22,11 +22,12 @@
 let
   # Hardcoded IP addresses from network registry (lib/common/data/network.nix)
   # These match the actual values used in hosts/thebeyond/default.nix
-  host      = { ipv4 = "10.0.11.1"; ipv6 = "fdc6:55f2:0a5e:b::1"; };
-  plantasma = { ipv4 = "10.0.11.2"; ipv6 = "fdc6:55f2:0a5e:b::2"; };
-  ordis     = { ipv4 = "10.0.100.40"; ipv6 = "fdc6:55f2:0a5e:64::28"; };
-  roer      = { ipv4 = "10.0.11.3"; ipv6 = "fdc6:55f2:0a5e:b::3"; };
-  legram    = { ipv4 = "10.0.11.4"; ipv6 = "fdc6:55f2:0a5e:b::4"; };
+  # Primary (10.97) and legacy (10.0) addresses for dual-stack migration
+  host      = { ipv4 = "10.97.11.1"; ipv4Legacy = "10.0.11.1"; ipv6 = "fdc6:55f2:0a5e:b::1"; };
+  plantasma = { ipv4 = "10.97.11.2"; ipv4Legacy = "10.0.11.2"; ipv6 = "fdc6:55f2:0a5e:b::2"; };
+  ordis     = { ipv4 = "10.97.100.40"; ipv4Legacy = "10.0.100.40"; ipv6 = "fdc6:55f2:0a5e:64::28"; };
+  roer      = { ipv4 = "10.97.11.3"; ipv4Legacy = "10.0.11.3"; ipv6 = "fdc6:55f2:0a5e:b::3"; };
+  legram    = { ipv4 = "10.97.11.4"; ipv4Legacy = "10.0.11.4"; ipv6 = "fdc6:55f2:0a5e:b::4"; };
 
   eval = import (pkgs.path + "/nixos/lib/eval-config.nix") {
     system = "x86_64-linux";
@@ -143,18 +144,19 @@ let
               { iifname = "wg-ba"; ip.daddr = ordis.ipv4; masquerade = true; }
 
               # DNS interception - redirect bypass attempts to router's DNS
+              # Includes both 10.97 and legacy 10.0 addresses during migration
               {
-                ip.saddr = { not = plantasma.ipv4; };
-                ip.daddr = { not = [ host.ipv4 plantasma.ipv4 ]; };
+                ip.saddr = { not = [ plantasma.ipv4 plantasma.ipv4Legacy ]; };
+                ip.daddr = { not = [ host.ipv4 host.ipv4Legacy plantasma.ipv4 plantasma.ipv4Legacy ]; };
                 udp.dport = 53;
-                verdict = { dnat = "${host.ipv4}:53"; };
+                verdict = { dnat = "${host.ipv4Legacy}:53"; };
                 comment = "Intercept DNS bypass (UDP)";
               }
               {
-                ip.saddr = { not = plantasma.ipv4; };
-                ip.daddr = { not = [ host.ipv4 plantasma.ipv4 ]; };
+                ip.saddr = { not = [ plantasma.ipv4 plantasma.ipv4Legacy ]; };
+                ip.daddr = { not = [ host.ipv4 host.ipv4Legacy plantasma.ipv4 plantasma.ipv4Legacy ]; };
                 tcp.dport = 53;
-                verdict = { dnat = "${host.ipv4}:53"; };
+                verdict = { dnat = "${host.ipv4Legacy}:53"; };
                 comment = "Intercept DNS bypass (TCP)";
               }
             ];
@@ -227,7 +229,7 @@ let
                   tag = 10;
                   network = {
                     type = "static";
-                    addresses = [ "10.0.10.1/24" ];
+                    addresses = [ "10.0.10.1/24" "10.97.10.1/24" ];
                     subnetId = 10;
                     zone = "network";
                     dhcp6.enable = true;
@@ -237,7 +239,7 @@ let
                   tag = 11;
                   network = {
                     type = "static";
-                    addresses = [ "10.0.11.1/24" ];
+                    addresses = [ "10.0.11.1/24" "10.97.11.1/24" ];
                     subnetId = 11;
                     zone = "management";
                     dhcp.enable = true;
@@ -248,7 +250,7 @@ let
                   tag = 20;
                   network = {
                     type = "static";
-                    addresses = [ "10.0.20.1/24" ];
+                    addresses = [ "10.0.20.1/24" "10.97.20.1/24" ];
                     zone = "trusted";
                     dhcp.enable = true;
                     dhcp6.enable = true;
@@ -258,7 +260,7 @@ let
                   tag = 30;
                   network = {
                     type = "static";
-                    addresses = [ "10.0.30.1/24" ];
+                    addresses = [ "10.0.30.1/24" "10.97.30.1/24" ];
                     zone = "untrusted";
                     dhcp.enable = true;
                     dhcp6.enable = true;
@@ -268,7 +270,7 @@ let
                   tag = 31;
                   network = {
                     type = "static";
-                    addresses = [ "10.0.31.1/24" ];
+                    addresses = [ "10.0.31.1/24" "10.97.31.1/24" ];
                     zone = "untrusted";
                     dhcp.enable = true;
                     dhcp6.enable = true;
@@ -278,7 +280,7 @@ let
                   tag = 40;
                   network = {
                     type = "static";
-                    addresses = [ "10.0.40.1/24" ];
+                    addresses = [ "10.0.40.1/24" "10.97.40.1/24" ];
                     zone = "untrusted";
                     dhcp.enable = true;
                     dhcp6.enable = true;
@@ -288,7 +290,7 @@ let
                   tag = 41;
                   network = {
                     type = "static";
-                    addresses = [ "10.0.41.1/24" ];
+                    addresses = [ "10.0.41.1/24" "10.97.41.1/24" ];
                     zone = "untrusted";
                     dhcp.enable = true;
                     dhcp6.enable = true;
@@ -298,7 +300,7 @@ let
                   tag = 100;
                   network = {
                     type = "static";
-                    addresses = [ "10.0.100.1/24" ];
+                    addresses = [ "10.0.100.1/24" "10.97.100.1/24" ];
                     zone = "untrusted";
                     dhcp.enable = true;
                     dhcp6.enable = true;

@@ -225,7 +225,23 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 Adds `10.97.x.x` dual addresses alongside `10.0.x.x`, preparing for eventual
 removal of the legacy range.
 
-- [ ] Add dual addresses to all VLANs via network registry `legacyPrefix`
+- [x] Add dual addresses to all VLANs via network registry `legacyPrefix`
+- [x] Update network registry: `ipv4Prefix = "10.97"`, `legacyIpv4Prefix = "10.0"`
+- [x] Add `ipv4Legacy`/`cidr4Legacy`/`subnet4Legacy`/`gateway4Legacy` to all hosts and networks
+- [x] Update helpers (`mkExtraHosts`, `mkUnboundLocalData`, `mkDualEgressRules`) for dual records
+- [x] Add dual addresses to all router VLAN topology entries (10.0 first for DHCP compat)
+- [x] Add dual addresses to all infrastructure hosts (plantasma, remiferia, calvard, erebonia)
+- [x] Add dual addresses to all guest VMs (ordis, heimdallr, roer, legram, ardent, denai, ymir)
+- [x] Update DNS interception to exclude both legacy and new plantasma/router addresses
+- [x] Update Adguard allowed_clients for dual addresses
+- [x] Update Unbound local-data with dual A records (via mkUnboundLocalData + manual entries)
+- [x] Update NFS exports with legacy subnet ranges
+- [x] Update host firewalls with legacy address ranges
+- [x] Update chrony allow directives with legacy subnets
+- [x] Update extraHosts with legacy address entries
+- [x] Update network-helpers tests for new expected values (40/40 pass)
+- [x] Update thebeyond-firewall-snapshot golden file
+- [x] Verify: all 17 flake checks pass
 - [ ] Update DHCP pools to `10.97.x.x`
 - [ ] Update WireGuard client configs (add `10.97.0.0/16` to AllowedIPs)
 - [ ] Verify all services work on `10.97.x.x`

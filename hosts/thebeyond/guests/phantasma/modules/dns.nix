@@ -25,10 +25,12 @@ in {
         allowed_clients = [
           "127.0.0.1"
           "::1"
-          h.thebeyond.ipv4     # thebeyond (router)
-          h.plantasma.ipv4     # Self
-          h.thebeyond.ipv6     # thebeyond (router IPv6)
-          h.plantasma.ipv6     # Self IPv6
+          h.thebeyond.ipv4         # thebeyond (router) — 10.97
+          h.thebeyond.ipv4Legacy   # thebeyond (router) — 10.0 legacy
+          h.plantasma.ipv4         # Self — 10.97
+          h.plantasma.ipv4Legacy   # Self — 10.0 legacy
+          h.thebeyond.ipv6         # thebeyond (router IPv6)
+          h.plantasma.ipv6         # Self IPv6
         ];
       };
       # Web interface binds to localhost only - accessed via nginx with OAuth
@@ -62,9 +64,11 @@ in {
           ''"internal." static''                     # short alias: authoritative, never forwards
         ];
         local-data = [
-          # Bare domain records — gateway
+          # Bare domain records — gateway (both 10.97 and legacy 10.0)
           ''"internal.mutantmell.net. A ${h.thebeyond.ipv4}"''
+          ''"internal.mutantmell.net. A ${h.thebeyond.ipv4Legacy}"''
           ''"internal. A ${h.thebeyond.ipv4}"''
+          ''"internal. A ${h.thebeyond.ipv4Legacy}"''
         ] ++ net.mkUnboundLocalData [
           "thebeyond" "plantasma" "roer" "legram"
           "remiferia" "erebonia" "ordis" "heimdallr" "trista"
@@ -72,30 +76,40 @@ in {
         ] ++ [
           # Split-horizon overrides — external names resolve to internal IPs
           ''"auth.mutantmell.net. A ${h.roer.ipv4}"''
+          ''"auth.mutantmell.net. A ${h.roer.ipv4Legacy}"''
           ''"auth.mutantmell.net. AAAA ${h.roer.ipv6}"''
           ''"mutantmell.net. A ${h.ordis.ipv4}"''
+          ''"mutantmell.net. A ${h.ordis.ipv4Legacy}"''
           ''"mutantmell.net. AAAA ${h.ordis.ipv6}"''
 
           # Service aliases — point to reverse proxy (ordis)
           ''"git.internal.mutantmell.net. A ${h.ordis.ipv4}"''
+          ''"git.internal.mutantmell.net. A ${h.ordis.ipv4Legacy}"''
           ''"git.internal.mutantmell.net. AAAA ${h.ordis.ipv6}"''
           ''"git.internal. A ${h.ordis.ipv4}"''
+          ''"git.internal. A ${h.ordis.ipv4Legacy}"''
           ''"git.internal. AAAA ${h.ordis.ipv6}"''
 
           # Ardent sub-service aliases
           ''"attic.ardent.internal.mutantmell.net. A ${h.ardent.ipv4}"''
+          ''"attic.ardent.internal.mutantmell.net. A ${h.ardent.ipv4Legacy}"''
           ''"attic.ardent.internal.mutantmell.net. AAAA ${h.ardent.ipv6}"''
           ''"attic.ardent.internal. A ${h.ardent.ipv4}"''
+          ''"attic.ardent.internal. A ${h.ardent.ipv4Legacy}"''
           ''"attic.ardent.internal. AAAA ${h.ardent.ipv6}"''
 
           # Backward-compat aliases during migration
           ''"yggdrasil.internal.mutantmell.net. A ${h.thebeyond.ipv4}"''
+          ''"yggdrasil.internal.mutantmell.net. A ${h.thebeyond.ipv4Legacy}"''
           ''"yggdrasil.internal.mutantmell.net. AAAA ${h.thebeyond.ipv6}"''
           ''"yggdrasil.internal. A ${h.thebeyond.ipv4}"''
+          ''"yggdrasil.internal. A ${h.thebeyond.ipv4Legacy}"''
           ''"yggdrasil.internal. AAAA ${h.thebeyond.ipv6}"''
           ''"jotunheimr.internal.mutantmell.net. A ${h.remiferia.ipv4}"''
+          ''"jotunheimr.internal.mutantmell.net. A ${h.remiferia.ipv4Legacy}"''
           ''"jotunheimr.internal.mutantmell.net. AAAA ${h.remiferia.ipv6}"''
           ''"jotunheimr.internal. A ${h.remiferia.ipv4}"''
+          ''"jotunheimr.internal. A ${h.remiferia.ipv4Legacy}"''
           ''"jotunheimr.internal. AAAA ${h.remiferia.ipv6}"''
         ];
       };
