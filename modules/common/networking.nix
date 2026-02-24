@@ -47,13 +47,6 @@ in {
       networking.defaultGateway.interface = cfg.interface;
       networking.nameservers = [ gateway ];
       services.resolved.enable = true;
-      services.avahi = {
-        enable = true;
-        publish = {
-          enable = true;
-          addresses = true;
-        };
-      };
     }
     (lib.mkIf cfg.extraHosts.enable {
       networking.extraHosts = network-data.mkExtraHosts cfg.extraHosts.hosts;

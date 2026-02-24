@@ -23,7 +23,7 @@
     ];
   };
 
-  services.nginx.virtualHosts."attic.ardent.local" = {
+  services.nginx.virtualHosts."attic.ardent.internal" = {
     forceSSL = true;
     enableACME = true;
 

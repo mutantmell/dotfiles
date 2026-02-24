@@ -106,7 +106,7 @@ pkgs.testers.nixosTest {
         dns = {
           upstream = [ "1.1.1.1" ];
           useDHCPFallback = false;
-          localDomain = "local";
+          localDomain = "internal";
         };
 
         firewall = {

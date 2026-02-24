@@ -237,7 +237,7 @@
 
       nodes = {
         thebeyond = {
-          hostname = "thebeyond.local";
+          hostname = "thebeyond.internal";
           profiles.system = {
             sshUser = "root";
             user = "root";

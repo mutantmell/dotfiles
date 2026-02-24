@@ -21,7 +21,7 @@
     recommendedTlsSettings = true;
     recommendedProxySettings = true;
 
-    virtualHosts."${config.networking.hostName}.local" = {
+    virtualHosts."${config.networking.hostName}.internal" = {
       forceSSL = true;
       enableACME = true;
 
@@ -94,7 +94,7 @@
     keyFile = config.sops.secrets."oauth2-proxy-internal-keyfile".path;
     provider = "oidc";
     clientID = "oauth2-proxy-internal";
-    redirectURL = "https://plantasma.local/oauth2/callback";
+    redirectURL = "https://plantasma.internal/oauth2/callback";
     email.domains = ["*"];
     httpAddress = "127.0.0.1:4180";
     cookie.refresh = "1m";
@@ -103,14 +103,14 @@
     setXauthrequest = true;
     extraConfig = {
       "provider-display-name" = "Keycloak";
-      "oidc-issuer-url" = "https://roer.local/auth/realms/homelab";
+      "oidc-issuer-url" = "https://auth.mutantmell.net/auth/realms/homelab";
     };
   };
 
   # ACME certificate configuration - get certs from legram's Step CA
   security.acme = {
     defaults = {
-      server = "https://legram.local/acme/acme/directory";
+      server = "https://legram.internal/acme/acme/directory";
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;

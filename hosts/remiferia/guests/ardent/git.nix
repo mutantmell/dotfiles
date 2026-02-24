@@ -2,7 +2,7 @@
 {
   environment.systemPackages = [ pkgs.git ];
 
-  services.cgit."ardent.local" = {
+  services.cgit."ardent.internal" = {
     enable = true;
     scanPath = config.users.users.git.home;
     gitHttpBackend.checkExportOkFiles = false;

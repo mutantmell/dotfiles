@@ -146,22 +146,25 @@ let
   in { host = h; zone = z; };
 
   # mkExtraHosts: Generate /etc/hosts entries for a list of hostnames
-  # Produces both IPv4 and IPv6 lines for each host (if available)
+  # Produces both IPv4 and IPv6 lines with canonical (.internal.mutantmell.net) and short (.internal) names
   mkExtraHosts = hostnames:
     lib.concatMapStringsSep "\n" (name: let
       h = hosts.${name};
     in lib.concatStringsSep "\n" (lib.filter (s: s != "") [
-      (lib.optionalString (h ? ipv4) "${h.ipv4} ${name}.local")
-      (lib.optionalString (h ? ipv6) "${h.ipv6} ${name}.local")
+      (lib.optionalString (h ? ipv4) "${h.ipv4} ${name}.internal.mutantmell.net ${name}.internal")
+      (lib.optionalString (h ? ipv6) "${h.ipv6} ${name}.internal.mutantmell.net ${name}.internal")
     ])) hostnames;
 
   # mkUnboundLocalData: Generate Unbound local-data entries (A + AAAA)
+  # Produces canonical (.internal.mutantmell.net) and short alias (.internal) records
   mkUnboundLocalData = hostnames:
     lib.concatMap (name: let
       h = hosts.${name};
     in lib.filter (s: s != "") [
-      (lib.optionalString (h ? ipv4) ''"${name}.local. A ${h.ipv4}"'')
-      (lib.optionalString (h ? ipv6) ''"${name}.local. AAAA ${h.ipv6}"'')
+      (lib.optionalString (h ? ipv4) ''"${name}.internal.mutantmell.net. A ${h.ipv4}"'')
+      (lib.optionalString (h ? ipv4) ''"${name}.internal. A ${h.ipv4}"'')
+      (lib.optionalString (h ? ipv6) ''"${name}.internal.mutantmell.net. AAAA ${h.ipv6}"'')
+      (lib.optionalString (h ? ipv6) ''"${name}.internal. AAAA ${h.ipv6}"'')
     ]) hostnames;
 
   # mkDualEgressRules: Expand host-based egress rules into dual-stack nftables strings

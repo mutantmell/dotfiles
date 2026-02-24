@@ -10,7 +10,7 @@
   services.grafana = {
     enable = true;
     settings = {
-      server.domain = "${config.networking.hostName}.local";
+      server.domain = "${config.networking.hostName}.internal";
     };
   };
 
@@ -31,23 +31,22 @@
           targets = [ "127.0.0.1:${toString config.services.prometheus.exporters.node.port}" ];
         }];
       }
-      # Uses legacy hostname — jotunheimr.local resolves via DNS alias during migration
       {
         job_name = "remiferia_node";
         static_configs = [{
-          targets = [ "jotunheimr.local:9001" ];
+          targets = [ "remiferia.internal:9001" ];
         }];
       }
       {
         job_name = "remiferia_zfs";
         static_configs = [{
-          targets = [ "jotunheimr.local:9002" ];
+          targets = [ "remiferia.internal:9002" ];
         }];
       }
       {
         job_name = "remiferia_smartctl";
         static_configs = [{
-          targets = [ "jotunheimr.local:9003" ];
+          targets = [ "remiferia.internal:9003" ];
         }];
       }
 

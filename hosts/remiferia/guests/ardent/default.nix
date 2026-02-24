@@ -62,7 +62,7 @@ in {
   };
   security.acme = {
     defaults = {
-      server = "https://legram.local/acme/acme/directory";
+      server = "https://legram.internal/acme/acme/directory";
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;
