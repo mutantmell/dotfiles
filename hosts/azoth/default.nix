@@ -87,5 +87,5 @@
   common.openssh.enable = true;
 
   hardware.enableRedistributableFirmware = true;
-  system.stateVersion = "23.11";
+  system.stateVersion = "25.11";
 }

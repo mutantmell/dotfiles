@@ -21,7 +21,7 @@ let
           boot.loader.grub.device = "nodev";
           fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
           nixpkgs.hostPlatform = "x86_64-linux";
-          system.stateVersion = "24.05";
+          system.stateVersion = "25.11";
           router6 = { enable = true; } // router6Config;
         }
       ];

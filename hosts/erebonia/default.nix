@@ -189,7 +189,7 @@ in {
   };
 
   home-manager.users.root = {
-    home.stateVersion = "23.11";
+    home.stateVersion = "25.11";
     programs.git = {
       enable = true;
       settings = {
@@ -200,5 +200,5 @@ in {
     };
   };
 
-  system.stateVersion = "23.11";
+  system.stateVersion = "25.11";
 }

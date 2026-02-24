@@ -10,7 +10,7 @@ in {
     homeDirectory = home-conf.home or (
       if pkgs.stdenv.isDarwin then "/Users/${home-conf.user}" else "/home/${home-conf.user}"
     );
-    stateVersion = "23.05";
+    stateVersion = "25.11";
     packages = ((
       home-conf.extraPackages or (pkgs: [])
     ) pkgs);

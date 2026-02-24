@@ -35,6 +35,6 @@
   };
 
   # Set state version to match when config was created (Oct 2023)
-  system.stateVersion = "23.11";
+  system.stateVersion = "25.11";
 
 }
