@@ -42,7 +42,7 @@ in {
       { Gateway = zone.gateway6; }
     ];
   };
-  networking.extraHosts = net.mkExtraHosts [ "plantasma" "roer" "legram" "heimdallr" ];
+  networking.extraHosts = net.mkExtraHosts [ "plantasma" "roer" "legram" "heimdallr" "ardent" ];
 
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
 
@@ -55,6 +55,7 @@ in {
       { host = "roer"; proto = "tcp"; port = 443; comment = "OIDC auth to roer"; }
       { host = "legram"; proto = "tcp"; port = 443; comment = "ACME certs from legram"; }
       { host = "heimdallr"; proto = "tcp"; port = [ 80 443 ]; comment = "Backend proxy to heimdallr"; }
+      { host = "ardent"; proto = "tcp"; port = 3000; comment = "Backend proxy to Forgejo on ardent"; }
     ]
   );
 

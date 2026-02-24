@@ -23,5 +23,16 @@
     ];
   };
 
-  # TODO: nginx site "attic.ardent.local"
+  services.nginx.virtualHosts."attic.ardent.local" = {
+    forceSSL = true;
+    enableACME = true;
+
+    locations."/" = {
+      proxyPass = "http://[::1]:8080";
+      proxyWebsockets = true;
+      extraConfig = ''
+        client_max_body_size 512M;
+      '';
+    };
+  };
 }

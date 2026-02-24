@@ -9,8 +9,12 @@ in {
   imports = [
     ./microvm.nix
     ./sops.nix
-    ./attic.nix
     ./git.nix
+    # TODO: re-enable after adding forgejo-runner-token to sops secrets
+    # ./forgejo.nix
+    # ./runner.nix
+    # ./containers.nix
+    ./attic.nix
   ];
 
   networking.hostName = hostname;
@@ -40,8 +44,29 @@ in {
   };
   services.resolved.enable = true;
 
+  networking.extraHosts = net.mkExtraHosts [ "legram" ];
+
   time.timeZone = "UTC";
   security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
+
+  # Shared nginx + ACME for cgit, attic, and container vhosts
+  networking.firewall.allowedTCPPorts = [ 80 443 ];
+  services.nginx = {
+    enable = true;
+    recommendedTlsSettings = true;
+    recommendedProxySettings = true;
+  };
+  environment.etc."step-ca/data/intermediate_ca.crt" = {
+    source = pkgs.mmell.lib.data.certs.intermediate;
+    mode = "0444";
+  };
+  security.acme = {
+    defaults = {
+      server = "https://legram.local/acme/acme/directory";
+      email = "malaguy@gmail.com";
+    };
+    acceptTerms = true;
+  };
 
   environment.persistence."/persist" = {
     hideMounts = true;
@@ -61,6 +86,8 @@ in {
     net.mkDualEgressRules zone [
       { gateway = true; proto = "udp"; port = 53; }
       { gateway = true; proto = "tcp"; port = 53; }
+      { gateway = true; proto = "tcp"; port = [ 80 443 ]; comment = "GitHub mirror, container image pulls"; }
+      { host = "legram"; proto = "tcp"; port = 443; comment = "ACME certs from legram"; }
     ] ++ [
       "ip daddr 224.0.0.251 udp dport 5353 accept"    # mDNS IPv4
       "ip6 daddr ff02::fb udp dport 5353 accept"       # mDNS IPv6

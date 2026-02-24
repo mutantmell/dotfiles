@@ -64,6 +64,10 @@ in {
           "remiferia" "erebonia" "ordis" "heimdallr" "trista"
           "ardent" "azoth" "denai" "ymir" "calvard"
         ] ++ [
+          # Service aliases — point to reverse proxy (ordis)
+          ''"git.local. A ${h.ordis.ipv4}"''
+          ''"git.local. AAAA ${h.ordis.ipv6}"''
+
           # Backward-compat aliases during migration
           ''"yggdrasil.local. A ${h.thebeyond.ipv4}"''
           ''"yggdrasil.local. AAAA ${h.thebeyond.ipv6}"''

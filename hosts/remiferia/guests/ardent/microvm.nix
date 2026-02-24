@@ -1,4 +1,4 @@
-{ pkgs, config, lib, ...}:
+{ config, lib, ...}:
 {
   microvm.shares = [{
     source = "/nix/store";
@@ -17,13 +17,19 @@
     autoCreate = true;
     mountPoint = "/persist";
     image = "/data/guests/ardent/images/persist.img";
-    size = 10 * 1024;
+    size = 25 * 1024;
+  } {
+    autoCreate = true;
+    image = "/data/guests/ardent/images/store-overlay.img";
+    mountPoint = config.microvm.writableStoreOverlay;
+    size = 4 * 1024;
   }];
+  microvm.writableStoreOverlay = "/nix/.rw-store";
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
-  microvm.mem = 521;
+  microvm.mem = 2049;  # Not exactly 2048 — QEMU hangs at exactly 2GB
 
-  microvm.vcpu = 1;
+  microvm.vcpu = 2;
   microvm.interfaces = [{
     type = "tap";
     id = "vm-100-ardent";

@@ -1,13 +1,13 @@
 { config, pkgs, ... }:
 {
   environment.systemPackages = [ pkgs.git ];
-  
+
   services.cgit."ardent.local" = {
     enable = true;
     scanPath = config.users.users.git.home;
     gitHttpBackend.checkExportOkFiles = false;
   };
-  
+
   users.users.git = {
     isSystemUser = true;
     description = "git user";
@@ -19,8 +19,6 @@
     ) [ "deploy" "home" "remiferia" "erebonia" "calvard" ];
   };
   users.groups.git = {};
-
-  networking.firewall.allowedTCPPorts = [ 80 443 ];
 
   environment.persistence."/persist" = {
     directories = [
