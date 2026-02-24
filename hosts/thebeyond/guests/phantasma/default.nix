@@ -27,7 +27,7 @@ in {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:11:AD:01:00:02";
     networkConfig = {
-      Address = [ host.cidr4 host.cidr6 ];
+      Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
       Gateway = zone.gateway4;
       DNS = [ "127.0.0.1" ];  # Use local DNS (Adguard -> Unbound)
       IPv6AcceptRA = false;
@@ -41,8 +41,10 @@ in {
 
   networking.extraHosts = ''
     ${zone.gateway4} thebeyond.internal.mutantmell.net thebeyond.internal
+    ${zone.gateway4Legacy} thebeyond.internal.mutantmell.net thebeyond.internal
     ${zone.gateway6} thebeyond.internal.mutantmell.net thebeyond.internal
     ${zone.gateway4} yggdrasil.internal
+    ${zone.gateway4Legacy} yggdrasil.internal
   '' + net.mkExtraHosts [ "roer" "legram" "ordis" ];
 
   time.timeZone = "UTC";

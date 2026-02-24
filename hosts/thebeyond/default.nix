@@ -184,18 +184,19 @@ in {
         # DNS interception - redirect bypass attempts to router's DNS
         # This catches devices (e.g., Google/Nest) that ignore DHCP-provided DNS
         # Excludes plantasma so Unbound can make recursive queries
+        # Includes both 10.97 and legacy 10.0 addresses during migration
         {
-          ip.saddr = { not = plantasma.ipv4; };
-          ip.daddr = { not = [ host.ipv4 plantasma.ipv4 ]; };
+          ip.saddr = { not = [ plantasma.ipv4 plantasma.ipv4Legacy ]; };
+          ip.daddr = { not = [ host.ipv4 host.ipv4Legacy plantasma.ipv4 plantasma.ipv4Legacy ]; };
           udp.dport = 53;
-          verdict = { dnat = "${host.ipv4}:53"; };
+          verdict = { dnat = "${host.ipv4Legacy}:53"; };
           comment = "Intercept DNS bypass (UDP)";
         }
         {
-          ip.saddr = { not = plantasma.ipv4; };
-          ip.daddr = { not = [ host.ipv4 plantasma.ipv4 ]; };
+          ip.saddr = { not = [ plantasma.ipv4 plantasma.ipv4Legacy ]; };
+          ip.daddr = { not = [ host.ipv4 host.ipv4Legacy plantasma.ipv4 plantasma.ipv4Legacy ]; };
           tcp.dport = 53;
-          verdict = { dnat = "${host.ipv4}:53"; };
+          verdict = { dnat = "${host.ipv4Legacy}:53"; };
           comment = "Intercept DNS bypass (TCP)";
         }
       ];
@@ -279,7 +280,7 @@ in {
             tag = 10;  # -> fdc6:55f2:0a5e:a::1/64
             network = {
               type = "static";
-              addresses = [ "10.0.10.1/24" ];
+              addresses = [ "10.0.10.1/24" "10.97.10.1/24" ];
               subnetId = 10;
               zone = "network";
               dhcp6.enable = true;
@@ -291,7 +292,7 @@ in {
             tag = 11;  # -> fdc6:55f2:0a5e:b::1/64
             network = {
               type = "static";
-              addresses = [ "10.0.11.1/24" ];
+              addresses = [ "10.0.11.1/24" "10.97.11.1/24" ];
               subnetId = 11;
               zone = "management";
               dhcp.enable = true;
@@ -304,7 +305,7 @@ in {
             tag = 20;  # -> fdc6:55f2:0a5e:14::1/64
             network = {
               type = "static";
-              addresses = [ "10.0.20.1/24" ];
+              addresses = [ "10.0.20.1/24" "10.97.20.1/24" ];
               subnetId = 20;
               zone = "trusted";
               dhcp.enable = true;
@@ -317,7 +318,7 @@ in {
             tag = 30;  # -> fdc6:55f2:0a5e:1e::1/64
             network = {
               type = "static";
-              addresses = [ "10.0.30.1/24" ];
+              addresses = [ "10.0.30.1/24" "10.97.30.1/24" ];
               zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -329,7 +330,7 @@ in {
             tag = 31;  # -> fdc6:55f2:0a5e:1f::1/64
             network = {
               type = "static";
-              addresses = [ "10.0.31.1/24" ];
+              addresses = [ "10.0.31.1/24" "10.97.31.1/24" ];
               zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -341,7 +342,7 @@ in {
             tag = 40;  # -> fdc6:55f2:0a5e:28::1/64
             network = {
               type = "static";
-              addresses = [ "10.0.40.1/24" ];
+              addresses = [ "10.0.40.1/24" "10.97.40.1/24" ];
               zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -353,7 +354,7 @@ in {
             tag = 41;  # -> fdc6:55f2:0a5e:29::1/64
             network = {
               type = "static";
-              addresses = [ "10.0.41.1/24" ];
+              addresses = [ "10.0.41.1/24" "10.97.41.1/24" ];
               zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -365,7 +366,7 @@ in {
             tag = 100;  # -> fdc6:55f2:0a5e:64::1/64
             network = {
               type = "static";
-              addresses = [ "10.0.100.1/24" ];
+              addresses = [ "10.0.100.1/24" "10.97.100.1/24" ];
               zone = "untrusted";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -449,9 +450,12 @@ in {
 
   networking.extraHosts = ''
     ${host.ipv4} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
+    ${host.ipv4Legacy} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
     ${host.ipv6} thebeyond.internal.mutantmell.net thebeyond.internal
     ${host.ipv4} yggdrasil.internal
+    ${host.ipv4Legacy} yggdrasil.internal
     ${plantasma.ipv4} plantasma plantasma.internal.mutantmell.net plantasma.internal
+    ${plantasma.ipv4Legacy} plantasma plantasma.internal.mutantmell.net plantasma.internal
     ${plantasma.ipv6} plantasma.internal.mutantmell.net plantasma.internal
   '' + net.mkExtraHosts [ "roer" "legram" "ordis" "heimdallr" "trista" ];
 
@@ -460,8 +464,10 @@ in {
     enable = true;
     extraConfig = ''
       allow ${net.networks.network.subnet4}
+      allow ${net.networks.network.subnet4Legacy}
       allow ${net.networks.network.subnet6}
       allow ${net.networks.management.subnet4}
+      allow ${net.networks.management.subnet4Legacy}
       allow ${net.networks.management.subnet6}
     '';
   };

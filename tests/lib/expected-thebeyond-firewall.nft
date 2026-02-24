@@ -58,15 +58,15 @@
               iifname { "vINFRA.br0" } oifname { "wan" } udp dport 123 accept comment "NTP"
 
               # Port forward destinations
-              tcp dport 22 ip daddr 10.0.100.40 accept
+              tcp dport 22 ip daddr 10.97.100.40 accept
 
               # Extra forward rules
               iifname "vDMZ.br0" oifname "wg-ba" accept
-              iifname "wg-ba" ip daddr 10.0.100.40 accept
+              iifname "wg-ba" ip daddr 10.97.100.40 accept
               iifname "wg-ba" ip6 daddr fdc6:55f2:0a5e:64::28 accept
-              iifname "vDMZ.br0" ip saddr 10.0.100.40 ip daddr 10.0.11.3 oifname "vINFRA.br0" tcp dport 443 accept comment "ordis -> roer (OIDC)"
+              iifname "vDMZ.br0" ip saddr 10.97.100.40 ip daddr 10.97.11.3 oifname "vINFRA.br0" tcp dport 443 accept comment "ordis -> roer (OIDC)"
               iifname "vDMZ.br0" ip6 saddr fdc6:55f2:0a5e:64::28 ip6 daddr fdc6:55f2:0a5e:b::3 oifname "vINFRA.br0" tcp dport 443 accept comment "ordis -> roer (OIDC v6)"
-              iifname "vDMZ.br0" ip daddr 10.0.11.4 oifname "vINFRA.br0" tcp dport 443 accept comment "vDMZ -> legram (ACME)"
+              iifname "vDMZ.br0" ip daddr 10.97.11.4 oifname "vINFRA.br0" tcp dport 443 accept comment "vDMZ -> legram (ACME)"
               iifname "vDMZ.br0" ip6 daddr fdc6:55f2:0a5e:b::4 oifname "vINFRA.br0" tcp dport 443 accept comment "vDMZ -> legram (ACME v6)"
             }
 
@@ -80,14 +80,14 @@
               type nat hook prerouting priority dstnat;
 
               # DNAT / Port forwarding
-iifname "wg-ba" tcp dport 22 dnat to 10.0.100.40:22
+iifname "wg-ba" tcp dport 22 dnat to 10.97.100.40:22
 
 
               # Extra NAT rules
 oifname "wg-ba" masquerade
-              iifname "wg-ba" ip daddr 10.0.100.40 masquerade
-              ip saddr != 10.0.11.2 ip daddr != { 10.0.11.1, 10.0.11.2 } udp dport 53 dnat to 10.0.11.1:53 comment "Intercept DNS bypass (UDP)"
-              ip saddr != 10.0.11.2 ip daddr != { 10.0.11.1, 10.0.11.2 } tcp dport 53 dnat to 10.0.11.1:53 comment "Intercept DNS bypass (TCP)"
+              iifname "wg-ba" ip daddr 10.97.100.40 masquerade
+              ip saddr != { 10.97.11.2, 10.0.11.2 } ip daddr != { 10.97.11.1, 10.0.11.1, 10.97.11.2, 10.0.11.2 } udp dport 53 dnat to 10.0.11.1:53 comment "Intercept DNS bypass (UDP)"
+              ip saddr != { 10.97.11.2, 10.0.11.2 } ip daddr != { 10.97.11.1, 10.0.11.1, 10.97.11.2, 10.0.11.2 } tcp dport 53 dnat to 10.0.11.1:53 comment "Intercept DNS bypass (TCP)"
 
             }
 

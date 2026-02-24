@@ -14,17 +14,17 @@ in {
     sshfs
   ];
   
-  # Source-restricted firewall rules for NAS services
+  # Source-restricted firewall rules for NAS services (both 10.97 + 10.0 legacy)
   networking.firewall.extraInputRules = ''
     # NFS from VM hosts and vHOME
-    ip saddr { ${h.calvard.ipv4}, ${h.erebonia.ipv4}, ${trusted.subnet4} } tcp dport 2049 accept
+    ip saddr { ${h.calvard.ipv4}, ${h.calvard.ipv4Legacy}, ${h.erebonia.ipv4}, ${h.erebonia.ipv4Legacy}, ${trusted.subnet4}, ${trusted.subnet4Legacy} } tcp dport 2049 accept
     ip6 saddr { ${h.calvard.ipv6}, ${h.erebonia.ipv6}, ${trusted.subnet6} } tcp dport 2049 accept
     # SMB from vHOME only
-    ip saddr ${trusted.subnet4} tcp dport { 139, 445 } accept
+    ip saddr { ${trusted.subnet4}, ${trusted.subnet4Legacy} } tcp dport { 139, 445 } accept
     ip6 saddr ${trusted.subnet6} tcp dport { 139, 445 } accept
     # WSDD from vHOME only
-    ip saddr ${trusted.subnet4} tcp dport 5357 accept
-    ip saddr ${trusted.subnet4} udp dport 3702 accept
+    ip saddr { ${trusted.subnet4}, ${trusted.subnet4Legacy} } tcp dport 5357 accept
+    ip saddr { ${trusted.subnet4}, ${trusted.subnet4Legacy} } udp dport 3702 accept
     ip6 saddr ${trusted.subnet6} tcp dport 5357 accept
     ip6 saddr ${trusted.subnet6} udp dport 3702 accept
   '';
@@ -54,16 +54,16 @@ in {
     enable = true;
     #    createMountPoints = true;
     exports = ''
-      /data/media ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash)
-      /data/data ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash)
+      /data/media ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash)
+      /data/data ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/ro/media ${mgmt.subnet4}(ro) ${mgmt.subnet6}(ro) ${trusted.subnet4}(ro) ${trusted.subnet6}(ro)
-      /export/rw/media ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash)
+      /export/ro/media ${mgmt.subnet4}(ro) ${mgmt.subnet4Legacy}(ro) ${mgmt.subnet6}(ro) ${trusted.subnet4}(ro) ${trusted.subnet4Legacy}(ro) ${trusted.subnet6}(ro)
+      /export/rw/media ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/ro/data ${mgmt.subnet4}(ro) ${mgmt.subnet6}(ro) ${trusted.subnet4}(ro) ${trusted.subnet6}(ro)
-      /export/rw/data ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash)
+      /export/ro/data ${mgmt.subnet4}(ro) ${mgmt.subnet4Legacy}(ro) ${mgmt.subnet6}(ro) ${trusted.subnet4}(ro) ${trusted.subnet4Legacy}(ro) ${trusted.subnet6}(ro)
+      /export/rw/data ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash)
 
-      /export/rw/backup ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
+      /export/rw/backup ${mgmt.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${mgmt.subnet6}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet4Legacy}(rw,sync,no_subtree_check,no_root_squash) ${trusted.subnet6}(rw,sync,no_subtree_check,no_root_squash) 10.1.10.0/24(rw,sync,no_subtree_check,no_root_squash) 10.1.20.0/24(rw,sync,no_subtree_check,no_root_squash)
     '';
   };
 

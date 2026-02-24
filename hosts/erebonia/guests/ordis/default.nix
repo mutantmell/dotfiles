@@ -31,7 +31,7 @@ in {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:41:3F:F4:AB:B4";
     networkConfig = {
-      Address = [ host.cidr4 host.cidr6 ];
+      Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
       Gateway = zone.gateway4;
       DNS = [ zone.gateway4 zone.gateway6 ];
       IPv6AcceptRA = false;

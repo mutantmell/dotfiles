@@ -40,9 +40,9 @@ in {
       matchConfig.Name = "enp88s0.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ host.cidr4 host.cidr6 ];
+      networkConfig.Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
       networkConfig.MulticastDNS = true;
-      networkConfig.DNS = [ zone.gateway4 zone.gateway6 ];
+      networkConfig.DNS = [ zone.gateway4 zone.gateway4Legacy zone.gateway6 ];
       routes = [
         { Gateway = zone.gateway4; }
         { Gateway = zone.gateway6; }
