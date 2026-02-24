@@ -38,7 +38,7 @@ let
         boot.loader.grub.device = "nodev";
         fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
         nixpkgs.hostPlatform = "x86_64-linux";
-        system.stateVersion = "24.05";
+        system.stateVersion = "25.11";
 
         # ================================================================
         # Exact thebeyond router6 config (from hosts/thebeyond/default.nix)

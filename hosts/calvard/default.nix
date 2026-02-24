@@ -85,7 +85,7 @@ in {
   users.users.root.hashedPassword = "$y$j9T$3LKptm/9A.x8WAyU6mGNx.$k8yOrBlbgPl2J0cUcAX1GZVNuWQHl0f.4xZNiIlaKy9";
 
   home-manager.users.root = {
-    home.stateVersion = "23.11";
+    home.stateVersion = "25.11";
     programs.git = {
       enable = true;
       settings = {
@@ -96,5 +96,5 @@ in {
     };
   };
 
-  system.stateVersion = "23.11";
+  system.stateVersion = "25.11";
 }
