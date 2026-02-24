@@ -121,6 +121,15 @@ in {
         ];
       };
 
+      vpn = {
+        # Authenticated remote clients: access to infra + DMZ services, but not home LAN
+        icmpEcho = "enable";
+        accessTo = [ "management" "untrusted" ];
+        inputRules = [
+          { verdict = "accept"; comment = "Full router service access"; }
+        ];
+      };
+
       isolated = {
         # No forwarding, no router services
         icmpEcho = "disable";
@@ -403,7 +412,7 @@ in {
             "10.100.10.1/24"
             "fdc6:55f2:0a5e:640a::1/64"  # Manual IPv6 for WG
           ];
-          zone = "trusted";
+          zone = "vpn";
           required = false;  # External connection, don't block boot
         };
         wireguard = {
