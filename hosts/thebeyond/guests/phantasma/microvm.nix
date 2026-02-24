@@ -9,7 +9,7 @@
     tag = "ro-store";
     proto = "virtiofs";
   } {
-    source = "/persist/guests/plantasma/static";
+    source = "/persist/guests/phantasma/static";
     mountPoint = "/static";
     tag = "static";
     proto = "virtiofs";
@@ -19,7 +19,7 @@
   microvm.volumes = [{
     autoCreate = true;
     mountPoint = "/persist";
-    image = "/persist/guests/plantasma/images/persist.img";
+    image = "/persist/guests/phantasma/images/persist.img";
     size = 10 * 1024;  # 10GB - enough for Adguard Home stats/logs
   }];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
@@ -29,7 +29,7 @@
 
   microvm.interfaces = [{
     type = "tap";
-    id = "vm-11-plantsma";
+    id = "vm-11-phantasma";
     mac = "5E:11:AD:01:00:02";
   }];
 }

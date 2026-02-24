@@ -45,7 +45,7 @@ NAS HOSTS (Countries)
 
 ROUTER (Extra-planar spaces)
 └── thebeyond         (Router)
-    └── plantasma     (Router VM guest)
+    └── phantasma     (Router VM guest)
 
 SWITCHES (Named vehicles)
 ├── arseille          (Switch 1)

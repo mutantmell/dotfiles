@@ -4,7 +4,7 @@
 # Uses a local oauth2-proxy instance that authenticates directly against Keycloak (on roer)
 #
 # Flow:
-# 1. User accesses https://plantasma.local/adguard/
+# 1. User accesses https://phantasma.local/adguard/
 # 2. Nginx makes auth_request to local oauth2-proxy
 # 3. If not authenticated, oauth2-proxy redirects to Keycloak (on roer)
 # 4. After successful OAuth, user is redirected back
@@ -94,7 +94,7 @@
     keyFile = config.sops.secrets."oauth2-proxy-internal-keyfile".path;
     provider = "oidc";
     clientID = "oauth2-proxy-internal";
-    redirectURL = "https://plantasma.internal/oauth2/callback";
+    redirectURL = "https://phantasma.internal/oauth2/callback";
     email.domains = ["*"];
     httpAddress = "127.0.0.1:4180";
     cookie.refresh = "1m";

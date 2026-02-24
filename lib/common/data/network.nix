@@ -20,7 +20,7 @@ let
       vlanId = 11;
       hosts = {
         thebeyond  = 1;
-        plantasma  = 2;
+        phantasma  = 2;
         roer       = 3;    # Keycloak OIDC
         legram     = 4;    # step-ca / PKI
         remiferia  = 20;   # NAS — before VM hosts

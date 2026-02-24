@@ -59,7 +59,7 @@
     },
     {
       "clientId": "oauth2-proxy-internal",
-      "name": "Internal OAuth2 Proxy (plantasma)",
+      "name": "Internal OAuth2 Proxy (phantasma)",
       "protocol": "openid-connect",
       "publicClient": false,
       "directAccessGrantsEnabled": false,
@@ -67,10 +67,10 @@
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
       "redirectUris": [
-        "https://plantasma.internal/oauth2/callback"
+        "https://phantasma.internal/oauth2/callback"
       ],
       "webOrigins": [
-        "https://plantasma.internal"
+        "https://phantasma.internal"
       ],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },

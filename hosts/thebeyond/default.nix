@@ -4,7 +4,7 @@ let
   hostname = "thebeyond";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host;
-  plantasma = net.hosts.plantasma;
+  phantasma = net.hosts.phantasma;
   ordis = net.hosts.ordis;
   heimdallr = net.hosts.heimdallr;
   trista = net.hosts.trista;
@@ -139,8 +139,8 @@ in {
     };
 
     dns = {
-      upstream = [ plantasma.ipv4 ];  # plantasma microVM (primary - has local hostnames)
-      useDHCPFallback = true;        # fall back to ISP DNS when plantasma microVM is down
+      upstream = [ phantasma.ipv4 ];  # phantasma microVM (primary - has local hostnames)
+      useDHCPFallback = true;        # fall back to ISP DNS when phantasma microVM is down
       localDomain = "internal";
     };
 
@@ -183,18 +183,18 @@ in {
 
         # DNS interception - redirect bypass attempts to router's DNS
         # This catches devices (e.g., Google/Nest) that ignore DHCP-provided DNS
-        # Excludes plantasma so Unbound can make recursive queries
+        # Excludes phantasma so Unbound can make recursive queries
         # Includes both 10.97 and legacy 10.0 addresses during migration
         {
-          ip.saddr = { not = [ plantasma.ipv4 plantasma.ipv4Legacy ]; };
-          ip.daddr = { not = [ host.ipv4 host.ipv4Legacy plantasma.ipv4 plantasma.ipv4Legacy ]; };
+          ip.saddr = { not = [ phantasma.ipv4 phantasma.ipv4Legacy ]; };
+          ip.daddr = { not = [ host.ipv4 host.ipv4Legacy phantasma.ipv4 phantasma.ipv4Legacy ]; };
           udp.dport = 53;
           verdict = { dnat = "${host.ipv4Legacy}:53"; };
           comment = "Intercept DNS bypass (UDP)";
         }
         {
-          ip.saddr = { not = [ plantasma.ipv4 plantasma.ipv4Legacy ]; };
-          ip.daddr = { not = [ host.ipv4 host.ipv4Legacy plantasma.ipv4 plantasma.ipv4Legacy ]; };
+          ip.saddr = { not = [ phantasma.ipv4 phantasma.ipv4Legacy ]; };
+          ip.daddr = { not = [ host.ipv4 host.ipv4Legacy phantasma.ipv4 phantasma.ipv4Legacy ]; };
           tcp.dport = 53;
           verdict = { dnat = "${host.ipv4Legacy}:53"; };
           comment = "Intercept DNS bypass (TCP)";
@@ -202,18 +202,18 @@ in {
       ];
 
       # IPv6 DNS interception - same as IPv4 but for ULA addresses
-      # Excludes plantasma's IPv6 so Unbound can make recursive queries
+      # Excludes phantasma's IPv6 so Unbound can make recursive queries
       extraNat6Rules = [
         {
-          ip6.saddr = { not = plantasma.ipv6; };
-          ip6.daddr = { not = [ host.ipv6 plantasma.ipv6 ]; };
+          ip6.saddr = { not = phantasma.ipv6; };
+          ip6.daddr = { not = [ host.ipv6 phantasma.ipv6 ]; };
           udp.dport = 53;
           verdict = { dnat = "[${host.ipv6}]:53"; };
           comment = "Intercept IPv6 DNS bypass (UDP)";
         }
         {
-          ip6.saddr = { not = plantasma.ipv6; };
-          ip6.daddr = { not = [ host.ipv6 plantasma.ipv6 ]; };
+          ip6.saddr = { not = phantasma.ipv6; };
+          ip6.daddr = { not = [ host.ipv6 phantasma.ipv6 ]; };
           tcp.dport = 53;
           verdict = { dnat = "[${host.ipv6}]:53"; };
           comment = "Intercept IPv6 DNS bypass (TCP)";
@@ -437,7 +437,7 @@ in {
   };
 
   # Bridge microVM tap interfaces into the infrastructure network
-  # The vm-11-plantsma tap interface is created by microvm and needs to be bridged to vINFRA.br0
+  # The vm-11-phantasma tap interface is created by microvm and needs to be bridged to vINFRA.br0
   systemd.network.networks."10-vm-infra" = {
     matchConfig.Name = "vm-11-*";
     networkConfig = {
@@ -454,9 +454,9 @@ in {
     ${host.ipv6} thebeyond.internal.mutantmell.net thebeyond.internal
     ${host.ipv4} yggdrasil.internal
     ${host.ipv4Legacy} yggdrasil.internal
-    ${plantasma.ipv4} plantasma plantasma.internal.mutantmell.net plantasma.internal
-    ${plantasma.ipv4Legacy} plantasma plantasma.internal.mutantmell.net plantasma.internal
-    ${plantasma.ipv6} plantasma.internal.mutantmell.net plantasma.internal
+    ${phantasma.ipv4} phantasma phantasma.internal.mutantmell.net phantasma.internal
+    ${phantasma.ipv4Legacy} phantasma phantasma.internal.mutantmell.net phantasma.internal
+    ${phantasma.ipv6} phantasma.internal.mutantmell.net phantasma.internal
   '' + net.mkExtraHosts [ "roer" "legram" "ordis" "heimdallr" "trista" ];
 
   # NTP server for network gear and infrastructure

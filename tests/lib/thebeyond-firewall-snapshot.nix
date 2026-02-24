@@ -24,7 +24,7 @@ let
   # These match the actual values used in hosts/thebeyond/default.nix
   # Primary (10.97) and legacy (10.0) addresses for dual-stack migration
   host      = { ipv4 = "10.97.11.1"; ipv4Legacy = "10.0.11.1"; ipv6 = "fdc6:55f2:0a5e:b::1"; };
-  plantasma = { ipv4 = "10.97.11.2"; ipv4Legacy = "10.0.11.2"; ipv6 = "fdc6:55f2:0a5e:b::2"; };
+  phantasma = { ipv4 = "10.97.11.2"; ipv4Legacy = "10.0.11.2"; ipv6 = "fdc6:55f2:0a5e:b::2"; };
   ordis     = { ipv4 = "10.97.100.40"; ipv4Legacy = "10.0.100.40"; ipv6 = "fdc6:55f2:0a5e:64::28"; };
   roer      = { ipv4 = "10.97.11.3"; ipv4Legacy = "10.0.11.3"; ipv6 = "fdc6:55f2:0a5e:b::3"; };
   legram    = { ipv4 = "10.97.11.4"; ipv4Legacy = "10.0.11.4"; ipv6 = "fdc6:55f2:0a5e:b::4"; };
@@ -103,7 +103,7 @@ let
           };
 
           dns = {
-            upstream = [ plantasma.ipv4 ];
+            upstream = [ phantasma.ipv4 ];
             useDHCPFallback = true;
             localDomain = "internal";
           };
@@ -146,15 +146,15 @@ let
               # DNS interception - redirect bypass attempts to router's DNS
               # Includes both 10.97 and legacy 10.0 addresses during migration
               {
-                ip.saddr = { not = [ plantasma.ipv4 plantasma.ipv4Legacy ]; };
-                ip.daddr = { not = [ host.ipv4 host.ipv4Legacy plantasma.ipv4 plantasma.ipv4Legacy ]; };
+                ip.saddr = { not = [ phantasma.ipv4 phantasma.ipv4Legacy ]; };
+                ip.daddr = { not = [ host.ipv4 host.ipv4Legacy phantasma.ipv4 phantasma.ipv4Legacy ]; };
                 udp.dport = 53;
                 verdict = { dnat = "${host.ipv4Legacy}:53"; };
                 comment = "Intercept DNS bypass (UDP)";
               }
               {
-                ip.saddr = { not = [ plantasma.ipv4 plantasma.ipv4Legacy ]; };
-                ip.daddr = { not = [ host.ipv4 host.ipv4Legacy plantasma.ipv4 plantasma.ipv4Legacy ]; };
+                ip.saddr = { not = [ phantasma.ipv4 phantasma.ipv4Legacy ]; };
+                ip.daddr = { not = [ host.ipv4 host.ipv4Legacy phantasma.ipv4 phantasma.ipv4Legacy ]; };
                 tcp.dport = 53;
                 verdict = { dnat = "${host.ipv4Legacy}:53"; };
                 comment = "Intercept DNS bypass (TCP)";
@@ -163,15 +163,15 @@ let
 
             extraNat6Rules = [
               {
-                ip6.saddr = { not = plantasma.ipv6; };
-                ip6.daddr = { not = [ host.ipv6 plantasma.ipv6 ]; };
+                ip6.saddr = { not = phantasma.ipv6; };
+                ip6.daddr = { not = [ host.ipv6 phantasma.ipv6 ]; };
                 udp.dport = 53;
                 verdict = { dnat = "[${host.ipv6}]:53"; };
                 comment = "Intercept IPv6 DNS bypass (UDP)";
               }
               {
-                ip6.saddr = { not = plantasma.ipv6; };
-                ip6.daddr = { not = [ host.ipv6 plantasma.ipv6 ]; };
+                ip6.saddr = { not = phantasma.ipv6; };
+                ip6.daddr = { not = [ host.ipv6 phantasma.ipv6 ]; };
                 tcp.dport = 53;
                 verdict = { dnat = "[${host.ipv6}]:53"; };
                 comment = "Intercept IPv6 DNS bypass (TCP)";

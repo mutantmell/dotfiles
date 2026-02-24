@@ -1,6 +1,6 @@
 keys:
   - &ad_denai age1mmqej3arlv2wx96m2gh9fgvqpkwaeselzfu4rqfn54artx058vys7g3ehq
-  - &sv_plantasma age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
+  - &sv_phantasma age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
   - &sv_heimdallr age1exkagk0ztmnw7kvx3wwwqjgx3m2zxycgg46xmrt7pvqlngqgjyeqc4ajqh
 
   - &sv_ardent age1t8499a2tna8pzn448ylnpwach59l6m38s33pzdmy4vhy492nevpqq7l6tc
@@ -14,11 +14,11 @@ keys:
   - &sv_ymir age1anrdj6swtlq5ll4e369gz3lh6aj2sz6pj5zh25uhltjfk4z86azsfsxk9a
   - &sv_thebeyond age1yejm0ghvycctg868ag2u0awkf7crpuh59nfvy73dvsuuuns9davsxc6ssz
 creation_rules:
-  - path_regex: hosts/thebeyond/guests/plantasma/secrets/[^/]+\.yaml$
+  - path_regex: hosts/thebeyond/guests/phantasma/secrets/[^/]+\.yaml$
     key_groups:
       - age:
         - *ad_denai
-        - *sv_plantasma
+        - *sv_phantasma
   - path_regex: hosts/remiferia/secrets/[^/]+\.yaml$
     key_groups:
       - age:
