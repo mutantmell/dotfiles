@@ -145,6 +145,15 @@ in {
       localDomain = "internal";
     };
 
+    dyndns = {
+      enable = true;
+      protocol = "namecheap";
+      server = "https://dynamicdns.park-your-domain.com";
+      hosts = [ "@" ];
+      domainFile = config.sops.secrets."dyndns-host-domain".path;
+      passwordFile = config.sops.secrets."dyndns-host-password".path;
+    };
+
     firewall = {
       # Forward from DMZ to wg-ba
       extraForwardRules = [
