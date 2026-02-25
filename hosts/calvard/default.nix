@@ -73,6 +73,14 @@ in {
     dhcpcd.enable = false;
   };
 
+  networking.firewall.allowedTCPPorts = [ 9100 ];
+
+  services.prometheus.exporters.node = {
+    enable = true;
+    enabledCollectors = [ "systemd" ];
+    port = 9100;
+  };
+
   i18n.defaultLocale = "en_US.UTF-8";
 
   common.openssh = {

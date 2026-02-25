@@ -164,11 +164,18 @@ in {
   # Host-based input firewall: restrict SSH to router + vHOME
   networking.firewall = {
     enable = true;
+    allowedTCPPorts = [ 9100 ];
     extraInputRules = ''
       ip saddr { ${zone.gateway4}, ${zone.gateway4Legacy}, ${net.networks.trusted.subnet4}, ${net.networks.trusted.subnet4Legacy} } tcp dport 22 accept
       ip6 saddr { ${zone.gateway6}, ${net.networks.trusted.subnet6} } tcp dport 22 accept
       tcp dport 22 drop
     '';
+  };
+
+  services.prometheus.exporters.node = {
+    enable = true;
+    enabledCollectors = [ "systemd" ];
+    port = 9100;
   };
 
   i18n.defaultLocale = "en_US.UTF-8";
