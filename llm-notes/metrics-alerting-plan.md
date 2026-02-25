@@ -547,16 +547,23 @@ path but with a fresh image (new IP, new volume size). Prometheus history and
 Grafana dashboards from the old volume can be migrated by copying the persist
 image before reprovisioning, or started fresh.
 
-### Phase 2 — Log Aggregation
+### Phase 2 — Log Aggregation (COMPLETE)
 
-1. Enable Loki on ymir (update existing disabled config)
-2. Enable local Promtail on ymir (update existing disabled config)
-3. Create `modules/promtail-client/default.nix` shared module
-4. Deploy Promtail to all parent hosts + microVMs
-5. Add cross-zone firewall rules for DMZ → ymir Loki port
-6. Add Loki persistence directory
-7. Configure Grafana Loki datasource
-8. Verify: logs flowing from all hosts, searchable in Grafana
+1. ~~Enable Loki on ymir~~ — `modules/loki.nix`: TSDB + v13 schema,
+   filesystem storage in `/var/lib/loki/`, port 3100
+2. ~~Enable local Promtail on ymir~~ — via `promtail-client` module pointing
+   to `http://127.0.0.1:3100`
+3. ~~Create `modules/promtail-client/default.nix` shared module~~ — auto-
+   discovered by flake, added to both `mk-nixos` and `mk-microvm` builders
+4. ~~Deploy Promtail to all parent hosts + microVMs~~ — enabled on thebeyond,
+   erebonia, calvard, remiferia, phantasma, roer, legram, ordis, heimdallr,
+   ardent, denai (ymir uses local Promtail via loki.nix)
+5. ~~Add cross-zone firewall rules for DMZ → ymir Loki port~~ — IPv4 + IPv6
+   forward rules on thebeyond, egress rules on roer, legram, ordis,
+   heimdallr, ardent
+6. ~~Add Loki persistence directory~~ — already pre-created in Phase 1
+7. ~~Configure Grafana Loki datasource~~ — provisioned alongside Prometheus
+8. TODO: Verify logs flowing from all hosts after deployment
 
 ### Phase 3 — Alerting & Notifications
 
@@ -575,6 +582,36 @@ image before reprovisioning, or started fresh.
 4. Build custom Grafana dashboards (firewall overview, DNS stats)
 5. Configure CI/CD webhook integration (Gitea → ntfy)
 6. Configure Grafana OIDC auth via roer/Keycloak (if available)
+
+---
+
+## Rejected Alternatives
+
+### mTLS on Loki push endpoint
+
+We considered adding mutual TLS to the Promtail→Loki connection so that only
+hosts presenting a valid client certificate can push logs. The infrastructure
+exists (legram runs step-ca, several hosts already use ACME), but the
+operational cost outweighs the benefit for this deployment:
+
+- **Every host running Promtail would need an ACME-issued client cert.**
+  Management-zone hosts can already reach legram (intra-zone), but the cert
+  renewal lifecycle adds a hard dependency: if legram is down, certs expire and
+  log shipping stops across the fleet.
+- **Certificate renewal plumbing** — Promtail and Loki need systemd restart
+  triggers after ACME renewal. NixOS's `security.acme` handles renewal but
+  wiring the restart dependencies for every host is boilerplate.
+- **Loki needs a serving cert too** (for `https://`), plus its own ACME setup.
+  Local Promtail on ymir would need special handling (loopback TLS or a second
+  plaintext listener).
+- **The threat model doesn't justify it.** The DMZ→ymir:3100 forward rules are
+  narrow (specific destination + port), and the 5 DMZ hosts with egress filters
+  are the only ones that can even attempt the connection. A compromised DMZ host
+  can write garbage logs but can't read other hosts' logs or pivot further
+  through Loki's append-only push API.
+
+Revisit if Loki is ever exposed beyond the LAN or multi-tenant log separation
+is needed.
 
 ---
 

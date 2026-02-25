@@ -172,6 +172,8 @@ in {
     '';
   };
 
+  promtail-client.enable = true;
+
   services.prometheus.exporters.node = {
     enable = true;
     enabledCollectors = [ "systemd" ];

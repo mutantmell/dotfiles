@@ -64,8 +64,11 @@ in {
       { gateway = true; proto = "tcp"; port = [ 80 443 ]; comment = "HTTP/HTTPS for package mirrors"; }
       { gateway = true; proto = "udp"; port = 123; comment = "NTP"; }
       { host = "legram"; proto = "tcp"; port = 443; comment = "ACME certs from legram"; }
+      { host = "ymir"; proto = "tcp"; port = 3100; comment = "Loki log push"; }
     ]
   );
+
+  promtail-client.enable = true;
 
   system.stateVersion = "25.11";
 }

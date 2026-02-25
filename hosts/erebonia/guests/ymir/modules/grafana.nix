@@ -10,6 +10,19 @@
     settings = {
       server.domain = "${config.networking.hostName}.internal";
     };
+    provision.datasources.settings.datasources = [
+      {
+        name = "Prometheus";
+        type = "prometheus";
+        url = "http://localhost:${toString config.services.prometheus.port}";
+        isDefault = true;
+      }
+      {
+        name = "Loki";
+        type = "loki";
+        url = "http://localhost:3100";
+      }
+    ];
   };
 
   services.nginx.enable = true;

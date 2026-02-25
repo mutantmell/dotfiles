@@ -68,6 +68,8 @@
               iifname "vDMZ.br0" ip6 saddr fdc6:55f2:0a5e:64::28 ip6 daddr fdc6:55f2:0a5e:b::3 oifname "vINFRA.br0" tcp dport 443 accept comment "ordis -> roer (OIDC v6)"
               iifname "vDMZ.br0" ip daddr 10.97.11.4 oifname "vINFRA.br0" tcp dport 443 accept comment "vDMZ -> legram (ACME)"
               iifname "vDMZ.br0" ip6 daddr fdc6:55f2:0a5e:b::4 oifname "vINFRA.br0" tcp dport 443 accept comment "vDMZ -> legram (ACME v6)"
+              iifname "vDMZ.br0" ip daddr 10.97.11.5 oifname "vINFRA.br0" tcp dport 3100 accept comment "vDMZ -> ymir (Loki)"
+              iifname "vDMZ.br0" ip6 daddr fdc6:55f2:0a5e:b::5 oifname "vINFRA.br0" tcp dport 3100 accept comment "vDMZ -> ymir (Loki v6)"
             }
 
             chain output {

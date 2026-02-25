@@ -59,8 +59,11 @@ in {
     net.mkDualEgressRules zone [
       { gateway = true; proto = "udp"; port = 53; }
       { gateway = true; proto = "tcp"; port = 53; }
+      { host = "ymir"; proto = "tcp"; port = 3100; comment = "Loki log push"; }
     ]
   );
+
+  promtail-client.enable = true;
 
   system.stateVersion = "25.11";
 }

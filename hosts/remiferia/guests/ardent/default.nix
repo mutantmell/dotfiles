@@ -88,6 +88,7 @@ in {
       { gateway = true; proto = "tcp"; port = 53; }
       { gateway = true; proto = "tcp"; port = [ 80 443 ]; comment = "GitHub mirror, container image pulls"; }
       { host = "legram"; proto = "tcp"; port = 443; comment = "ACME certs from legram"; }
+      { host = "ymir"; proto = "tcp"; port = 3100; comment = "Loki log push"; }
     ] ++ [
       "ip daddr 224.0.0.251 udp dport 5353 accept"    # mDNS IPv4
       "ip6 daddr ff02::fb udp dport 5353 accept"       # mDNS IPv6
@@ -95,6 +96,8 @@ in {
       "ip6 daddr ff02::1:3 udp dport 5355 accept"      # LLMNR IPv6
     ]
   );
+
+  promtail-client.enable = true;
 
   system.stateVersion = "25.11";
 }

@@ -56,8 +56,11 @@ in {
       { host = "legram"; proto = "tcp"; port = 443; comment = "ACME certs from legram"; }
       { host = "heimdallr"; proto = "tcp"; port = [ 80 443 ]; comment = "Backend proxy to heimdallr"; }
       { host = "ardent"; proto = "tcp"; port = 3000; comment = "Backend proxy to Forgejo on ardent"; }
+      { host = "ymir"; proto = "tcp"; port = 3100; comment = "Loki log push"; }
     ]
   );
+
+  promtail-client.enable = true;
 
   system.stateVersion = "25.11";
 }
