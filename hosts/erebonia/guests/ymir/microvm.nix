@@ -17,16 +17,16 @@
     autoCreate = true;
     mountPoint = "/persist";
     image = "/persist/guests/ymir/images/persist.img";
-    size = 10 * 1024;
+    size = 30 * 1024;
   }];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
-  microvm.mem = 1024;
+  microvm.mem = 2049;  # Not exactly 2048 — QEMU hangs at exactly 2GB
 
   microvm.vcpu = 2;
   microvm.interfaces = [{
     type = "tap";
-    id = "vm-20-ymir";
-    mac = "5E:A2:E4:CB:05:DA";
+    id = "vm-11-ymir";
+    mac = "5E:0B:11:05:00:01";
   }];
 }

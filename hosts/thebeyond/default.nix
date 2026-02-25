@@ -459,6 +459,12 @@ in {
     ${phantasma.ipv6} phantasma.internal.mutantmell.net phantasma.internal
   '' + net.mkExtraHosts [ "roer" "legram" "ordis" "heimdallr" "trista" ];
 
+  services.prometheus.exporters.node = {
+    enable = true;
+    enabledCollectors = [ "systemd" ];
+    port = 9100;
+  };
+
   # NTP server for network gear and infrastructure
   services.chrony = {
     enable = true;

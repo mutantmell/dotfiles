@@ -23,6 +23,7 @@ let
         phantasma  = 2;
         roer       = 3;    # Keycloak OIDC
         legram     = 4;    # step-ca / PKI
+        ymir       = 5;    # Metrics / monitoring
         remiferia  = 20;   # NAS — before VM hosts
         calvard    = 30;   # VM host
         erebonia   = 31;   # VM host
@@ -32,7 +33,6 @@ let
       vlanId = 20;
       hosts = {
         denai = 40;
-        ymir  = 41;
       };
     };
     untrusted = {

@@ -7,8 +7,10 @@ in {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   imports = [
-    ./monit.nix
     ./microvm.nix
+    # TODO: import ./sops.nix after creating secrets/secrets.yaml on the new VLAN
+    ./modules/prometheus.nix
+    ./modules/grafana.nix
   ];
 
   networking.hostName = hostname;
@@ -24,7 +26,7 @@ in {
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
-    matchConfig.MACAddress = "5E:A2:E4:CB:05:DA";
+    matchConfig.MACAddress = "5E:0B:11:05:00:01";
     networkConfig = {
       Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
       Gateway = zone.gateway4;
@@ -47,6 +49,10 @@ in {
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
+      # Phase 2-3 service state (pre-created so persist volume is ready)
+      "/var/lib/loki"
+      "/var/lib/alertmanager"
+      "/var/lib/ntfy-sh"
     ];
     files = [
       "/etc/machine-id"
