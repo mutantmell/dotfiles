@@ -12,6 +12,8 @@ in {
     ./modules/prometheus.nix
     ./modules/grafana.nix
     ./modules/loki.nix
+    ./modules/alertmanager.nix
+    ./modules/ntfy.nix
   ];
 
   networking.hostName = hostname;
@@ -50,10 +52,7 @@ in {
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
-      # Phase 2-3 service state (pre-created so persist volume is ready)
       "/var/lib/loki"
-      "/var/lib/alertmanager"
-      "/var/lib/ntfy-sh"
     ];
     files = [
       "/etc/machine-id"

@@ -22,6 +22,12 @@
         type = "loki";
         url = "http://localhost:3100";
       }
+      {
+        name = "Alertmanager";
+        type = "alertmanager";
+        url = "http://localhost:9093";
+        jsonData.implementation = "prometheus";
+      }
     ];
   };
 
