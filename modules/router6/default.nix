@@ -1347,13 +1347,13 @@ in {
         wants = [ "network-online.target" ];
         serviceConfig = {
           Type = "oneshot";
-          StateDirectory = "router6-dyndns";
+          RuntimeDirectory = "router6-dyndns";
         };
         path = [ pkgs.curl pkgs.dig pkgs.gnugrep pkgs.iproute2 ];
         script = if dyndns.protocol == "namecheap" then ''
           set -euo pipefail
 
-          STATE_DIR="/var/lib/router6-dyndns"
+          STATE_DIR="/run/router6-dyndns"
           DDNS_EXTERNAL_IP="$(ip -4 a show ${iface} | grep -Po 'inet \K[0-9.]*' | head -1)"
           DDNS_DOMAIN="${if dyndns.domain != null
             then dyndns.domain
