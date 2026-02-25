@@ -119,6 +119,7 @@
             };
           }
           self.nixosModules.common
+          self.nixosModules."promtail-client"
           sops-nix.nixosModules.sops
         ] ++ args.modules;
       };
@@ -140,6 +141,7 @@
           sops-nix.nixosModules.sops
           impermanence.nixosModules.impermanence
           self.nixosModules.common
+          self.nixosModules."promtail-client"
         ];
       }];
     };

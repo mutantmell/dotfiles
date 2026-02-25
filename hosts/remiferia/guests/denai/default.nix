@@ -82,6 +82,8 @@ in {
   services.openssh.enable = true;
   services.openssh.settings.X11Forwarding = true;
 
+  promtail-client.enable = true;
+
   system.stateVersion = "25.11";
 
 }

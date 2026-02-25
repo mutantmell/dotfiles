@@ -63,5 +63,7 @@ in {
     ];
   };
 
+  promtail-client.enable = true;
+
   system.stateVersion = "25.11";
 }

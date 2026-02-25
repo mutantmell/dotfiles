@@ -11,6 +11,7 @@ in {
     # TODO: import ./sops.nix after creating secrets/secrets.yaml on the new VLAN
     ./modules/prometheus.nix
     ./modules/grafana.nix
+    ./modules/loki.nix
   ];
 
   networking.hostName = hostname;

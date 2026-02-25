@@ -62,6 +62,7 @@ in {
       { gateway = true; proto = "udp"; port = 53; }
       { gateway = true; proto = "tcp"; port = 53; }
       { host = "legram"; proto = "tcp"; port = 443; comment = "ACME certs from legram"; }
+      { host = "ymir"; proto = "tcp"; port = 3100; comment = "Loki log push"; }
     ] ++ [
       "ip daddr 224.0.0.251 udp dport 5353 accept"    # mDNS IPv4
       "ip6 daddr ff02::fb udp dport 5353 accept"       # mDNS IPv6
@@ -69,6 +70,8 @@ in {
       "ip6 daddr ff02::c udp dport 1900 accept"        # SSDP IPv6
     ]
   );
+
+  promtail-client.enable = true;
 
   system.stateVersion = "25.11";
 }

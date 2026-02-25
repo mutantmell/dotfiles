@@ -75,6 +75,8 @@ in {
 
   networking.firewall.allowedTCPPorts = [ 9100 ];
 
+  promtail-client.enable = true;
+
   services.prometheus.exporters.node = {
     enable = true;
     enabledCollectors = [ "systemd" ];

@@ -28,6 +28,7 @@ let
   ordis     = { ipv4 = "10.97.100.40"; ipv4Legacy = "10.0.100.40"; ipv6 = "fdc6:55f2:0a5e:64::28"; };
   roer      = { ipv4 = "10.97.11.3"; ipv4Legacy = "10.0.11.3"; ipv6 = "fdc6:55f2:0a5e:b::3"; };
   legram    = { ipv4 = "10.97.11.4"; ipv4Legacy = "10.0.11.4"; ipv6 = "fdc6:55f2:0a5e:b::4"; };
+  ymir      = { ipv4 = "10.97.11.5"; ipv4Legacy = "10.0.11.5"; ipv6 = "fdc6:55f2:0a5e:b::5"; };
 
   eval = import (pkgs.path + "/nixos/lib/eval-config.nix") {
     system = "x86_64-linux";
@@ -127,6 +128,13 @@ let
               { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
                 ip6.daddr = legram.ipv6; tcp.dport = 443;
                 verdict = "accept"; comment = "vDMZ -> legram (ACME v6)"; }
+              # vDMZ -> ymir (Loki log push)
+              { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+                ip.daddr = ymir.ipv4; tcp.dport = 3100;
+                verdict = "accept"; comment = "vDMZ -> ymir (Loki)"; }
+              { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+                ip6.daddr = ymir.ipv6; tcp.dport = 3100;
+                verdict = "accept"; comment = "vDMZ -> ymir (Loki v6)"; }
             ];
 
             portForwards = [

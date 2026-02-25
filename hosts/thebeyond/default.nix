@@ -10,6 +10,7 @@ let
   trista = net.hosts.trista;
   roer = net.hosts.roer;
   legram = net.hosts.legram;
+  ymir = net.hosts.ymir;
 in {
   imports =
     [
@@ -164,6 +165,13 @@ in {
         { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
           ip6.daddr = legram.ipv6; tcp.dport = 443;
           verdict = "accept"; comment = "vDMZ -> legram (ACME v6)"; }
+        # vDMZ → ymir (Loki log push)
+        { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+          ip.daddr = ymir.ipv4; tcp.dport = 3100;
+          verdict = "accept"; comment = "vDMZ -> ymir (Loki)"; }
+        { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+          ip6.daddr = ymir.ipv6; tcp.dport = 3100;
+          verdict = "accept"; comment = "vDMZ -> ymir (Loki v6)"; }
       ];
 
       # Port forward SSH from wg-ba to ordis
@@ -458,6 +466,8 @@ in {
     ${phantasma.ipv4Legacy} phantasma phantasma.internal.mutantmell.net phantasma.internal
     ${phantasma.ipv6} phantasma.internal.mutantmell.net phantasma.internal
   '' + net.mkExtraHosts [ "roer" "legram" "ordis" "heimdallr" "trista" ];
+
+  promtail-client.enable = true;
 
   services.prometheus.exporters.node = {
     enable = true;

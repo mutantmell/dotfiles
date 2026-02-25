@@ -139,6 +139,8 @@ in {
     '';
   };
 
+  promtail-client.enable = true;
+
   services.avahi.enable = true;
   services.avahi.publish.enable = true;
   services.avahi.publish.addresses = true;
