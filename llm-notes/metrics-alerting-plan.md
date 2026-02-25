@@ -68,7 +68,7 @@ what Prometheus compaction provides. Keep it simple.
 - Alertmanager webhook integration (first-class)
 - Supports access control (token-based auth)
 - Extremely lightweight (~20 MB RAM)
-- Can also receive webhooks from CI/CD (Gitea/Forgejo), systemd failure units,
+- Can also receive webhooks from CI/CD (Forgejo), systemd failure units,
   and custom scripts
 
 **Notification channels and routing:**
@@ -320,7 +320,7 @@ Port: 2586 (internal, localhost only for alertmanager)
 **Access control:**
 - Read-only token for phone app subscriptions
 - Write token for Alertmanager (localhost, can be unrestricted)
-- Write token for CI/CD webhooks (Gitea on ardent)
+- Write token for CI/CD webhooks (Forgejo on ardent)
 - Admin token for topic management
 
 ### 6. Grafana
@@ -565,14 +565,21 @@ image before reprovisioning, or started fresh.
 7. ~~Configure Grafana Loki datasource~~ — provisioned alongside Prometheus
 8. TODO: Verify logs flowing from all hosts after deployment
 
-### Phase 3 — Alerting & Notifications
+### Phase 3 — Alerting & Notifications (COMPLETE)
 
-1. Add `modules/ntfy.nix` — deploy ntfy on ymir
-2. Add `modules/alertmanager.nix` — configure with ntfy webhook receivers
-3. Add Phase 1 alert rules (host down, disk space, ZFS, systemd)
-4. Install ntfy app on phone, subscribe to topics
-5. Test alert pipeline: trigger test alert → Alertmanager → ntfy → phone
-6. Verify: alerts fire and deliver within expected timeframes
+1. ~~Add `modules/ntfy.nix`~~ — ntfy on ymir, port 2586, persistence
+2. ~~Add `modules/alertmanager.nix`~~ — Alertmanager with ntfy webhook
+   receivers (infra-critical, security, cicd, services), Prometheus
+   alertmanagers config, Phase 1 alert rules
+3. ~~Add Phase 1 alert rules~~ — HostDown, DiskSpaceLow, HighMemoryUsage,
+   ZFSPoolDegraded, SystemdUnitFailed
+4. ~~Add Alertmanager datasource to Grafana~~ — provisioned alongside
+   Prometheus and Loki
+5. ~~Declare future secrets in sops.nix~~ — alertmanager-ntfy-url,
+   ntfy-auth-token (not used yet)
+6. TODO: Install ntfy app on phone, subscribe to topics
+7. TODO: Test alert pipeline: trigger test alert → Alertmanager → ntfy → phone
+8. TODO: Verify alerts fire and deliver within expected timeframes
 
 ### Phase 4 — Expanded Monitoring
 
@@ -580,7 +587,7 @@ image before reprovisioning, or started fresh.
 2. Add Phase 2 alert rules (security alerts from Loki queries)
 3. Add Phase 3 alert rules (service health)
 4. Build custom Grafana dashboards (firewall overview, DNS stats)
-5. Configure CI/CD webhook integration (Gitea → ntfy)
+5. Configure CI/CD webhook integration (Forgejo → ntfy)
 6. Configure Grafana OIDC auth via roer/Keycloak (if available)
 
 ---
