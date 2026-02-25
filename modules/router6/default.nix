@@ -532,6 +532,70 @@ in {
       default = {};
     };
 
+    dyndns = mkOption {
+      type = types.submodule {
+        options = {
+          enable = mkEnableOption "dynamic DNS updates";
+
+          protocol = mkOption {
+            type = types.enum [ "namecheap" ];
+            default = "namecheap";
+            description = "Dynamic DNS update protocol";
+          };
+
+          server = mkOption {
+            type = types.str;
+            default = "";
+            description = "Server URL for dynamic DNS updates";
+          };
+
+          interface = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = ''
+              Interface to get the external IP address from.
+              If null, infers from the first DHCP interface in the topology.
+            '';
+          };
+
+          hosts = mkOption {
+            type = types.listOf types.str;
+            default = [];
+            description = ''
+              DNS hostnames to update. Use "@" for the bare domain.
+            '';
+            example = [ "@" "www" ];
+          };
+
+          renewPeriod = mkOption {
+            type = types.str;
+            default = "60m";
+            description = "How often to check and update the dynamic DNS IP address";
+          };
+
+          domain = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = "Domain name (plaintext). Mutually exclusive with domainFile.";
+          };
+
+          domainFile = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = "Path to file containing the domain name. Mutually exclusive with domain.";
+          };
+
+          passwordFile = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = "Path to file containing the dynamic DNS password";
+          };
+        };
+      };
+      default = {};
+      description = "Dynamic DNS update configuration";
+    };
+
     firewall = mkOption {
       type = types.submodule {
         options = {
@@ -1265,6 +1329,52 @@ in {
     }
 
     # ===================
+    # Dynamic DNS
+    # ===================
+    (mkIf cfg.dyndns.enable (let
+      dyndns = cfg.dyndns;
+      dhcpIfaces = filter (i: i.network.type == "dhcp") flattenTopology;
+      inferredIface =
+        if length dhcpIfaces == 1
+        then (head dhcpIfaces).name
+        else throw "router6.dyndns: cannot infer external interface (found ${toString (length dhcpIfaces)} DHCP interfaces) — set router6.dyndns.interface explicitly";
+      iface = if dyndns.interface != null then dyndns.interface else inferredIface;
+    in {
+      systemd.services.router6-dyndns = {
+        description = "Dynamic DNS updater";
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        serviceConfig.Type = "oneshot";
+        path = [ pkgs.curl pkgs.dig pkgs.gnugrep pkgs.iproute2 ];
+        script = if dyndns.protocol == "namecheap" then ''
+          set -euo pipefail
+          DDNS_EXTERNAL_IP=$(ip -4 a show ${iface} | grep -Po 'inet \K[0-9.]*')
+          DDNS_DOMAIN=${if dyndns.domain != null
+            then dyndns.domain
+            else "$(cat ${dyndns.domainFile})"}
+          DDNS_PASSWORD=$(cat ${dyndns.passwordFile})
+        '' + concatStringsSep "\n" (map (host: ''
+          DDNS_DOMAIN_IP=$(${pkgs.dig}/bin/dig +short "${if host == "@" then "" else host + "."}$DDNS_DOMAIN") || DDNS_DOMAIN_IP=""
+          if [ "$DDNS_EXTERNAL_IP" != "$DDNS_DOMAIN_IP" ]; then
+            echo "Updating ${host}: $DDNS_DOMAIN_IP -> $DDNS_EXTERNAL_IP"
+            curl -s "${dyndns.server}/update?host=${host}&domain=$DDNS_DOMAIN&password=$DDNS_PASSWORD"
+          fi
+        '') dyndns.hosts)
+        else throw "router6.dyndns: unknown protocol '${dyndns.protocol}'";
+      };
+
+      systemd.timers.router6-dyndns = {
+        description = "Dynamic DNS update timer";
+        wantedBy = [ "timers.target" ];
+        timerConfig = {
+          OnBootSec = dyndns.renewPeriod;
+          OnUnitActiveSec = dyndns.renewPeriod;
+          Unit = "router6-dyndns.service";
+        };
+      };
+    }))
+
+    # ===================
     # nftables Firewall
     # ===================
     {
@@ -1485,8 +1595,32 @@ ${extraForwardStr}
     # ===================
     {
       assertions =
+      # Dynamic DNS assertions
+      (optionals cfg.dyndns.enable [
+        {
+          assertion = cfg.dyndns.passwordFile != null;
+          message = "router6.dyndns: passwordFile must be set when dyndns is enabled";
+        }
+        {
+          assertion = cfg.dyndns.domain != null || cfg.dyndns.domainFile != null;
+          message = "router6.dyndns: either domain or domainFile must be set";
+        }
+        {
+          assertion = !(cfg.dyndns.domain != null && cfg.dyndns.domainFile != null);
+          message = "router6.dyndns: domain and domainFile are mutually exclusive";
+        }
+        {
+          assertion = cfg.dyndns.hosts != [];
+          message = "router6.dyndns: at least one host must be specified";
+        }
+        {
+          assertion = cfg.dyndns.server != "";
+          message = "router6.dyndns: server must be set";
+        }
+      ])
+
       # Zone assertions: accessTo and forwardRules must not overlap
-      lib.concatMap (zoneName:
+      ++ lib.concatMap (zoneName:
         let zone = cfg.zones.${zoneName};
         in map (dstZone: {
           assertion = !elem dstZone zone.accessTo;
