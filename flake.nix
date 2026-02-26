@@ -67,7 +67,7 @@
       };
     });
 
-    packages = forAllSystems ({ pkgs, ... }: {
+    packages = forAllSystems ({ system, pkgs, ... }: {
       cc = pkgs.claude-code;
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
@@ -75,6 +75,18 @@
       mk-volume = import packages/mk-volume.nix {
         inherit (pkgs) writeShellScriptBin;
       };
+      installer-iso = let
+        keys = builtins.fromJSON (builtins.readFile ./lib/common/data/keys.json);
+        installer = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = [
+            "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
+            {
+              users.users.root.openssh.authorizedKeys.keys = [ keys.ssh.deploy ];
+            }
+          ];
+        };
+      in installer.config.system.build.isoImage;
     });
 
     nixosModules = let
