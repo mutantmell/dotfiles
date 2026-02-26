@@ -32,13 +32,12 @@
           content = {
             type = "luks";
             name = "cryptroot";
-            settings = {
-              allowDiscards = true;
-              # Keyfile path during installation only
-              # nixos-anywhere/install-to-disk scripts pass the key here temporarily
-              # After installation, the key lives in /boot/secrets/disk.key (see host configuration)
-              keyFile = "/tmp/secret.key";
-            };
+            # initrdUnlock = false prevents disko from generating
+            # boot.initrd.luks.devices — the host config manages that
+            # with preOpenCommands to mount the ESP for the keyfile.
+            initrdUnlock = false;
+            passwordFile = "/tmp/secret.key";
+            settings.allowDiscards = true;
             content = {
               type = "filesystem";
               format = "ext4";

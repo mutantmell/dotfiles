@@ -24,15 +24,21 @@ in {
   # Boot loader configuration is handled by disko
   boot.loader.grub.enable = true;
 
-  # LUKS automatic unlock configuration
-  # Note: UUID will be determined after deployment - update this after first boot
-  # The keyFile here (/boot/secrets/disk.key) is for normal boots
-  # During installation, disko uses /tmp/secret.key temporarily (see disko profile)
-  # boot.initrd.luks.devices."cryptroot" = {
-  #   device = "/dev/disk/by-uuid/PLACEHOLDER-UPDATE-AFTER-DEPLOYMENT";
-  #   keyFile = "/boot/secrets/disk.key";
-  #   allowDiscards = true;
-  # };
+  # LUKS automatic unlock: mount the ESP in initrd to access the keyfile,
+  # then unmount so NixOS can mount it normally later.
+  boot.initrd.supportedFilesystems = [ "vfat" ];
+  boot.initrd.luks.devices."cryptroot" = {
+    device = "/dev/disk/by-partlabel/disk-main-persist";
+    allowDiscards = true;
+    keyFile = "/boot/secrets/disk.key";
+    preOpenCommands = ''
+      mkdir -p /boot
+      mount -t vfat /dev/disk/by-partlabel/disk-main-ESP /boot
+    '';
+    postOpenCommands = ''
+      umount /boot
+    '';
+  };
 
   # Ensure /boot/secrets directory exists
   system.activationScripts.createBootSecrets = ''
