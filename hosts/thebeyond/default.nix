@@ -152,7 +152,7 @@ in {
     };
 
     dyndns = {
-      enable = true;
+      enable = false; # Still need to set up w/ the new host once we have it.
       protocol = "namecheap";
       server = "https://dynamicdns.park-your-domain.com";
       hosts = [ "@" ];

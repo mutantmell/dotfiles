@@ -24,16 +24,23 @@ EXTRA_ARGS="$@"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Generate encryption keyfile
+# Create temp directory for generated keys
 KEYFILE_DIR=$(mktemp -d)
-KEYFILE="$KEYFILE_DIR/disk.key"
-trap "rm -rf $KEYFILE_DIR" EXIT
+EXTRA_FILES_DIR=$(mktemp -d)
+trap "rm -rf $KEYFILE_DIR $EXTRA_FILES_DIR" EXIT
 
+# Generate LUKS encryption keyfile
+KEYFILE="$KEYFILE_DIR/disk.key"
 echo "Generating LUKS encryption keyfile..."
 # Generate a text-safe key (base64) so it survives bash command substitution
 # in disko's passwordFile handling and can be stored in a password manager.
 head -c 64 /dev/urandom | base64 -w0 > "$KEYFILE"
 chmod 600 "$KEYFILE"
+
+# Generate SSH host key for sops-nix secret decryption
+SSH_KEY="$KEYFILE_DIR/ssh_host_ed25519_key"
+echo "Generating SSH host key..."
+ssh-keygen -t ed25519 -f "$SSH_KEY" -q -N ""
 
 echo ""
 echo "======================================"
@@ -60,10 +67,57 @@ fi
 TARGET_HOST="${TARGET#*@}" # strip user@ prefix: "root@1.2.3.4" -> "1.2.3.4"
 ssh-keygen -R "$TARGET_HOST" 2>/dev/null || true
 
-# Save keyfile to repo for later use (gitignored)
+# Derive age key from the SSH host key for sops integration
+AGE_KEY=$(ssh-to-age < "$SSH_KEY.pub")
+ANCHOR="&sv_$HOSTNAME"
+echo "Derived age key: $AGE_KEY"
+
+# Update .sops.yaml with the new age key
+SOPS_FILE="$REPO_ROOT/.sops.yaml"
+if grep -q "$ANCHOR" "$SOPS_FILE"; then
+    EXISTING_KEY=$(grep "$ANCHOR" "$SOPS_FILE" | sed 's/.*'"$ANCHOR"' //')
+    if [[ "$EXISTING_KEY" == "$AGE_KEY" ]]; then
+        echo "  .sops.yaml already has correct key for $HOSTNAME, skipping update."
+    else
+        echo "  Updating $ANCHOR in .sops.yaml..."
+        sed -i "s|$ANCHOR .*|$ANCHOR $AGE_KEY|" "$SOPS_FILE"
+    fi
+else
+    echo ""
+    echo "WARNING: No $ANCHOR anchor found in .sops.yaml."
+    echo "You must manually add the following line to .sops.yaml keys section:"
+    echo "  - $ANCHOR $AGE_KEY"
+    echo "and add *sv_$HOSTNAME to the appropriate creation_rules."
+    echo ""
+fi
+
+# Re-encrypt secrets for this host with the updated key
+SECRET_FILES=$(find "$REPO_ROOT/hosts/" -path "*${HOSTNAME}*/secrets/*.yaml" 2>/dev/null || true)
+if [[ -n "$SECRET_FILES" ]]; then
+    echo "Re-encrypting secrets for $HOSTNAME..."
+    echo "$SECRET_FILES" | while read -r f; do
+        echo "  sops updatekeys: $f"
+        sops updatekeys --yes "$f"
+    done
+else
+    echo "No secret files found for $HOSTNAME, skipping re-encryption."
+fi
+
+# Save keys to repo for later use (gitignored)
 mkdir -p "$REPO_ROOT/.keys"
 cp "$KEYFILE" "$REPO_ROOT/.keys/$HOSTNAME-disk.key"
 chmod 600 "$REPO_ROOT/.keys/$HOSTNAME-disk.key"
+cp "$SSH_KEY" "$REPO_ROOT/.keys/$HOSTNAME-ssh_host_ed25519_key"
+cp "$SSH_KEY.pub" "$REPO_ROOT/.keys/$HOSTNAME-ssh_host_ed25519_key.pub"
+chmod 600 "$REPO_ROOT/.keys/$HOSTNAME-ssh_host_ed25519_key"
+
+# Prepare extra-files directory with SSH host key for nixos-anywhere
+# All parent hosts use impermanence with SSH keys persisted at /persist/etc/ssh/
+mkdir -p "$EXTRA_FILES_DIR/persist/etc/ssh"
+cp "$SSH_KEY" "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key"
+cp "$SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
+chmod 600 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key"
+chmod 644 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
 
 # Run nixos-anywhere in phases so we can set up the /nix bind mount between
 # partitioning and installation. Without this, the Nix store goes onto the
@@ -83,9 +137,12 @@ echo "Phase 2: Setting up /nix bind mount on persistent storage..."
 ssh "$TARGET" 'mkdir -p /mnt/persist/nix && mkdir -p /mnt/nix && mount --bind /mnt/persist/nix /mnt/nix'
 
 # Phase 3: Install NixOS (Nix store now goes to ext4, not tmpfs)
+# --extra-files places the pre-generated SSH host key into /persist/etc/ssh/
+# so sops-nix can decrypt secrets on first boot.
 echo "Phase 3: Installing NixOS..."
 nix run github:nix-community/nixos-anywhere -- \
     --phases install \
+    --extra-files "$EXTRA_FILES_DIR" \
     --flake "$REPO_ROOT#$HOSTNAME" \
     --target-host "$TARGET" \
     --disk-encryption-keys /tmp/secret.key "$KEYFILE" \
@@ -111,9 +168,14 @@ echo "======================================"
 echo ""
 echo "Next steps:"
 echo "  1. Review hosts/$HOSTNAME/hardware-configuration.nix"
-echo "  2. Reboot and verify automatic LUKS unlock:"
+echo "  2. Commit .sops.yaml changes (age key was updated for $HOSTNAME)"
+echo "  3. Reboot and verify automatic LUKS unlock + sops secrets:"
 echo "     ssh $TARGET 'reboot'"
+echo "     ssh $TARGET 'systemctl status sops-nix && ls /run/secrets/'"
 echo ""
-echo "Encryption keyfile saved to: $REPO_ROOT/.keys/$HOSTNAME-disk.key"
-echo "BACKUP THIS FILE SECURELY - you cannot decrypt /persist without it!"
+echo "Keys saved to $REPO_ROOT/.keys/ (gitignored):"
+echo "  $HOSTNAME-disk.key                  — LUKS encryption key"
+echo "  $HOSTNAME-ssh_host_ed25519_key      — SSH host private key"
+echo "  $HOSTNAME-ssh_host_ed25519_key.pub  — SSH host public key"
+echo "BACKUP THESE FILES SECURELY!"
 echo ""
