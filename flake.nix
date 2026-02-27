@@ -63,6 +63,7 @@
         packages = [
           pkgs.bashInteractive
           pkgs.sops
+          pkgs.ssh-to-age
         ];
       };
     });

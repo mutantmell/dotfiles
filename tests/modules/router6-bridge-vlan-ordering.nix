@@ -3,6 +3,7 @@
 # This test verifies two critical scenarios:
 # 1. Bridge composed of VLANs (VLANs as bridge members)
 # 2. VLANs on top of a bridge (bridge as VLAN parent)
+#    - Includes DHCP client test: client on VLAN 30 gets address via DHCP
 #
 # Tests proper netdev dependency ordering:
 #   01- bond
@@ -104,6 +105,7 @@ pkgs.testers.nixosTest {
                   type = "static";
                   addresses = ["10.0.30.1/24"];
                   zone = "trusted";
+                  dhcp.enable = true;
                 };
               };
               vlan40 = {
@@ -116,6 +118,32 @@ pkgs.testers.nixosTest {
               };
             };
           };
+        };
+      };
+    };
+
+    # DHCP client on VLAN 30 (VLANs-on-bridge scenario)
+    # Shares L2 segment with router's eth3 (bridge member of br1).
+    # Tagged 802.1Q frames pass through the vde switch transparently.
+    client = { lib, ... }: {
+      virtualisation.vlans = [ 3 ];
+      networking.useDHCP = false;
+      networking.interfaces.eth1.useDHCP = false;
+      systemd.network = {
+        enable = true;
+        netdevs."10-vlan30" = {
+          netdevConfig = { Name = "vlan30"; Kind = "vlan"; };
+          vlanConfig.Id = 30;
+        };
+        networks."10-eth1" = {
+          matchConfig.Name = "eth1";
+          vlan = [ "vlan30" ];
+          linkConfig.RequiredForOnline = "carrier";
+        };
+        networks."20-vlan30" = {
+          matchConfig.Name = "vlan30";
+          networkConfig.DHCP = "yes";
+          linkConfig.RequiredForOnline = "routable";
         };
       };
     };
@@ -195,5 +223,18 @@ pkgs.testers.nixosTest {
     router.succeed("ls /etc/systemd/network/21-vlan20.network")
     router.succeed("ls /etc/systemd/network/21-vlan30.network")
     router.succeed("ls /etc/systemd/network/21-vlan40.network")
+
+    # ============================================================
+    # SCENARIO 2b: DHCP through VLANs-on-bridge
+    # ============================================================
+
+    # Wait for DHCP server on router
+    router.wait_for_unit("kea-dhcp4-server.service")
+
+    # Client should get a DHCP address on VLAN 30
+    client.wait_until_succeeds("ip addr show vlan30 | grep '10.0.30'", timeout=30)
+
+    # Client can ping the router through the VLAN
+    client.succeed("ping -c 1 10.0.30.1")
   '';
 }
