@@ -78,6 +78,7 @@
               # Masquerade outgoing traffic on NAT interfaces
 oifname { "eth1" } masquerade
 
+              
             }
           }
 
@@ -92,5 +93,6 @@ oifname { "eth1" } masquerade
 
             chain postrouting {
               type nat hook postrouting priority srcnat;
+              
             }
           }

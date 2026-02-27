@@ -110,7 +110,7 @@ pkgs.testers.nixosTest {
         };
 
         firewall = {
-          # Adapted extraForwardRules: flat interface names, WG rules omitted
+          # Adapted extraForwardRules: flat interface names
           # DMZ (eth7) -> infra (eth3) selective rules
           extraForwardRules = [
             # ordis -> roer (OIDC token exchange)
@@ -127,6 +127,12 @@ pkgs.testers.nixosTest {
             { iifname = "eth7"; oifname = "eth3";
               ip6.daddr = legram.ipv6; tcp.dport = 443;
               verdict = "accept"; comment = "vDMZ -> legram (ACME v6)"; }
+          ];
+
+          # Wireguard BA tunnel masquerading (uses eth1 as stand-in for wg-ba)
+          extraNatPostroutingRules = [
+            { oifname = "eth1"; masquerade = true; }
+            { iifname = "eth1"; ip.daddr = ordis.ipv4; masquerade = true; }
           ];
 
           # DNS interception rules (same IPs as thebeyond)
@@ -511,6 +517,11 @@ pkgs.testers.nixosTest {
     # NAT masquerade on WAN
     print("Test 5e: NAT masquerade on external interface")
     router.succeed("nft list chain ip nat postrouting | grep -E 'oifname.*eth1.*masquerade'")
+    print("PASS")
+
+    # Extra postrouting masquerade rules
+    print("Test 5f: Extra postrouting masquerade rules loaded")
+    router.succeed("nft list chain ip nat postrouting | grep -E 'iifname.*eth1.*ip daddr.*masquerade'")
     print("PASS")
 
     # ======================================================================

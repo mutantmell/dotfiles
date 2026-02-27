@@ -199,11 +199,13 @@ in {
         }
       ];
 
-      extraNatRules = [
+      extraNatPostroutingRules = [
         # Wireguard BA tunnel masquerading
         { oifname = "wg-ba"; masquerade = true; }
         { iifname = "wg-ba"; ip.daddr = ordis.ipv4; masquerade = true; }
+      ];
 
+      extraNatRules = [
         # DNS interception - redirect bypass attempts to router's DNS
         # This catches devices (e.g., Google/Nest) that ignore DHCP-provided DNS
         # Excludes phantasma so Unbound can make recursive queries
@@ -504,10 +506,13 @@ in {
   };
 
   # Persistence for router state
+  # kea uses DynamicUser=true, so its state lives under /var/lib/private/kea
+  # (systemd manages the /var/lib/kea -> /var/lib/private/kea symlink)
   environment.persistence."/persist".directories = [
-    "/var/lib/kea"
+    "/var/lib/private/kea"
     "/var/lib/knot-resolver"
   ];
+
 
   home-manager.users.root = {
     home.stateVersion = "25.11";

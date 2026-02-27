@@ -146,11 +146,13 @@ let
               }
             ];
 
-            extraNatRules = [
+            extraNatPostroutingRules = [
               # Wireguard BA tunnel masquerading
               { oifname = "wg-ba"; masquerade = true; }
               { iifname = "wg-ba"; ip.daddr = ordis.ipv4; masquerade = true; }
+            ];
 
+            extraNatRules = [
               # DNS interception - redirect bypass attempts to router's DNS
               # Includes both 10.97 and legacy 10.0 addresses during migration
               {

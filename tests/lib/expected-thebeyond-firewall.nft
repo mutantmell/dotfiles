@@ -86,9 +86,7 @@ iifname "wg-ba" tcp dport 22 dnat to 10.97.100.40:22
 
 
               # Extra NAT rules
-oifname "wg-ba" masquerade
-              iifname "wg-ba" ip daddr 10.97.100.40 masquerade
-              ip saddr != { 10.97.11.2, 10.0.11.2 } ip daddr != { 10.97.11.1, 10.0.11.1, 10.97.11.2, 10.0.11.2 } udp dport 53 dnat to 10.0.11.1:53 comment "Intercept DNS bypass (UDP)"
+ip saddr != { 10.97.11.2, 10.0.11.2 } ip daddr != { 10.97.11.1, 10.0.11.1, 10.97.11.2, 10.0.11.2 } udp dport 53 dnat to 10.0.11.1:53 comment "Intercept DNS bypass (UDP)"
               ip saddr != { 10.97.11.2, 10.0.11.2 } ip daddr != { 10.97.11.1, 10.0.11.1, 10.97.11.2, 10.0.11.2 } tcp dport 53 dnat to 10.0.11.1:53 comment "Intercept DNS bypass (TCP)"
 
             }
@@ -98,6 +96,10 @@ oifname "wg-ba" masquerade
 
               # Masquerade outgoing traffic on NAT interfaces
 oifname { "wan" } masquerade
+
+              # Extra NAT postrouting rules
+oifname "wg-ba" masquerade
+              iifname "wg-ba" ip daddr 10.97.100.40 masquerade
 
             }
           }
@@ -116,5 +118,6 @@ ip6 saddr != fdc6:55f2:0a5e:b::2 ip6 daddr != { fdc6:55f2:0a5e:b::1, fdc6:55f2:0
 
             chain postrouting {
               type nat hook postrouting priority srcnat;
+              
             }
           }
