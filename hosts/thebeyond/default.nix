@@ -292,12 +292,11 @@ in {
         network.type = "disabled";
       };
 
-      # Bridge combining bond0 and bat0 - all VLANs created on top
-      # bond0 is both a batman member (via bat0.members) and a bridge member
-      # bat0 is also a bridge member
+      # Bridge — bat0 only, NOT bond0 (bond0 is already batman's hard-if)
+      # Traffic: bond0 → bat0 (batman) → br0 (bridge) → VLAN sub-interfaces
       br0 = {
         kind = "bridge";
-        members = ["bond0" "bat0"];
+        members = ["bat0"];
         network.type = "disabled";
         vlans = {
           # Network gear - APs and switches (locked down: NTP only)
@@ -400,9 +399,17 @@ in {
         };
       };
 
-      # Spare interface
+      # Direct trusted port — bypasses bond/batman/bridge stack for quick DHCP testing
       opt2 = {
         mac = "00:e0:67:1b:70:37";
+        network = {
+          type = "static";
+          addresses = [ "10.0.21.1/24" ];
+          subnetId = 21;
+          zone = "trusted";
+          dhcp.enable = true;
+          dhcp6.enable = true;
+        };
       };
 
       # Wireguard - BA tunnel (isolated/lockdown)
@@ -512,7 +519,6 @@ in {
     "/var/lib/private/kea"
     "/var/lib/knot-resolver"
   ];
-
 
   home-manager.users.root = {
     home.stateVersion = "25.11";

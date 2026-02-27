@@ -10,7 +10,8 @@ in {
     ./microvm.nix
     # TODO: import ./sops.nix after creating secrets/secrets.yaml on the new VLAN
     ./modules/prometheus.nix
-    ./modules/grafana.nix
+    # re-enable grafana after sops secrets are better integrated
+    # ./modules/grafana.nix
     ./modules/loki.nix
     ./modules/alertmanager.nix
     ./modules/ntfy.nix
