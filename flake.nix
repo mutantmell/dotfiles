@@ -167,7 +167,6 @@
           disko.nixosModules.disko
           self.nixosModules.router6
           microvm-stable.nixosModules.host
-          home-manager.nixosModules.home-manager
           impermanence.nixosModules.impermanence
           ./hosts/thebeyond
         ];

@@ -19,6 +19,9 @@ in {
   # Boot loader configuration is handled by disko
   boot.loader.grub.enable = true;
 
+  # update microcode to try and fix virtualization issues
+  hardware.cpu.intel.updateMicrocode = true;
+
   # LUKS automatic unlock: mount the ESP in initrd to access the keyfile,
   # then unmount so NixOS can mount it normally later.
   boot.initrd.supportedFilesystems = [ "vfat" ];
@@ -81,18 +84,6 @@ in {
     enable = true;
     enabledCollectors = [ "systemd" ];
     port = 9100;
-  };
-
-  home-manager.users.root = {
-    home.stateVersion = "25.11";
-    programs.git = {
-      enable = true;
-      settings = {
-        user.name = "mutantmell";
-        user.email = "malaguy@gmail.com";
-        core.sshCommand = "ssh -i /etc/ssh/ssh_host_ed25519_key";
-      };
-    };
   };
 
   system.stateVersion = "25.11";
