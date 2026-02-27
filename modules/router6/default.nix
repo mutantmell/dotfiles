@@ -1774,7 +1774,17 @@ ${extraForwardStr}
       ++ mapAttrsToList (name: device: {
         assertion = device.mode != null;
         message = "Bond '${name}' must have mode defined";
-      }) (devicesByKind "bond");
+      }) (devicesByKind "bond")
+      # Cross-kind membership: an interface cannot be both a batman member and a bridge member
+      # (Linux only supports one master device per interface)
+      ++ (let
+        batmanMembers = lib.concatMap (bat: bat.members or []) (attrValues (devicesByKind "batman"));
+        bridgeMembers = lib.concatMap (br: br.members or []) (attrValues (devicesByKind "bridge"));
+        overlap = filter (m: elem m bridgeMembers) batmanMembers;
+      in map (member: {
+        assertion = false;
+        message = "Interface '${member}' is a member of both a batman device and a bridge. Linux only supports one master per interface. Remove it from the bridge — batman forwards traffic through to its soft interface automatically.";
+      }) overlap);
     }
   ]);
 }
