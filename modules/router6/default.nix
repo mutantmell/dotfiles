@@ -639,7 +639,16 @@ in {
             type = types.listOf nftRuleType;
             default = [];
             description = ''
-              Extra nftables rules for NAT prerouting chain.
+              Extra nftables rules for NAT prerouting chain (DNAT, redirect).
+              Each rule can be either a raw string or a structured attribute set.
+            '';
+          };
+
+          extraNatPostroutingRules = mkOption {
+            type = types.listOf nftRuleType;
+            default = [];
+            description = ''
+              Extra nftables rules for NAT postrouting chain (SNAT, masquerade).
               Each rule can be either a raw string or a structured attribute set.
             '';
           };
@@ -648,7 +657,16 @@ in {
             type = types.listOf nftRuleType;
             default = [];
             description = ''
-              Extra nftables rules for IPv6 NAT prerouting chain.
+              Extra nftables rules for IPv6 NAT prerouting chain (DNAT, redirect).
+              Each rule can be either a raw string or a structured attribute set.
+            '';
+          };
+
+          extraNat6PostroutingRules = mkOption {
+            type = types.listOf nftRuleType;
+            default = [];
+            description = ''
+              Extra nftables rules for IPv6 NAT postrouting chain (SNAT, masquerade).
               Each rule can be either a raw string or a structured attribute set.
             '';
           };
@@ -1610,6 +1628,10 @@ ${extraForwardStr}
               # Masquerade outgoing traffic on NAT interfaces
               oifname ${natIfaces} masquerade
               ''}
+              ${optionalString (cfg.firewall.extraNatPostroutingRules != []) ''
+              # Extra NAT postrouting rules
+              ${nft.rulesToStringIndented "              " cfg.firewall.extraNatPostroutingRules}
+              ''}
             }
           }
 
@@ -1627,6 +1649,11 @@ ${extraForwardStr}
 
             chain postrouting {
               type nat hook postrouting priority srcnat;
+              ${optionalString (cfg.firewall.extraNat6PostroutingRules != []) ''
+
+              # Extra IPv6 NAT postrouting rules
+              ${nft.rulesToStringIndented "              " cfg.firewall.extraNat6PostroutingRules}
+              ''}
             }
           }
         '';

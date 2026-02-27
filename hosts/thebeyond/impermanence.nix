@@ -1,4 +1,8 @@
 {
+  # impermanence creates /var/lib/private with 0755 but DynamicUser services require 0700
+  # (https://github.com/nix-community/impermanence/issues/254)
+  systemd.tmpfiles.rules = [ "d /var/lib/private 0700 root root" ];
+
   environment.persistence."/persist" = {
     hideMounts = true;
     directories = [

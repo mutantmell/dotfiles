@@ -24,23 +24,37 @@ EXTRA_ARGS="$@"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Create temp directory for generated keys
+# Create temp directory for working copies of keys
 KEYFILE_DIR=$(mktemp -d)
 EXTRA_FILES_DIR=$(mktemp -d)
 trap "rm -rf $KEYFILE_DIR $EXTRA_FILES_DIR" EXIT
 
-# Generate LUKS encryption keyfile
 KEYFILE="$KEYFILE_DIR/disk.key"
-echo "Generating LUKS encryption keyfile..."
-# Generate a text-safe key (base64) so it survives bash command substitution
-# in disko's passwordFile handling and can be stored in a password manager.
-head -c 64 /dev/urandom | base64 -w0 > "$KEYFILE"
-chmod 600 "$KEYFILE"
-
-# Generate SSH host key for sops-nix secret decryption
 SSH_KEY="$KEYFILE_DIR/ssh_host_ed25519_key"
-echo "Generating SSH host key..."
-ssh-keygen -t ed25519 -f "$SSH_KEY" -q -N ""
+KEYS_DIR="$REPO_ROOT/.keys"
+
+# Reuse existing keys from .keys/ if available, otherwise generate new ones
+if [[ -f "$KEYS_DIR/$HOSTNAME-disk.key" ]]; then
+    echo "Using existing LUKS keyfile from .keys/$HOSTNAME-disk.key"
+    cp "$KEYS_DIR/$HOSTNAME-disk.key" "$KEYFILE"
+    chmod 600 "$KEYFILE"
+else
+    echo "Generating new LUKS encryption keyfile..."
+    # Generate a text-safe key (base64) so it survives bash command substitution
+    # in disko's passwordFile handling and can be stored in a password manager.
+    head -c 64 /dev/urandom | base64 -w0 > "$KEYFILE"
+    chmod 600 "$KEYFILE"
+fi
+
+if [[ -f "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" ]]; then
+    echo "Using existing SSH host key from .keys/$HOSTNAME-ssh_host_ed25519_key"
+    cp "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" "$SSH_KEY"
+    cp "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key.pub" "$SSH_KEY.pub"
+    chmod 600 "$SSH_KEY"
+else
+    echo "Generating new SSH host key..."
+    ssh-keygen -t ed25519 -f "$SSH_KEY" -q -N ""
+fi
 
 echo ""
 echo "======================================"
@@ -105,13 +119,19 @@ else
     echo "No secret files found for $HOSTNAME, skipping re-encryption."
 fi
 
-# Save keys to repo for later use (gitignored)
-mkdir -p "$REPO_ROOT/.keys"
-cp "$KEYFILE" "$REPO_ROOT/.keys/$HOSTNAME-disk.key"
-chmod 600 "$REPO_ROOT/.keys/$HOSTNAME-disk.key"
-cp "$SSH_KEY" "$REPO_ROOT/.keys/$HOSTNAME-ssh_host_ed25519_key"
-cp "$SSH_KEY.pub" "$REPO_ROOT/.keys/$HOSTNAME-ssh_host_ed25519_key.pub"
-chmod 600 "$REPO_ROOT/.keys/$HOSTNAME-ssh_host_ed25519_key"
+# Save newly generated keys to .keys/ for backup (gitignored)
+mkdir -p "$KEYS_DIR"
+if [[ ! -f "$KEYS_DIR/$HOSTNAME-disk.key" ]]; then
+    cp "$KEYFILE" "$KEYS_DIR/$HOSTNAME-disk.key"
+    chmod 600 "$KEYS_DIR/$HOSTNAME-disk.key"
+    echo "Saved new disk key to .keys/$HOSTNAME-disk.key"
+fi
+if [[ ! -f "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" ]]; then
+    cp "$SSH_KEY" "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key"
+    cp "$SSH_KEY.pub" "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key.pub"
+    chmod 600 "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key"
+    echo "Saved new SSH key to .keys/$HOSTNAME-ssh_host_ed25519_key"
+fi
 
 # Prepare extra-files directory with SSH host key for nixos-anywhere
 # All parent hosts use impermanence with SSH keys persisted at /persist/etc/ssh/
@@ -175,9 +195,8 @@ echo "  3. Reboot and verify automatic LUKS unlock + sops secrets:"
 echo "     ssh $TARGET 'reboot'"
 echo "     ssh $TARGET 'systemctl status sops-nix && ls /run/secrets/'"
 echo ""
-echo "Keys saved to $REPO_ROOT/.keys/ (gitignored):"
+echo "Keys in $REPO_ROOT/.keys/ (gitignored):"
 echo "  $HOSTNAME-disk.key                  — LUKS encryption key"
 echo "  $HOSTNAME-ssh_host_ed25519_key      — SSH host private key"
 echo "  $HOSTNAME-ssh_host_ed25519_key.pub  — SSH host public key"
-echo "BACKUP THESE FILES SECURELY!"
 echo ""
