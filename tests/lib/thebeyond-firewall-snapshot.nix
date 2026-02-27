@@ -30,6 +30,38 @@ let
   legram    = { ipv4 = "10.97.11.4"; ipv4Legacy = "10.0.11.4"; ipv6 = "fdc6:55f2:0a5e:b::4"; };
   ymir      = { ipv4 = "10.97.11.5"; ipv4Legacy = "10.0.11.5"; ipv6 = "fdc6:55f2:0a5e:b::5"; };
 
+  # Per-VLAN bridge helper (same pattern as hosts/thebeyond/default.nix)
+  mkVlanBridge = { name, tag, addresses, zone, enableDhcp ? true, enableDhcp6 ? true }: {
+    bond0Vlans."v${name}.bond0" = { inherit tag; network.type = "disabled"; };
+    bat0Vlans."v${name}.bat0" = { inherit tag; network.type = "disabled"; };
+    bridges."br${name}" = {
+      kind = "bridge";
+      members = [ "v${name}.bond0" "v${name}.bat0" ];
+      network = {
+        type = "static";
+        inherit addresses zone;
+        subnetId = tag;
+        dhcp.enable = enableDhcp;
+        dhcp6.enable = enableDhcp6;
+      };
+    };
+  };
+
+  vlanDefs = [
+    (mkVlanBridge { name = "MGMT";  tag = 10;  zone = "network";    addresses = [ "10.0.10.1/24" "10.97.10.1/24" ]; enableDhcp = false; })
+    (mkVlanBridge { name = "INFRA"; tag = 11;  zone = "management"; addresses = [ "10.0.11.1/24" "10.97.11.1/24" ]; })
+    (mkVlanBridge { name = "HOME";  tag = 20;  zone = "trusted";    addresses = [ "10.0.20.1/24" "10.97.20.1/24" ]; })
+    (mkVlanBridge { name = "GUEST"; tag = 30;  zone = "untrusted";  addresses = [ "10.0.30.1/24" "10.97.30.1/24" ]; })
+    (mkVlanBridge { name = "ADU";   tag = 31;  zone = "untrusted";  addresses = [ "10.0.31.1/24" "10.97.31.1/24" ]; })
+    (mkVlanBridge { name = "IOT";   tag = 40;  zone = "untrusted";  addresses = [ "10.0.40.1/24" "10.97.40.1/24" ]; })
+    (mkVlanBridge { name = "GAME";  tag = 41;  zone = "untrusted";  addresses = [ "10.0.41.1/24" "10.97.41.1/24" ]; })
+    (mkVlanBridge { name = "DMZ";   tag = 100; zone = "untrusted";  addresses = [ "10.0.100.1/24" "10.97.100.1/24" ]; })
+  ];
+
+  allBond0Vlans = lib.foldl' (a: b: a // b.bond0Vlans) {} vlanDefs;
+  allBat0Vlans  = lib.foldl' (a: b: a // b.bat0Vlans) {} vlanDefs;
+  allBridges    = lib.foldl' (a: b: a // b.bridges) {} vlanDefs;
+
   eval = import (pkgs.path + "/nixos/lib/eval-config.nix") {
     system = "x86_64-linux";
     modules = [
@@ -111,28 +143,28 @@ let
 
           firewall = {
             extraForwardRules = [
-              { iifname = "vDMZ.br0"; oifname = "wg-ba"; verdict = "accept"; }
+              { iifname = "brDMZ"; oifname = "wg-ba"; verdict = "accept"; }
               { iifname = "wg-ba"; ip.daddr = ordis.ipv4; verdict = "accept"; }
               { iifname = "wg-ba"; ip6.daddr = ordis.ipv6; verdict = "accept"; }
               # ordis -> roer (OIDC token exchange)
-              { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+              { iifname = "brDMZ"; oifname = "brINFRA";
                 ip.saddr = ordis.ipv4; ip.daddr = roer.ipv4;
                 tcp.dport = 443; verdict = "accept"; comment = "ordis -> roer (OIDC)"; }
-              { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+              { iifname = "brDMZ"; oifname = "brINFRA";
                 ip6.saddr = ordis.ipv6; ip6.daddr = roer.ipv6;
                 tcp.dport = 443; verdict = "accept"; comment = "ordis -> roer (OIDC v6)"; }
               # vDMZ -> legram (ACME certificate issuance)
-              { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+              { iifname = "brDMZ"; oifname = "brINFRA";
                 ip.daddr = legram.ipv4; tcp.dport = 443;
                 verdict = "accept"; comment = "vDMZ -> legram (ACME)"; }
-              { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+              { iifname = "brDMZ"; oifname = "brINFRA";
                 ip6.daddr = legram.ipv6; tcp.dport = 443;
                 verdict = "accept"; comment = "vDMZ -> legram (ACME v6)"; }
               # vDMZ -> ymir (Loki log push)
-              { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+              { iifname = "brDMZ"; oifname = "brINFRA";
                 ip.daddr = ymir.ipv4; tcp.dport = 3100;
                 verdict = "accept"; comment = "vDMZ -> ymir (Loki)"; }
-              { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
+              { iifname = "brDMZ"; oifname = "brINFRA";
                 ip6.daddr = ymir.ipv6; tcp.dport = 3100;
                 verdict = "accept"; comment = "vDMZ -> ymir (Loki v6)"; }
             ];
@@ -216,6 +248,7 @@ let
                 type = "disabled";
                 mtu = 1536;
               };
+              vlans = allBond0Vlans;
             };
 
             # Batman-adv mesh device
@@ -227,96 +260,7 @@ let
                 routingAlgorithm = "batman-v";
               };
               network.type = "disabled";
-            };
-
-            # Bridge combining bond0 and bat0
-            br0 = {
-              kind = "bridge";
-              members = ["bond0" "bat0"];
-              network.type = "disabled";
-              vlans = {
-                "vMGMT.br0" = {
-                  tag = 10;
-                  network = {
-                    type = "static";
-                    addresses = [ "10.0.10.1/24" "10.97.10.1/24" ];
-                    subnetId = 10;
-                    zone = "network";
-                    dhcp6.enable = true;
-                  };
-                };
-                "vINFRA.br0" = {
-                  tag = 11;
-                  network = {
-                    type = "static";
-                    addresses = [ "10.0.11.1/24" "10.97.11.1/24" ];
-                    subnetId = 11;
-                    zone = "management";
-                    dhcp.enable = true;
-                    dhcp6.enable = true;
-                  };
-                };
-                "vHOME.br0" = {
-                  tag = 20;
-                  network = {
-                    type = "static";
-                    addresses = [ "10.0.20.1/24" "10.97.20.1/24" ];
-                    zone = "trusted";
-                    dhcp.enable = true;
-                    dhcp6.enable = true;
-                  };
-                };
-                "vGUEST.br0" = {
-                  tag = 30;
-                  network = {
-                    type = "static";
-                    addresses = [ "10.0.30.1/24" "10.97.30.1/24" ];
-                    zone = "untrusted";
-                    dhcp.enable = true;
-                    dhcp6.enable = true;
-                  };
-                };
-                "vADU.br0" = {
-                  tag = 31;
-                  network = {
-                    type = "static";
-                    addresses = [ "10.0.31.1/24" "10.97.31.1/24" ];
-                    zone = "untrusted";
-                    dhcp.enable = true;
-                    dhcp6.enable = true;
-                  };
-                };
-                "vIOT.br0" = {
-                  tag = 40;
-                  network = {
-                    type = "static";
-                    addresses = [ "10.0.40.1/24" "10.97.40.1/24" ];
-                    zone = "untrusted";
-                    dhcp.enable = true;
-                    dhcp6.enable = true;
-                  };
-                };
-                "vGAME.br0" = {
-                  tag = 41;
-                  network = {
-                    type = "static";
-                    addresses = [ "10.0.41.1/24" "10.97.41.1/24" ];
-                    zone = "untrusted";
-                    dhcp.enable = true;
-                    dhcp6.enable = true;
-                  };
-                };
-                "vDMZ.br0" = {
-                  tag = 100;
-                  network = {
-                    type = "static";
-                    addresses = [ "10.0.100.1/24" "10.97.100.1/24" ];
-                    zone = "untrusted";
-                    dhcp.enable = true;
-                    dhcp6.enable = true;
-                  };
-                };
-              };
+              vlans = allBat0Vlans;
             };
 
             # Spare interface
@@ -374,7 +318,7 @@ let
                 ];
               };
             };
-          };
+          } // allBridges;
         };
       }
     ];
