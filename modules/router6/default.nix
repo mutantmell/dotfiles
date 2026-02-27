@@ -1014,8 +1014,6 @@ in {
               if network.type == "disabled" then "no"
               else if network.type == "dhcp" then "yes"
               else "ipv6";
-          } // optionalAttrs (network.type == "dhcp" && network.defaultRoute) {
-            DefaultRouteOnDevice = true;
           } // optionalAttrs (network.type == "static" && length effectiveAddrs > 0) {
             # Address = effectiveAddrs;
           } // optionalAttrs (network.gateway != null) {

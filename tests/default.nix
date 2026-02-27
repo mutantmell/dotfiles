@@ -1,35 +1,18 @@
 # Test runner for dotfiles
 #
-# Run all tests: nix build .#checks.x86_64-linux.router6-ipv6
-# Run interactively: nix build .#checks.x86_64-linux.router6-ipv6.driverInteractive && ./result/bin/nixos-test-driver
-# Run unit tests: nix-instantiate --eval --strict tests/lib/nftables.nix
+# Run all tests: nix flake check --print-build-logs
+# Run one: nix build .#checks.x86_64-linux.<name>
+# Run interactively: nix build .#checks.x86_64-linux.<name>.driverInteractive && ./result/bin/nixos-test-driver
+# Run unit tests: nix-instantiate --eval --strict tests/lib/<file>.nix
 
 { pkgs ? import <nixpkgs> { }
 , lib ? pkgs.lib
 }:
 
-{
-  # NixOS integration tests
-  router6-ipv6 = import ./modules/router6-ipv6.nix { inherit pkgs lib; };
-  router6-firewall = import ./modules/router6-firewall.nix { inherit pkgs lib; };
-  router6-firewall-zones = import ./modules/router6-firewall-zones.nix { inherit pkgs lib; };
-  router6-bond-bridge = import ./modules/router6-bond-bridge.nix { inherit pkgs lib; };
-  router6-device-vlans = import ./modules/router6-device-vlans.nix { inherit pkgs lib; };
-  router6-bridge-vlan-ordering = import ./modules/router6-bridge-vlan-ordering.nix { inherit pkgs lib; };
-  router6-batman-bridge-vlan = import ./modules/router6-batman-bridge-vlan.nix { inherit pkgs lib; };
-  egress-filter = import ./modules/egress-filter.nix { inherit pkgs lib; };
-  # Temporary: pre-deployment validation for thebeyond router config.
-  # Remove after successful deployment to physical hardware.
-  router6-thebeyond = import ./modules/router6-thebeyond.nix { inherit pkgs lib; };
-
-  # Unit tests (pure Nix evaluation)
-  nftables-dsl = import ./lib/nftables.nix { inherit pkgs lib; };
-  router6-firewall-snapshot = import ./lib/router6-firewall-snapshot.nix { inherit pkgs lib; };
-  # Temporary: pre-deployment validation. Remove after successful deployment.
-  thebeyond-firewall-snapshot = import ./lib/thebeyond-firewall-snapshot.nix { inherit pkgs lib; };
-  router6-zone-system = import ./lib/router6-zone-system.nix { inherit pkgs lib; };
-  network-helpers = import ./lib/network-helpers.nix { inherit pkgs lib; };
-
+# Router tests (permanent + temporary) in sub-modules
+(import ./router6.nix { inherit pkgs lib; })
+// (import ./router6-temporary.nix { inherit pkgs lib; })
+// {
   # Disko profile validation
   disko-router = let
     profile = import ../profiles/disko/router.nix {};
