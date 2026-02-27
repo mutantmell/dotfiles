@@ -80,7 +80,9 @@ if grep -q "$ANCHOR" "$SOPS_FILE"; then
         echo "  .sops.yaml already has correct key for $HOSTNAME, skipping update."
     else
         echo "  Updating $ANCHOR in .sops.yaml..."
-        sed -i "s|$ANCHOR .*|$ANCHOR $AGE_KEY|" "$SOPS_FILE"
+        # Escape & in replacement string — sed treats bare & as "entire match"
+        ANCHOR_ESCAPED="${ANCHOR//&/\\&}"
+        sed -i "s|$ANCHOR .*|$ANCHOR_ESCAPED $AGE_KEY|" "$SOPS_FILE"
     fi
 else
     echo ""
