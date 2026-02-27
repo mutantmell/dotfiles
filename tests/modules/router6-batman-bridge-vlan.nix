@@ -1,18 +1,19 @@
-# NixOS integration test for batman-adv + bridge + VLAN topology
+# NixOS integration test for batman-adv + per-VLAN bridge topology
 #
-# Replicates the thebeyond topology: bond → batman → bridge → VLAN
-# Verifies both the batman topology config AND that DHCP actually works
-# through the bridge+VLAN stack.
+# Replicates the thebeyond topology: bond → batman, then per-VLAN bridges
+# joining bond0 VLANs (wired trunk) + bat0 VLANs (mesh) for each VLAN tag.
 #
-# Key invariant: bond0 must NOT be a bridge member when it's already
-# a batman hard-interface. Only bat0 should be in the bridge. Traffic flows:
-#   bond0 (batman hard-if) → bat0 (batman soft-if) → br0 (bridge) → VLANs
+# Key invariant: bond0 must NOT be a direct bridge member when it's already
+# a batman hard-interface. Only VLAN sub-interfaces of bond0 and bat0 should
+# be bridge members. Traffic flows:
+#   Wired: bond0 → vHOME.bond0 (tag 20) → brHOME (bridge) → IP
+#   Mesh:  bond0 → bat0 → vHOME.bat0 (tag 20) → brHOME (bridge) → IP
 #
 # Batman-adv only forwards mesh-encapsulated frames (ethertype 0x4305) on
 # hard interfaces, so a direct client can't get DHCP through bat0 in a VM.
-# To test DHCP end-to-end, we add a direct physical port (eth3) to the
-# bridge alongside bat0 — the client connects there with a VLAN 20 tag.
-# This mirrors how opt2 works on the real router as a diagnostic port.
+# To test DHCP end-to-end, we add a direct physical port (eth3) with a VLAN 20
+# sub-interface as a third bridge member — the client connects there with a
+# VLAN 20 tag. This mirrors how opt2 works on the real router as a diagnostic port.
 
 { pkgs ? import <nixpkgs> { }
 , lib ? pkgs.lib
@@ -76,6 +77,9 @@ pkgs.testers.nixosTest {
               type = "disabled";
               mtu = 1536;
             };
+            vlans = {
+              "vHOME.bond0" = { tag = 20; network.type = "disabled"; };
+            };
           };
 
           # Batman-adv mesh device
@@ -87,31 +91,31 @@ pkgs.testers.nixosTest {
               routingAlgorithm = "batman-v";
             };
             network.type = "disabled";
+            vlans = {
+              "vHOME.bat0" = { tag = 20; network.type = "disabled"; };
+            };
           };
 
-          # Direct physical port — bridged alongside bat0 for wired clients
+          # Direct physical port — provides wired VLAN 20 access for test client
           eth3 = {
             hardwareName = "eth3";
             network.type = "disabled";
+            vlans = {
+              "vHOME.eth3" = { tag = 20; network.type = "disabled"; };
+            };
           };
 
-          # Bridge — bat0 (mesh) + eth3 (direct wired port)
-          br0 = {
+          # Per-VLAN bridge: bond0 VLAN (wired) + bat0 VLAN (mesh) + eth3 VLAN (test port)
+          brHOME = {
             kind = "bridge";
-            members = [ "bat0" "eth3" ];
-            network.type = "disabled";
-            vlans = {
-              "vHOME.br0" = {
-                tag = 20;
-                network = {
-                  type = "static";
-                  addresses = [ "10.0.20.1/24" ];
-                  subnetId = 20;
-                  zone = "trusted";
-                  dhcp.enable = true;
-                  dhcp6.enable = true;
-                };
-              };
+            members = [ "vHOME.bond0" "vHOME.bat0" "vHOME.eth3" ];
+            network = {
+              type = "static";
+              addresses = [ "10.0.20.1/24" ];
+              subnetId = 20;
+              zone = "trusted";
+              dhcp.enable = true;
+              dhcp6.enable = true;
             };
           };
         };
@@ -152,23 +156,31 @@ pkgs.testers.nixosTest {
     router.succeed("ip link show bat0")
     print("PASS")
 
-    print("Test 1c: br0 has bat0 and eth3 as bridge members")
-    router.succeed("bridge link show | grep bat0")
-    router.succeed("bridge link show | grep eth3")
+    print("Test 1c: brHOME has VLAN sub-interfaces as bridge members")
+    router.succeed("bridge link show | grep 'vHOME.bond0'")
+    router.succeed("bridge link show | grep 'vHOME.bat0'")
+    router.succeed("bridge link show | grep 'vHOME.eth3'")
     print("PASS")
 
-    print("Test 1d: bond0 is NOT a bridge member")
-    router.fail("bridge link show | grep bond0")
+    print("Test 1d: bond0 is NOT a direct bridge member")
+    router.fail("bridge link show dev bond0 2>/dev/null | grep -q .")
+    print("PASS")
+
+    print("Test 1e: bat0 is NOT a direct bridge member")
+    router.fail("bridge link show dev bat0 2>/dev/null | grep -q .")
     print("PASS")
 
     # ======================================================================
     # 2. SYSTEMD-NETWORKD CONFIG
     # ======================================================================
 
-    print("Test 2a: Correct netdev ordering (bond < batman < bridge)")
+    print("Test 2a: Correct netdev ordering (bond < batman < bridge < vlan)")
     router.succeed("ls /etc/systemd/network/01-bond0.netdev")
     router.succeed("ls /etc/systemd/network/02-bat0.netdev")
-    router.succeed("ls /etc/systemd/network/03-br0.netdev")
+    router.succeed("ls /etc/systemd/network/03-brHOME.netdev")
+    router.succeed("ls /etc/systemd/network/04-vHOME.bond0.netdev")
+    router.succeed("ls /etc/systemd/network/04-vHOME.bat0.netdev")
+    router.succeed("ls /etc/systemd/network/04-vHOME.eth3.netdev")
     print("PASS")
 
     print("Test 2b: bond0 has BatmanAdvanced= but NOT Bridge=")
@@ -176,20 +188,22 @@ pkgs.testers.nixosTest {
     router.fail("grep 'Bridge=' /etc/systemd/network/10-bond0.network")
     print("PASS")
 
-    print("Test 2c: bat0 has Bridge=br0")
-    router.succeed("grep 'Bridge=br0' /etc/systemd/network/10-bat0.network")
+    print("Test 2c: VLAN network files assign to brHOME")
+    router.succeed("grep 'Bridge=brHOME' /etc/systemd/network/21-vHOME.bond0.network")
+    router.succeed("grep 'Bridge=brHOME' /etc/systemd/network/21-vHOME.bat0.network")
+    router.succeed("grep 'Bridge=brHOME' /etc/systemd/network/21-vHOME.eth3.network")
     print("PASS")
 
     # ======================================================================
-    # 3. VLAN ADDRESSES
+    # 3. BRIDGE ADDRESSES
     # ======================================================================
 
-    print("Test 3a: vHOME.br0 has correct IPv4")
-    router.succeed("ip addr show 'vHOME.br0' | grep '10.0.20.1/24'")
+    print("Test 3a: brHOME has correct IPv4")
+    router.succeed("ip addr show brHOME | grep '10.0.20.1/24'")
     print("PASS")
 
-    print("Test 3b: vHOME.br0 has auto-generated IPv6")
-    router.succeed("ip addr show 'vHOME.br0' | grep 'fdc6:55f2:a5e:14::1/64'")
+    print("Test 3b: brHOME has auto-generated IPv6")
+    router.succeed("ip addr show brHOME | grep 'fdc6:55f2:a5e:14::1/64'")
     print("PASS")
 
     # ======================================================================
@@ -213,7 +227,7 @@ pkgs.testers.nixosTest {
     # ======================================================================
     print("")
     print("=" * 70)
-    print("BATMAN + BRIDGE + VLAN TOPOLOGY TESTS COMPLETE")
+    print("PER-VLAN BRIDGE + BATMAN TOPOLOGY TESTS COMPLETE")
     print("=" * 70)
   '';
 }
