@@ -1,7 +1,7 @@
 { config, pkgs, lib, ... }:
 
 {
-  # Enable Incus container management with auto-updates
+  # Enable Incus instance management with auto-updates
   incus-manager = {
     enable = true;
 
@@ -13,34 +13,55 @@
     };
 
     # Network configuration
-    # Use existing bridge br20 for container network (VLAN 20 - trusted)
     networks = {
+      # Use existing bridge br20 for container network (VLAN 20 - trusted)
       incusbr20 = {
         type = "bridge";
-        bridge = "br20";  # Use existing bridge
-        # No IP configuration needed (bridge already configured)
+        bridge = "br20";
+        ipv4 = null;
+        ipv6 = null;
+        nat = false;
+      };
+
+      # Use existing bridge br100 for DMZ VMs (VLAN 100)
+      incusbr100 = {
+        type = "bridge";
+        bridge = "br100";
         ipv4 = null;
         ipv6 = null;
         nat = false;
       };
     };
 
-    # Profiles for containers
+    # Profiles
     profiles = {
-      # Default profile for development containers
+      # Profile for development containers (trusted VLAN)
       dev = {
         description = "Development container profile";
         config = {
-          # Resource limits
           "limits.cpu" = "4";
           "limits.memory" = "4GB";
-
-          # Security settings
-          "security.privileged" = "false";  # Unprivileged containers
-          "security.nesting" = "true";      # Allow nested containers/docker if needed
+          "security.privileged" = "false";
+          "security.nesting" = "true";
         };
         devices = {
-          # Root disk
+          root = {
+            path = "/";
+            pool = "default";
+            type = "disk";
+            size = "50GB";
+          };
+        };
+      };
+
+      # Profile for DMZ virtual machines
+      dmz-vm = {
+        description = "DMZ virtual machine profile";
+        config = {
+          "limits.cpu" = "4";
+          "limits.memory" = "4GB";
+        };
+        devices = {
           root = {
             path = "/";
             pool = "default";
@@ -51,19 +72,20 @@
       };
     };
 
-    # Container definitions
-    containers = {
-      # ordis container (migrated from microVM)
-      ordis = {
-        configurationFile = ./containers/ordis;
+    # Virtual machine definitions
+    virtualMachines = {
+      # trista — Dev environment / task runner (VLAN 100, DMZ)
+      # TODO: Consider managing updates via deploy-rs instead of incus-manager autoUpdate
+      trista = {
+        configurationFile = ./containers/trista;
         autoUpdate = true;
-        profile = "dev";
-        network = "incusbr20";
+        profile = "dmz-vm";
+        network = "incusbr100";
         autoStart = true;
       };
     };
   };
 
-  # Add user to incus-admin group for container management
+  # Add user to incus-admin group for instance management
   # users.users.youruser.extraGroups = [ "incus-admin" ];
 }
