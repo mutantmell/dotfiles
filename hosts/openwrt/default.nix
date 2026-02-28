@@ -1,7 +1,9 @@
-# OpenWrt device configurations
+# OpenWrt device declarations (pure data)
 #
-# Each device is defined with its hardware profile, network settings,
-# and mesh configuration. Images are built using nix-openwrt-imagebuilder.
+# Each device is a plain attrset with a `type` field ("meshAP", "switch",
+# "simpleAP") plus device-specific parameters. No derivations, no pkgs.
+#
+# Images are built in flake.nix by mapping mkDeviceImage over these declarations.
 #
 # SECRETS: Wifi/mesh passwords are NOT included in images (would expose them
 # in nix store). Instead, secrets are configured post-deployment via SSH.
@@ -15,132 +17,11 @@
 #
 # Configure secrets on existing device:
 #   nix run .#openwrt-configure-secrets -- <device-ip>
-{ lib, pkgs, openwrt }:
+{ lib }:
 
 let
-  # Import common data
-  data = import ../../lib/common/data { inherit lib; };
-
-  # Shared mesh configuration matching thebeyond's batman-adv setup
-  # Note: meshKey is intentionally omitted - configured via secrets post-deployment
-  meshConfig = {
-    # Override with actual mesh ID before building
-    meshId = "change-me-mesh-id";
-  };
-
-  # IP prefixes — each device gets one address per prefix for migration compatibility
-  ipPrefixes = [ "10.0" "10.1" "10.97" ];
-
-  # Generate list of CIDR addresses for a given VLAN and host ID across all prefixes
-  mkAddresses = vlanId: hostId:
-    map (p: "${p}.${toString vlanId}.${toString hostId}/24") ipPrefixes;
-
-  # Gateway is always on the primary prefix (10.0)
-  mkGateway = vlanId: "10.0.${toString vlanId}.1";
-
-  # VLANs matching actual deployed configuration
-  # Mesh APs use 10xx tags on bat0 (bat0.1010, bat0.1020, etc.)
-  meshVlans = {
-    MGMT = { tag = 10; };
-    HOME = { tag = 20; };
-  };
-
-  # Switch VLANs — arseille uses standard VLAN tags on a bridge
-  # Trunk ports (lan1-4) carry all VLANs tagged; access ports are untagged
-  switchVlans = {
-    MGMT     = { tag = 10; accessPorts = [ "lan7" "lan8" ]; };
-    INFRA    = { tag = 11; };
-    HOME     = { tag = 20; accessPorts = [ "lan5" "lan6" ]; };
-    GUEST    = { tag = 30; };
-    ADU      = { tag = 31; };
-    IOT      = { tag = 40; };
-    GAME     = { tag = 41; };
-    MEDIA    = { tag = 42; };
-    DMZ      = { tag = 100; };
-  };
-
-  # SSH authorized keys for deployment
-  authorizedKeys = [
-    data.keys.ssh.deploy
-    data.keys.ssh.home
-  ];
-
-  # Common AP networks (can be overridden per-device)
-  # Note: Keys are intentionally omitted - configured via secrets post-deployment
-  # The deploy script matches networks by SSID pattern to apply keys
-  defaultAPNetworks = {
-    main = {
-      # Override with actual SSIDs before building
-      ssid = "MyNetwork";
-      network = "lan";
-      encryption = "sae-mixed";
-    };
-    secondary = {
-      ssid = "MyNetwork-Alt";
-      network = "lan";
-      encryption = "sae-mixed";
-    };
-  };
-
-  # Helper to create a mesh AP configuration
-  mkMeshAP = {
-    hostname,
-    profile,
-    hostId,
-    heBssColor ? null,
-    legacyRates ? false,
-    extraPackages ? [],
-    extraConfig ? {},
-  }:
-    openwrt.mkMeshAPImage {
-      inherit pkgs profile hostname heBssColor legacyRates extraPackages extraConfig;
-      inherit (meshConfig) meshId;
-      inherit authorizedKeys;
-      lanAddresses = mkAddresses meshVlans.HOME.tag hostId;
-      mgmtAddresses = mkAddresses meshVlans.MGMT.tag hostId;
-      gateway = mkGateway meshVlans.HOME.tag;
-      vlans = meshVlans;
-      apNetworks = defaultAPNetworks;
-      timezone = "America/Los_Angeles";
-      country = "US";
-    };
-
-  # Helper to create a managed switch configuration
-  mkSwitch = {
-    hostname,
-    profile,
-    hostId,
-    vlanId,
-    extraPackages ? [],
-    extraConfig ? {},
-  }:
-    openwrt.mkSwitchImage {
-      inherit pkgs profile hostname extraPackages extraConfig;
-      inherit authorizedKeys;
-      lanAddresses = mkAddresses vlanId hostId;
-      gateway = mkGateway vlanId;
-      vlans = switchVlans;
-    };
-
-  # Helper to create a simple AP configuration
-  mkSimpleAP = {
-    hostname,
-    profile,
-    hostId,
-    vlanId,
-    ssid,
-    ssidKey ? null,
-    encryption ? "sae-mixed",
-    extraPackages ? [],
-    extraConfig ? {},
-  }:
-    openwrt.mkSimpleAPImage {
-      inherit pkgs profile hostname ssid ssidKey encryption
-              extraPackages extraConfig;
-      inherit authorizedKeys;
-      lanAddresses = mkAddresses vlanId hostId;
-      gateway = mkGateway vlanId;
-    };
+  owrtData = import ../../lib/common/data/openwrt.nix { inherit lib; };
+  inherit (owrtData) mkAddresses mkGateway;
 
 in {
   # =============================================================================
@@ -148,14 +29,16 @@ in {
   # All Linksys E8450 (UBI variant)
   # =============================================================================
 
-  bobcat = mkMeshAP {
+  bobcat = {
+    type = "meshAP";
     hostname = "bobcat";
     profile = "linksys_e8450-ubi";
     hostId = 23;
     heBssColor = 49;
   };
 
-  lusitania = mkMeshAP {
+  lusitania = {
+    type = "meshAP";
     hostname = "lusitania";
     profile = "linksys_e8450-ubi";
     hostId = 24;
@@ -163,7 +46,8 @@ in {
     extraPackages = [ "usteer" ];
   };
 
-  merkabah = mkMeshAP {
+  merkabah = {
+    type = "meshAP";
     hostname = "merkabah";
     profile = "linksys_e8450-ubi";
     hostId = 20;
@@ -172,7 +56,8 @@ in {
     extraPackages = [ "usteer" ];
   };
 
-  derfflinger = mkMeshAP {
+  derfflinger = {
+    type = "meshAP";
     hostname = "derfflinger";
     profile = "linksys_e8450-ubi";
     hostId = 21;
@@ -206,7 +91,8 @@ in {
     };
   };
 
-  pantagruel = mkMeshAP {
+  pantagruel = {
+    type = "meshAP";
     hostname = "pantagruel";
     profile = "linksys_e8450-ubi";
     hostId = 22;
@@ -219,12 +105,13 @@ in {
   # NETGEAR GS108T v3
   # =============================================================================
 
-  arseille = mkSwitch {
+  arseille = {
+    type = "switch";
     hostname = "arseille";
     profile = "netgear_gs108t-v3";
     hostId = 12;
     vlanId = 10;
-    extraPackages = openwrt.packages.luciPackages;
+    extraPackages = [ "luci" "luci-proto-batman-adv" ];
   };
 
   # =============================================================================
@@ -233,7 +120,8 @@ in {
   # TP-Link EAP615-Wall v1 (UNCONFIRMED: verify before deploying)
   # =============================================================================
 
-  glorious = mkSimpleAP {
+  glorious = {
+    type = "simpleAP";
     hostname = "glorious";
     profile = "tplink_eap615-wall-v1";  # UNCONFIRMED: verify before deploying
     hostId = 20;

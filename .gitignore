@@ -6,3 +6,5 @@ result*
 # LUKS encryption keyfiles
 .keys/
 *.key
+# Ignore temp data
+temp/

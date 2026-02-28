@@ -548,6 +548,30 @@ let
       // mkDropbearConfig { inherit authorizedKeys; }
     ) extraConfig;
 
+  # Generate config files derivation (uci-defaults + authorized_keys)
+  # Single function replacing the copy-pasted runCommand blocks in mk*Image
+  mkConfigFiles = { pkgs, hostname, config, authorizedKeys ? [], extraFiles ? null }:
+    pkgs.runCommand "openwrt-config-files-${hostname}" {} ''
+      mkdir -p $out/etc/uci-defaults
+      mkdir -p $out/etc/dropbear
+
+      cat > $out/etc/uci-defaults/99-nix-config <<'UCIEOF'
+      ${uci.mkUCIDefaults { name = "nix-config"; inherit config; }}
+      UCIEOF
+      chmod +x $out/etc/uci-defaults/99-nix-config
+
+      ${lib.optionalString (authorizedKeys != []) ''
+        cat > $out/etc/dropbear/authorized_keys <<'KEYSEOF'
+        ${lib.concatStringsSep "\n" authorizedKeys}
+        KEYSEOF
+        chmod 600 $out/etc/dropbear/authorized_keys
+      ''}
+
+      ${lib.optionalString (extraFiles != null) ''
+        cp -r ${extraFiles}/* $out/
+      ''}
+    '';
+
   # Build an OpenWrt image with the given configuration
   mkImage = { pkgs, profile, config, packages ? [], files ? null, extraImageConfig ? {} }:
     let
@@ -595,32 +619,10 @@ let
         inherit hostname meshId meshKey vlans apNetworks lanAddresses mgmtAddresses
                 gateway timezone authorizedKeys country heBssColor legacyRates extraConfig;
       };
-
-      configFiles = pkgs.runCommand "openwrt-config-files-${hostname}" {} ''
-        mkdir -p $out/etc/uci-defaults
-        mkdir -p $out/etc/dropbear
-
-        cat > $out/etc/uci-defaults/99-nix-config <<'UCIEOF'
-        ${uci.mkUCIDefaults { name = "nix-config"; inherit config; }}
-        UCIEOF
-        chmod +x $out/etc/uci-defaults/99-nix-config
-
-        ${lib.optionalString (authorizedKeys != []) ''
-          cat > $out/etc/dropbear/authorized_keys <<'KEYSEOF'
-          ${lib.concatStringsSep "\n" authorizedKeys}
-          KEYSEOF
-          chmod 600 $out/etc/dropbear/authorized_keys
-        ''}
-
-        ${lib.optionalString (extraFiles != null) ''
-          cp -r ${extraFiles}/* $out/
-        ''}
-      '';
-
     in mkImage {
       inherit pkgs profile config;
       packages = defaultMeshPackages ++ extraPackages;
-      files = configFiles;
+      files = mkConfigFiles { inherit pkgs hostname config authorizedKeys extraFiles; };
     };
 
   # Build switch image
@@ -643,32 +645,10 @@ let
       config = mkSwitchConfig {
         inherit hostname lanAddresses gateway vlans trunkPorts accessPorts timezone authorizedKeys extraConfig;
       };
-
-      configFiles = pkgs.runCommand "openwrt-config-files-${hostname}" {} ''
-        mkdir -p $out/etc/uci-defaults
-        mkdir -p $out/etc/dropbear
-
-        cat > $out/etc/uci-defaults/99-nix-config <<'UCIEOF'
-        ${uci.mkUCIDefaults { name = "nix-config"; inherit config; }}
-        UCIEOF
-        chmod +x $out/etc/uci-defaults/99-nix-config
-
-        ${lib.optionalString (authorizedKeys != []) ''
-          cat > $out/etc/dropbear/authorized_keys <<'KEYSEOF'
-          ${lib.concatStringsSep "\n" authorizedKeys}
-          KEYSEOF
-          chmod 600 $out/etc/dropbear/authorized_keys
-        ''}
-
-        ${lib.optionalString (extraFiles != null) ''
-          cp -r ${extraFiles}/* $out/
-        ''}
-      '';
-
     in mkImage {
       inherit pkgs profile config;
       packages = defaultSwitchPackages ++ extraPackages;
-      files = configFiles;
+      files = mkConfigFiles { inherit pkgs hostname config authorizedKeys extraFiles; };
     };
 
   # Build simple AP image
@@ -691,32 +671,73 @@ let
       config = mkSimpleAPConfig {
         inherit hostname lanAddresses gateway ssid ssidKey encryption timezone authorizedKeys extraConfig;
       };
-
-      configFiles = pkgs.runCommand "openwrt-config-files-${hostname}" {} ''
-        mkdir -p $out/etc/uci-defaults
-        mkdir -p $out/etc/dropbear
-
-        cat > $out/etc/uci-defaults/99-nix-config <<'UCIEOF'
-        ${uci.mkUCIDefaults { name = "nix-config"; inherit config; }}
-        UCIEOF
-        chmod +x $out/etc/uci-defaults/99-nix-config
-
-        ${lib.optionalString (authorizedKeys != []) ''
-          cat > $out/etc/dropbear/authorized_keys <<'KEYSEOF'
-          ${lib.concatStringsSep "\n" authorizedKeys}
-          KEYSEOF
-          chmod 600 $out/etc/dropbear/authorized_keys
-        ''}
-
-        ${lib.optionalString (extraFiles != null) ''
-          cp -r ${extraFiles}/* $out/
-        ''}
-      '';
-
     in mkImage {
       inherit pkgs profile config;
       packages = defaultSimpleAPPackages ++ extraPackages;
-      files = configFiles;
+      files = mkConfigFiles { inherit pkgs hostname config authorizedKeys extraFiles; };
+    };
+
+  # Generate UCI config from a device declaration (pure data with a type field)
+  # Dispatches to the appropriate mk*Config function based on device.type
+  mkDeviceConfig = { device, owrtData }:
+    let
+      inherit (owrtData) mkAddresses mkGateway meshVlans switchVlans
+                         authorizedKeys defaultAPNetworks meshConfig;
+    in
+      if device.type == "meshAP" then
+        mkMeshAPConfig {
+          inherit (device) hostname;
+          inherit (meshConfig) meshId;
+          inherit authorizedKeys;
+          vlans = meshVlans;
+          apNetworks = defaultAPNetworks;
+          lanAddresses = mkAddresses meshVlans.HOME.tag device.hostId;
+          mgmtAddresses = mkAddresses meshVlans.MGMT.tag device.hostId;
+          gateway = mkGateway meshVlans.HOME.tag;
+          timezone = device.timezone or "America/Los_Angeles";
+          country = device.country or "US";
+          heBssColor = device.heBssColor or null;
+          legacyRates = device.legacyRates or false;
+          extraConfig = device.extraConfig or {};
+        }
+      else if device.type == "switch" then
+        mkSwitchConfig {
+          inherit (device) hostname;
+          inherit authorizedKeys;
+          lanAddresses = mkAddresses device.vlanId device.hostId;
+          gateway = mkGateway device.vlanId;
+          vlans = switchVlans;
+          extraConfig = device.extraConfig or {};
+        }
+      else if device.type == "simpleAP" then
+        mkSimpleAPConfig {
+          inherit (device) hostname ssid;
+          inherit authorizedKeys;
+          lanAddresses = mkAddresses device.vlanId device.hostId;
+          gateway = mkGateway device.vlanId;
+          ssidKey = device.ssidKey or null;
+          encryption = device.encryption or "sae-mixed";
+          extraConfig = device.extraConfig or {};
+        }
+      else throw "mkDeviceConfig: unknown device type '${device.type}'";
+
+  # Build an image from a device declaration
+  # Single entry point: declaration -> config -> files -> image
+  mkDeviceImage = { pkgs, device, owrtData }:
+    let
+      config = mkDeviceConfig { inherit device owrtData; };
+      inherit (device) hostname profile;
+      extraPackages = device.extraPackages or [];
+      extraFiles = device.extraFiles or null;
+      inherit (owrtData) authorizedKeys;
+      packages =
+        if device.type == "meshAP" then defaultMeshPackages ++ extraPackages
+        else if device.type == "switch" then defaultSwitchPackages ++ extraPackages
+        else if device.type == "simpleAP" then defaultSimpleAPPackages ++ extraPackages
+        else throw "mkDeviceImage: unknown device type '${device.type}'";
+    in mkImage {
+      inherit pkgs profile config packages;
+      files = mkConfigFiles { inherit pkgs hostname config authorizedKeys extraFiles; };
     };
 
 in {
@@ -751,8 +772,11 @@ in {
     mkMeshAPConfig
     mkSwitchConfig
     mkSimpleAPConfig
+    mkConfigFiles
     mkImage
     mkMeshAPImage
     mkSwitchImage
-    mkSimpleAPImage;
+    mkSimpleAPImage
+    mkDeviceConfig
+    mkDeviceImage;
 }

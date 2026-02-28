@@ -24,4 +24,5 @@
   router6-zone-system = import ./lib/router6-zone-system.nix { inherit pkgs lib; };
   router6-dhcp-config = import ./lib/router6-dhcp-config.nix { inherit pkgs lib; };
   network-helpers = import ./lib/network-helpers.nix { inherit pkgs lib; };
+  openwrt-config = import ./lib/openwrt-config.nix { inherit pkgs lib; };
 }
