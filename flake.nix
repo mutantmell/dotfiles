@@ -24,7 +24,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     microvm-stable = {
-      url = github:astro/microvm.nix;
+      url = github:microvm-nix/microvm.nix;
       inputs.nixpkgs.follows = "nixpkgs-stable";
     };
     impermanence.url = github:nix-community/impermanence;

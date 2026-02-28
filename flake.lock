@@ -212,13 +212,13 @@
       "locked": {
         "lastModified": 1772055583,
         "narHash": "sha256-iPIm1orqkhsxqju6EVODOrV1BmyA5HNTZ8a1o812bFM=",
-        "owner": "astro",
+        "owner": "microvm-nix",
         "repo": "microvm.nix",
         "rev": "f6dcfb7c16cc3775536c825dc0698d4ede13d063",
         "type": "github"
       },
       "original": {
-        "owner": "astro",
+        "owner": "microvm-nix",
         "repo": "microvm.nix",
         "type": "github"
       }
