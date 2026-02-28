@@ -31,6 +31,9 @@ in {
   derfflinger = importDevice ./derfflinger.nix;
   pantagruel  = importDevice ./pantagruel.nix;
 
+  # Temporary router (use while thebeyond is down, then switch back to bobcat)
+  bobcat-router = importDevice ./bobcat-router.nix;
+
   # Managed switch
   arseille    = importDevice ./arseille.nix;
 

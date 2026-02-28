@@ -60,6 +60,16 @@ let
   # Default packages for a simple AP (keep firewall, no mesh)
   defaultSimpleAPPackages = removeSwitchPackages ++ debugPackages;
 
+  # Packages to remove for router (keep firewall+nftables, dnsmasq, wpad)
+  removeRouterPackages = [
+    "-odhcpd-ipv6only"
+    "-ppp"
+    "-ppp-mod-pppoe"
+  ];
+
+  # Default packages for a router
+  defaultRouterPackages = removeRouterPackages ++ debugPackages;
+
   # Generate network configuration for a mesh AP
   # Uses separate bridges per VLAN (matching actual deployed topology)
   mkMeshNetworkConfig = {
@@ -288,7 +298,7 @@ let
     };
 
   # Generate simple AP wireless config (no mesh, no 802.11r)
-  mkSimpleAPWirelessConfig = { ssid, ssidKey ? null, encryption ? "sae-mixed" }: {
+  mkSimpleAPWirelessConfig = { ssid, ssidKey ? null, encryption ? "sae-mixed", network ? "lan" }: {
     wireless = {
       radio0 = {
         _type = "wifi-device";
@@ -314,7 +324,7 @@ let
         _type = "wifi-iface";
         _anonymous = true;
         device = "radio0";
-        network = "lan";
+        inherit network;
         mode = "ap";
         inherit ssid encryption;
       } // lib.optionalAttrs (ssidKey != null) { key = ssidKey; };
@@ -323,7 +333,7 @@ let
         _type = "wifi-iface";
         _anonymous = true;
         device = "radio1";
-        network = "lan";
+        inherit network;
         mode = "ap";
         inherit ssid encryption;
       } // lib.optionalAttrs (ssidKey != null) { key = ssidKey; };
@@ -442,6 +452,189 @@ let
       };
     };
   };
+
+  # Generate network configuration for a router (VLAN-filtering bridge + WAN)
+  mkRouterNetworkConfig = {
+    hostname,
+    vlans,
+    trunkPorts ? [ "lan2" "lan3" "lan4" ],
+    mkGatewayAddresses,
+  }:
+    let
+      # Collect all access ports from all VLANs
+      allAccessPorts = lib.concatMap (v: v.accessPorts or []) (builtins.attrValues vlans);
+      allBridgePorts = trunkPorts ++ allAccessPorts;
+
+      # Bridge-VLAN entries: trunk ports tagged, access ports untagged+PVID
+      bridgeVlanConfigs = lib.mapAttrs' (name: vlan: {
+        name = "brvlan_${lib.toLower name}";
+        value = {
+          _type = "bridge-vlan";
+          _anonymous = true;
+          device = "br-lan";
+          vlan = vlan.tag;
+          ports = map (p: "${p}:t") trunkPorts
+            ++ map (p: "${p}:u*") (vlan.accessPorts or []);
+        };
+      }) vlans;
+
+      # Per-VLAN interfaces
+      vlanInterfaces = lib.mapAttrs' (name: vlan: {
+        name = lib.toLower name;
+        value = {
+          _type = "interface";
+          device = "br-lan.${toString vlan.tag}";
+          proto = "static";
+          ipaddr = mkGatewayAddresses vlan.tag;
+          dns = "127.0.0.1";
+        };
+      }) vlans;
+
+    in {
+      network = {
+        # Loopback
+        loopback = {
+          _type = "interface";
+          device = "lo";
+          proto = "static";
+          ipaddr = "127.0.0.1";
+          netmask = "255.0.0.0";
+        };
+
+        # WAN interface
+        wan = {
+          _type = "interface";
+          device = "wan";
+          proto = "dhcp";
+        };
+
+        # Bridge device with VLAN filtering
+        br_lan = {
+          _type = "device";
+          name = "br-lan";
+          type = "bridge";
+          vlan_filtering = true;
+          ports = allBridgePorts;
+        };
+
+      } // bridgeVlanConfigs // vlanInterfaces;
+    };
+
+  # Generate firewall configuration for a router
+  mkRouterFirewallConfig = { vlans }:
+    let
+      vlanIfaceNames = map lib.toLower (builtins.attrNames vlans);
+    in {
+      firewall = {
+        defaults = {
+          _type = "defaults";
+          _anonymous = true;
+          syn_flood = true;
+          input = "REJECT";
+          output = "ACCEPT";
+          forward = "REJECT";
+        };
+
+        zone_wan = {
+          _type = "zone";
+          _anonymous = true;
+          name = "wan";
+          network = [ "wan" ];
+          input = "REJECT";
+          output = "ACCEPT";
+          forward = "REJECT";
+          masq = true;
+          mtu_fix = true;
+        };
+
+        zone_lan = {
+          _type = "zone";
+          _anonymous = true;
+          name = "lan";
+          network = vlanIfaceNames;
+          input = "ACCEPT";
+          output = "ACCEPT";
+          forward = "ACCEPT";
+        };
+
+        fwd_lan_wan = {
+          _type = "forwarding";
+          _anonymous = true;
+          src = "lan";
+          dest = "wan";
+        };
+
+        rule_wan_dhcp = {
+          _type = "rule";
+          _anonymous = true;
+          name = "Allow-WAN-DHCP";
+          src = "wan";
+          proto = "udp";
+          dest_port = 68;
+          target = "ACCEPT";
+        };
+      };
+    };
+
+  # Generate DHCP configuration for a router
+  mkRouterDHCPConfig = { vlans }:
+    let
+      vlanPools = lib.mapAttrs' (name: _vlan: {
+        name = lib.toLower name;
+        value = {
+          _type = "dhcp";
+          interface = lib.toLower name;
+          start = 100;
+          limit = 150;
+          leasetime = "12h";
+          dhcpv4 = "server";
+        };
+      }) vlans;
+    in {
+      dhcp = {
+        dnsmasq = {
+          _type = "dnsmasq";
+          _anonymous = true;
+          domainneeded = true;
+          boguspriv = true;
+          localise_queries = true;
+          rebind_protection = true;
+          rebind_localhost = true;
+          local = "/lan/";
+          domain = "lan";
+          expandhosts = true;
+          authoritative = true;
+          readethers = true;
+          leasefile = "/tmp/dhcp.leases";
+          nonwildcard = true;
+          localservice = true;
+          ednspacket_max = 1232;
+          cachesize = 1000;
+        };
+      } // vlanPools;
+    };
+
+  # Build complete router configuration
+  mkRouterConfig = {
+    hostname,
+    vlans,
+    trunkPorts ? [ "lan2" "lan3" "lan4" ],
+    mkGatewayAddresses,
+    ssid,
+    ssidKey ? null,
+    encryption ? "sae-mixed",
+    timezone ? "America/Los_Angeles",
+    authorizedKeys ? [],
+    extraConfig ? {},
+  }:
+    lib.recursiveUpdate (
+      mkSystemConfig { inherit hostname timezone; }
+      // mkRouterNetworkConfig { inherit hostname vlans trunkPorts mkGatewayAddresses; }
+      // mkSimpleAPWirelessConfig { inherit ssid ssidKey encryption; network = "home"; }
+      // mkRouterFirewallConfig { inherit vlans; }
+      // mkRouterDHCPConfig { inherit vlans; }
+      // mkDropbearConfig { inherit authorizedKeys; }
+    ) extraConfig;
 
   # Generate system configuration
   mkSystemConfig = { hostname, timezone ? "UTC", log_ip ? null }:
@@ -637,6 +830,18 @@ let
           encryption = device.encryption or "sae-mixed";
           extraConfig = device.extraConfig or {};
         }
+      else if device.type == "router" then
+        mkRouterConfig {
+          inherit (device) hostname ssid;
+          inherit authorizedKeys;
+          vlans = owrtData.routerVlans;
+          mkGatewayAddresses = owrtData.mkGatewayAddresses;
+          trunkPorts = device.trunkPorts or [ "lan2" "lan3" "lan4" ];
+          ssidKey = device.ssidKey or null;
+          encryption = device.encryption or "sae-mixed";
+          timezone = device.timezone or "America/Los_Angeles";
+          extraConfig = device.extraConfig or {};
+        }
       else throw "mkDeviceConfig: unknown device type '${device.type}'";
 
   # Build an image from a device declaration
@@ -653,6 +858,7 @@ let
         if device.type == "meshAP" then defaultMeshPackages ++ extraPackages
         else if device.type == "switch" then defaultSwitchPackages ++ extraPackages
         else if device.type == "simpleAP" then defaultSimpleAPPackages ++ extraPackages
+        else if device.type == "router" then defaultRouterPackages ++ extraPackages
         else throw "mkDeviceImage: unknown device type '${device.type}'";
     in mkImage {
       inherit pkgs profile config packages release;
@@ -668,12 +874,14 @@ in {
     inherit
       removeDefaultPackages
       removeSwitchPackages
+      removeRouterPackages
       minimalMeshPackages
       luciPackages
       debugPackages
       defaultMeshPackages
       defaultSwitchPackages
-      defaultSimpleAPPackages;
+      defaultSimpleAPPackages
+      defaultRouterPackages;
   };
 
   # High-level API
@@ -681,11 +889,16 @@ in {
     defaultMeshPackages
     defaultSwitchPackages
     defaultSimpleAPPackages
+    defaultRouterPackages
     mkMeshNetworkConfig
     mkMeshWirelessConfig
     mkSimpleAPWirelessConfig
     mkSwitchNetworkConfig
     mkSimpleAPNetworkConfig
+    mkRouterNetworkConfig
+    mkRouterFirewallConfig
+    mkRouterDHCPConfig
+    mkRouterConfig
     mkSystemConfig
     mkDropbearConfig
     mkMeshAPConfig
