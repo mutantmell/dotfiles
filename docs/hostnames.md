@@ -3,15 +3,14 @@
 ```
 VM HOSTS (Countries)
 ├── erebonia          (GP host)
-│   ├── heimdallr     (VM guest)
-│   ├── ordis         (VM guest)
-│   ├── roer          (VM guest)
-│   ├── legram        (VM guest)
-│   ├── ymir          (VM guest)
-│   ├── trista        (VM guest)
-│   ├── saint-arkh    (VM guest)
-│   ├── trista        (VM guest)
-│   └── leeves        (VM guest)
+│   ├── heimdallr     (microVM) — Jellyfin media server
+│   ├── ordis         (microVM) — Reverse proxy, nginx, oauth2-proxy
+│   ├── roer          (microVM) — Keycloak OIDC identity provider
+│   ├── legram        (microVM) — step-ca PKI / certificate authority
+│   ├── ymir          (microVM) — Prometheus, Loki, Alertmanager monitoring
+│   ├── trista        (Incus VM) — Dev environment / task runner
+│   ├── saint-arkh    (not allocated)
+│   └── leeves        (not allocated)
 │
 ├── calvard           (GP host)
 │   ├── edith         (VM guest)

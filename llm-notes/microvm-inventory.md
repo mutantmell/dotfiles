@@ -1,5 +1,9 @@
 # MicroVM Inventory
 
+> **NOTE**: This document uses outdated Norse mythology hostnames. Hosts have been
+> renamed to a Trails series theme. See `docs/hostnames.md` for the canonical
+> hostname reference.
+
 Comprehensive inventory of all microvms — existing and planned — derived from the
 implementation plans in `llm-notes/`.
 

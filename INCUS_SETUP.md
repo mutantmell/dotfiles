@@ -214,11 +214,11 @@ nix-env -iA nixpkgs.htop
 ## Helper Commands
 
 ```bash
-# Manually update all containers
-incus-update-containers
+# Manually update all instances (containers + VMs)
+incus-update-instances
 
-# Update specific container
-incus-update-container mycontainer
+# Update specific instance
+incus-update-instance myinstance
 
 # Ensure instances exist (useful after impermanence wipe)
 incus-ensure-instances
@@ -291,12 +291,12 @@ journalctl -u incus
 
 Check update service:
 ```bash
-journalctl -u incus-container-updates
+journalctl -u incus-instance-updates
 ```
 
 Manually update:
 ```bash
-incus-update-container mycontainer
+incus-update-instance myinstance
 ```
 
 ### Network Issues

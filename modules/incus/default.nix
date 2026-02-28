@@ -1,15 +1,16 @@
 { config, options, pkgs, lib, ... }:
 
-# Incus Container Management Module
+# Incus Instance Management Module
 #
-# Provides declarative management of Incus containers with automatic in-place updates.
-# Containers are updated via `nixos-rebuild switch` inside the container when the
-# host configuration changes, minimizing disruption to running processes.
+# Provides declarative management of Incus containers and virtual machines
+# with automatic in-place updates. Instances are updated via `nixos-rebuild switch`
+# inside the instance when the host configuration changes, minimizing disruption
+# to running processes.
 #
 # Design principles:
 # - Fully declarative (instances auto-created on activation)
 # - Image/instance separation (images are templates, instances are persistent)
-# - Auto-update on host rebuild (configurable per-container)
+# - Auto-update on host rebuild (configurable per-instance)
 # - Minimal disruption (only changed services restart)
 
 let
@@ -20,6 +21,70 @@ let
     concatStringsSep flatten filter elem literalExpression nixosSystem;
   inherit (builtins) attrNames attrValues hasAttr length toString;
 
+  hasInstances = cfg.containers != {} || cfg.virtualMachines != {};
+
+  # Shared instance option definitions (used by both containers and VMs)
+  instanceOptions = { name, config, ... }: {
+    options = {
+      configurationFile = mkOption {
+        type = types.nullOr types.path;
+        default = null;
+        description = ''
+          Path to NixOS configuration file for this instance.
+          When set, the instance image will be built automatically.
+          Mutually exclusive with setting imagePackage explicitly.
+        '';
+      };
+
+      image = mkOption {
+        type = types.str;
+        default = name;
+        description = ''
+          Image alias to use for this instance.
+          Defaults to the instance name.
+        '';
+      };
+
+      imagePackage = mkOption {
+        type = types.package;
+        description = ''
+          Package containing the instance image.
+          Can be provided directly or built automatically from configurationFile.
+        '';
+      };
+
+      autoUpdate = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Automatically update instance when host rebuilds.
+          When enabled, runs nixos-rebuild switch inside the instance
+          during host activation.
+        '';
+      };
+
+      profile = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "Incus profile to apply to this instance";
+        example = "dev";
+      };
+
+      network = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "Network to connect to";
+        example = "incusbr20";
+      };
+
+      autoStart = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Auto-start instance on boot";
+      };
+    };
+  };
+
   # Helper to build container image from NixOS configuration
   mkContainerImage = name: containerSystem: pkgs.runCommand "${name}-image" {} ''
     mkdir -p $out
@@ -27,14 +92,19 @@ let
     ln -s ${containerSystem.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
   '';
 
-  # Helper to build instance creation/update script
-  mkInstanceScript = name: containerCfg: pkgs.writeShellScript "incus-ensure-${name}" ''
+  # Helper to build VM image from NixOS configuration
+  mkVMImage = name: vmSystem: pkgs.runCommand "${name}-vm-image" {} ''
+    mkdir -p $out
+    ln -s ${vmSystem.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
+    ln -s ${vmSystem.config.system.build.qemuImage}/*.qcow2 $out/disk.qcow2
+  '';
+
+  # Helper to build container instance creation script
+  mkContainerInstanceScript = name: containerCfg: pkgs.writeShellScript "incus-ensure-${name}" ''
     set -e
 
-    CONTAINER="${name}"
+    INSTANCE="${name}"
     IMAGE_ALIAS="${containerCfg.image}"
-    PROFILE="${optionalString (containerCfg.profile != null) containerCfg.profile}"
-    NETWORK="${optionalString (containerCfg.network != null) containerCfg.network}"
 
     # Import image if it doesn't exist
     if ! ${pkgs.incus}/bin/incus image list --format=csv -c l | grep -q "^$IMAGE_ALIAS$"; then
@@ -46,14 +116,14 @@ let
     fi
 
     # Create instance if it doesn't exist
-    if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$CONTAINER$"; then
-      echo "  Creating instance: $CONTAINER"
-      ${pkgs.incus}/bin/incus init "$IMAGE_ALIAS" "$CONTAINER" \
+    if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$INSTANCE$"; then
+      echo "  Creating container: $INSTANCE"
+      ${pkgs.incus}/bin/incus init "$IMAGE_ALIAS" "$INSTANCE" \
         ${optionalString (containerCfg.profile != null) "--profile ${containerCfg.profile}"}
 
       ${optionalString (containerCfg.network != null) ''
       # Add network device if specified
-      ${pkgs.incus}/bin/incus config device add "$CONTAINER" eth0 nic \
+      ${pkgs.incus}/bin/incus config device add "$INSTANCE" eth0 nic \
         network="${containerCfg.network}" \
         name=eth0 || true
       ''}
@@ -61,41 +131,83 @@ let
 
     # Start instance if autoStart is enabled and not running
     ${optionalString containerCfg.autoStart ''
-    if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$CONTAINER,RUNNING"; then
-      echo "  Starting instance: $CONTAINER"
-      ${pkgs.incus}/bin/incus start "$CONTAINER"
+    if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
+      echo "  Starting container: $INSTANCE"
+      ${pkgs.incus}/bin/incus start "$INSTANCE"
     fi
     ''}
   '';
 
-  # Helper to build container update script
-  mkUpdateScript = name: containerCfg: pkgs.writeShellScript "update-incus-container-${name}" ''
+  # Helper to build VM instance creation script
+  mkVMInstanceScript = name: vmCfg: pkgs.writeShellScript "incus-ensure-vm-${name}" ''
     set -e
 
-    CONTAINER="${name}"
+    INSTANCE="${name}"
+    IMAGE_ALIAS="${vmCfg.image}"
 
-    # Check if container exists
-    if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$CONTAINER$"; then
-      echo "  ⚠ Container $CONTAINER does not exist (skipping update)"
+    # Import VM image if it doesn't exist
+    if ! ${pkgs.incus}/bin/incus image list --format=csv -c l | grep -q "^$IMAGE_ALIAS$"; then
+      echo "  Importing VM image: $IMAGE_ALIAS"
+      ${pkgs.incus}/bin/incus image import \
+        ${vmCfg.imagePackage}/metadata.tar.xz \
+        ${vmCfg.imagePackage}/disk.qcow2 \
+        --alias "$IMAGE_ALIAS"
+    fi
+
+    # Create VM instance if it doesn't exist
+    if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$INSTANCE$"; then
+      echo "  Creating VM: $INSTANCE"
+      ${pkgs.incus}/bin/incus init "$IMAGE_ALIAS" "$INSTANCE" --vm \
+        ${optionalString (vmCfg.profile != null) "--profile ${vmCfg.profile}"}
+
+      ${optionalString (vmCfg.network != null) ''
+      # Add network device if specified
+      ${pkgs.incus}/bin/incus config device add "$INSTANCE" eth0 nic \
+        network="${vmCfg.network}" \
+        name=eth0 || true
+      ''}
+    fi
+
+    # Start VM if autoStart is enabled and not running
+    ${optionalString vmCfg.autoStart ''
+    if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
+      echo "  Starting VM: $INSTANCE"
+      ${pkgs.incus}/bin/incus start "$INSTANCE"
+    fi
+    ''}
+  '';
+
+  # Helper to build instance update script (works for both containers and VMs)
+  mkUpdateScript = name: instanceCfg: pkgs.writeShellScript "update-incus-instance-${name}" ''
+    set -e
+
+    INSTANCE="${name}"
+
+    # Check if instance exists
+    if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$INSTANCE$"; then
+      echo "  Warning: Instance $INSTANCE does not exist (skipping update)"
       exit 0
     fi
 
-    # Check if container is running
-    if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$CONTAINER,RUNNING"; then
-      echo "  ⚠ Container $CONTAINER is not running (skipping update)"
+    # Check if instance is running
+    if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
+      echo "  Warning: Instance $INSTANCE is not running (skipping update)"
       exit 0
     fi
 
-    # Run nixos-rebuild switch inside container
-    echo "  Updating container: $CONTAINER"
-    if ${pkgs.incus}/bin/incus exec "$CONTAINER" -- \
+    # Run nixos-rebuild switch inside instance
+    echo "  Updating instance: $INSTANCE"
+    if ${pkgs.incus}/bin/incus exec "$INSTANCE" -- \
       nixos-rebuild switch 2>&1 | sed 's/^/    /'; then
-      echo "  ✓ Container $CONTAINER updated successfully"
+      echo "  Done: Instance $INSTANCE updated successfully"
     else
-      echo "  ✗ Failed to update container $CONTAINER"
+      echo "  Error: Failed to update instance $INSTANCE"
       exit 1
     fi
   '';
+
+  # All instances (containers + VMs) for update scripts
+  allInstances = cfg.containers // cfg.virtualMachines;
 
   # Script to ensure all instances exist
   ensureInstancesScript = pkgs.writeShellScript "incus-ensure-instances" ''
@@ -106,37 +218,41 @@ let
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     ${concatStringsSep "\n    " (mapAttrsToList (name: containerCfg:
-      "${mkInstanceScript name containerCfg} || echo '  ⚠ Failed to ensure ${name}, continuing...'"
+      "${mkContainerInstanceScript name containerCfg} || echo '  Warning: Failed to ensure container ${name}, continuing...'"
     ) cfg.containers)}
 
+    ${concatStringsSep "\n    " (mapAttrsToList (name: vmCfg:
+      "${mkVMInstanceScript name vmCfg} || echo '  Warning: Failed to ensure VM ${name}, continuing...'"
+    ) cfg.virtualMachines)}
+
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "✓ Instance check complete"
+    echo "Done: Instance check complete"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   '';
 
-  # Build script to update all managed containers
-  updateAllScript = pkgs.writeShellScript "update-all-incus-containers" ''
+  # Build script to update all managed instances
+  updateAllScript = pkgs.writeShellScript "update-all-incus-instances" ''
     set -e
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Updating Incus containers..."
+    echo "Updating Incus instances..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    ${concatStringsSep "\n    " (mapAttrsToList (name: containerCfg:
-      if containerCfg.autoUpdate then
-        "${mkUpdateScript name containerCfg} || echo '  ⚠ Failed to update ${name}, continuing...'"
+    ${concatStringsSep "\n    " (mapAttrsToList (name: instanceCfg:
+      if instanceCfg.autoUpdate then
+        "${mkUpdateScript name instanceCfg} || echo '  Warning: Failed to update ${name}, continuing...'"
       else
         "echo 'Skipping ${name} (autoUpdate disabled)'"
-    ) cfg.containers)}
+    ) allInstances)}
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "✓ Container update process complete"
+    echo "Done: Instance update process complete"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   '';
 
 in {
   options.incus-manager = {
-    enable = mkEnableOption "Incus container management with auto-updates";
+    enable = mkEnableOption "Incus instance management with auto-updates";
 
     storage = mkOption {
       type = types.submodule {
@@ -251,83 +367,45 @@ in {
 
     containers = mkOption {
       type = types.attrsOf (types.submodule ({ name, config, ... }: {
-        options = {
-          configurationFile = mkOption {
-            type = types.nullOr types.path;
-            default = null;
-            description = ''
-              Path to NixOS configuration file for this container.
-              When set, the container image will be built automatically.
-              Mutually exclusive with setting imagePackage explicitly.
-            '';
-            example = literalExpression "./containers/ordis";
-          };
-
-          image = mkOption {
-            type = types.str;
-            default = name;
-            description = ''
-              Image alias to use for this container.
-              Defaults to the container name.
-            '';
-            example = "ordis";
-          };
-
-          imagePackage = mkOption {
-            type = types.package;
-            default =
-              if config.configurationFile != null
-              then mkContainerImage name (nixosSystem {
-                system = "x86_64-linux";
-                modules = [
-                  config.configurationFile
-                  "${pkgs.path}/nixos/modules/virtualisation/lxc-container.nix"
-                ];
-              })
-              else throw "Container ${name}: Either configurationFile or imagePackage must be set";
-            defaultText = literalExpression "Built from configurationFile";
-            description = ''
-              Package containing the container image (metadata.tar.xz and rootfs.tar.xz).
-              Can be provided directly or built automatically from configurationFile.
-            '';
-            example = literalExpression "pkgs.mmell.ordis-image";
-          };
-
-          autoUpdate = mkOption {
-            type = types.bool;
-            default = true;
-            description = ''
-              Automatically update container when host rebuilds.
-              When enabled, runs nixos-rebuild switch inside the container
-              during host activation.
-            '';
-          };
-
-          profile = mkOption {
-            type = types.nullOr types.str;
-            default = null;
-            description = "Incus profile to apply to this container";
-            example = "dev";
-          };
-
-          network = mkOption {
-            type = types.nullOr types.str;
-            default = null;
-            description = "Network to connect to";
-            example = "incusbr20";
-          };
-
-          autoStart = mkOption {
-            type = types.bool;
-            default = true;
-            description = "Auto-start container on boot";
-          };
-        };
+        imports = [ instanceOptions ];
+        config.imagePackage = lib.mkDefault (
+          if config.configurationFile != null
+          then mkContainerImage name (nixosSystem {
+            system = "x86_64-linux";
+            modules = [
+              config.configurationFile
+              "${pkgs.path}/nixos/modules/virtualisation/lxc-container.nix"
+            ];
+          })
+          else throw "Container ${name}: Either configurationFile or imagePackage must be set"
+        );
       }));
       default = {};
       description = ''
         Declarative container definitions.
         Containers are automatically created, started, and updated.
+      '';
+    };
+
+    virtualMachines = mkOption {
+      type = types.attrsOf (types.submodule ({ name, config, ... }: {
+        imports = [ instanceOptions ];
+        config.imagePackage = lib.mkDefault (
+          if config.configurationFile != null
+          then mkVMImage name (nixosSystem {
+            system = "x86_64-linux";
+            modules = [
+              config.configurationFile
+              "${pkgs.path}/nixos/modules/virtualisation/incus-virtual-machine.nix"
+            ];
+          })
+          else throw "VM ${name}: Either configurationFile or imagePackage must be set"
+        );
+      }));
+      default = {};
+      description = ''
+        Declarative virtual machine definitions.
+        VMs are automatically created, started, and updated.
       '';
     };
   };
@@ -385,33 +463,33 @@ in {
     networking.nftables.enable = true;
 
     # Ensure instances exist and are started on system activation
-    system.activationScripts.incusEnsureInstances = lib.mkIf (cfg.containers != {}) {
+    system.activationScripts.incusEnsureInstances = lib.mkIf hasInstances {
       text = ''
         # Ensure all instances exist and are started
         ${ensureInstancesScript}
       '';
     };
 
-    # Auto-update containers on system activation
+    # Auto-update instances on system activation
     # This runs in the background to avoid blocking activation
-    system.activationScripts.updateIncusContainers = lib.mkIf (cfg.containers != {}) {
+    system.activationScripts.updateIncusInstances = lib.mkIf hasInstances {
       text = ''
-        # Launch container updates in background
+        # Launch instance updates in background
         (${updateAllScript} &) || true
       '';
       deps = [ "incusEnsureInstances" ];
     };
 
-    # Systemd service for manual container updates
-    systemd.services.incus-container-updates = {
-      description = "Update Incus containers in-place";
+    # Systemd service for manual instance updates
+    systemd.services.incus-instance-updates = {
+      description = "Update Incus instances in-place";
       after = [ "incus.service" ];
       requires = [ "incus.service" ];
 
       serviceConfig = {
         Type = "oneshot";
         ExecStart = updateAllScript;
-        # Don't fail if some containers can't be updated
+        # Don't fail if some instances can't be updated
         SuccessExitStatus = "0 1";
       };
 
@@ -419,31 +497,31 @@ in {
       wantedBy = [];
     };
 
-    # Helper script for manual updates
+    # Helper scripts for manual updates
     environment.systemPackages = [
-      (pkgs.writeScriptBin "incus-update-containers" ''
+      (pkgs.writeScriptBin "incus-update-instances" ''
         #!${pkgs.bash}/bin/bash
-        exec ${pkgs.systemd}/bin/systemctl start incus-container-updates.service
+        exec ${pkgs.systemd}/bin/systemctl start incus-instance-updates.service
       '')
-      (pkgs.writeScriptBin "incus-update-container" ''
+      (pkgs.writeScriptBin "incus-update-instance" ''
         #!${pkgs.bash}/bin/bash
         if [ $# -ne 1 ]; then
-          echo "Usage: incus-update-container <container-name>"
+          echo "Usage: incus-update-instance <instance-name>"
           exit 1
         fi
 
-        CONTAINER="$1"
+        INSTANCE="$1"
 
-        # Check if container is managed
-        case "$CONTAINER" in
-          ${concatStringsSep "\n          " (mapAttrsToList (name: _: "${name})") cfg.containers)}
-            ${concatStringsSep "\n            " (mapAttrsToList (name: containerCfg:
-              "[ \"$CONTAINER\" = \"${name}\" ] && exec ${mkUpdateScript name containerCfg}"
-            ) cfg.containers)}
+        # Check if instance is managed
+        case "$INSTANCE" in
+          ${concatStringsSep "\n          " (mapAttrsToList (name: _: "${name})") allInstances)}
+            ${concatStringsSep "\n            " (mapAttrsToList (name: instanceCfg:
+              "[ \"$INSTANCE\" = \"${name}\" ] && exec ${mkUpdateScript name instanceCfg}"
+            ) allInstances)}
             ;;
           *)
-            echo "Error: Container '$CONTAINER' is not managed by incus-manager"
-            echo "Managed containers: ${concatStringsSep ", " (attrNames cfg.containers)}"
+            echo "Error: Instance '$INSTANCE' is not managed by incus-manager"
+            echo "Managed instances: ${concatStringsSep ", " (attrNames allInstances)}"
             exit 1
             ;;
         esac

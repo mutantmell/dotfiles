@@ -40,8 +40,12 @@
             settings.allowDiscards = true;
             content = {
               type = "filesystem";
-              format = "ext4";
+              format = "xfs";
               mountpoint = "/persist";
+              mountOptions = [
+                "defaults"
+                "noatime"
+              ];
             };
           };
         };
