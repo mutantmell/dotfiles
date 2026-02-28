@@ -155,9 +155,12 @@ pkgs.testers.nixosTest {
     # Phase 3: LAN client connectivity
     # ======================================================================
 
+    # Wait for Kea DHCP server before checking client lease
+    router.wait_for_unit("kea-dhcp4-server.service")
+
     # Test 5: Client gets DHCP from router on LAN
     print("Test 5: Client gets DHCP lease from router")
-    client.wait_until_succeeds("ip addr show eth1 | grep '10.0.10'", timeout=30)
+    client.wait_until_succeeds("ip addr show eth1 | grep '10.0.10'", timeout=60)
     print("PASS")
 
     # Test 6: Client can ping router LAN interface

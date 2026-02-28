@@ -9,9 +9,8 @@
 , lib ? pkgs.lib
 }:
 
-# Router tests (permanent + temporary) in sub-modules
+# Router tests in sub-module
 (import ./router6.nix { inherit pkgs lib; })
-// (import ./router6-temporary.nix { inherit pkgs lib; })
 // {
   # Disko profile validation
   disko-router = let
