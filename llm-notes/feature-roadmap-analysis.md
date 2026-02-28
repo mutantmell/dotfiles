@@ -17,9 +17,10 @@ and providing a unified implementation guide.
 
 A complete inventory of all existing and planned microvms — names, hosts, zones, IPs,
 and responsibilities — is maintained in [`microvm-inventory.md`](./microvm-inventory.md).
-All planned microvms are assigned to muspelheim and follow the Norse naming convention:
-mimir (Keycloak), tyr (step-ca), ratatosk (Headscale), fenrir (subnet router), and
-heimdall (SSH bastion).
+All planned microvms are assigned to erebonia. Existing VMs use the Trails naming
+convention: roer (Keycloak), legram (step-ca). Planned VMs still need Trails names:
+Headscale control plane (was ratatosk), subnet router (was fenrir), and SSH bastion
+(was heimdall).
 
 ---
 
@@ -40,9 +41,9 @@ headscale → Keycloak (OIDC), and recommending standalone STUN on the cloud hos
 
 ## Security Recommendations Applied
 
-Four security recommendations were identified through surtr compromise analysis and
-have been applied to the source plans. The common thread: **defenses that live on surtr
-are useless after surtr is compromised.**
+Four security recommendations were identified through ordis compromise analysis and
+have been applied to the source plans. The common thread: **defenses that live on ordis
+are useless after ordis is compromised.**
 
 | ID | Summary | Applied to |
 |----|---------|------------|
@@ -139,9 +140,9 @@ hardens NFS, adds host firewalls (input + egress). OpenWRT updates deferred
 to Step 8.
 
 - [x] Phase 1: Add VLAN 11 (vINFRA) to router, switch trunk, define `network` zone
-- [x] Phase 2: Migrate hosts to vINFRA (alfheim, jotunheimr, vanaheim, muspelheim)
+- [x] Phase 2: Migrate hosts to vINFRA (phantasma, remiferia, calvard, erebonia)
 - [x] Phase 3: Update NFS mounts to use vINFRA addresses
-- [x] Phase 4.1-4.3: Add host-level input firewalls (jotunheimr, vanaheim, muspelheim)
+- [x] Phase 4.1-4.3: Add host-level input firewalls (remiferia, calvard, erebonia)
 - [x] Phase 4.4: Add egress filtering module for vDMZ hosts (nftables output chain)
 - [ ] Phase 6: Coordinated deployment (VM guests → VM hosts → NAS → Router)
 - [ ] Verify: all hosts reachable, DNS working, NFS mounts operational
@@ -173,13 +174,13 @@ egress filters, forward rules, chrony, NFS exports, and step-ca policy.
 - [x] Add `mkDualEgressRules` — dual-stack egress filter rule generator
 - [x] Create `tests/lib/network-helpers.nix` — pure eval tests for all helpers
 - [x] Migrate microVM systemd.network configs: add IPv6 addresses, routes, DNS
-- [x] Migrate egress filters to `mkDualEgressRules` (surtr, bragi, mimir, tyr, hrungnir)
-- [x] Migrate extraHosts to `mkExtraHosts` (yggdrasil, alfheim, surtr, mimir, bragi)
-- [x] Migrate Unbound DNS to `mkUnboundLocalData` (alfheim/dns.nix)
-- [x] Add IPv6 forward rules (yggdrasil extraForwardRules)
-- [x] Add IPv6 chrony allow subnets (yggdrasil)
-- [x] Add ULA prefix to step-ca policy (tyr)
-- [x] Add IPv6 subnets to NFS exports (jotunheimr/nas.nix)
+- [x] Migrate egress filters to `mkDualEgressRules` (ordis, heimdallr, roer, legram, ardent)
+- [x] Migrate extraHosts to `mkExtraHosts` (thebeyond, phantasma, ordis, roer, heimdallr)
+- [x] Migrate Unbound DNS to `mkUnboundLocalData` (phantasma/dns.nix)
+- [x] Add IPv6 forward rules (thebeyond extraForwardRules)
+- [x] Add IPv6 chrony allow subnets (thebeyond)
+- [x] Add ULA prefix to step-ca policy (legram)
+- [x] Add IPv6 subnets to NFS exports (remiferia/nas.nix)
 - [x] Update `common/networking.nix` extraHosts to use `mkExtraHosts`
 
 ### Step 4: Keycloak OIDC (Phases 1-3)
@@ -193,7 +194,7 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [x] Provision Keycloak microvm on vINFRA
 - [x] Configure `hostname-admin` for internal-only admin console (R1)
 - [x] Provision step-ca microvm on vINFRA
-- [x] Deploy oauth2-proxy on alfheim (internal service auth)
+- [x] Deploy oauth2-proxy on phantasma (internal service auth)
 - [x] Apply security fixes S1 (cookie.secure), S2 (cookie.domain), S3 (skip-jwt-bearer-tokens)
 - [x] Apply S7 (passAccessToken removal)
 - [x] Migrate from gridr, decommission gridr
@@ -205,16 +206,16 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [x] Create groups: `admins`, `media-users`, `deploy`
 - [x] Add `groups` protocol mapper
 - [ ] Configure conditional MFA for admins
-- [x] Update surtr + alfheim oauth2-proxy configs to `homelab` realm
+- [x] Update ordis + phantasma oauth2-proxy configs to `homelab` realm
 - [ ] Retire `external` realm
 
 **Phase 3: DNS, external access, hardening**
 - [x] Implement split-horizon DNS (`mutantmell.net` hierarchy)
-- [x] Add surtr nginx rate limiting for `/auth/` and `/oauth2/` (S11)
+- [x] Add ordis nginx rate limiting for `/auth/` and `/oauth2/` (S11)
 - [ ] Provision SSH bastion VM on vDMZ (Incus VM — new capability)
 - [ ] Tighten wg-ba firewall rules (per-service instead of blanket)
-- [ ] Remove SSH daemon from surtr
-- [ ] Configure egress filtering on surtr and bastion (R3)
+- [ ] Remove SSH daemon from ordis
+- [ ] Configure egress filtering on ordis and bastion (R3)
 - [ ] Deploy cloud host with nginx + WireGuard + Let's Encrypt
 - [ ] Test end-to-end: internal + external auth flows + SSH bastion path
 
@@ -270,12 +271,12 @@ from Step 4 (`*.mutantmell.net`, `homelab` realm).
 Deploys Headscale on vDMZ as self-hosted Tailscale control plane with subnet
 router for friend access to game servers. Uses canonical names from Step 4.
 
-- [ ] Phase 1: Provision headscale microvm on muspelheim (vDMZ)
+- [ ] Phase 1: Provision headscale microvm on erebonia (vDMZ)
 - [ ] Phase 1: Add headscale → Keycloak cross-zone firewall rule
 - [ ] Phase 1: Configure egress filtering on headscale (R3)
-- [ ] Phase 1: Add surtr vhost for `vpn.mutantmell.net`
+- [ ] Phase 1: Add ordis vhost for `vpn.mutantmell.net`
 - [ ] Phase 1: Add DNS records for headscale + fenrir
-- [ ] Phase 2: Provision fenrir microvm on muspelheim (vDMZ)
+- [ ] Phase 2: Provision fenrir microvm on erebonia (vDMZ)
 - [ ] Phase 2: Configure fenrir as Tailscale subnet router
 - [ ] Phase 2: Configure egress filtering on fenrir (R3)
 - [ ] Phase 3: Register `headscale` client in Keycloak, create `gamers` group

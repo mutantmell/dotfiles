@@ -19,7 +19,7 @@ nftables output) and is tracked separately because of its distinct risk profile.
 | APs / Switch | Higher (exposed to wireless attacks, firmware vulnerabilities) | L2 eavesdropping, MitM on bridged traffic | Maximum: no internet, no lateral movement |
 | NAS | Medium (network-exposed services: NFS, SMB) | Data exfiltration, ransomware on shared storage | High: restrict NFS to specific IPs, host firewall |
 | VM Hosts | Lower (no exposed services beyond SSH) | Guest VM compromise, pivot to NAS via NFS | High: host firewall, restricted SSH |
-| DNS (alfheim) | Lower (MicroVM on router, minimal attack surface) | DNS poisoning, traffic redirection | High: moves to vINFRA, no direct external exposure |
+| DNS (phantasma) | Lower (MicroVM on router, minimal attack surface) | DNS poisoning, traffic redirection | High: moves to vINFRA, no direct external exposure |
 
 ### Architecture: Before and After
 
@@ -29,11 +29,11 @@ nftables output) and is tracked separately because of its distinct risk profile.
 flowchart TB
     subgraph before["vMGMT (VLAN 10) — trust: management — 10.0.10.0/24"]
         direction TB
-        B_ygg["yggdrasil — 10.0.10.1 (router)"]
-        B_alf["alfheim — 10.0.10.2 (DNS MicroVM)"]
-        B_van["vanaheim — 10.0.10.30 (VM host)"]
-        B_mus["muspelheim — 10.0.10.31 (VM host)"]
-        B_jot["jotunheimr — 10.0.10.32 (NAS)"]
+        B_ygg["thebeyond — 10.0.10.1 (router)"]
+        B_alf["phantasma — 10.0.10.2 (DNS MicroVM)"]
+        B_van["calvard — 10.0.10.30 (VM host)"]
+        B_mus["erebonia — 10.0.10.31 (VM host)"]
+        B_jot["remiferia — 10.0.10.32 (NAS)"]
         B_aps["APs — 10.0.10.100-200 (DHCP pool)"]
     end
     B_note["All devices freely communicate.\nFull router service access.\nFull internet forwarding."]
@@ -45,18 +45,18 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph vmgmt["vMGMT (VLAN 10) — zone: network\n10.0.10.0/24 · fdc6:55f2:0a5e:a::/64"]
-        A_ygg1["yggdrasil — 10.0.10.1 (gateway)"]
+        A_ygg1["thebeyond — 10.0.10.1 (gateway)"]
         A_aps["APs/Switch — static IPs"]
     end
     vmgmt_note["NTP only to router. No internet.\nNo access to other VLANs.\nSSH only FROM router TO devices."]
     vmgmt ~~~ vmgmt_note
 
     subgraph vinfra["vINFRA (VLAN 11) — zone: management\n10.0.11.0/24 · fdc6:55f2:0a5e:b::/64"]
-        A_ygg2["yggdrasil — .1 / ::1 (gateway)"]
-        A_alf["alfheim — .2 / ::2 (DNS MicroVM)"]
-        A_van["vanaheim — .30 / ::1e (VM host)"]
-        A_mus["muspelheim — .31 / ::1f (VM host)"]
-        A_jot["jotunheimr — .20 / ::14 (NAS)"]
+        A_ygg2["thebeyond — .1 / ::1 (gateway)"]
+        A_alf["phantasma — .2 / ::2 (DNS MicroVM)"]
+        A_van["calvard — .30 / ::1e (VM host)"]
+        A_mus["erebonia — .31 / ::1f (VM host)"]
+        A_jot["remiferia — .20 / ::14 (NAS)"]
     end
     vinfra_note["Inter-host communication (NFS, monitoring).\nFiltered internet egress.\nSSH from router + admin on vHOME.\nStatic ULA IPv6 mirroring IPv4 last octet in hex."]
     vinfra ~~~ vinfra_note
@@ -70,7 +70,7 @@ With the zone system in place, adding the `network` zone is just a configuration
 
 ### 1.1 Define `network` zone
 
-**File:** `hosts/yggdrasil/default.nix` (alongside the other zone definitions)
+**File:** `hosts/thebeyond/default.nix` (alongside the other zone definitions)
 
 ```nix
 router6.zones.network = {
@@ -104,7 +104,7 @@ router6.zones.management = {
   forwardRules = {
     external = [
       { udp.dport = 53; verdict = "accept";
-        comment = "DNS recursive queries (Unbound on alfheim)"; }
+        comment = "DNS recursive queries (Unbound on phantasma)"; }
       { tcp.dport = 53; verdict = "accept";
         comment = "DNS recursive queries (TCP fallback)"; }
       { tcp.dport = 80; verdict = "accept";
@@ -128,7 +128,7 @@ the rules declarative (only what's allowed, not what's denied).
 
 ### 1.3 Add vINFRA VLAN
 
-**File:** `hosts/yggdrasil/default.nix` — inside `router6.topology.br0.vlans`
+**File:** `hosts/thebeyond/default.nix` — inside `router6.topology.br0.vlans`
 
 ```nix
 # Infrastructure network - NAS, VM hosts, DNS
@@ -147,7 +147,7 @@ the rules declarative (only what's allowed, not what's denied).
 
 ### 1.4 Change vMGMT zone
 
-**File:** `hosts/yggdrasil/default.nix` — existing vMGMT definition
+**File:** `hosts/thebeyond/default.nix` — existing vMGMT definition
 
 ```nix
 "vMGMT.br0" = {
@@ -164,11 +164,11 @@ the rules declarative (only what's allowed, not what's denied).
 
 Update the comment from "Management network - trusted devices and infrastructure" to "Network gear - APs and managed switch". Also disable DHCP on vMGMT since APs/switches have static IPs.
 
-### 1.5 Update alfheim MicroVM bridge
+### 1.5 Update phantasma MicroVM bridge
 
-**File:** `hosts/yggdrasil/default.nix` — systemd.network for MicroVM tap
+**File:** `hosts/thebeyond/default.nix` — systemd.network for MicroVM tap
 
-Rename alfheim's tap to `vm-11-alfheim` and add a new bridge rule:
+Rename phantasma's tap to `vm-11-phantasma` and add a new bridge rule:
 ```nix
 systemd.network.networks."10-vm-infra" = {
   matchConfig.Name = "vm-11-*";
@@ -181,11 +181,11 @@ systemd.network.networks."10-vm-infra" = {
 };
 ```
 
-And in alfheim's microvm.nix:
+And in phantasma's microvm.nix:
 ```nix
 microvm.interfaces = [{
   type = "tap";
-  id = "vm-11-alfheim";
+  id = "vm-11-phantasma";
   mac = "5E:11:AD:01:00:02";
 }];
 ```
@@ -194,7 +194,7 @@ Remove the old `vm-10-*` bridge rule since no MicroVMs remain on vMGMT.
 
 ### 1.6 Update DNS configuration
 
-**File:** `hosts/yggdrasil/default.nix`
+**File:** `hosts/thebeyond/default.nix`
 
 ```nix
 dns = {
@@ -206,9 +206,9 @@ dns = {
 
 ### 1.7 Update DNS interception rules
 
-**File:** `hosts/yggdrasil/default.nix` — `firewall.extraNatRules`
+**File:** `hosts/thebeyond/default.nix` — `firewall.extraNatRules`
 
-Update alfheim's IP in DNS interception exclusions (IPv4):
+Update phantasma's IP in DNS interception exclusions (IPv4):
 ```nix
 # IPv4 DNS interception (in table ip nat)
 {
@@ -252,24 +252,24 @@ a new `firewall.extraNat6Rules` option or populate the chain directly. The nft D
 a small extension to support `ip6.saddr`/`ip6.daddr` if not already present.
 
 kresd binds to all internal interfaces, so any of the router's IPs works as the DNAT target.
-The main thing is updating the exclusion IPs so alfheim's traffic isn't redirected.
+The main thing is updating the exclusion IPs so phantasma's traffic isn't redirected.
 
 ### 1.8 Update `/etc/hosts`
 
-**File:** `hosts/yggdrasil/default.nix`
+**File:** `hosts/thebeyond/default.nix`
 
 ```nix
 networking.extraHosts = ''
-  10.0.11.1 yggdrasil
-  10.0.11.1 yggdrasil.local
-  fdc6:55f2:0a5e:b::1 yggdrasil yggdrasil.local
-  10.0.11.2 alfheim
-  10.0.11.2 alfheim.local
-  fdc6:55f2:0a5e:b::2 alfheim alfheim.local
+  10.0.11.1 thebeyond
+  10.0.11.1 thebeyond.local
+  fdc6:55f2:0a5e:b::1 thebeyond thebeyond.local
+  10.0.11.2 phantasma
+  10.0.11.2 phantasma.local
+  fdc6:55f2:0a5e:b::2 phantasma phantasma.local
   10.0.20.30 gridr.local
-  10.0.100.40 surtr.local
-  10.0.100.50 bragi.local
-  10.0.100.51 njord.local
+  10.0.100.40 ordis.local
+  10.0.100.50 heimdallr.local
+  10.0.100.51 trista.local
 '';
 ```
 
@@ -284,20 +284,20 @@ Add test cases to `router6-firewall-zones.nix`:
 
 ## Phase 2: Infrastructure Host Changes
 
-### 2.1 alfheim (DNS MicroVM on yggdrasil)
+### 2.1 phantasma (DNS MicroVM on thebeyond)
 
-**File:** `hosts/yggdrasil/guests/alfheim/microvm.nix`
+**File:** `hosts/thebeyond/guests/phantasma/microvm.nix`
 
 Change tap interface name and MAC:
 ```nix
 microvm.interfaces = [{
   type = "tap";
-  id = "vm-11-alfheim";
+  id = "vm-11-phantasma";
   mac = "5E:11:AD:01:00:02";
 }];
 ```
 
-**File:** `hosts/yggdrasil/guests/alfheim/default.nix`
+**File:** `hosts/thebeyond/guests/phantasma/default.nix`
 
 Update network configuration — assign static IPv6 alongside IPv4:
 ```nix
@@ -318,22 +318,22 @@ systemd.network.networks."20-tap" = {
 Update `/etc/hosts`:
 ```nix
 networking.extraHosts = ''
-  10.0.11.1 yggdrasil.local
-  fdc6:55f2:0a5e:b::1 yggdrasil.local
+  10.0.11.1 thebeyond.local
+  fdc6:55f2:0a5e:b::1 thebeyond.local
   10.0.20.30 gridr.local
-  10.0.100.40 surtr.local
+  10.0.100.40 ordis.local
 '';
 ```
 
-**File:** `hosts/yggdrasil/guests/alfheim/modules/dns.nix` — **critical, DNS breaks if missed**
+**File:** `hosts/thebeyond/guests/phantasma/modules/dns.nix` — **critical, DNS breaks if missed**
 
 Update Adguard Home `allowed_clients` (add IPv6 addresses):
 ```nix
 allowed_clients = [
   "127.0.0.1"
   "::1"
-  "10.0.11.1"              # Yggdrasil (router) — changed from 10.0.10.1
-  "fdc6:55f2:0a5e:b::1"   # Yggdrasil (router) IPv6
+  "10.0.11.1"              # Thebeyond (router) — changed from 10.0.10.1
+  "fdc6:55f2:0a5e:b::1"   # Thebeyond (router) IPv6
   "10.0.11.2"              # Self — changed from 10.0.10.2
   "fdc6:55f2:0a5e:b::2"   # Self IPv6
   "10.97.10.1"             # Router migration network
@@ -348,40 +348,40 @@ local-data = [
   # Router
   ''"local. A 10.0.11.1"''
   ''"local. AAAA fdc6:55f2:0a5e:b::1"''
-  ''"yggdrasil.local. A 10.0.11.1"''
-  ''"yggdrasil.local. AAAA fdc6:55f2:0a5e:b::1"''
+  ''"thebeyond.local. A 10.0.11.1"''
+  ''"thebeyond.local. AAAA fdc6:55f2:0a5e:b::1"''
 
   # This microVM (DNS)
-  ''"alfheim.local. A 10.0.11.2"''
-  ''"alfheim.local. AAAA fdc6:55f2:0a5e:b::2"''
+  ''"phantasma.local. A 10.0.11.2"''
+  ''"phantasma.local. AAAA fdc6:55f2:0a5e:b::2"''
 
-  # Auth server (Gridr on jotunheimr)
+  # Auth server (Gridr on remiferia)
   ''"gridr.local. A 10.0.20.30"''
 
   # NAS
-  ''"jotunheimr.local. A 10.0.11.20"''
-  ''"jotunheimr.local. AAAA fdc6:55f2:0a5e:b::14"''
+  ''"remiferia.local. A 10.0.11.20"''
+  ''"remiferia.local. AAAA fdc6:55f2:0a5e:b::14"''
 
   # Media host
-  ''"muspelheim.local. A 10.0.11.31"''
-  ''"muspelheim.local. AAAA fdc6:55f2:0a5e:b::1f"''
+  ''"erebonia.local. A 10.0.11.31"''
+  ''"erebonia.local. AAAA fdc6:55f2:0a5e:b::1f"''
 
   # Services in DMZ
-  ''"surtr.local. A 10.0.100.40"''
-  ''"bragi.local. A 10.0.100.50"''
-  ''"njord.local. A 10.0.100.51"''
-  ''"hrungnir.local. A 10.0.100.31"''
+  ''"ordis.local. A 10.0.100.40"''
+  ''"heimdallr.local. A 10.0.100.50"''
+  ''"trista.local. A 10.0.100.51"''
+  ''"ardent.local. A 10.0.100.31"''
 
   # Home automation
-  ''"nidavellir.local. A 10.1.20.50"''
+  ''"azoth.local. A 10.1.20.50"''
 
   # MicroVMs on HOME network
-  ''"skadi.local. A 10.0.20.40"''
+  ''"denai.local. A 10.0.20.40"''
   ''"ymir.local. A 10.0.20.41"''
 
   # VM host
-  ''"vanaheim.local. A 10.0.11.30"''
-  ''"vanaheim.local. AAAA fdc6:55f2:0a5e:b::1e"''
+  ''"calvard.local. A 10.0.11.30"''
+  ''"calvard.local. AAAA fdc6:55f2:0a5e:b::1e"''
 ];
 ```
 
@@ -390,9 +390,9 @@ Note: AAAA records are only added for vINFRA hosts with known static IPv6. Other
 suitable for static DNS records. AAAA records for those can be added later when they
 get static assignments.
 
-### 2.2 vanaheim (VM host)
+### 2.2 calvard (VM host)
 
-**File:** `hosts/vanaheim/default.nix` — initrd network (for ZFS remote unlock)
+**File:** `hosts/calvard/default.nix` — initrd network (for ZFS remote unlock)
 
 Change VLAN 10 to VLAN 11, add static IPv6:
 ```nix
@@ -417,22 +417,22 @@ boot.initrd.systemd.network = {
 };
 ```
 
-**File:** `hosts/vanaheim/microvm.nix` — runtime network
+**File:** `hosts/calvard/microvm.nix` — runtime network
 
 Same pattern: change `.10` to `.11`, add static IPv6 `fdc6:55f2:0a5e:b::1e/64`,
 disable SLAAC (`IPv6AcceptRA = false`), add IPv6 gateway.
 
-### 2.3 muspelheim (VM host)
+### 2.3 erebonia (VM host)
 
-**File:** `hosts/muspelheim/default.nix`
+**File:** `hosts/erebonia/default.nix`
 
-Same pattern as vanaheim: `eno1.10` → `eno1.11`, address `10.0.10.31/24` → `10.0.11.31/24`,
+Same pattern as calvard: `eno1.10` → `eno1.11`, address `10.0.10.31/24` → `10.0.11.31/24`,
 add static IPv6 `fdc6:55f2:0a5e:b::1f/64`, gateway/DNS `10.0.10.1` → `10.0.11.1` +
 `fdc6:55f2:0a5e:b::1`, NFS mounts `10.0.10.32` → `10.0.11.20`, disable SLAAC.
 
-### 2.4 jotunheimr (NAS)
+### 2.4 remiferia (NAS)
 
-**File:** `hosts/jotunheimr/default.nix`
+**File:** `hosts/remiferia/default.nix`
 
 Change VLAN 10 to VLAN 11, update IP from `.32` to `.20` (reflects boot order — NAS
 available before VM hosts at `.30`/`.31`), add static IPv6 `fdc6:55f2:0a5e:b::14/64`,
@@ -444,7 +444,7 @@ update addresses/gateway/DNS to 10.0.11.x + `fdc6:55f2:0a5e:b::1`, disable SLAAC
 
 ### 3.1 Tighten NFS exports
 
-**File:** `hosts/jotunheimr/nas.nix`
+**File:** `hosts/remiferia/nas.nix`
 
 Change subnet-wide exports to per-IP exports for VM hosts. Include both IPv4 and IPv6
 addresses so NFS works over either protocol:
@@ -466,7 +466,7 @@ services.nfs.server = {
 
 ### 3.2 Update NFS mount targets
 
-**File:** `hosts/muspelheim/default.nix`
+**File:** `hosts/erebonia/default.nix`
 
 Use IPv6 addresses for NFS mounts (IPv6-first), with IPv4 as fallback:
 ```nix
@@ -478,7 +478,7 @@ fileSystems."/mnt/media".device = "[fdc6:55f2:0a5e:b::14]:/data/media/";
 
 ## Phase 4: Host-Based Firewalls
 
-### 4.1 jotunheimr (NAS)
+### 4.1 remiferia (NAS)
 
 Replace blanket open ports with source-restricted nftables rules. NixOS 23.11+ defaults to
 nftables, so we use `networking.firewall.extraInputRules` (nftables syntax). All rules
@@ -510,7 +510,7 @@ networking.firewall = {
 };
 ```
 
-### 4.2 vanaheim / muspelheim (VM hosts)
+### 4.2 calvard / erebonia (VM hosts)
 
 SSH only from router and admin workstation (dual-stack):
 ```nix
@@ -560,7 +560,7 @@ networking.nftables.tables.egress = {
 ```
 
 Each vDMZ host gets a minimal allowlist. Per-host policies are defined in the
-Keycloak OIDC plan (surtr, SSH bastion) and Headscale plan (headscale, fenrir).
+Keycloak OIDC plan (ordis, SSH bastion) and Headscale plan (headscale, fenrir).
 The general principle: a vDMZ host should only be able to initiate connections to
 the services it directly depends on, plus DNS. No blanket internet, no intra-zone
 free-for-all.
@@ -591,7 +591,7 @@ ntp = {
 };
 ```
 
-Add chrony/NTP server to yggdrasil:
+Add chrony/NTP server to thebeyond:
 ```nix
 services.chrony = {
   enable = true;
@@ -634,7 +634,7 @@ flowchart LR
     Admin["Admin workstation\n(vHOME, 10.0.20.X)"]
 
     Admin -- "Direct SSH\n(trusted → management)" --> Infra["vINFRA devices\nHost FW accepts 10.0.20.X"]
-    Admin -- "Direct SSH\nto 10.0.20.1" --> Router["yggdrasil\n(router)"]
+    Admin -- "Direct SSH\nto 10.0.20.1" --> Router["thebeyond\n(router)"]
     Router -- "ProxyJump SSH\nto 10.0.10.X" --> NetGear["APs / Switch\n(vMGMT)"]
 
     style NetGear stroke-dasharray: 5 5
@@ -714,35 +714,35 @@ in {
 
   hosts = {
     # Management (VLAN 11) — ordered by boot dependency
-    yggdrasil  = mkHost "management" 1;
-    alfheim    = mkHost "management" 2;
-    jotunheimr = mkHost "management" 20;   # NAS — before VM hosts
-    vanaheim   = mkHost "management" 30;   # VM host
-    muspelheim = mkHost "management" 31;   # VM host
+    thebeyond  = mkHost "management" 1;
+    phantasma    = mkHost "management" 2;
+    remiferia = mkHost "management" 20;   # NAS — before VM hosts
+    calvard   = mkHost "management" 30;   # VM host
+    erebonia = mkHost "management" 31;   # VM host
 
     # Trusted (VLAN 20)
     gridr = mkHost "trusted" 30;
-    skadi = mkHost "trusted" 40;
+    denai = mkHost "trusted" 40;
     ymir  = mkHost "trusted" 41;
 
     # DMZ (VLAN 100)
-    hrungnir = mkHost "dmz" 31;
-    surtr    = mkHost "dmz" 40;
-    bragi    = mkHost "dmz" 50;
-    njord    = mkHost "dmz" 51;
+    ardent = mkHost "dmz" 31;
+    ordis    = mkHost "dmz" 40;
+    heimdallr    = mkHost "dmz" 50;
+    trista    = mkHost "dmz" 51;
 
     # ADU (VLAN 31)
     gumba = mkHost "adu" 20;
 
     # Mesh hosts (10.1.x.x — separate prefix, not yet migrated)
-    # gumby, pokey, prickle, goo, gumbo, nidavellir — keep in JSON or add later
+    # gumby, pokey, prickle, goo, gumbo, azoth — keep in JSON or add later
   };
 }
 ```
 
 This gives every consumer exactly what it needs:
-- **Programmatic lookup:** `network.hosts.alfheim.ipv4` → `"10.97.11.2"`
-- **Router zone data:** `network.hosts.alfheim.zoneName` → `"management"`,
+- **Programmatic lookup:** `network.hosts.phantasma.ipv4` → `"10.97.11.2"`
+- **Router zone data:** `network.hosts.phantasma.zoneName` → `"management"`,
   `.hostId` → `2` — the router can use these to construct topology
 - **Dual-stack:** `.ipv4`, `.ipv6`, `.cidr4`, `.cidr6` all derived automatically
 - **Subnets:** `.subnet4`, `.subnet6` for NFS exports and firewall rules
@@ -784,7 +784,7 @@ nix eval .#lib.common.data.network.summary --raw
 
 Single-host lookups also work:
 ```bash
-nix eval .#lib.common.data.network.hosts.alfheim.ipv4 --raw
+nix eval .#lib.common.data.network.hosts.phantasma.ipv4 --raw
 # 10.97.11.2
 ```
 
@@ -805,7 +805,7 @@ let
     if [ $# -eq 0 ]; then
       nix eval "$FLAKE_ROOT#lib.common.data.network.summary" --raw
     else
-      # Look up a specific host: nix run .#netinfo -- alfheim
+      # Look up a specific host: nix run .#netinfo -- phantasma
       HOST="$1"
       echo "IPv4: $(nix eval "$FLAKE_ROOT#lib.common.data.network.hosts.$HOST.ipv4" --raw)"
       echo "IPv6: $(nix eval "$FLAKE_ROOT#lib.common.data.network.hosts.$HOST.ipv6" --raw)"
@@ -836,7 +836,7 @@ Usage:
 nix run .#netinfo
 
 # Single host
-nix run .#netinfo -- alfheim
+nix run .#netinfo -- phantasma
 #   IPv4: 10.97.11.2
 #   IPv6: fdc6:55f2:0a5e:b::2
 #   Zone: infrastructure
@@ -888,12 +888,12 @@ git diff --exit-code docs/network-hosts.md || \
 
 ### 7.3 Consuming the registry programmatically
 
-**In host configs** (e.g. `hosts/jotunheimr/default.nix`):
+**In host configs** (e.g. `hosts/remiferia/default.nix`):
 ```nix
 let
   net = pkgs.mmell.lib.data.network;
-  self = net.hosts.jotunheimr;
-  router = net.hosts.yggdrasil;
+  self = net.hosts.remiferia;
+  router = net.hosts.thebeyond;
 in {
   # systemd-networkd
   networkConfig.Address = [ self.cidr4 self.cidr6 ];
@@ -902,21 +902,21 @@ in {
 }
 ```
 
-**In NFS exports** (`hosts/jotunheimr/nas.nix`):
+**In NFS exports** (`hosts/remiferia/nas.nix`):
 ```nix
 let
   net = pkgs.mmell.lib.data.network;
-  vanaheim = net.hosts.vanaheim;
-  muspelheim = net.hosts.muspelheim;
+  calvard = net.hosts.calvard;
+  erebonia = net.hosts.erebonia;
   nfsOpts = "(rw,sync,no_subtree_check,no_root_squash)";
 in {
   exports = ''
-    /data/media ${vanaheim.ipv4}${nfsOpts} ${vanaheim.ipv6}${nfsOpts} ${muspelheim.ipv4}${nfsOpts} ${muspelheim.ipv6}${nfsOpts}
+    /data/media ${calvard.ipv4}${nfsOpts} ${calvard.ipv6}${nfsOpts} ${erebonia.ipv4}${nfsOpts} ${erebonia.ipv6}${nfsOpts}
   '';
 }
 ```
 
-**In DNS records** (`alfheim/modules/dns.nix`):
+**In DNS records** (`phantasma/modules/dns.nix`):
 ```nix
 let
   net = pkgs.mmell.lib.data.network;
@@ -932,7 +932,7 @@ in {
 ```nix
 let
   net = pkgs.mmell.lib.data.network;
-  vmHosts = with net.hosts; [ vanaheim muspelheim ];
+  vmHosts = with net.hosts; [ calvard erebonia ];
   vmIpv4 = lib.concatMapStringsSep ", " (h: h.ipv4) vmHosts;
   vmIpv6 = lib.concatMapStringsSep ", " (h: h.ipv6) vmHosts;
 in ''
@@ -968,8 +968,8 @@ registry. This can be done file-by-file alongside the other changes in this plan
 ### 7.6 Search for remaining `10.0.10.` references
 
 Grep the codebase for `10.0.10.` to find remaining references:
-- MicroVM guest configs referencing jotunheimr's NAS IP
-- DNS configuration in alfheim's modules
+- MicroVM guest configs referencing remiferia's NAS IP
+- DNS configuration in phantasma's modules
 - Prometheus/monitoring targets
 - Any scripts or deployment tools
 
@@ -990,11 +990,11 @@ the IPv4 last octet in hex:
 
 | Host | IPv4 | IPv6 |
 |------|------|------|
-| yggdrasil | 10.0.11.1 | `fdc6:55f2:0a5e:b::1` |
-| alfheim | 10.0.11.2 | `fdc6:55f2:0a5e:b::2` |
-| vanaheim | 10.0.11.30 | `fdc6:55f2:0a5e:b::1e` |
-| muspelheim | 10.0.11.31 | `fdc6:55f2:0a5e:b::1f` |
-| jotunheimr | 10.0.11.20 | `fdc6:55f2:0a5e:b::14` |
+| thebeyond | 10.0.11.1 | `fdc6:55f2:0a5e:b::1` |
+| phantasma | 10.0.11.2 | `fdc6:55f2:0a5e:b::2` |
+| calvard | 10.0.11.30 | `fdc6:55f2:0a5e:b::1e` |
+| erebonia | 10.0.11.31 | `fdc6:55f2:0a5e:b::1f` |
+| remiferia | 10.0.11.20 | `fdc6:55f2:0a5e:b::14` |
 
 Previously these hosts used SLAAC with privacy extensions (`IPv6PrivacyExtensions = "kernel"`),
 producing unstable addresses. Switching to static IPv6 with `IPv6AcceptRA = false` gives
@@ -1010,7 +1010,7 @@ IPv6 addresses are included in:
 - **Host firewalls** (dual-stack `ip saddr` + `ip6 saddr` rules)
 - **AP firewalls** (IPv6 SSH allow from router)
 - **Adguard Home** (IPv6 `allowed_clients`)
-- **extraHosts** (IPv6 entries on router and alfheim)
+- **extraHosts** (IPv6 entries on router and phantasma)
 - **network.json** (IPv6 field added)
 
 ### Zone-level firewall
@@ -1031,16 +1031,16 @@ continue to use SLAAC as before.
 
 | File | Phase | Changes |
 |------|-------|---------|
-| `hosts/yggdrasil/default.nix` | 1 | Add vINFRA VLAN, define `network` zone, override `management` zone with `forwardRules`, change vMGMT zone to "network", update DNS config, update DNS interception, update extraHosts, update MicroVM bridge rules, add NTP server |
+| `hosts/thebeyond/default.nix` | 1 | Add vINFRA VLAN, define `network` zone, override `management` zone with `forwardRules`, change vMGMT zone to "network", update DNS config, update DNS interception, update extraHosts, update MicroVM bridge rules, add NTP server |
 | `tests/modules/router6-firewall-zones.nix` | 1 | New `network` zone test cases |
-| `hosts/yggdrasil/guests/alfheim/microvm.nix` | 2 | Change tap interface name and MAC |
-| `hosts/yggdrasil/guests/alfheim/default.nix` | 2 | Update IP, gateway, MAC, extraHosts |
-| `hosts/yggdrasil/guests/alfheim/modules/dns.nix` | 2 | Update allowed_clients IPs, Unbound local-data records (7 IPs) |
-| `hosts/vanaheim/default.nix` | 2 | Change VLAN 10→11 in initrd network, update IP/gateway/DNS |
-| `hosts/vanaheim/microvm.nix` | 2 | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall |
-| `hosts/muspelheim/default.nix` | 2, 3 | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall |
-| `hosts/jotunheimr/default.nix` | 2 | Change VLAN 10→11, renumber `.32`→`.20` (boot-order), update IP/gateway/DNS, add host firewall |
-| `hosts/jotunheimr/nas.nix` | 3 | Tighten NFS exports to per-IP, update subnet references |
+| `hosts/thebeyond/guests/phantasma/microvm.nix` | 2 | Change tap interface name and MAC |
+| `hosts/thebeyond/guests/phantasma/default.nix` | 2 | Update IP, gateway, MAC, extraHosts |
+| `hosts/thebeyond/guests/phantasma/modules/dns.nix` | 2 | Update allowed_clients IPs, Unbound local-data records (7 IPs) |
+| `hosts/calvard/default.nix` | 2 | Change VLAN 10→11 in initrd network, update IP/gateway/DNS |
+| `hosts/calvard/microvm.nix` | 2 | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall |
+| `hosts/erebonia/default.nix` | 2, 3 | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall |
+| `hosts/remiferia/default.nix` | 2 | Change VLAN 10→11, renumber `.32`→`.20` (boot-order), update IP/gateway/DNS, add host firewall |
+| `hosts/remiferia/nas.nix` | 3 | Tighten NFS exports to per-IP, update subnet references |
 | `lib/common/data/network.nix` | 7 | Replace `network.json` with Nix registry (zone+hostId → derived addresses) |
 | `lib/common/data/default.nix` | 7 | Load `network.nix` instead of `network.json` |
 | `modules/common/networking.nix` | 7 | Consume new registry format (interface unchanged) |
@@ -1058,7 +1058,7 @@ services via WireGuard from networks that also use `10.0.x.x`. The target range
 `10.97.0.0/16` is far less common and avoids these collisions.
 
 The migration has already partially started:
-- alfheim already has `10.97.10.2/24` as a secondary address
+- phantasma already has `10.97.10.2/24` as a secondary address
 - Adguard's `allowed_clients` includes `10.97.10.1` and `10.97.10.2`
 - gridr's auth config already includes `10.97.0.0/16` in its allowed IP list
 
@@ -1083,7 +1083,7 @@ home networks. They can be migrated later if needed.
 
 ### 8.1 Dual addresses on router VLANs
 
-**File:** `hosts/yggdrasil/default.nix` — every VLAN in topology gets a secondary address
+**File:** `hosts/thebeyond/default.nix` — every VLAN in topology gets a secondary address
 
 For each VLAN, add the `10.97.x.x` address alongside the `10.0.x.x` address:
 ```nix
@@ -1109,7 +1109,7 @@ via a second Kea subnet or by migrating the pool range.
 
 ### 8.2 Dual addresses on infra hosts
 
-Each infra host's systemd-networkd config gets a secondary address. Example for vanaheim:
+Each infra host's systemd-networkd config gets a secondary address. Example for calvard:
 ```nix
 networkConfig.Address = [
   "10.0.11.30/24" "10.97.11.30/24"
@@ -1121,12 +1121,12 @@ All infra hosts:
 
 | Host | Primary | Secondary | IPv6 |
 |------|---------|-----------|------|
-| alfheim | 10.0.11.2/24 | 10.97.11.2/24 | fdc6:55f2:0a5e:b::2/64 |
-| vanaheim | 10.0.11.30/24 | 10.97.11.30/24 | fdc6:55f2:0a5e:b::1e/64 |
-| muspelheim | 10.0.11.31/24 | 10.97.11.31/24 | fdc6:55f2:0a5e:b::1f/64 |
-| jotunheimr | 10.0.11.20/24 | 10.97.11.20/24 | fdc6:55f2:0a5e:b::14/64 |
+| phantasma | 10.0.11.2/24 | 10.97.11.2/24 | fdc6:55f2:0a5e:b::2/64 |
+| calvard | 10.0.11.30/24 | 10.97.11.30/24 | fdc6:55f2:0a5e:b::1e/64 |
+| erebonia | 10.0.11.31/24 | 10.97.11.31/24 | fdc6:55f2:0a5e:b::1f/64 |
+| remiferia | 10.0.11.20/24 | 10.97.11.20/24 | fdc6:55f2:0a5e:b::14/64 |
 
-Alfheim already has dual addresses (`10.0.10.2/24` + `10.97.10.2/24`), so just update
+Phantasma already has dual addresses (`10.0.10.2/24` + `10.97.10.2/24`), so just update
 the octets for the VLAN 11 move.
 
 ### 8.3 Dual addresses on guest VMs (non-infra)
@@ -1136,24 +1136,24 @@ Guest VMs on other VLANs also need dual addresses if they have static IPs:
 | Guest | VLAN | Primary | Secondary |
 |-------|------|---------|-----------|
 | gridr | vHOME (20) | 10.0.20.30/24 | 10.97.20.30/24 |
-| skadi | vHOME (20) | 10.0.20.40/24 | 10.97.20.40/24 |
+| denai | vHOME (20) | 10.0.20.40/24 | 10.97.20.40/24 |
 | ymir | vHOME (20) | 10.0.20.41/24 | 10.97.20.41/24 |
-| surtr | vDMZ (100) | 10.0.100.40/24 | 10.97.100.40/24 |
-| bragi | vDMZ (100) | 10.0.100.50/24 | 10.97.100.50/24 |
-| njord | vDMZ (100) | 10.0.100.51/24 | 10.97.100.51/24 |
-| hrungnir | vDMZ (100) | 10.0.100.31/24 | 10.97.100.31/24 |
+| ordis | vDMZ (100) | 10.0.100.40/24 | 10.97.100.40/24 |
+| heimdallr | vDMZ (100) | 10.0.100.50/24 | 10.97.100.50/24 |
+| trista | vDMZ (100) | 10.0.100.51/24 | 10.97.100.51/24 |
+| ardent | vDMZ (100) | 10.0.100.31/24 | 10.97.100.31/24 |
 
 ### 8.4 DNS dual records
 
-**File:** `hosts/yggdrasil/guests/alfheim/modules/dns.nix`
+**File:** `hosts/thebeyond/guests/phantasma/modules/dns.nix`
 
 Add A records for both ranges in Unbound's `local-data`. Clients resolving `.local`
 names will get both IPs and prefer whichever route works:
 ```nix
 # Each host gets two A records
-''"yggdrasil.local. A 10.0.11.1"''
-''"yggdrasil.local. A 10.97.11.1"''
-''"yggdrasil.local. AAAA fdc6:55f2:0a5e:b::1"''
+''"thebeyond.local. A 10.0.11.1"''
+''"thebeyond.local. A 10.97.11.1"''
+''"thebeyond.local. AAAA fdc6:55f2:0a5e:b::1"''
 # ... same pattern for all hosts
 ```
 
@@ -1169,9 +1169,9 @@ allowed_clients = [
 
 ### 8.5 DNS interception dual rules
 
-**File:** `hosts/yggdrasil/default.nix` — `firewall.extraNatRules`
+**File:** `hosts/thebeyond/default.nix` — `firewall.extraNatRules`
 
-DNS interception exclusions need to cover both alfheim addresses:
+DNS interception exclusions need to cover both phantasma addresses:
 ```nix
 {
   ip.saddr = { not = [ "10.0.11.2" "10.97.11.2" ]; };
@@ -1184,7 +1184,7 @@ DNS interception exclusions need to cover both alfheim addresses:
 
 ### 8.6 NFS exports dual ranges
 
-**File:** `hosts/jotunheimr/nas.nix`
+**File:** `hosts/remiferia/nas.nix`
 
 NFS exports need both subnets (NFS matches source IP, so both ranges must be listed):
 ```nix
@@ -1211,22 +1211,22 @@ extraInputRules = ''
 
 ### 8.8 extraHosts dual entries
 
-**File:** `hosts/yggdrasil/default.nix`
+**File:** `hosts/thebeyond/default.nix`
 ```nix
 networking.extraHosts = ''
-  10.0.11.1 yggdrasil yggdrasil.local
-  10.97.11.1 yggdrasil yggdrasil.local
-  fdc6:55f2:0a5e:b::1 yggdrasil yggdrasil.local
-  10.0.11.2 alfheim alfheim.local
-  10.97.11.2 alfheim alfheim.local
-  fdc6:55f2:0a5e:b::2 alfheim alfheim.local
+  10.0.11.1 thebeyond thebeyond.local
+  10.97.11.1 thebeyond thebeyond.local
+  fdc6:55f2:0a5e:b::1 thebeyond thebeyond.local
+  10.0.11.2 phantasma phantasma.local
+  10.97.11.2 phantasma phantasma.local
+  fdc6:55f2:0a5e:b::2 phantasma phantasma.local
   ...
 '';
 ```
 
 ### 8.9 WireGuard peer AllowedIPs
 
-**File:** `hosts/yggdrasil/default.nix` — wg-vpn peers
+**File:** `hosts/thebeyond/default.nix` — wg-vpn peers
 
 The WireGuard VPN peers need to route both ranges to the tunnel. Update the
 WireGuard peer configs on client devices to include `10.97.0.0/16` in AllowedIPs
@@ -1265,7 +1265,7 @@ If still using `network.json` at this point, add both addresses manually:
 ```json
 {
   "hosts": {
-    "alfheim": { "ipv4": "10.97.11.2", "ipv4_legacy": "10.0.11.2", "ipv6": "fdc6:55f2:0a5e:b::2" },
+    "phantasma": { "ipv4": "10.97.11.2", "ipv4_legacy": "10.0.11.2", "ipv6": "fdc6:55f2:0a5e:b::2" },
     ...
   }
 }
@@ -1278,7 +1278,7 @@ If still using `network.json` at this point, add both addresses manually:
 Once all clients and services are confirmed working on `10.97.x.x`, remove the legacy
 `10.0.x.x` addresses. This is a mechanical cleanup:
 
-### Router (yggdrasil)
+### Router (thebeyond)
 - [ ] Remove `10.0.x.1/24` secondary addresses from all VLAN topology entries
 - [ ] Remove `10.0.x.x` entries from `networking.extraHosts`
 - [ ] Remove `10.0.x.x` exclusions from DNS interception rules (`extraNatRules`)
@@ -1286,20 +1286,20 @@ Once all clients and services are confirmed working on `10.97.x.x`, remove the l
 - [ ] Update `dns.upstream` to `10.97.11.2` only
 - [ ] Remove `10.0.x.x` from chrony `allow` directives
 
-### DNS (alfheim)
+### DNS (phantasma)
 - [ ] Remove `10.0.x.x` A records from Unbound `local-data` (keep only `10.97.x.x` + AAAA)
 - [ ] Remove `10.0.x.x` entries from Adguard `allowed_clients`
 - [ ] Remove `10.0.x.x` from `networking.extraHosts`
-- [ ] Remove `10.0.11.2/24` from alfheim's interface `Address` list
+- [ ] Remove `10.0.11.2/24` from phantasma's interface `Address` list
 - [ ] Remove legacy migration entries (`10.97.10.1`, `10.97.10.2`) once VLAN 10→11 move is done
 
-### Infra hosts (vanaheim, muspelheim, jotunheimr)
+### Infra hosts (calvard, erebonia, remiferia)
 - [ ] Remove `10.0.x.x/24` from each host's `Address` list
 - [ ] Update `Gateway` to `10.97.x.1` only
 - [ ] Update `DNS` to `10.97.x.1` only
-- [ ] Update NFS mount targets to `10.97.x.x` only (muspelheim)
+- [ ] Update NFS mount targets to `10.97.x.x` only (erebonia)
 
-### NAS (jotunheimr)
+### NAS (remiferia)
 - [ ] Remove `10.0.x.x` entries from NFS exports (keep `10.97.x.x` + IPv6)
 - [ ] Remove `10.0.x.x` from host firewall `ip saddr` rules
 

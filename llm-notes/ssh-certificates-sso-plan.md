@@ -105,7 +105,7 @@ sequenceDiagram
     Keycloak-->>step-ca: OIDC token
     step-ca-->>Admin: Signed SSH certificate<br/>(principal: "admin", validity: 12h,<br/>extensions: permit-pty, permit-agent-forwarding)
     Note over Admin: Cert written to<br/>~/.ssh/id_ed25519-cert.pub
-    Admin->>sshd: ssh root@yggdrasil.local
+    Admin->>sshd: ssh root@thebeyond.local
     sshd->>sshd: Verify cert against TrustedUserCAKeys<br/>Check "admin" principal is in /etc/ssh/auth_principals/root
     sshd-->>Admin: Root access granted
 ```
@@ -396,8 +396,8 @@ This means:
 - Expose on internal DNS: `auth.home.local`
 
 ### Phase 2: Deploy step-ca as a vINFRA microvm
-- Provision a dedicated microvm on an existing NixOS host (e.g. vanaheim or
-  muspelheim), on the vINFRA network
+- Provision a dedicated microvm on an existing NixOS host (e.g. calvard or
+  erebonia), on the vINFRA network
 - Generate SSH CA keypair (user CA + host CA — can be the same keypair or
   separate for least-privilege)
 - Configure OIDC provisioner pointing at Keycloak

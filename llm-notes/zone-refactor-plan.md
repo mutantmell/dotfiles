@@ -321,7 +321,7 @@ This also requires updating all host configs to use `zone = "..."` instead of `t
 The module has no built-in zone defaults (`default = {};`). An OpenWRT-style wan/lan example
 is provided on the option for documentation. Each host defines all its zones explicitly.
 
-Our network's zones are defined in `hosts/yggdrasil/default.nix` and reproduce the current
+Our network's zones are defined in `hosts/thebeyond/default.nix` and reproduce the current
 hardcoded behavior:
 
 ```nix
@@ -782,6 +782,6 @@ The existing test configs (`router6-firewall.nix`, etc.) must also be updated.
 | `tests/modules/router6-firewall-zones.nix` | 0, 1.7 | New comprehensive multi-zone firewall test; forwardRules + multi-interface tests added in 1.7 |
 | `tests/lib/router6-firewall-snapshot.nix` | 0, 1.7 | New snapshot test for nftables output stability; icmpEcho variant + escape hatch + edge case tests in 1.7 |
 | `tests/default.nix` | 0 | Register new tests |
-| `hosts/yggdrasil/default.nix` | 1 | Define zone configs reproducing current trust behavior, change `trust` → `zone` on all interfaces |
+| `hosts/thebeyond/default.nix` | 1 | Define zone configs reproducing current trust behavior, change `trust` → `zone` on all interfaces |
 | All host configs with `trust =` | 1 | Mechanical rename `trust` → `zone` |
 | All test configs with `trust =` | 1 | Mechanical rename `trust` → `zone` |
