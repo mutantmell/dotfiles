@@ -232,12 +232,22 @@
       };
     };
 
+    # OpenWrt device declarations (pure data) and generated configs
+    openwrtDevices = import ./hosts/openwrt { inherit (nixpkgs) lib; };
+
+    openwrtConfigs = let
+      owrtData = import ./lib/common/data/openwrt.nix { inherit (nixpkgs) lib; };
+    in builtins.mapAttrs (_: device:
+      self.lib.openwrt.mkDeviceConfig { inherit device owrtData; }
+    ) self.openwrtDevices;
+
     # OpenWrt images (x86_64-linux only - imagebuilder limitation)
     openwrtImages = let
       pkgs = pkgsFor nixpkgs "x86_64-linux";
-      openwrt = self.lib.openwrt;
-      devices = import ./hosts/openwrt { inherit (nixpkgs) lib; inherit pkgs openwrt; };
-    in devices;
+      owrtData = import ./lib/common/data/openwrt.nix { inherit (nixpkgs) lib; };
+    in builtins.mapAttrs (_: device:
+      self.lib.openwrt.mkDeviceImage { inherit pkgs device owrtData; }
+    ) self.openwrtDevices;
 
     # Apps for OpenWrt management
     apps = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
