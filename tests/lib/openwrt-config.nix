@@ -72,6 +72,10 @@ let
   switchUCI = lib.concatStringsSep "\n" (openwrt.uci.renderConfigs switchConfig);
   simpleAPUCI = lib.concatStringsSep "\n" (openwrt.uci.renderConfigs simpleAPConfig);
 
+  # --- Test real device declarations load ---
+
+  realDevices = import ../../hosts/openwrt { inherit lib; };
+
   # --- Tests ---
 
   allTests = {
@@ -157,6 +161,22 @@ let
     "switchAP UCI sets hostname" = contains "set system.@system[0].hostname='test-switch'" switchUCI;
     "simpleAP UCI sets hostname" = contains "set system.@system[0].hostname='test-simple'" simpleAPUCI;
     "simpleAP UCI sets ssid" = contains "ssid='TestNetwork'" simpleAPUCI;
+
+    # Release version field
+    "owrtData has defaultRelease" = owrtData ? defaultRelease;
+    "defaultRelease is a string" = builtins.isString owrtData.defaultRelease;
+
+    # Real device declarations load correctly
+    "real devices has bobcat" = realDevices ? bobcat;
+    "real devices has arseille" = realDevices ? arseille;
+    "real devices has glorious" = realDevices ? glorious;
+    "real bobcat is meshAP" = realDevices.bobcat.type == "meshAP";
+    "real arseille is switch" = realDevices.arseille.type == "switch";
+    "real glorious is simpleAP" = realDevices.glorious.type == "simpleAP";
+    "real bobcat config generates" =
+      (openwrt.mkDeviceConfig { device = realDevices.bobcat; inherit owrtData; }) ? network;
+    "real derfflinger has IoT extraConfig" =
+      (openwrt.mkDeviceConfig { device = realDevices.derfflinger; inherit owrtData; }).network ? iot;
   };
 
   failures = lib.filterAttrs (_: v: !v) allTests;

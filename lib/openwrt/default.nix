@@ -573,9 +573,11 @@ let
     '';
 
   # Build an OpenWrt image with the given configuration
-  mkImage = { pkgs, profile, config, packages ? [], files ? null, extraImageConfig ? {} }:
+  mkImage = { pkgs, profile, config, packages ? [], files ? null, extraImageConfig ? {}, release ? null }:
     let
-      profiles = openwrt-imagebuilder.lib.profiles { inherit pkgs; };
+      profiles = openwrt-imagebuilder.lib.profiles (
+        { inherit pkgs; } // lib.optionalAttrs (release != null) { inherit release; }
+      );
 
       # Generate files from config if not provided
       generatedFiles = pkgs.runCommand "openwrt-config-files" {} ''
@@ -592,90 +594,6 @@ let
       } // extraImageConfig;
 
     in openwrt-imagebuilder.lib.build imageConfig;
-
-  # Build mesh AP image
-  mkMeshAPImage = {
-    pkgs,
-    profile,
-    hostname,
-    meshId,
-    meshKey ? null,
-    vlans ? {},
-    apNetworks ? {},
-    lanAddresses ? [],
-    mgmtAddresses ? [],
-    gateway ? null,
-    timezone ? "America/Los_Angeles",
-    authorizedKeys ? [],
-    country ? "US",
-    heBssColor ? null,
-    legacyRates ? false,
-    extraPackages ? [],
-    extraConfig ? {},
-    extraFiles ? null,
-  }:
-    let
-      config = mkMeshAPConfig {
-        inherit hostname meshId meshKey vlans apNetworks lanAddresses mgmtAddresses
-                gateway timezone authorizedKeys country heBssColor legacyRates extraConfig;
-      };
-    in mkImage {
-      inherit pkgs profile config;
-      packages = defaultMeshPackages ++ extraPackages;
-      files = mkConfigFiles { inherit pkgs hostname config authorizedKeys extraFiles; };
-    };
-
-  # Build switch image
-  mkSwitchImage = {
-    pkgs,
-    profile,
-    hostname,
-    lanAddresses,
-    gateway,
-    vlans ? {},
-    trunkPorts ? [ "lan1" "lan2" "lan3" "lan4" ],
-    accessPorts ? {},
-    timezone ? "UTC",
-    authorizedKeys ? [],
-    extraPackages ? [],
-    extraConfig ? {},
-    extraFiles ? null,
-  }:
-    let
-      config = mkSwitchConfig {
-        inherit hostname lanAddresses gateway vlans trunkPorts accessPorts timezone authorizedKeys extraConfig;
-      };
-    in mkImage {
-      inherit pkgs profile config;
-      packages = defaultSwitchPackages ++ extraPackages;
-      files = mkConfigFiles { inherit pkgs hostname config authorizedKeys extraFiles; };
-    };
-
-  # Build simple AP image
-  mkSimpleAPImage = {
-    pkgs,
-    profile,
-    hostname,
-    lanAddresses ? [],
-    gateway ? null,
-    ssid,
-    ssidKey ? null,
-    encryption ? "sae-mixed",
-    timezone ? "UTC",
-    authorizedKeys ? [],
-    extraPackages ? [],
-    extraConfig ? {},
-    extraFiles ? null,
-  }:
-    let
-      config = mkSimpleAPConfig {
-        inherit hostname lanAddresses gateway ssid ssidKey encryption timezone authorizedKeys extraConfig;
-      };
-    in mkImage {
-      inherit pkgs profile config;
-      packages = defaultSimpleAPPackages ++ extraPackages;
-      files = mkConfigFiles { inherit pkgs hostname config authorizedKeys extraFiles; };
-    };
 
   # Generate UCI config from a device declaration (pure data with a type field)
   # Dispatches to the appropriate mk*Config function based on device.type
@@ -727,6 +645,7 @@ let
     let
       config = mkDeviceConfig { inherit device owrtData; };
       inherit (device) hostname profile;
+      release = device.release or owrtData.defaultRelease or null;
       extraPackages = device.extraPackages or [];
       extraFiles = device.extraFiles or null;
       inherit (owrtData) authorizedKeys;
@@ -736,7 +655,7 @@ let
         else if device.type == "simpleAP" then defaultSimpleAPPackages ++ extraPackages
         else throw "mkDeviceImage: unknown device type '${device.type}'";
     in mkImage {
-      inherit pkgs profile config packages;
+      inherit pkgs profile config packages release;
       files = mkConfigFiles { inherit pkgs hostname config authorizedKeys extraFiles; };
     };
 
@@ -774,9 +693,6 @@ in {
     mkSimpleAPConfig
     mkConfigFiles
     mkImage
-    mkMeshAPImage
-    mkSwitchImage
-    mkSimpleAPImage
     mkDeviceConfig
     mkDeviceImage;
 }
