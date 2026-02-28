@@ -31,11 +31,11 @@ let
   ];
 
   # Minimal packages required for batman-adv mesh AP
+  # Note: 802.1Q VLAN support is built into the kernel in OpenWrt 24.10+
   minimalMeshPackages = removeDefaultPackages ++ [
     "kmod-batman-adv"
     "batctl-full"
     "wpad-mesh-openssl"
-    "kmod-8021q"
   ];
 
   # Additional packages for web UI management
@@ -53,10 +53,9 @@ let
   # Default: minimal + debug tools (no LuCI)
   defaultMeshPackages = minimalMeshPackages ++ debugPackages;
 
-  # Default packages for a switch (keep firewall, add VLAN support)
-  defaultSwitchPackages = removeSwitchPackages ++ [
-    "kmod-8021q"
-  ] ++ debugPackages;
+  # Default packages for a switch
+  # Note: 802.1Q VLAN support is built into the kernel in OpenWrt 24.10+
+  defaultSwitchPackages = removeSwitchPackages ++ debugPackages;
 
   # Default packages for a simple AP (keep firewall, no mesh)
   defaultSimpleAPPackages = removeSwitchPackages ++ debugPackages;

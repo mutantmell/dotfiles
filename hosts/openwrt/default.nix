@@ -19,7 +19,7 @@
 
 let
   # Import common data
-  data = import ../../lib/common/data;
+  data = import ../../lib/common/data { inherit lib; };
 
   # Shared mesh configuration matching thebeyond's batman-adv setup
   # Note: meshKey is intentionally omitted - configured via secrets post-deployment
@@ -49,6 +49,7 @@ let
   # Trunk ports (lan1-4) carry all VLANs tagged; access ports are untagged
   switchVlans = {
     MGMT     = { tag = 10; accessPorts = [ "lan7" "lan8" ]; };
+    INFRA    = { tag = 11; };
     HOME     = { tag = 20; accessPorts = [ "lan5" "lan6" ]; };
     GUEST    = { tag = 30; };
     ADU      = { tag = 31; };
