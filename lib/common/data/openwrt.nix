@@ -21,6 +21,21 @@ in
   # Gateway is always on the primary prefix (10.0)
   mkGateway = vlanId: "10.0.${toString vlanId}.1";
 
+  # Gateway addresses for router (no mesh 10.1 prefix — not a mesh device)
+  mkGatewayAddresses = vlanId: [
+    "10.0.${toString vlanId}.1/24"
+    "10.97.${toString vlanId}.1/24"
+  ];
+
+  # Router VLANs — subset of network for temporary router deployment
+  # trunkPorts carry all VLANs tagged; accessPorts get untagged traffic
+  routerVlans = {
+    MGMT  = { tag = 10; };
+    INFRA = { tag = 11; };
+    HOME  = { tag = 20; accessPorts = [ "lan1" ]; };
+    DMZ   = { tag = 100; };
+  };
+
   # VLANs matching actual deployed configuration
   # Mesh APs use 10xx tags on bat0 (bat0.1010, bat0.1020, etc.)
   meshVlans = {

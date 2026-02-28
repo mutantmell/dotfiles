@@ -48,6 +48,13 @@ let
     ssid = "TestNetwork";
   };
 
+  routerDevice = {
+    type = "router";
+    hostname = "test-router";
+    profile = "linksys_e8450-ubi";
+    ssid = "TestNetwork";
+  };
+
   meshWithExtra = meshDevice // {
     hostname = "test-mesh-extra";
     extraConfig = {
@@ -65,12 +72,14 @@ let
   switchConfig = openwrt.mkDeviceConfig { device = switchDevice; inherit owrtData; };
   simpleAPConfig = openwrt.mkDeviceConfig { device = simpleAPDevice; inherit owrtData; };
   meshExtraConfig = openwrt.mkDeviceConfig { device = meshWithExtra; inherit owrtData; };
+  routerConfig = openwrt.mkDeviceConfig { device = routerDevice; inherit owrtData; };
 
   # --- Render to UCI commands ---
 
   meshUCI = lib.concatStringsSep "\n" (openwrt.uci.renderConfigs meshConfig);
   switchUCI = lib.concatStringsSep "\n" (openwrt.uci.renderConfigs switchConfig);
   simpleAPUCI = lib.concatStringsSep "\n" (openwrt.uci.renderConfigs simpleAPConfig);
+  routerUCI = lib.concatStringsSep "\n" (openwrt.uci.renderConfigs routerConfig);
 
   # --- Test real device declarations load ---
 
@@ -155,12 +164,77 @@ let
         simpleAPConfig.network.lan.ipaddr
         (owrtData.mkAddresses 31 30);
 
+    # Router config structure
+    "router has system config" = routerConfig ? system;
+    "router has network config" = routerConfig ? network;
+    "router has wireless config" = routerConfig ? wireless;
+    "router has dropbear config" = routerConfig ? dropbear;
+    "router has firewall config" = routerConfig ? firewall;
+    "router has dhcp config" = routerConfig ? dhcp;
+
+    "router hostname set" = routerConfig.system.system.hostname == "test-router";
+    "router has WAN interface" = routerConfig.network ? wan;
+    "router WAN proto is dhcp" = routerConfig.network.wan.proto == "dhcp";
+    "router has br-lan bridge" = routerConfig.network ? br_lan;
+    "router br-lan is bridge" = routerConfig.network.br_lan.type == "bridge";
+    "router br-lan has vlan_filtering" = routerConfig.network.br_lan.vlan_filtering == true;
+
+    # Router bridge-VLAN entries
+    "router has MGMT bridge-vlan" = routerConfig.network ? brvlan_mgmt;
+    "router has INFRA bridge-vlan" = routerConfig.network ? brvlan_infra;
+    "router has HOME bridge-vlan" = routerConfig.network ? brvlan_home;
+    "router has DMZ bridge-vlan" = routerConfig.network ? brvlan_dmz;
+    "router HOME bridge-vlan tag" = routerConfig.network.brvlan_home.vlan == 20;
+    "router HOME bridge-vlan has access port" =
+      builtins.elem "lan1:u*" routerConfig.network.brvlan_home.ports;
+
+    # Router per-VLAN interfaces with gateway addresses
+    "router has home interface" = routerConfig.network ? home;
+    "router has mgmt interface" = routerConfig.network ? mgmt;
+    "router has infra interface" = routerConfig.network ? infra;
+    "router has dmz interface" = routerConfig.network ? dmz;
+    "router home device correct" = routerConfig.network.home.device == "br-lan.20";
+    "router home addresses" =
+      assertEq "router home addresses"
+        routerConfig.network.home.ipaddr
+        (owrtData.mkGatewayAddresses 20);
+    "router mgmt addresses" =
+      assertEq "router mgmt addresses"
+        routerConfig.network.mgmt.ipaddr
+        (owrtData.mkGatewayAddresses 10);
+
+    # Router firewall
+    "router firewall has defaults" = routerConfig.firewall ? defaults;
+    "router firewall has WAN zone" = routerConfig.firewall ? zone_wan;
+    "router firewall WAN masq" = routerConfig.firewall.zone_wan.masq == true;
+    "router firewall has LAN zone" = routerConfig.firewall ? zone_lan;
+    "router firewall LAN covers VLANs" =
+      builtins.isList routerConfig.firewall.zone_lan.network;
+    "router firewall has forwarding" = routerConfig.firewall ? fwd_lan_wan;
+    "router firewall has DHCP rule" = routerConfig.firewall ? rule_wan_dhcp;
+
+    # Router DHCP
+    "router dhcp has dnsmasq" = routerConfig.dhcp ? dnsmasq;
+    "router dhcp has home pool" = routerConfig.dhcp ? home;
+    "router dhcp has mgmt pool" = routerConfig.dhcp ? mgmt;
+    "router dhcp home interface" = routerConfig.dhcp.home.interface == "home";
+
+    # Router wireless
+    "router has both radios" = routerConfig.wireless ? radio0 && routerConfig.wireless ? radio1;
+    "router has AP interfaces" = routerConfig.wireless ? ap_2g && routerConfig.wireless ? ap_5g;
+    "router AP ssid set" = routerConfig.wireless.ap_2g.ssid == "TestNetwork";
+    "router AP network is home" = routerConfig.wireless.ap_2g.network == "home";
+
     # UCI rendering produces expected commands
     "meshAP UCI sets hostname" = contains "set system.@system[0].hostname='test-mesh'" meshUCI;
     "meshAP UCI sets bat0 proto" = contains "set network.bat0.proto='batadv'" meshUCI;
     "switchAP UCI sets hostname" = contains "set system.@system[0].hostname='test-switch'" switchUCI;
     "simpleAP UCI sets hostname" = contains "set system.@system[0].hostname='test-simple'" simpleAPUCI;
     "simpleAP UCI sets ssid" = contains "ssid='TestNetwork'" simpleAPUCI;
+
+    "router UCI sets hostname" = contains "set system.@system[0].hostname='test-router'" routerUCI;
+    "router UCI sets WAN proto" = contains "set network.wan.proto='dhcp'" routerUCI;
+    "router UCI sets masq" = contains "masq='1'" routerUCI;
 
     # Release version field
     "owrtData has defaultRelease" = owrtData ? defaultRelease;
@@ -177,6 +251,13 @@ let
       (openwrt.mkDeviceConfig { device = realDevices.bobcat; inherit owrtData; }) ? network;
     "real derfflinger has IoT extraConfig" =
       (openwrt.mkDeviceConfig { device = realDevices.derfflinger; inherit owrtData; }).network ? iot;
+
+    # Real bobcat-router
+    "real devices has bobcat-router" = realDevices ? bobcat-router;
+    "real bobcat-router is router" = realDevices.bobcat-router.type == "router";
+    "real bobcat-router config generates" =
+      let cfg = openwrt.mkDeviceConfig { device = realDevices.bobcat-router; inherit owrtData; };
+      in cfg ? network && cfg ? firewall && cfg ? dhcp;
   };
 
   failures = lib.filterAttrs (_: v: !v) allTests;
