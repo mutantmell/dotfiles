@@ -1,13 +1,16 @@
 # Shared OpenWrt network topology data
 #
-# IP addressing, VLAN definitions, and shared config used by device declarations
-# and the openwrt image builder. Kept alongside the NixOS network registry.
+# IP addressing, VLAN definitions, and shared config used by all OpenWrt
+# device declarations and the image builder pipeline.
 { lib }:
 
 let
   keys = builtins.fromJSON (builtins.readFile ./keys.json);
 in
 {
+  # Default OpenWrt release for all devices (can be overridden per-device)
+  defaultRelease = "24.10.5";
+
   # IP prefixes - each device gets one address per prefix for migration compatibility
   ipPrefixes = [ "10.0" "10.1" "10.97" ];
 

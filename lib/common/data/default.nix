@@ -1,7 +1,6 @@
 { lib }:
 {
   network = import ./network.nix { inherit lib; };
-  openwrt = import ./openwrt.nix { inherit lib; };
   keys = builtins.fromJSON (
     builtins.readFile ./keys.json
   );
