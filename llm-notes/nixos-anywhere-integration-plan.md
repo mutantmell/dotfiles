@@ -4,7 +4,7 @@
 
 This plan restructures the dotfiles repository to properly integrate nixos-anywhere deployment capabilities into the main flake, eliminating the isolated `anywhere/` directory and establishing disko as the single source of truth for disk configurations.
 
-**SCOPE:** This migration focuses exclusively on **yggdrasil** (the router). VM hosts (vanaheim, muspelheim) are documented for future reference but are **OUT OF SCOPE** for this migration.
+**SCOPE:** This migration focuses exclusively on **thebeyond** (the router). VM hosts (calvard, erebonia) are documented for future reference but are **OUT OF SCOPE** for this migration.
 
 ## Goals
 
@@ -18,27 +18,27 @@ This plan restructures the dotfiles repository to properly integrate nixos-anywh
 ## In-Scope vs Out-of-Scope
 
 ### ✅ In Scope (This Migration)
-- Migrate **yggdrasil** to new nixos-anywhere/disko structure
+- Migrate **thebeyond** to new nixos-anywhere/disko structure
 - Add disko input to main flake
-- Create shared disko profile for routers (used by yggdrasil)
-- Add LUKS encryption to yggdrasil
+- Create shared disko profile for routers (used by thebeyond)
+- Add LUKS encryption to thebeyond
 - Create deployment scripts and documentation
 - Delete isolated `anywhere/` directory
 
 ### ⏸️ Out of Scope (Future Work)
-- Migrating **vanaheim** to new structure (vm-host, not scheduled for teardown yet)
-- Migrating **muspelheim** to new structure (vm-host, not scheduled for teardown yet)
+- Migrating **calvard** to new structure (vm-host, not scheduled for teardown yet)
+- Migrating **erebonia** to new structure (vm-host, not scheduled for teardown yet)
 - VM host configurations will be **documented** for when they are ready to be rebuilt from scratch
 
 ## Current State Analysis
 
-### Issues Identified (Yggdrasil-Specific)
+### Issues Identified (Thebeyond-Specific)
 
 1. **Separate Flakes**: `anywhere/flake.nix` is isolated from `flake.nix`, causing duplication
-2. **Untested Configuration**: No validation that nixos-anywhere setup for yggdrasil actually works
-3. **Dual Disk Definitions**: Yggdrasil's `hardware-configuration.nix` and disko define filesystems, risking conflicts
-4. **Missing Deployment Tooling**: No helper scripts or clear deployment process for yggdrasil
-5. **No Encryption**: Yggdrasil's /persist is currently unencrypted
+2. **Untested Configuration**: No validation that nixos-anywhere setup for thebeyond actually works
+3. **Dual Disk Definitions**: Thebeyond's `hardware-configuration.nix` and disko define filesystems, risking conflicts
+4. **Missing Deployment Tooling**: No helper scripts or clear deployment process for thebeyond
+5. **No Encryption**: Thebeyond's /persist is currently unencrypted
 
 ### Current Structure
 
@@ -52,14 +52,14 @@ This plan restructures the dotfiles repository to properly integrate nixos-anywh
 │       ├── router.nix                 # Router disko profile
 │       └── vm-host.nix                # VM host disko profile
 └── hosts/
-    ├── yggdrasil/
+    ├── thebeyond/
     │   ├── configuration.nix
     │   ├── hardware-configuration.nix # Contains filesystem definitions
     │   ├── impermanence.nix
     │   ├── microvm.nix
     │   └── sops.nix
-    ├── vanaheim/                      # VM host
-    └── muspelheim/                    # VM host
+    ├── calvard/                      # VM host
+    └── erebonia/                    # VM host
 ```
 
 ## Target State
@@ -73,20 +73,20 @@ This plan restructures the dotfiles repository to properly integrate nixos-anywh
 │
 ├── profiles/
 │   └── disko/
-│       ├── router.nix                 # Shared router disk layout (✅ USED BY YGGDRASIL)
+│       ├── router.nix                 # Shared router disk layout (✅ USED BY THEBEYOND)
 │       └── vm-host.nix                # Shared VM host disk layout (⏸️ FOR FUTURE USE)
 │
 ├── hosts/
-│   ├── yggdrasil/                     # ✅ MIGRATED IN THIS PLAN
+│   ├── thebeyond/                     # ✅ MIGRATED IN THIS PLAN
 │   │   ├── configuration.nix          # Updated: imports disko profile, LUKS config
 │   │   ├── hardware-configuration.nix # Regenerated with --no-filesystems
 │   │   ├── impermanence.nix
 │   │   ├── microvm.nix
 │   │   └── sops.nix
-│   ├── vanaheim/                      # ⏸️ NOT MIGRATED (future work)
+│   ├── calvard/                      # ⏸️ NOT MIGRATED (future work)
 │   │   ├── configuration.nix          # Unchanged
 │   │   └── hardware-configuration.nix # Unchanged
-│   └── muspelheim/                    # ⏸️ NOT MIGRATED (future work)
+│   └── erebonia/                    # ⏸️ NOT MIGRATED (future work)
 │       ├── configuration.nix          # Unchanged
 │       └── hardware-configuration.nix # Unchanged
 │
@@ -118,7 +118,7 @@ This plan restructures the dotfiles repository to properly integrate nixos-anywh
 
 **Future Upgrade Paths:**
 1. **USB key storage** - Move keyfile to USB stick, require USB insertion for boot
-2. **Tang/Clevis** - Set up Tang server on vanaheim/muspelheim when ready
+2. **Tang/Clevis** - Set up Tang server on calvard/erebonia when ready
 3. **Multiple key slots** - Add Tang as backup while keeping keyfile for redundancy
 4. **Key rotation** - LUKS supports multiple key slots, can rotate keys without re-encrypting
 
@@ -132,7 +132,7 @@ This plan restructures the dotfiles repository to properly integrate nixos-anywh
 
 ## Implementation Steps
 
-> **⚠️ SCOPE REMINDER:** These steps migrate **yggdrasil only**. VM hosts (vanaheim, muspelheim) are NOT modified in this plan. See "Future Work" section for vm-host migration when needed.
+> **⚠️ SCOPE REMINDER:** These steps migrate **thebeyond only**. VM hosts (calvard, erebonia) are NOT modified in this plan. See "Future Work" section for vm-host migration when needed.
 
 ### Phase 1: Integrate disko into Main Flake
 
@@ -243,7 +243,7 @@ Copy `anywhere/profiles/router.nix` to `profiles/disko/router.nix` and update to
 
 Copy `anywhere/profiles/vm-host.nix` to `profiles/disko/vm-host.nix` for future reference.
 
-**Note:** This profile is NOT used in this migration. It's preserved for when vanaheim/muspelheim are ready to be rebuilt from scratch.
+**Note:** This profile is NOT used in this migration. It's preserved for when calvard/erebonia are ready to be rebuilt from scratch.
 
 **2.4: Delete anywhere/ directory**
 
@@ -253,7 +253,7 @@ rm -rf anywhere/
 
 ### Phase 3: Update Host Configurations
 
-**3.1: Update yggdrasil configuration.nix**
+**3.1: Update thebeyond configuration.nix**
 
 Ensure it imports the disko profile and configures LUKS unlock:
 
@@ -287,18 +287,18 @@ Ensure it imports the disko profile and configures LUKS unlock:
 
 **Note:** The UUID will be determined after first deployment and must be filled in manually.
 
-**3.2: Regenerate yggdrasil hardware-configuration.nix**
+**3.2: Regenerate thebeyond hardware-configuration.nix**
 
 After deploying with nixos-anywhere, regenerate hardware config WITHOUT filesystem definitions:
 
 ```bash
 # After nixos-anywhere deployment completes:
-ssh root@yggdrasil
+ssh root@thebeyond
 nixos-generate-config --no-filesystems --show-hardware-config > /tmp/hardware-config.nix
 exit
 
 # Copy back to repo
-scp root@yggdrasil:/tmp/hardware-config.nix hosts/yggdrasil/hardware-configuration.nix
+scp root@thebeyond:/tmp/hardware-config.nix hosts/thebeyond/hardware-configuration.nix
 ```
 
 **Important**: The new hardware-configuration.nix should:
@@ -309,19 +309,19 @@ scp root@yggdrasil:/tmp/hardware-config.nix hosts/yggdrasil/hardware-configurati
 - Keep `nixpkgs.hostPlatform`
 - Keep any `boot.loader.*` settings if auto-detected
 
-**3.3: Update flake.nix host definition for yggdrasil**
+**3.3: Update flake.nix host definition for thebeyond**
 
-Only yggdrasil is being migrated in this plan. Update its configuration:
+Only thebeyond is being migrated in this plan. Update its configuration:
 
 ```nix
 nixosConfigurations = {
-  yggdrasil = mk-nixos {
-    hostname = "yggdrasil";
+  thebeyond = mk-nixos {
+    hostname = "thebeyond";
     system = "x86_64-linux";
     nixpkgs = inputs.nixpkgs;
     modules = [
       inputs.disko.nixosModules.disko  # ADD THIS
-      ./hosts/yggdrasil/configuration.nix
+      ./hosts/thebeyond/configuration.nix
       ./modules/common
       ./modules/router6
       inputs.microvm-stable.nixosModules.host
@@ -330,14 +330,14 @@ nixosConfigurations = {
     ];
   };
 
-  # vanaheim - NOT MODIFIED (out of scope)
-  vanaheim = mk-nixos {
-    hostname = "vanaheim";
+  # calvard - NOT MODIFIED (out of scope)
+  calvard = mk-nixos {
+    hostname = "calvard";
     system = "x86_64-linux";
     nixpkgs = inputs.nixpkgs;
     modules = [
       # NO disko module added - not migrating yet
-      ./hosts/vanaheim/configuration.nix
+      ./hosts/calvard/configuration.nix
       ./modules/common
       ./modules/router6
       inputs.microvm.nixosModules.host
@@ -345,7 +345,7 @@ nixosConfigurations = {
     ];
   };
 
-  # muspelheim - NOT MODIFIED (out of scope)
+  # erebonia - NOT MODIFIED (out of scope)
   # ... keep existing configuration unchanged
 };
 ```
@@ -370,8 +370,8 @@ if [[ -z "$HOSTNAME" || -z "$TARGET" ]]; then
     echo "Usage: $0 <hostname> <target-ip> [extra-args]"
     echo ""
     echo "Examples:"
-    echo "  $0 yggdrasil root@192.168.1.100"
-    echo "  $0 vanaheim user@example.com --build-on-remote"
+    echo "  $0 thebeyond root@192.168.1.100"
+    echo "  $0 calvard user@example.com --build-on-remote"
     echo ""
     echo "Available hosts:"
     nix flake show 2>/dev/null | grep "nixosConfigurations" -A 10 | grep "├" | sed 's/.*├─ /  - /'
@@ -534,7 +534,7 @@ nix flake show
 
 ```bash
 # Dry-run to validate disko syntax
-./scripts/test-disko-vm.sh yggdrasil
+./scripts/test-disko-vm.sh thebeyond
 ```
 
 **5.3: Test deployment to VM (optional)**
@@ -544,7 +544,7 @@ Set up a test VM and deploy to it before touching real hardware:
 ```bash
 # Create a VM for testing
 # Deploy to VM
-./scripts/deploy-nixos-anywhere.sh yggdrasil root@<vm-ip> --vm-test
+./scripts/deploy-nixos-anywhere.sh thebeyond root@<vm-ip> --vm-test
 ```
 
 **5.4: Deploy to real hardware**
@@ -552,7 +552,7 @@ Set up a test VM and deploy to it before touching real hardware:
 When ready:
 
 ```bash
-./scripts/deploy-nixos-anywhere.sh yggdrasil root@<yggdrasil-ip>
+./scripts/deploy-nixos-anywhere.sh thebeyond root@<thebeyond-ip>
 ```
 
 ## Key Technical Details
@@ -609,12 +609,12 @@ Add to `.gitignore`:
 
 The deployment script saves keyfiles to `.keys/<hostname>-disk.key` for convenience, but this directory must be gitignored and backed up separately to secure storage (password manager, encrypted backup drive, etc.).
 
-## Migration Checklist (Yggdrasil Only)
+## Migration Checklist (Thebeyond Only)
 
 ### Phase 1: Flake Integration
 - [ ] Add disko input to main flake.nix
 - [ ] Update flake.lock
-- [ ] Update flake.nix yggdrasil configuration to include disko module
+- [ ] Update flake.nix thebeyond configuration to include disko module
 
 ### Phase 2: Disko Profiles
 - [ ] Create profiles/disko/ directory
@@ -622,9 +622,9 @@ The deployment script saves keyfiles to `.keys/<hostname>-disk.key` for convenie
 - [ ] Move vm-host.nix to profiles/disko/ (for future use, not actively used)
 - [ ] Delete anywhere/ directory
 
-### Phase 3: Yggdrasil Host Configuration
-- [ ] Update yggdrasil configuration.nix to import disko profile
-- [ ] Add LUKS unlock configuration to yggdrasil configuration.nix
+### Phase 3: Thebeyond Host Configuration
+- [ ] Update thebeyond configuration.nix to import disko profile
+- [ ] Add LUKS unlock configuration to thebeyond configuration.nix
 - [ ] Add activation script to create /boot/secrets directory
 
 ### Phase 4: Deployment Tooling
@@ -637,11 +637,11 @@ The deployment script saves keyfiles to `.keys/<hostname>-disk.key` for convenie
 
 ### Phase 5: Testing
 - [ ] Test flake: `nix flake check`
-- [ ] Test disko validation: `./scripts/test-disko-vm.sh yggdrasil`
+- [ ] Test disko validation: `./scripts/test-disko-vm.sh thebeyond`
 - [ ] Deploy to test environment (optional)
 
-### Phase 6: Production Deployment (Yggdrasil)
-- [ ] Deploy to production hardware: `./scripts/deploy-nixos-anywhere.sh yggdrasil root@<ip>`
+### Phase 6: Production Deployment (Thebeyond)
+- [ ] Deploy to production hardware: `./scripts/deploy-nixos-anywhere.sh thebeyond root@<ip>`
 - [ ] Copy encryption keyfile to /boot/secrets/disk.key
 - [ ] Get LUKS UUID and update configuration.nix
 - [ ] Regenerate hardware-configuration.nix with --no-filesystems
@@ -657,48 +657,48 @@ After successful deployment:
 
 1. **Copy encryption keyfile to router:**
    ```bash
-   scp .keys/yggdrasil-disk.key root@yggdrasil:/boot/secrets/disk.key
-   ssh root@yggdrasil 'chmod 600 /boot/secrets/disk.key'
+   scp .keys/thebeyond-disk.key root@thebeyond:/boot/secrets/disk.key
+   ssh root@thebeyond 'chmod 600 /boot/secrets/disk.key'
    ```
 
 2. **Update configuration.nix with LUKS UUID:**
    ```bash
-   ssh root@yggdrasil 'blkid | grep crypto_LUKS'
-   # Copy UUID and update hosts/yggdrasil/configuration.nix
+   ssh root@thebeyond 'blkid | grep crypto_LUKS'
+   # Copy UUID and update hosts/thebeyond/configuration.nix
    ```
 
 3. **Regenerate hardware-config** and commit it:
    ```bash
-   ssh root@yggdrasil 'nixos-generate-config --no-filesystems --show-hardware-config > /tmp/hw.nix'
-   scp root@yggdrasil:/tmp/hw.nix hosts/yggdrasil/hardware-configuration.nix
+   ssh root@thebeyond 'nixos-generate-config --no-filesystems --show-hardware-config > /tmp/hw.nix'
+   scp root@thebeyond:/tmp/hw.nix hosts/thebeyond/hardware-configuration.nix
    ```
 
 4. **Rebuild with updated configuration:**
    ```bash
    # Commit changes first
-   git add hosts/yggdrasil/configuration.nix hosts/yggdrasil/hardware-configuration.nix
-   git commit -m "Update yggdrasil post-deployment config"
+   git add hosts/thebeyond/configuration.nix hosts/thebeyond/hardware-configuration.nix
+   git commit -m "Update thebeyond post-deployment config"
 
    # Rebuild on router
-   ssh root@yggdrasil 'nixos-rebuild switch --flake /etc/nixos#yggdrasil'
+   ssh root@thebeyond 'nixos-rebuild switch --flake /etc/nixos#thebeyond'
    ```
 
 5. **Test autonomous reboot:**
    ```bash
-   ssh root@yggdrasil 'reboot'
+   ssh root@thebeyond 'reboot'
    # Wait ~30 seconds, then verify it comes back up
-   ssh root@yggdrasil 'uptime'
+   ssh root@thebeyond 'uptime'
    ```
 
 6. **Verify encryption and filesystems:**
    ```bash
-   ssh root@yggdrasil 'lsblk'
-   ssh root@yggdrasil 'df -h'
-   ssh root@yggdrasil 'mount | grep mapper'
+   ssh root@thebeyond 'lsblk'
+   ssh root@thebeyond 'df -h'
+   ssh root@thebeyond 'mount | grep mapper'
    ```
 
 7. **Backup encryption keyfile securely:**
-   - Store `.keys/yggdrasil-disk.key` in password manager
+   - Store `.keys/thebeyond-disk.key` in password manager
    - Store backup on encrypted USB drive
    - **CRITICAL: Without this keyfile, /persist cannot be decrypted!**
 
@@ -711,7 +711,7 @@ After successful deployment:
 ## Benefits of This Approach
 
 1. **Single source of truth**: One flake, disko defines disks, hardware-config defines hardware
-2. **Repeatable deployments**: Can redeploy yggdrasil from scratch anytime
+2. **Repeatable deployments**: Can redeploy thebeyond from scratch anytime
 3. **Testable**: Can validate disk configs in VM before touching hardware
 4. **Maintainable**: Shared profiles reduce duplication
 5. **Documented**: Clear deployment process for future reference
@@ -721,7 +721,7 @@ After successful deployment:
 ## Risk Mitigation
 
 - Test in VM before deploying to real hardware
-- Have physical access to yggdrasil during first deployment
+- Have physical access to thebeyond during first deployment
 - Backup any critical data from /persist before deploying
 - Keep network configuration simple initially (can add complexity after successful boot)
 
@@ -756,16 +756,16 @@ boot.initrd.luks.devices."cryptroot" = {
 
 ### Option 2: Tang/Clevis Network-Bound Encryption
 
-Set up Tang server on vanaheim or muspelheim:
+Set up Tang server on calvard or erebonia:
 
 ```bash
-# On vanaheim/muspelheim (Tang server)
+# On calvard/erebonia (Tang server)
 # Add to configuration.nix:
 services.tang.enable = true;
 
-# On yggdrasil (client)
+# On thebeyond (client)
 # Bind existing LUKS volume to Tang:
-clevis luks bind -d /dev/sda3 tang '{"url":"http://vanaheim:8006"}'
+clevis luks bind -d /dev/sda3 tang '{"url":"http://calvard:8006"}'
 
 # Update configuration.nix:
 boot.initrd.clevis.useTang = true;
@@ -781,7 +781,7 @@ LUKS supports multiple key slots - can have both for redundancy:
 ```bash
 # Existing keyfile in slot 0
 # Add Tang in slot 1
-clevis luks bind -d /dev/sda3 tang '{"url":"http://vanaheim:8006"}' -s 1
+clevis luks bind -d /dev/sda3 tang '{"url":"http://calvard:8006"}' -s 1
 
 # System tries Tang first, falls back to keyfile if network unavailable
 ```
@@ -797,7 +797,7 @@ clevis luks bind -d /dev/sda3 tang '{"url":"http://vanaheim:8006"}' -s 1
 
 ## Future Work: VM Host Migration (Out of Scope)
 
-When vanaheim and/or muspelheim are ready to be torn down and rebuilt from scratch, follow these steps:
+When calvard and/or erebonia are ready to be torn down and rebuilt from scratch, follow these steps:
 
 ### Prerequisites
 - The `profiles/disko/vm-host.nix` profile is already in place (moved in Phase 2)
@@ -808,7 +808,7 @@ When vanaheim and/or muspelheim are ready to be torn down and rebuilt from scrat
 
 **1. Update host configuration.nix**
 ```nix
-# hosts/vanaheim/configuration.nix (or muspelheim)
+# hosts/calvard/configuration.nix (or erebonia)
 {
   imports = [
     ./hardware-configuration.nix
@@ -823,13 +823,13 @@ When vanaheim and/or muspelheim are ready to be torn down and rebuilt from scrat
 
 **2. Update flake.nix**
 ```nix
-vanaheim = mk-nixos {
-  hostname = "vanaheim";
+calvard = mk-nixos {
+  hostname = "calvard";
   system = "x86_64-linux";
   nixpkgs = inputs.nixpkgs;
   modules = [
     inputs.disko.nixosModules.disko  # ADD THIS
-    ./hosts/vanaheim/configuration.nix
+    ./hosts/calvard/configuration.nix
     # ... other modules
   ];
 };
@@ -837,7 +837,7 @@ vanaheim = mk-nixos {
 
 **3. Deploy**
 ```bash
-./scripts/deploy-nixos-anywhere.sh vanaheim root@<ip>
+./scripts/deploy-nixos-anywhere.sh calvard root@<ip>
 # Follow post-deployment steps as documented
 ```
 
@@ -851,7 +851,7 @@ Review `profiles/disko/vm-host.nix` and adjust as needed for current requirement
 **Notes:**
 - VM hosts may or may not need LUKS encryption (review security requirements)
 - ZFS configuration in vm-host.nix may need updates based on current best practices
-- Test in a VM first using `./scripts/test-disko-vm.sh vanaheim`
+- Test in a VM first using `./scripts/test-disko-vm.sh calvard`
 
 ## References
 
