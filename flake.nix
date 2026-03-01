@@ -77,6 +77,9 @@
           coreutils findutils gnugrep gawk gnused perl patch diffutils file
           unzip bzip2 which ncurses rsync xz;
       };
+      openwrt-deployer = import ./packages/openwrt-deployer {
+        inherit (pkgs) lib stdenv makeWrapper openssh coreutils;
+      };
       installer-iso = let
         keys = builtins.fromJSON (builtins.readFile ./lib/common/data/keys.json);
         installer = nixpkgs.lib.nixosSystem {
