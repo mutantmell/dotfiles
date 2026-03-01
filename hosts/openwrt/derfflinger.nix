@@ -8,6 +8,8 @@ in
   type = "meshAP";
   hostname = "derfflinger";
   profile = "linksys_e8450-ubi";
+  target = "mediatek";
+  subtarget = "mt7622";
   hostId = 21;
   heBssColor = 25;
   legacyRates = true;

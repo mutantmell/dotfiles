@@ -6,7 +6,7 @@
 # - Managing mesh networking with batman-adv
 # - Managing managed switches with VLAN filtering
 # - Deploying to devices via SSH/sysupgrade
-{ lib, openwrt-imagebuilder }:
+{ lib, openwrt-imagebuilder ? null }:
 
 let
   uci = import ./uci.nix { inherit lib; };
@@ -864,8 +864,11 @@ ${uciCommands}
     '';
 
   # Build an OpenWrt image with the given configuration
+  # DEPRECATED: Use the Python builder (apps/openwrt/build.py) instead.
   mkImage = { pkgs, profile, config, packages ? [], files ? null, extraImageConfig ? {}, release ? null }:
-    let
+    if openwrt-imagebuilder == null then
+      throw "mkImage requires openwrt-imagebuilder input, which has been removed. Use 'nix run .#openwrt-build' instead."
+    else let
       profiles = openwrt-imagebuilder.lib.profiles (
         { inherit pkgs; } // lib.optionalAttrs (release != null) { inherit release; }
       );
@@ -940,8 +943,11 @@ ${uciCommands}
       else throw "mkDeviceConfig: unknown device type '${device.type}'";
 
   # Build an image from a device declaration
-  # Single entry point: declaration -> config -> files -> image
+  # DEPRECATED: Use the Python builder (apps/openwrt/build.py) instead.
   mkDeviceImage = { pkgs, device, owrtData }:
+    if openwrt-imagebuilder == null then
+      throw "mkDeviceImage requires openwrt-imagebuilder input, which has been removed. Use 'nix run .#openwrt-build' instead."
+    else
     let
       config = mkDeviceConfig { inherit device owrtData; };
       inherit (device) hostname profile;
@@ -1004,5 +1010,6 @@ in {
     mkConfigFiles
     mkImage
     mkDeviceConfig
-    mkDeviceImage;
+    mkDeviceImage
+    migrationPreCommands;
 }

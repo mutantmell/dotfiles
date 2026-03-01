@@ -4,6 +4,8 @@
   type = "meshAP";
   hostname = "pantagruel";
   profile = "linksys_e8450-ubi";
+  target = "mediatek";
+  subtarget = "mt7622";
   hostId = 22;
   heBssColor = 8;
   extraPackages = [ "usteer" ];

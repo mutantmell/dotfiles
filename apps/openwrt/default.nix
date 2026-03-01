@@ -1,19 +1,19 @@
 # OpenWrt management apps
 #
+# Build:
+#   nix run .#openwrt-build -- <device-name>
+#   nix run .#openwrt-build -- <device-name> --no-secrets
+#
 # Deployment:
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
 #   nix run .#openwrt-configure-secrets -- <device-ip>
 #
 # Discovery:
-#   nix run .#openwrt-profiles -- | grep -i <device>
 #   nix run .#openwrt-show-config -- <device-name>
 #
 # Migration (from existing devices):
 #   nix run .#openwrt-export-config -- <device-ip> [output-dir]
 #   nix run .#openwrt-analyze-packages -- <device-ip>
-#
-# Local analysis (from exported configs):
-#   nix run .#openwrt-analyze-local -- <config-dir-or-uci-file>
 #
 # Secrets file format (hosts/openwrt/secrets/wifi.yaml):
 #   mesh_id: "your-mesh-id"
@@ -118,23 +118,55 @@ let
   '';
 
 in {
+  # Build an OpenWrt image using the upstream Image Builder
+  openwrt-build = {
+    type = "app";
+    program = let
+      script = pkgs.writeShellScript "openwrt-build" ''
+        export PATH="${pkgs.lib.makeBinPath [
+          pkgs.python3 pkgs.sops pkgs.yq-go pkgs.nix pkgs.git
+          pkgs.gnumake pkgs.gnutar pkgs.zstd pkgs.wget pkgs.coreutils
+          pkgs.findutils pkgs.gnugrep pkgs.gawk pkgs.gnused pkgs.perl
+          pkgs.patch pkgs.diffutils pkgs.file pkgs.unzip pkgs.bzip2
+          pkgs.which pkgs.ncurses pkgs.rsync pkgs.xz
+        ]}:$PATH"
+        REPO_ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+        export REPO_ROOT
+        exec ${pkgs.python3}/bin/python3 "$REPO_ROOT/apps/openwrt/build.py" "$@"
+      '';
+    in "${script}";
+  };
+
   # Deploy an OpenWrt image to a device via sysupgrade
   openwrt-deploy = {
     type = "app";
     program = let
+      buildScript = pkgs.writeShellScript "openwrt-build-for-deploy" ''
+        export PATH="${pkgs.lib.makeBinPath [
+          pkgs.python3 pkgs.sops pkgs.yq-go pkgs.nix pkgs.git
+          pkgs.gnumake pkgs.gnutar pkgs.zstd pkgs.wget pkgs.coreutils
+          pkgs.findutils pkgs.gnugrep pkgs.gawk pkgs.gnused pkgs.perl
+          pkgs.patch pkgs.diffutils pkgs.file pkgs.unzip pkgs.bzip2
+          pkgs.which pkgs.ncurses pkgs.rsync pkgs.xz
+        ]}:$PATH"
+        REPO_ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+        export REPO_ROOT
+        exec ${pkgs.python3}/bin/python3 "$REPO_ROOT/apps/openwrt/build.py" "$@"
+      '';
       script = pkgs.writeShellScript "openwrt-deploy" ''
         set -euo pipefail
 
         if [ $# -lt 2 ]; then
-          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--skip-secrets]"
+          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--no-secrets]"
           echo ""
-          echo "Deploys an OpenWrt sysupgrade image to the specified device."
+          echo "Builds and deploys an OpenWrt sysupgrade image to the specified device."
+          echo "Secrets are baked into the image — no post-deploy SSH step needed."
           echo ""
           echo "Arguments:"
           echo "  device-name    Name of the device (as defined in hosts/openwrt/)"
           echo "  device-ip      IP address or hostname of the device"
           echo "  --force        Skip confirmation prompt"
-          echo "  --skip-secrets Skip secrets configuration after flash"
+          echo "  --no-secrets   Build without WiFi secrets (radios will be disabled)"
           echo ""
           echo "Example:"
           echo "  nix run .#openwrt-deploy -- bobcat 10.0.10.10"
@@ -146,39 +178,35 @@ in {
         shift 2
 
         FORCE=""
-        SKIP_SECRETS=""
+        BUILD_ARGS=()
         for arg in "$@"; do
           case "$arg" in
             --force) FORCE="1" ;;
-            --skip-secrets) SKIP_SECRETS="1" ;;
+            --no-secrets) BUILD_ARGS+=("--no-secrets") ;;
           esac
         done
 
         # Find repo root
         REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
         if [ -z "$REPO_ROOT" ]; then
-          echo "Warning: Could not find repository root. Secrets will not be configured."
-          SKIP_SECRETS="1"
+          echo "Error: Could not find repository root."
+          exit 1
         fi
+
+        OUTPUT_DIR="$REPO_ROOT/openwrt-images/$DEVICE"
 
         # Build the image
-        echo "Building image for $DEVICE..."
-        IMAGE_PATH=$(nix build --no-link --print-out-paths ".#openwrtImages.$DEVICE" 2>/dev/null)
-
-        if [ -z "$IMAGE_PATH" ]; then
-          echo "Error: Failed to build image for $DEVICE"
-          echo "Make sure the device is defined in hosts/openwrt/default.nix"
-          exit 1
-        fi
+        ${buildScript} "$DEVICE" --output-dir "$OUTPUT_DIR" "''${BUILD_ARGS[@]}"
 
         # Find the sysupgrade image
-        SYSUPGRADE=$(find "$IMAGE_PATH" -name "*-sysupgrade.bin" -o -name "*-sysupgrade.img.gz" | head -1)
+        SYSUPGRADE=$(find "$OUTPUT_DIR" -name "*-sysupgrade.bin" -o -name "*-sysupgrade.img.gz" | head -1)
 
         if [ -z "$SYSUPGRADE" ]; then
-          echo "Error: No sysupgrade image found in $IMAGE_PATH"
+          echo "Error: No sysupgrade image found in $OUTPUT_DIR"
           exit 1
         fi
 
+        echo ""
         echo "Image: $SYSUPGRADE"
         echo "Target: $TARGET"
         echo ""
@@ -200,18 +228,7 @@ in {
 
         echo ""
         echo "Upgrade initiated. Device is rebooting."
-
-        if [ -z "$SKIP_SECRETS" ]; then
-          echo ""
-          ${waitForDeviceScript} "$TARGET" 180
-
-          echo ""
-          ${configureSecretsScript} "$TARGET" "$REPO_ROOT"
-        else
-          echo "Skipping secrets configuration (--skip-secrets specified)."
-          echo "Wait ~2-3 minutes, then verify connectivity."
-        fi
-
+        echo "Wait ~2-3 minutes, then verify connectivity."
         echo ""
         echo "Deployment complete."
       '';
@@ -254,19 +271,6 @@ in {
     in "${script}";
   };
 
-  # List available OpenWrt device profiles
-  openwrt-profiles = {
-    type = "app";
-    program = let
-      script = pkgs.writeShellScript "openwrt-profiles" ''
-        echo "Fetching available OpenWrt profiles..."
-        echo "This may take a moment on first run."
-        echo ""
-        nix run github:astro/nix-openwrt-imagebuilder -- list-profiles "$@"
-      '';
-    in "${script}";
-  };
-
   # Show UCI configuration that would be applied
   openwrt-show-config = {
     type = "app";
@@ -282,23 +286,7 @@ in {
         fi
 
         DEVICE="$1"
-
-        # Build and extract the uci-defaults script
-        IMAGE_PATH=$(nix build --no-link --print-out-paths ".#openwrtImages.$DEVICE" 2>/dev/null)
-
-        if [ -z "$IMAGE_PATH" ]; then
-          echo "Error: Failed to build image for $DEVICE"
-          exit 1
-        fi
-
-        # The config files are in the build output
-        if [ -f "$IMAGE_PATH/files/etc/uci-defaults/99-nix-config" ]; then
-          cat "$IMAGE_PATH/files/etc/uci-defaults/99-nix-config"
-        else
-          echo "Searching for config in image..."
-          find "$IMAGE_PATH" -name "99-nix-config" -exec cat {} \; 2>/dev/null || \
-            echo "Could not find UCI defaults script"
-        fi
+        ${pkgs.nix}/bin/nix eval --raw ".#openwrtBuildInfo.$DEVICE.uciDefaultsScript"
       '';
     in "${script}";
   };

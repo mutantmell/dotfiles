@@ -5,6 +5,8 @@
   type = "simpleAP";
   hostname = "glorious";
   profile = "tplink_eap615-wall-v1";
+  target = "ramips";
+  subtarget = "mt7621";
   hostId = 20;
   vlanId = 31;
   # Keep dnsmasq (removed by default) — glorious serves DHCP for the ADU network

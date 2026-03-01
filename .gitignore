@@ -8,3 +8,5 @@ result*
 *.key
 # Ignore temp data
 temp/
+# OpenWrt build artifacts (may contain secrets)
+openwrt-images/

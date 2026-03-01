@@ -21,6 +21,16 @@ nix-instantiate --eval --strict tests/lib/<file>.nix
 
 # Run a VM test interactively
 nix build .#checks.x86_64-linux.<name>.driverInteractive && ./result/bin/nixos-test-driver
+
+# Build an OpenWrt image (uses upstream Image Builder, not nix store)
+nix run .#openwrt-build -- <device-name>
+nix run .#openwrt-build -- <device-name> --no-secrets
+
+# Deploy an OpenWrt image
+nix run .#openwrt-deploy -- <device-name> <device-ip>
+
+# Show OpenWrt UCI config
+nix run .#openwrt-show-config -- <device-name>
 ```
 
 ## Architecture

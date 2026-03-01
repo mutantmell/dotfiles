@@ -6,9 +6,9 @@
 #   nix run .#netinfo -- --generate-docs       # Generate docs/network-hosts.md
 #
 # OpenWrt management:
-#   nix run .#openwrt-deploy -- <device> <ip>  # Deploy image to device
-#   nix run .#openwrt-show-config -- <device>  # Show UCI config
-#   nix run .#openwrt-profiles                 # List device profiles
+#   nix run .#openwrt-build -- <device>         # Build image
+#   nix run .#openwrt-deploy -- <device> <ip>   # Build + deploy to device
+#   nix run .#openwrt-show-config -- <device>   # Show UCI config
 { pkgs }:
 
 let
@@ -19,9 +19,9 @@ in {
 
   # OpenWrt device management
   inherit (openwrt)
+    openwrt-build
     openwrt-deploy
     openwrt-configure-secrets
-    openwrt-profiles
     openwrt-show-config
     openwrt-export-config
     openwrt-analyze-packages

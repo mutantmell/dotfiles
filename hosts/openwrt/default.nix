@@ -1,22 +1,20 @@
 # OpenWrt device declarations (pure data)
 #
 # Each device is defined in its own file and returns a plain attrset with a
-# `type` field ("meshAP", "switch", "simpleAP") plus device-specific parameters.
-# No derivations, no pkgs.
+# `type` field ("meshAP", "switch", "simpleAP", "router") plus device-specific
+# parameters including `target`/`subtarget` for the Image Builder. No derivations,
+# no pkgs.
 #
-# Images are built in flake.nix by mapping mkDeviceImage over these declarations.
-#
-# SECRETS: Wifi/mesh passwords are NOT included in images (would expose them
-# in nix store). Instead, secrets are configured post-deployment via SSH.
-# Create hosts/openwrt/secrets/wifi.yaml with: sops hosts/openwrt/secrets/wifi.yaml
+# Images are built by the Python builder (apps/openwrt/build.py) which downloads
+# the upstream OpenWrt Image Builder and runs `make image` with secrets baked in.
 #
 # Build an image:
-#   nix build .#openwrtImages.<device-name>
+#   nix run .#openwrt-build -- <device-name>
 #
-# Deploy to device (includes secrets configuration):
+# Deploy to device:
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
 #
-# Configure secrets on existing device:
+# Configure secrets on existing device (without reflashing):
 #   nix run .#openwrt-configure-secrets -- <device-ip>
 { lib }:
 
