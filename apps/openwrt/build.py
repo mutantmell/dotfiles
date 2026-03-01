@@ -22,6 +22,9 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+import yaml
+import zstandard
+
 
 def get_build_info(device, repo_root):
     """Evaluate Nix to get build info for a device."""
@@ -36,11 +39,24 @@ def get_build_info(device, repo_root):
     return json.loads(result.stdout)
 
 
-def decrypt_secrets(secrets_file):
-    """Decrypt sops secrets file and return flat key=value dict.
+def flatten_yaml(data, prefix=""):
+    """Recursively flatten a parsed YAML dict to dot-separated key=value pairs.
 
-    Uses sops -d to decrypt, then yq to flatten YAML to key=value lines.
+    Only includes string leaf values (matching the previous yq behavior).
     """
+    result = {}
+    if isinstance(data, dict):
+        for key, value in data.items():
+            new_key = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                result.update(flatten_yaml(value, new_key))
+            elif isinstance(value, str):
+                result[new_key] = value
+    return result
+
+
+def decrypt_secrets(secrets_file):
+    """Decrypt sops secrets file and return flat key=value dict."""
     if not os.path.isfile(secrets_file):
         return None
 
@@ -53,21 +69,21 @@ def decrypt_secrets(secrets_file):
         print(result.stderr, file=sys.stderr)
         return None
 
-    # Flatten YAML to key=value using yq
-    yq_result = subprocess.run(
-        ["yq", "-r", '.. | select(tag == "!!str") | (path | join(".")) + "=" + .'],
-        input=result.stdout, capture_output=True, text=True,
-    )
-    if yq_result.returncode != 0:
-        print("Warning: Failed to flatten secrets YAML", file=sys.stderr)
+    try:
+        data = yaml.safe_load(result.stdout)
+    except yaml.YAMLError as e:
+        print(f"Warning: Failed to parse secrets YAML: {e}", file=sys.stderr)
         return None
 
-    secrets = {}
-    for line in yq_result.stdout.strip().splitlines():
-        if "=" in line:
-            key, _, value = line.partition("=")
-            secrets[key] = value
-    return secrets
+    if not isinstance(data, dict):
+        return None
+
+    return flatten_yaml(data)
+
+
+def escape_uci_value(value):
+    """Escape single quotes for shell-safe UCI values."""
+    return value.replace("'", "'\\''")
 
 
 def merge_secrets_into_uci(uci_script, secrets_map, secrets_kv, device_type):
@@ -78,7 +94,7 @@ def merge_secrets_into_uci(uci_script, secrets_map, secrets_kv, device_type):
     secret_commands = []
     for secret_key, uci_paths in secrets_map.items():
         if secret_key in secrets_kv:
-            value = secrets_kv[secret_key]
+            value = escape_uci_value(secrets_kv[secret_key])
             for uci_path in uci_paths:
                 secret_commands.append(f"uci -q set {uci_path}='{value}'")
 
@@ -106,6 +122,15 @@ def merge_secrets_into_uci(uci_script, secrets_map, secrets_kv, device_type):
             result.append(line)
     result.reverse()
     return "\n".join(result)
+
+
+def extract_tar_zst(archive_path, dest_dir):
+    """Extract a .tar.zst archive using native Python libraries."""
+    dctx = zstandard.ZstdDecompressor()
+    with open(archive_path, "rb") as fh:
+        with dctx.stream_reader(fh) as reader:
+            with tarfile.open(fileobj=reader, mode="r|") as tar:
+                tar.extractall(path=dest_dir, filter="data")
 
 
 def download_imagebuilder(release, target, subtarget, cache_dir):
@@ -138,14 +163,14 @@ def download_imagebuilder(release, target, subtarget, cache_dir):
             sys.exit(1)
 
     print(f"  Extracting {tarball_name} ...")
-    subprocess.run(
-        ["tar", "--zstd", "-xf", str(tarball_path), "-C", str(cache_dir)],
-        check=True,
-    )
+    try:
+        extract_tar_zst(tarball_path, cache_dir)
+    except Exception as e:
+        print(f"Error: Failed to extract Image Builder: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if not ib_dir.is_dir():
         # Some tarballs have slightly different directory names
-        # Try to find the extracted directory
         candidates = list(cache_dir.glob(f"openwrt-imagebuilder-{release}-{target}-{subtarget}*"))
         if candidates:
             ib_dir = candidates[0]
