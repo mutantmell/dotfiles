@@ -6,5 +6,4 @@
   type = "router";
   hostname = "bobcat";
   profile = "linksys_e8450-ubi";
-  ssid = "MyNetwork";
 }

@@ -74,7 +74,6 @@ let
   # Uses separate bridges per VLAN (matching actual deployed topology)
   mkMeshNetworkConfig = {
     hostname,
-    meshId,
     routingAlgo ? "BATMAN_V",
     vlans ? {},
     lanAddresses ? [],
@@ -207,9 +206,9 @@ let
     };
 
   # Generate wireless configuration for mesh + AP
+  # Secrets (mesh_id, mesh key, SSIDs, WiFi keys) are NOT included —
+  # they're applied post-deployment via /etc/nix-secrets-apply.
   mkMeshWirelessConfig = {
-    meshId,
-    meshKey ? null,
     apNetworks ? {},
     country ? "US",
     heBssColor ? null,
@@ -217,31 +216,27 @@ let
   }:
     let
       # Generate mesh interface (on 5GHz radio only)
+      # mesh_id and key are secrets — applied post-deployment
       meshIface = {
         batmesh = {
           _type = "wifi-iface";
-          _anonymous = true;
           ifname = "batmesh";
           device = "radio1";
           mode = "mesh";
-          mesh_id = meshId;
           network = "bat0_mesh0";
-          encryption = if meshKey != null then "sae" else "none";
+          encryption = "sae";
           mesh_fwding = false;
-        } // lib.optionalAttrs (meshKey != null) {
-          key = meshKey;
         };
       };
 
       # Generate AP interfaces for each network on each radio
+      # ssid and key are secrets — applied post-deployment
       mkAPInterfaces = radio: band: lib.mapAttrs' (name: ap: {
         name = "ap_${band}_${name}";
         value = {
           _type = "wifi-iface";
-          _anonymous = true;
           device = radio;
           mode = "ap";
-          ssid = ap.ssid;
           network = ap.network or "lan";
           encryption = ap.encryption or "sae-mixed";
           # 802.11r fast roaming
@@ -258,10 +253,6 @@ let
           ieee80211k = true;
           rrm_neighbor_report = true;
           rrm_beacon_report = true;
-        } // lib.optionalAttrs (ap ? key) {
-          key = ap.key;
-        } // lib.optionalAttrs (ap.hidden or false) {
-          hidden = true;
         };
       }) apNetworks;
 
@@ -273,7 +264,6 @@ let
           band = "2g";
           channel = 1;
           htmode = "HE40";
-          disabled = false;
           cell_density = 0;
           country = country;
         } // lib.optionalAttrs legacyRates {
@@ -286,7 +276,6 @@ let
           band = "5g";
           channel = 36;
           htmode = "HE80";
-          disabled = false;
           cell_density = 0;
           country = country;
         } // lib.optionalAttrs (heBssColor != null) {
@@ -298,7 +287,8 @@ let
     };
 
   # Generate simple AP wireless config (no mesh, no 802.11r)
-  mkSimpleAPWirelessConfig = { ssid, ssidKey ? null, encryption ? "sae-mixed", network ? "lan" }: {
+  # SSIDs and keys are secrets — applied post-deployment via /etc/nix-secrets-apply.
+  mkSimpleAPWirelessConfig = { encryption ? "sae-mixed", network ? "lan" }: {
     wireless = {
       radio0 = {
         _type = "wifi-device";
@@ -306,7 +296,6 @@ let
         band = "2g";
         channel = 1;
         htmode = "HE20";
-        disabled = false;
         cell_density = 0;
       };
 
@@ -316,27 +305,24 @@ let
         band = "5g";
         channel = 36;
         htmode = "HE80";
-        disabled = false;
         cell_density = 0;
       };
 
       ap_2g = {
         _type = "wifi-iface";
-        _anonymous = true;
         device = "radio0";
         inherit network;
         mode = "ap";
-        inherit ssid encryption;
-      } // lib.optionalAttrs (ssidKey != null) { key = ssidKey; };
+        inherit encryption;
+      };
 
       ap_5g = {
         _type = "wifi-iface";
-        _anonymous = true;
         device = "radio1";
         inherit network;
         mode = "ap";
-        inherit ssid encryption;
-      } // lib.optionalAttrs (ssidKey != null) { key = ssidKey; };
+        inherit encryption;
+      };
     };
   };
 
@@ -368,7 +354,6 @@ let
         name = "brvlan_${name}";
         value = {
           _type = "bridge-vlan";
-          _anonymous = true;
           device = "switch";
           vlan = vlan.tag;
           ports = map (p: "${p}:t") trunkPorts
@@ -470,7 +455,6 @@ let
         name = "brvlan_${lib.toLower name}";
         value = {
           _type = "bridge-vlan";
-          _anonymous = true;
           device = "br-lan";
           vlan = vlan.tag;
           ports = map (p: "${p}:t") trunkPorts
@@ -528,7 +512,6 @@ let
       firewall = {
         defaults = {
           _type = "defaults";
-          _anonymous = true;
           syn_flood = true;
           input = "REJECT";
           output = "ACCEPT";
@@ -537,7 +520,6 @@ let
 
         zone_wan = {
           _type = "zone";
-          _anonymous = true;
           name = "wan";
           network = [ "wan" ];
           input = "REJECT";
@@ -549,7 +531,6 @@ let
 
         zone_lan = {
           _type = "zone";
-          _anonymous = true;
           name = "lan";
           network = vlanIfaceNames;
           input = "ACCEPT";
@@ -559,14 +540,12 @@ let
 
         fwd_lan_wan = {
           _type = "forwarding";
-          _anonymous = true;
           src = "lan";
           dest = "wan";
         };
 
         rule_wan_dhcp = {
           _type = "rule";
-          _anonymous = true;
           name = "Allow-WAN-DHCP";
           src = "wan";
           proto = "udp";
@@ -594,7 +573,6 @@ let
       dhcp = {
         dnsmasq = {
           _type = "dnsmasq";
-          _anonymous = true;
           domainneeded = true;
           boguspriv = true;
           localise_queries = true;
@@ -620,8 +598,6 @@ let
     vlans,
     trunkPorts ? [ "lan2" "lan3" "lan4" ],
     mkGatewayAddresses,
-    ssid,
-    ssidKey ? null,
     encryption ? "sae-mixed",
     timezone ? "America/Los_Angeles",
     authorizedKeys ? [],
@@ -630,7 +606,7 @@ let
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
       // mkRouterNetworkConfig { inherit hostname vlans trunkPorts mkGatewayAddresses; }
-      // mkSimpleAPWirelessConfig { inherit ssid ssidKey encryption; network = "home"; }
+      // mkSimpleAPWirelessConfig { inherit encryption; network = "home"; }
       // mkRouterFirewallConfig { inherit vlans; }
       // mkRouterDHCPConfig { inherit vlans; }
       // mkDropbearConfig { inherit authorizedKeys; }
@@ -642,7 +618,6 @@ let
       system = {
         system = {
           _type = "system";
-          _anonymous = true;
           hostname = hostname;
           timezone = timezone;
           log_size = 64;
@@ -672,7 +647,6 @@ let
       dropbear = {
         main = {
           _type = "dropbear";
-          _anonymous = true;
           PasswordAuth = if authorizedKeys != [] then false else true;
           RootPasswordAuth = if authorizedKeys != [] then false else true;
           Port = 22;
@@ -683,8 +657,6 @@ let
   # Build complete mesh AP configuration
   mkMeshAPConfig = {
     hostname,
-    meshId,
-    meshKey ? null,
     vlans ? {},
     apNetworks ? {},
     lanAddresses ? [],
@@ -699,8 +671,8 @@ let
   }:
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
-      // mkMeshNetworkConfig { inherit hostname meshId vlans lanAddresses mgmtAddresses gateway; }
-      // mkMeshWirelessConfig { inherit meshId meshKey apNetworks country heBssColor legacyRates; }
+      // mkMeshNetworkConfig { inherit hostname vlans lanAddresses mgmtAddresses gateway; }
+      // mkMeshWirelessConfig { inherit apNetworks country heBssColor legacyRates; }
       // mkDropbearConfig { inherit authorizedKeys; }
     ) extraConfig;
 
@@ -727,8 +699,6 @@ let
     hostname,
     lanAddresses ? [],
     gateway ? null,
-    ssid,
-    ssidKey ? null,
     encryption ? "sae-mixed",
     timezone ? "UTC",
     authorizedKeys ? [],
@@ -737,21 +707,149 @@ let
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
       // mkSimpleAPNetworkConfig { inherit hostname lanAddresses gateway; }
-      // mkSimpleAPWirelessConfig { inherit ssid ssidKey encryption; }
+      // mkSimpleAPWirelessConfig { inherit encryption; }
       // mkDropbearConfig { inherit authorizedKeys; }
     ) extraConfig;
 
+  # Generate a map of sops secret key names → UCI paths for a device.
+  # Used by mkSecretsApplyScript to generate the on-device secrets apply script.
+  mkSecretsMap = { device, owrtData }:
+    let
+      extraWireless = (device.extraConfig or {}).wireless or {};
+      # Find IoT AP sections in extraConfig (e.g., ap_2g_iot)
+      iotSections = lib.filterAttrs (n: v: lib.hasPrefix "ap_" n && v ? network && v.network == "iot") extraWireless;
+      hasIot = iotSections != {};
+      iotNames = builtins.attrNames iotSections;
+    in
+      if device.type == "meshAP" then
+        let
+          apNames = builtins.attrNames (owrtData.defaultAPNetworks or {});
+        in {
+          mesh_id = [ "wireless.batmesh.mesh_id" ];
+          mesh_key = [ "wireless.batmesh.key" ];
+        } // lib.listToAttrs (map (name: {
+          name = "wifi_ssids.${name}";
+          value = [ "wireless.ap_2g_${name}.ssid" "wireless.ap_5g_${name}.ssid" ];
+        }) apNames)
+        // lib.listToAttrs (map (name: {
+          name = "wifi_keys.${name}";
+          value = [ "wireless.ap_2g_${name}.key" "wireless.ap_5g_${name}.key" ];
+        }) apNames)
+        // lib.optionalAttrs hasIot (lib.listToAttrs (map (sect: {
+          name = "wifi_ssids.iot";
+          value = [ "wireless.${sect}.ssid" ];
+        }) iotNames)
+        // lib.listToAttrs (map (sect: {
+          name = "wifi_keys.iot";
+          value = [ "wireless.${sect}.key" ];
+        }) iotNames))
+
+      else if device.type == "simpleAP" || device.type == "router" then {
+        "wifi_ssids.main" = [ "wireless.ap_2g.ssid" "wireless.ap_5g.ssid" ];
+        "wifi_keys.main" = [ "wireless.ap_2g.key" "wireless.ap_5g.key" ];
+      }
+
+      else
+        # switch — no WiFi secrets
+        {};
+
+  # Generate a shell script that reads key=value from stdin and applies secrets.
+  # Baked into the image at /etc/nix-secrets-apply.
+  mkSecretsApplyScript = { device, owrtData }:
+    let
+      secretsMap = mkSecretsMap { inherit device owrtData; };
+      hasWifi = device.type != "switch";
+
+      # Generate case branches from secrets map
+      caseBranches = lib.concatStringsSep "\n" (lib.mapAttrsToList (key: uciPaths:
+        let
+          uciCommands = lib.concatMapStringsSep "\n" (path:
+            "        uci set ${path}=\"$value\""
+          ) uciPaths;
+        in ''
+      ${key})
+${uciCommands}
+        ;;''
+      ) secretsMap);
+
+    in ''
+      #!/bin/sh
+      # nix-secrets-apply — generated by nix-openwrt
+      # Reads key=value lines from stdin and applies them as UCI settings.
+      # Unknown keys are warned about but do not cause failure.
+
+      CHANGED=0
+
+      while IFS='=' read -r key value; do
+        # Skip empty lines and comments
+        case "$key" in
+          ""|\#*) continue ;;
+        esac
+
+        case "$key" in
+      ${caseBranches}
+        *)
+          echo "WARNING: unknown secret key: $key" >&2
+          ;;
+        esac
+        CHANGED=1
+      done
+
+      if [ "$CHANGED" = "1" ]; then
+        uci commit wireless
+      ${lib.optionalString hasWifi ''
+        # Enable radios (they ship disabled, secrets script activates them)
+        uci set wireless.radio0.disabled=0
+        uci set wireless.radio1.disabled=0
+        uci commit wireless
+        wifi reload
+      ''}
+        echo "Secrets applied successfully."
+      else
+        echo "No secrets provided."
+      fi
+    '';
+
   # Generate config files derivation (uci-defaults + authorized_keys)
   # Single function replacing the copy-pasted runCommand blocks in mk*Image
-  mkConfigFiles = { pkgs, hostname, config, authorizedKeys ? [], extraFiles ? null }:
+  # Migration pre-commands: delete anonymous sections before creating named ones.
+  # On sysupgrade from anonymous → named, this prevents duplicates.
+  # Safe no-op on fresh installs (no anonymous sections to delete).
+  migrationPreCommands = [
+    "# Migration: remove anonymous sections (safe no-op when none exist)"
+    "while uci -q delete wireless.@wifi-iface[-1]; do :; done"
+    "while uci -q delete firewall.@defaults[-1]; do :; done"
+    "while uci -q delete firewall.@zone[-1]; do :; done"
+    "while uci -q delete firewall.@forwarding[-1]; do :; done"
+    "while uci -q delete firewall.@rule[-1]; do :; done"
+    "while uci -q delete system.@system[-1]; do :; done"
+    "while uci -q delete dropbear.@dropbear[-1]; do :; done"
+    "while uci -q delete dhcp.@dnsmasq[-1]; do :; done"
+    "while uci -q delete network.@bridge-vlan[-1]; do :; done"
+    "while uci -q delete system.@led[-1]; do :; done"
+  ];
+
+  mkConfigFiles = { pkgs, hostname, config, device ? null, owrtData ? null, authorizedKeys ? [], extraFiles ? null, preCommands ? migrationPreCommands }:
+    let
+      secretsScript = if device != null && owrtData != null
+        then mkSecretsApplyScript { inherit device owrtData; }
+        else null;
+    in
     pkgs.runCommand "openwrt-config-files-${hostname}" {} ''
       mkdir -p $out/etc/uci-defaults
       mkdir -p $out/etc/dropbear
 
       cat > $out/etc/uci-defaults/99-nix-config <<'UCIEOF'
-      ${uci.mkUCIDefaults { name = "nix-config"; inherit config; }}
+      ${uci.mkUCIDefaults { name = "nix-config"; inherit config; inherit preCommands; }}
       UCIEOF
       chmod +x $out/etc/uci-defaults/99-nix-config
+
+      ${lib.optionalString (secretsScript != null) ''
+        cat > $out/etc/nix-secrets-apply <<'SECRETSEOF'
+        ${secretsScript}
+        SECRETSEOF
+        chmod +x $out/etc/nix-secrets-apply
+      ''}
 
       ${lib.optionalString (authorizedKeys != []) ''
         cat > $out/etc/dropbear/authorized_keys <<'KEYSEOF'
@@ -793,12 +891,11 @@ let
   mkDeviceConfig = { device, owrtData }:
     let
       inherit (owrtData) mkAddresses mkGateway meshVlans switchVlans
-                         authorizedKeys defaultAPNetworks meshConfig;
+                         authorizedKeys defaultAPNetworks;
     in
       if device.type == "meshAP" then
         mkMeshAPConfig {
           inherit (device) hostname;
-          inherit (meshConfig) meshId;
           inherit authorizedKeys;
           vlans = meshVlans;
           apNetworks = defaultAPNetworks;
@@ -822,22 +919,20 @@ let
         }
       else if device.type == "simpleAP" then
         mkSimpleAPConfig {
-          inherit (device) hostname ssid;
+          inherit (device) hostname;
           inherit authorizedKeys;
           lanAddresses = mkAddresses device.vlanId device.hostId;
           gateway = mkGateway device.vlanId;
-          ssidKey = device.ssidKey or null;
           encryption = device.encryption or "sae-mixed";
           extraConfig = device.extraConfig or {};
         }
       else if device.type == "router" then
         mkRouterConfig {
-          inherit (device) hostname ssid;
+          inherit (device) hostname;
           inherit authorizedKeys;
           vlans = owrtData.routerVlans;
           mkGatewayAddresses = owrtData.mkGatewayAddresses;
           trunkPorts = device.trunkPorts or [ "lan2" "lan3" "lan4" ];
-          ssidKey = device.ssidKey or null;
           encryption = device.encryption or "sae-mixed";
           timezone = device.timezone or "America/Los_Angeles";
           extraConfig = device.extraConfig or {};
@@ -862,7 +957,7 @@ let
         else throw "mkDeviceImage: unknown device type '${device.type}'";
     in mkImage {
       inherit pkgs profile config packages release;
-      files = mkConfigFiles { inherit pkgs hostname config authorizedKeys extraFiles; };
+      files = mkConfigFiles { inherit pkgs hostname config device owrtData authorizedKeys extraFiles; };
     };
 
 in {
@@ -904,6 +999,8 @@ in {
     mkMeshAPConfig
     mkSwitchConfig
     mkSimpleAPConfig
+    mkSecretsMap
+    mkSecretsApplyScript
     mkConfigFiles
     mkImage
     mkDeviceConfig

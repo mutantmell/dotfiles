@@ -64,23 +64,16 @@ in
   ];
 
   # Common AP networks (can be overridden per-device)
-  # Keys are intentionally omitted - configured via secrets post-deployment
+  # SSIDs and keys are configured via secrets post-deployment — only structural
+  # config (network assignment, encryption type) lives here.
   defaultAPNetworks = {
     main = {
-      ssid = "MyNetwork";
       network = "lan";
       encryption = "sae-mixed";
     };
     secondary = {
-      ssid = "MyNetwork-Alt";
       network = "lan";
       encryption = "sae-mixed";
     };
-  };
-
-  # Shared mesh configuration matching thebeyond's batman-adv setup
-  # meshKey is intentionally omitted - configured via secrets post-deployment
-  meshConfig = {
-    meshId = "change-me-mesh-id";
   };
 }
