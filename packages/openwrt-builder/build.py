@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """OpenWrt image builder — downloads upstream Image Builder and runs make image.
 
-Replaces nix-openwrt-imagebuilder with a direct approach that:
-1. Loads device config from baked-in JSON or evaluates Nix
+1. Loads device config from a JSON build-info file (--build-info)
 2. Optionally decrypts sops secrets and bakes them into the image
 3. Downloads the upstream OpenWrt Image Builder tarball
 4. Runs `make image` with the prepared filesystem overlay
 
 Usage:
-    openwrt-build <device> [--no-secrets] [--output-dir DIR] [--cache-dir DIR]
-    openwrt-build <device> --show-config
-    openwrt-build --list-devices
+    openwrt-build <device> --build-info <json> [--no-secrets] [--output-dir DIR]
+    openwrt-build <device> --build-info <json> --show-config
+    openwrt-build --build-info <json> --list-devices
 
 Environment variables:
     OPENWRT_BUILD_INFO   — path to JSON file with all device build info
@@ -38,57 +37,30 @@ def load_build_info_from_file(build_info_path):
         return json.load(f)
 
 
-def get_build_info_nix(device, repo_root):
-    """Evaluate Nix to get build info for a device (fallback)."""
-    result = subprocess.run(
-        ["nix", "eval", "--json", f".#openwrtBuildInfo.{device}"],
-        capture_output=True, text=True, cwd=repo_root,
-    )
-    if result.returncode != 0:
-        print(f"Error: Failed to evaluate build info for '{device}'", file=sys.stderr)
-        print(result.stderr, file=sys.stderr)
+def get_build_info(device, build_info_path):
+    """Get build info for a device from JSON file."""
+    if not build_info_path:
+        print("Error: --build-info is required.", file=sys.stderr)
+        print("Pass a JSON file via --build-info or $OPENWRT_BUILD_INFO.", file=sys.stderr)
         sys.exit(1)
-    return json.loads(result.stdout)
-
-
-def get_build_info(device, build_info_path, repo_root):
-    """Get build info for a device from JSON file or Nix eval."""
-    if build_info_path:
-        all_info = load_build_info_from_file(build_info_path)
-        if device not in all_info:
-            print(f"Error: Unknown device '{device}'", file=sys.stderr)
-            print(f"Available devices: {', '.join(sorted(all_info.keys()))}", file=sys.stderr)
-            sys.exit(1)
-        return all_info[device]
-    if not repo_root:
-        print("Error: No --build-info file and no repository root found.", file=sys.stderr)
-        print("Either set OPENWRT_BUILD_INFO or run from within the repo.", file=sys.stderr)
+    all_info = load_build_info_from_file(build_info_path)
+    if device not in all_info:
+        print(f"Error: Unknown device '{device}'", file=sys.stderr)
+        print(f"Available devices: {', '.join(sorted(all_info.keys()))}", file=sys.stderr)
         sys.exit(1)
-    return get_build_info_nix(device, repo_root)
+    return all_info[device]
 
 
-def list_devices(build_info_path, repo_root):
+def list_devices(build_info_path):
     """List available devices."""
-    if build_info_path:
-        all_info = load_build_info_from_file(build_info_path)
-    elif repo_root:
-        result = subprocess.run(
-            ["nix", "eval", "--json", ".#openwrtBuildInfo", "--apply", "builtins.attrNames"],
-            capture_output=True, text=True, cwd=repo_root,
-        )
-        if result.returncode != 0:
-            print("Error: Failed to list devices", file=sys.stderr)
-            print(result.stderr, file=sys.stderr)
-            sys.exit(1)
-        names = json.loads(result.stdout)
-        all_info = {n: None for n in names}
-    else:
-        print("Error: No --build-info file and no repository root found.", file=sys.stderr)
+    if not build_info_path:
+        print("Error: --build-info is required.", file=sys.stderr)
+        print("Pass a JSON file via --build-info or $OPENWRT_BUILD_INFO.", file=sys.stderr)
         sys.exit(1)
-
+    all_info = load_build_info_from_file(build_info_path)
     for name in sorted(all_info.keys()):
-        if all_info[name] and "hostname" in all_info[name]:
-            info = all_info[name]
+        info = all_info[name]
+        if "hostname" in info:
             print(f"  {name:20s} {info.get('deviceType', ''):10s} {info.get('profile', '')}")
         else:
             print(f"  {name}")
@@ -301,28 +273,10 @@ def find_sysupgrade(output_dir):
     return None
 
 
-def find_repo_root():
-    """Try to find the repository root via git or REPO_ROOT env."""
-    repo_root = os.environ.get("REPO_ROOT")
-    if repo_root:
-        return repo_root
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        return result.stdout.strip()
-    return None
-
-
-def find_secrets_file(explicit_path, repo_root):
+def find_secrets_file(explicit_path):
     """Resolve the secrets file path."""
     if explicit_path:
         return explicit_path
-    if repo_root:
-        default = os.path.join(repo_root, "hosts", "openwrt", "secrets", "wifi.yaml")
-        if os.path.isfile(default):
-            return default
     return None
 
 
@@ -369,12 +323,9 @@ def main():
     # Resolve secrets file from flag or env
     secrets_file_explicit = args.secrets_file or os.environ.get("OPENWRT_SECRETS_FILE")
 
-    # Repo root is optional — only needed when build-info is not provided
-    repo_root = find_repo_root() if not build_info_path else None
-
     # Handle --list-devices
     if args.list_devices:
-        list_devices(build_info_path, repo_root)
+        list_devices(build_info_path)
         return
 
     # Device is required for all other operations
@@ -382,7 +333,7 @@ def main():
         parser.error("device is required (unless --list-devices is specified)")
 
     # Get build info
-    build_info = get_build_info(args.device, build_info_path, repo_root)
+    build_info = get_build_info(args.device, build_info_path)
 
     # Handle --show-config
     if args.show_config:
@@ -392,8 +343,6 @@ def main():
     # Determine output directory
     if args.output_dir:
         output_dir = args.output_dir
-    elif repo_root:
-        output_dir = Path(repo_root) / "openwrt-images" / args.device
     else:
         output_dir = Path.cwd() / "openwrt-images" / args.device
 
@@ -408,7 +357,7 @@ def main():
     uci_script = build_info["uciDefaultsScript"]
     if not args.no_secrets:
         print("[2/5] Decrypting secrets...")
-        secrets_file = find_secrets_file(secrets_file_explicit, repo_root)
+        secrets_file = find_secrets_file(secrets_file_explicit)
         if secrets_file:
             secrets_kv = decrypt_secrets(secrets_file)
             if secrets_kv and build_info.get("secretsMap"):
