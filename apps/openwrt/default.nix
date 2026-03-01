@@ -34,6 +34,7 @@
 
 let
   builder = pkgs.mmell.openwrt-builder;
+  deployer = pkgs.mmell.openwrt-deployer;
 
   # Build info JSON — generated at Nix eval time, passed to the builder at runtime
   buildInfoFile = pkgs.writeText "openwrt-build-info.json"
@@ -160,9 +161,10 @@ in {
 
         FORCE=""
         BUILD_ARGS=""
+        DEPLOY_ARGS=""
         for arg in "$@"; do
           case "$arg" in
-            --force) FORCE="1" ;;
+            --force) DEPLOY_ARGS="$DEPLOY_ARGS --force" ;;
             --no-secrets) BUILD_ARGS="$BUILD_ARGS --no-secrets" ;;
           esac
         done
@@ -188,31 +190,8 @@ in {
           exit 1
         fi
 
-        echo ""
-        echo "Image: $SYSUPGRADE"
-        echo "Target: $TARGET"
-        echo ""
-
-        if [ -z "$FORCE" ]; then
-          read -p "Deploy to $TARGET? This will reboot the device. [y/N] " -n 1 -r
-          echo
-          if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo "Aborted."
-            exit 0
-          fi
-        fi
-
-        echo "Uploading image..."
-        ${pkgs.openssh}/bin/scp -O "$SYSUPGRADE" "root@$TARGET:/tmp/sysupgrade.bin"
-
-        echo "Starting sysupgrade (device will reboot)..."
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "sysupgrade -v /tmp/sysupgrade.bin" || true
-
-        echo ""
-        echo "Upgrade initiated. Device is rebooting."
-        echo "Wait ~2-3 minutes, then verify connectivity."
-        echo ""
-        echo "Deployment complete."
+        # Deploy the image
+        ${deployer}/bin/openwrt-deploy "$TARGET" "$SYSUPGRADE" $DEPLOY_ARGS
       '';
     in "${script}";
   };
