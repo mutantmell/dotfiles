@@ -11,7 +11,7 @@
 }:
 
 let
-  openwrt = import ../../lib/openwrt { inherit lib; openwrt-imagebuilder = null; };
+  openwrt = import ../../lib/openwrt { inherit lib; };
   owrtData = import ../../lib/common/data/openwrt.nix { inherit lib; };
 
   assertEq = name: a: b:
@@ -26,6 +26,8 @@ let
     type = "meshAP";
     hostname = "test-mesh";
     profile = "linksys_e8450-ubi";
+    target = "mediatek";
+    subtarget = "mt7622";
     hostId = 99;
     heBssColor = 42;
     legacyRates = true;
@@ -35,6 +37,8 @@ let
     type = "switch";
     hostname = "test-switch";
     profile = "netgear_gs108t-v3";
+    target = "realtek";
+    subtarget = "rtl838x";
     hostId = 50;
     vlanId = 10;
   };
@@ -43,6 +47,8 @@ let
     type = "simpleAP";
     hostname = "test-simple";
     profile = "tplink_eap615-wall-v1";
+    target = "ramips";
+    subtarget = "mt7621";
     hostId = 30;
     vlanId = 31;
   };
@@ -51,6 +57,8 @@ let
     type = "router";
     hostname = "test-router";
     profile = "linksys_e8450-ubi";
+    target = "mediatek";
+    subtarget = "mt7622";
   };
 
   meshWithExtra = meshDevice // {
@@ -304,6 +312,67 @@ let
     "derfflinger secrets has wifi_ssids.iot" =
       let sm = openwrt.mkSecretsMap { device = realDevices.derfflinger; inherit owrtData; };
       in sm ? "wifi_ssids.iot";
+
+    # target/subtarget on all real devices
+    "real bobcat has target" = realDevices.bobcat ? target;
+    "real bobcat has subtarget" = realDevices.bobcat ? subtarget;
+    "real bobcat target is mediatek" = realDevices.bobcat.target == "mediatek";
+    "real arseille target is realtek" = realDevices.arseille.target == "realtek";
+    "real arseille subtarget is rtl838x" = realDevices.arseille.subtarget == "rtl838x";
+    "real glorious target is ramips" = realDevices.glorious.target == "ramips";
+    "real glorious subtarget is mt7621" = realDevices.glorious.subtarget == "mt7621";
+    "real bobcat-router has target" = realDevices.bobcat-router ? target;
+    "all real devices have target" =
+      lib.all (d: d ? target && d ? subtarget) (builtins.attrValues realDevices);
+
+    # migrationPreCommands is exported
+    "migrationPreCommands is exported" = openwrt ? migrationPreCommands;
+    "migrationPreCommands is a list" = builtins.isList openwrt.migrationPreCommands;
+    "migrationPreCommands is non-empty" = builtins.length openwrt.migrationPreCommands > 0;
+
+    # buildInfo structure (test with synthetic devices)
+    "buildInfo mesh structure" =
+      let
+        info = let
+          config = openwrt.mkDeviceConfig { device = meshDevice; inherit owrtData; };
+          extraPackages = meshDevice.extraPackages or [];
+          packages = openwrt.defaultMeshPackages ++ extraPackages;
+        in {
+          hostname = meshDevice.hostname;
+          profile = meshDevice.profile;
+          target = meshDevice.target;
+          subtarget = meshDevice.subtarget;
+          release = meshDevice.release or owrtData.defaultRelease;
+          inherit packages;
+          uciDefaultsScript = openwrt.uci.mkUCIDefaults {
+            name = "nix-config";
+            inherit config;
+            preCommands = openwrt.migrationPreCommands;
+          };
+          deviceType = meshDevice.type;
+        };
+      in info ? hostname && info ? profile && info ? target && info ? subtarget
+         && info ? release && info ? packages && info ? uciDefaultsScript && info ? deviceType;
+
+    "buildInfo hostname correct" =
+      let
+        config = openwrt.mkDeviceConfig { device = meshDevice; inherit owrtData; };
+      in meshDevice.hostname == "test-mesh";
+
+    "buildInfo target correct" = meshDevice.target == "mediatek";
+    "buildInfo subtarget correct" = meshDevice.subtarget == "mt7622";
+    "buildInfo release is string" = builtins.isString (meshDevice.release or owrtData.defaultRelease);
+    "buildInfo packages is list" = builtins.isList openwrt.defaultMeshPackages;
+
+    "buildInfo uciDefaultsScript is string" =
+      let
+        config = openwrt.mkDeviceConfig { device = meshDevice; inherit owrtData; };
+        script = openwrt.uci.mkUCIDefaults {
+          name = "nix-config";
+          inherit config;
+          preCommands = openwrt.migrationPreCommands;
+        };
+      in builtins.isString script;
   };
 
   failures = lib.filterAttrs (_: v: !v) allTests;

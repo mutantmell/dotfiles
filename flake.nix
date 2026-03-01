@@ -32,10 +32,6 @@
       url = github:nix-community/disko;
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    openwrt-imagebuilder = {
-      url = github:astro/nix-openwrt-imagebuilder;
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     deploy-rs = {
       url = github:serokell/deploy-rs;
       inputs.nixpkgs.follows = "nixpkgs";
@@ -44,7 +40,7 @@
   outputs = {
     self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager,
       sops-nix, jovian, microvm, impermanence, disko,
-      home-manager-stable, microvm-stable, openwrt-imagebuilder,
+      home-manager-stable, microvm-stable,
       deploy-rs,
   }: let
     pkgsFor = basepkgs: system: import basepkgs {
@@ -113,7 +109,7 @@
 
     lib = {
       common = import ./lib/common { inherit (nixpkgs) lib; };
-      openwrt = import ./lib/openwrt { inherit (nixpkgs) lib; inherit openwrt-imagebuilder; };
+      openwrt = import ./lib/openwrt { inherit (nixpkgs) lib; };
       diskoProfiles = {
         router = import ./profiles/disko/router.nix;
         vm-host = import ./profiles/disko/vm-host.nix;
@@ -241,12 +237,37 @@
       self.lib.openwrt.mkDeviceConfig { inherit device owrtData; }
     ) self.openwrtDevices;
 
-    # OpenWrt images (x86_64-linux only - imagebuilder limitation)
-    openwrtImages = let
-      pkgs = pkgsFor nixpkgs "x86_64-linux";
+    # OpenWrt build info (JSON-serializable, for Python builder)
+    openwrtBuildInfo = let
       owrtData = import ./lib/common/data/openwrt.nix { inherit (nixpkgs) lib; };
+      openwrt = self.lib.openwrt;
     in builtins.mapAttrs (_: device:
-      self.lib.openwrt.mkDeviceImage { inherit pkgs device owrtData; }
+      let
+        config = openwrt.mkDeviceConfig { inherit device owrtData; };
+        extraPackages = device.extraPackages or [];
+        packages =
+          if device.type == "meshAP" then openwrt.defaultMeshPackages ++ extraPackages
+          else if device.type == "switch" then openwrt.defaultSwitchPackages ++ extraPackages
+          else if device.type == "simpleAP" then openwrt.defaultSimpleAPPackages ++ extraPackages
+          else if device.type == "router" then openwrt.defaultRouterPackages ++ extraPackages
+          else throw "openwrtBuildInfo: unknown device type '${device.type}'";
+      in {
+        hostname = device.hostname;
+        profile = device.profile;
+        target = device.target;
+        subtarget = device.subtarget;
+        release = device.release or owrtData.defaultRelease;
+        inherit packages;
+        uciDefaultsScript = openwrt.uci.mkUCIDefaults {
+          name = "nix-config";
+          inherit config;
+          preCommands = openwrt.migrationPreCommands;
+        };
+        secretsApplyScript = openwrt.mkSecretsApplyScript { inherit device owrtData; };
+        secretsMap = openwrt.mkSecretsMap { inherit device owrtData; };
+        authorizedKeys = owrtData.authorizedKeys;
+        deviceType = device.type;
+      }
     ) self.openwrtDevices;
 
     # Apps for OpenWrt management
