@@ -6,7 +6,7 @@
 # - Managing mesh networking with batman-adv
 # - Managing managed switches with VLAN filtering
 # - Deploying to devices via SSH/sysupgrade
-{ lib, openwrt-imagebuilder ? null }:
+{ lib }:
 
 let
   uci = import ./uci.nix { inherit lib; };
@@ -829,66 +829,6 @@ ${uciCommands}
     "while uci -q delete system.@led[-1]; do :; done"
   ];
 
-  mkConfigFiles = { pkgs, hostname, config, device ? null, owrtData ? null, authorizedKeys ? [], extraFiles ? null, preCommands ? migrationPreCommands }:
-    let
-      secretsScript = if device != null && owrtData != null
-        then mkSecretsApplyScript { inherit device owrtData; }
-        else null;
-    in
-    pkgs.runCommand "openwrt-config-files-${hostname}" {} ''
-      mkdir -p $out/etc/uci-defaults
-      mkdir -p $out/etc/dropbear
-
-      cat > $out/etc/uci-defaults/99-nix-config <<'UCIEOF'
-      ${uci.mkUCIDefaults { name = "nix-config"; inherit config; inherit preCommands; }}
-      UCIEOF
-      chmod +x $out/etc/uci-defaults/99-nix-config
-
-      ${lib.optionalString (secretsScript != null) ''
-        cat > $out/etc/nix-secrets-apply <<'SECRETSEOF'
-        ${secretsScript}
-        SECRETSEOF
-        chmod +x $out/etc/nix-secrets-apply
-      ''}
-
-      ${lib.optionalString (authorizedKeys != []) ''
-        cat > $out/etc/dropbear/authorized_keys <<'KEYSEOF'
-        ${lib.concatStringsSep "\n" authorizedKeys}
-        KEYSEOF
-        chmod 600 $out/etc/dropbear/authorized_keys
-      ''}
-
-      ${lib.optionalString (extraFiles != null) ''
-        cp -r ${extraFiles}/* $out/
-      ''}
-    '';
-
-  # Build an OpenWrt image with the given configuration
-  # DEPRECATED: Use the Python builder (apps/openwrt/build.py) instead.
-  mkImage = { pkgs, profile, config, packages ? [], files ? null, extraImageConfig ? {}, release ? null }:
-    if openwrt-imagebuilder == null then
-      throw "mkImage requires openwrt-imagebuilder input, which has been removed. Use 'nix run .#openwrt-build' instead."
-    else let
-      profiles = openwrt-imagebuilder.lib.profiles (
-        { inherit pkgs; } // lib.optionalAttrs (release != null) { inherit release; }
-      );
-
-      # Generate files from config if not provided
-      generatedFiles = pkgs.runCommand "openwrt-config-files" {} ''
-        mkdir -p $out/etc/uci-defaults
-        cat > $out/etc/uci-defaults/99-nix-config <<'EOF'
-        ${uci.mkUCIDefaults { name = "nix-config"; inherit config; }}
-        EOF
-        chmod +x $out/etc/uci-defaults/99-nix-config
-      '';
-
-      imageConfig = profiles.identifyProfile profile // {
-        inherit packages;
-        files = if files != null then files else generatedFiles;
-      } // extraImageConfig;
-
-    in openwrt-imagebuilder.lib.build imageConfig;
-
   # Generate UCI config from a device declaration (pure data with a type field)
   # Dispatches to the appropriate mk*Config function based on device.type
   mkDeviceConfig = { device, owrtData }:
@@ -942,30 +882,6 @@ ${uciCommands}
         }
       else throw "mkDeviceConfig: unknown device type '${device.type}'";
 
-  # Build an image from a device declaration
-  # DEPRECATED: Use the Python builder (apps/openwrt/build.py) instead.
-  mkDeviceImage = { pkgs, device, owrtData }:
-    if openwrt-imagebuilder == null then
-      throw "mkDeviceImage requires openwrt-imagebuilder input, which has been removed. Use 'nix run .#openwrt-build' instead."
-    else
-    let
-      config = mkDeviceConfig { inherit device owrtData; };
-      inherit (device) hostname profile;
-      release = device.release or owrtData.defaultRelease or null;
-      extraPackages = device.extraPackages or [];
-      extraFiles = device.extraFiles or null;
-      inherit (owrtData) authorizedKeys;
-      packages =
-        if device.type == "meshAP" then defaultMeshPackages ++ extraPackages
-        else if device.type == "switch" then defaultSwitchPackages ++ extraPackages
-        else if device.type == "simpleAP" then defaultSimpleAPPackages ++ extraPackages
-        else if device.type == "router" then defaultRouterPackages ++ extraPackages
-        else throw "mkDeviceImage: unknown device type '${device.type}'";
-    in mkImage {
-      inherit pkgs profile config packages release;
-      files = mkConfigFiles { inherit pkgs hostname config device owrtData authorizedKeys extraFiles; };
-    };
-
 in {
   # Re-export UCI library
   inherit uci;
@@ -1007,9 +923,6 @@ in {
     mkSimpleAPConfig
     mkSecretsMap
     mkSecretsApplyScript
-    mkConfigFiles
-    mkImage
     mkDeviceConfig
-    mkDeviceImage
     migrationPreCommands;
 }

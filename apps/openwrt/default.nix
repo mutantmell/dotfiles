@@ -15,6 +15,9 @@
 #   nix run .#openwrt-export-config -- <device-ip> [output-dir]
 #   nix run .#openwrt-analyze-packages -- <device-ip>
 #
+# Local analysis (from exported configs):
+#   nix run .#openwrt-analyze-local -- <config-dir-or-uci-file>
+#
 # Secrets file format (hosts/openwrt/secrets/wifi.yaml):
 #   mesh_id: "your-mesh-id"
 #   mesh_key: "your-mesh-password"
@@ -95,64 +98,35 @@ let
     echo "$KEY_VALUES" | ${pkgs.openssh}/bin/ssh "root@$TARGET" "/etc/nix-secrets-apply"
   '';
 
-  # Script to wait for device to come back online
-  waitForDeviceScript = pkgs.writeShellScript "wait-for-device" ''
-    TARGET="$1"
-    MAX_WAIT="''${2:-180}"
+  # Python with libraries needed by build.py
+  python = pkgs.python3.withPackages (ps: [ ps.pyyaml ps.zstandard ]);
 
-    echo "Waiting for $TARGET to come back online (max ''${MAX_WAIT}s)..."
-
-    elapsed=0
-    while [ $elapsed -lt $MAX_WAIT ]; do
-      if ${pkgs.openssh}/bin/ssh -o ConnectTimeout=5 -o BatchMode=yes "root@$TARGET" "echo ok" >/dev/null 2>&1; then
-        echo "Device is online."
-        exit 0
-      fi
-      sleep 5
-      elapsed=$((elapsed + 5))
-      echo "  Still waiting... (''${elapsed}s)"
-    done
-
-    echo "Timeout waiting for device."
-    exit 1
+  # Shared wrapper that runs the Python builder with all required tools in PATH.
+  # PATH includes tools needed by the OpenWrt Image Builder's `make image`.
+  buildScript = pkgs.writeShellScript "openwrt-build" ''
+    export PATH="${pkgs.lib.makeBinPath [
+      python pkgs.sops pkgs.nix pkgs.git
+      pkgs.gnumake pkgs.gnutar pkgs.coreutils
+      pkgs.findutils pkgs.gnugrep pkgs.gawk pkgs.gnused pkgs.perl
+      pkgs.patch pkgs.diffutils pkgs.file pkgs.unzip pkgs.bzip2
+      pkgs.which pkgs.ncurses pkgs.rsync pkgs.xz
+    ]}:$PATH"
+    REPO_ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+    export REPO_ROOT
+    exec ${python}/bin/python3 "$REPO_ROOT/apps/openwrt/build.py" "$@"
   '';
 
 in {
   # Build an OpenWrt image using the upstream Image Builder
   openwrt-build = {
     type = "app";
-    program = let
-      script = pkgs.writeShellScript "openwrt-build" ''
-        export PATH="${pkgs.lib.makeBinPath [
-          pkgs.python3 pkgs.sops pkgs.yq-go pkgs.nix pkgs.git
-          pkgs.gnumake pkgs.gnutar pkgs.zstd pkgs.wget pkgs.coreutils
-          pkgs.findutils pkgs.gnugrep pkgs.gawk pkgs.gnused pkgs.perl
-          pkgs.patch pkgs.diffutils pkgs.file pkgs.unzip pkgs.bzip2
-          pkgs.which pkgs.ncurses pkgs.rsync pkgs.xz
-        ]}:$PATH"
-        REPO_ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-        export REPO_ROOT
-        exec ${pkgs.python3}/bin/python3 "$REPO_ROOT/apps/openwrt/build.py" "$@"
-      '';
-    in "${script}";
+    program = "${buildScript}";
   };
 
   # Deploy an OpenWrt image to a device via sysupgrade
   openwrt-deploy = {
     type = "app";
     program = let
-      buildScript = pkgs.writeShellScript "openwrt-build-for-deploy" ''
-        export PATH="${pkgs.lib.makeBinPath [
-          pkgs.python3 pkgs.sops pkgs.yq-go pkgs.nix pkgs.git
-          pkgs.gnumake pkgs.gnutar pkgs.zstd pkgs.wget pkgs.coreutils
-          pkgs.findutils pkgs.gnugrep pkgs.gawk pkgs.gnused pkgs.perl
-          pkgs.patch pkgs.diffutils pkgs.file pkgs.unzip pkgs.bzip2
-          pkgs.which pkgs.ncurses pkgs.rsync pkgs.xz
-        ]}:$PATH"
-        REPO_ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-        export REPO_ROOT
-        exec ${pkgs.python3}/bin/python3 "$REPO_ROOT/apps/openwrt/build.py" "$@"
-      '';
       script = pkgs.writeShellScript "openwrt-deploy" ''
         set -euo pipefail
 
@@ -178,11 +152,11 @@ in {
         shift 2
 
         FORCE=""
-        BUILD_ARGS=()
+        NO_SECRETS=""
         for arg in "$@"; do
           case "$arg" in
             --force) FORCE="1" ;;
-            --no-secrets) BUILD_ARGS+=("--no-secrets") ;;
+            --no-secrets) NO_SECRETS="1" ;;
           esac
         done
 
@@ -196,7 +170,11 @@ in {
         OUTPUT_DIR="$REPO_ROOT/openwrt-images/$DEVICE"
 
         # Build the image
-        ${buildScript} "$DEVICE" --output-dir "$OUTPUT_DIR" "''${BUILD_ARGS[@]}"
+        if [ -n "$NO_SECRETS" ]; then
+          ${buildScript} "$DEVICE" --output-dir "$OUTPUT_DIR" --no-secrets
+        else
+          ${buildScript} "$DEVICE" --output-dir "$OUTPUT_DIR"
+        fi
 
         # Find the sysupgrade image
         SYSUPGRADE=$(find "$OUTPUT_DIR" -name "*-sysupgrade.bin" -o -name "*-sysupgrade.img.gz" | head -1)
