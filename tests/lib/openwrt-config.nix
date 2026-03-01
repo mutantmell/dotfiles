@@ -45,14 +45,12 @@ let
     profile = "tplink_eap615-wall-v1";
     hostId = 30;
     vlanId = 31;
-    ssid = "TestNetwork";
   };
 
   routerDevice = {
     type = "router";
     hostname = "test-router";
     profile = "linksys_e8450-ubi";
-    ssid = "TestNetwork";
   };
 
   meshWithExtra = meshDevice // {
@@ -81,6 +79,13 @@ let
   simpleAPUCI = lib.concatStringsSep "\n" (openwrt.uci.renderConfigs simpleAPConfig);
   routerUCI = lib.concatStringsSep "\n" (openwrt.uci.renderConfigs routerConfig);
 
+  # --- Secrets maps ---
+
+  meshSecretsMap = openwrt.mkSecretsMap { device = meshDevice; inherit owrtData; };
+  switchSecretsMap = openwrt.mkSecretsMap { device = switchDevice; inherit owrtData; };
+  simpleAPSecretsMap = openwrt.mkSecretsMap { device = simpleAPDevice; inherit owrtData; };
+  routerSecretsMap = openwrt.mkSecretsMap { device = routerDevice; inherit owrtData; };
+
   # --- Test real device declarations load ---
 
   realDevices = import ../../hosts/openwrt { inherit lib; };
@@ -102,7 +107,7 @@ let
     "meshAP has mgmt bridge" = meshConfig.network ? br_mgmt;
     "meshAP has admin bridge" = meshConfig.network ? br_admin;
     "meshAP has mesh interface" = meshConfig.wireless ? batmesh;
-    "meshAP mesh uses correct ID" = meshConfig.wireless.batmesh.mesh_id == owrtData.meshConfig.meshId;
+    "meshAP batmesh has encryption" = meshConfig.wireless.batmesh.encryption == "sae";
     "meshAP has he_bss_color" = meshConfig.wireless.radio1.he_bss_color == 42;
     "meshAP has legacy_rates" = meshConfig.wireless.radio0.legacy_rates == true;
 
@@ -156,7 +161,6 @@ let
 
     "simpleAP hostname set" = simpleAPConfig.system.system.hostname == "test-simple";
     "simpleAP has br-lan" = simpleAPConfig.network ? br_lan;
-    "simpleAP ssid set" = simpleAPConfig.wireless.ap_2g.ssid == "TestNetwork";
     "simpleAP has both radios" = simpleAPConfig.wireless ? ap_5g;
 
     "simpleAP lan addresses use correct VLAN" =
@@ -222,17 +226,15 @@ let
     # Router wireless
     "router has both radios" = routerConfig.wireless ? radio0 && routerConfig.wireless ? radio1;
     "router has AP interfaces" = routerConfig.wireless ? ap_2g && routerConfig.wireless ? ap_5g;
-    "router AP ssid set" = routerConfig.wireless.ap_2g.ssid == "TestNetwork";
     "router AP network is home" = routerConfig.wireless.ap_2g.network == "home";
 
-    # UCI rendering produces expected commands
-    "meshAP UCI sets hostname" = contains "set system.@system[0].hostname='test-mesh'" meshUCI;
+    # UCI rendering produces expected commands (named sections)
+    "meshAP UCI sets hostname" = contains "set system.system.hostname='test-mesh'" meshUCI;
     "meshAP UCI sets bat0 proto" = contains "set network.bat0.proto='batadv'" meshUCI;
-    "switchAP UCI sets hostname" = contains "set system.@system[0].hostname='test-switch'" switchUCI;
-    "simpleAP UCI sets hostname" = contains "set system.@system[0].hostname='test-simple'" simpleAPUCI;
-    "simpleAP UCI sets ssid" = contains "ssid='TestNetwork'" simpleAPUCI;
+    "switchAP UCI sets hostname" = contains "set system.system.hostname='test-switch'" switchUCI;
+    "simpleAP UCI sets hostname" = contains "set system.system.hostname='test-simple'" simpleAPUCI;
 
-    "router UCI sets hostname" = contains "set system.@system[0].hostname='test-router'" routerUCI;
+    "router UCI sets hostname" = contains "set system.system.hostname='test-router'" routerUCI;
     "router UCI sets WAN proto" = contains "set network.wan.proto='dhcp'" routerUCI;
     "router UCI sets masq" = contains "masq='1'" routerUCI;
 
@@ -258,6 +260,50 @@ let
     "real bobcat-router config generates" =
       let cfg = openwrt.mkDeviceConfig { device = realDevices.bobcat-router; inherit owrtData; };
       in cfg ? network && cfg ? firewall && cfg ? dhcp;
+
+    # Secret fields absent from generated config
+    "meshAP has no mesh_id in batmesh" = !(meshConfig.wireless.batmesh ? mesh_id);
+    "meshAP has no key in batmesh" = !(meshConfig.wireless.batmesh ? key);
+    "meshAP has no ssid in ap_2g_main" = !(meshConfig.wireless.ap_2g_main ? ssid);
+    "simpleAP has no ssid in ap_2g" = !(simpleAPConfig.wireless.ap_2g ? ssid);
+    "router has no ssid in ap_2g" = !(routerConfig.wireless.ap_2g ? ssid);
+
+    # Radios have no disabled field (secrets script enables them)
+    "meshAP radio0 has no disabled" = !(meshConfig.wireless.radio0 ? disabled);
+    "meshAP radio1 has no disabled" = !(meshConfig.wireless.radio1 ? disabled);
+    "simpleAP radio0 has no disabled" = !(simpleAPConfig.wireless.radio0 ? disabled);
+    "router radio0 has no disabled" = !(routerConfig.wireless.radio0 ? disabled);
+
+    # Named sections (no _anonymous in generated config)
+    "meshAP batmesh is named" = !(meshConfig.wireless.batmesh ? _anonymous);
+    "meshAP system is named" = !(meshConfig.system.system ? _anonymous);
+    "router defaults is named" = !(routerConfig.firewall.defaults ? _anonymous);
+    "router dnsmasq is named" = !(routerConfig.dhcp.dnsmasq ? _anonymous);
+
+    # Secrets map structure
+    "meshAP secrets has mesh_id" = meshSecretsMap ? mesh_id;
+    "meshAP secrets has mesh_key" = meshSecretsMap ? mesh_key;
+    "meshAP secrets has wifi_ssids.main" = meshSecretsMap ? "wifi_ssids.main";
+    "meshAP secrets has wifi_keys.main" = meshSecretsMap ? "wifi_keys.main";
+    "meshAP secrets has wifi_ssids.secondary" = meshSecretsMap ? "wifi_ssids.secondary";
+    "meshAP secrets mesh_id targets batmesh" =
+      builtins.elem "wireless.batmesh.mesh_id" meshSecretsMap.mesh_id;
+    "meshAP secrets wifi_ssids.main targets both bands" =
+      builtins.length meshSecretsMap."wifi_ssids.main" == 2;
+
+    "switch secrets map is empty" = switchSecretsMap == {};
+
+    "simpleAP secrets has wifi_ssids.main" = simpleAPSecretsMap ? "wifi_ssids.main";
+    "simpleAP secrets has wifi_keys.main" = simpleAPSecretsMap ? "wifi_keys.main";
+    "simpleAP secrets targets ap_2g and ap_5g" =
+      builtins.length simpleAPSecretsMap."wifi_ssids.main" == 2;
+
+    "router secrets has wifi_keys.main" = routerSecretsMap ? "wifi_keys.main";
+
+    # Real device with IoT extra — derfflinger secrets map has IoT
+    "derfflinger secrets has wifi_ssids.iot" =
+      let sm = openwrt.mkSecretsMap { device = realDevices.derfflinger; inherit owrtData; };
+      in sm ? "wifi_ssids.iot";
   };
 
   failures = lib.filterAttrs (_: v: !v) allTests;

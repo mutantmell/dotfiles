@@ -7,7 +7,6 @@
   profile = "tplink_eap615-wall-v1";
   hostId = 20;
   vlanId = 31;
-  ssid = "MyAP";
   # Keep dnsmasq (removed by default) — glorious serves DHCP for the ADU network
   extraPackages = [ "dnsmasq" "odhcpd-ipv6only" ];
   extraConfig = {
@@ -15,7 +14,6 @@
     firewall = {
       defaults = {
         _type = "defaults";
-        _anonymous = true;
         syn_flood = true;
         input = "REJECT";
         output = "ACCEPT";
@@ -23,7 +21,6 @@
       };
       zone_lan = {
         _type = "zone";
-        _anonymous = true;
         name = "lan";
         input = "ACCEPT";
         output = "ACCEPT";
@@ -31,7 +28,6 @@
       };
       zone_wan = {
         _type = "zone";
-        _anonymous = true;
         name = "wan";
         network = [ "wan" "wan6" ];
         input = "REJECT";
@@ -42,7 +38,6 @@
       };
       fwd_lan_wan = {
         _type = "forwarding";
-        _anonymous = true;
         src = "lan";
         dest = "wan";
       };
@@ -52,7 +47,6 @@
     dhcp = {
       dnsmasq = {
         _type = "dnsmasq";
-        _anonymous = true;
         domainneeded = true;
         boguspriv = true;
         localise_queries = true;
@@ -87,7 +81,6 @@
     system = {
       led_status = {
         _type = "led";
-        _anonymous = true;
         name = "status-off";
         sysfs = "white:status";
         trigger = "none";
@@ -95,7 +88,6 @@
       };
       led_phy0 = {
         _type = "led";
-        _anonymous = true;
         name = "phy0-off";
         sysfs = "mt76-phy0";
         trigger = "none";
@@ -103,7 +95,6 @@
       };
       led_phy1 = {
         _type = "led";
-        _anonymous = true;
         name = "phy1-off";
         sysfs = "mt76-phy1";
         trigger = "none";

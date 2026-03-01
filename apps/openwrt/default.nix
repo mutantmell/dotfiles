@@ -16,16 +16,22 @@
 #   nix run .#openwrt-analyze-local -- <config-dir-or-uci-file>
 #
 # Secrets file format (hosts/openwrt/secrets/wifi.yaml):
+#   mesh_id: "your-mesh-id"
 #   mesh_key: "your-mesh-password"
+#   wifi_ssids:
+#     main: "NetworkName"
+#     secondary: "NetworkName-Alt"
+#     iot: "NetworkName-IoT"
 #   wifi_keys:
 #     main: "main-network-password"
-#     guest: "guest-network-password"
+#     secondary: "alt-network-password"
 #     iot: "iot-network-password"
 { pkgs }:
 
 let
   # Script to configure secrets on an OpenWrt device via SSH
-  # Reads from sops-encrypted hosts/openwrt/secrets/wifi.yaml
+  # Decrypts hosts/openwrt/secrets/wifi.yaml, flattens to key=value,
+  # and pipes to the on-device /etc/nix-secrets-apply script.
   configureSecretsScript = pkgs.writeShellScript "openwrt-configure-secrets" ''
     set -euo pipefail
 
@@ -52,75 +58,41 @@ let
       echo "  sops $SECRETS_FILE"
       echo ""
       echo "Expected format:"
+      echo "  mesh_id: \"your-mesh-id\""
       echo "  mesh_key: \"your-mesh-password\""
+      echo "  wifi_ssids:"
+      echo "    main: \"NetworkName\""
+      echo "    secondary: \"NetworkName-Alt\""
       echo "  wifi_keys:"
       echo "    main: \"main-network-password\""
-      echo "    guest: \"guest-network-password\""
+      echo "    secondary: \"alt-network-password\""
       exit 0
+    fi
+
+    # Check device has the secrets apply script
+    if ! ${pkgs.openssh}/bin/ssh -o ConnectTimeout=10 "root@$TARGET" "test -x /etc/nix-secrets-apply" 2>/dev/null; then
+      echo "Error: Device $TARGET does not have /etc/nix-secrets-apply"
+      echo "Flash a new image first (built with named sections support)."
+      exit 1
     fi
 
     echo "Decrypting secrets..."
     SECRETS=$(${pkgs.sops}/bin/sops -d "$SECRETS_FILE")
 
-    # Extract values using yq
-    MESH_KEY=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '.mesh_key // empty')
-    WIFI_MAIN=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '.wifi_keys.main // empty')
-    WIFI_GUEST=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '.wifi_keys.guest // empty')
-    WIFI_IOT=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '.wifi_keys.iot // empty')
+    # Flatten YAML to key=value lines using yq
+    # Top-level scalars: mesh_id=value, mesh_key=value
+    # Nested maps: wifi_ssids.main=value, wifi_keys.main=value
+    KEY_VALUES=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '
+      .. | select(tag == "!!str") | (path | join(".")) + "=" + .
+    ')
 
-    echo "Configuring secrets on $TARGET..."
-
-    # Build UCI commands
-    UCI_COMMANDS=""
-
-    # Configure mesh key on all mesh interfaces
-    if [ -n "$MESH_KEY" ]; then
-      echo "  - Setting mesh key..."
-      UCI_COMMANDS="$UCI_COMMANDS
-    for i in \$(uci show wireless | grep \"mode='mesh'\" | cut -d. -f2); do
-      uci set wireless.\$i.encryption='sae'
-      uci set wireless.\$i.key='$MESH_KEY'
-    done"
-    fi
-
-    # Configure wifi keys by SSID pattern matching
-    if [ -n "$WIFI_MAIN" ]; then
-      echo "  - Setting main network key..."
-      UCI_COMMANDS="$UCI_COMMANDS
-    for i in \$(uci show wireless | grep -E \"ssid='.*(Network|Home).*'\" | grep -v Guest | grep -v IoT | cut -d. -f2); do
-      uci set wireless.\$i.key='$WIFI_MAIN'
-    done"
-    fi
-
-    if [ -n "$WIFI_GUEST" ]; then
-      echo "  - Setting guest network key..."
-      UCI_COMMANDS="$UCI_COMMANDS
-    for i in \$(uci show wireless | grep -i \"ssid='.*guest.*'\" | cut -d. -f2); do
-      uci set wireless.\$i.key='$WIFI_GUEST'
-    done"
-    fi
-
-    if [ -n "$WIFI_IOT" ]; then
-      echo "  - Setting IoT network key..."
-      UCI_COMMANDS="$UCI_COMMANDS
-    for i in \$(uci show wireless | grep -i \"ssid='.*iot.*'\" | cut -d. -f2); do
-      uci set wireless.\$i.key='$WIFI_IOT'
-    done"
-    fi
-
-    if [ -z "$UCI_COMMANDS" ]; then
-      echo "No secrets to configure."
+    if [ -z "$KEY_VALUES" ]; then
+      echo "No secrets found in $SECRETS_FILE"
       exit 0
     fi
 
-    # Apply configuration
-    ${pkgs.openssh}/bin/ssh "root@$TARGET" "
-    $UCI_COMMANDS
-    uci commit wireless
-    wifi reload
-    "
-
-    echo "Secrets configured successfully."
+    echo "Configuring secrets on $TARGET..."
+    echo "$KEY_VALUES" | ${pkgs.openssh}/bin/ssh "root@$TARGET" "/etc/nix-secrets-apply"
   '';
 
   # Script to wait for device to come back online
@@ -263,11 +235,14 @@ in {
           echo "  sops hosts/openwrt/secrets/wifi.yaml"
           echo ""
           echo "Expected format:"
+          echo "  mesh_id: \"your-mesh-id\""
           echo "  mesh_key: \"your-mesh-password\""
+          echo "  wifi_ssids:"
+          echo "    main: \"NetworkName\""
+          echo "    secondary: \"NetworkName-Alt\""
           echo "  wifi_keys:"
           echo "    main: \"main-network-password\""
-          echo "    guest: \"guest-network-password\""
-          echo "    iot: \"iot-network-password\""
+          echo "    secondary: \"alt-network-password\""
           exit 1
         fi
 

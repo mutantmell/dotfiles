@@ -28,10 +28,8 @@ in
     wireless = {
       ap_2g_iot = {
         _type = "wifi-iface";
-        _anonymous = true;
         device = "radio0";
         mode = "ap";
-        ssid = "MyNetwork-IoT";
         encryption = "sae-mixed";
         network = "iot";
       };
