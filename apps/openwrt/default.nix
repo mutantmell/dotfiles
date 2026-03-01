@@ -10,6 +10,7 @@
 #
 # Discovery:
 #   nix run .#openwrt-show-config -- <device-name>
+#   nix run .#openwrt-build -- --list-devices
 #
 # Migration (from existing devices):
 #   nix run .#openwrt-export-config -- <device-ip> [output-dir]
@@ -29,9 +30,15 @@
 #     main: "main-network-password"
 #     secondary: "alt-network-password"
 #     iot: "iot-network-password"
-{ pkgs }:
+{ pkgs, openwrtBuildInfo }:
 
 let
+  builder = pkgs.mmell.openwrt-builder;
+
+  # Build info JSON — generated at Nix eval time, passed to the builder at runtime
+  buildInfoFile = pkgs.writeText "openwrt-build-info.json"
+    (builtins.toJSON openwrtBuildInfo);
+
   # Script to configure secrets on an OpenWrt device via SSH
   # Decrypts hosts/openwrt/secrets/wifi.yaml, flattens to key=value,
   # and pipes to the on-device /etc/nix-secrets-apply script.
@@ -98,29 +105,29 @@ let
     echo "$KEY_VALUES" | ${pkgs.openssh}/bin/ssh "root@$TARGET" "/etc/nix-secrets-apply"
   '';
 
-  # Python with libraries needed by build.py
-  python = pkgs.python3.withPackages (ps: [ ps.pyyaml ps.zstandard ]);
-
-  # Shared wrapper that runs the Python builder with all required tools in PATH.
-  # PATH includes tools needed by the OpenWrt Image Builder's `make image`.
-  buildScript = pkgs.writeShellScript "openwrt-build" ''
-    export PATH="${pkgs.lib.makeBinPath [
-      python pkgs.sops pkgs.nix pkgs.git
-      pkgs.gnumake pkgs.gnutar pkgs.coreutils
-      pkgs.findutils pkgs.gnugrep pkgs.gawk pkgs.gnused pkgs.perl
-      pkgs.patch pkgs.diffutils pkgs.file pkgs.unzip pkgs.bzip2
-      pkgs.which pkgs.ncurses pkgs.rsync pkgs.xz
-    ]}:$PATH"
-    REPO_ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-    export REPO_ROOT
-    exec ${python}/bin/python3 "$REPO_ROOT/apps/openwrt/build.py" "$@"
+  # Discover the secrets file from the repo (convenience for app wrappers)
+  discoverSecrets = ''
+    REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
+    SECRETS_ARGS=""
+    if [ -n "$REPO_ROOT" ]; then
+      SECRETS_FILE="$REPO_ROOT/hosts/openwrt/secrets/wifi.yaml"
+      if [ -f "$SECRETS_FILE" ]; then
+        SECRETS_ARGS="--secrets-file $SECRETS_FILE"
+      fi
+    fi
   '';
 
 in {
   # Build an OpenWrt image using the upstream Image Builder
   openwrt-build = {
     type = "app";
-    program = "${buildScript}";
+    program = let
+      script = pkgs.writeShellScript "openwrt-build-wrapper" ''
+        set -euo pipefail
+        ${discoverSecrets}
+        exec ${builder}/bin/openwrt-build --build-info ${buildInfoFile} $SECRETS_ARGS "$@"
+      '';
+    in "${script}";
   };
 
   # Deploy an OpenWrt image to a device via sysupgrade
@@ -152,29 +159,26 @@ in {
         shift 2
 
         FORCE=""
-        NO_SECRETS=""
+        BUILD_ARGS=""
         for arg in "$@"; do
           case "$arg" in
             --force) FORCE="1" ;;
-            --no-secrets) NO_SECRETS="1" ;;
+            --no-secrets) BUILD_ARGS="$BUILD_ARGS --no-secrets" ;;
           esac
         done
 
-        # Find repo root
-        REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
-        if [ -z "$REPO_ROOT" ]; then
-          echo "Error: Could not find repository root."
-          exit 1
-        fi
+        # Discover secrets from repo
+        ${discoverSecrets}
 
-        OUTPUT_DIR="$REPO_ROOT/openwrt-images/$DEVICE"
+        OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/$DEVICE}"
+        OUTPUT_DIR="''${OUTPUT_DIR:-$(pwd)/openwrt-images/$DEVICE}"
 
         # Build the image
-        if [ -n "$NO_SECRETS" ]; then
-          ${buildScript} "$DEVICE" --output-dir "$OUTPUT_DIR" --no-secrets
-        else
-          ${buildScript} "$DEVICE" --output-dir "$OUTPUT_DIR"
-        fi
+        ${builder}/bin/openwrt-build "$DEVICE" \
+          --build-info ${buildInfoFile} \
+          --output-dir "$OUTPUT_DIR" \
+          $SECRETS_ARGS \
+          $BUILD_ARGS
 
         # Find the sysupgrade image
         SYSUPGRADE=$(find "$OUTPUT_DIR" -name "*-sysupgrade.bin" -o -name "*-sysupgrade.img.gz" | head -1)
@@ -263,8 +267,7 @@ in {
           exit 1
         fi
 
-        DEVICE="$1"
-        ${pkgs.nix}/bin/nix eval --raw ".#openwrtBuildInfo.$DEVICE.uciDefaultsScript"
+        exec ${builder}/bin/openwrt-build "$1" --build-info ${buildInfoFile} --show-config
       '';
     in "${script}";
   };

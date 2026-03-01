@@ -72,6 +72,11 @@
       mk-volume = import packages/mk-volume.nix {
         inherit (pkgs) writeShellScriptBin;
       };
+      openwrt-builder = import ./packages/openwrt-builder {
+        inherit (pkgs) lib stdenv makeWrapper python3 sops gnumake gnutar
+          coreutils findutils gnugrep gawk gnused perl patch diffutils file
+          unzip bzip2 which ncurses rsync xz;
+      };
       installer-iso = let
         keys = builtins.fromJSON (builtins.readFile ./lib/common/data/keys.json);
         installer = nixpkgs.lib.nixosSystem {
@@ -273,7 +278,7 @@
     # Apps for OpenWrt management
     apps = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
       pkgs = pkgsFor nixpkgs system;
-    in import ./apps { inherit pkgs; });
+    in import ./apps { inherit pkgs; openwrtBuildInfo = self.openwrtBuildInfo; });
 
     # deploy-rs deployment configurations
     deploy = {
