@@ -634,7 +634,7 @@ let
       });
       uciFile = builtins.toFile "uci-defaults-${device.hostname}.sh" uciScript;
       secretsFile = builtins.toFile "secrets-apply-${device.hostname}.sh" secretsApplyScript;
-      keysFile = builtins.toFile "authorized-keys-${device.hostname}" keysContent;
+      keysFile = builtins.toFile "authorized-keys" keysContent;
     in {
       inherit configJson uciFile secretsFile keysFile;
     };

@@ -29,7 +29,7 @@ nix build .#openwrtConfigurations.<device-name>
 nix run .#openwrt-build -- <device-name>
 nix run .#openwrt-build -- <device-name> --no-secrets
 
-# Update pinned Image Builder hashes (modifies lib/common/data/openwrt.nix)
+# Update pinned Image Builder hashes (modifies lib/common/data/openwrt-hashes.json)
 # Run this when upgrading to a new OpenWrt release, then commit the hash changes.
 nix run .#openwrt-build -- --update-pins               # update all targets
 nix run .#openwrt-build -- <device-name> --update-pins # update one device's target
@@ -40,7 +40,7 @@ nix run .#openwrt-deploy -- <device-name> <device-ip>
 
 # Manual two-step pipeline (composable):
 CONFIG_DIR=$(nix build .#openwrtConfigurations.<device-name> --print-out-paths --no-link)
-nix run .#openwrt-build -- --config-dir "$CONFIG_DIR" [--secrets-file hosts/openwrt/secrets/wifi.yaml] --output-dir ./out/
+nix run .#openwrt-build -- --config-file "$CONFIG_DIR/build.json" [--secrets-file hosts/openwrt/secrets/wifi.yaml] --output-dir ./out/
 $(nix build .#openwrt-deployer --print-out-paths --no-link)/bin/openwrt-deploy <device-ip> ./out/*-sysupgrade.bin
 
 # Show OpenWrt UCI config
