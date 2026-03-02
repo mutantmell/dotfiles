@@ -13,7 +13,6 @@
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
 #
 # Discovery:
-#   nix run .#openwrt-show-config -- <device-name>
 #   nix run .#openwrt-build -- --list-devices
 #
 # Migration (from existing devices):
@@ -319,28 +318,6 @@ in {
 
         # Deploy the image
         ${deployer}/bin/openwrt-deploy "$TARGET" "$SYSUPGRADE" $DEPLOY_ARGS
-      '';
-    in "${script}";
-  };
-
-  # Show UCI configuration that would be applied
-  openwrt-show-config = {
-    type = "app";
-    program = let
-      script = pkgs.writeShellScript "openwrt-show-config" ''
-        set -euo pipefail
-
-        ${resolveDevice}
-
-        if [ $# -lt 1 ]; then
-          echo "Usage: nix run .#openwrt-show-config -- <device-name>"
-          echo ""
-          echo "Shows the UCI configuration that would be applied to the device."
-          exit 1
-        fi
-
-        resolve_device "$1"
-        cat "$CONFIG_DIR/uci-defaults.sh"
       '';
     in "${script}";
   };
