@@ -455,7 +455,8 @@ let
     hostname,
     vlans,
     trunkPorts ? [ "lan2" "lan3" "lan4" ],
-    mkGatewayAddresses,
+    mkPrimaryGatewayAddress,
+    mkExtraGatewayAddresses,
   }:
     let
       # Collect all access ports from all VLANs
@@ -474,15 +475,29 @@ let
         };
       }) vlans;
 
-      # Per-VLAN interfaces
-      vlanInterfaces = lib.mapAttrs' (name: vlan: {
+      # Primary per-VLAN interfaces: 10.0 address only.
+      # dnsmasq pools attach here — keeping a single address ensures only one
+      # DHCP pool is generated per VLAN (10.0.x.100–249).
+      primaryVlanInterfaces = lib.mapAttrs' (name: vlan: {
         name = lib.toLower name;
         value = {
           _type = "interface";
           device = "br-lan.${toString vlan.tag}";
           proto = "static";
-          ipaddr = mkGatewayAddresses vlan.tag;
+          ipaddr = mkPrimaryGatewayAddress vlan.tag;
           dns = "127.0.0.1";
+        };
+      }) vlans;
+
+      # Extra alias interfaces per VLAN: 10.1 + 10.97 addresses.
+      # No dhcp section is generated for these, so they carry no DHCP pool.
+      extraVlanInterfaces = lib.mapAttrs' (name: vlan: {
+        name = "${lib.toLower name}_x";
+        value = {
+          _type = "interface";
+          device = "br-lan.${toString vlan.tag}";
+          proto = "static";
+          ipaddr = mkExtraGatewayAddresses vlan.tag;
         };
       }) vlans;
 
@@ -513,13 +528,16 @@ let
           ports = allBridgePorts;
         };
 
-      } // bridgeVlanConfigs // vlanInterfaces;
+      } // bridgeVlanConfigs // primaryVlanInterfaces // extraVlanInterfaces;
     };
 
   # Generate firewall configuration for a router
   mkRouterFirewallConfig = { vlans }:
     let
       vlanIfaceNames = map lib.toLower (builtins.attrNames vlans);
+      # Include the _x alias interfaces so 10.1/10.97 traffic is also in the LAN zone
+      extraIfaceNames = map (n: "${n}_x") vlanIfaceNames;
+      allLanNetworks = vlanIfaceNames ++ extraIfaceNames;
     in {
       firewall = {
         defaults = {
@@ -544,7 +562,7 @@ let
         zone_lan = {
           _type = "zone";
           name = "lan";
-          network = vlanIfaceNames;
+          network = allLanNetworks;
           input = "ACCEPT";
           output = "ACCEPT";
           forward = "ACCEPT";
@@ -654,7 +672,8 @@ let
     hostname,
     vlans,
     trunkPorts ? [ "lan2" "lan3" "lan4" ],
-    mkGatewayAddresses,
+    mkPrimaryGatewayAddress,
+    mkExtraGatewayAddresses,
     encryption ? "sae-mixed",
     country ? "US",
     timezone ? "America/Los_Angeles",
@@ -663,7 +682,7 @@ let
   }:
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
-      // mkRouterNetworkConfig { inherit hostname vlans trunkPorts mkGatewayAddresses; }
+      // mkRouterNetworkConfig { inherit hostname vlans trunkPorts mkPrimaryGatewayAddress mkExtraGatewayAddresses; }
       // mkSimpleAPWirelessConfig { inherit encryption country; network = "home"; }
       // mkRouterFirewallConfig { inherit vlans; }
       // mkRouterDHCPConfig { inherit vlans; }
@@ -877,7 +896,8 @@ let
           inherit (device) hostname;
           inherit authorizedKeys;
           vlans = owrtData.routerVlans;
-          mkGatewayAddresses = owrtData.mkGatewayAddresses;
+          mkPrimaryGatewayAddress = owrtData.mkPrimaryGatewayAddress;
+          mkExtraGatewayAddresses = owrtData.mkExtraGatewayAddresses;
           trunkPorts = device.trunkPorts or [ "lan2" "lan3" "lan4" ];
           encryption = device.encryption or "sae-mixed";
           country = device.country or "US";
