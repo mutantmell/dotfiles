@@ -4,6 +4,11 @@
 #   nix run .#openwrt-build -- <device-name>
 #   nix run .#openwrt-build -- <device-name> --no-secrets
 #
+# Update Image Builder hashes (modifies lib/common/data/openwrt.nix):
+#   nix run .#openwrt-build -- --update-pins            (all targets)
+#   nix run .#openwrt-build -- <device-name> --update-pins  (one target)
+#   nix run .#openwrt-build -- <device-name> --update   (update + build)
+#
 # Deploy:
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
 #
@@ -43,6 +48,16 @@ let
     "    ${name}) CONFIG_DIR=\"${drv}\" ;;"
   ) openwrtConfigurations);
 
+  # Device name → target/subtarget lookup (for update flow)
+  deviceTargetLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: device:
+    "    ${name}) DEVICE_TARGET=\"${device.target}/${device.subtarget}\" ;;"
+  ) openwrtDevices);
+
+  # Space-separated list of all unique targets across all devices (for --update-pins)
+  allTargets = lib.concatStringsSep " " (
+    lib.unique (lib.mapAttrsToList (_: device: "${device.target}/${device.subtarget}") openwrtDevices)
+  );
+
   # Device listing info embedded at eval time
   deviceListInfo = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: device:
     "  printf '  %-20s %-10s %s\\n' '${name}' '${device.type}' '${device.profile}'"
@@ -65,9 +80,23 @@ let
     }
   '';
 
+  # Resolve device name to DEVICE_TARGET (target/subtarget), or error
+  resolveTarget = ''
+    resolve_target() {
+      local DEVICE="$1"
+      DEVICE_TARGET=""
+      case "$DEVICE" in
+    ${deviceTargetLookup}
+        *)
+          echo "Error: Unknown device '$DEVICE'" >&2
+          exit 1
+          ;;
+      esac
+    }
+  '';
+
   # Discover the secrets file from the repo (convenience for app wrappers)
   discoverSecrets = ''
-    REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
     SECRETS_ARGS=""
     if [ -n "$REPO_ROOT" ]; then
       SECRETS_FILE="$REPO_ROOT/hosts/openwrt/secrets/wifi.yaml"
@@ -86,8 +115,12 @@ in {
         set -euo pipefail
 
         ${resolveDevice}
+        ${resolveTarget}
 
-        # Handle --list-devices before device resolution
+        # Always resolve repo root — needed for secrets and update paths
+        REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
+
+        # Handle --list-devices before anything else
         for arg in "$@"; do
           if [ "$arg" = "--list-devices" ]; then
             echo "Available devices:"
@@ -97,14 +130,81 @@ in {
         done
 
         if [ $# -lt 1 ]; then
-          echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets]"
+          echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets] [--update]"
+          echo "       nix run .#openwrt-build -- <device-name> --update-pins"
+          echo "       nix run .#openwrt-build -- --update-pins  (all targets)"
           echo "       nix run .#openwrt-build -- --config-dir <dir> [--secrets-file <file>]"
           echo "       nix run .#openwrt-build -- --list-devices"
           exit 1
         fi
 
+        # --- Parse and strip update flags from positional args ---
+        DO_UPDATE=false
+        UPDATE_ONLY=false
+        UPDATE_RELEASE_ARG=""
+        CLEAN_ARGS=()
+        i=0
+        ALL_ARGS=("$@")
+        while [ $i -lt ''${#ALL_ARGS[@]} ]; do
+          arg="''${ALL_ARGS[$i]}"
+          case "$arg" in
+            --update)      DO_UPDATE=true ;;
+            --update-pins) UPDATE_ONLY=true ;;
+            --release)
+              i=$((i + 1))
+              UPDATE_RELEASE_ARG="''${ALL_ARGS[$i]}"
+              ;;
+            *) CLEAN_ARGS+=("$arg") ;;
+          esac
+          i=$((i + 1))
+        done
+
+        # --- Update flow (--update or --update-pins) ---
+        if $DO_UPDATE || $UPDATE_ONLY; then
+          if [ -z "$REPO_ROOT" ]; then
+            echo "Error: --update/--update-pins requires running from within the git repo" >&2
+            exit 1
+          fi
+          OPENWRT_NIX="$REPO_ROOT/lib/common/data/openwrt.nix"
+
+          # Determine which targets to update
+          if [ ''${#CLEAN_ARGS[@]} -ge 1 ] && [ "''${CLEAN_ARGS[0]#--}" = "''${CLEAN_ARGS[0]}" ]; then
+            # First clean arg is a device name (doesn't start with --)
+            resolve_target "''${CLEAN_ARGS[0]}"
+            UPDATE_TARGETS="$DEVICE_TARGET"
+          else
+            # No device specified — update all targets
+            UPDATE_TARGETS="${allTargets}"
+          fi
+
+          RELEASE_ARGS=()
+          if [ -n "$UPDATE_RELEASE_ARG" ]; then
+            RELEASE_ARGS=(--release "$UPDATE_RELEASE_ARG")
+          fi
+
+          echo "Updating Image Builder hashes (targets: $UPDATE_TARGETS)..."
+          ${builder}/bin/openwrt-build \
+            --update-pins \
+            --openwrt-nix "$OPENWRT_NIX" \
+            --targets $UPDATE_TARGETS \
+            "''${RELEASE_ARGS[@]}"
+
+          if $UPDATE_ONLY; then
+            exit 0
+          fi
+
+          # --update + build: re-evaluate the config with the new hashes
+          DEVICE="''${CLEAN_ARGS[0]}"
+          echo "Re-evaluating Nix config for $DEVICE..."
+          CONFIG_DIR=$(${pkgs.nix}/bin/nix build ".#openwrtConfigurations.$DEVICE" \
+            --print-out-paths --no-link)
+        fi
+
+        # Restore cleaned args (update flags removed)
+        set -- "''${CLEAN_ARGS[@]}"
+
         # --config-dir mode: use a pre-built manifest directory directly
-        if [ "$1" = "--config-dir" ]; then
+        if [ "''${1:-}" = "--config-dir" ]; then
           shift
           ${discoverSecrets}
           exec ${builder}/bin/openwrt-build --config-dir "$@" $SECRETS_ARGS
@@ -112,10 +212,19 @@ in {
 
         DEVICE="$1"
         shift
-        resolve_device "$DEVICE"
+
+        if ! $DO_UPDATE; then
+          # CONFIG_DIR not yet set by update flow — resolve from pre-built configs
+          resolve_device "$DEVICE"
+        fi
 
         ${discoverSecrets}
-        exec ${builder}/bin/openwrt-build --config-dir "$CONFIG_DIR" $SECRETS_ARGS "$@"
+        DEFAULT_OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/$DEVICE}"
+        OUTPUT_DIR_ARG=""
+        if [ -n "$DEFAULT_OUTPUT_DIR" ]; then
+          OUTPUT_DIR_ARG="--output-dir $DEFAULT_OUTPUT_DIR"
+        fi
+        exec ${builder}/bin/openwrt-build --config-dir "$CONFIG_DIR" $SECRETS_ARGS $OUTPUT_DIR_ARG "$@"
       '';
     in "${script}";
   };

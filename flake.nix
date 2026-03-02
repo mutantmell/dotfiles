@@ -250,20 +250,41 @@
     openwrtConfigurations = let
       pkgs = pkgsFor nixpkgs "x86_64-linux";
       owrtData = import ./lib/common/data/openwrt.nix { inherit (nixpkgs) lib; };
+
+      # Returns a pkgs.fetchurl derivation for the Image Builder tarball for the
+      # given device, or null if the hash isn't registered yet.
+      mkImageBuilderFetcher = device:
+        let
+          release = device.release or owrtData.defaultRelease;
+          targetKey = "${device.target}/${device.subtarget}";
+          hashes = owrtData.imageBuilderHashes.${release} or {};
+          hash = hashes.${targetKey} or null;
+          ibName = "openwrt-imagebuilder-${release}-${device.target}-${device.subtarget}.Linux-x86_64";
+        in
+        if hash == null || hash == "" then null
+        else pkgs.fetchurl {
+          name = "${ibName}.tar.zst";
+          url = "https://downloads.openwrt.org/releases/${release}/targets/${device.target}/${device.subtarget}/${ibName}.tar.zst";
+          inherit hash;
+        };
+
     in builtins.mapAttrs (_: device:
-      let files = self.lib.openwrt.mkConfigFiles { inherit device owrtData; };
+      let
+        files = self.lib.openwrt.mkConfigFiles { inherit device owrtData; };
+        ibTarball = mkImageBuilderFetcher device;
+        release = device.release or owrtData.defaultRelease;
       in pkgs.runCommand "openwrt-config-${device.hostname}" {} ''
         mkdir -p $out
         cp ${files.uciFile} $out/uci-defaults.sh
         cp ${files.secretsFile} $out/secrets-apply.sh
         cp ${files.keysFile} $out/authorized_keys
         cat > $out/build.json <<'EOF'
-        ${builtins.toJSON {
+        ${builtins.toJSON ({
           hostname = device.hostname;
           profile = device.profile;
           target = device.target;
           subtarget = device.subtarget;
-          release = device.release or owrtData.defaultRelease;
+          inherit release;
           deviceType = device.type;
           packages = self.lib.openwrt.packagesForDevice device;
           secretsMap = self.lib.openwrt.mkSecretsMap { inherit device owrtData; };
@@ -272,7 +293,9 @@
             secretsApply = "./secrets-apply.sh";
             authorizedKeys = "./authorized_keys";
           };
-        }}
+        } // nixpkgs.lib.optionalAttrs (ibTarball != null) {
+          imageBuilderTarball = "${ibTarball}";
+        })}
         EOF
       ''
     ) self.openwrtDevices;
