@@ -133,7 +133,7 @@ in {
           echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets] [--update]"
           echo "       nix run .#openwrt-build -- <device-name> --update-pins"
           echo "       nix run .#openwrt-build -- --update-pins  (all targets)"
-          echo "       nix run .#openwrt-build -- --config-dir <dir> [--secrets-file <file>]"
+          echo "       nix run .#openwrt-build -- --config-file <build.json> [--secrets-file <file>]"
           echo "       nix run .#openwrt-build -- --list-devices"
           exit 1
         fi
@@ -203,11 +203,11 @@ in {
         # Restore cleaned args (update flags removed)
         set -- "''${CLEAN_ARGS[@]}"
 
-        # --config-dir mode: use a pre-built manifest directory directly
-        if [ "''${1:-}" = "--config-dir" ]; then
+        # --config-file mode: use a pre-built manifest file directly
+        if [ "''${1:-}" = "--config-file" ]; then
           shift
           ${discoverSecrets}
-          exec ${builder}/bin/openwrt-build --config-dir "$@" $SECRETS_ARGS
+          exec ${builder}/bin/openwrt-build --config-file "$@" $SECRETS_ARGS
         fi
 
         DEVICE="$1"
@@ -224,7 +224,7 @@ in {
         if [ -n "$DEFAULT_OUTPUT_DIR" ]; then
           OUTPUT_DIR_ARG="--output-dir $DEFAULT_OUTPUT_DIR"
         fi
-        exec ${builder}/bin/openwrt-build --config-dir "$CONFIG_DIR" $SECRETS_ARGS $OUTPUT_DIR_ARG "$@"
+        exec ${builder}/bin/openwrt-build --config-file "$CONFIG_DIR/build.json" $SECRETS_ARGS $OUTPUT_DIR_ARG "$@"
       '';
     in "${script}";
   };
@@ -276,7 +276,7 @@ in {
 
         # Build the image
         ${builder}/bin/openwrt-build \
-          --config-dir "$CONFIG_DIR" \
+          --config-file "$CONFIG_DIR/build.json" \
           --output-dir "$OUTPUT_DIR" \
           $SECRETS_ARGS \
           $BUILD_ARGS

@@ -2,7 +2,9 @@
   "defaultRelease": "24.10.5",
   "imageBuilderHashes": {
     "24.10.5": {
-      "mediatek/mt7622": "sha256-NXNzG2jBWsskKzbgp1Km0Of8S0h6Wap0q8EO8CF9Jeg="
+      "mediatek/mt7622": "sha256-NXNzG2jBWsskKzbgp1Km0Of8S0h6Wap0q8EO8CF9Jeg=",
+      "ramips/mt7621": "sha256-878e0FgTqHOwHYZF3AAqEFWGc/rVfTp16Dm6xiNYxyw=",
+      "realtek/rtl838x": "sha256-tACraMGHcVfvxDkSNSQfYI4vQOR7EIWNe4DAyku5MBk="
     }
   }
 }

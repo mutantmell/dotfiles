@@ -275,9 +275,6 @@
         release = device.release or owrtData.defaultRelease;
       in pkgs.runCommand "openwrt-config-${device.hostname}" {} ''
         mkdir -p $out
-        cp ${files.uciFile} $out/uci-defaults.sh
-        cp ${files.secretsFile} $out/secrets-apply.sh
-        cp ${files.keysFile} $out/authorized_keys
         cat > $out/build.json <<'EOF'
         ${builtins.toJSON ({
           hostname = device.hostname;
@@ -288,11 +285,9 @@
           deviceType = device.type;
           packages = self.lib.openwrt.packagesForDevice device;
           secretsMap = self.lib.openwrt.mkSecretsMap { inherit device owrtData; };
-          files = {
-            uciDefaults = "./uci-defaults.sh";
-            secretsApply = "./secrets-apply.sh";
-            authorizedKeys = "./authorized_keys";
-          };
+          uciDefaults = "${files.uciFile}";
+          secretsApply = "${files.secretsFile}";
+          authorizedKeys = "${files.keysFile}";
         } // nixpkgs.lib.optionalAttrs (ibTarball != null) {
           imageBuilderTarball = "${ibTarball}";
         })}
