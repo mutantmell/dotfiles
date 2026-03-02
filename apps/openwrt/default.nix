@@ -165,7 +165,7 @@ in {
             echo "Error: --update/--update-pins requires running from within the git repo" >&2
             exit 1
           fi
-          OPENWRT_NIX="$REPO_ROOT/lib/common/data/openwrt.nix"
+          HASHES_FILE="$REPO_ROOT/lib/common/data/openwrt-hashes.json"
 
           # Determine which targets to update
           if [ ''${#CLEAN_ARGS[@]} -ge 1 ] && [ "''${CLEAN_ARGS[0]#--}" = "''${CLEAN_ARGS[0]}" ]; then
@@ -185,7 +185,7 @@ in {
           echo "Updating Image Builder hashes (targets: $UPDATE_TARGETS)..."
           ${builder}/bin/openwrt-build \
             --update-pins \
-            --openwrt-nix "$OPENWRT_NIX" \
+            --hashes-file "$HASHES_FILE" \
             --targets $UPDATE_TARGETS \
             "''${RELEASE_ARGS[@]}"
 

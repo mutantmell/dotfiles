@@ -9,8 +9,8 @@
 
 Usage:
     openwrt-build --config-dir <dir> [--no-secrets] [--output-dir DIR]
-    openwrt-build --update-pins --openwrt-nix <path> --targets <t/st> [<t/st> ...]
-    openwrt-build --config-dir <dir> --update [--openwrt-nix <path>]
+    openwrt-build --update-pins --hashes-file <path> --targets <t/st> [<t/st> ...]
+    openwrt-build --config-dir <dir> --update [--hashes-file <path>]
 
 Environment variables:
     OPENWRT_SECRETS_FILE — path to sops-encrypted secrets YAML
@@ -19,7 +19,6 @@ Environment variables:
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -417,56 +416,30 @@ def compute_imagebuilder_hash(release, target, subtarget):
         return None
 
 
-def update_openwrt_nix(nix_file, release, new_hashes):
-    """Update defaultRelease and imageBuilderHashes in the given Nix file.
+def update_hashes_json(hashes_file, release, new_hashes):
+    """Update defaultRelease and imageBuilderHashes in openwrt-hashes.json.
 
     new_hashes: dict of { "target/subtarget": "sha256-..." }
 
     Updates defaultRelease to release. Adds or replaces the entry for this
-    release inside imageBuilderHashes; older entries are preserved.
+    release inside imageBuilderHashes; older release entries are preserved.
     """
-    nix_file = Path(nix_file)
-    content = nix_file.read_text()
+    hashes_file = Path(hashes_file)
+    data = json.loads(hashes_file.read_text()) if hashes_file.exists() else {}
 
-    # Update defaultRelease
-    content = re.sub(
-        r'(defaultRelease\s*=\s*")[^"]*(")',
-        rf'\g<1>{release}\g<2>',
-        content,
-    )
+    data["defaultRelease"] = release
+    release_hashes = data.setdefault("imageBuilderHashes", {}).setdefault(release, {})
+    release_hashes.update(new_hashes)
 
-    # Build the new release entry block (sorted for determinism)
-    hash_lines = "\n".join(
-        f'      "{target}" = "{h}";'
-        for target, h in sorted(new_hashes.items())
-    )
-    new_entry = f'    "{release}" = {{\n{hash_lines}\n    }};'
-
-    if f'"{release}"' in content:
-        # Replace the existing entry for this release
-        content = re.sub(
-            rf'"{re.escape(release)}"\s*=\s*\{{[^}}]*\}};',
-            new_entry,
-            content,
-            flags=re.DOTALL,
-        )
-    else:
-        # Insert as the first entry inside imageBuilderHashes = { ... }
-        content = re.sub(
-            r'(imageBuilderHashes\s*=\s*\{)',
-            rf'\1\n{new_entry}',
-            content,
-        )
-
-    nix_file.write_text(content)
-    print(f"  Updated {nix_file}")
+    hashes_file.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    print(f"  Updated {hashes_file}")
 
 
-def run_update(targets, openwrt_nix, release=None):
-    """Fetch hashes for the given targets and update openwrt.nix.
+def run_update(targets, hashes_file, release=None):
+    """Fetch hashes for the given targets and update openwrt-hashes.json.
 
     targets: list of "target/subtarget" strings
-    openwrt_nix: path to lib/common/data/openwrt.nix
+    hashes_file: path to lib/common/data/openwrt-hashes.json
     release: explicit release version, or None to fetch the latest
 
     Returns the release version that was written, or None on failure.
@@ -496,8 +469,8 @@ def run_update(targets, openwrt_nix, release=None):
         new_hashes[target_key] = h
         print(f"    {target_key}: {h}")
 
-    update_openwrt_nix(openwrt_nix, release, new_hashes)
-    print(f"Hash update complete. Commit the changes to lib/common/data/openwrt.nix.")
+    update_hashes_json(hashes_file, release, new_hashes)
+    print(f"Hash update complete. Commit the changes to lib/common/data/openwrt-hashes.json.")
     return release
 
 
@@ -568,8 +541,8 @@ def main():
         help="Update Image Builder hashes and exit without building",
     )
     parser.add_argument(
-        "--openwrt-nix", type=str, default=None,
-        help="Path to lib/common/data/openwrt.nix (required for --update/--update-pins)",
+        "--hashes-file", type=str, default=None,
+        help="Path to lib/common/data/openwrt-hashes.json (required for --update/--update-pins)",
     )
     parser.add_argument(
         "--targets", nargs="+", default=None,
@@ -587,10 +560,10 @@ def main():
         if not args.targets:
             print("Error: --targets is required with --update-pins.", file=sys.stderr)
             sys.exit(1)
-        if not args.openwrt_nix:
-            print("Error: --openwrt-nix is required with --update-pins.", file=sys.stderr)
+        if not args.hashes_file:
+            print("Error: --hashes-file is required with --update-pins.", file=sys.stderr)
             sys.exit(1)
-        result = run_update(args.targets, args.openwrt_nix, release=args.release)
+        result = run_update(args.targets, args.hashes_file, release=args.release)
         sys.exit(0 if result is not None else 1)
 
     # --- Load config ---
