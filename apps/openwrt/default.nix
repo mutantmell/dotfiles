@@ -4,9 +4,8 @@
 #   nix run .#openwrt-build -- <device-name>
 #   nix run .#openwrt-build -- <device-name> --no-secrets
 #
-# Deployment:
+# Deploy:
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
-#   nix run .#openwrt-configure-secrets -- <device-ip>
 #
 # Discovery:
 #   nix run .#openwrt-show-config -- <device-name>
@@ -30,37 +29,30 @@
 #     main: "main-network-password"
 #     secondary: "alt-network-password"
 #     iot: "iot-network-password"
-{ pkgs, openwrtDevices, openwrtDeviceFiles }:
+{ pkgs, openwrtDevices, openwrtConfigurations }:
 
 let
   lib = pkgs.lib;
   builder = pkgs.mmell.openwrt-builder;
   deployer = pkgs.mmell.openwrt-deployer;
 
-  # Device name → file paths lookup (shell case statement)
-  # Resolves all per-device store paths: config JSON, UCI, secrets-apply, authorized_keys
-  deviceConfigLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: files:
-    "    ${name}) CONFIG_FILE=\"${files.configJson}\"; UCI_FILE=\"${files.uciFile}\"; SECRETS_APPLY_FILE=\"${files.secretsFile}\"; KEYS_FILE=\"${files.keysFile}\" ;;"
-  ) openwrtDeviceFiles);
-
-  # Device name → UCI file path lookup (shell case statement, for show-config)
-  deviceUciLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: files:
-    "    ${name}) UCI_FILE=\"${files.uciFile}\" ;;"
-  ) openwrtDeviceFiles);
+  # Device name → config dir lookup (shell case statement)
+  # ${drv} interpolation embeds the store path AND adds drv to the closure,
+  # so all openwrtConfigurations derivations are built before these scripts run.
+  deviceConfigLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: drv:
+    "    ${name}) CONFIG_DIR=\"${drv}\" ;;"
+  ) openwrtConfigurations);
 
   # Device listing info embedded at eval time
   deviceListInfo = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: device:
     "  printf '  %-20s %-10s %s\\n' '${name}' '${device.type}' '${device.profile}'"
   ) openwrtDevices);
 
-  # Resolve device name to all file paths, or error
+  # Resolve device name to CONFIG_DIR, or error
   resolveDevice = ''
     resolve_device() {
       local DEVICE="$1"
-      CONFIG_FILE=""
-      UCI_FILE=""
-      SECRETS_APPLY_FILE=""
-      KEYS_FILE=""
+      CONFIG_DIR=""
       case "$DEVICE" in
     ${deviceConfigLookup}
         *)
@@ -71,72 +63,6 @@ let
           ;;
       esac
     }
-  '';
-
-  # Script to configure secrets on an OpenWrt device via SSH
-  # Decrypts hosts/openwrt/secrets/wifi.yaml, flattens to key=value,
-  # and pipes to the on-device /etc/nix-secrets-apply script.
-  configureSecretsScript = pkgs.writeShellScript "openwrt-configure-secrets" ''
-    set -euo pipefail
-
-    TARGET="$1"
-    REPO_ROOT="''${2:-$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")}"
-
-    if [ -z "$TARGET" ]; then
-      echo "Usage: openwrt-configure-secrets <device-ip> [repo-root]"
-      exit 1
-    fi
-
-    if [ -z "$REPO_ROOT" ]; then
-      echo "Error: Could not find repository root. Please specify it as the second argument."
-      exit 1
-    fi
-
-    SECRETS_FILE="$REPO_ROOT/hosts/openwrt/secrets/wifi.yaml"
-
-    if [ ! -f "$SECRETS_FILE" ]; then
-      echo "No secrets file found at $SECRETS_FILE"
-      echo "Skipping secrets configuration."
-      echo ""
-      echo "To create one, run:"
-      echo "  sops $SECRETS_FILE"
-      echo ""
-      echo "Expected format:"
-      echo "  mesh_id: \"your-mesh-id\""
-      echo "  mesh_key: \"your-mesh-password\""
-      echo "  wifi_ssids:"
-      echo "    main: \"NetworkName\""
-      echo "    secondary: \"NetworkName-Alt\""
-      echo "  wifi_keys:"
-      echo "    main: \"main-network-password\""
-      echo "    secondary: \"alt-network-password\""
-      exit 0
-    fi
-
-    # Check device has the secrets apply script
-    if ! ${pkgs.openssh}/bin/ssh -o ConnectTimeout=10 "root@$TARGET" "test -x /etc/nix-secrets-apply" 2>/dev/null; then
-      echo "Error: Device $TARGET does not have /etc/nix-secrets-apply"
-      echo "Flash a new image first (built with named sections support)."
-      exit 1
-    fi
-
-    echo "Decrypting secrets..."
-    SECRETS=$(${pkgs.sops}/bin/sops -d "$SECRETS_FILE")
-
-    # Flatten YAML to key=value lines using yq
-    # Top-level scalars: mesh_id=value, mesh_key=value
-    # Nested maps: wifi_ssids.main=value, wifi_keys.main=value
-    KEY_VALUES=$(echo "$SECRETS" | ${pkgs.yq-go}/bin/yq -r '
-      .. | select(tag == "!!str") | (path | join(".")) + "=" + .
-    ')
-
-    if [ -z "$KEY_VALUES" ]; then
-      echo "No secrets found in $SECRETS_FILE"
-      exit 0
-    fi
-
-    echo "Configuring secrets on $TARGET..."
-    echo "$KEY_VALUES" | ${pkgs.openssh}/bin/ssh "root@$TARGET" "/etc/nix-secrets-apply"
   '';
 
   # Discover the secrets file from the repo (convenience for app wrappers)
@@ -172,8 +98,16 @@ in {
 
         if [ $# -lt 1 ]; then
           echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets]"
+          echo "       nix run .#openwrt-build -- --config-dir <dir> [--secrets-file <file>]"
           echo "       nix run .#openwrt-build -- --list-devices"
           exit 1
+        fi
+
+        # --config-dir mode: use a pre-built manifest directory directly
+        if [ "$1" = "--config-dir" ]; then
+          shift
+          ${discoverSecrets}
+          exec ${builder}/bin/openwrt-build --config-dir "$@" $SECRETS_ARGS
         fi
 
         DEVICE="$1"
@@ -181,12 +115,7 @@ in {
         resolve_device "$DEVICE"
 
         ${discoverSecrets}
-        exec ${builder}/bin/openwrt-build \
-          --config-file "$CONFIG_FILE" \
-          --uci-file "$UCI_FILE" \
-          --secrets-apply-file "$SECRETS_APPLY_FILE" \
-          --keys-file "$KEYS_FILE" \
-          $SECRETS_ARGS "$@"
+        exec ${builder}/bin/openwrt-build --config-dir "$CONFIG_DIR" $SECRETS_ARGS "$@"
       '';
     in "${script}";
   };
@@ -222,7 +151,6 @@ in {
         shift 2
         resolve_device "$DEVICE"
 
-        FORCE=""
         BUILD_ARGS=""
         DEPLOY_ARGS=""
         for arg in "$@"; do
@@ -232,7 +160,6 @@ in {
           esac
         done
 
-        # Discover secrets from repo
         ${discoverSecrets}
 
         OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/$DEVICE}"
@@ -240,10 +167,7 @@ in {
 
         # Build the image
         ${builder}/bin/openwrt-build \
-          --config-file "$CONFIG_FILE" \
-          --uci-file "$UCI_FILE" \
-          --secrets-apply-file "$SECRETS_APPLY_FILE" \
-          --keys-file "$KEYS_FILE" \
+          --config-dir "$CONFIG_DIR" \
           --output-dir "$OUTPUT_DIR" \
           $SECRETS_ARGS \
           $BUILD_ARGS
@@ -262,48 +186,14 @@ in {
     in "${script}";
   };
 
-  # Configure secrets on an already-deployed device
-  openwrt-configure-secrets = {
-    type = "app";
-    program = let
-      script = pkgs.writeShellScript "openwrt-configure-secrets-wrapper" ''
-        set -euo pipefail
-
-        if [ $# -lt 1 ]; then
-          echo "Usage: nix run .#openwrt-configure-secrets -- <device-ip>"
-          echo ""
-          echo "Configures wifi/mesh secrets on an OpenWrt device."
-          echo "Secrets are read from hosts/openwrt/secrets/wifi.yaml (sops-encrypted)."
-          echo ""
-          echo "To create the secrets file:"
-          echo "  sops hosts/openwrt/secrets/wifi.yaml"
-          echo ""
-          echo "Expected format:"
-          echo "  mesh_id: \"your-mesh-id\""
-          echo "  mesh_key: \"your-mesh-password\""
-          echo "  wifi_ssids:"
-          echo "    main: \"NetworkName\""
-          echo "    secondary: \"NetworkName-Alt\""
-          echo "  wifi_keys:"
-          echo "    main: \"main-network-password\""
-          echo "    secondary: \"alt-network-password\""
-          exit 1
-        fi
-
-        TARGET="$1"
-        REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
-
-        ${configureSecretsScript} "$TARGET" "$REPO_ROOT"
-      '';
-    in "${script}";
-  };
-
   # Show UCI configuration that would be applied
   openwrt-show-config = {
     type = "app";
     program = let
       script = pkgs.writeShellScript "openwrt-show-config" ''
         set -euo pipefail
+
+        ${resolveDevice}
 
         if [ $# -lt 1 ]; then
           echo "Usage: nix run .#openwrt-show-config -- <device-name>"
@@ -312,19 +202,8 @@ in {
           exit 1
         fi
 
-        DEVICE="$1"
-        UCI_FILE=""
-        case "$DEVICE" in
-      ${deviceUciLookup}
-          *)
-            echo "Error: Unknown device '$DEVICE'" >&2
-            echo "Available devices:" >&2
-      ${deviceListInfo}
-            exit 1
-            ;;
-        esac
-
-        cat "$UCI_FILE"
+        resolve_device "$1"
+        cat "$CONFIG_DIR/uci-defaults.sh"
       '';
     in "${script}";
   };

@@ -280,14 +280,10 @@
     # Apps for OpenWrt management
     apps = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
       pkgs = pkgsFor nixpkgs system;
-      owrtData = import ./lib/common/data/openwrt.nix { inherit (nixpkgs) lib; };
-      openwrtDeviceFiles = builtins.mapAttrs (_: device:
-        self.lib.openwrt.mkConfigFiles { inherit device owrtData; }
-      ) self.openwrtDevices;
     in import ./apps {
       inherit pkgs;
       openwrtDevices = self.openwrtDevices;
-      inherit openwrtDeviceFiles;
+      openwrtConfigurations = self.openwrtConfigurations;
     });
 
     # deploy-rs deployment configurations

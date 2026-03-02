@@ -9,10 +9,10 @@
 #   nix run .#openwrt-build -- <device>         # Build image
 #   nix run .#openwrt-deploy -- <device> <ip>   # Build + deploy to device
 #   nix run .#openwrt-show-config -- <device>   # Show UCI config
-{ pkgs, openwrtDevices, openwrtDeviceFiles }:
+{ pkgs, openwrtDevices, openwrtConfigurations }:
 
 let
-  openwrt = import ./openwrt { inherit pkgs openwrtDevices openwrtDeviceFiles; };
+  openwrt = import ./openwrt { inherit pkgs openwrtDevices openwrtConfigurations; };
 in {
   # Network registry lookup
   netinfo = import ./netinfo.nix { inherit pkgs; };
@@ -21,7 +21,6 @@ in {
   inherit (openwrt)
     openwrt-build
     openwrt-deploy
-    openwrt-configure-secrets
     openwrt-show-config
     openwrt-export-config
     openwrt-analyze-packages
