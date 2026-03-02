@@ -23,17 +23,21 @@
 # Local analysis (from exported configs):
 #   nix run .#openwrt-analyze-local -- <config-dir-or-uci-file>
 #
-# Secrets file format (hosts/openwrt/secrets/wifi.yaml):
-#   mesh_id: "your-mesh-id"
-#   mesh_key: "your-mesh-password"
-#   wifi_ssids:
-#     main: "NetworkName"
-#     secondary: "NetworkName-Alt"
-#     iot: "NetworkName-IoT"
-#   wifi_keys:
-#     main: "main-network-password"
-#     secondary: "alt-network-password"
-#     iot: "iot-network-password"
+# Secrets (hosts/openwrt/secrets/wifi.yaml):
+#   Encrypted with sops in binary format. The wrapper calls `sops -d` and pipes
+#   the decrypted YAML directly to the builder — secrets never touch disk.
+#
+#   Plain YAML structure (example):
+#     mesh_id: "your-mesh-id"
+#     mesh_key: "your-mesh-password"
+#     wifi_ssids:
+#       main: "NetworkName"
+#       secondary: "NetworkName-Alt"
+#       iot: "NetworkName-IoT"
+#     wifi_keys:
+#       main: "main-network-password"
+#       secondary: "alt-network-password"
+#       iot: "iot-network-password"
 { pkgs, openwrtDevices, openwrtConfigurations }:
 
 let
@@ -95,15 +99,36 @@ let
     }
   '';
 
-  # Discover the secrets file from the repo (convenience for app wrappers)
-  discoverSecrets = ''
-    SECRETS_ARGS=""
+  # Find the sops-encrypted secrets file in the repo, if present.
+  # Sets SOPS_FILE (empty string if not found).
+  discoverSopsFile = ''
+    SOPS_FILE=""
     if [ -n "$REPO_ROOT" ]; then
-      SECRETS_FILE="$REPO_ROOT/hosts/openwrt/secrets/wifi.yaml"
-      if [ -f "$SECRETS_FILE" ]; then
-        SECRETS_ARGS="--secrets-file $SECRETS_FILE"
+      if [ -f "$REPO_ROOT/hosts/openwrt/secrets/wifi.yaml" ]; then
+        SOPS_FILE="$REPO_ROOT/hosts/openwrt/secrets/wifi.yaml"
       fi
     fi
+  '';
+
+  # Run the OpenWrt builder, piping decrypted secrets via stdin when available.
+  # Decrypted bytes exist only in the kernel pipe buffer — never written to disk.
+  # Skips secret injection if --no-secrets is present in the argument list,
+  # or if no sops file was found, or if --secrets-file was already supplied.
+  runBuilder = ''
+    run_builder() {
+      local use_secrets=true
+      local has_secrets_file=false
+      for arg in "$@"; do
+        [ "$arg" = "--no-secrets" ]  && use_secrets=false
+        [ "$arg" = "--secrets-file" ] && has_secrets_file=true
+      done
+      if $use_secrets && ! $has_secrets_file && [ -n "''${SOPS_FILE:-}" ]; then
+        ${pkgs.sops}/bin/sops -d "$SOPS_FILE" \
+          | ${builder}/bin/openwrt-build "$@" --secrets-file -
+      else
+        ${builder}/bin/openwrt-build "$@"
+      fi
+    }
   '';
 
 in {
@@ -206,8 +231,10 @@ in {
         # --config-file mode: use a pre-built manifest file directly
         if [ "''${1:-}" = "--config-file" ]; then
           shift
-          ${discoverSecrets}
-          exec ${builder}/bin/openwrt-build --config-file "$@" $SECRETS_ARGS
+          ${discoverSopsFile}
+          ${runBuilder}
+          run_builder --config-file "$@"
+          exit $?
         fi
 
         DEVICE="$1"
@@ -218,13 +245,14 @@ in {
           resolve_device "$DEVICE"
         fi
 
-        ${discoverSecrets}
+        ${discoverSopsFile}
+        ${runBuilder}
         DEFAULT_OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/$DEVICE}"
         OUTPUT_DIR_ARG=""
         if [ -n "$DEFAULT_OUTPUT_DIR" ]; then
           OUTPUT_DIR_ARG="--output-dir $DEFAULT_OUTPUT_DIR"
         fi
-        exec ${builder}/bin/openwrt-build --config-file "$CONFIG_DIR/build.json" $SECRETS_ARGS $OUTPUT_DIR_ARG "$@"
+        run_builder --config-file "$CONFIG_DIR/build.json" $OUTPUT_DIR_ARG "$@"
       '';
     in "${script}";
   };
@@ -269,16 +297,16 @@ in {
           esac
         done
 
-        ${discoverSecrets}
+        ${discoverSopsFile}
+        ${runBuilder}
 
         OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/$DEVICE}"
         OUTPUT_DIR="''${OUTPUT_DIR:-$(pwd)/openwrt-images/$DEVICE}"
 
         # Build the image
-        ${builder}/bin/openwrt-build \
+        run_builder \
           --config-file "$CONFIG_DIR/build.json" \
           --output-dir "$OUTPUT_DIR" \
-          $SECRETS_ARGS \
           $BUILD_ARGS
 
         # Find the sysupgrade image
