@@ -29,8 +29,13 @@ nix build .#openwrtConfigurations.<device-name>
 nix run .#openwrt-build -- <device-name>
 nix run .#openwrt-build -- <device-name> --no-secrets
 
-# Deploy an OpenWrt image
+# Deploy an OpenWrt image (build + deploy in one step)
 nix run .#openwrt-deploy -- <device-name> <device-ip>
+
+# Manual two-step pipeline (composable):
+CONFIG_DIR=$(nix build .#openwrtConfigurations.<device-name> --print-out-paths --no-link)
+nix run .#openwrt-build -- --config-dir "$CONFIG_DIR" [--secrets-file hosts/openwrt/secrets/wifi.yaml] --output-dir ./out/
+$(nix build .#openwrt-deployer --print-out-paths --no-link)/bin/openwrt-deploy <device-ip> ./out/*-sysupgrade.bin
 
 # Show OpenWrt UCI config
 nix run .#openwrt-show-config -- <device-name>
