@@ -53,6 +53,7 @@
       inherit system;
       pkgs = pkgsFor nixpkgs system;
     });
+    openwrtDevices = import ./hosts/openwrt { inherit (nixpkgs) lib; };
   in {
     devShells = forAllSystems ({ system, pkgs }: {
       default = pkgs.mkShell {
@@ -236,15 +237,6 @@
       };
     };
 
-    # OpenWrt device declarations (pure data) and generated configs
-    openwrtDevices = import ./hosts/openwrt { inherit (nixpkgs) lib; };
-
-    openwrtConfigs = let
-      owrtData = import ./lib/common/data/openwrt.nix { inherit (nixpkgs) lib; };
-    in builtins.mapAttrs (_: device:
-      self.lib.openwrt.mkDeviceConfig { inherit device owrtData; }
-    ) self.openwrtDevices;
-
     # Per-device config build artifacts (derivations bundling all config files)
     # Text-only outputs — system choice doesn't affect content
     openwrtConfigurations = let
@@ -292,14 +284,14 @@
         })}
         EOF
       ''
-    ) self.openwrtDevices;
+    ) openwrtDevices;
 
     # Apps for OpenWrt management
     apps = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
       pkgs = pkgsFor nixpkgs system;
     in import ./apps {
       inherit pkgs;
-      openwrtDevices = self.openwrtDevices;
+      inherit openwrtDevices;
       openwrtConfigurations = self.openwrtConfigurations;
     });
 
