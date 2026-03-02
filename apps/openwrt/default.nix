@@ -536,21 +536,24 @@ in {
           echo ""
           echo "Builds and runs the device's UCI configuration in a QEMU aarch64 VM."
           echo "Uses armsr/armv8 (same architecture as most devices) with the UCI config"
-          echo "baked into an initramfs kernel. Automatically SSHs in when the VM is"
-          echo "ready; shutting down QEMU when the SSH session ends."
+          echo "baked into the rootfs. Automatically SSHs in when the VM is ready;"
+          echo "shutting down QEMU when the SSH session ends."
           echo ""
           echo "SSH keys: public keys are collected from your SSH agent (ssh-add -L)"
           echo "and ~/.ssh/id_*.pub and injected into the VM's authorized_keys."
           echo ""
           echo "Arguments:"
-          echo "  device-name         Name of the device (as defined in hosts/openwrt/)"
+          echo "  device-name           Name of the device (as defined in hosts/openwrt/)"
           echo ""
           echo "Options:"
-          echo "  --no-secrets        Build without WiFi/network secrets"
-          echo "  --ssh-port PORT     Host port for SSH (default: 2222)"
-          echo "  --web-port PORT     Host port for LuCI web UI (default: 8080)"
-          echo "  --memory MB         VM memory in MB (default: 256)"
-          echo "  --kernel-file PATH  Use a pre-built initramfs kernel (skip build step)"
+          echo "  --no-secrets          Build without WiFi/network secrets"
+          echo "  --ssh-port PORT       Host port for SSH (default: 2222)"
+          echo "  --web-port PORT       Host port for LuCI web UI (default: 8080)"
+          echo "  --memory MB           VM memory in MB (default: 256)"
+          echo "  --kernel-file PATH    Use a pre-built kernel (skip build step)"
+          echo "  --initrd-file PATH    Use a pre-built rootfs cpio (skip build step;"
+          echo "                        auto-detected from kernel directory if omitted)"
+          echo "  --rebuild             Force rebuild even if a cached image exists"
           exit 1
         }
 
@@ -566,6 +569,8 @@ in {
         WEB_PORT=8080
         MEMORY=256
         KERNEL_FILE=""
+        INITRD_FILE=""
+        FORCE_REBUILD=false
 
         while [ $# -gt 0 ]; do
           case "$1" in
@@ -574,6 +579,8 @@ in {
             --web-port)     shift; WEB_PORT="$1" ;;
             --memory)       shift; MEMORY="$1" ;;
             --kernel-file)  shift; KERNEL_FILE="$1" ;;
+            --initrd-file)  shift; INITRD_FILE="$1" ;;
+            --rebuild)      FORCE_REBUILD=true ;;
             --help|-h)      usage ;;
             *)              echo "Unknown option: $1" >&2; usage ;;
           esac
@@ -584,8 +591,16 @@ in {
           resolve_device "$DEVICE"
           resolve_target "$DEVICE"
           REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
-          OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/''${DEVICE}-vm}"
-          OUTPUT_DIR="''${OUTPUT_DIR:-$(pwd)/openwrt-images/''${DEVICE}-vm}"
+
+          # Cache key: first 16 hex chars of the build.json SHA-256, plus a suffix
+          # for each build parameter that affects the output. A UCI config change,
+          # package list change, or release bump all produce a new hash → new dir.
+          CONFIG_HASH=$(${pkgs.coreutils}/bin/sha256sum "$CONFIG_DIR/build.json" | cut -c1-16)
+          CACHE_SUFFIX="-armsr-armv8"
+          [ -n "$NO_SECRETS_ARG" ] && CACHE_SUFFIX="''${CACHE_SUFFIX}-nosecrets"
+          BASE_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images}"
+          BASE_DIR="''${BASE_DIR:-$(pwd)/openwrt-images}"
+          OUTPUT_DIR="''${BASE_DIR}/''${DEVICE}-vm/''${CONFIG_HASH}''${CACHE_SUFFIX}"
 
           # Warn when the device's native architecture differs from the armsr/armv8 VM.
           case "$DEVICE_TARGET" in
@@ -598,51 +613,77 @@ in {
               ;;
           esac
 
-          # Collect the caller's SSH public keys to pass to the builder.
-          # Try the SSH agent first (covers hardware tokens and loaded keys), then fall
-          # back to the standard public key files.
-          USER_KEYS=$(${pkgs.openssh}/bin/ssh-add -L 2>/dev/null || true)
-          if [ -z "$USER_KEYS" ]; then
-            for pub in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME/.ssh/id_ecdsa.pub"; do
-              [ -f "$pub" ] && USER_KEYS="$(printf '%s\n%s' "$USER_KEYS" "$(cat "$pub")")" || true
-            done
-          fi
-          KEY_ARGS=()
-          while IFS= read -r key; do
-            [ -n "$key" ] && KEY_ARGS+=("--authorized-key" "$key")
-          done <<< "$USER_KEYS"
-          if [ ''${#KEY_ARGS[@]} -eq 0 ]; then
-            echo "Warning: No SSH public keys found in agent or ~/.ssh/id_*.pub."
-            echo "         VM will boot without any authorized SSH keys — login will fail."
-            echo ""
+          # Check for a cached build from a previous run with the same config.
+          if [ "$FORCE_REBUILD" = false ]; then
+            KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*-kernel.bin" 2>/dev/null | head -1 || true)
+            INITRD_FILE=$(find "$OUTPUT_DIR" -name "*-rootfs.cpio.gz" 2>/dev/null | head -1 || true)
+            if [ -n "$KERNEL_FILE" ] && [ -n "$INITRD_FILE" ]; then
+              echo "Using cached VM image (config hash: $CONFIG_HASH)."
+            fi
           fi
 
-          ${discoverSopsFile}
-          ${runBuilder}
-
-          echo "Building aarch64 initramfs kernel for $DEVICE..."
-          echo "(First run downloads the ~20 MB armsr/armv8 Image Builder and caches it)"
-          run_builder \
-            --config-file "$CONFIG_DIR/build.json" \
-            --target armsr \
-            --subtarget armv8 \
-            --profile generic \
-            "''${KEY_ARGS[@]}" \
-            --output-dir "$OUTPUT_DIR" \
-            $NO_SECRETS_ARG
-
-          # armsr/armv8 generic profile produces *-initramfs-kernel.bin — a self-contained
-          # kernel+rootfs blob that QEMU boots directly with -kernel (no disk, no UEFI).
-          KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*initramfs*.bin" 2>/dev/null | head -1 || true)
           if [ -z "$KERNEL_FILE" ]; then
-            echo "Error: No initramfs kernel found in $OUTPUT_DIR" >&2
-            ls "$OUTPUT_DIR" >&2 || true
+            # Collect the caller's SSH public keys to pass to the builder.
+            # Try the SSH agent first (covers hardware tokens and loaded keys), then fall
+            # back to the standard public key files.
+            USER_KEYS=$(${pkgs.openssh}/bin/ssh-add -L 2>/dev/null || true)
+            if [ -z "$USER_KEYS" ]; then
+              for pub in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME/.ssh/id_ecdsa.pub"; do
+                [ -f "$pub" ] && USER_KEYS="$(printf '%s\n%s' "$USER_KEYS" "$(cat "$pub")")" || true
+              done
+            fi
+            KEY_ARGS=()
+            while IFS= read -r key; do
+              [ -n "$key" ] && KEY_ARGS+=("--authorized-key" "$key")
+            done <<< "$USER_KEYS"
+            if [ ''${#KEY_ARGS[@]} -eq 0 ]; then
+              echo "Warning: No SSH public keys found in agent or ~/.ssh/id_*.pub."
+              echo "         VM will boot without any authorized SSH keys — login will fail."
+              echo ""
+            fi
+
+            ${discoverSopsFile}
+            ${runBuilder}
+
+            echo "Building aarch64 VM image for $DEVICE..."
+            echo "(First run downloads the ~20 MB armsr/armv8 Image Builder and caches it)"
+            run_builder \
+              --config-file "$CONFIG_DIR/build.json" \
+              --target armsr \
+              --subtarget armv8 \
+              --profile generic \
+              "''${KEY_ARGS[@]}" \
+              --output-dir "$OUTPUT_DIR" \
+              $NO_SECRETS_ARG
+
+            # armsr/armv8 generic profile produces a separate kernel and rootfs cpio:
+            #   *-kernel.bin         — plain kernel binary
+            #   *-rootfs.cpio.gz     — rootfs as cpio initramfs (contains our UCI config)
+            # QEMU boots them with -kernel + -initrd (no disk image or UEFI needed).
+            KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*-kernel.bin" 2>/dev/null | head -1 || true)
+            INITRD_FILE=$(find "$OUTPUT_DIR" -name "*-rootfs.cpio.gz" 2>/dev/null | head -1 || true)
+            if [ -z "$KERNEL_FILE" ] || [ -z "$INITRD_FILE" ]; then
+              echo "Error: Could not find kernel or rootfs cpio in $OUTPUT_DIR" >&2
+              ls "$OUTPUT_DIR" >&2 || true
+              exit 1
+            fi
+          fi
+        fi
+
+        # When --kernel-file is given without --initrd-file, auto-detect the cpio
+        # from the same directory (the two files are always built together).
+        if [ -z "$INITRD_FILE" ]; then
+          INITRD_FILE=$(find "$(dirname "$KERNEL_FILE")" -name "*-rootfs.cpio.gz" 2>/dev/null | head -1 || true)
+          if [ -z "$INITRD_FILE" ]; then
+            echo "Error: No rootfs cpio found alongside $KERNEL_FILE" >&2
+            echo "       Use --initrd-file to specify it explicitly." >&2
             exit 1
           fi
         fi
 
         BOOT_LOG=$(mktemp -t openwrt-boot-XXXXXX.log)
         echo "Kernel:   $KERNEL_FILE"
+        echo "Initrd:   $INITRD_FILE"
         echo "Boot log: $BOOT_LOG"
         echo ""
 
@@ -656,6 +697,7 @@ in {
           -display none \
           -serial "file:$BOOT_LOG" \
           -kernel "$KERNEL_FILE" \
+          -initrd "$INITRD_FILE" \
           -append "console=ttyAMA0" \
           -netdev "user,id=net0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$WEB_PORT-:80" \
           -device virtio-net-pci,netdev=net0 &
