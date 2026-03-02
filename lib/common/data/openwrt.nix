@@ -28,9 +28,11 @@ in
   # Gateway is always on the primary prefix (10.0)
   mkGateway = vlanId: "10.0.${toString vlanId}.1";
 
-  # Gateway addresses for router — all three prefixes for migration compatibility
-  mkGatewayAddresses = vlanId: [
-    "10.0.${toString vlanId}.1/24"
+  # Router gateway addresses — split so DHCP only binds to the primary (10.0) interface.
+  # dnsmasq derives pools from the UCI interface address, so keeping 10.1 and 10.97
+  # on a separate _x alias prevents them from getting their own DHCP pools.
+  mkPrimaryGatewayAddress = vlanId: "10.0.${toString vlanId}.1/24";
+  mkExtraGatewayAddresses = vlanId: [
     "10.1.${toString vlanId}.1/24"
     "10.97.${toString vlanId}.1/24"
   ];
