@@ -9,7 +9,8 @@
 
 Usage:
     openwrt-build --config-file <build.json> [--no-secrets] [--output-dir DIR]
-    openwrt-build --config-file <build.json> [--authorized-key <key> ...]
+    openwrt-build --config-file <build.json> [--target T] [--subtarget ST] [--profile P]
+    openwrt-build --target T --subtarget ST --profile P --release R --uci-defaults <file>
     openwrt-build --update-pins --hashes-file <path> --targets <t/st> [<t/st> ...]
     openwrt-build --config-file <build.json> --update [--hashes-file <path>]
 
@@ -503,23 +504,45 @@ def main():
     )
     parser.add_argument(
         "--release", type=str, default=None,
-        help="Explicit OpenWrt release version to pin (default: fetch latest from upstream)",
+        help="OpenWrt release version (e.g. 24.10.5). In build mode: overrides the manifest "
+             "release. In --update-pins mode: pins to this release instead of fetching latest.",
     )
 
-    # Per-build overrides — take precedence over values from the build.json manifest.
-    # Useful for building the same UCI config against a different target (e.g. armsr/armv8
-    # for VM testing) without needing to produce a modified build.json file.
+    # Per-build field overrides — take precedence over values from the build.json manifest.
+    # All of these can also be used without --config-file to build ad-hoc images.
+    parser.add_argument(
+        "--hostname", type=str, default=None,
+        help="Device hostname (used for default output directory naming)",
+    )
     parser.add_argument(
         "--target", type=str, default=None,
-        help="Override the Image Builder target (e.g. armsr)",
+        help="Image Builder target (e.g. armsr, mediatek)",
     )
     parser.add_argument(
         "--subtarget", type=str, default=None,
-        help="Override the Image Builder subtarget (e.g. armv8)",
+        help="Image Builder subtarget (e.g. armv8, mt7622)",
     )
     parser.add_argument(
         "--profile", type=str, default=None,
-        help="Override the device profile (e.g. generic)",
+        help="Device profile passed to make image (e.g. generic, linksys_e8450-ubi)",
+    )
+    parser.add_argument(
+        "--device-type", type=str, default=None,
+        dest="device_type",
+        help="Device type: router, meshAP, switch, or simpleAP "
+             "(affects whether WiFi radios are enabled when secrets are applied)",
+    )
+    parser.add_argument(
+        "--uci-defaults", type=str, default=None,
+        help="Path to a UCI defaults script written to etc/uci-defaults/99-nix-config",
+    )
+    parser.add_argument(
+        "--package",
+        action="append",
+        default=None,
+        dest="package",
+        help="Package to include (can be repeated; when any --package is given, "
+             "it replaces the manifest package list entirely)",
     )
     parser.add_argument(
         "--authorized-key",
@@ -528,6 +551,10 @@ def main():
         dest="authorized_key",
         help="SSH public key to include in authorized_keys (can be repeated; "
              "when any --authorized-key is given, it replaces the manifest keys entirely)",
+    )
+    parser.add_argument(
+        "--image-builder-tarball", type=str, default=None,
+        help="Path to a pre-downloaded Image Builder .tar.zst (skips network download)",
     )
 
     args = parser.parse_args()
@@ -546,25 +573,69 @@ def main():
     # --- Load config ---
     secrets_file_explicit = args.secrets_file or os.environ.get("OPENWRT_SECRETS_FILE")
 
-    if not args.config_file:
-        print("Error: --config-file is required.", file=sys.stderr)
-        sys.exit(1)
-    build_info = load_config(args.config_file)
+    if args.config_file:
+        build_info = load_config(args.config_file)
+    else:
+        build_info = {
+            "hostname": "openwrt",
+            "profile": "",
+            "target": "",
+            "subtarget": "",
+            "release": "",
+            "deviceType": "",
+            "packages": [],
+            "authorizedKeys": [],
+            "secretsMap": {},
+            "uciDefaultsScript": "",
+        }
 
     # Apply CLI overrides (take precedence over build.json values)
+    if args.hostname:
+        build_info["hostname"] = args.hostname
     if args.target:
         build_info["target"] = args.target
     if args.subtarget:
         build_info["subtarget"] = args.subtarget
     if args.profile:
         build_info["profile"] = args.profile
-    # When overriding target/subtarget, the pinned Image Builder tarball for the
-    # original target is no longer valid — remove it so the builder fetches the
-    # correct one for the new target.
-    if args.target or args.subtarget:
-        build_info.pop("imageBuilderTarball", None)
+    if args.release:
+        build_info["release"] = args.release
+    if args.device_type:
+        build_info["deviceType"] = args.device_type
+    if args.uci_defaults:
+        try:
+            build_info["uciDefaultsScript"] = Path(args.uci_defaults).read_text()
+        except OSError as e:
+            print(f"Error: Could not read UCI defaults file: {e}", file=sys.stderr)
+            sys.exit(1)
+    if args.package:
+        build_info["packages"] = args.package
     if args.authorized_key:
         build_info["authorizedKeys"] = [k for k in args.authorized_key if k.strip()]
+    if args.image_builder_tarball:
+        build_info["imageBuilderTarball"] = args.image_builder_tarball
+    # When overriding target/subtarget, the pinned Image Builder tarball for the
+    # original target is no longer valid — remove it so the builder fetches the
+    # correct one for the new target. Skip this if a tarball was explicitly supplied.
+    if (args.target or args.subtarget) and not args.image_builder_tarball:
+        build_info.pop("imageBuilderTarball", None)
+
+    # --- Validate required fields ---
+    missing = [
+        flag for field, flag in [
+            ("target",    "--target"),
+            ("subtarget", "--subtarget"),
+            ("profile",   "--profile"),
+            ("release",   "--release"),
+        ]
+        if not build_info.get(field)
+    ]
+    if missing:
+        print(f"Error: Missing required fields: {', '.join(missing)}", file=sys.stderr)
+        if not args.config_file:
+            print("  Provide a --config-file or supply the missing fields via CLI flags.",
+                  file=sys.stderr)
+        sys.exit(1)
 
     # --- Determine output directory ---
     if args.output_dir:
