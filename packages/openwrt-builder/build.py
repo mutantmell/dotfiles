@@ -505,6 +505,22 @@ def main():
         help="Explicit OpenWrt release version to pin (default: fetch latest from upstream)",
     )
 
+    # Per-build overrides — take precedence over values from the build.json manifest.
+    # Useful for building the same UCI config against a different target (e.g. armsr/armv8
+    # for VM testing) without needing to produce a modified build.json file.
+    parser.add_argument(
+        "--target", type=str, default=None,
+        help="Override the Image Builder target (e.g. armsr)",
+    )
+    parser.add_argument(
+        "--subtarget", type=str, default=None,
+        help="Override the Image Builder subtarget (e.g. armv8)",
+    )
+    parser.add_argument(
+        "--profile", type=str, default=None,
+        help="Override the device profile (e.g. generic)",
+    )
+
     args = parser.parse_args()
 
     # --- Update-only mode ---
@@ -525,6 +541,19 @@ def main():
         print("Error: --config-file is required.", file=sys.stderr)
         sys.exit(1)
     build_info = load_config(args.config_file)
+
+    # Apply CLI overrides (take precedence over build.json values)
+    if args.target:
+        build_info["target"] = args.target
+    if args.subtarget:
+        build_info["subtarget"] = args.subtarget
+    if args.profile:
+        build_info["profile"] = args.profile
+    # When overriding target/subtarget, the pinned Image Builder tarball for the
+    # original target is no longer valid — remove it so the builder fetches the
+    # correct one for the new target.
+    if args.target or args.subtarget:
+        build_info.pop("imageBuilderTarball", None)
 
     # --- Determine output directory ---
     if args.output_dir:

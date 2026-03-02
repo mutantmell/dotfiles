@@ -493,6 +493,133 @@ in {
     in "${script}";
   };
 
+  # Build and run an OpenWrt aarch64 VM for testing a device's UCI configuration.
+  #
+  # Uses the armsr/armv8 OpenWrt target (same aarch64 architecture as most devices)
+  # and boots the initramfs kernel image in qemu-system-aarch64. The UCI config is
+  # baked into the initramfs, so the system starts up fully configured in memory —
+  # no disk image, no UEFI firmware needed. Clean state on every boot.
+  #
+  # Runs as TCG emulation (no KVM on x86_64 hosts) — OpenWrt is small enough that
+  # this is fast enough for configuration verification.
+  openwrt-run = {
+    type = "app";
+    program = let
+      script = pkgs.writeShellScript "openwrt-run" ''
+        set -euo pipefail
+
+        ${resolveDevice}
+
+        usage() {
+          echo "Usage: nix run .#openwrt-run -- <device-name> [options]"
+          echo ""
+          echo "Builds and runs the device's UCI configuration in a QEMU aarch64 VM."
+          echo "Uses armsr/armv8 (same architecture as the device) with the UCI config"
+          echo "baked into an initramfs kernel. Boots clean and fully configured."
+          echo "First run downloads the armsr/armv8 Image Builder (~20 MB, cached)."
+          echo ""
+          echo "Arguments:"
+          echo "  device-name         Name of the device (as defined in hosts/openwrt/)"
+          echo ""
+          echo "Options:"
+          echo "  --no-secrets        Build without WiFi/network secrets"
+          echo "  --ssh-port PORT     Host port for SSH access (default: 2222)"
+          echo "  --web-port PORT     Host port for LuCI web UI (default: 8080)"
+          echo "  --memory MB         VM memory in MB (default: 256)"
+          echo "  --kernel-file PATH  Use a pre-built initramfs kernel (skip build step)"
+          echo ""
+          echo "Access while running:"
+          echo "  SSH:  ssh -o StrictHostKeyChecking=no -p 2222 root@localhost"
+          echo "  Web:  http://localhost:8080"
+          echo "  Exit: press Ctrl-A then X"
+          exit 1
+        }
+
+        if [ $# -lt 1 ]; then
+          usage
+        fi
+
+        DEVICE="$1"
+        shift
+
+        NO_SECRETS_ARG=""
+        SSH_PORT=2222
+        WEB_PORT=8080
+        MEMORY=256
+        KERNEL_FILE=""
+
+        while [ $# -gt 0 ]; do
+          case "$1" in
+            --no-secrets)   NO_SECRETS_ARG="--no-secrets" ;;
+            --ssh-port)     shift; SSH_PORT="$1" ;;
+            --web-port)     shift; WEB_PORT="$1" ;;
+            --memory)       shift; MEMORY="$1" ;;
+            --kernel-file)  shift; KERNEL_FILE="$1" ;;
+            --help|-h)      usage ;;
+            *)              echo "Unknown option: $1" >&2; usage ;;
+          esac
+          shift
+        done
+
+        if [ -z "$KERNEL_FILE" ]; then
+          resolve_device "$DEVICE"
+          REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
+          OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/''${DEVICE}-vm}"
+          OUTPUT_DIR="''${OUTPUT_DIR:-$(pwd)/openwrt-images/''${DEVICE}-vm}"
+
+          ${discoverSopsFile}
+          ${runBuilder}
+
+          # Pass --target/--subtarget/--profile overrides directly to the builder.
+          # The builder strips the pinned imageBuilderTarball automatically when
+          # the target is overridden, and downloads the armsr/armv8 Image Builder
+          # (cached in ~/.cache/openwrt-builder/ after the first run).
+          echo "Building aarch64 initramfs kernel for $DEVICE..."
+          echo "(First run downloads the ~20 MB armsr/armv8 Image Builder and caches it)"
+          run_builder \
+            --config-file "$CONFIG_DIR/build.json" \
+            --target armsr \
+            --subtarget armv8 \
+            --profile generic \
+            --output-dir "$OUTPUT_DIR" \
+            $NO_SECRETS_ARG
+
+          # Locate the initramfs kernel produced by the Image Builder.
+          # armsr/armv8 generic profile produces *-initramfs-kernel.bin — a self-contained
+          # kernel+rootfs blob that QEMU can boot directly with -kernel (no disk, no UEFI).
+          KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*initramfs*.bin" 2>/dev/null | head -1 || true)
+
+          if [ -z "$KERNEL_FILE" ]; then
+            echo "Error: No initramfs kernel found in $OUTPUT_DIR" >&2
+            echo "Available files:" >&2
+            ls "$OUTPUT_DIR" >&2 || true
+            exit 1
+          fi
+        fi
+
+        echo ""
+        echo "Kernel: $KERNEL_FILE"
+        echo "SSH:    ssh -o StrictHostKeyChecking=no -p $SSH_PORT root@localhost"
+        echo "Web:    http://localhost:$WEB_PORT"
+        echo ""
+        echo "Running qemu-system-aarch64 (TCG emulation, no KVM on x86_64 host)"
+        echo "Press Ctrl-A then X to exit QEMU"
+        echo "---"
+        echo ""
+
+        exec ${pkgs.qemu}/bin/qemu-system-aarch64 \
+          -M virt \
+          -cpu cortex-a53 \
+          -m "$MEMORY" \
+          -nographic \
+          -kernel "$KERNEL_FILE" \
+          -append "console=ttyAMA0" \
+          -netdev "user,id=net0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$WEB_PORT-:80" \
+          -device virtio-net-pci,netdev=net0
+      '';
+    in "${script}";
+  };
+
   # Analyze local config exports to detect features and infer packages
   openwrt-analyze-local = {
     type = "app";

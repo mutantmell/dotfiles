@@ -21,6 +21,7 @@ in {
   inherit (openwrt)
     openwrt-build
     openwrt-deploy
+    openwrt-run
     openwrt-show-config
     openwrt-export-config
     openwrt-analyze-packages
