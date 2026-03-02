@@ -94,6 +94,24 @@ let
   simpleAPSecretsMap = openwrt.mkSecretsMap { device = simpleAPDevice; inherit owrtData; };
   routerSecretsMap = openwrt.mkSecretsMap { device = routerDevice; inherit owrtData; };
 
+  # --- Config files (mkConfigFiles) ---
+
+  meshFiles = openwrt.mkConfigFiles { device = meshDevice; inherit owrtData; };
+  meshMeta = builtins.fromJSON (builtins.readFile meshFiles.configJson);
+  meshUciContent = builtins.readFile meshFiles.uciFile;
+
+  switchFiles = openwrt.mkConfigFiles { device = switchDevice; inherit owrtData; };
+  switchMeta = builtins.fromJSON (builtins.readFile switchFiles.configJson);
+  switchUciContent = builtins.readFile switchFiles.uciFile;
+
+  simpleAPFiles = openwrt.mkConfigFiles { device = simpleAPDevice; inherit owrtData; };
+  simpleAPMeta = builtins.fromJSON (builtins.readFile simpleAPFiles.configJson);
+  simpleAPUciContent = builtins.readFile simpleAPFiles.uciFile;
+
+  routerFiles = openwrt.mkConfigFiles { device = routerDevice; inherit owrtData; };
+  routerMeta = builtins.fromJSON (builtins.readFile routerFiles.configJson);
+  routerUciContent = builtins.readFile routerFiles.uciFile;
+
   # --- Test real device declarations load ---
 
   realDevices = import ../../hosts/openwrt { inherit lib; };
@@ -330,49 +348,63 @@ let
     "migrationPreCommands is a list" = builtins.isList openwrt.migrationPreCommands;
     "migrationPreCommands is non-empty" = builtins.length openwrt.migrationPreCommands > 0;
 
-    # buildInfo structure (test with synthetic devices)
-    "buildInfo mesh structure" =
-      let
-        info = let
-          config = openwrt.mkDeviceConfig { device = meshDevice; inherit owrtData; };
-          extraPackages = meshDevice.extraPackages or [];
-          packages = openwrt.defaultMeshPackages ++ extraPackages;
-        in {
-          hostname = meshDevice.hostname;
-          profile = meshDevice.profile;
-          target = meshDevice.target;
-          subtarget = meshDevice.subtarget;
-          release = meshDevice.release or owrtData.defaultRelease;
-          inherit packages;
-          uciDefaultsScript = openwrt.uci.mkUCIDefaults {
-            name = "nix-config";
-            inherit config;
-            preCommands = openwrt.migrationPreCommands;
-          };
-          deviceType = meshDevice.type;
-        };
-      in info ? hostname && info ? profile && info ? target && info ? subtarget
-         && info ? release && info ? packages && info ? uciDefaultsScript && info ? deviceType;
+    # packagesForDevice
+    "packagesForDevice meshAP" = builtins.isList (openwrt.packagesForDevice meshDevice);
+    "packagesForDevice switch" = builtins.isList (openwrt.packagesForDevice switchDevice);
+    "packagesForDevice simpleAP" = builtins.isList (openwrt.packagesForDevice simpleAPDevice);
+    "packagesForDevice router" = builtins.isList (openwrt.packagesForDevice routerDevice);
 
-    "buildInfo hostname correct" =
-      let
-        config = openwrt.mkDeviceConfig { device = meshDevice; inherit owrtData; };
-      in meshDevice.hostname == "test-mesh";
+    # --- mkConfigFiles tests (pure eval via builtins.readFile) ---
 
-    "buildInfo target correct" = meshDevice.target == "mediatek";
-    "buildInfo subtarget correct" = meshDevice.subtarget == "mt7622";
-    "buildInfo release is string" = builtins.isString (meshDevice.release or owrtData.defaultRelease);
-    "buildInfo packages is list" = builtins.isList openwrt.defaultMeshPackages;
+    # Mesh AP config files
+    "meshAP configFiles has configJson" = meshFiles ? configJson;
+    "meshAP configFiles has uciFile" = meshFiles ? uciFile;
+    "meshAP configFiles has secretsFile" = meshFiles ? secretsFile;
+    "meshAP configFiles has keysFile" = meshFiles ? keysFile;
 
-    "buildInfo uciDefaultsScript is string" =
-      let
-        config = openwrt.mkDeviceConfig { device = meshDevice; inherit owrtData; };
-        script = openwrt.uci.mkUCIDefaults {
-          name = "nix-config";
-          inherit config;
-          preCommands = openwrt.migrationPreCommands;
-        };
-      in builtins.isString script;
+    "meshAP meta hostname" = meshMeta.hostname == "test-mesh";
+    "meshAP meta deviceType" = meshMeta.deviceType == "meshAP";
+    "meshAP meta has profile" = meshMeta ? profile;
+    "meshAP meta has target" = meshMeta ? target;
+    "meshAP meta has packages" = meshMeta ? packages;
+    "meshAP meta has secretsMap" = meshMeta ? secretsMap;
+    "meshAP meta packages is list" = builtins.isList meshMeta.packages;
+    "meshAP meta target correct" = meshMeta.target == "mediatek";
+    "meshAP meta subtarget correct" = meshMeta.subtarget == "mt7622";
+    "meshAP meta release is string" = builtins.isString meshMeta.release;
+
+    "meshAP uci file contains hostname" =
+      contains "test-mesh" meshUciContent;
+    "meshAP uci file has no secrets" =
+      builtins.match ".*(secret|password).*" meshUciContent == null;
+
+    # Switch config files
+    "switch configFiles produces valid meta" = switchMeta.hostname == "test-switch";
+    "switch meta deviceType" = switchMeta.deviceType == "switch";
+    "switch meta has packages" = builtins.isList switchMeta.packages;
+    "switch uci file contains hostname" =
+      contains "test-switch" switchUciContent;
+
+    # Simple AP config files
+    "simpleAP configFiles produces valid meta" = simpleAPMeta.hostname == "test-simple";
+    "simpleAP meta deviceType" = simpleAPMeta.deviceType == "simpleAP";
+    "simpleAP uci file contains hostname" =
+      contains "test-simple" simpleAPUciContent;
+
+    # Router config files
+    "router configFiles produces valid meta" = routerMeta.hostname == "test-router";
+    "router meta deviceType" = routerMeta.deviceType == "router";
+    "router meta has packages" = builtins.isList routerMeta.packages;
+    "router uci file contains hostname" =
+      contains "test-router" routerUciContent;
+
+    # All real devices produce valid mkConfigFiles output
+    "all real devices produce configFiles" =
+      lib.all (name:
+        let files = openwrt.mkConfigFiles { device = realDevices.${name}; inherit owrtData; };
+            meta = builtins.fromJSON (builtins.readFile files.configJson);
+        in meta ? hostname && meta ? profile && meta ? target && meta ? packages
+      ) (builtins.attrNames realDevices);
   };
 
   failures = lib.filterAttrs (_: v: !v) allTests;

@@ -245,43 +245,50 @@
       self.lib.openwrt.mkDeviceConfig { inherit device owrtData; }
     ) self.openwrtDevices;
 
-    # OpenWrt build info (JSON-serializable, for Python builder)
-    openwrtBuildInfo = let
+    # Per-device config build artifacts (derivations bundling all config files)
+    # Text-only outputs — system choice doesn't affect content
+    openwrtConfigurations = let
+      pkgs = pkgsFor nixpkgs "x86_64-linux";
       owrtData = import ./lib/common/data/openwrt.nix { inherit (nixpkgs) lib; };
-      openwrt = self.lib.openwrt;
     in builtins.mapAttrs (_: device:
-      let
-        config = openwrt.mkDeviceConfig { inherit device owrtData; };
-        extraPackages = device.extraPackages or [];
-        packages =
-          if device.type == "meshAP" then openwrt.defaultMeshPackages ++ extraPackages
-          else if device.type == "switch" then openwrt.defaultSwitchPackages ++ extraPackages
-          else if device.type == "simpleAP" then openwrt.defaultSimpleAPPackages ++ extraPackages
-          else if device.type == "router" then openwrt.defaultRouterPackages ++ extraPackages
-          else throw "openwrtBuildInfo: unknown device type '${device.type}'";
-      in {
-        hostname = device.hostname;
-        profile = device.profile;
-        target = device.target;
-        subtarget = device.subtarget;
-        release = device.release or owrtData.defaultRelease;
-        inherit packages;
-        uciDefaultsScript = openwrt.uci.mkUCIDefaults {
-          name = "nix-config";
-          inherit config;
-          preCommands = openwrt.migrationPreCommands;
-        };
-        secretsApplyScript = openwrt.mkSecretsApplyScript { inherit device owrtData; };
-        secretsMap = openwrt.mkSecretsMap { inherit device owrtData; };
-        authorizedKeys = owrtData.authorizedKeys;
-        deviceType = device.type;
-      }
+      let files = self.lib.openwrt.mkConfigFiles { inherit device owrtData; };
+      in pkgs.runCommand "openwrt-config-${device.hostname}" {} ''
+        mkdir -p $out
+        cp ${files.uciFile} $out/uci-defaults.sh
+        cp ${files.secretsFile} $out/secrets-apply.sh
+        cp ${files.keysFile} $out/authorized_keys
+        cat > $out/build.json <<'EOF'
+        ${builtins.toJSON {
+          hostname = device.hostname;
+          profile = device.profile;
+          target = device.target;
+          subtarget = device.subtarget;
+          release = device.release or owrtData.defaultRelease;
+          deviceType = device.type;
+          packages = self.lib.openwrt.packagesForDevice device;
+          secretsMap = self.lib.openwrt.mkSecretsMap { inherit device owrtData; };
+          files = {
+            uciDefaults = "./uci-defaults.sh";
+            secretsApply = "./secrets-apply.sh";
+            authorizedKeys = "./authorized_keys";
+          };
+        }}
+        EOF
+      ''
     ) self.openwrtDevices;
 
     # Apps for OpenWrt management
     apps = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
       pkgs = pkgsFor nixpkgs system;
-    in import ./apps { inherit pkgs; openwrtBuildInfo = self.openwrtBuildInfo; });
+      owrtData = import ./lib/common/data/openwrt.nix { inherit (nixpkgs) lib; };
+      openwrtDeviceFiles = builtins.mapAttrs (_: device:
+        self.lib.openwrt.mkConfigFiles { inherit device owrtData; }
+      ) self.openwrtDevices;
+    in import ./apps {
+      inherit pkgs;
+      openwrtDevices = self.openwrtDevices;
+      inherit openwrtDeviceFiles;
+    });
 
     # deploy-rs deployment configurations
     deploy = {

@@ -592,6 +592,53 @@ let
       } // vlanPools;
     };
 
+  # Select packages for a device based on its type
+  packagesForDevice = device:
+    let extraPackages = device.extraPackages or [];
+    in
+      if device.type == "meshAP" then defaultMeshPackages ++ extraPackages
+      else if device.type == "switch" then defaultSwitchPackages ++ extraPackages
+      else if device.type == "simpleAP" then defaultSimpleAPPackages ++ extraPackages
+      else if device.type == "router" then defaultRouterPackages ++ extraPackages
+      else throw "packagesForDevice: unknown device type '${device.type}'";
+
+  # Generate per-device Nix store files using builtins.toFile.
+  # Returns { configJson, uciFile, secretsFile, keysFile } — all store paths.
+  # No pkgs needed, fully system-independent.
+  #
+  # Note: builtins.toFile cannot reference other store paths, so configJson
+  # contains only metadata (no file paths). The shell wrapper resolves all
+  # file paths from the lookup table and passes them to the builder.
+  mkConfigFiles = { device, owrtData }:
+    let
+      config = mkDeviceConfig { inherit device owrtData; };
+      packages = packagesForDevice device;
+
+      uciScript = uci.mkUCIDefaults {
+        name = "nix-config";
+        inherit config;
+        preCommands = migrationPreCommands;
+      };
+      secretsApplyScript = mkSecretsApplyScript { inherit device owrtData; };
+      secretsMap = mkSecretsMap { inherit device owrtData; };
+      keysContent = lib.concatStringsSep "\n" (owrtData.authorizedKeys ++ [ "" ]);
+
+      configJson = builtins.toFile "openwrt-config-${device.hostname}.json" (builtins.toJSON {
+        hostname = device.hostname;
+        profile = device.profile;
+        target = device.target;
+        subtarget = device.subtarget;
+        release = device.release or owrtData.defaultRelease;
+        deviceType = device.type;
+        inherit packages secretsMap;
+      });
+      uciFile = builtins.toFile "uci-defaults-${device.hostname}.sh" uciScript;
+      secretsFile = builtins.toFile "secrets-apply-${device.hostname}.sh" secretsApplyScript;
+      keysFile = builtins.toFile "authorized-keys-${device.hostname}" keysContent;
+    in {
+      inherit configJson uciFile secretsFile keysFile;
+    };
+
   # Build complete router configuration
   mkRouterConfig = {
     hostname,
@@ -903,6 +950,8 @@ in {
 
   # High-level API
   inherit
+    packagesForDevice
+    mkConfigFiles
     defaultMeshPackages
     defaultSwitchPackages
     defaultSimpleAPPackages

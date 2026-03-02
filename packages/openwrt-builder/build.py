@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 """OpenWrt image builder — downloads upstream Image Builder and runs make image.
 
-1. Loads device config from a JSON build-info file (--build-info)
-2. Optionally decrypts sops secrets and bakes them into the image
-3. Downloads the upstream OpenWrt Image Builder tarball
-4. Runs `make image` with the prepared filesystem overlay
+1. Loads device config from a per-device JSON config file (--config-file)
+2. Reads referenced files (UCI script, secrets-apply, authorized_keys) from Nix store paths
+3. Optionally decrypts sops secrets and bakes them into the image
+4. Downloads the upstream OpenWrt Image Builder tarball
+5. Runs `make image` with the prepared filesystem overlay
 
 Usage:
-    openwrt-build <device> --build-info <json> [--no-secrets] [--output-dir DIR]
-    openwrt-build <device> --build-info <json> --show-config
-    openwrt-build --build-info <json> --list-devices
+    openwrt-build --config-file <json> [--no-secrets] [--output-dir DIR]
 
 Environment variables:
-    OPENWRT_BUILD_INFO   — path to JSON file with all device build info
     OPENWRT_SECRETS_FILE — path to sops-encrypted secrets YAML
 """
 
@@ -31,39 +29,43 @@ import yaml
 import zstandard
 
 
-def load_build_info_from_file(build_info_path):
-    """Load all device build info from a JSON file."""
-    with open(build_info_path) as f:
-        return json.load(f)
+def load_config(config_file, uci_file, secrets_apply_file, keys_file):
+    """Load build config from Nix-generated files.
+
+    The config JSON contains metadata (hostname, profile, packages, etc.).
+    The UCI script, secrets-apply script, and authorized_keys are separate
+    store files passed as individual arguments.
+    """
+    with open(config_file) as f:
+        meta = json.load(f)
+
+    meta["uciDefaultsScript"] = Path(uci_file).read_text()
+    meta["secretsApplyScript"] = Path(secrets_apply_file).read_text()
+    keys_content = Path(keys_file).read_text()
+    meta["authorizedKeys"] = [k for k in keys_content.splitlines() if k.strip()]
+
+    return meta
 
 
-def get_build_info(device, build_info_path):
-    """Get build info for a device from JSON file."""
-    if not build_info_path:
-        print("Error: --build-info is required.", file=sys.stderr)
-        print("Pass a JSON file via --build-info or $OPENWRT_BUILD_INFO.", file=sys.stderr)
-        sys.exit(1)
-    all_info = load_build_info_from_file(build_info_path)
-    if device not in all_info:
-        print(f"Error: Unknown device '{device}'", file=sys.stderr)
-        print(f"Available devices: {', '.join(sorted(all_info.keys()))}", file=sys.stderr)
-        sys.exit(1)
-    return all_info[device]
+def load_config_dir(config_dir):
+    """Load build config from a bundled config directory.
 
+    The directory contains build.json with a 'files' key mapping to
+    relative paths for uci-defaults, secrets-apply, and authorized_keys.
+    Produced by `nix build .#openwrtConfigurations.<device>`.
+    """
+    config_dir = Path(config_dir)
+    with open(config_dir / "build.json") as f:
+        meta = json.load(f)
 
-def list_devices(build_info_path):
-    """List available devices."""
-    if not build_info_path:
-        print("Error: --build-info is required.", file=sys.stderr)
-        print("Pass a JSON file via --build-info or $OPENWRT_BUILD_INFO.", file=sys.stderr)
-        sys.exit(1)
-    all_info = load_build_info_from_file(build_info_path)
-    for name in sorted(all_info.keys()):
-        info = all_info[name]
-        if "hostname" in info:
-            print(f"  {name:20s} {info.get('deviceType', ''):10s} {info.get('profile', '')}")
-        else:
-            print(f"  {name}")
+    files = meta.pop("files")
+    base = config_dir
+    meta["uciDefaultsScript"] = (base / files["uciDefaults"]).read_text()
+    meta["secretsApplyScript"] = (base / files["secretsApply"]).read_text()
+    keys_content = (base / files["authorizedKeys"]).read_text()
+    meta["authorizedKeys"] = [k for k in keys_content.splitlines() if k.strip()]
+
+    return meta
 
 
 def flatten_yaml(data, prefix=""):
@@ -284,15 +286,13 @@ def main():
     parser = argparse.ArgumentParser(
         description="Build OpenWrt images with baked-in configuration",
     )
-    parser.add_argument("device", nargs="?", default=None,
-                        help="Device name (as defined in hosts/openwrt/)")
     parser.add_argument(
         "--no-secrets", action="store_true",
         help="Build without WiFi secrets (radios will be disabled)",
     )
     parser.add_argument(
         "--output-dir", type=Path, default=None,
-        help="Output directory (default: ./openwrt-images/<device>/)",
+        help="Output directory (default: ./openwrt-images/<hostname>/)",
     )
     parser.add_argument(
         "--cache-dir", type=Path,
@@ -300,54 +300,59 @@ def main():
         help="Cache directory for Image Builder tarballs",
     )
     parser.add_argument(
-        "--build-info", type=str, default=None,
-        help="Path to JSON file with device build info (default: $OPENWRT_BUILD_INFO)",
+        "--config-dir", type=str, default=None,
+        help="Path to bundled config directory (from nix build .#openwrtConfigurations.<device>)",
+    )
+    parser.add_argument(
+        "--config-file", type=str, default=None,
+        help="Path to per-device JSON config file (generated by Nix)",
+    )
+    parser.add_argument(
+        "--uci-file", type=str, default=None,
+        help="Path to UCI defaults script (generated by Nix)",
+    )
+    parser.add_argument(
+        "--secrets-apply-file", type=str, default=None,
+        help="Path to secrets-apply script (generated by Nix)",
+    )
+    parser.add_argument(
+        "--keys-file", type=str, default=None,
+        help="Path to authorized_keys file (generated by Nix)",
     )
     parser.add_argument(
         "--secrets-file", type=str, default=None,
         help="Path to sops-encrypted secrets YAML (default: $OPENWRT_SECRETS_FILE)",
     )
-    parser.add_argument(
-        "--show-config", action="store_true",
-        help="Print the UCI defaults script and exit",
-    )
-    parser.add_argument(
-        "--list-devices", action="store_true",
-        help="List available devices and exit",
-    )
     args = parser.parse_args()
-
-    # Resolve build-info path from flag or env
-    build_info_path = args.build_info or os.environ.get("OPENWRT_BUILD_INFO")
 
     # Resolve secrets file from flag or env
     secrets_file_explicit = args.secrets_file or os.environ.get("OPENWRT_SECRETS_FILE")
 
-    # Handle --list-devices
-    if args.list_devices:
-        list_devices(build_info_path)
-        return
-
-    # Device is required for all other operations
-    if not args.device:
-        parser.error("device is required (unless --list-devices is specified)")
-
-    # Get build info
-    build_info = get_build_info(args.device, build_info_path)
-
-    # Handle --show-config
-    if args.show_config:
-        print(build_info["uciDefaultsScript"])
-        return
+    # Load config — either from a bundled directory or individual files
+    if args.config_dir:
+        build_info = load_config_dir(args.config_dir)
+    elif args.config_file:
+        for name, val in [("--uci-file", args.uci_file),
+                          ("--secrets-apply-file", args.secrets_apply_file),
+                          ("--keys-file", args.keys_file)]:
+            if not val:
+                print(f"Error: {name} is required when using --config-file.", file=sys.stderr)
+                sys.exit(1)
+        build_info = load_config(
+            args.config_file, args.uci_file, args.secrets_apply_file, args.keys_file,
+        )
+    else:
+        print("Error: --config-dir or --config-file is required.", file=sys.stderr)
+        sys.exit(1)
 
     # Determine output directory
     if args.output_dir:
         output_dir = args.output_dir
     else:
-        output_dir = Path.cwd() / "openwrt-images" / args.device
+        output_dir = Path.cwd() / "openwrt-images" / build_info["hostname"]
 
     # Step 1: Report build info
-    print(f"[1/5] Evaluating build info for {args.device}...")
+    print(f"[1/5] Evaluating build info for {build_info['hostname']}...")
     print(f"  Device: {build_info['hostname']} ({build_info['deviceType']})")
     print(f"  Profile: {build_info['profile']}")
     print(f"  Target: {build_info['target']}/{build_info['subtarget']}")
