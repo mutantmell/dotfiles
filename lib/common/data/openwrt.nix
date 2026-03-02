@@ -28,9 +28,10 @@ in
   # Gateway is always on the primary prefix (10.0)
   mkGateway = vlanId: "10.0.${toString vlanId}.1";
 
-  # Gateway addresses for router (no mesh 10.1 prefix — not a mesh device)
+  # Gateway addresses for router — all three prefixes for migration compatibility
   mkGatewayAddresses = vlanId: [
     "10.0.${toString vlanId}.1/24"
+    "10.1.${toString vlanId}.1/24"
     "10.97.${toString vlanId}.1/24"
   ];
 

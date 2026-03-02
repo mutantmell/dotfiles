@@ -269,6 +269,7 @@ let
           htmode = "HE40";
           cell_density = 0;
           country = country;
+          disabled = false;
         } // lib.optionalAttrs legacyRates {
           legacy_rates = true;
         };
@@ -281,6 +282,7 @@ let
           htmode = "HE80";
           cell_density = 0;
           country = country;
+          disabled = false;
         } // lib.optionalAttrs (heBssColor != null) {
           he_bss_color = heBssColor;
         };
@@ -290,7 +292,7 @@ let
     };
 
   # Generate simple AP wireless config (no mesh, no 802.11r)
-  mkSimpleAPWirelessConfig = { encryption ? "sae-mixed", network ? "lan" }: {
+  mkSimpleAPWirelessConfig = { encryption ? "sae-mixed", network ? "lan", country ? "US" }: {
     wireless = {
       radio0 = {
         _type = "wifi-device";
@@ -299,6 +301,8 @@ let
         channel = 1;
         htmode = "HE20";
         cell_density = 0;
+        country = country;
+        disabled = false;
       };
 
       radio1 = {
@@ -308,6 +312,8 @@ let
         channel = 36;
         htmode = "HE80";
         cell_density = 0;
+        country = country;
+        disabled = false;
       };
 
       ap_2g_main = {
@@ -650,6 +656,7 @@ let
     trunkPorts ? [ "lan2" "lan3" "lan4" ],
     mkGatewayAddresses,
     encryption ? "sae-mixed",
+    country ? "US",
     timezone ? "America/Los_Angeles",
     authorizedKeys ? [],
     extraConfig ? {},
@@ -657,7 +664,7 @@ let
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
       // mkRouterNetworkConfig { inherit hostname vlans trunkPorts mkGatewayAddresses; }
-      // mkSimpleAPWirelessConfig { inherit encryption; network = "home"; }
+      // mkSimpleAPWirelessConfig { inherit encryption country; network = "home"; }
       // mkRouterFirewallConfig { inherit vlans; }
       // mkRouterDHCPConfig { inherit vlans; }
       // mkDropbearConfig { inherit authorizedKeys; }
@@ -751,6 +758,7 @@ let
     lanAddresses ? [],
     gateway ? null,
     encryption ? "sae-mixed",
+    country ? "US",
     timezone ? "UTC",
     authorizedKeys ? [],
     extraConfig ? {},
@@ -758,7 +766,7 @@ let
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
       // mkSimpleAPNetworkConfig { inherit hostname lanAddresses gateway; }
-      // mkSimpleAPWirelessConfig { inherit encryption; }
+      // mkSimpleAPWirelessConfig { inherit encryption country; }
       // mkDropbearConfig { inherit authorizedKeys; }
     ) extraConfig;
 
@@ -861,6 +869,7 @@ let
           lanAddresses = mkAddresses device.vlanId device.hostId;
           gateway = mkGateway device.vlanId;
           encryption = device.encryption or "sae-mixed";
+          country = device.country or "US";
           extraConfig = device.extraConfig or {};
         }
       else if device.type == "router" then
@@ -871,6 +880,7 @@ let
           mkGatewayAddresses = owrtData.mkGatewayAddresses;
           trunkPorts = device.trunkPorts or [ "lan2" "lan3" "lan4" ];
           encryption = device.encryption or "sae-mixed";
+          country = device.country or "US";
           timezone = device.timezone or "America/Los_Angeles";
           extraConfig = device.extraConfig or {};
         }
