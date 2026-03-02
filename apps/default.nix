@@ -8,7 +8,6 @@
 # OpenWrt management:
 #   nix run .#openwrt-build -- <device>         # Build image
 #   nix run .#openwrt-deploy -- <device> <ip>   # Build + deploy to device
-#   nix run .#openwrt-show-config -- <device>   # Show UCI config
 { pkgs, openwrtDevices, openwrtConfigurations }:
 
 let
@@ -22,7 +21,6 @@ in {
     openwrt-build
     openwrt-deploy
     openwrt-run
-    openwrt-show-config
     openwrt-export-config
     openwrt-analyze-packages
     openwrt-analyze-local;
