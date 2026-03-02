@@ -30,15 +30,48 @@
 #     main: "main-network-password"
 #     secondary: "alt-network-password"
 #     iot: "iot-network-password"
-{ pkgs, openwrtBuildInfo }:
+{ pkgs, openwrtDevices, openwrtDeviceFiles }:
 
 let
+  lib = pkgs.lib;
   builder = pkgs.mmell.openwrt-builder;
   deployer = pkgs.mmell.openwrt-deployer;
 
-  # Build info JSON — generated at Nix eval time, passed to the builder at runtime
-  buildInfoFile = pkgs.writeText "openwrt-build-info.json"
-    (builtins.toJSON openwrtBuildInfo);
+  # Device name → file paths lookup (shell case statement)
+  # Resolves all per-device store paths: config JSON, UCI, secrets-apply, authorized_keys
+  deviceConfigLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: files:
+    "    ${name}) CONFIG_FILE=\"${files.configJson}\"; UCI_FILE=\"${files.uciFile}\"; SECRETS_APPLY_FILE=\"${files.secretsFile}\"; KEYS_FILE=\"${files.keysFile}\" ;;"
+  ) openwrtDeviceFiles);
+
+  # Device name → UCI file path lookup (shell case statement, for show-config)
+  deviceUciLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: files:
+    "    ${name}) UCI_FILE=\"${files.uciFile}\" ;;"
+  ) openwrtDeviceFiles);
+
+  # Device listing info embedded at eval time
+  deviceListInfo = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: device:
+    "  printf '  %-20s %-10s %s\\n' '${name}' '${device.type}' '${device.profile}'"
+  ) openwrtDevices);
+
+  # Resolve device name to all file paths, or error
+  resolveDevice = ''
+    resolve_device() {
+      local DEVICE="$1"
+      CONFIG_FILE=""
+      UCI_FILE=""
+      SECRETS_APPLY_FILE=""
+      KEYS_FILE=""
+      case "$DEVICE" in
+    ${deviceConfigLookup}
+        *)
+          echo "Error: Unknown device '$DEVICE'" >&2
+          echo "Available devices:" >&2
+    ${deviceListInfo}
+          exit 1
+          ;;
+      esac
+    }
+  '';
 
   # Script to configure secrets on an OpenWrt device via SSH
   # Decrypts hosts/openwrt/secrets/wifi.yaml, flattens to key=value,
@@ -125,8 +158,35 @@ in {
     program = let
       script = pkgs.writeShellScript "openwrt-build-wrapper" ''
         set -euo pipefail
+
+        ${resolveDevice}
+
+        # Handle --list-devices before device resolution
+        for arg in "$@"; do
+          if [ "$arg" = "--list-devices" ]; then
+            echo "Available devices:"
+        ${deviceListInfo}
+            exit 0
+          fi
+        done
+
+        if [ $# -lt 1 ]; then
+          echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets]"
+          echo "       nix run .#openwrt-build -- --list-devices"
+          exit 1
+        fi
+
+        DEVICE="$1"
+        shift
+        resolve_device "$DEVICE"
+
         ${discoverSecrets}
-        exec ${builder}/bin/openwrt-build --build-info ${buildInfoFile} $SECRETS_ARGS "$@"
+        exec ${builder}/bin/openwrt-build \
+          --config-file "$CONFIG_FILE" \
+          --uci-file "$UCI_FILE" \
+          --secrets-apply-file "$SECRETS_APPLY_FILE" \
+          --keys-file "$KEYS_FILE" \
+          $SECRETS_ARGS "$@"
       '';
     in "${script}";
   };
@@ -137,6 +197,8 @@ in {
     program = let
       script = pkgs.writeShellScript "openwrt-deploy" ''
         set -euo pipefail
+
+        ${resolveDevice}
 
         if [ $# -lt 2 ]; then
           echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--no-secrets]"
@@ -158,6 +220,7 @@ in {
         DEVICE="$1"
         TARGET="$2"
         shift 2
+        resolve_device "$DEVICE"
 
         FORCE=""
         BUILD_ARGS=""
@@ -176,8 +239,11 @@ in {
         OUTPUT_DIR="''${OUTPUT_DIR:-$(pwd)/openwrt-images/$DEVICE}"
 
         # Build the image
-        ${builder}/bin/openwrt-build "$DEVICE" \
-          --build-info ${buildInfoFile} \
+        ${builder}/bin/openwrt-build \
+          --config-file "$CONFIG_FILE" \
+          --uci-file "$UCI_FILE" \
+          --secrets-apply-file "$SECRETS_APPLY_FILE" \
+          --keys-file "$KEYS_FILE" \
           --output-dir "$OUTPUT_DIR" \
           $SECRETS_ARGS \
           $BUILD_ARGS
@@ -246,7 +312,19 @@ in {
           exit 1
         fi
 
-        exec ${builder}/bin/openwrt-build "$1" --build-info ${buildInfoFile} --show-config
+        DEVICE="$1"
+        UCI_FILE=""
+        case "$DEVICE" in
+      ${deviceUciLookup}
+          *)
+            echo "Error: Unknown device '$DEVICE'" >&2
+            echo "Available devices:" >&2
+      ${deviceListInfo}
+            exit 1
+            ;;
+        esac
+
+        cat "$UCI_FILE"
       '';
     in "${script}";
   };
