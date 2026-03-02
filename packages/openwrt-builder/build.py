@@ -3,7 +3,7 @@
 
 1. Loads device config from a build.json manifest file (--config-file)
 2. Reads referenced files (UCI script, authorized_keys) from the paths in the manifest
-3. Optionally decrypts sops secrets and bakes them into the image
+3. Optionally reads a pre-decrypted secrets YAML and bakes secrets into the image
 4. Obtains the OpenWrt Image Builder (from Nix store if pinned, else downloads)
 5. Runs `make image` with the prepared filesystem overlay
 
@@ -13,7 +13,8 @@ Usage:
     openwrt-build --config-file <build.json> --update [--hashes-file <path>]
 
 Environment variables:
-    OPENWRT_SECRETS_FILE — path to sops-encrypted secrets YAML
+    OPENWRT_SECRETS_FILE — path to a pre-decrypted plain secrets YAML
+                           (equivalent to --secrets-file; ignored if that flag is given)
 """
 
 import argparse
@@ -70,7 +71,7 @@ def load_config(manifest_file):
 def flatten_yaml(data, prefix=""):
     """Recursively flatten a parsed YAML dict to dot-separated key=value pairs.
 
-    Only includes string leaf values (matching the previous yq behavior).
+    Only includes string leaf values.
     """
     result = {}
     if isinstance(data, dict):
@@ -83,24 +84,20 @@ def flatten_yaml(data, prefix=""):
     return result
 
 
-def decrypt_secrets(secrets_file):
-    """Decrypt sops secrets file and return flat key=value dict."""
-    if not os.path.isfile(secrets_file):
-        return None
+def load_secrets(secrets_file):
+    """Load a plain (pre-decrypted) YAML secrets file and return flat key=value dict.
 
-    result = subprocess.run(
-        ["sops", "-d", secrets_file],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"Warning: Failed to decrypt {secrets_file}", file=sys.stderr)
-        print(result.stderr, file=sys.stderr)
-        return None
-
+    Pass '-' to read from stdin. The caller is responsible for decryption;
+    this function only reads and flattens the YAML.
+    """
     try:
-        data = yaml.safe_load(result.stdout)
-    except yaml.YAMLError as e:
-        print(f"Warning: Failed to parse secrets YAML: {e}", file=sys.stderr)
+        if secrets_file == "-":
+            data = yaml.safe_load(sys.stdin)
+        else:
+            with open(secrets_file) as f:
+                data = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError) as e:
+        print(f"Warning: Failed to read secrets: {e}", file=sys.stderr)
         return None
 
     if not isinstance(data, dict):
@@ -455,17 +452,6 @@ def run_update(targets, hashes_file, release=None):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def find_secrets_file(explicit_path):
-    """Resolve the secrets file path."""
-    if explicit_path:
-        return explicit_path
-    return None
-
-
-# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -492,7 +478,8 @@ def main():
     )
     parser.add_argument(
         "--secrets-file", type=str, default=None,
-        help="Path to sops-encrypted secrets YAML (default: $OPENWRT_SECRETS_FILE)",
+        help="Path to plain (pre-decrypted) secrets YAML, or '-' to read from stdin "
+             "(default: $OPENWRT_SECRETS_FILE). Decryption is the caller's responsibility.",
     )
 
     # Update flags
@@ -562,10 +549,9 @@ def main():
     # --- Step 2: Secrets ---
     uci_script = build_info["uciDefaultsScript"]
     if not args.no_secrets:
-        print("[2/5] Decrypting secrets...")
-        secrets_file = find_secrets_file(secrets_file_explicit)
-        if secrets_file:
-            secrets_kv = decrypt_secrets(secrets_file)
+        print("[2/5] Loading secrets...")
+        if secrets_file_explicit:
+            secrets_kv = load_secrets(secrets_file_explicit)
             if secrets_kv and build_info.get("secretsMap"):
                 uci_script = merge_secrets_into_uci(
                     uci_script,
@@ -577,7 +563,7 @@ def main():
             else:
                 print("  No secrets available (building without WiFi credentials).")
         else:
-            print("  No secrets file found (building without WiFi credentials).")
+            print("  No secrets file provided (building without WiFi credentials).")
     else:
         print("[2/5] Skipping secrets (--no-secrets).")
 

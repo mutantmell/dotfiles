@@ -210,16 +210,123 @@ To add a WiFi network for the vGAME VLAN, the operator:
 
 ---
 
-## Files Changed
+---
+
+## Secrets Delivery: Decoupling sops from the Build Script
+
+### Problem
+
+The build script (`build.py`) currently calls `sops -d` directly. This
+conflates two concerns: where secrets come from (sops, `/run/secrets/`, etc.)
+and how they are used (flatten → merge into UCI). In a deployed service the
+build process will not have access to the sops key or the encrypted file;
+sops-nix will have already decrypted the secrets to `/run/secrets/`.
+
+### Solution: build script is sops-agnostic
+
+`build.py` accepts a **plain (pre-decrypted) YAML file** via `--secrets-file`.
+It never calls `sops -d`. The caller is responsible for decryption.
+
+For local development the shell wrapper (`apps/openwrt/default.nix`) pipes
+`sops -d` output directly into the build script via stdin (using `-` as the
+path sentinel), avoiding any temp file on disk:
+
+```bash
+sops -d "$SOPS_FILE" | openwrt-build --secrets-file -
+```
+
+For a deployed NixOS service, sops-nix decrypts the file to `/run/secrets/` and
+the service passes the path directly:
+
+```bash
+openwrt-build --secrets-file /run/secrets/openwrt-wifi
+```
+
+### sops-nix format: binary
+
+`wifi.yaml` must be encrypted in sops **binary format** (not the default YAML
+format). The YAML format encrypts individual values but leaves key names and
+structure visible in the committed file — on a public repo this leaks the
+structure of the secrets (key names such as `wifi_ssids`, `mesh_id`). Binary
+format encrypts the entire file content as a blob, revealing nothing.
+
+The sops-nix NixOS declaration for a build service:
+
+```nix
+sops.secrets.openwrt-wifi = {
+  sopsFile = ./secrets/wifi.yaml;
+  format = "binary";
+  # Decrypts to /run/secrets/openwrt-wifi (plain YAML) on tmpfs
+  # Permissions and ownership set as appropriate for the build service user
+};
+```
+
+### Security properties
+
+| Concern | Mitigation |
+|---------|------------|
+| Encrypted file in git leaks key names | Binary sops format — entire content is opaque |
+| Plain secrets written to disk during local dev | Avoided by piping through stdin; secrets exist only in kernel pipe buffer |
+| Plain secrets written to disk in deployed service | `/run/secrets/` is tmpfs (in-memory); mode `0400`, restricted ownership |
+| UCI script temp dir contains baked-in secrets | `chmod 0o700` on temp dir; `finally` block cleanup; unavoidable since Image Builder needs real files |
+| Output `.bin` image contains secrets | Treat as sensitive; restrict output directory permissions |
+
+### Future integration: dedicated build service
+
+When this build pipeline is run by a NixOS service rather than interactively,
+the following three steps integrate it with sops-nix:
+
+1. **Declare the secret on the host.** Add a sops-nix secret that decrypts
+   the entire `wifi.yaml` as a single file. Use `format = "binary"` — this
+   decrypts the whole file content as a blob. Do not set `key`; that attribute
+   is for extracting a named field from a YAML-format sops file, which is not
+   what we want here.
+   ```nix
+   sops.secrets.openwrt-wifi = {
+     sopsFile = ./secrets/wifi.yaml;
+     format = "binary";
+     # Produces /run/secrets/openwrt-wifi containing the plain YAML
+   };
+   ```
+
+2. **Set permissions for the builder user.** By default sops-nix creates
+   secrets as `mode = "0400"` owned by root. Grant the build service user
+   access:
+   ```nix
+   sops.secrets.openwrt-wifi.owner = "openwrt-builder";
+   # or use group + mode if multiple users need access
+   ```
+
+3. **Pass the decrypted file to the builder.** Configure the service to
+   invoke the builder with:
+   ```bash
+   openwrt-build --secrets-file /run/secrets/openwrt-wifi ...
+   ```
+   No sops tooling or keys need to be available to the build service itself.
+
+### Files Changed (this section)
+
+| File | Change |
+|------|--------|
+| `packages/openwrt-builder/build.py` | Remove `decrypt_secrets`; accept `-` for stdin; read plain YAML directly |
+| `apps/openwrt/default.nix` | Pipe `sops -d` to build script via stdin instead of passing sops file path |
+
+---
+
+## Files Changed (full)
 
 | File | Change |
 |------|--------|
 | `lib/openwrt/uci.nix` | Skip fields whose value is `{ _secret = "..."; }` |
-| `lib/openwrt/default.nix` | Add `_secret` markers to wireless interface declarations; rewrite `mkSecretsMap` to traverse the config recursively |
-| `hosts/openwrt/secrets/wifi.yaml` | Add new network entries only when adding networks — no structural change for this refactor |
-| `packages/openwrt-builder/build.py` | No changes |
-| `apps/openwrt/default.nix` | No changes |
-| Device `.nix` files in `hosts/openwrt/` | No changes |
+| `lib/openwrt/default.nix` | Add `_secret` markers to wireless interface declarations; rewrite `mkSecretsMap` to traverse the config recursively; remove `mkSecretsApplyScript` |
+| `hosts/openwrt/derfflinger.nix` | Add explicit `_secret` markers to IoT AP interface |
+| `flake.nix` | Remove `secretsApply` field from manifest |
+| `packages/openwrt-builder/build.py` | Remove sops decryption; accept plain YAML via `--secrets-file -` (stdin) |
+| `apps/openwrt/default.nix` | Pipe `sops -d` to build script stdin |
+| `hosts/openwrt/secrets/wifi.yaml` | Re-encrypt in binary format (separate step, not in this commit) |
+| `hosts/openwrt/default.nix` | Update stale comment |
+| `tests/lib/openwrt-config.nix` | Update section names and secret marker assertions |
+| Device `.nix` files in `hosts/openwrt/` | No changes (except derfflinger above) |
 
 ---
 
