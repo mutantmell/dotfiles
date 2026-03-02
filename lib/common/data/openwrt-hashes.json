@@ -1,0 +1,8 @@
+{
+  "defaultRelease": "24.10.5",
+  "imageBuilderHashes": {
+    "24.10.5": {
+      "mediatek/mt7622": "sha256-NXNzG2jBWsskKzbgp1Km0Of8S0h6Wap0q8EO8CF9Jeg="
+    }
+  }
+}

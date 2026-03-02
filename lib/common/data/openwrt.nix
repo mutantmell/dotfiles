@@ -6,25 +6,17 @@
 
 let
   keys = builtins.fromJSON (builtins.readFile ./keys.json);
+  # Release pins and Image Builder hashes — updated by `nix run .#openwrt-build -- --update-pins`
+  pins = builtins.fromJSON (builtins.readFile ./openwrt-hashes.json);
 in
 {
-  # Default OpenWrt release for all devices (can be overridden per-device)
-  defaultRelease = "24.10.5";
+  # Default OpenWrt release for all devices (can be overridden per-device).
+  # Managed in openwrt-hashes.json — use `nix run .#openwrt-build -- --update-pins` to update.
+  defaultRelease = pins.defaultRelease;
 
   # SHA-256 hashes for OpenWrt Image Builder tarballs, keyed by release then
-  # "target/subtarget". Tarballs are fetched from:
-  #   https://downloads.openwrt.org/releases/<release>/targets/<target>/<subtarget>/
-  #   openwrt-imagebuilder-<release>-<target>-<subtarget>.Linux-x86_64.tar.zst
-  #
-  # To add hashes for a new release:
-  #   nix run .#openwrt-build -- --update-pins
-  # Or for a single target:
-  #   nix run .#openwrt-build -- <device> --update-pins
-  imageBuilderHashes = {
-                            "24.10.5" = {
-      "mediatek/mt7622" = "sha256-NXNzG2jBWsskKzbgp1Km0Of8S0h6Wap0q8EO8CF9Jeg=";
-    };
-  };
+  # "target/subtarget". Managed in openwrt-hashes.json.
+  imageBuilderHashes = pins.imageBuilderHashes;
 
   # IP prefixes - each device gets one address per prefix for migration compatibility
   ipPrefixes = [ "10.0" "10.1" "10.97" ];
