@@ -14,8 +14,7 @@
 # Deploy to device:
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
 #
-# Configure secrets on existing device (without reflashing):
-#   nix run .#openwrt-configure-secrets -- <device-ip>
+# To update secrets, rebuild and redeploy the image.
 { lib }:
 
 let

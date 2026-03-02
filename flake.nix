@@ -286,7 +286,6 @@
           packages = self.lib.openwrt.packagesForDevice device;
           secretsMap = self.lib.openwrt.mkSecretsMap { inherit device owrtData; };
           uciDefaults = "${files.uciFile}";
-          secretsApply = "${files.secretsFile}";
           authorizedKeys = "${files.keysFile}";
         } // nixpkgs.lib.optionalAttrs (ibTarball != null) {
           imageBuilderTarball = "${ibTarball}";

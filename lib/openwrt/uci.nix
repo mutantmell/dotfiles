@@ -38,11 +38,16 @@ let
       # Single value options use 'set'
       [ "set ${config}.${section}.${key}='${escapeUCI (toUCIValue value)}'" ];
 
+  # Detect a secret marker: { _secret = "key.name"; }
+  # These fields are omitted from the UCI script and injected later from the
+  # secrets file via the secretsMap mechanism.
+  isSecret = v: isAttrs v && v ? _secret;
+
   # Generate UCI commands for a section's options
   renderSectionOptions = { config, section, options }:
     flatten (mapAttrsToList (key: value:
-      # Skip null values
-      if value == null then []
+      # Skip null values and secret markers (secrets injected separately)
+      if value == null || isSecret value then []
       else renderOption { inherit config section key value; }
     ) options);
 
@@ -146,6 +151,7 @@ let
 in {
   inherit
     escapeUCI
+    isSecret
     toUCIValue
     renderOption
     renderSectionOptions

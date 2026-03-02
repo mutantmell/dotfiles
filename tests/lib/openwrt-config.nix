@@ -187,7 +187,7 @@ let
 
     "simpleAP hostname set" = simpleAPConfig.system.system.hostname == "test-simple";
     "simpleAP has br-lan" = simpleAPConfig.network ? br_lan;
-    "simpleAP has both radios" = simpleAPConfig.wireless ? ap_5g;
+    "simpleAP has both radios" = simpleAPConfig.wireless ? ap_5g_main;
 
     "simpleAP lan addresses use correct VLAN" =
       assertEq "simpleAP lan addresses"
@@ -251,8 +251,8 @@ let
 
     # Router wireless
     "router has both radios" = routerConfig.wireless ? radio0 && routerConfig.wireless ? radio1;
-    "router has AP interfaces" = routerConfig.wireless ? ap_2g && routerConfig.wireless ? ap_5g;
-    "router AP network is home" = routerConfig.wireless.ap_2g.network == "home";
+    "router has AP interfaces" = routerConfig.wireless ? ap_2g_main && routerConfig.wireless ? ap_5g_main;
+    "router AP network is home" = routerConfig.wireless.ap_2g_main.network == "home";
 
     # UCI rendering produces expected commands (named sections)
     "meshAP UCI sets hostname" = contains "set system.system.hostname='test-mesh'" meshUCI;
@@ -287,12 +287,12 @@ let
       let cfg = openwrt.mkDeviceConfig { device = realDevices.bobcat-router; inherit owrtData; };
       in cfg ? network && cfg ? firewall && cfg ? dhcp;
 
-    # Secret fields absent from generated config
-    "meshAP has no mesh_id in batmesh" = !(meshConfig.wireless.batmesh ? mesh_id);
-    "meshAP has no key in batmesh" = !(meshConfig.wireless.batmesh ? key);
-    "meshAP has no ssid in ap_2g_main" = !(meshConfig.wireless.ap_2g_main ? ssid);
-    "simpleAP has no ssid in ap_2g" = !(simpleAPConfig.wireless.ap_2g ? ssid);
-    "router has no ssid in ap_2g" = !(routerConfig.wireless.ap_2g ? ssid);
+    # Secret fields declared as _secret markers (not absent, not plaintext)
+    "meshAP batmesh mesh_id is a secret marker" = meshConfig.wireless.batmesh.mesh_id ? _secret;
+    "meshAP batmesh key is a secret marker" = meshConfig.wireless.batmesh.key ? _secret;
+    "meshAP ap_2g_main ssid is a secret marker" = meshConfig.wireless.ap_2g_main.ssid ? _secret;
+    "simpleAP ap_2g_main ssid is a secret marker" = simpleAPConfig.wireless.ap_2g_main.ssid ? _secret;
+    "router ap_2g_main ssid is a secret marker" = routerConfig.wireless.ap_2g_main.ssid ? _secret;
 
     # Radios have no disabled field (secrets script enables them)
     "meshAP radio0 has no disabled" = !(meshConfig.wireless.radio0 ? disabled);
@@ -359,7 +359,6 @@ let
     # Mesh AP config files
     "meshAP configFiles has configJson" = meshFiles ? configJson;
     "meshAP configFiles has uciFile" = meshFiles ? uciFile;
-    "meshAP configFiles has secretsFile" = meshFiles ? secretsFile;
     "meshAP configFiles has keysFile" = meshFiles ? keysFile;
 
     "meshAP meta hostname" = meshMeta.hostname == "test-mesh";
