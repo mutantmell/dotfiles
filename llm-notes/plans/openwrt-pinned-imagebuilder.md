@@ -49,7 +49,7 @@ same fetchurl derivation is shared by all devices with the same target:
 | `lib/common/data/openwrt.nix` | Add `imageBuilderHashes` registry |
 | `flake.nix` | Add `mkImageBuilderFetcher` helper; embed `imageBuilderTarball` in `openwrtConfigurations` |
 | `packages/openwrt-builder/build.py` | Use store path tarball when available; update `download_imagebuilder`; add update flow |
-| `apps/openwrt/default.nix` | Add `--update` / `--update-only` flags to `openwrt-build` wrapper; remove standalone `openwrt-prefetch-imagebuilder` app (folded into build) |
+| `apps/openwrt/default.nix` | Add `--update` / `--update-pins` flags to `openwrt-build` wrapper; remove standalone `openwrt-prefetch-imagebuilder` app (folded into build) |
 | `CLAUDE.md` | Document hash update workflow |
 
 ---
@@ -495,8 +495,8 @@ This avoids blocking first-time builds while nudging toward pinning.
 For CI or pre-commit workflows, a standalone update command is useful:
 
 ```bash
-nix run .#openwrt-build -- --update-only          # update all targets
-nix run .#openwrt-build -- bobcat --update-only   # update only this device's targets
+nix run .#openwrt-build -- --update-pins          # update all targets
+nix run .#openwrt-build -- bobcat --update-pins   # update only this device's targets
 ```
 
 This modifies `lib/common/data/openwrt.nix` and exits without building. The user can
@@ -508,7 +508,7 @@ then commit the hash changes separately from the image build.
 
 ```markdown
 # Update Image Builder to latest release (modifies lib/common/data/openwrt.nix)
-nix run .#openwrt-build -- --update-only           # update all targets
+nix run .#openwrt-build -- --update-pins           # update all targets
 nix run .#openwrt-build -- <device> --update       # update + build in one step
 ```
 

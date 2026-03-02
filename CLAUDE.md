@@ -29,6 +29,12 @@ nix build .#openwrtConfigurations.<device-name>
 nix run .#openwrt-build -- <device-name>
 nix run .#openwrt-build -- <device-name> --no-secrets
 
+# Update pinned Image Builder hashes (modifies lib/common/data/openwrt.nix)
+# Run this when upgrading to a new OpenWrt release, then commit the hash changes.
+nix run .#openwrt-build -- --update-pins               # update all targets
+nix run .#openwrt-build -- <device-name> --update-pins # update one device's target
+nix run .#openwrt-build -- <device-name> --update      # update hashes + build in one step
+
 # Deploy an OpenWrt image (build + deploy in one step)
 nix run .#openwrt-deploy -- <device-name> <device-ip>
 

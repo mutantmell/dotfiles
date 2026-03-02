@@ -4,8 +4,13 @@
 }:
 
 let
-  python = python3.withPackages (ps: [ ps.pyyaml ps.zstandard ]);
+  # setuptools provides the distutils compatibility shim removed in Python 3.12,
+  # which the OpenWrt imagebuilder's Makefile prerequisite check requires.
+  python = python3.withPackages (ps: [ ps.pyyaml ps.zstandard ps.setuptools ]);
   runtimeDeps = [
+    # python must be in PATH so the imagebuilder's own Makefile prereq checks
+    # can find python3 when running `make image`.
+    python
     sops gnumake gnutar coreutils findutils gnugrep gawk gnused
     perl patch diffutils file unzip bzip2 which ncurses rsync xz
   ];
