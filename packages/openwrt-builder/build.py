@@ -9,6 +9,7 @@
 
 Usage:
     openwrt-build --config-file <build.json> [--no-secrets] [--output-dir DIR]
+    openwrt-build --config-file <build.json> [--authorized-key <key> ...]
     openwrt-build --update-pins --hashes-file <path> --targets <t/st> [<t/st> ...]
     openwrt-build --config-file <build.json> --update [--hashes-file <path>]
 
@@ -520,6 +521,14 @@ def main():
         "--profile", type=str, default=None,
         help="Override the device profile (e.g. generic)",
     )
+    parser.add_argument(
+        "--authorized-key",
+        action="append",
+        default=None,
+        dest="authorized_key",
+        help="SSH public key to include in authorized_keys (can be repeated; "
+             "when any --authorized-key is given, it replaces the manifest keys entirely)",
+    )
 
     args = parser.parse_args()
 
@@ -554,6 +563,8 @@ def main():
     # correct one for the new target.
     if args.target or args.subtarget:
         build_info.pop("imageBuilderTarball", None)
+    if args.authorized_key:
+        build_info["authorizedKeys"] = [k for k in args.authorized_key if k.strip()]
 
     # --- Determine output directory ---
     if args.output_dir:
