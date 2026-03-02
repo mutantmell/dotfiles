@@ -530,6 +530,27 @@ nix run .#openwrt-build -- <device> --update       # update + build in one step
 
 ---
 
+## Future Goals
+
+### Image archiving in the deployment pipeline
+
+Pinning the Image Builder provides builder reproducibility — the same imagebuilder
+tarball is used — but package feed mutability means a build today and a build in six
+months may still differ. The only reliable rollback story is keeping the built images.
+
+This responsibility belongs in the deployment pipeline, not the image builder. A future
+`openwrt-deploy` iteration should:
+
+- Archive the `.bin` sysupgrade image alongside its `build.json` snapshot (e.g. in an
+  `openwrt-images/archive/<device>/<timestamp>/` directory) before deploying
+- This gives a concrete artifact to roll back to: the exact image that was flashed,
+  paired with the manifest that describes how it was built
+
+The image builder tool already places output in `openwrt-images/<device>/` and exits.
+It does not need to know about archiving — that is the deployer's concern.
+
+---
+
 ## Notes
 
 - **Backwards compatibility**: If `imagebuilder-path` is absent (e.g., hash not in
