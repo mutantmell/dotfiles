@@ -500,6 +500,10 @@ in {
   # baked into the initramfs, so the system starts up fully configured in memory —
   # no disk image, no UEFI firmware needed. Clean state on every boot.
   #
+  # For MIPS devices (ramips/mt7621, realtek/rtl838x), armsr/armv8 is a different
+  # architecture, but UCI config, firewall rules, and DHCP are all architecture-
+  # independent — the VM still provides a useful config correctness test.
+  #
   # Runs as TCG emulation (no KVM on x86_64 hosts) — OpenWrt is small enough that
   # this is fast enough for configuration verification.
   openwrt-run = {
@@ -509,12 +513,26 @@ in {
         set -euo pipefail
 
         ${resolveDevice}
+        ${resolveTarget}
+
+        # Kill QEMU and clean up on any exit (normal, signal, or error).
+        # This ensures no orphan QEMU processes if the terminal is closed or the
+        # script is killed. Using background + wait rather than exec so that
+        # SIGHUP/SIGTERM reach this shell and are forwarded to QEMU.
+        QEMU_PID=""
+        cleanup() {
+          local pid="$QEMU_PID"
+          QEMU_PID=""
+          [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+          [ -n "$pid" ] && wait "$pid" 2>/dev/null || true
+        }
+        trap cleanup EXIT INT TERM HUP
 
         usage() {
           echo "Usage: nix run .#openwrt-run -- <device-name> [options]"
           echo ""
           echo "Builds and runs the device's UCI configuration in a QEMU aarch64 VM."
-          echo "Uses armsr/armv8 (same architecture as the device) with the UCI config"
+          echo "Uses armsr/armv8 (same architecture as most devices) with the UCI config"
           echo "baked into an initramfs kernel. Boots clean and fully configured."
           echo "First run downloads the armsr/armv8 Image Builder (~20 MB, cached)."
           echo ""
@@ -563,9 +581,24 @@ in {
 
         if [ -z "$KERNEL_FILE" ]; then
           resolve_device "$DEVICE"
+          resolve_target "$DEVICE"
           REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
           OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/''${DEVICE}-vm}"
           OUTPUT_DIR="''${OUTPUT_DIR:-$(pwd)/openwrt-images/''${DEVICE}-vm}"
+
+          # Warn when the device's native architecture differs from the armsr/armv8 VM.
+          # aarch64 devices (mediatek/mt7622) match exactly. MIPS devices don't, but
+          # UCI config, firewall, and DHCP behaviour is architecture-independent.
+          case "$DEVICE_TARGET" in
+            mediatek/mt7622)
+              ;;
+            *)
+              echo "Note: $DEVICE uses target $DEVICE_TARGET (MIPS architecture)."
+              echo "      Testing on armsr/armv8 (aarch64) — UCI config and firewall rules"
+              echo "      are architecture-independent, so this is still a valid config test."
+              echo ""
+              ;;
+          esac
 
           ${discoverSopsFile}
           ${runBuilder}
@@ -607,7 +640,7 @@ in {
         echo "---"
         echo ""
 
-        exec ${pkgs.qemu}/bin/qemu-system-aarch64 \
+        ${pkgs.qemu}/bin/qemu-system-aarch64 \
           -M virt \
           -cpu cortex-a53 \
           -m "$MEMORY" \
@@ -615,7 +648,9 @@ in {
           -kernel "$KERNEL_FILE" \
           -append "console=ttyAMA0" \
           -netdev "user,id=net0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$WEB_PORT-:80" \
-          -device virtio-net-pci,netdev=net0
+          -device virtio-net-pci,netdev=net0 &
+        QEMU_PID=$!
+        wait "$QEMU_PID"
       '';
     in "${script}";
   };
