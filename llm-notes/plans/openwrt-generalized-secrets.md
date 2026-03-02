@@ -223,23 +223,25 @@ To add a WiFi network for the vGAME VLAN, the operator:
 
 ---
 
-## Open Questions
+## Resolved Design Questions
 
-1. **Naming convention for `_secret` attrset**: `{ _secret = "key"; }` is the
-   proposed sentinel. It must not be a valid UCI value. Since UCI values are
-   strings, booleans, integers, or lists — a single-key attrset with a
-   leading underscore is unambiguous. Confirm this is acceptable.
+1. **`{ _secret = "key"; }` is unambiguous.** `uci.nix:toUCIValue` handles
+   strings, booleans, integers, and lists only — it throws on any other attrset
+   (`"Unsupported UCI value type: set"`). So attrset option values are currently
+   illegal, making the sentinel unambiguous. The guard is added in
+   `renderSectionOptions` alongside the existing `null` guard.
 
-2. **Recursive traversal depth**: The traversal walks `config` which is a
-   `{ wireless = { ... }; network = { ... }; ... }` structure. The path
-   accumulation produces `wireless.ap_2g_main.ssid` which is the correct UCI
-   path format. Confirm this matches how `merge_secrets_into_uci` constructs
-   `uci set` calls (it does: `uci -q set ${uci_path}='${value}'`).
+2. **Traversal path format is correct.** The three-level config structure
+   (config name → section name → option name) produces `wireless.ap_2g_main.ssid`
+   via dot-concatenation, which is exactly what `merge_secrets_into_uci` passes
+   to `uci -q set ${uci_path}='${value}'`. No adjustment needed.
 
-3. **Should the `_type` / `_anonymous` fields be explicitly excluded from
-   traversal?** Yes — they are rendering hints, not UCI sections or options.
-   They are already excluded in the pseudocode above via `removeAttrs`.
+3. **`_type` and `_anonymous` must be explicitly stripped during traversal.**
+   Both are strings/booleans so they would not trigger `_secret` detection, but
+   excluding them explicitly (mirroring `uci.nix:79,97`) is the right defensive
+   choice: if either were ever accidentally written as an attrset, they would
+   produce bogus paths like `wireless.ap_2g_main._type` in the secrets map.
 
-4. **List values with `_secret`**: Should `{ _secret = "..."; }` be allowed as
-   a list element (for `add_list` fields)? This is a possible extension but not
-   needed now. Defer unless a use case arises.
+4. **`{ _secret = "..." }` inside list values: deferred.** All current secrets
+   are single-valued options. Supporting list-element secrets would complicate
+   the traversal for no current benefit.

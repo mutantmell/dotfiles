@@ -206,8 +206,9 @@ let
     };
 
   # Generate wireless configuration for mesh + AP
-  # Secrets (mesh_id, mesh key, SSIDs, WiFi keys) are NOT included —
-  # they're applied post-deployment via /etc/nix-secrets-apply.
+  # Secret fields (mesh_id, key, ssid) are declared with { _secret = "key"; }
+  # markers. They are omitted from the UCI script and injected at build time
+  # from the secrets file via merge_secrets_into_uci in the build pipeline.
   mkMeshWirelessConfig = {
     apNetworks ? {},
     country ? "US",
@@ -216,7 +217,6 @@ let
   }:
     let
       # Generate mesh interface (on 5GHz radio only)
-      # mesh_id and key are secrets — applied post-deployment
       meshIface = {
         batmesh = {
           _type = "wifi-iface";
@@ -226,11 +226,12 @@ let
           network = "bat0_mesh0";
           encryption = "sae";
           mesh_fwding = false;
+          mesh_id = { _secret = "mesh_id"; };
+          key      = { _secret = "mesh_key"; };
         };
       };
 
       # Generate AP interfaces for each network on each radio
-      # ssid and key are secrets — applied post-deployment
       mkAPInterfaces = radio: band: lib.mapAttrs' (name: ap: {
         name = "ap_${band}_${name}";
         value = {
@@ -239,6 +240,8 @@ let
           mode = "ap";
           network = ap.network or "lan";
           encryption = ap.encryption or "sae-mixed";
+          ssid = { _secret = "wifi_ssids.${name}"; };
+          key  = { _secret = "wifi_keys.${name}"; };
           # 802.11r fast roaming
           ieee80211r = true;
           ft_psk_generate_local = true;
@@ -287,7 +290,6 @@ let
     };
 
   # Generate simple AP wireless config (no mesh, no 802.11r)
-  # SSIDs and keys are secrets — applied post-deployment via /etc/nix-secrets-apply.
   mkSimpleAPWirelessConfig = { encryption ? "sae-mixed", network ? "lan" }: {
     wireless = {
       radio0 = {
@@ -308,20 +310,24 @@ let
         cell_density = 0;
       };
 
-      ap_2g = {
+      ap_2g_main = {
         _type = "wifi-iface";
         device = "radio0";
         inherit network;
         mode = "ap";
         inherit encryption;
+        ssid = { _secret = "wifi_ssids.main"; };
+        key  = { _secret = "wifi_keys.main"; };
       };
 
-      ap_5g = {
+      ap_5g_main = {
         _type = "wifi-iface";
         device = "radio1";
         inherit network;
         mode = "ap";
         inherit encryption;
+        ssid = { _secret = "wifi_ssids.main"; };
+        key  = { _secret = "wifi_keys.main"; };
       };
     };
   };
@@ -619,7 +625,6 @@ let
         inherit config;
         preCommands = migrationPreCommands;
       };
-      secretsApplyScript = mkSecretsApplyScript { inherit device owrtData; };
       secretsMap = mkSecretsMap { inherit device owrtData; };
       keysContent = lib.concatStringsSep "\n" (owrtData.authorizedKeys ++ [ "" ]);
 
@@ -633,10 +638,9 @@ let
         inherit packages secretsMap;
       });
       uciFile = builtins.toFile "uci-defaults-${device.hostname}.sh" uciScript;
-      secretsFile = builtins.toFile "secrets-apply-${device.hostname}.sh" secretsApplyScript;
       keysFile = builtins.toFile "authorized-keys" keysContent;
     in {
-      inherit configJson uciFile secretsFile keysFile;
+      inherit configJson uciFile keysFile;
     };
 
   # Build complete router configuration
@@ -759,103 +763,46 @@ let
     ) extraConfig;
 
   # Generate a map of sops secret key names → UCI paths for a device.
-  # Used by mkSecretsApplyScript to generate the on-device secrets apply script.
+  # Derived by traversing the generated device config for { _secret = "key"; }
+  # markers. Any field in any config section can be marked as a secret; there
+  # is no hardcoded list of network names or device types.
+  #
+  # Produces: { "secret.key" = [ "config.section.option" ... ]; ... }
+  # Multiple UCI paths may share the same secret key (e.g., same SSID on 2g+5g).
   mkSecretsMap = { device, owrtData }:
     let
-      extraWireless = (device.extraConfig or {}).wireless or {};
-      # Find IoT AP sections in extraConfig (e.g., ap_2g_iot)
-      iotSections = lib.filterAttrs (n: v: lib.hasPrefix "ap_" n && v ? network && v.network == "iot") extraWireless;
-      hasIot = iotSections != {};
-      iotNames = builtins.attrNames iotSections;
-    in
-      if device.type == "meshAP" then
-        let
-          apNames = builtins.attrNames (owrtData.defaultAPNetworks or {});
-        in {
-          mesh_id = [ "wireless.batmesh.mesh_id" ];
-          mesh_key = [ "wireless.batmesh.key" ];
-        } // lib.listToAttrs (map (name: {
-          name = "wifi_ssids.${name}";
-          value = [ "wireless.ap_2g_${name}.ssid" "wireless.ap_5g_${name}.ssid" ];
-        }) apNames)
-        // lib.listToAttrs (map (name: {
-          name = "wifi_keys.${name}";
-          value = [ "wireless.ap_2g_${name}.key" "wireless.ap_5g_${name}.key" ];
-        }) apNames)
-        // lib.optionalAttrs hasIot (lib.listToAttrs (map (sect: {
-          name = "wifi_ssids.iot";
-          value = [ "wireless.${sect}.ssid" ];
-        }) iotNames)
-        // lib.listToAttrs (map (sect: {
-          name = "wifi_keys.iot";
-          value = [ "wireless.${sect}.key" ];
-        }) iotNames))
+      config = mkDeviceConfig { inherit device owrtData; };
 
-      else if device.type == "simpleAP" || device.type == "router" then {
-        "wifi_ssids.main" = [ "wireless.ap_2g.ssid" "wireless.ap_5g.ssid" ];
-        "wifi_keys.main" = [ "wireless.ap_2g.key" "wireless.ap_5g.key" ];
-      }
+      # Recursively collect { _secret = "key"; } markers from the config.
+      # path: the dot-joined UCI path built so far (e.g. "wireless.ap_2g_main")
+      # value: the current node being examined
+      # Returns an attrset of { secretKey = [ uciPath ... ]; }
+      collect = path: value:
+        if builtins.isAttrs value && value ? _secret then
+          # Leaf: secret marker found.
+          { "${value._secret}" = [ path ]; }
+        else if builtins.isAttrs value then
+          # Interior node: recurse into children, skipping rendering hints.
+          lib.foldlAttrs
+            (acc: key: child:
+              if key == "_type" || key == "_anonymous" then acc
+              else
+                let
+                  childPath = if path == "" then key else "${path}.${key}";
+                  found = collect childPath child;
+                in
+                  # Merge: if two paths share a secret key, union their lists.
+                  lib.foldlAttrs
+                    (acc2: k: v: acc2 // { "${k}" = (acc2.${k} or []) ++ v; })
+                    acc
+                    found)
+            {}
+            value
+        else
+          # Leaf scalar or list — not a secret marker, nothing to collect.
+          {};
 
-      else
-        # switch — no WiFi secrets
-        {};
-
-  # Generate a shell script that reads key=value from stdin and applies secrets.
-  # Baked into the image at /etc/nix-secrets-apply.
-  mkSecretsApplyScript = { device, owrtData }:
-    let
-      secretsMap = mkSecretsMap { inherit device owrtData; };
-      hasWifi = device.type != "switch";
-
-      # Generate case branches from secrets map
-      caseBranches = lib.concatStringsSep "\n" (lib.mapAttrsToList (key: uciPaths:
-        let
-          uciCommands = lib.concatMapStringsSep "\n" (path:
-            "        uci set ${path}=\"$value\""
-          ) uciPaths;
-        in ''
-      ${key})
-${uciCommands}
-        ;;''
-      ) secretsMap);
-
-    in ''
-      #!/bin/sh
-      # nix-secrets-apply — generated by nix-openwrt
-      # Reads key=value lines from stdin and applies them as UCI settings.
-      # Unknown keys are warned about but do not cause failure.
-
-      CHANGED=0
-
-      while IFS='=' read -r key value; do
-        # Skip empty lines and comments
-        case "$key" in
-          ""|\#*) continue ;;
-        esac
-
-        case "$key" in
-      ${caseBranches}
-        *)
-          echo "WARNING: unknown secret key: $key" >&2
-          ;;
-        esac
-        CHANGED=1
-      done
-
-      if [ "$CHANGED" = "1" ]; then
-        uci commit wireless
-      ${lib.optionalString hasWifi ''
-        # Enable radios (they ship disabled, secrets script activates them)
-        uci set wireless.radio0.disabled=0
-        uci set wireless.radio1.disabled=0
-        uci commit wireless
-        wifi reload
-      ''}
-        echo "Secrets applied successfully."
-      else
-        echo "No secrets provided."
-      fi
-    '';
+    in collect "" config;
 
   # Generate config files derivation (uci-defaults + authorized_keys)
   # Single function replacing the copy-pasted runCommand blocks in mk*Image
@@ -971,7 +918,6 @@ in {
     mkSwitchConfig
     mkSimpleAPConfig
     mkSecretsMap
-    mkSecretsApplyScript
     mkDeviceConfig
     migrationPreCommands;
 }

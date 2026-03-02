@@ -2,7 +2,7 @@
 """OpenWrt image builder — downloads upstream Image Builder and runs make image.
 
 1. Loads device config from a build.json manifest file (--config-file)
-2. Reads referenced files (UCI script, secrets-apply, authorized_keys) from the paths in the manifest
+2. Reads referenced files (UCI script, authorized_keys) from the paths in the manifest
 3. Optionally decrypts sops secrets and bakes them into the image
 4. Obtains the OpenWrt Image Builder (from Nix store if pinned, else downloads)
 5. Runs `make image` with the prepared filesystem overlay
@@ -57,7 +57,6 @@ def load_config(manifest_file):
         return path if path.is_absolute() else base / path
 
     meta["uciDefaultsScript"] = resolve(meta.pop("uciDefaults")).read_text()
-    meta["secretsApplyScript"] = resolve(meta.pop("secretsApply")).read_text()
     keys_content = resolve(meta.pop("authorizedKeys")).read_text()
     meta["authorizedKeys"] = [k for k in keys_content.splitlines() if k.strip()]
 
@@ -291,7 +290,6 @@ def prepare_files(build_info, uci_script, tmpdir):
     Contains:
     - etc/uci-defaults/99-nix-config  (UCI configuration script)
     - etc/dropbear/authorized_keys     (SSH keys)
-    - etc/nix-secrets-apply            (runtime secrets script)
     """
     files_dir = Path(tmpdir) / "files"
 
@@ -308,12 +306,6 @@ def prepare_files(build_info, uci_script, tmpdir):
         keys_file = dropbear_dir / "authorized_keys"
         keys_file.write_text("\n".join(build_info["authorizedKeys"]) + "\n")
         keys_file.chmod(0o600)
-
-    # Secrets apply script (for runtime use with openwrt-configure-secrets)
-    if build_info.get("secretsApplyScript"):
-        secrets_script = files_dir / "etc" / "nix-secrets-apply"
-        secrets_script.write_text(build_info["secretsApplyScript"])
-        secrets_script.chmod(0o755)
 
     return files_dir
 
