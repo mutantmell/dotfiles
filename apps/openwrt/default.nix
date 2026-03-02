@@ -515,20 +515,8 @@ in {
         ${resolveDevice}
         ${resolveTarget}
 
-        # Track resources for cleanup. Using background+wait (not exec) so that
-        # SIGHUP/SIGTERM reach this shell and are forwarded to QEMU, preventing
-        # orphan processes when the terminal is closed.
-        QEMU_PID=""
-        TAIL_PID=""
-        cleanup() {
-          local pid
-          pid="$QEMU_PID"; QEMU_PID=""
-          [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
-          [ -n "$pid" ] && wait "$pid" 2>/dev/null || true
-          pid="$TAIL_PID"; TAIL_PID=""
-          [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
-          [ -n "$pid" ] && wait "$pid" 2>/dev/null || true
-        }
+        ROOTFS_IMG=""
+        cleanup() { [ -n "$ROOTFS_IMG" ] && rm -f "$ROOTFS_IMG" || true; }
         trap cleanup EXIT INT TERM HUP
 
         usage() {
@@ -536,11 +524,11 @@ in {
           echo ""
           echo "Builds and runs the device's UCI configuration in a QEMU aarch64 VM."
           echo "Uses armsr/armv8 (same architecture as most devices) with the UCI config"
-          echo "baked into the rootfs. Automatically SSHs in when the VM is ready;"
-          echo "shutting down QEMU when the SSH session ends."
+          echo "baked into the rootfs. The serial console is connected to your terminal"
+          echo "directly — no SSH required. Use Ctrl-A X to quit QEMU."
           echo ""
-          echo "SSH keys: public keys are collected from your SSH agent (ssh-add -L)"
-          echo "and ~/.ssh/id_*.pub and injected into the VM's authorized_keys."
+          echo "SSH is also available on localhost:<ssh-port> from another terminal."
+          echo "SSH keys are collected from your agent (ssh-add -L) or ~/.ssh/id_*.pub."
           echo ""
           echo "Arguments:"
           echo "  device-name           Name of the device (as defined in hosts/openwrt/)"
@@ -551,7 +539,7 @@ in {
           echo "  --web-port PORT       Host port for LuCI web UI (default: 8080)"
           echo "  --memory MB           VM memory in MB (default: 256)"
           echo "  --kernel-file PATH    Use a pre-built kernel (skip build step)"
-          echo "  --initrd-file PATH    Use a pre-built rootfs cpio (skip build step;"
+          echo "  --rootfs-gz PATH      Use a pre-built ext4 rootfs .img.gz (skip build step;"
           echo "                        auto-detected from kernel directory if omitted)"
           echo "  --rebuild             Force rebuild even if a cached image exists"
           exit 1
@@ -569,7 +557,7 @@ in {
         WEB_PORT=8080
         MEMORY=256
         KERNEL_FILE=""
-        INITRD_FILE=""
+        ROOTFS_GZ=""
         FORCE_REBUILD=false
 
         while [ $# -gt 0 ]; do
@@ -579,7 +567,7 @@ in {
             --web-port)     shift; WEB_PORT="$1" ;;
             --memory)       shift; MEMORY="$1" ;;
             --kernel-file)  shift; KERNEL_FILE="$1" ;;
-            --initrd-file)  shift; INITRD_FILE="$1" ;;
+            --rootfs-gz)    shift; ROOTFS_GZ="$1" ;;
             --rebuild)      FORCE_REBUILD=true ;;
             --help|-h)      usage ;;
             *)              echo "Unknown option: $1" >&2; usage ;;
@@ -616,8 +604,8 @@ in {
           # Check for a cached build from a previous run with the same config.
           if [ "$FORCE_REBUILD" = false ]; then
             KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*-kernel.bin" 2>/dev/null | head -1 || true)
-            INITRD_FILE=$(find "$OUTPUT_DIR" -name "*-rootfs.cpio.gz" 2>/dev/null | head -1 || true)
-            if [ -n "$KERNEL_FILE" ] && [ -n "$INITRD_FILE" ]; then
+            ROOTFS_GZ=$(find "$OUTPUT_DIR" -name "*-ext4-rootfs.img.gz" 2>/dev/null | head -1 || true)
+            if [ -n "$KERNEL_FILE" ] && [ -n "$ROOTFS_GZ" ]; then
               echo "Using cached VM image (config hash: $CONFIG_HASH)."
             fi
           fi
@@ -656,92 +644,65 @@ in {
               --output-dir "$OUTPUT_DIR" \
               $NO_SECRETS_ARG
 
-            # armsr/armv8 generic profile produces a separate kernel and rootfs cpio:
-            #   *-kernel.bin         — plain kernel binary
-            #   *-rootfs.cpio.gz     — rootfs as cpio initramfs (contains our UCI config)
-            # QEMU boots them with -kernel + -initrd (no disk image or UEFI needed).
+            # armsr/armv8 generic profile produces a separate kernel and ext4 rootfs:
+            #   *-kernel.bin              — plain kernel binary
+            #   *-ext4-rootfs.img.gz      — ext4 rootfs image (contains our UCI config)
+            # QEMU boots with -kernel + a virtio disk drive (no UEFI needed).
             KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*-kernel.bin" 2>/dev/null | head -1 || true)
-            INITRD_FILE=$(find "$OUTPUT_DIR" -name "*-rootfs.cpio.gz" 2>/dev/null | head -1 || true)
-            if [ -z "$KERNEL_FILE" ] || [ -z "$INITRD_FILE" ]; then
-              echo "Error: Could not find kernel or rootfs cpio in $OUTPUT_DIR" >&2
+            ROOTFS_GZ=$(find "$OUTPUT_DIR" -name "*-ext4-rootfs.img.gz" 2>/dev/null | head -1 || true)
+            if [ -z "$KERNEL_FILE" ] || [ -z "$ROOTFS_GZ" ]; then
+              echo "Error: Could not find kernel or ext4 rootfs image in $OUTPUT_DIR" >&2
               ls "$OUTPUT_DIR" >&2 || true
               exit 1
             fi
           fi
         fi
 
-        # When --kernel-file is given without --initrd-file, auto-detect the cpio
-        # from the same directory (the two files are always built together).
-        if [ -z "$INITRD_FILE" ]; then
-          INITRD_FILE=$(find "$(dirname "$KERNEL_FILE")" -name "*-rootfs.cpio.gz" 2>/dev/null | head -1 || true)
-          if [ -z "$INITRD_FILE" ]; then
-            echo "Error: No rootfs cpio found alongside $KERNEL_FILE" >&2
-            echo "       Use --initrd-file to specify it explicitly." >&2
+        # When --kernel-file is given without --rootfs-gz, auto-detect from the
+        # same directory (the two files are always built together).
+        if [ -z "$ROOTFS_GZ" ]; then
+          ROOTFS_GZ=$(find "$(dirname "$KERNEL_FILE")" -name "*-ext4-rootfs.img.gz" 2>/dev/null | head -1 || true)
+          if [ -z "$ROOTFS_GZ" ]; then
+            echo "Error: No ext4 rootfs image found alongside $KERNEL_FILE" >&2
+            echo "       Use --rootfs-gz to specify it explicitly." >&2
             exit 1
           fi
         fi
 
-        BOOT_LOG=$(mktemp -t openwrt-boot-XXXXXX.log)
-        echo "Kernel:   $KERNEL_FILE"
-        echo "Initrd:   $INITRD_FILE"
-        echo "Boot log: $BOOT_LOG"
+        # Decompress the golden rootfs image once into the cache dir, then copy it
+        # to a temp file for this QEMU run. UCI defaults (/etc/uci-defaults/) run on
+        # first boot and delete themselves — a fresh copy per run ensures they always
+        # execute, and VM writes don't corrupt the cached golden image.
+        ROOTFS_GOLDEN="''${ROOTFS_GZ%.gz}"
+        if [ ! -f "$ROOTFS_GOLDEN" ] || [ "$ROOTFS_GZ" -nt "$ROOTFS_GOLDEN" ]; then
+          echo "Decompressing rootfs image (cached for future runs)..."
+          ${pkgs.gzip}/bin/zcat "$ROOTFS_GZ" > "''${ROOTFS_GOLDEN}.tmp"
+          mv "''${ROOTFS_GOLDEN}.tmp" "$ROOTFS_GOLDEN"
+        fi
+        ROOTFS_IMG=$(mktemp -t openwrt-rootfs-XXXXXX.img)
+        ${pkgs.coreutils}/bin/cp "$ROOTFS_GOLDEN" "$ROOTFS_IMG"
+
+        echo "Kernel: $KERNEL_FILE"
+        echo "SSH:    localhost:$SSH_PORT (from another terminal)"
+        echo "Web:    http://localhost:$WEB_PORT"
+        echo ""
+        echo "Starting VM... (Ctrl-A X to quit, Ctrl-A C for QEMU monitor)"
         echo ""
 
-        # Run QEMU in the background with serial output redirected to a log file.
-        # -display none: no graphical output (headless)
-        # -serial file:...: serial console → log file (streamed below during boot)
+        # -nographic: serial console on stdin/stdout (no separate window needed).
+        # The ext4 rootfs is attached as a virtio-blk disk; root=/dev/vda tells
+        # the kernel where to find it. Port forwarding allows SSH/web from another
+        # terminal while this one shows the serial console.
         ${pkgs.qemu}/bin/qemu-system-aarch64 \
           -M virt \
           -cpu cortex-a53 \
           -m "$MEMORY" \
-          -display none \
-          -serial "file:$BOOT_LOG" \
+          -nographic \
           -kernel "$KERNEL_FILE" \
-          -initrd "$INITRD_FILE" \
-          -append "console=ttyAMA0" \
+          -drive "file=$ROOTFS_IMG,format=raw,if=virtio" \
+          -append "root=/dev/vda rw console=ttyAMA0" \
           -netdev "user,id=net0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$WEB_PORT-:80" \
-          -device virtio-net-pci,netdev=net0 &
-        QEMU_PID=$!
-
-        # Stream the boot log while polling for SSH availability (up to 60 s).
-        echo "Booting..."
-        ${pkgs.coreutils}/bin/tail -f "$BOOT_LOG" &
-        TAIL_PID=$!
-
-        SSH_READY=false
-        for i in $(seq 1 60); do
-          sleep 1
-          if ${pkgs.openssh}/bin/ssh \
-              -o ConnectTimeout=1 \
-              -o BatchMode=yes \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR \
-              -p "$SSH_PORT" root@localhost true 2>/dev/null; then
-            SSH_READY=true
-            break
-          fi
-        done
-
-        kill "$TAIL_PID" 2>/dev/null || true
-        wait "$TAIL_PID" 2>/dev/null || true
-        TAIL_PID=""
-        echo ""
-
-        if ! $SSH_READY; then
-          echo "Error: SSH did not become available after 60 seconds." >&2
-          echo "Check boot log: $BOOT_LOG" >&2
-          exit 1
-        fi
-
-        echo "--- Shell session (exit or Ctrl-D to shut down VM) ---"
-        echo ""
-        ${pkgs.openssh}/bin/ssh \
-          -o StrictHostKeyChecking=no \
-          -o UserKnownHostsFile=/dev/null \
-          -o LogLevel=ERROR \
-          -p "$SSH_PORT" \
-          root@localhost
+          -device virtio-net-pci,netdev=net0
       '';
     in "${script}";
   };
