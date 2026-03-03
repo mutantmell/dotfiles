@@ -29,8 +29,11 @@ let
     target = "mediatek";
     subtarget = "mt7622";
     hostId = 99;
+    timezone = owrtData.defaultTimezone;
+    country = owrtData.defaultCountry;
     heBssColor = 42;
     legacyRates = true;
+    extraPackages = [];
   };
 
   switchDevice = {
@@ -41,6 +44,9 @@ let
     subtarget = "rtl838x";
     hostId = 50;
     vlanId = 10;
+    timezone = owrtData.defaultTimezone;
+    trunkPorts = owrtData.defaultSwitchTrunkPorts;
+    extraPackages = [];
   };
 
   simpleAPDevice = {
@@ -51,6 +57,10 @@ let
     subtarget = "mt7621";
     hostId = 30;
     vlanId = 31;
+    timezone = owrtData.defaultTimezone;
+    country = owrtData.defaultCountry;
+    encryption = owrtData.defaultEncryption;
+    extraPackages = [];
   };
 
   routerDevice = {
@@ -59,6 +69,11 @@ let
     profile = "linksys_e8450-ubi";
     target = "mediatek";
     subtarget = "mt7622";
+    timezone = owrtData.defaultTimezone;
+    country = owrtData.defaultCountry;
+    encryption = owrtData.defaultEncryption;
+    trunkPorts = owrtData.defaultRouterTrunkPorts;
+    extraPackages = [];
   };
 
   meshWithExtra = meshDevice // {
@@ -126,7 +141,7 @@ let
     "meshAP has dropbear config" = meshConfig ? dropbear;
 
     "meshAP hostname set" = meshConfig.system.system.hostname == "test-mesh";
-    "meshAP timezone defaults to LA" = meshConfig.system.system.timezone == "America/Los_Angeles";
+    "meshAP timezone is UTC" = meshConfig.system.system.timezone == "UTC";
     "meshAP has bat0" = meshConfig.network ? bat0;
     "meshAP bat0 is batadv" = meshConfig.network.bat0.proto == "batadv";
     "meshAP has br-lan bridge" = meshConfig.network ? br_lan;
@@ -227,11 +242,11 @@ let
     "router home addresses" =
       assertEq "router home addresses"
         routerConfig.network.home.ipaddr
-        (owrtData.mkGatewayAddresses 20);
+        (owrtData.mkPrimaryGatewayAddress 20);
     "router mgmt addresses" =
       assertEq "router mgmt addresses"
         routerConfig.network.mgmt.ipaddr
-        (owrtData.mkGatewayAddresses 10);
+        (owrtData.mkPrimaryGatewayAddress 10);
 
     # Router firewall
     "router firewall has defaults" = routerConfig.firewall ? defaults;
@@ -294,11 +309,11 @@ let
     "simpleAP ap_2g_main ssid is a secret marker" = simpleAPConfig.wireless.ap_2g_main.ssid ? _secret;
     "router ap_2g_main ssid is a secret marker" = routerConfig.wireless.ap_2g_main.ssid ? _secret;
 
-    # Radios have no disabled field (secrets script enables them)
-    "meshAP radio0 has no disabled" = !(meshConfig.wireless.radio0 ? disabled);
-    "meshAP radio1 has no disabled" = !(meshConfig.wireless.radio1 ? disabled);
-    "simpleAP radio0 has no disabled" = !(simpleAPConfig.wireless.radio0 ? disabled);
-    "router radio0 has no disabled" = !(routerConfig.wireless.radio0 ? disabled);
+    # Radios must have disabled = false — fresh sysupgrade leaves radios off by default
+    "meshAP radio0 disabled=false" = meshConfig.wireless.radio0.disabled == false;
+    "meshAP radio1 disabled=false" = meshConfig.wireless.radio1.disabled == false;
+    "simpleAP radio0 disabled=false" = simpleAPConfig.wireless.radio0.disabled == false;
+    "router radio0 disabled=false" = routerConfig.wireless.radio0.disabled == false;
 
     # Named sections (no _anonymous in generated config)
     "meshAP batmesh is named" = !(meshConfig.wireless.batmesh ? _anonymous);

@@ -8,5 +8,7 @@
   subtarget = "rtl838x";
   hostId = 12;
   vlanId = 10;
+  timezone = owrtData.defaultTimezone;
+  trunkPorts = owrtData.defaultSwitchTrunkPorts;
   extraPackages = [ "luci" "luci-proto-batman-adv" ];
 }

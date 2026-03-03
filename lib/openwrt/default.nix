@@ -74,13 +74,13 @@ let
   # Uses separate bridges per VLAN (matching actual deployed topology)
   mkMeshNetworkConfig = {
     hostname,
-    routingAlgo ? "BATMAN_V",
-    vlans ? {},
-    lanAddresses ? [],
-    mgmtAddresses ? [],
-    gateway ? null,
+    vlans,
+    lanAddresses,
+    mgmtAddresses,
+    gateway,
   }:
     let
+      routingAlgo = "BATMAN_V";
       homeVlan = vlans.HOME or null;
       mgmtVlan = vlans.MGMT or null;
 
@@ -210,10 +210,10 @@ let
   # markers. They are omitted from the UCI script and injected at build time
   # from the secrets file via merge_secrets_into_uci in the build pipeline.
   mkMeshWirelessConfig = {
-    apNetworks ? {},
-    country ? "US",
-    heBssColor ? null,
-    legacyRates ? false,
+    apNetworks,
+    country,
+    heBssColor,
+    legacyRates,
   }:
     let
       # Generate mesh interface (on 5GHz radio only)
@@ -292,7 +292,7 @@ let
     };
 
   # Generate simple AP wireless config (no mesh, no 802.11r)
-  mkSimpleAPWirelessConfig = { encryption ? "sae-mixed", network ? "lan", country ? "US" }: {
+  mkSimpleAPWirelessConfig = { encryption, network, country }: {
     wireless = {
       radio0 = {
         _type = "wifi-device";
@@ -343,9 +343,8 @@ let
     hostname,
     lanAddresses,
     gateway,
-    vlans ? {},
-    trunkPorts ? [ "lan1" "lan2" "lan3" "lan4" ],
-    accessPorts ? {},
+    vlans,
+    trunkPorts,
   }:
     let
       allPorts = [ "lan1" "lan2" "lan3" "lan4" "lan5" "lan6" "lan7" "lan8" ];
@@ -421,7 +420,7 @@ let
     };
 
   # Generate simple AP network config (simple bridge, no batman)
-  mkSimpleAPNetworkConfig = { hostname, lanAddresses ? [], gateway ? null }: {
+  mkSimpleAPNetworkConfig = { hostname, lanAddresses, gateway }: {
     network = {
       loopback = {
         _type = "interface";
@@ -454,7 +453,7 @@ let
   mkRouterNetworkConfig = {
     hostname,
     vlans,
-    trunkPorts ? [ "lan2" "lan3" "lan4" ],
+    trunkPorts,
     mkPrimaryGatewayAddress,
     mkExtraGatewayAddresses,
   }:
@@ -624,7 +623,7 @@ let
 
   # Select packages for a device based on its type
   packagesForDevice = device:
-    let extraPackages = device.extraPackages or [];
+    let extraPackages = device.extraPackages;
     in
       if device.type == "meshAP" then defaultMeshPackages ++ extraPackages
       else if device.type == "switch" then defaultSwitchPackages ++ extraPackages
@@ -671,13 +670,13 @@ let
   mkRouterConfig = {
     hostname,
     vlans,
-    trunkPorts ? [ "lan2" "lan3" "lan4" ],
+    trunkPorts,
     mkPrimaryGatewayAddress,
     mkExtraGatewayAddresses,
-    encryption ? "sae-mixed",
-    country ? "US",
-    timezone ? "America/Los_Angeles",
-    authorizedKeys ? [],
+    encryption,
+    country,
+    timezone,
+    authorizedKeys,
     extraConfig ? {},
   }:
     lib.recursiveUpdate (
@@ -690,7 +689,7 @@ let
     ) extraConfig;
 
   # Generate system configuration
-  mkSystemConfig = { hostname, timezone ? "UTC", log_ip ? null }:
+  mkSystemConfig = { hostname, timezone, log_ip ? null }:
     {
       system = {
         system = {
@@ -719,7 +718,7 @@ let
     };
 
   # Generate dropbear (SSH) configuration
-  mkDropbearConfig = { authorizedKeys ? [] }:
+  mkDropbearConfig = { authorizedKeys }:
     {
       dropbear = {
         main = {
@@ -734,16 +733,16 @@ let
   # Build complete mesh AP configuration
   mkMeshAPConfig = {
     hostname,
-    vlans ? {},
-    apNetworks ? {},
-    lanAddresses ? [],
-    mgmtAddresses ? [],
-    gateway ? null,
-    timezone ? "America/Los_Angeles",
-    authorizedKeys ? [],
-    country ? "US",
-    heBssColor ? null,
-    legacyRates ? false,
+    vlans,
+    apNetworks,
+    lanAddresses,
+    mgmtAddresses,
+    gateway,
+    timezone,
+    authorizedKeys,
+    country,
+    heBssColor,
+    legacyRates,
     extraConfig ? {},
   }:
     lib.recursiveUpdate (
@@ -758,34 +757,33 @@ let
     hostname,
     lanAddresses,
     gateway,
-    vlans ? {},
-    trunkPorts ? [ "lan1" "lan2" "lan3" "lan4" ],
-    accessPorts ? {},
-    timezone ? "UTC",
-    authorizedKeys ? [],
+    vlans,
+    trunkPorts,
+    timezone,
+    authorizedKeys,
     extraConfig ? {},
   }:
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
-      // mkSwitchNetworkConfig { inherit hostname lanAddresses gateway vlans trunkPorts accessPorts; }
+      // mkSwitchNetworkConfig { inherit hostname lanAddresses gateway vlans trunkPorts; }
       // mkDropbearConfig { inherit authorizedKeys; }
     ) extraConfig;
 
   # Build complete simple AP configuration
   mkSimpleAPConfig = {
     hostname,
-    lanAddresses ? [],
-    gateway ? null,
-    encryption ? "sae-mixed",
-    country ? "US",
-    timezone ? "UTC",
-    authorizedKeys ? [],
+    lanAddresses,
+    gateway,
+    encryption,
+    country,
+    timezone,
+    authorizedKeys,
     extraConfig ? {},
   }:
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
       // mkSimpleAPNetworkConfig { inherit hostname lanAddresses gateway; }
-      // mkSimpleAPWirelessConfig { inherit encryption country; }
+      // mkSimpleAPWirelessConfig { inherit encryption country; network = "lan"; }
       // mkDropbearConfig { inherit authorizedKeys; }
     ) extraConfig;
 
@@ -854,55 +852,44 @@ let
   # Dispatches to the appropriate mk*Config function based on device.type
   mkDeviceConfig = { device, owrtData }:
     let
-      inherit (owrtData) mkAddresses mkGateway meshVlans switchVlans
-                         authorizedKeys defaultAPNetworks;
+      inherit (owrtData) mkAddresses mkGateway meshVlans switchVlans routerVlans
+                         authorizedKeys defaultAPNetworks
+                         mkPrimaryGatewayAddress mkExtraGatewayAddresses;
     in
       if device.type == "meshAP" then
         mkMeshAPConfig {
-          inherit (device) hostname;
+          inherit (device) hostname timezone country heBssColor legacyRates;
+          extraConfig = device.extraConfig or {};
           inherit authorizedKeys;
           vlans = meshVlans;
           apNetworks = defaultAPNetworks;
           lanAddresses = mkAddresses meshVlans.HOME.tag device.hostId;
           mgmtAddresses = mkAddresses meshVlans.MGMT.tag device.hostId;
           gateway = mkGateway meshVlans.HOME.tag;
-          timezone = device.timezone or "America/Los_Angeles";
-          country = device.country or "US";
-          heBssColor = device.heBssColor or null;
-          legacyRates = device.legacyRates or false;
-          extraConfig = device.extraConfig or {};
         }
       else if device.type == "switch" then
         mkSwitchConfig {
-          inherit (device) hostname;
+          inherit (device) hostname timezone trunkPorts;
+          extraConfig = device.extraConfig or {};
           inherit authorizedKeys;
           lanAddresses = mkAddresses device.vlanId device.hostId;
           gateway = mkGateway device.vlanId;
           vlans = switchVlans;
-          extraConfig = device.extraConfig or {};
         }
       else if device.type == "simpleAP" then
         mkSimpleAPConfig {
-          inherit (device) hostname;
+          inherit (device) hostname timezone country encryption;
+          extraConfig = device.extraConfig or {};
           inherit authorizedKeys;
           lanAddresses = mkAddresses device.vlanId device.hostId;
           gateway = mkGateway device.vlanId;
-          encryption = device.encryption or "sae-mixed";
-          country = device.country or "US";
-          extraConfig = device.extraConfig or {};
         }
       else if device.type == "router" then
         mkRouterConfig {
-          inherit (device) hostname;
-          inherit authorizedKeys;
-          vlans = owrtData.routerVlans;
-          mkPrimaryGatewayAddress = owrtData.mkPrimaryGatewayAddress;
-          mkExtraGatewayAddresses = owrtData.mkExtraGatewayAddresses;
-          trunkPorts = device.trunkPorts or [ "lan2" "lan3" "lan4" ];
-          encryption = device.encryption or "sae-mixed";
-          country = device.country or "US";
-          timezone = device.timezone or "America/Los_Angeles";
+          inherit (device) hostname timezone country encryption trunkPorts;
           extraConfig = device.extraConfig or {};
+          inherit authorizedKeys mkPrimaryGatewayAddress mkExtraGatewayAddresses;
+          vlans = routerVlans;
         }
       else throw "mkDeviceConfig: unknown device type '${device.type}'";
 
