@@ -70,6 +70,15 @@ let
   # Default packages for a router
   defaultRouterPackages = removeRouterPackages ++ debugPackages;
 
+  # Additional packages for a router that participates in the batman mesh.
+  # Replaces wpad-basic-mbedtls with the mesh-capable wpad-mesh-openssl.
+  meshRouterPackageAdditions = [
+    "-wpad-basic-mbedtls"
+    "wpad-mesh-openssl"
+    "kmod-batman-adv"
+    "batctl-full"
+  ];
+
   # Generate network configuration for a mesh AP
   # Uses separate bridges per VLAN (matching actual deployed topology)
   mkMeshNetworkConfig = {
@@ -456,13 +465,19 @@ let
     trunkPorts,
     mkPrimaryGatewayAddress,
     mkExtraGatewayAddresses,
+    # When non-null, bat0 is added to br-lan as a trunk port and included in
+    # bridge-vlan entries for VLANs that appear in meshVlans (by name).
+    meshVlans ? null,
   }:
     let
       # Collect all access ports from all VLANs
       allAccessPorts = lib.concatMap (v: v.accessPorts or []) (builtins.attrValues vlans);
-      allBridgePorts = trunkPorts ++ allAccessPorts;
+      # Add bat0 as a bridge trunk port when mesh is enabled
+      allBridgePorts = trunkPorts ++ allAccessPorts
+        ++ lib.optional (meshVlans != null) "bat0";
 
-      # Bridge-VLAN entries: trunk ports tagged, access ports untagged+PVID
+      # Bridge-VLAN entries: trunk ports tagged, access ports untagged+PVID,
+      # bat0 tagged for VLANs that are part of the batman mesh fabric.
       bridgeVlanConfigs = lib.mapAttrs' (name: vlan: {
         name = "brvlan_${lib.toLower name}";
         value = {
@@ -470,7 +485,8 @@ let
           device = "br-lan";
           vlan = vlan.tag;
           ports = map (p: "${p}:t") trunkPorts
-            ++ map (p: "${p}:u*") (vlan.accessPorts or []);
+            ++ map (p: "${p}:u*") (vlan.accessPorts or [])
+            ++ lib.optional (meshVlans != null && builtins.hasAttr name meshVlans) "bat0:t";
         };
       }) vlans;
 
@@ -527,7 +543,37 @@ let
           ports = allBridgePorts;
         };
 
-      } // bridgeVlanConfigs // primaryVlanInterfaces // extraVlanInterfaces;
+      } // bridgeVlanConfigs // primaryVlanInterfaces // extraVlanInterfaces
+      // lib.optionalAttrs (meshVlans != null) {
+        # batman-adv interface — gateway mode advertises this node as the
+        # internet gateway to batman clients that use gw_mode=client.
+        bat0 = {
+          _type = "interface";
+          proto = "batadv";
+          routing_algo = "BATMAN_V";
+          gw_mode = "server";
+          aggregated_ogms = true;
+          hop_penalty = 30;
+          ap_isolation = false;
+          bonding = false;
+          bridge_loop_avoidance = true;
+          distributed_arp_table = true;
+          fragmentation = true;
+          log_level = 0;
+          multicast_mode = true;
+          multicast_fanout = 16;
+          network_coding = false;
+          orig_interval = 1000;
+        };
+
+        # Wireless mesh hardif — 5GHz radio as batman backhaul
+        bat0_mesh0 = {
+          _type = "interface";
+          proto = "batadv_hardif";
+          master = "bat0";
+          mtu = 2304;
+        };
+      };
     };
 
   # Generate firewall configuration for a router
@@ -628,7 +674,11 @@ let
       if device.type == "meshAP" then defaultMeshPackages ++ extraPackages
       else if device.type == "switch" then defaultSwitchPackages ++ extraPackages
       else if device.type == "simpleAP" then defaultSimpleAPPackages ++ extraPackages
-      else if device.type == "router" then defaultRouterPackages ++ extraPackages
+      else if device.type == "router" then
+        (if device.hasMesh or false
+         then defaultRouterPackages ++ meshRouterPackageAdditions
+         else defaultRouterPackages)
+        ++ extraPackages
       else throw "packagesForDevice: unknown device type '${device.type}'";
 
   # Generate per-device Nix store files using builtins.toFile.
@@ -677,12 +727,24 @@ let
     country,
     timezone,
     authorizedKeys,
+    # Mesh options: when hasMesh=true, batman-adv is enabled and the 5GHz
+    # radio joins the wireless mesh (matching mesh AP configuration).
+    hasMesh ? false,
+    meshVlans ? null,
+    apNetworks ? {},
+    heBssColor ? null,
+    legacyRates ? false,
     extraConfig ? {},
   }:
     lib.recursiveUpdate (
       mkSystemConfig { inherit hostname timezone; }
-      // mkRouterNetworkConfig { inherit hostname vlans trunkPorts mkPrimaryGatewayAddress mkExtraGatewayAddresses; }
-      // mkSimpleAPWirelessConfig { inherit encryption country; network = "home"; }
+      // mkRouterNetworkConfig {
+           inherit hostname vlans trunkPorts mkPrimaryGatewayAddress mkExtraGatewayAddresses;
+           meshVlans = if hasMesh then meshVlans else null;
+         }
+      // (if hasMesh
+          then mkMeshWirelessConfig { inherit apNetworks country heBssColor legacyRates; }
+          else mkSimpleAPWirelessConfig { inherit encryption country; network = "home"; })
       // mkRouterFirewallConfig { inherit vlans; }
       // mkRouterDHCPConfig { inherit vlans; }
       // mkDropbearConfig { inherit authorizedKeys; }
@@ -890,6 +952,11 @@ let
           extraConfig = device.extraConfig or {};
           inherit authorizedKeys mkPrimaryGatewayAddress mkExtraGatewayAddresses;
           vlans = routerVlans;
+          hasMesh = device.hasMesh or false;
+          inherit meshVlans;
+          apNetworks = defaultAPNetworks;
+          heBssColor = device.heBssColor or null;
+          legacyRates = device.legacyRates or false;
         }
       else throw "mkDeviceConfig: unknown device type '${device.type}'";
 
@@ -909,7 +976,8 @@ in {
       defaultMeshPackages
       defaultSwitchPackages
       defaultSimpleAPPackages
-      defaultRouterPackages;
+      defaultRouterPackages
+      meshRouterPackageAdditions;
   };
 
   # High-level API
