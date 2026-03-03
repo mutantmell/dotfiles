@@ -112,6 +112,26 @@ let
     fi
   '';
 
+  # Find a sysupgrade image in a directory, supporting all known image formats.
+  # Returns empty string if none found (never errors).
+  findSysupgrade = ''
+    find_sysupgrade() {
+      find "$1" \( -name "*-sysupgrade.bin" -o -name "*-sysupgrade.img.gz" -o -name "*-sysupgrade.itb" \) 2>/dev/null | head -1 || true
+    }
+  '';
+
+  # Compute OUTPUT_DIR keyed by the SHA-256 hash of build.json plus an optional
+  # suffix. A config, package, or release change → different hash → different dir.
+  # Sets CONFIG_HASH and OUTPUT_DIR. Requires CONFIG_DIR, DEVICE, REPO_ROOT.
+  computeCacheDir = ''
+    compute_cache_dir() {
+      CONFIG_HASH=$(${pkgs.coreutils}/bin/sha256sum "$CONFIG_DIR/build.json" | cut -c1-16)
+      local base="''${REPO_ROOT:+$REPO_ROOT/openwrt-images}"
+      base="''${base:-$(pwd)/openwrt-images}"
+      OUTPUT_DIR="$base/$DEVICE/$CONFIG_HASH''${1:+-$1}"
+    }
+  '';
+
   # Run the OpenWrt builder, piping decrypted secrets via stdin when available.
   # Decrypted bytes exist only in the kernel pipe buffer — never written to disk.
   # Skips secret injection if --no-secrets is present in the argument list,
@@ -157,7 +177,7 @@ in {
         done
 
         if [ $# -lt 1 ]; then
-          echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets] [--update]"
+          echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets] [--update] [--rebuild]"
           echo "       nix run .#openwrt-build -- <device-name> --update-pins"
           echo "       nix run .#openwrt-build -- --update-pins  (all targets)"
           echo "       nix run .#openwrt-build -- --config-file <build.json> [--secrets-file <file>]"
@@ -168,6 +188,7 @@ in {
         # --- Parse and strip update flags from positional args ---
         DO_UPDATE=false
         UPDATE_ONLY=false
+        FORCE_REBUILD=false
         UPDATE_RELEASE_ARG=""
         CLEAN_ARGS=()
         i=0
@@ -177,6 +198,7 @@ in {
           case "$arg" in
             --update)      DO_UPDATE=true ;;
             --update-pins) UPDATE_ONLY=true ;;
+            --rebuild)     FORCE_REBUILD=true ;;
             --release)
               i=$((i + 1))
               UPDATE_RELEASE_ARG="''${ALL_ARGS[$i]}"
@@ -249,12 +271,24 @@ in {
 
         ${discoverSopsFile}
         ${runBuilder}
-        DEFAULT_OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/$DEVICE}"
-        OUTPUT_DIR_ARG=""
-        if [ -n "$DEFAULT_OUTPUT_DIR" ]; then
-          OUTPUT_DIR_ARG="--output-dir $DEFAULT_OUTPUT_DIR"
+        ${findSysupgrade}
+        ${computeCacheDir}
+
+        NO_SECRETS_SUFFIX=""
+        for a in "$@"; do [ "$a" = "--no-secrets" ] && NO_SECRETS_SUFFIX="nosecrets"; done
+        compute_cache_dir "$NO_SECRETS_SUFFIX"
+
+        if [ "$FORCE_REBUILD" = false ]; then
+          CACHED=$(find_sysupgrade "$OUTPUT_DIR")
+          if [ -n "$CACHED" ]; then
+            echo "Using cached image (config hash: $CONFIG_HASH)."
+            echo "  $CACHED"
+            echo "Pass --rebuild to force a fresh build."
+            exit 0
+          fi
         fi
-        run_builder --config-file "$CONFIG_DIR/build.json" $OUTPUT_DIR_ARG "$@"
+
+        run_builder --config-file "$CONFIG_DIR/build.json" --output-dir "$OUTPUT_DIR" "$@"
       '';
     in "${script}";
   };
@@ -269,19 +303,23 @@ in {
         ${resolveDevice}
 
         if [ $# -lt 2 ]; then
-          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--no-secrets]"
+          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--no-secrets] [--ssh-key <path>] [--rebuild]"
           echo ""
           echo "Builds and deploys an OpenWrt sysupgrade image to the specified device."
           echo "Secrets are baked into the image — no post-deploy SSH step needed."
+          echo "Skips the build step if a cached image exists for the current config."
           echo ""
           echo "Arguments:"
-          echo "  device-name    Name of the device (as defined in hosts/openwrt/)"
-          echo "  device-ip      IP address or hostname of the device"
-          echo "  --force        Skip confirmation prompt"
-          echo "  --no-secrets   Build without WiFi secrets (radios will be disabled)"
+          echo "  device-name      Name of the device (as defined in hosts/openwrt/)"
+          echo "  device-ip        IP address or hostname of the device"
+          echo "  --force          Skip confirmation prompt"
+          echo "  --no-secrets     Build without WiFi secrets (radios will be disabled)"
+          echo "  --ssh-key PATH   Use a specific SSH private key for authentication"
+          echo "  --rebuild        Force rebuild even if a cached image exists"
           echo ""
           echo "Example:"
           echo "  nix run .#openwrt-deploy -- bobcat 10.0.10.10"
+          echo "  nix run .#openwrt-deploy -- bobcat 10.0.10.10 --ssh-key ~/.ssh/id_ed25519"
           exit 1
         fi
 
@@ -290,33 +328,47 @@ in {
         shift 2
         resolve_device "$DEVICE"
 
+        FORCE_REBUILD=false
         BUILD_ARGS=""
         DEPLOY_ARGS=""
-        for arg in "$@"; do
-          case "$arg" in
+        while [ $# -gt 0 ]; do
+          case "$1" in
             --force) DEPLOY_ARGS="$DEPLOY_ARGS --force" ;;
             --no-secrets) BUILD_ARGS="$BUILD_ARGS --no-secrets" ;;
+            --ssh-key) shift; DEPLOY_ARGS="$DEPLOY_ARGS --ssh-key $1" ;;
+            --rebuild) FORCE_REBUILD=true ;;
           esac
+          shift
         done
 
+        REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
         ${discoverSopsFile}
         ${runBuilder}
+        ${findSysupgrade}
+        ${computeCacheDir}
 
-        OUTPUT_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images/$DEVICE}"
-        OUTPUT_DIR="''${OUTPUT_DIR:-$(pwd)/openwrt-images/$DEVICE}"
+        NO_SECRETS_SUFFIX=""
+        [[ "$BUILD_ARGS" == *"--no-secrets"* ]] && NO_SECRETS_SUFFIX="nosecrets"
+        compute_cache_dir "$NO_SECRETS_SUFFIX"
 
-        # Build the image
-        run_builder \
-          --config-file "$CONFIG_DIR/build.json" \
-          --output-dir "$OUTPUT_DIR" \
-          $BUILD_ARGS
-
-        # Find the sysupgrade image
-        SYSUPGRADE=$(find "$OUTPUT_DIR" -name "*-sysupgrade.bin" -o -name "*-sysupgrade.img.gz" | head -1)
+        # Use cached image if available
+        SYSUPGRADE=""
+        if [ "$FORCE_REBUILD" = false ]; then
+          SYSUPGRADE=$(find_sysupgrade "$OUTPUT_DIR")
+          [ -n "$SYSUPGRADE" ] && echo "Using cached image (config hash: $CONFIG_HASH)."
+        fi
 
         if [ -z "$SYSUPGRADE" ]; then
-          echo "Error: No sysupgrade image found in $OUTPUT_DIR"
-          exit 1
+          run_builder \
+            --config-file "$CONFIG_DIR/build.json" \
+            --output-dir "$OUTPUT_DIR" \
+            $BUILD_ARGS
+
+          SYSUPGRADE=$(find_sysupgrade "$OUTPUT_DIR")
+          if [ -z "$SYSUPGRADE" ]; then
+            echo "Error: No sysupgrade image found in $OUTPUT_DIR"
+            exit 1
+          fi
         fi
 
         # Deploy the image
