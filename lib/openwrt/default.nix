@@ -266,7 +266,7 @@ let
           type = "mac80211";
           band = "2g";
           channel = 1;
-          htmode = "HE40";
+          htmode = "HT20";
           cell_density = 0;
           country = country;
           disabled = false;
@@ -299,7 +299,7 @@ let
         type = "mac80211";
         band = "2g";
         channel = 1;
-        htmode = "HE20";
+        htmode = "HT20";
         cell_density = 0;
         country = country;
         disabled = false;
