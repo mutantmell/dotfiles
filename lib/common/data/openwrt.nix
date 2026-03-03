@@ -67,6 +67,14 @@ in
     DMZ      = { tag = 100; };
   };
 
+  # Defaults for device configuration.
+  # Reference these in device files for explicit, auditable configuration.
+  defaultTimezone = "UTC";
+  defaultCountry = "US";
+  defaultEncryption = "sae-mixed";
+  defaultRouterTrunkPorts = [ "lan2" "lan3" "lan4" ];
+  defaultSwitchTrunkPorts = [ "lan1" "lan2" "lan3" "lan4" ];
+
   # SSH authorized keys for deployment
   authorizedKeys = [
     keys.ssh.deploy

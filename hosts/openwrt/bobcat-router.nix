@@ -8,4 +8,9 @@
   profile = "linksys_e8450-ubi";
   target = "mediatek";
   subtarget = "mt7622";
+  timezone = owrtData.defaultTimezone;
+  country = owrtData.defaultCountry;
+  encryption = owrtData.defaultEncryption;
+  trunkPorts = owrtData.defaultRouterTrunkPorts;
+  extraPackages = [];
 }

@@ -9,6 +9,9 @@
   subtarget = "mt7621";
   hostId = 20;
   vlanId = 31;
+  timezone = owrtData.defaultTimezone;
+  country = owrtData.defaultCountry;
+  encryption = owrtData.defaultEncryption;
   # Keep dnsmasq (removed by default) — glorious serves DHCP for the ADU network
   extraPackages = [ "dnsmasq" "odhcpd-ipv6only" ];
   extraConfig = {

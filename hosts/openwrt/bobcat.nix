@@ -7,5 +7,9 @@
   target = "mediatek";
   subtarget = "mt7622";
   hostId = 23;
+  timezone = owrtData.defaultTimezone;
+  country = owrtData.defaultCountry;
   heBssColor = 49;
+  legacyRates = false;
+  extraPackages = [];
 }
