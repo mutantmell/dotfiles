@@ -61,9 +61,6 @@ SSID and key for the same network are spread across `wifi_ssids.*` and `wifi_key
 Group SSID and key for each network together:
 
 ```yaml
-mesh:
-  id: "mesh-network-id"
-  key: "mesh-password"
 wifi:
   main:
     ssid: "HomeNetwork"
@@ -74,11 +71,14 @@ wifi:
   iot:
     ssid: "HomeNetwork-IoT"
     key: "iot-password"
+  mesh:
+    id: "mesh-network-id"
+    key: "mesh-password"
 ```
 
-`flatten_yaml()` (unchanged) now produces: `mesh.id`, `mesh.key`, `wifi.main.ssid`, `wifi.main.key`, …
+`flatten_yaml()` (unchanged) now produces: `wifi.main.ssid`, `wifi.main.key`, `wifi.mesh.id`, `wifi.mesh.key`, …
 
-The hierarchy directly expresses the intent: a wifi network has an ssid and a key; the mesh has an id and a key.
+The hierarchy directly expresses the intent: a wifi network has an ssid and a key; mesh is a wifi network too (802.11s interface mode), so it lives alongside the AP networks under `wifi`.
 
 ---
 
@@ -88,8 +88,8 @@ The hierarchy directly expresses the intent: a wifi network has an ssid and a ke
 
 | Old | New |
 |-----|-----|
-| `{ _secret = "mesh_id"; }` | `{ _secret = "mesh.id"; }` |
-| `{ _secret = "mesh_key"; }` | `{ _secret = "mesh.key"; }` |
+| `{ _secret = "mesh_id"; }` | `{ _secret = "wifi.mesh.id"; }` |
+| `{ _secret = "mesh_key"; }` | `{ _secret = "wifi.mesh.key"; }` |
 | `{ _secret = "wifi_ssids.${name}"; }` | `{ _secret = "wifi.${name}.ssid"; }` |
 | `{ _secret = "wifi_keys.${name}"; }` | `{ _secret = "wifi.${name}.key"; }` |
 

@@ -27,16 +27,19 @@
 #   the decrypted YAML directly to the builder — secrets never touch disk.
 #
 #   Plain YAML structure (example):
-#     mesh_id: "your-mesh-id"
-#     mesh_key: "your-mesh-password"
-#     wifi_ssids:
-#       main: "NetworkName"
-#       secondary: "NetworkName-Alt"
-#       iot: "NetworkName-IoT"
-#     wifi_keys:
-#       main: "main-network-password"
-#       secondary: "alt-network-password"
-#       iot: "iot-network-password"
+#     wifi:
+#       main:
+#         ssid: "NetworkName"
+#         key: "main-network-password"
+#       secondary:
+#         ssid: "NetworkName-Alt"
+#         key: "alt-network-password"
+#       iot:
+#         ssid: "NetworkName-IoT"
+#         key: "iot-network-password"
+#       mesh:
+#         id: "your-mesh-id"
+#         key: "your-mesh-password"
 { pkgs, openwrtDevices, openwrtConfigurations }:
 
 let
