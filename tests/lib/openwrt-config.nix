@@ -322,29 +322,29 @@ let
     "router dnsmasq is named" = !(routerConfig.dhcp.dnsmasq ? _anonymous);
 
     # Secrets map structure
-    "meshAP secrets has mesh_id" = meshSecretsMap ? mesh_id;
-    "meshAP secrets has mesh_key" = meshSecretsMap ? mesh_key;
-    "meshAP secrets has wifi_ssids.main" = meshSecretsMap ? "wifi_ssids.main";
-    "meshAP secrets has wifi_keys.main" = meshSecretsMap ? "wifi_keys.main";
-    "meshAP secrets has wifi_ssids.secondary" = meshSecretsMap ? "wifi_ssids.secondary";
-    "meshAP secrets mesh_id targets batmesh" =
-      builtins.elem "wireless.batmesh.mesh_id" meshSecretsMap.mesh_id;
-    "meshAP secrets wifi_ssids.main targets both bands" =
-      builtins.length meshSecretsMap."wifi_ssids.main" == 2;
+    "meshAP secrets has wifi.mesh.id" = meshSecretsMap ? "wifi.mesh.id";
+    "meshAP secrets has wifi.mesh.key" = meshSecretsMap ? "wifi.mesh.key";
+    "meshAP secrets has wifi.main.ssid" = meshSecretsMap ? "wifi.main.ssid";
+    "meshAP secrets has wifi.main.key" = meshSecretsMap ? "wifi.main.key";
+    "meshAP secrets has wifi.secondary.ssid" = meshSecretsMap ? "wifi.secondary.ssid";
+    "meshAP secrets wifi.mesh.id targets batmesh" =
+      builtins.elem "wireless.batmesh.mesh_id" meshSecretsMap."wifi.mesh.id";
+    "meshAP secrets wifi.main.ssid targets both bands" =
+      builtins.length meshSecretsMap."wifi.main.ssid" == 2;
 
     "switch secrets map is empty" = switchSecretsMap == {};
 
-    "simpleAP secrets has wifi_ssids.main" = simpleAPSecretsMap ? "wifi_ssids.main";
-    "simpleAP secrets has wifi_keys.main" = simpleAPSecretsMap ? "wifi_keys.main";
+    "simpleAP secrets has wifi.main.ssid" = simpleAPSecretsMap ? "wifi.main.ssid";
+    "simpleAP secrets has wifi.main.key" = simpleAPSecretsMap ? "wifi.main.key";
     "simpleAP secrets targets ap_2g and ap_5g" =
-      builtins.length simpleAPSecretsMap."wifi_ssids.main" == 2;
+      builtins.length simpleAPSecretsMap."wifi.main.ssid" == 2;
 
-    "router secrets has wifi_keys.main" = routerSecretsMap ? "wifi_keys.main";
+    "router secrets has wifi.main.key" = routerSecretsMap ? "wifi.main.key";
 
     # Real device with IoT extra — derfflinger secrets map has IoT
-    "derfflinger secrets has wifi_ssids.iot" =
+    "derfflinger secrets has wifi.iot.ssid" =
       let sm = openwrt.mkSecretsMap { device = realDevices.derfflinger; inherit owrtData; };
-      in sm ? "wifi_ssids.iot";
+      in sm ? "wifi.iot.ssid";
 
     # target/subtarget on all real devices
     "real bobcat has target" = realDevices.bobcat ? target;

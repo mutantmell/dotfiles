@@ -206,7 +206,7 @@ let
     };
 
   # Generate wireless configuration for mesh + AP
-  # Secret fields (mesh_id, key, ssid) are declared with { _secret = "key"; }
+  # Secret fields (wifi.<name>.ssid, wifi.<name>.key, wifi.mesh.id, wifi.mesh.key) are declared with { _secret = "key"; }
   # markers. They are omitted from the UCI script and injected at build time
   # from the secrets file via merge_secrets_into_uci in the build pipeline.
   mkMeshWirelessConfig = {
@@ -226,8 +226,8 @@ let
           network = "bat0_mesh0";
           encryption = "sae";
           mesh_fwding = false;
-          mesh_id = { _secret = "mesh_id"; };
-          key      = { _secret = "mesh_key"; };
+          mesh_id = { _secret = "wifi.mesh.id"; };
+          key      = { _secret = "wifi.mesh.key"; };
         };
       };
 
@@ -240,8 +240,8 @@ let
           mode = "ap";
           network = ap.network or "lan";
           encryption = ap.encryption or "sae-mixed";
-          ssid = { _secret = "wifi_ssids.${name}"; };
-          key  = { _secret = "wifi_keys.${name}"; };
+          ssid = { _secret = "wifi.${name}.ssid"; };
+          key  = { _secret = "wifi.${name}.key"; };
           # 802.11r fast roaming
           ieee80211r = true;
           ft_psk_generate_local = true;
@@ -322,8 +322,8 @@ let
         inherit network;
         mode = "ap";
         inherit encryption;
-        ssid = { _secret = "wifi_ssids.main"; };
-        key  = { _secret = "wifi_keys.main"; };
+        ssid = { _secret = "wifi.main.ssid"; };
+        key  = { _secret = "wifi.main.key"; };
       };
 
       ap_5g_main = {
@@ -332,8 +332,8 @@ let
         inherit network;
         mode = "ap";
         inherit encryption;
-        ssid = { _secret = "wifi_ssids.main"; };
-        key  = { _secret = "wifi_keys.main"; };
+        ssid = { _secret = "wifi.main.ssid"; };
+        key  = { _secret = "wifi.main.key"; };
       };
     };
   };

@@ -36,8 +36,8 @@ in
         mode = "ap";
         encryption = "sae-mixed";
         network = "iot";
-        ssid = { _secret = "wifi_ssids.iot"; };
-        key  = { _secret = "wifi_keys.iot"; };
+        ssid = { _secret = "wifi.iot.ssid"; };
+        key  = { _secret = "wifi.iot.key"; };
       };
     };
   };
