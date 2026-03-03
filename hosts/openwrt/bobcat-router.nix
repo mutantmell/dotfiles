@@ -12,5 +12,8 @@
   country = owrtData.defaultCountry;
   encryption = owrtData.defaultEncryption;
   trunkPorts = owrtData.defaultRouterTrunkPorts;
+  hasMesh = true;
+  heBssColor = 49;
+  legacyRates = false;
   extraPackages = [];
 }
