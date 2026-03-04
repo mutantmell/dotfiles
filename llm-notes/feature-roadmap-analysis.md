@@ -17,10 +17,13 @@ and providing a unified implementation guide.
 
 A complete inventory of all existing and planned microvms — names, hosts, zones, IPs,
 and responsibilities — is maintained in [`microvm-inventory.md`](./microvm-inventory.md).
-All planned microvms are assigned to erebonia. Existing VMs use the Trails naming
-convention: roer (Keycloak), legram (step-ca). Planned VMs still need Trails names:
-Headscale control plane (was ratatosk), subnet router (was fenrir), and SSH bastion
-(was heimdall).
+All future microvms are assigned to **calvard** (see `plans/vm-guest-rebalance.md`).
+Existing VMs on erebonia (roer, legram, ordis, heimdallr, ymir) are being migrated to
+calvard under Calvard city names. Planned VMs (Headscale control plane, subnet router,
+SSH bastion) were previously assigned to erebonia in the individual plans; those plans
+have been updated to reflect calvard as the correct target. Planned VMs still need
+Trails/Calvard names: Headscale control plane (was ratatosk), subnet router (was
+fenrir), and SSH bastion (was heimdall).
 
 ---
 

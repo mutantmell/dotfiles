@@ -146,6 +146,24 @@ After each phase, keep these in sync:
 
 ---
 
+## Discrepancy: Other Plans Reference Erebonia as Microvm Host
+
+Several plans written before calvard was designated the primary VM host still assign
+future (not-yet-configured) microvms to **erebonia**:
+
+| Plan | Stale Assignment | Correct Host |
+|------|-----------------|--------------|
+| `headscale-integration-plan.md` Phase 1 | headscale control server → erebonia | calvard |
+| `headscale-integration-plan.md` Phase 2 | fenrir (subnet router) → erebonia | calvard |
+| `feature-roadmap-analysis.md` summary | "All planned microvms are assigned to erebonia" | calvard |
+
+None of these VMs have been configured yet, so there is no migration work — the
+references simply need to be updated to point at calvard. The stale text in each plan
+has been amended (see those files), but if any new plan is derived from them, use
+calvard as the target host.
+
+---
+
 ## Future Calvard Guests (out of scope for this plan)
 
 These are tracked in `microvm-inventory.md` and their respective feature plans:

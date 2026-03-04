@@ -168,7 +168,7 @@ can be revisited, but it's premature now.
 
 | Property | Value |
 |----------|-------|
-| Host | erebonia (vDMZ bridge already exists, alongside ordis/fenrir) |
+| Host | calvard (vDMZ bridge required; see `plans/vm-guest-rebalance.md`) |
 | vCPU | 1 |
 | RAM | 512MB |
 | Persistent storage | Small (SQLite database, private keys, ACL policy file) |
@@ -300,7 +300,7 @@ It advertises routes to game server IPs, allowing friends on the tailnet to reac
 
 | Property | Value |
 |----------|-------|
-| Host | erebonia (vDMZ bridge already exists) |
+| Host | calvard (vDMZ bridge required; see `plans/vm-guest-rebalance.md`) |
 | vCPU | 1 |
 | RAM | 256MB |
 | Persistent storage | Minimal (Tailscale state) |
@@ -960,7 +960,7 @@ ready.
 
 ### Phase 1: Deploy headscale control server
 
-1. Provision headscale microvm on erebonia (vDMZ)
+1. Provision headscale microvm on calvard (vDMZ)
 2. Configure `services.headscale` with basic settings (no OIDC initially)
 3. Add nginx TLS termination on the headscale microvm
 4. Add DNS records for `headscale.internal` / `headscale.internal.mutantmell.net`
@@ -971,7 +971,7 @@ ready.
 
 ### Phase 2: Deploy subnet router
 
-1. Provision fenrir microvm on erebonia (vDMZ)
+1. Provision fenrir microvm on calvard (vDMZ)
 2. Install Tailscale, configure as subnet router
 3. Add firewall rule: headscale → Keycloak (vDMZ → vINFRA, TCP 443)
 4. Register fenrir with headscale, approve routes
