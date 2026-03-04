@@ -407,14 +407,18 @@ which ports/IPs each friend group can reach.
 
 ## Implementation Timeline
 
-MicroVMs are introduced across the 7-step implementation roadmap:
+MicroVMs are introduced across the 7-step implementation roadmap. The calvard migration
+is a prerequisite that must complete before new calvard guests can be added.
+
+See `plans/vm-guest-rebalance.md` for the detailed calvard migration plan.
 
 | Step | MicroVM Changes |
 |------|----------------|
+| 0. calvard migration | **Migrate:** roer→edith, legram→basel, ordis→langport, heimdallr→oracion, ymir→tharbad (all erebonia→calvard). **New:** messeldam (Incus container, calvard). **Retire:** denai (independent). |
 | 1. Zone Refactor | None (pure firewall refactor) |
 | 2. Secure MGMT VLAN Split | phantasma migrates from VLAN 10 to VLAN 11; egress filtering added to all vDMZ microvms |
 | 3. Network Data Registry | None (data migration) |
-| 4. Keycloak OIDC | **Deployed:** roer (Keycloak), legram (step-ca). **Planned:** SSH bastion (name TBD). **Decommissioned:** gridr |
+| 4. Keycloak OIDC | edith (Keycloak) and basel (step-ca) already deployed on calvard. **Planned:** SSH bastion (Calvard name TBD, Incus VM on calvard). **Decommissioned:** gridr |
 | 5. IP Migration | All microvms get dual addresses (10.0.x.x + 10.97.x.x) |
 | 6. SSH Certificates | None (configuration changes to existing hosts) |
-| 7. Headscale | **Planned:** Headscale VM (name TBD), subnet router (name TBD). Later: game server microvms |
+| 7. Headscale | **Planned:** Headscale VM (Calvard name TBD), subnet router (Calvard name TBD), game servers (Calvard names TBD) — all on calvard |
