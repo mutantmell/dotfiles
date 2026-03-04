@@ -30,7 +30,7 @@ Retire denai from remiferia independently.
 | heimdallr | erebonia | Erebonian city | microvm (QEMU) | Jellyfin media |
 | ymir | erebonia | Erebonian city | microvm (QEMU) | Monitoring |
 | trista | erebonia | Erebonian city | Incus VM | Dev env (backup) |
-| ardent | remiferia | Remiferian city | microvm (QEMU) | Binary cache + Git |
+| ardent | remiferia | Remiferian city | cloud-hypervisor | Binary cache + Git |
 | denai | remiferia | Remiferian city | microvm (QEMU) | Dev workstation |
 
 calvard currently has no guests.
@@ -50,7 +50,7 @@ calvard currently has no guests.
 | (TBD Calvard name) | ardent (split) | calvard | microvm (QEMU) | Forgejo git hosting |
 | trista | trista | erebonia | Incus VM | Dev env (backup) |
 | saint-arkh | ardent (split) | erebonia | microvm (QEMU) | Forgejo Actions CI/CD runners |
-| ardent | ardent (split) | remiferia | microvm (QEMU) | Attic binary cache only |
+| ardent | ardent (split) | remiferia | cloud-hypervisor | Attic binary cache only |
 | denai | denai | remiferia | microvm (QEMU) | Dev workstation (slated for removal) |
 
 ### Naming rationale
@@ -175,9 +175,10 @@ resource limits, and firewall egress rules:
 Runners communicate with the Forgejo API over the network using a registration token —
 the separation is already native to Forgejo Actions architecture.
 
-#### ardent — narrow to Attic only
+#### ardent — narrow to Attic only, migrate to cloud-hypervisor
 
 - [ ] Remove Forgejo + runner config from `hosts/remiferia/guests/ardent/`
+- [ ] Migrate ardent from QEMU to cloud-hypervisor (same pattern as phantasma on thebeyond)
 - [ ] Keep ardent running Attic only (large binary blobs benefit from NAS co-location)
 - [ ] Update phantasma DNS: remove `ardent.internal` Forgejo entry
 

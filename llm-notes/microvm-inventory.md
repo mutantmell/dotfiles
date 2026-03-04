@@ -8,7 +8,7 @@ implementation plans in `llm-notes/`.
 | Name | Status | Host | Zone (VLAN) | IP Address | Purpose | Hypervisor |
 |------|--------|------|-------------|------------|---------|------------|
 | phantasma | Existing | thebeyond | vINFRA (10) | 10.0.10.2 | DNS, DHCP, Adguard Home, oauth2-proxy | cloud-hypervisor |
-| ardent | Existing (narrowing) | remiferia | vDMZ (100) | 10.0.100.31 | Attic binary cache (Forgejo being split out) | microvm (QEMU) |
+| ardent | Existing (narrowing) | remiferia | vDMZ (100) | 10.0.100.31 | Attic binary cache (Forgejo being split out) | cloud-hypervisor (migrate from QEMU) |
 | (TBD Calvard name) | Planned (split from ardent) | calvard | vDMZ (100) | TBD | Forgejo git hosting | microvm (QEMU) |
 | saint-arkh | Planned (split from ardent) | erebonia | vDMZ (100) | TBD | Forgejo Actions CI/CD runners | microvm (QEMU) |
 | edith | Planned (move from erebonia/roer) | calvard | vINFRA (11) | TBD | Keycloak OIDC identity provider | microvm (QEMU) |
@@ -56,7 +56,7 @@ VLAN Split (Step 2). DNS zones migrate from `.local` to `.internal.mutantmell.ne
 | Host | remiferia |
 | Zone | vDMZ (VLAN 100) |
 | IP | 10.0.100.31 |
-| Hypervisor | microvm (QEMU) |
+| Hypervisor | cloud-hypervisor (currently QEMU — migrate as part of Phase 6) |
 | vCPU / RAM | 1 / 521MB |
 | Persistent storage | 10MB |
 | MAC | 5E:A5:4D:A3:A0:1A |
