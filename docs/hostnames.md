@@ -3,12 +3,12 @@
 ```
 VM HOSTS (Countries)
 ├── erebonia          (GP host)
+│   ├── trista        (Incus VM) — Dev environment / task runner (backup)
 │   ├── heimdallr     (not allocated)
 │   ├── ordis         (not allocated)
 │   ├── roer          (not allocated)
 │   ├── legram        (not allocated)
 │   ├── ymir          (not allocated)
-│   ├── trista        (Incus VM) — Dev environment / task runner (backup)
 │   ├── saint-arkh    (not allocated)
 │   └── leeves        (not allocated) — reserved for future backup dev env name
 │
