@@ -3,22 +3,20 @@
 ```
 VM HOSTS (Countries)
 ├── erebonia          (GP host)
-│   ├── heimdallr     (microVM) — Jellyfin media server
-│   ├── ordis         (microVM) — Reverse proxy, nginx, oauth2-proxy
-│   ├── roer          (microVM) — Keycloak OIDC identity provider
-│   ├── legram        (microVM) — step-ca PKI / certificate authority
-│   ├── ymir          (microVM) — Prometheus, Loki, Alertmanager monitoring
-│   ├── trista        (Incus VM) — Dev environment / task runner
+│   ├── trista        (Incus VM) — Dev environment / task runner (backup)
 │   ├── saint-arkh    (not allocated)
-│   └── leeves        (not allocated)
+│   └── leeves        (not allocated) — reserved for future backup dev env name
 │
 ├── calvard           (GP host)
-│   ├── edith         (VM guest)
-│   ├── basel         (VM guest)
-│   ├── langport      (VM guest)
-│   ├── oracion       (VM guest)
-│   ├── tharbad       (VM guest)
-│   └── messeldam     (VM guest)
+│   ├── edith         (microVM) — Keycloak OIDC identity provider
+│   ├── basel         (microVM) — step-ca PKI / certificate authority
+│   ├── langport      (microVM) — Reverse proxy, nginx, oauth2-proxy
+│   ├── oracion       (microVM) — Jellyfin media server
+│   ├── tharbad       (microVM) — Monitoring
+│   ├── messeldam     (Incus container) — Dev environment / task runner (primary)
+│   ├── (name TBD)    (microVM) — Headscale control plane
+│   ├── (name TBD)    (microVM) — Tailscale subnet router
+│   └── (name TBD)    (Incus VM) — SSH jump host
 │
 ├── liberl            (GP host)
 │   ├── grancel       (VM guest)
