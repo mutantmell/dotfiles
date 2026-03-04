@@ -47,17 +47,20 @@ calvard currently has no guests.
 | oracion | heimdallr | calvard | microvm (QEMU) | Jellyfin media |
 | tharbad | ymir | calvard | microvm (QEMU) | Monitoring |
 | messeldam | (new) | calvard | Incus container | Dev env (primary) |
+| (TBD Calvard name) | ardent (split) | calvard | microvm (QEMU) | Forgejo git hosting |
 | trista | trista | erebonia | Incus VM | Dev env (backup) |
-| saint-arkh | ardent (split) | erebonia | microvm (QEMU) | Forgejo + CI/CD runners |
+| saint-arkh | ardent (split) | erebonia | microvm (QEMU) | Forgejo Actions CI/CD runners |
 | ardent | ardent (split) | remiferia | microvm (QEMU) | Attic binary cache only |
 | denai | denai | remiferia | microvm (QEMU) | Dev workstation (slated for removal) |
 
 ### Naming rationale
 
 Guest names serve as a mnemonic for which host they run on:
-- **Calvard city names** (edith, basel, langport, oracion, tharbad, messeldam) — calvard guests
+- **Calvard city names** — calvard guests; edith, basel, langport, oracion, tharbad,
+  messeldam are assigned; the new Forgejo service guest needs one more (TBD — no spare
+  Calvard names currently exist in `docs/hostnames.md`; add one before Phase 6)
 - **Erebonian city names** — erebonia guests; `trista` already follows this convention;
-  `saint-arkh` is assigned to the new Forgejo guest
+  `saint-arkh` is assigned to the CI/CD runner guest
 - **Remiferian city names** — remiferia guests; ardent keeps its name, narrowed to Attic only
 
 ### Incus requirement
@@ -157,36 +160,52 @@ Migrate edith and basel first; other guests depend on them for OIDC and certific
 - [ ] Deploy messeldam on calvard; verify dev environment functional
 - [ ] Update phantasma DNS: `messeldam.internal`
 
-### Phase 6 — Split ardent and add erebonia guests
+### Phase 6 — Split ardent into three guests
 
-ardent currently runs two unrelated services: Attic (binary cache) and Forgejo (git +
-CI/CD runners). These are split into separate guests so each has independent lifecycle,
-resource limits, and firewall rules.
+ardent currently runs Attic (binary cache) and Forgejo (git hosting + Actions CI/CD
+runners). These are split into three independent guests with separate lifecycles,
+resource limits, and firewall egress rules:
 
-#### Rationale for erebonia placement
+| Guest | Host | Services | Rationale |
+|-------|------|----------|-----------|
+| ardent | remiferia | Attic binary cache only | Large blobs benefit from NAS co-location |
+| TBD Calvard name | calvard | Forgejo git hosting + web UI | User-facing HTTP; close to langport and edith |
+| saint-arkh | erebonia | Forgejo Actions CI/CD runners | Async, CPU-spiky; isolated from real-time services |
 
-Forgejo and log aggregation are background / async workloads: they handle pushes, CI
-jobs, and log ingestion on their own schedule, with no hard real-time requirement from
-interactive users. Placing them on erebonia keeps calvard focused on low-latency,
-user-facing services and avoids contention with Jellyfin hardware transcoding.
+Runners communicate with the Forgejo API over the network using a registration token —
+the separation is already native to Forgejo Actions architecture.
 
 #### ardent — narrow to Attic only
 
 - [ ] Remove Forgejo + runner config from `hosts/remiferia/guests/ardent/`
 - [ ] Keep ardent running Attic only (large binary blobs benefit from NAS co-location)
-- [ ] Update phantasma DNS: remove `ardent.internal` A record for Forgejo port (3000)
+- [ ] Update phantasma DNS: remove `ardent.internal` Forgejo entry
 
-#### Forgejo guest (saint-arkh) — new on erebonia
+#### Forgejo service guest (TBD Calvard name) — new on calvard
+
+**Prerequisite:** add a spare Calvard city name to `docs/hostnames.md` before starting.
+
+- [ ] Assign Calvard city name; add to `docs/hostnames.md`
+- [ ] Allocate IP on vDMZ in network registry
+- [ ] Create `hosts/calvard/guests/<name>/` — Forgejo, PostgreSQL
+  - Move Forgejo sops secrets from ardent: `hosts/calvard/guests/<name>/sops.nix`
+  - Re-encrypt secrets with the new guest's host key
+- [ ] Migrate Forgejo data from ardent (pg_dump / repo data copy)
+- [ ] Update langport nginx proxy for Forgejo to point at new IP
+- [ ] Deploy and verify Forgejo accessible
+- [ ] Update phantasma DNS: `<name>.internal`
+
+#### CI/CD runner guest (saint-arkh) — new on erebonia
 
 `saint-arkh` is an unallocated Erebonian city name. Add to `docs/hostnames.md`.
+**Depends on** Forgejo service guest above being deployed first.
 
 - [ ] Allocate IP for saint-arkh on vDMZ in network registry
-- [ ] Create `hosts/erebonia/guests/<name>/` — Forgejo, PostgreSQL, CI/CD runner(s)
-  - Move Forgejo sops secrets from ardent: `hosts/erebonia/guests/<name>/sops.nix`
-  - Move Forgejo runner config from ardent
-- [ ] Update ordis/langport nginx proxy for Forgejo (port 3000) to point at new IP
-- [ ] Deploy and verify Forgejo accessible; migrate data from ardent
-- [ ] Update phantasma DNS: `<name>.internal`
+- [ ] Create `hosts/erebonia/guests/saint-arkh/` — Forgejo Actions runner(s)
+  - Move runner registration token/secrets from ardent
+- [ ] Register saint-arkh runners with the Forgejo service guest
+- [ ] Deploy and verify CI jobs run on saint-arkh
+- [ ] Update phantasma DNS: `saint-arkh.internal`
 
 #### Log aggregation — stays in tharbad (calvard)
 

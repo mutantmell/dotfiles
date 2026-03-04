@@ -9,12 +9,13 @@ implementation plans in `llm-notes/`.
 |------|--------|------|-------------|------------|---------|------------|
 | phantasma | Existing | thebeyond | vINFRA (10) | 10.0.10.2 | DNS, DHCP, Adguard Home, oauth2-proxy | cloud-hypervisor |
 | ardent | Existing (narrowing) | remiferia | vDMZ (100) | 10.0.100.31 | Attic binary cache (Forgejo being split out) | microvm (QEMU) |
-| saint-arkh | Planned (split from ardent) | erebonia | vDMZ (100) | TBD | Forgejo + CI/CD runners | microvm (QEMU) |
+| (TBD Calvard name) | Planned (split from ardent) | calvard | vDMZ (100) | TBD | Forgejo git hosting | microvm (QEMU) |
+| saint-arkh | Planned (split from ardent) | erebonia | vDMZ (100) | TBD | Forgejo Actions CI/CD runners | microvm (QEMU) |
 | edith | Planned (move from erebonia/roer) | calvard | vINFRA (11) | TBD | Keycloak OIDC identity provider | microvm (QEMU) |
 | basel | Planned (move from erebonia/legram) | calvard | vINFRA (11) | TBD | PKI / certificate authority | microvm (QEMU) |
 | langport | Planned (move from erebonia/ordis) | calvard | vDMZ (100) | TBD | Reverse proxy, oauth2-proxy, wg-ba gateway | microvm (QEMU) |
 | oracion | Planned (move from erebonia/heimdallr) | calvard | vDMZ (100) | TBD | Jellyfin media server | microvm (QEMU) |
-| tharbad | Planned (move from erebonia/ymir) | calvard | vMGMT (20) | TBD | Monit system monitoring | microvm (QEMU) |
+| tharbad | Planned (move from erebonia/ymir) | calvard | vMGMT (20) | TBD | Prometheus+Loki+Alertmanager+ntfy | microvm (QEMU) |
 | messeldam | Planned (new) | calvard | vMGMT (20) | TBD | Dev environment / task runner (primary) | Incus container |
 | trista | Existing | erebonia | vDMZ (100) | 10.0.100.x | Dev environment / task runner (backup) | Incus VM |
 | (name TBD) | Planned | calvard | vDMZ (100) | 10.0.100.x | Tailscale control plane (Headscale) | microvm (QEMU) |
@@ -61,12 +62,12 @@ VLAN Split (Step 2). DNS zones migrate from `.local` to `.internal.mutantmell.ne
 | MAC | 5E:A5:4D:A3:A0:1A |
 | Config | `hosts/remiferia/guests/ardent/` |
 
-**Services:** Attic (Nix binary cache server), Forgejo (git repository hosting) + CI/CD
-runners. **Forgejo is being split out** — see `plans/vm-guest-rebalance.md` Phase 6.
+**Services:** Attic (Nix binary cache server), Forgejo (git repository hosting) + Actions
+CI/CD runners. **Being split into three guests** — see `plans/vm-guest-rebalance.md` Phase 6.
 
-**Planned changes:** Narrow to Attic only (remove Forgejo + runner config). Forgejo
-and CI/CD runners move to a new erebonia guest. Will get egress filtering (Step 2,
-Phase 4.4) and DNS name migration to `.internal.mutantmell.net`.
+**Planned changes:** Narrow to Attic only. Forgejo service moves to a new calvard guest
+(TBD name); CI/CD runners move to saint-arkh on erebonia. Will get egress filtering
+(Step 2, Phase 4.4) and DNS name migration to `.internal.mutantmell.net`.
 
 **Rationale for keeping Attic on remiferia:** Binary cache blobs are large; co-locating
 Attic with the NAS avoids unnecessary cross-host transfers.
@@ -408,7 +409,7 @@ which ports/IPs each friend group can reach.
 |------|------|-----------------|-----------------|-------|
 | thebeyond | Router | phantasma | — | cloud-hypervisor; resource-constrained |
 | remiferia | NAS + VM host | ardent, denai* | — | *denai slated for removal independently |
-| erebonia | VM host + Incus | trista | saint-arkh (Forgejo+CI/CD) | Background/async services; Loki stays in tharbad on calvard |
+| erebonia | VM host + Incus | trista | saint-arkh (Forgejo Actions runners) | Async CI/CD workloads; Forgejo service itself on calvard |
 | calvard | VM host | — | edith, basel, langport, oracion, tharbad, messeldam, Headscale (TBD), subnet router (TBD), SSH bastion (TBD), game servers | Primary VM host going forward; needs vINFRA bridge |
 
 ---
