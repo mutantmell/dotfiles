@@ -17,10 +17,13 @@ and providing a unified implementation guide.
 
 A complete inventory of all existing and planned microvms — names, hosts, zones, IPs,
 and responsibilities — is maintained in [`microvm-inventory.md`](./microvm-inventory.md).
-All planned microvms are assigned to erebonia. Existing VMs use the Trails naming
-convention: roer (Keycloak), legram (step-ca). Planned VMs still need Trails names:
-Headscale control plane (was ratatosk), subnet router (was fenrir), and SSH bastion
-(was heimdall).
+All future microvms are assigned to **calvard** (see `plans/vm-guest-rebalance.md`).
+Existing VMs on erebonia (roer, legram, ordis, heimdallr, ymir) are being migrated to
+calvard under Calvard city names. Planned VMs (Headscale control plane, subnet router,
+SSH bastion) were previously assigned to erebonia in the individual plans; those plans
+have been updated to reflect calvard as the correct target. Planned VMs still need
+Trails/Calvard names: Headscale control plane (was ratatosk), subnet router (was
+fenrir), and SSH bastion (was heimdall).
 
 ---
 
@@ -271,14 +274,14 @@ from Step 4 (`*.mutantmell.net`, `homelab` realm).
 Deploys Headscale on vDMZ as self-hosted Tailscale control plane with subnet
 router for friend access to game servers. Uses canonical names from Step 4.
 
-- [ ] Phase 1: Provision headscale microvm on erebonia (vDMZ)
+- [ ] Phase 1: Provision headscale microvm on calvard (vDMZ)
 - [ ] Phase 1: Add headscale → Keycloak cross-zone firewall rule
 - [ ] Phase 1: Configure egress filtering on headscale (R3)
-- [ ] Phase 1: Add ordis vhost for `vpn.mutantmell.net`
-- [ ] Phase 1: Add DNS records for headscale + fenrir
-- [ ] Phase 2: Provision fenrir microvm on erebonia (vDMZ)
-- [ ] Phase 2: Configure fenrir as Tailscale subnet router
-- [ ] Phase 2: Configure egress filtering on fenrir (R3)
+- [ ] Phase 1: Add langport vhost for `vpn.mutantmell.net`
+- [ ] Phase 1: Add DNS records for headscale + subnet router (TBD Calvard name)
+- [ ] Phase 2: Provision subnet router microvm on calvard (vDMZ) — TBD Calvard name (was fenrir)
+- [ ] Phase 2: Configure subnet router as Tailscale subnet router
+- [ ] Phase 2: Configure egress filtering on subnet router (R3)
 - [ ] Phase 3: Register `headscale` client in Keycloak, create `gamers` group
 - [ ] Phase 3: Enable OIDC in headscale, test auth flow
 - [ ] Phase 4: Write ACL policy, deploy test game server
