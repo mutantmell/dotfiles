@@ -48,8 +48,8 @@ calvard currently has no guests.
 | tharbad | ymir | calvard | microvm (QEMU) | Monitoring |
 | messeldam | (new) | calvard | Incus container | Dev env (primary) |
 | trista | trista | erebonia | Incus VM | Dev env (backup) |
-| (TBD — Erebonian name) | ardent (split) | erebonia | microvm (QEMU) | Forgejo + CI/CD runners |
-| (TBD — Erebonian name) | (new) | erebonia | microvm (QEMU) | Log aggregation |
+| saint-arkh | ardent (split) | erebonia | microvm (QEMU) | Forgejo + CI/CD runners |
+| leeves | (new) | erebonia | microvm (QEMU) | Log aggregation (see Phase 6 options) |
 | ardent | ardent (split) | remiferia | microvm (QEMU) | Attic binary cache only |
 | denai | denai | remiferia | microvm (QEMU) | Dev workstation (slated for removal) |
 
@@ -91,14 +91,24 @@ Each microVM migration follows the same pattern:
 3. Update all internal references (hostnames, DNS, sops secret paths) in the new config
 4. Update any configs on other hosts that reference the old hostname (e.g. ordis→langport
    references in phantasma's nginx, roer→edith references in legram's step-ca config)
-5. Deploy the new guest on calvard and verify services are healthy
-6. Update phantasma's DNS to point the service's `.internal` name at the new IP
-7. Decommission the old guest on erebonia (remove config, remove from network registry)
+5. **MAC address / tap interface**: the tap interface ID and MAC change (e.g. `vm-11-roer`
+   → `vm-11-edith`); update any DHCP static reservations and MAC-based firewall rules
+6. **Persistent volume paths**: volumes live at `/persist/guests/<old-name>/images/` on
+   the source host; create equivalent paths on the target host before deploying
+7. **sops re-encryption**: each guest's secrets are encrypted to the guest's own SSH host
+   key. After first boot on the new host, retrieve the new SSH public key, convert to age
+   (`ssh-to-age`), and re-encrypt secrets with `sops updatekeys` or by re-running the
+   encrypt command recorded at the top of each `secrets.yaml`
+8. Deploy the new guest on the target host and verify services are healthy
+9. Update phantasma's DNS to point the service's `.internal` name at the new IP
+10. Decommission the old guest (remove config, remove from network registry)
 
 ### Phase 1 — calvard infrastructure
 
 - [ ] Add vINFRA (VLAN 11) bridge to calvard's network config
 - [ ] Verify vDMZ and vMGMT bridges exist and are functional
+- [ ] Add calvard's `microvm.nix` guest declarations for phases 2–5 (tap interfaces,
+  volume paths under `/persist/guests/`)
 - [ ] Configure Incus on calvard (enable container + VM support)
 - [ ] Verify Incus networking bridges match VLAN assignments
 
@@ -108,9 +118,14 @@ Migrate edith and basel first; other guests depend on them for OIDC and certific
 
 - [ ] Allocate IPs for edith and basel in network registry
 - [ ] Create `hosts/calvard/guests/edith/` from erebonia/roer; update hostname refs
+  - **PostgreSQL data migration**: roer's `/persist` volume is ~100GB; copy
+    `/persist/guests/roer/images/persist.img` to calvard (rsync or block copy) before
+    deploying, **or** perform a `pg_dump` on roer and `pg_restore` on edith after first boot
+  - Re-encrypt `secrets/secrets.yaml` with edith's host key (see migration pattern step 7)
 - [ ] Create `hosts/calvard/guests/basel/` from erebonia/legram; update hostname refs
   - Update step-ca OIDC provisioner to point at edith (was roer)
   - Update ACME endpoint DNS record: `basel.internal` (was `legram.internal`)
+  - Re-encrypt secrets with basel's host key
 - [ ] Deploy edith and basel on calvard; verify Keycloak and step-ca healthy
 - [ ] Update phantasma DNS: `edith.internal`, `basel.internal`
 - [ ] Update all oauth2-proxy instances to authenticate against edith
@@ -162,10 +177,11 @@ user-facing services and avoids contention with Jellyfin hardware transcoding.
 - [ ] Keep ardent running Attic only (large binary blobs benefit from NAS co-location)
 - [ ] Update phantasma DNS: remove `ardent.internal` A record for Forgejo port (3000)
 
-#### Forgejo guest (TBD Erebonian name) — new on erebonia
+#### Forgejo guest (saint-arkh) — new on erebonia
 
-- [ ] Assign an unallocated Erebonian city name; add to `docs/hostnames.md`
-- [ ] Allocate IP on vDMZ in network registry
+`saint-arkh` is an unallocated Erebonian city name. Add to `docs/hostnames.md`.
+
+- [ ] Allocate IP for saint-arkh on vDMZ in network registry
 - [ ] Create `hosts/erebonia/guests/<name>/` — Forgejo, PostgreSQL, CI/CD runner(s)
   - Move Forgejo sops secrets from ardent: `hosts/erebonia/guests/<name>/sops.nix`
   - Move Forgejo runner config from ardent
@@ -173,12 +189,23 @@ user-facing services and avoids contention with Jellyfin hardware transcoding.
 - [ ] Deploy and verify Forgejo accessible; migrate data from ardent
 - [ ] Update phantasma DNS: `<name>.internal`
 
-#### Log aggregation guest (TBD Erebonian name) — new on erebonia
+#### Log aggregation guest (leeves) — new on erebonia
 
-- [ ] Assign an unallocated Erebonian city name; add to `docs/hostnames.md`
-- [ ] Decide on log aggregation stack (e.g. Loki + Promtail, or Graylog, or
-  vector + ClickHouse) — track in a separate plan if non-trivial
-- [ ] Allocate IP on vMGMT or vINFRA in network registry
+`leeves` is an unallocated Erebonian city name (previously noted as "reserved for future
+backup dev env", but trista already fills that role). Add to `docs/hostnames.md`.
+
+**Relationship to tharbad's Loki**: ymir/tharbad already runs Loki alongside Prometheus.
+A decision is needed before implementing this phase:
+- **Option A** — Split Loki out of tharbad onto leeves (erebonia); tharbad keeps only
+  Prometheus+Alertmanager+ntfy. Consistent with the calvard=real-time / erebonia=async
+  philosophy, but adds cross-host log forwarding complexity.
+- **Option B** — Keep Loki in tharbad (calvard); leeves hosts a separate, heavier logging
+  stack (e.g. Grafana Loki with long-term object storage) for archival/search.
+- **Option C** — Keep Loki in tharbad; defer leeves / skip Phase 6b entirely unless a
+  need for a separate logging stack emerges.
+
+- [ ] Decide on Option A/B/C above; track in a separate plan if non-trivial
+- [ ] Allocate IP for leeves on vMGMT or vINFRA in network registry
 - [ ] Create `hosts/erebonia/guests/<name>/`
 - [ ] Configure log shippers on all guests to forward to this host
 - [ ] Deploy and verify log ingestion

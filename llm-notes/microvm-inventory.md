@@ -9,8 +9,8 @@ implementation plans in `llm-notes/`.
 |------|--------|------|-------------|------------|---------|------------|
 | phantasma | Existing | thebeyond | vINFRA (10) | 10.0.10.2 | DNS, DHCP, Adguard Home, oauth2-proxy | cloud-hypervisor |
 | ardent | Existing (narrowing) | remiferia | vDMZ (100) | 10.0.100.31 | Attic binary cache (Forgejo being split out) | microvm (QEMU) |
-| (TBD Erebonian name) | Planned (split from ardent) | erebonia | vDMZ (100) | TBD | Forgejo + CI/CD runners | microvm (QEMU) |
-| (TBD Erebonian name) | Planned (new) | erebonia | vMGMT/vINFRA (TBD) | TBD | Log aggregation | microvm (QEMU) |
+| saint-arkh | Planned (split from ardent) | erebonia | vDMZ (100) | TBD | Forgejo + CI/CD runners | microvm (QEMU) |
+| leeves | Planned (new) | erebonia | vMGMT/vINFRA (TBD) | TBD | Log aggregation (placement TBD — see plan) | microvm (QEMU) |
 | edith | Planned (move from erebonia/roer) | calvard | vINFRA (11) | TBD | Keycloak OIDC identity provider | microvm (QEMU) |
 | basel | Planned (move from erebonia/legram) | calvard | vINFRA (11) | TBD | PKI / certificate authority | microvm (QEMU) |
 | langport | Planned (move from erebonia/ordis) | calvard | vDMZ (100) | TBD | Reverse proxy, oauth2-proxy, wg-ba gateway | microvm (QEMU) |
@@ -160,9 +160,16 @@ traffic authentication), WireGuard (wg-ba gateway from cloud host).
 | MAC | 5E:A2:E4:CB:05:DA |
 | Config | `hosts/calvard/guests/tharbad/` (to be created) |
 
-**Services:** Monit (infrastructure health monitoring).
+**Services:** Prometheus (metrics collection), Loki (log aggregation), Alertmanager
+(alert routing), ntfy (push notifications).
 
-**Planned changes:** None significant.
+**Note on Loki:** ymir/tharbad already runs Loki. The "new log aggregation guest on
+erebonia" described in Phase 6 of `plans/vm-guest-rebalance.md` is a separate,
+future service — not a replacement for tharbad's Loki. If the intent is to move Loki
+to erebonia (as a background/async workload), Loki should be removed from tharbad and
+a dedicated erebonia guest created; see Phase 6 clarification note.
+
+**Planned changes:** Reconcile Loki placement decision (calvard vs. erebonia).
 
 ---
 
