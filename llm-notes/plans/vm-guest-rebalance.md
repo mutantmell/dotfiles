@@ -4,17 +4,22 @@
 
 Move the user-facing / real-time microVM guests currently on erebonia to calvard,
 assigning them new Calvard city names. Erebonia is repurposed as the host for
-background/async services (Forgejo+CI/CD, log aggregation) that do not have
+background/async services (CI/CD Actions runners, log aggregation) that do not have
 hard real-time or client-driven latency requirements. Add Incus-based dev
 environments on calvard (primary) and retain the existing one on erebonia (backup).
 Retire denai from remiferia independently.
+
+The ardent guest on remiferia is split into three: Forgejo git hosting moves to a new
+calvard guest (user-facing HTTP, close to langport and edith), CI/CD Actions runners
+move to saint-arkh on erebonia (async, CPU-spiky), and ardent itself is narrowed to
+Attic binary cache only.
 
 ### Host placement philosophy
 
 | Host | Character | Services |
 |------|-----------|---------|
-| calvard | Real-time, user-facing | Reverse proxy, OIDC, media, monitoring, dev env |
-| erebonia | Background / async | Forgejo+CI/CD, log aggregation, dev env backup |
+| calvard | Real-time, user-facing | Reverse proxy, OIDC, media, monitoring, Forgejo git, dev env |
+| erebonia | Background / async | CI/CD Actions runners, log aggregation, dev env backup |
 | remiferia | NAS-adjacent | Attic binary cache (large blobs benefit from NAS co-location) |
 | thebeyond | Router | DNS, DHCP only |
 
