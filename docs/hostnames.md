@@ -4,24 +4,25 @@
 VM HOSTS (Countries)
 ├── erebonia          (GP host)
 │   ├── trista        (Incus VM) — Dev environment / task runner (backup)
-│   ├── heimdallr     (not allocated)
-│   ├── ordis         (not allocated)
-│   ├── roer          (not allocated)
-│   ├── legram        (not allocated)
-│   ├── ymir          (not allocated)
-│   ├── saint-arkh    (not allocated)
-│   └── leeves        (not allocated) — reserved for future backup dev env name
+│   ├── saint-arkh    (microVM, planned) — Forgejo Actions CI/CD runners
+│   ├── heimdallr     (not allocated) — freed from roer→edith migration
+│   ├── ordis         (not allocated) — freed from ordis→langport migration
+│   ├── roer          (not allocated) — freed from roer→edith migration
+│   ├── legram        (not allocated) — freed from legram→basel migration
+│   ├── ymir          (not allocated) — freed from ymir→tharbad migration
+│   └── leeves        (not allocated)
 │
 ├── calvard           (GP host)
 │   ├── edith         (microVM) — Keycloak OIDC identity provider
 │   ├── basel         (microVM) — step-ca PKI / certificate authority
 │   ├── langport      (microVM) — Reverse proxy, nginx, oauth2-proxy
 │   ├── oracion       (microVM) — Jellyfin media server
-│   ├── tharbad       (microVM) — Monitoring
+│   ├── tharbad       (microVM) — Prometheus, Loki, Alertmanager, ntfy
 │   ├── messeldam     (Incus container) — Dev environment / task runner (primary)
-│   ├── (name TBD)    (microVM) — Headscale control plane
-│   ├── (name TBD)    (microVM) — Tailscale subnet router
-│   └── (name TBD)    (Incus VM) — SSH jump host
+│   ├── (name TBD)    (microVM, planned) — Forgejo git hosting
+│   ├── (name TBD)    (microVM, planned) — Headscale control plane
+│   ├── (name TBD)    (microVM, planned) — Tailscale subnet router
+│   └── (name TBD)    (Incus VM, planned) — SSH jump host
 │
 ├── liberl            (GP host)
 │   ├── grancel       (VM guest)
@@ -42,11 +43,11 @@ VM HOSTS (Countries)
 
 NAS HOSTS (Countries)
 └── remiferia         (NAS host)
-    ├── ardent        (VM guest)
-    ├── denai         (VM guest)
-    ├── monrain       (VM guest)
-    ├── lucent        (VM guest)
-    └── eyja          (VM guest)
+    ├── ardent        (microVM) — Attic binary cache (narrowing; Forgejo being split out)
+    ├── denai         (microVM) — Dev workstation (slated for removal)
+    ├── monrain       (not allocated)
+    ├── lucent        (not allocated)
+    └── eyja          (not allocated)
 
 ROUTER (Extra-planar spaces)
 └── thebeyond         (Router)
