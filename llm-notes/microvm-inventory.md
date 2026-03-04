@@ -8,7 +8,9 @@ implementation plans in `llm-notes/`.
 | Name | Status | Host | Zone (VLAN) | IP Address | Purpose | Hypervisor |
 |------|--------|------|-------------|------------|---------|------------|
 | phantasma | Existing | thebeyond | vINFRA (10) | 10.0.10.2 | DNS, DHCP, Adguard Home, oauth2-proxy | cloud-hypervisor |
-| ardent | Existing | remiferia | vDMZ (100) | 10.0.100.31 | Attic binary cache, Gitea | microvm (QEMU) |
+| ardent | Existing (narrowing) | remiferia | vDMZ (100) | 10.0.100.31 | Attic binary cache (Forgejo being split out) | microvm (QEMU) |
+| (TBD Erebonian name) | Planned (split from ardent) | erebonia | vDMZ (100) | TBD | Forgejo + CI/CD runners | microvm (QEMU) |
+| (TBD Erebonian name) | Planned (new) | erebonia | vMGMT/vINFRA (TBD) | TBD | Log aggregation | microvm (QEMU) |
 | edith | Planned (move from erebonia/roer) | calvard | vINFRA (11) | TBD | Keycloak OIDC identity provider | microvm (QEMU) |
 | basel | Planned (move from erebonia/legram) | calvard | vINFRA (11) | TBD | PKI / certificate authority | microvm (QEMU) |
 | langport | Planned (move from erebonia/ordis) | calvard | vDMZ (100) | TBD | Reverse proxy, oauth2-proxy, wg-ba gateway | microvm (QEMU) |
@@ -60,10 +62,15 @@ VLAN Split (Step 2). DNS zones migrate from `.local` to `.internal.mutantmell.ne
 | MAC | 5E:A5:4D:A3:A0:1A |
 | Config | `hosts/remiferia/guests/ardent/` |
 
-**Services:** Attic (Nix binary cache server), Gitea (git repository hosting).
+**Services:** Attic (Nix binary cache server), Forgejo (git repository hosting) + CI/CD
+runners. **Forgejo is being split out** — see `plans/vm-guest-rebalance.md` Phase 6.
 
-**Planned changes:** None significant. Will get egress filtering (Step 2, Phase 4.4) and
-DNS name migration to `.internal.mutantmell.net`.
+**Planned changes:** Narrow to Attic only (remove Forgejo + runner config). Forgejo
+and CI/CD runners move to a new erebonia guest. Will get egress filtering (Step 2,
+Phase 4.4) and DNS name migration to `.internal.mutantmell.net`.
+
+**Rationale for keeping Attic on remiferia:** Binary cache blobs are large; co-locating
+Attic with the NAS avoids unnecessary cross-host transfers.
 
 ---
 
@@ -400,7 +407,7 @@ which ports/IPs each friend group can reach.
 |------|------|-----------------|-----------------|-------|
 | thebeyond | Router | phantasma | — | cloud-hypervisor; resource-constrained |
 | remiferia | NAS + VM host | ardent, denai* | — | *denai slated for removal independently |
-| erebonia | VM host + Incus | trista | — | trista (Incus VM) stays; name is correct (Erebonian city) |
+| erebonia | VM host + Incus | trista | Forgejo+CI/CD (TBD name), log aggregation (TBD name) | Background/async services; trista stays; new guests get Erebonian city names |
 | calvard | VM host | — | edith, basel, langport, oracion, tharbad, messeldam, Headscale (TBD), subnet router (TBD), SSH bastion (TBD), game servers | Primary VM host going forward; needs vINFRA bridge |
 
 ---

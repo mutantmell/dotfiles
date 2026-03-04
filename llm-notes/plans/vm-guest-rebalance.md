@@ -2,9 +2,21 @@
 
 ## Goal
 
-Move all microVM guests currently on erebonia to calvard, assigning them new Calvard
-city names. Add Incus-based dev environments on calvard (primary) and retain the existing
-one on erebonia (backup). Retire denai from remiferia independently.
+Move the user-facing / real-time microVM guests currently on erebonia to calvard,
+assigning them new Calvard city names. Erebonia is repurposed as the host for
+background/async services (Forgejo+CI/CD, log aggregation) that do not have
+hard real-time or client-driven latency requirements. Add Incus-based dev
+environments on calvard (primary) and retain the existing one on erebonia (backup).
+Retire denai from remiferia independently.
+
+### Host placement philosophy
+
+| Host | Character | Services |
+|------|-----------|---------|
+| calvard | Real-time, user-facing | Reverse proxy, OIDC, media, monitoring, dev env |
+| erebonia | Background / async | Forgejo+CI/CD, log aggregation, dev env backup |
+| remiferia | NAS-adjacent | Attic binary cache (large blobs benefit from NAS co-location) |
+| thebeyond | Router | DNS, DHCP only |
 
 ---
 
@@ -36,14 +48,18 @@ calvard currently has no guests.
 | tharbad | ymir | calvard | microvm (QEMU) | Monitoring |
 | messeldam | (new) | calvard | Incus container | Dev env (primary) |
 | trista | trista | erebonia | Incus VM | Dev env (backup) |
-| ardent | ardent | remiferia | microvm (QEMU) | Binary cache + Git |
+| (TBD — Erebonian name) | ardent (split) | erebonia | microvm (QEMU) | Forgejo + CI/CD runners |
+| (TBD — Erebonian name) | (new) | erebonia | microvm (QEMU) | Log aggregation |
+| ardent | ardent (split) | remiferia | microvm (QEMU) | Attic binary cache only |
 | denai | denai | remiferia | microvm (QEMU) | Dev workstation (slated for removal) |
 
 ### Naming rationale
 
-Guest names serve as a mnemonic for which host they run on. Calvard city names (edith,
-basel, langport, oracion, tharbad, messeldam) replace the Erebonian city names of the
-migrated guests. `trista` is itself an Erebonian city and correctly remains on erebonia.
+Guest names serve as a mnemonic for which host they run on:
+- **Calvard city names** (edith, basel, langport, oracion, tharbad, messeldam) — calvard guests
+- **Erebonian city names** — erebonia guests; `trista` already follows this convention; the
+  new Forgejo and log aggregation guests need unallocated Erebonian names assigned
+- **Remiferian city names** — remiferia guests; ardent keeps its name, narrowed to Attic only
 
 ### Incus requirement
 
@@ -127,7 +143,47 @@ Migrate edith and basel first; other guests depend on them for OIDC and certific
 - [ ] Deploy messeldam on calvard; verify dev environment functional
 - [ ] Update phantasma DNS: `messeldam.internal`
 
-### Phase 6 — Retire denai (independent, any time after Phase 5)
+### Phase 6 — Split ardent and add erebonia guests
+
+ardent currently runs two unrelated services: Attic (binary cache) and Forgejo (git +
+CI/CD runners). These are split into separate guests so each has independent lifecycle,
+resource limits, and firewall rules.
+
+#### Rationale for erebonia placement
+
+Forgejo and log aggregation are background / async workloads: they handle pushes, CI
+jobs, and log ingestion on their own schedule, with no hard real-time requirement from
+interactive users. Placing them on erebonia keeps calvard focused on low-latency,
+user-facing services and avoids contention with Jellyfin hardware transcoding.
+
+#### ardent — narrow to Attic only
+
+- [ ] Remove Forgejo + runner config from `hosts/remiferia/guests/ardent/`
+- [ ] Keep ardent running Attic only (large binary blobs benefit from NAS co-location)
+- [ ] Update phantasma DNS: remove `ardent.internal` A record for Forgejo port (3000)
+
+#### Forgejo guest (TBD Erebonian name) — new on erebonia
+
+- [ ] Assign an unallocated Erebonian city name; add to `docs/hostnames.md`
+- [ ] Allocate IP on vDMZ in network registry
+- [ ] Create `hosts/erebonia/guests/<name>/` — Forgejo, PostgreSQL, CI/CD runner(s)
+  - Move Forgejo sops secrets from ardent: `hosts/erebonia/guests/<name>/sops.nix`
+  - Move Forgejo runner config from ardent
+- [ ] Update ordis/langport nginx proxy for Forgejo (port 3000) to point at new IP
+- [ ] Deploy and verify Forgejo accessible; migrate data from ardent
+- [ ] Update phantasma DNS: `<name>.internal`
+
+#### Log aggregation guest (TBD Erebonian name) — new on erebonia
+
+- [ ] Assign an unallocated Erebonian city name; add to `docs/hostnames.md`
+- [ ] Decide on log aggregation stack (e.g. Loki + Promtail, or Graylog, or
+  vector + ClickHouse) — track in a separate plan if non-trivial
+- [ ] Allocate IP on vMGMT or vINFRA in network registry
+- [ ] Create `hosts/erebonia/guests/<name>/`
+- [ ] Configure log shippers on all guests to forward to this host
+- [ ] Deploy and verify log ingestion
+
+### Phase 7 — Retire denai (independent, any time after Phase 5)
 
 - [ ] Migrate any workloads or data off denai
 - [ ] Remove `hosts/remiferia/guests/denai/`
