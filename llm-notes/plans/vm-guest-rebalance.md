@@ -49,7 +49,6 @@ calvard currently has no guests.
 | messeldam | (new) | calvard | Incus container | Dev env (primary) |
 | trista | trista | erebonia | Incus VM | Dev env (backup) |
 | saint-arkh | ardent (split) | erebonia | microvm (QEMU) | Forgejo + CI/CD runners |
-| leeves | (new) | erebonia | microvm (QEMU) | Log aggregation (see Phase 6 options) |
 | ardent | ardent (split) | remiferia | microvm (QEMU) | Attic binary cache only |
 | denai | denai | remiferia | microvm (QEMU) | Dev workstation (slated for removal) |
 
@@ -57,8 +56,8 @@ calvard currently has no guests.
 
 Guest names serve as a mnemonic for which host they run on:
 - **Calvard city names** (edith, basel, langport, oracion, tharbad, messeldam) — calvard guests
-- **Erebonian city names** — erebonia guests; `trista` already follows this convention; the
-  new Forgejo and log aggregation guests need unallocated Erebonian names assigned
+- **Erebonian city names** — erebonia guests; `trista` already follows this convention;
+  `saint-arkh` is assigned to the new Forgejo guest
 - **Remiferian city names** — remiferia guests; ardent keeps its name, narrowed to Attic only
 
 ### Incus requirement
@@ -189,26 +188,13 @@ user-facing services and avoids contention with Jellyfin hardware transcoding.
 - [ ] Deploy and verify Forgejo accessible; migrate data from ardent
 - [ ] Update phantasma DNS: `<name>.internal`
 
-#### Log aggregation guest (leeves) — new on erebonia
+#### Log aggregation — stays in tharbad (calvard)
 
-`leeves` is an unallocated Erebonian city name (previously noted as "reserved for future
-backup dev env", but trista already fills that role). Add to `docs/hostnames.md`.
-
-**Relationship to tharbad's Loki**: ymir/tharbad already runs Loki alongside Prometheus.
-A decision is needed before implementing this phase:
-- **Option A** — Split Loki out of tharbad onto leeves (erebonia); tharbad keeps only
-  Prometheus+Alertmanager+ntfy. Consistent with the calvard=real-time / erebonia=async
-  philosophy, but adds cross-host log forwarding complexity.
-- **Option B** — Keep Loki in tharbad (calvard); leeves hosts a separate, heavier logging
-  stack (e.g. Grafana Loki with long-term object storage) for archival/search.
-- **Option C** — Keep Loki in tharbad; defer leeves / skip Phase 6b entirely unless a
-  need for a separate logging stack emerges.
-
-- [ ] Decide on Option A/B/C above; track in a separate plan if non-trivial
-- [ ] Allocate IP for leeves on vMGMT or vINFRA in network registry
-- [ ] Create `hosts/erebonia/guests/<name>/`
-- [ ] Configure log shippers on all guests to forward to this host
-- [ ] Deploy and verify log ingestion
+Loki remains co-located with Prometheus, Alertmanager, and ntfy in tharbad on calvard.
+Rationale: during an incident, log queries are interactive and time-sensitive; having Loki
+on the same host as alerting avoids losing visibility if erebonia is the host under
+investigation. The tight Loki → Alertmanager → ntfy pipeline also benefits from staying
+on one host. `leeves` remains unallocated in `docs/hostnames.md` for future use.
 
 ### Phase 7 — Retire denai (independent, any time after Phase 5)
 

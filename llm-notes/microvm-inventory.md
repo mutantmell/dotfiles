@@ -10,7 +10,6 @@ implementation plans in `llm-notes/`.
 | phantasma | Existing | thebeyond | vINFRA (10) | 10.0.10.2 | DNS, DHCP, Adguard Home, oauth2-proxy | cloud-hypervisor |
 | ardent | Existing (narrowing) | remiferia | vDMZ (100) | 10.0.100.31 | Attic binary cache (Forgejo being split out) | microvm (QEMU) |
 | saint-arkh | Planned (split from ardent) | erebonia | vDMZ (100) | TBD | Forgejo + CI/CD runners | microvm (QEMU) |
-| leeves | Planned (new) | erebonia | vMGMT/vINFRA (TBD) | TBD | Log aggregation (placement TBD — see plan) | microvm (QEMU) |
 | edith | Planned (move from erebonia/roer) | calvard | vINFRA (11) | TBD | Keycloak OIDC identity provider | microvm (QEMU) |
 | basel | Planned (move from erebonia/legram) | calvard | vINFRA (11) | TBD | PKI / certificate authority | microvm (QEMU) |
 | langport | Planned (move from erebonia/ordis) | calvard | vDMZ (100) | TBD | Reverse proxy, oauth2-proxy, wg-ba gateway | microvm (QEMU) |
@@ -163,13 +162,8 @@ traffic authentication), WireGuard (wg-ba gateway from cloud host).
 **Services:** Prometheus (metrics collection), Loki (log aggregation), Alertmanager
 (alert routing), ntfy (push notifications).
 
-**Note on Loki:** ymir/tharbad already runs Loki. The "new log aggregation guest on
-erebonia" described in Phase 6 of `plans/vm-guest-rebalance.md` is a separate,
-future service — not a replacement for tharbad's Loki. If the intent is to move Loki
-to erebonia (as a background/async workload), Loki should be removed from tharbad and
-a dedicated erebonia guest created; see Phase 6 clarification note.
-
-**Planned changes:** Reconcile Loki placement decision (calvard vs. erebonia).
+**Planned changes:** None for the monitoring stack. Loki stays co-located with
+Prometheus+Alertmanager+ntfy — see `plans/vm-guest-rebalance.md` Phase 6 for rationale.
 
 ---
 
@@ -414,7 +408,7 @@ which ports/IPs each friend group can reach.
 |------|------|-----------------|-----------------|-------|
 | thebeyond | Router | phantasma | — | cloud-hypervisor; resource-constrained |
 | remiferia | NAS + VM host | ardent, denai* | — | *denai slated for removal independently |
-| erebonia | VM host + Incus | trista | Forgejo+CI/CD (TBD name), log aggregation (TBD name) | Background/async services; trista stays; new guests get Erebonian city names |
+| erebonia | VM host + Incus | trista | saint-arkh (Forgejo+CI/CD) | Background/async services; Loki stays in tharbad on calvard |
 | calvard | VM host | — | edith, basel, langport, oracion, tharbad, messeldam, Headscale (TBD), subnet router (TBD), SSH bastion (TBD), game servers | Primary VM host going forward; needs vINFRA bridge |
 
 ---
