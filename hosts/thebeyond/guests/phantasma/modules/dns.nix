@@ -73,22 +73,22 @@ in {
           "thebeyond" "phantasma" "roer" "legram"
           "remiferia" "erebonia" "ordis" "heimdallr" "trista"
           "ardent" "azoth" "denai" "ymir" "calvard"
+          # calvard guests
+          "edith" "basel" "langport" "oracion" "tharbad"
+          "creil" "messeldam"
+          # erebonia guests
+          "saint-arkh"
+          # remiferia guests
+          "monrain"
         ] ++ [
           # Split-horizon overrides — external names resolve to internal IPs
+          # TODO: switch roer→edith, ordis→langport after calvard migration cutover
           ''"auth.mutantmell.net. A ${h.roer.ipv4}"''
           ''"auth.mutantmell.net. A ${h.roer.ipv4Legacy}"''
           ''"auth.mutantmell.net. AAAA ${h.roer.ipv6}"''
           ''"mutantmell.net. A ${h.ordis.ipv4}"''
           ''"mutantmell.net. A ${h.ordis.ipv4Legacy}"''
           ''"mutantmell.net. AAAA ${h.ordis.ipv6}"''
-
-          # Service aliases — point to reverse proxy (ordis)
-          ''"git.internal.mutantmell.net. A ${h.ordis.ipv4}"''
-          ''"git.internal.mutantmell.net. A ${h.ordis.ipv4Legacy}"''
-          ''"git.internal.mutantmell.net. AAAA ${h.ordis.ipv6}"''
-          ''"git.internal. A ${h.ordis.ipv4}"''
-          ''"git.internal. A ${h.ordis.ipv4Legacy}"''
-          ''"git.internal. AAAA ${h.ordis.ipv6}"''
 
           # Ardent sub-service aliases
           ''"attic.ardent.internal.mutantmell.net. A ${h.ardent.ipv4}"''

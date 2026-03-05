@@ -52,7 +52,7 @@ calvard currently has no guests.
 | oracion | heimdallr | calvard | microvm (QEMU) | Jellyfin media |
 | tharbad | ymir | calvard | microvm (QEMU) | Monitoring |
 | messeldam | (new) | calvard | Incus container | Dev env (primary) |
-| (TBD Calvard name) | ardent (split) | calvard | microvm (QEMU) | Forgejo git hosting |
+| creil | ardent (split) | calvard | microvm (QEMU) | Forgejo git hosting |
 | trista | trista | erebonia | Incus VM | Dev env (backup) |
 | saint-arkh | ardent (split) | erebonia | microvm (QEMU) | Forgejo Actions CI/CD runners |
 | ardent | ardent (split) | remiferia | cloud-hypervisor | Attic binary cache only |
@@ -62,8 +62,8 @@ calvard currently has no guests.
 
 Guest names serve as a mnemonic for which host they run on:
 - **Calvard city names** — calvard guests; edith, basel, langport, oracion, tharbad,
-  messeldam are assigned; the new Forgejo service guest needs one more (TBD — no spare
-  Calvard names currently exist in `docs/hostnames.md`; add one before Phase 6)
+  messeldam, creil are assigned; altair (Headscale) and longlai (subnet router) are
+  reserved for future phases; nemeth is unallocated
 - **Erebonian city names** — erebonia guests; `trista` already follows this convention;
   `saint-arkh` is assigned to the CI/CD runner guest
 - **Remiferian city names** — remiferia guests; ardent keeps its name, narrowed to Attic only
@@ -180,6 +180,20 @@ resource limits, and firewall egress rules:
 Runners communicate with the Forgejo API over the network using a registration token —
 the separation is already native to Forgejo Actions architecture.
 
+#### monrain — cgit service guest on remiferia
+
+cgit moved to its own microVM on remiferia so that the internal nginx reverse proxy on
+ardent is no longer needed. `monrain.internal` resolves directly to monrain's IP;
+monrain runs nginx+ACME and terminates TLS itself.
+
+- [x] Add `monrain = 32` to dmz hosts in network registry
+- [x] Create `hosts/remiferia/guests/monrain/` — cgit, nginx/ACME for monrain.internal
+- [x] Update phantasma DNS: `monrain.internal`
+- [x] Remove `git.internal` split-horizon entries from phantasma DNS
+- [x] Update docs/hostnames.md: monrain allocated
+- [ ] Deploy and verify cgit accessible at monrain.internal
+- [ ] Migrate git repos from ardent (`rsync /var/lib/git`)
+
 #### ardent — narrow to Attic only, migrate to cloud-hypervisor
 
 - [ ] Remove Forgejo + runner config from `hosts/remiferia/guests/ardent/`
@@ -187,19 +201,14 @@ the separation is already native to Forgejo Actions architecture.
 - [ ] Keep ardent running Attic only (large binary blobs benefit from NAS co-location)
 - [ ] Update phantasma DNS: remove `ardent.internal` Forgejo entry
 
-#### Forgejo service guest (TBD Calvard name) — new on calvard
+#### creil — Forgejo service guest on calvard
 
-**Prerequisite:** add a spare Calvard city name to `docs/hostnames.md` before starting.
-
-- [ ] Assign Calvard city name; add to `docs/hostnames.md`
-- [ ] Allocate IP on vDMZ in network registry
-- [ ] Create `hosts/calvard/guests/<name>/` — Forgejo, PostgreSQL
-  - Move Forgejo sops secrets from ardent: `hosts/calvard/guests/<name>/sops.nix`
-  - Re-encrypt secrets with the new guest's host key
-- [ ] Migrate Forgejo data from ardent (pg_dump / repo data copy)
-- [ ] Update langport nginx proxy for Forgejo to point at new IP
+- [x] Assign Calvard city name (creil); added to `docs/hostnames.md`
+- [x] Allocate IP on vDMZ in network registry (10.97.100.53)
+- [x] Create `hosts/calvard/guests/creil/` — Forgejo (sqlite3), nginx/ACME for creil.internal
+- [x] Update phantasma DNS: `creil.internal`
 - [ ] Deploy and verify Forgejo accessible
-- [ ] Update phantasma DNS: `<name>.internal`
+- [ ] Migrate Forgejo data from ardent (repo data copy via `rsync /var/lib/forgejo`)
 
 #### CI/CD runner guest (saint-arkh) — new on erebonia
 
