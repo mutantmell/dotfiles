@@ -21,9 +21,11 @@ let
       hosts = {
         thebeyond  = 1;
         phantasma  = 2;
-        roer       = 3;    # Keycloak OIDC
-        legram     = 4;    # step-ca / PKI
-        ymir       = 5;    # Metrics / monitoring
+        roer       = 3;    # Keycloak OIDC (erebonia — being migrated to edith on calvard)
+        legram     = 4;    # step-ca / PKI (erebonia — being migrated to basel on calvard)
+        ymir       = 5;    # Metrics / monitoring (erebonia — being migrated to tharbad on calvard)
+        edith      = 6;    # Keycloak OIDC (calvard)
+        basel      = 7;    # step-ca / PKI (calvard)
         remiferia  = 20;   # NAS — before VM hosts
         calvard    = 30;   # VM host
         erebonia   = 31;   # VM host
@@ -32,7 +34,9 @@ let
     trusted = {
       vlanId = 20;
       hosts = {
-        denai = 40;
+        denai      = 40;
+        tharbad    = 41;    # Prometheus+Loki+Alertmanager+ntfy (calvard)
+        messeldam  = 42;    # Dev environment / task runner (calvard Incus container)
       };
     };
     untrusted = {
@@ -57,9 +61,14 @@ let
       vlanId = 100;
       hosts = {
         ardent    = 31;
-        ordis     = 40;
-        heimdallr = 50;
+        ordis     = 40;    # Reverse proxy (erebonia — being migrated to langport on calvard)
+        heimdallr = 50;    # Jellyfin (erebonia — being migrated to oracion on calvard)
         trista    = 51;
+        langport  = 41;    # Reverse proxy (calvard)
+        oracion   = 52;    # Jellyfin media server (calvard)
+        creil     = 53;    # Forgejo git hosting (calvard)
+        monrain   = 32;    # cgit bare repository hosting (remiferia)
+        "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia)
       };
     };
   };

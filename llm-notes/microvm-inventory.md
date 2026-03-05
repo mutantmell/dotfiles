@@ -8,20 +8,20 @@ implementation plans in `llm-notes/`.
 | Name | Status | Host | Zone (VLAN) | IP Address | Purpose | Hypervisor |
 |------|--------|------|-------------|------------|---------|------------|
 | phantasma | Existing | thebeyond | vINFRA (10) | 10.0.10.2 | DNS, DHCP, Adguard Home, oauth2-proxy | cloud-hypervisor |
-| ardent | Existing (narrowing) | remiferia | vDMZ (100) | 10.0.100.31 | Attic binary cache (Forgejo being split out) | cloud-hypervisor (migrate from QEMU) |
-| (TBD Calvard name) | Planned (split from ardent) | calvard | vDMZ (100) | TBD | Forgejo git hosting | microvm (QEMU) |
-| saint-arkh | Planned (split from ardent) | erebonia | vDMZ (100) | TBD | Forgejo Actions CI/CD runners | microvm (QEMU) |
-| edith | Planned (move from erebonia/roer) | calvard | vINFRA (11) | TBD | Keycloak OIDC identity provider | microvm (QEMU) |
-| basel | Planned (move from erebonia/legram) | calvard | vINFRA (11) | TBD | PKI / certificate authority | microvm (QEMU) |
-| langport | Planned (move from erebonia/ordis) | calvard | vDMZ (100) | TBD | Reverse proxy, oauth2-proxy, wg-ba gateway | microvm (QEMU) |
-| oracion | Planned (move from erebonia/heimdallr) | calvard | vDMZ (100) | TBD | Jellyfin media server | microvm (QEMU) |
-| tharbad | Planned (move from erebonia/ymir) | calvard | vMGMT (20) | TBD | Prometheus+Loki+Alertmanager+ntfy | microvm (QEMU) |
-| messeldam | Planned (new) | calvard | vMGMT (20) | TBD | Dev environment / task runner (primary) | Incus container |
+| ardent | Existing | remiferia | vDMZ (100) | 10.97.100.31 / 10.0.100.31 | Attic binary cache | cloud-hypervisor (migrate from QEMU) |
+| monrain | Config ready (deploy pending) | remiferia | vDMZ (100) | 10.97.100.32 / 10.0.100.32 | cgit bare repository hosting | microvm (QEMU) |
+| creil | Config ready (deploy pending) | calvard | vDMZ (100) | 10.97.100.53 / 10.0.100.53 | Forgejo git hosting | microvm (QEMU) |
+| saint-arkh | Config ready (deploy pending) | erebonia | vDMZ (100) | 10.97.100.61 / 10.0.100.61 | Forgejo Actions CI/CD runners | microvm (QEMU) |
+| edith | Config ready (deploy pending) | calvard | vINFRA (11) | 10.97.11.6 / 10.0.11.6 | Keycloak OIDC identity provider | microvm (QEMU) |
+| basel | Config ready (deploy pending) | calvard | vINFRA (11) | 10.97.11.7 / 10.0.11.7 | PKI / certificate authority | microvm (QEMU) |
+| langport | Config ready (deploy pending) | calvard | vDMZ (100) | 10.97.100.41 / 10.0.100.41 | Reverse proxy, oauth2-proxy, wg-ba gateway | microvm (QEMU) |
+| oracion | Config ready (deploy pending) | calvard | vDMZ (100) | 10.97.100.52 / 10.0.100.52 | Jellyfin media server | microvm (QEMU) |
+| tharbad | Config ready (deploy pending) | calvard | vMGMT (20) | 10.97.20.41 / 10.0.20.41 | Prometheus+Loki+Alertmanager+ntfy | microvm (QEMU) |
+| messeldam | Config ready (deploy pending) | calvard | vMGMT (20) | 10.97.20.42 / 10.0.20.42 | Dev environment / task runner (primary) | Incus container |
 | trista | Existing | erebonia | vDMZ (100) | 10.0.100.x | Dev environment / task runner (backup) | Incus VM |
-| (name TBD) | Planned | calvard | vDMZ (100) | 10.0.100.x | Tailscale control plane (Headscale) | microvm (QEMU) |
-| (name TBD) | Planned | calvard | vDMZ (100) | 10.0.100.60 | Tailscale subnet router | microvm (QEMU) |
-| (name TBD) | Planned | calvard | vDMZ (100) | 10.0.100.x | SSH-only jump host | Incus VM |
-| Game servers (TBD) | Planned | calvard | vDMZ (100) | 10.0.100.7x+ | Game hosting (Minecraft, Factorio, etc.) | TBD |
+| altair | Planned | calvard | vDMZ (100) | TBD | Tailscale control plane (Headscale) | microvm (QEMU) |
+| longlai | Planned | calvard | vDMZ (100) | TBD | Tailscale subnet router | microvm (QEMU) |
+| Game servers (TBD) | Planned | calvard | vDMZ (100) | TBD | Game hosting (Minecraft, Factorio, etc.) | TBD |
 
 ---
 
@@ -49,28 +49,50 @@ VLAN Split (Step 2). DNS zones migrate from `.local` to `.internal.mutantmell.ne
 
 ---
 
-### ardent — Binary Cache & Git
+### ardent — Binary Cache
 
 | Property | Value |
 |----------|-------|
 | Host | remiferia |
 | Zone | vDMZ (VLAN 100) |
-| IP | 10.0.100.31 |
+| IP | 10.97.100.31 / 10.0.100.31 |
 | Hypervisor | cloud-hypervisor (currently QEMU — migrate as part of Phase 6) |
 | vCPU / RAM | 1 / 521MB |
-| Persistent storage | 10MB |
+| Persistent storage | 25GB |
 | MAC | 5E:A5:4D:A3:A0:1A |
 | Config | `hosts/remiferia/guests/ardent/` |
 
-**Services:** Attic (Nix binary cache server), Forgejo (git repository hosting) + Actions
-CI/CD runners. **Being split into three guests** — see `plans/vm-guest-rebalance.md` Phase 6.
+**Services:** Attic (Nix binary cache server). Forgejo split to creil (calvard), cgit
+split to monrain (remiferia), CI/CD runners split to saint-arkh (erebonia).
 
-**Planned changes:** Narrow to Attic only. Forgejo service moves to a new calvard guest
-(TBD name); CI/CD runners move to saint-arkh on erebonia. Will get egress filtering
-(Step 2, Phase 4.4) and DNS name migration to `.internal.mutantmell.net`.
+**Planned changes:** Hypervisor migration from QEMU to cloud-hypervisor deferred.
 
 **Rationale for keeping Attic on remiferia:** Binary cache blobs are large; co-locating
 Attic with the NAS avoids unnecessary cross-host transfers.
+
+---
+
+### monrain — cgit Repository Browser
+
+| Property | Value |
+|----------|-------|
+| Host | remiferia |
+| Zone | vDMZ (VLAN 100) |
+| IP | 10.97.100.32 / 10.0.100.32 |
+| Hypervisor | microvm (QEMU) |
+| vCPU / RAM | 1 / 512MB |
+| Persistent storage | 25GB (git repos in /var/lib/git) |
+| MAC | 5E:A5:4D:A3:A0:20 |
+| Config | `hosts/remiferia/guests/monrain/` |
+
+**Services:** cgit (read-only git web frontend), nginx (TLS termination for
+monrain.internal), sshd (git-shell access for pushing bare repos).
+
+**DNS names:**
+- Internal: `monrain.internal.mutantmell.net` / `monrain.internal`
+
+**Notes:** Split out from ardent. Bare git repos live in `/var/lib/git`. Authorized push
+keys include `deploy`, `home`, `remiferia`, `erebonia`, `calvard`.
 
 ---
 
@@ -104,12 +126,12 @@ erebonia, backup).
 |----------|-------|
 | Host | calvard |
 | Zone | vDMZ (VLAN 100) |
-| IP | TBD (was 10.0.100.50 on erebonia) |
+| IP | 10.97.100.52 / 10.0.100.52 |
 | Hypervisor | microvm (QEMU) |
 | vCPU / RAM | 2 / 3096MB |
 | Persistent storage | 10MB |
-| MAC | 5E:45:07:58:F0:82 |
-| Config | `hosts/calvard/guests/oracion/` (to be created) |
+| MAC | 5E:64:00:34:00:01 |
+| Config | `hosts/calvard/guests/oracion/` |
 
 **Services:** Jellyfin (media streaming with Intel VAAPI hardware transcoding).
 
@@ -126,12 +148,12 @@ recommendation R2 — survives oauth2-proxy bypass). Egress filtering added in S
 |----------|-------|
 | Host | calvard |
 | Zone | vDMZ (VLAN 100) |
-| IP | TBD (was 10.0.100.40 on erebonia) |
+| IP | 10.97.100.41 / 10.0.100.41 |
 | Hypervisor | microvm (QEMU) |
 | vCPU / RAM | 2 / 1024MB |
 | Persistent storage | 29MB (25MB root + 4MB store overlay) |
-| MAC | 5E:41:3F:F4:AB:B4 |
-| Config | `hosts/calvard/guests/langport/` (to be created) |
+| MAC | 5E:64:00:29:00:01 |
+| Config | `hosts/calvard/guests/langport/` |
 
 **Services:** nginx (reverse proxy for external-facing services), oauth2-proxy (web
 traffic authentication), WireGuard (wg-ba gateway from cloud host).
@@ -153,12 +175,12 @@ traffic authentication), WireGuard (wg-ba gateway from cloud host).
 |----------|-------|
 | Host | calvard |
 | Zone | vMGMT (VLAN 20) |
-| IP | TBD (was 10.0.20.41 on erebonia) |
+| IP | 10.97.20.41 / 10.0.20.41 |
 | Hypervisor | microvm (QEMU) |
-| vCPU / RAM | 2 / 1024MB |
-| Persistent storage | 10MB |
+| vCPU / RAM | 2 / 2049MB |
+| Persistent storage | 30MB |
 | MAC | 5E:A2:E4:CB:05:DA |
-| Config | `hosts/calvard/guests/tharbad/` (to be created) |
+| Config | `hosts/calvard/guests/tharbad/` |
 
 **Services:** Prometheus (metrics collection), Loki (log aggregation), Alertmanager
 (alert routing), ntfy (push notifications).
@@ -176,13 +198,13 @@ Prometheus+Alertmanager+ntfy — see `plans/vm-guest-rebalance.md` Phase 6 for r
 |----------|-------|
 | Host | calvard |
 | Zone | vINFRA (VLAN 11) |
-| IP | TBD (was 10.0.11.x on erebonia) |
+| IP | 10.97.11.6 / 10.0.11.6 |
 | Hypervisor | microvm (QEMU) |
-| vCPU / RAM | 2 / 2048MB |
+| vCPU / RAM | 2 / 2049MB |
 | Persistent storage | ~100GB (PostgreSQL database) |
-| Deployed by | Step 4 — Keycloak OIDC (Phase 1) |
-| Plan | `keycloak-oauth-oidc-plan.md` |
-| Config | `hosts/calvard/guests/edith/` (to be created) |
+| Deployed by | Step 0 — calvard migration (Phase 2) |
+| Plan | `plans/vm-guest-rebalance.md` |
+| Config | `hosts/calvard/guests/edith/` |
 
 **Services:** Keycloak (OIDC identity provider), PostgreSQL (user database), nginx
 (local reverse proxy, hostname-admin restriction).
@@ -208,13 +230,13 @@ and services with native OIDC authenticate against this. Hosted on calvard with 
 |----------|-------|
 | Host | calvard |
 | Zone | vINFRA (VLAN 11) |
-| IP | TBD (was 10.0.11.x on erebonia) |
+| IP | 10.97.11.7 / 10.0.11.7 |
 | Hypervisor | microvm (QEMU) |
 | vCPU / RAM | 1 / 512MB |
 | Persistent storage | Small (badger DB + CA root keys) |
-| Deployed by | Step 4 — Keycloak OIDC (Phase 1) |
-| Plans | `keycloak-oauth-oidc-plan.md`, `ssh-certificates-sso-plan.md` |
-| Config | `hosts/calvard/guests/basel/` (to be created) |
+| Deployed by | Step 0 — calvard migration (Phase 2) |
+| Plans | `plans/vm-guest-rebalance.md`, `keycloak-oauth-oidc-plan.md` |
+| Config | `hosts/calvard/guests/basel/` |
 
 **Services:** step-ca (ACME CA + SSH CA with OIDC provisioner), nginx (TLS termination
 for ACME endpoint on :443).
@@ -262,7 +284,8 @@ backup dev env; primary dev env is messeldam on calvard. Does **not** use Microv
 | Hypervisor | Incus container |
 | vCPU / RAM | TBD |
 | Persistent storage | TBD |
-| Config | `hosts/calvard/containers/messeldam/` (to be created) |
+| IP | 10.97.20.42 / 10.0.20.42 |
+| Config | `hosts/calvard/containers/messeldam/` |
 
 **Services:** Development environment and task runner.
 
@@ -276,9 +299,9 @@ Microvm.nix — managed via Incus declarative config.
 
 ## Planned MicroVMs
 
-### (name TBD) — Tailscale Control Plane
+### altair — Tailscale Control Plane
 
-*Needs a Trails-series Calvard name assigned. Previously "ratatosk" in the Norse naming scheme.*
+*Assigned name: altair.*
 
 | Property | Value |
 |----------|-------|
@@ -307,9 +330,9 @@ means all nodes must re-register.
 
 ---
 
-### (name TBD) — Tailscale Subnet Router
+### longlai — Tailscale Subnet Router
 
-*Needs a Trails-series Calvard name assigned. Previously "fenrir" in the Norse naming scheme.*
+*Assigned name: longlai.*
 
 | Property | Value |
 |----------|-------|
@@ -331,27 +354,6 @@ Tailscale daemon.
 
 ---
 
-### (name TBD) — SSH Jump Host
-
-*Needs a Trails-series Calvard name assigned. Previously "heimdall" in the Norse naming scheme.*
-
-| Property | Value |
-|----------|-------|
-| Host | calvard |
-| Zone | vDMZ (VLAN 100) |
-| IP | 10.0.100.x (TBD) |
-| Hypervisor | **Incus VM** (does not use Microvm.nix) |
-| vCPU / RAM | 1 / 256MB |
-| Persistent storage | None (stateless) |
-| Introduced by | Step 4 — Keycloak OIDC (Phase 3) |
-| Plan | `keycloak-oauth-oidc-plan.md` |
-
-**Services:** sshd only (hardened, SSH certificates via basel/step-ca).
-
-**Notes:** Replaces SSH access on langport. Reachable from wg-ba on :22. Uses SSH
-certificates for authentication (no key management). Does not use Microvm.nix.
-
----
 
 ### Game Servers — Friend-Accessible Game Hosting
 
@@ -378,9 +380,7 @@ which ports/IPs each friend group can reach.
 
 ## Open Questions
 
-1. **Calvard names for planned VMs.** The Headscale control plane (was ratatosk),
-   subnet router (was fenrir), and SSH bastion (was heimdall) still need Calvard city
-   names assigned.
+1. ~~**Calvard names for planned VMs.**~~ Resolved — altair (Headscale), longlai (subnet router), creil (Forgejo). nemeth reserved but unallocated.
 
 2. **Game server specifics.** Game selection, hosting model (microvm vs container), and
    resource allocation are all deferred.
@@ -390,9 +390,7 @@ which ports/IPs each friend group can reach.
    and game servers. Ensure calvard has sufficient RAM, CPU, and storage — particularly
    for edith's ~100GB PostgreSQL requirement.
 
-4. **vINFRA bridge on calvard.** edith and basel live on vINFRA (VLAN 11). calvard
-   needs a bridge interface for VLAN 11 alongside its vDMZ (VLAN 100) and vMGMT
-   (VLAN 20) bridges.
+4. ~~**vINFRA bridge on calvard.**~~ Resolved — br11 bridge added to calvard/microvm.nix.
 
 5. **Incus VM vs container on calvard.** The SSH bastion requires an Incus VM (not just
    a container). calvard will need to support both Incus container (messeldam) and Incus
@@ -408,9 +406,9 @@ which ports/IPs each friend group can reach.
 | Host | Role | Current Guests | Planned Guests | Notes |
 |------|------|-----------------|-----------------|-------|
 | thebeyond | Router | phantasma | — | cloud-hypervisor; resource-constrained |
-| remiferia | NAS + VM host | ardent, denai* | — | *denai slated for removal independently |
+| remiferia | NAS + VM host | ardent, monrain, denai* | — | *denai slated for removal independently |
 | erebonia | VM host + Incus | trista | saint-arkh (Forgejo Actions runners) | Async CI/CD workloads; Forgejo service itself on calvard |
-| calvard | VM host | — | edith, basel, langport, oracion, tharbad, messeldam, Headscale (TBD), subnet router (TBD), SSH bastion (TBD), game servers | Primary VM host going forward; needs vINFRA bridge |
+| calvard | VM host | edith, basel, langport, oracion, tharbad, creil, messeldam | altair, longlai, game servers | Primary VM host; vINFRA bridge added |
 
 ---
 

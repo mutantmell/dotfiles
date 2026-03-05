@@ -1,0 +1,64 @@
+{ pkgs, lib, config, ... }:
+
+let
+  hostname = "tharbad";
+  inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
+in {
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+  imports = [
+    ./microvm.nix
+    # TODO: import ./sops.nix after creating secrets/secrets.yaml
+    ./modules/prometheus.nix
+    # re-enable grafana after sops secrets are better integrated
+    # ./modules/grafana.nix
+    ./modules/loki.nix
+    ./modules/alertmanager.nix
+    ./modules/ntfy.nix
+  ];
+
+  networking.hostName = hostname;
+
+  common.openssh.enable = true;
+  services.openssh.hostKeys = [{
+    path = "/static/etc/ssh/ssh_host_ed25519_key";
+    type = "ed25519";
+  }];
+
+  networking.useNetworkd = true;
+  networking.useDHCP = false;
+  systemd.network.enable = true;
+  systemd.network.networks."20-tap" = {
+    matchConfig.Type = "ether";
+    matchConfig.MACAddress = "5E:A2:E4:CB:05:DA";
+    networkConfig = {
+      Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
+      Gateway = zone.gateway4;
+      DNS = [ zone.gateway4 zone.gateway6 ];
+      IPv6AcceptRA = false;
+      DHCP = "no";
+    };
+    routes = [
+      { Gateway = zone.gateway4; }
+      { Gateway = zone.gateway6; }
+    ];
+  };
+
+  time.timeZone = "UTC";
+  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
+
+  environment.persistence."/persist" = {
+    hideMounts = true;
+    directories = [
+      "/var/log"
+      "/var/lib/nixos"
+      "/var/lib/systemd/coredump"
+      "/var/lib/loki"
+    ];
+    files = [
+      "/etc/machine-id"
+    ];
+  };
+
+  system.stateVersion = "25.11";
+}

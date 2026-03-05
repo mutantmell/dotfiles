@@ -19,10 +19,10 @@ VM HOSTS (Countries)
 │   ├── oracion       (microVM) — Jellyfin media server
 │   ├── tharbad       (microVM) — Prometheus, Loki, Alertmanager, ntfy
 │   ├── messeldam     (Incus container) — Dev environment / task runner (primary)
-│   ├── (name TBD)    (microVM, planned) — Forgejo git hosting
-│   ├── (name TBD)    (microVM, planned) — Headscale control plane
-│   ├── (name TBD)    (microVM, planned) — Tailscale subnet router
-│   └── (name TBD)    (Incus VM, planned) — SSH jump host
+│   ├── creil         (microVM) — Forgejo git hosting
+│   ├── altair        (microVM, planned) — Headscale control plane
+│   ├── longlai       (microVM, planned) — Tailscale subnet router
+│   └── nemeth        (not allocated)
 │
 ├── liberl            (GP host)
 │   ├── grancel       (VM guest)
@@ -43,9 +43,9 @@ VM HOSTS (Countries)
 
 NAS HOSTS (Countries)
 └── remiferia         (NAS host)
-    ├── ardent        (microVM) — Attic binary cache (narrowing; Forgejo being split out)
+    ├── ardent        (microVM) — Attic binary cache
+    ├── monrain       (microVM) — cgit bare repository hosting
     ├── denai         (microVM) — Dev workstation (slated for removal)
-    ├── monrain       (not allocated)
     ├── lucent        (not allocated)
     └── eyja          (not allocated)
 

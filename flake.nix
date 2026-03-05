@@ -185,6 +185,7 @@
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
           impermanence.nixosModules.impermanence
+          self.nixosModules.incus
           ./hosts/calvard
         ];
       };
