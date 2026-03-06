@@ -15,7 +15,7 @@
 
     # Network configuration
     networks = {
-      # Use existing bridge br20 for container network (VLAN 20 - trusted)
+      # Use existing bridge br20 for VM network (VLAN 20 - trusted)
       incusbr20 = {
         type = "bridge";
         bridge = "br20";
@@ -36,14 +36,13 @@
 
     # Profiles
     profiles = {
-      # Profile for development containers (trusted VLAN)
+      # Profile for development VMs
       dev = {
-        description = "Development container profile";
+        description = "Development VM profile";
         config = {
           "limits.cpu" = "4";
           "limits.memory" = "4GB";
           "security.privileged" = "false";
-          "security.nesting" = "true";
         };
         devices = {
           root = {
