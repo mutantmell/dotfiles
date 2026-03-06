@@ -214,7 +214,7 @@
         system = "x86_64-linux";
         modules = [
           "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
-          ./hosts/calvard/containers/messeldam
+          ./hosts/calvard/incus/guests/messeldam
         ];
       };
       trista = self.lib.mk-nixos {
@@ -222,7 +222,7 @@
         system = "x86_64-linux";
         modules = [
           "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
-          ./hosts/erebonia/containers/trista
+          ./hosts/erebonia/incus/guests/trista
         ];
       };
 #      azoth = self.lib.mk-nixos {
