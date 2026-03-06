@@ -12,7 +12,7 @@ in {
       (import ../../profiles/disko/router.nix { })
       ./impermanence.nix
       ./sops.nix
-      ./microvm.nix
+      ./microvm
       ./router.nix
     ];
 

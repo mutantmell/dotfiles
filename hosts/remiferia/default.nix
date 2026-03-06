@@ -12,7 +12,7 @@ in {
       ./sops.nix
       ./nas.nix
       ./monit.nix
-      ./microvm.nix
+      ./microvm
     ];
 
   boot.loader.systemd-boot.enable = true;

@@ -8,8 +8,8 @@ in {
   imports = [
     ./hardware-configuration.nix
     ./impermanence.nix
-    ./microvm.nix
-    ./incus.nix
+    ./microvm
+    ./incus
   ];
 
   boot.loader.systemd-boot.enable = true;
