@@ -4,6 +4,7 @@
   # Enable Incus instance management with auto-updates
   incus-manager = {
     enable = true;
+    flakePath = "/persist/dotfiles";
 
     # Storage configuration
     storage = {
@@ -37,12 +38,11 @@
     profiles = {
       # Profile for development containers (trusted VLAN)
       dev = {
-        description = "Development container profile";
+        description = "Development VM profile";
         config = {
           "limits.cpu" = "4";
           "limits.memory" = "4GB";
           "security.privileged" = "false";
-          "security.nesting" = "true";
         };
         devices = {
           root = {
@@ -55,11 +55,10 @@
       };
     };
 
-    # Container definitions
-    containers = {
+    # VM definitions
+    virtualMachines = {
       # messeldam — Dev environment / task runner (VLAN 20, trusted)
       messeldam = {
-        configurationFile = ./containers/messeldam;
         autoUpdate = true;
         profile = "dev";
         network = "incusbr20";

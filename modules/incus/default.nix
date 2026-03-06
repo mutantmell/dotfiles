@@ -1,11 +1,11 @@
-{ config, options, pkgs, lib, ... }:
+{ config, options, pkgs, lib, self, ... }:
 
 # Incus Instance Management Module
 #
 # Provides declarative management of Incus containers and virtual machines
-# with automatic in-place updates. Instances are updated via `nixos-rebuild switch`
-# inside the instance when the host configuration changes, minimizing disruption
-# to running processes.
+# with automatic in-place updates. Instances are updated via
+# `nixos-rebuild switch --target-host` from the host when the host
+# configuration changes, minimizing disruption to running processes.
 #
 # Design principles:
 # - Fully declarative (instances auto-created on activation)
@@ -92,11 +92,15 @@ let
     ln -s ${containerSystem.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
   '';
 
-  # Helper to build VM image from NixOS configuration
-  mkVMImage = name: vmSystem: pkgs.runCommand "${name}-vm-image" {} ''
+  # Helper to build VM image from the matching flake nixosConfiguration.
+  # Requires self.nixosConfigurations.${name} to exist and include
+  # the incus-virtual-machine.nix module (provides system.build.qemuImage).
+  mkVMImage = name: let
+    nixosCfg = self.nixosConfigurations.${name};
+  in pkgs.runCommand "${name}-vm-image" {} ''
     mkdir -p $out
-    ln -s ${vmSystem.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
-    ln -s ${vmSystem.config.system.build.qemuImage}/*.qcow2 $out/disk.qcow2
+    ln -s ${nixosCfg.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
+    ln -s ${nixosCfg.config.system.build.qemuImage}/*.qcow2 $out/disk.qcow2
   '';
 
   # Helper to build container instance creation script
@@ -177,8 +181,10 @@ let
     ''}
   '';
 
-  # Helper to build instance update script (works for both containers and VMs)
-  mkUpdateScript = name: instanceCfg: pkgs.writeShellScript "update-incus-instance-${name}" ''
+  # Helper to build instance update script (works for both containers and VMs).
+  # Builds the new system on the host, copies the closure over SSH, and activates
+  # it remotely. Requires SSH access from the host to root@${name}.
+  mkUpdateScript = name: pkgs.writeShellScript "update-incus-instance-${name}" ''
     set -e
 
     INSTANCE="${name}"
@@ -195,15 +201,11 @@ let
       exit 0
     fi
 
-    # Run nixos-rebuild switch inside instance
     echo "  Updating instance: $INSTANCE"
-    if ${pkgs.incus}/bin/incus exec "$INSTANCE" -- \
-      nixos-rebuild switch 2>&1 | sed 's/^/    /'; then
-      echo "  Done: Instance $INSTANCE updated successfully"
-    else
-      echo "  Error: Failed to update instance $INSTANCE"
-      exit 1
-    fi
+    ${pkgs.nixos-rebuild}/bin/nixos-rebuild switch \
+      --flake "${cfg.flakePath}#$INSTANCE" \
+      --target-host "$INSTANCE"
+    echo "  Done: Instance $INSTANCE updated successfully"
   '';
 
   # All instances (containers + VMs) for update scripts
@@ -240,7 +242,7 @@ let
 
     ${concatStringsSep "\n    " (mapAttrsToList (name: instanceCfg:
       if instanceCfg.autoUpdate then
-        "${mkUpdateScript name instanceCfg} || echo '  Warning: Failed to update ${name}, continuing...'"
+        "${mkUpdateScript name} || echo '  Warning: Failed to update ${name}, continuing...'"
       else
         "echo 'Skipping ${name} (autoUpdate disabled)'"
     ) allInstances)}
@@ -253,6 +255,16 @@ let
 in {
   options.incus-manager = {
     enable = mkEnableOption "Incus instance management with auto-updates";
+
+    flakePath = mkOption {
+      type = types.str;
+      description = ''
+        Path to the flake containing nixosConfigurations for managed instances.
+        Used by the update mechanism to build and activate new system generations
+        via nixos-rebuild --target-host.
+      '';
+      example = "/persist/dotfiles";
+    };
 
     storage = mkOption {
       type = types.submodule {
@@ -390,22 +402,14 @@ in {
     virtualMachines = mkOption {
       type = types.attrsOf (types.submodule ({ name, config, ... }: {
         imports = [ instanceOptions ];
-        config.imagePackage = lib.mkDefault (
-          if config.configurationFile != null
-          then mkVMImage name (nixosSystem {
-            system = "x86_64-linux";
-            modules = [
-              config.configurationFile
-              "${pkgs.path}/nixos/modules/virtualisation/incus-virtual-machine.nix"
-            ];
-          })
-          else throw "VM ${name}: Either configurationFile or imagePackage must be set"
-        );
+        config.imagePackage = lib.mkDefault (mkVMImage name);
       }));
       default = {};
       description = ''
         Declarative virtual machine definitions.
         VMs are automatically created, started, and updated.
+        Each VM must have a matching nixosConfigurations output in the flake,
+        or imagePackage must be set explicitly.
       '';
     };
   };
@@ -515,8 +519,8 @@ in {
         # Check if instance is managed
         case "$INSTANCE" in
           ${concatStringsSep "\n          " (mapAttrsToList (name: _: "${name})") allInstances)}
-            ${concatStringsSep "\n            " (mapAttrsToList (name: instanceCfg:
-              "[ \"$INSTANCE\" = \"${name}\" ] && exec ${mkUpdateScript name instanceCfg}"
+            ${concatStringsSep "\n            " (mapAttrsToList (name: _:
+              "[ \"$INSTANCE\" = \"${name}\" ] && exec ${mkUpdateScript name}"
             ) allInstances)}
             ;;
           *)

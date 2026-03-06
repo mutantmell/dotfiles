@@ -27,12 +27,9 @@
     dns = [ "10.97.100.1" "10.0.100.1" "fdc6:55f2:0a5e:64::1" ];
   };
 
-  services.openssh = {
+  common.openssh = {
     enable = true;
-    settings = {
-      PermitRootLogin = "prohibit-password";
-      PasswordAuthentication = false;
-    };
+    keys = [ "deploy" "erebonia" ];
   };
 
   environment.systemPackages = with pkgs; [

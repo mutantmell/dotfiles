@@ -92,6 +92,14 @@ in {
     keys = [ "deploy" "home" ];
   };
 
+  programs.ssh.extraConfig = ''
+    Host messeldam
+      Hostname 10.97.20.42
+      User root
+      IdentityFile /etc/ssh/ssh_host_ed25519_key
+      IdentitiesOnly yes
+  '';
+
   # todo: remove, set mutableUsers = false, etc
   users.users.root.hashedPassword = "$y$j9T$3LKptm/9A.x8WAyU6mGNx.$k8yOrBlbgPl2J0cUcAX1GZVNuWQHl0f.4xZNiIlaKy9";
 

@@ -197,6 +197,14 @@ in {
     keys = [ "deploy" "home" ];
   };
 
+  programs.ssh.extraConfig = ''
+    Host trista
+      Hostname 10.97.100.51
+      User root
+      IdentityFile /etc/ssh/ssh_host_ed25519_key
+      IdentitiesOnly yes
+  '';
+
   home-manager.users.root = {
     home.stateVersion = "25.11";
     programs.git = {
