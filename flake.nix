@@ -209,6 +209,22 @@
           ./hosts/erebonia
         ];
       };
+      messeldam = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
+          ./hosts/calvard/containers/messeldam
+        ];
+      };
+      trista = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
+          ./hosts/erebonia/containers/trista
+        ];
+      };
 #      azoth = self.lib.mk-nixos {
 #        inherit nixpkgs;
 #        system = "aarch64-linux";

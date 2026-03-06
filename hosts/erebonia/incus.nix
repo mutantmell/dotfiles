@@ -4,6 +4,7 @@
   # Enable Incus instance management with auto-updates
   incus-manager = {
     enable = true;
+    flakePath = "/persist/dotfiles";
 
     # Storage configuration
     storage = {
@@ -75,9 +76,7 @@
     # Virtual machine definitions
     virtualMachines = {
       # trista — Dev environment / task runner (VLAN 100, DMZ)
-      # TODO: Consider managing updates via deploy-rs instead of incus-manager autoUpdate
       trista = {
-        configurationFile = ./containers/trista;
         autoUpdate = true;
         profile = "dmz-vm";
         network = "incusbr100";

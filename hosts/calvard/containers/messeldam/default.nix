@@ -27,12 +27,9 @@
     dns = [ "10.97.20.1" "10.0.20.1" "fdc6:55f2:0a5e:14::1" ];
   };
 
-  services.openssh = {
+  common.openssh = {
     enable = true;
-    settings = {
-      PermitRootLogin = "prohibit-password";
-      PasswordAuthentication = false;
-    };
+    keys = [ "deploy" "calvard" ];
   };
 
   environment.systemPackages = with pkgs; [
