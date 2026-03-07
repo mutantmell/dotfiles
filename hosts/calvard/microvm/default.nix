@@ -4,25 +4,12 @@ let
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost "calvard") host zone;
 in {
-  # Pin microvm UID for stable ownership in deploy scripts (kvm GID 302 is already stable)
-  users.users.microvm.uid = 300;
-
-  microvm = rec {
-    vms = builtins.mapAttrs (name: type: if type != "directory" then abort "invalid guest: ${name}" else {
-      inherit pkgs;
-      config = pkgs.mmell.lib.builders.mk-microvm (import (./guests + "/${name}"));
-    }) (builtins.readDir ./guests);
-    autostart = builtins.attrNames vms;
-  };
-
-  environment.persistence."/persist" = {
-    directories = [
-      { directory = "/var/lib/microvms"; user = "microvm"; group = "kvm"; }
-    ];
+  common.microvm = {
+    enable = true;
+    guestDir = ./guests;
   };
 
   environment.systemPackages = [
-    pkgs.mmell.mk-volume
     (pkgs.writeShellApplication {
       name = "mk-volume-with-ssh-key";
       runtimeInputs = [ pkgs.mmell.mk-volume ];

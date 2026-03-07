@@ -5,13 +5,6 @@ set -euo pipefail
 # Supports both router (LUKS) and vm-host (ZFS) profiles.
 # Usage: ./scripts/deploy-nixos-anywhere.sh <hostname> <target-ip> [extra-args]
 
-# --- Host profile map ---
-declare -A HOST_PROFILES=(
-  [thebeyond]="router"
-  [erebonia]="vm-host"
-  [calvard]="vm-host"
-)
-
 HOSTNAME="${1:-}"
 TARGET="${2:-}"
 
@@ -21,14 +14,6 @@ if [[ -z "$HOSTNAME" || -z "$TARGET" ]]; then
     echo "Examples:"
     echo "  $0 thebeyond root@192.168.1.100"
     echo "  $0 calvard user@example.com --build-on-remote"
-    echo ""
-    echo "Supported hosts: ${!HOST_PROFILES[*]}"
-    exit 1
-fi
-
-PROFILE="${HOST_PROFILES[$HOSTNAME]:-}"
-if [[ -z "$PROFILE" ]]; then
-    echo "Error: Unknown host '$HOSTNAME'. Supported hosts: ${!HOST_PROFILES[*]}"
     exit 1
 fi
 
@@ -36,6 +21,27 @@ shift 2
 EXTRA_ARGS="$@"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# --- Detect host profile from Nix config ---
+# Derives profile from the actual disko config: router uses LUKS, vm-host uses ZFS.
+echo "Detecting deploy profile for $HOSTNAME..."
+FLAKE_REF="$REPO_ROOT#nixosConfigurations.$HOSTNAME.config.disko.devices.disk.main.content.partitions"
+HAS_LUKS=$(nix eval "$FLAKE_REF" --apply 'p: builtins.hasAttr "persist" p && p.persist.content.type == "luks"' 2>/dev/null) || {
+    echo "Error: Could not evaluate disko config for '$HOSTNAME'."
+    echo "Ensure the host exists in the flake and imports a disko profile."
+    exit 1
+}
+if [[ "$HAS_LUKS" == "true" ]]; then
+    PROFILE="router"
+else
+    PROFILE="vm-host"
+fi
+echo "  Profile: $PROFILE"
+
+# Read pinned microvm UID from the Nix config (defined in modules/common/microvm.nix)
+NIXOS_CFG="$REPO_ROOT#nixosConfigurations.$HOSTNAME.config"
+MICROVM_UID=$(nix eval "$NIXOS_CFG.common.microvm.uid" 2>/dev/null) || MICROVM_UID=""
+KVM_GID=302  # Stable NixOS system GID for kvm group
 
 # Create temp directory for working copies of keys
 KEYFILE_DIR=$(mktemp -d)
@@ -371,7 +377,7 @@ elif [[ "$PROFILE" == "vm-host" ]]; then
     ssh "$TARGET" bash -c "'
         for guest_dir in /mnt/persist/guests/*/; do
             [ -d \"\$guest_dir/static\" ] && chown -R root:root \"\$guest_dir/static\"
-            [ -d \"\$guest_dir/images\" ] && chown 300:302 \"\$guest_dir/images\"
+            [ -d \"\$guest_dir/images\" ] && chown ${MICROVM_UID}:${KVM_GID} \"\$guest_dir/images\"
         done
     '"
 fi
