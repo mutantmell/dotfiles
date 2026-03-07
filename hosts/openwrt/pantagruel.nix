@@ -1,6 +1,5 @@
 # Linksys E8450 (UBI) — mesh AP
-{ owrtData }:
-{
+{owrtData}: {
   type = "meshAP";
   hostname = "pantagruel";
   profile = "linksys_e8450-ubi";
@@ -11,5 +10,5 @@
   country = owrtData.defaultCountry;
   heBssColor = 8;
   legacyRates = false;
-  extraPackages = [ "usteer" ];
+  extraPackages = ["usteer"];
 }

@@ -1,6 +1,9 @@
-{ config, pkgs, lib, ... }:
-
 {
+  config,
+  pkgs,
+  lib,
+  ...
+}: {
   common.incus = {
     enable = true;
     guestDir = ./guests;
@@ -8,11 +11,13 @@
 
   # Preseed via NixOS built-in — storage, networks, profiles
   virtualisation.incus.preseed = {
-    storage_pools = [{
-      name = "default";
-      driver = "zfs";
-      config.source = "persist/incus";
-    }];
+    storage_pools = [
+      {
+        name = "default";
+        driver = "zfs";
+        config.source = "persist/incus";
+      }
+    ];
 
     networks = [
       {

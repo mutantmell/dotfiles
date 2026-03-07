@@ -18,38 +18,46 @@
 # 8. Verify nftables ruleset structure
 #
 # Note: UDP stealth mode is implicitly verified by Test 1's drop policy check
-
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
+{
+  pkgs ? import <nixpkgs> {},
+  lib ? pkgs.lib,
 }:
-
 pkgs.testers.nixosTest {
   name = "router6-firewall";
 
   nodes = {
-    router = { config, pkgs, lib, ... }: {
-      imports = [ ../../modules/router6 ];
+    router = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      imports = [../../modules/router6];
 
       # Virtual network setup
       # - eth1 (vlan1) = WAN/external network (attacker connected here)
       # - eth2 (vlan2) = LAN/internal network (client connected here)
-      virtualisation.vlans = [ 1 2 ];
+      virtualisation.vlans = [1 2];
 
       router6 = {
         enable = true;
         ulaPrefix = "fdc6:55f2:0a5e::/48";
 
         zones = {
-          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          external = {
+            icmpEcho = "disable";
+            accessTo = [];
+            inputRules = [];
+          };
           trusted = {
             icmpEcho = "enable";
-            accessTo = [ "trusted" "external" ];
-            inputRules = [{ verdict = "accept"; }];
+            accessTo = ["trusted" "external"];
+            inputRules = [{verdict = "accept";}];
           };
         };
 
         dns = {
-          upstream = [ "1.1.1.1" ];
+          upstream = ["1.1.1.1"];
           useDHCPFallback = false;
           localDomain = "test.local";
         };
@@ -60,7 +68,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth1";
             network = {
               type = "static";
-              addresses = [ "203.0.113.1/24" ];
+              addresses = ["203.0.113.1/24"];
               zone = "external";
               nat.enable = true;
             };
@@ -71,7 +79,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth2";
             network = {
               type = "static";
-              addresses = [ "10.0.10.1/24" ];
+              addresses = ["10.0.10.1/24"];
               zone = "trusted";
               dhcp.enable = true;
             };
@@ -87,17 +95,24 @@ pkgs.testers.nixosTest {
     };
 
     # Attacker node on the external/WAN network
-    attacker = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 1 ];
+    attacker = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [1];
 
       networking = {
         useDHCP = false;
         enableIPv6 = false;
         interfaces.eth1 = {
-          ipv4.addresses = [{
-            address = "203.0.113.100";
-            prefixLength = 24;
-          }];
+          ipv4.addresses = [
+            {
+              address = "203.0.113.100";
+              prefixLength = 24;
+            }
+          ];
         };
       };
 
@@ -114,19 +129,26 @@ pkgs.testers.nixosTest {
     };
 
     # Client node on the internal/LAN network
-    client = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 2 ];
+    client = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [2];
 
       networking = {
         useDHCP = false;
         interfaces.eth1 = {
-          ipv4.addresses = [{
-            address = "10.0.10.100";
-            prefixLength = 24;
-          }];
+          ipv4.addresses = [
+            {
+              address = "10.0.10.100";
+              prefixLength = 24;
+            }
+          ];
         };
         defaultGateway = "10.0.10.1";
-        nameservers = [ "10.0.10.1" ];
+        nameservers = ["10.0.10.1"];
       };
 
       environment.systemPackages = with pkgs; [

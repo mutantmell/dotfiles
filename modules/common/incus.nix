@@ -1,6 +1,10 @@
-{ config, lib, pkgs, options, ... }:
-
-let
+{
+  config,
+  lib,
+  pkgs,
+  options,
+  ...
+}: let
   cfg = config.common.incus;
   impCfg = config.common.impermanence;
   hasIncusManager = options ? incus-manager;
@@ -40,7 +44,8 @@ in {
           guestType = vmSystem.config.incus-guest.type;
           guestMeta = vmSystem.config.incus-guest;
 
-          builtSystem = if guestType == "vm"
+          builtSystem =
+            if guestType == "vm"
             then vmSystem
             else pkgs.mmell.lib.builders.mk-incus-container guestModule;
         in {
@@ -52,10 +57,14 @@ in {
         };
       in {
         incus-manager.enable = true;
-        incus-manager.guests = builtins.mapAttrs (name: type:
-          if type != "directory" then abort "invalid incus guest: ${name}"
-          else mkGuestSystem name type
-        ) guestEntries;
+        incus-manager.guests =
+          builtins.mapAttrs (
+            name: type:
+              if type != "directory"
+              then abort "invalid incus guest: ${name}"
+              else mkGuestSystem name type
+          )
+          guestEntries;
       }
     )))
 

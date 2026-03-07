@@ -14,6 +14,7 @@ Following the project convention:
 ## Issues Identified
 
 ### From user report (confirmed)
+
 1. **Dead/confusing preseed duplication** — `storage`, `networks`, `profiles` options duplicate NixOS's built-in `virtualisation.incus.preseed`.
 2. **Unnecessary option complexity** — `networks.type` only accepts `"bridge"`, `storage.driver` enumerates 4 unused values.
 3. **Flake path reference for VMs** — `mkVMImage` references `self.nixosConfigurations.${name}`, requiring manual flake entries.
@@ -24,6 +25,7 @@ Following the project convention:
 8. **No QEMU package override** — Can't work around upstream breakage.
 
 ### Additional issues found
+
 9. **Activation script ordering** — `incusEnsureInstances` runs before incus daemon is up.
 10. **Fire-and-forget background updates** — No logging or failure tracking.
 11. **Bash bug in `incus-update-instance`** — Unnecessarily complex case/linear-scan.
@@ -66,6 +68,7 @@ mk-incus-container = args: nixpkgs.lib.mkMerge [ args {
 ```
 
 Overlay (line 112): add to `builders`:
+
 ```nix
 builders = { inherit (self.lib) mk-microvm mk-incus-vm mk-incus-container; };
 ```
@@ -80,17 +83,18 @@ This is the **extractable** module — no project-specific logic. It takes a set
 
 **Options**:
 
-| Option | Type | Purpose |
-|--------|------|---------|
-| `incus-manager.enable` | bool | Enable incus instance management |
-| `incus-manager.qemuPackage` | package | QEMU override (default `pkgs.qemu_kvm`) |
-| `incus-manager.guests.<name>.type` | enum `["vm" "container"]` | Instance type |
-| `incus-manager.guests.<name>.system` | NixOS system | The built guest system |
-| `incus-manager.guests.<name>.profile` | nullOr str | Incus profile to apply |
-| `incus-manager.guests.<name>.network` | nullOr str | Incus network to connect |
-| `incus-manager.guests.<name>.autoStart` | bool | Start on boot (default true) |
+| Option                                  | Type                      | Purpose                                 |
+| --------------------------------------- | ------------------------- | --------------------------------------- |
+| `incus-manager.enable`                  | bool                      | Enable incus instance management        |
+| `incus-manager.qemuPackage`             | package                   | QEMU override (default `pkgs.qemu_kvm`) |
+| `incus-manager.guests.<name>.type`      | enum `["vm" "container"]` | Instance type                           |
+| `incus-manager.guests.<name>.system`    | NixOS system              | The built guest system                  |
+| `incus-manager.guests.<name>.profile`   | nullOr str                | Incus profile to apply                  |
+| `incus-manager.guests.<name>.network`   | nullOr str                | Incus network to connect                |
+| `incus-manager.guests.<name>.autoStart` | bool                      | Start on boot (default true)            |
 
 **Provides**:
+
 - `virtualisation.incus.enable = true` + `networking.nftables.enable = true`
 - Image builders: `mkVMImage` (metadata + qcow2), `mkContainerImage` (metadata + rootfs)
 - Systemd services:
@@ -110,12 +114,13 @@ Project-specific coordination, mirrors `modules/common/microvm.nix`.
 
 **Options**:
 
-| Option | Type | Purpose |
-|--------|------|---------|
-| `common.incus.enable` | bool | Enable common incus host options |
+| Option                  | Type        | Purpose                                  |
+| ----------------------- | ----------- | ---------------------------------------- |
+| `common.incus.enable`   | bool        | Enable common incus host options         |
 | `common.incus.guestDir` | nullOr path | Auto-discover guests from subdirectories |
 
 **Provides**:
+
 - Auto-discovery: reads `guestDir` subdirectories, imports each guest config, builds via `mk-incus-vm`/`mk-incus-container`, populates `incus-manager.guests`
 - Impermanence: persists `/var/lib/incus` (when impermanence module is loaded)
 
@@ -141,6 +146,7 @@ options.incus-guest = {
 ### Step 5: Simplify host configs
 
 **`hosts/calvard/incus/default.nix`**:
+
 ```nix
 {
   common.incus = {
@@ -172,6 +178,7 @@ options.incus-guest = {
 ### Step 6: Update guest configs
 
 Add `incus-guest` options (profile, network moved from host config):
+
 ```nix
 { pkgs, config, lib, ... }: {
   imports = [ ./sops.nix ];
@@ -189,11 +196,13 @@ Add `incus-guest` options (profile, network moved from host config):
 ### Step 7: Add integration tests
 
 **`tests/modules/incus-container.nix`**:
+
 - Single test machine with incus + module enabled
 - Inline minimal container guest
 - Test: image import → create → start → `incus exec` succeeds
 
 **`tests/modules/incus-vm.nix`**:
+
 - Test machine with nested virt + incus
 - Inline minimal VM guest
 - Test: image import → create → start → `incus exec` succeeds
@@ -216,6 +225,7 @@ This convention already exists implicitly (e.g., `modules/router6/` vs `modules/
 ### Step 9: Update `scripts/setup-incus-guests.sh`
 
 Line 50: replace broken in-guest `nixos-rebuild switch` with helper script:
+
 ```bash
 ssh "$TARGET" "incus-update-instance ${guest}" || true
 ```
@@ -224,20 +234,20 @@ ssh "$TARGET" "incus-update-instance ${guest}" || true
 
 ## Files Modified
 
-| File | Action |
-|------|--------|
-| `modules/incus/default.nix` | **Rewrite** — top-level module: instance lifecycle, systemd services, helpers |
-| `modules/incus/guest-options.nix` | **New** — guest-side options (type, profile, network) |
-| `modules/common/incus.nix` | **New** — common module: auto-discovery, impermanence |
-| `flake.nix` | **Edit** — add builders, overlay, remove messeldam/trista, add test checks |
-| `hosts/calvard/incus/default.nix` | **Rewrite** — use `common.incus` + raw preseed |
-| `hosts/erebonia/incus/default.nix` | **Rewrite** — same |
-| `hosts/calvard/incus/guests/messeldam/default.nix` | **Edit** — add incus-guest options |
-| `hosts/erebonia/incus/guests/trista/default.nix` | **Edit** — add incus-guest options |
-| `CLAUDE.md` | **Edit** — document module architecture convention |
-| `scripts/setup-incus-guests.sh` | **Edit** — use helper script for updates |
-| `tests/modules/incus-container.nix` | **New** — container integration test |
-| `tests/modules/incus-vm.nix` | **New** — VM integration test |
+| File                                               | Action                                                                        |
+| -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `modules/incus/default.nix`                        | **Rewrite** — top-level module: instance lifecycle, systemd services, helpers |
+| `modules/incus/guest-options.nix`                  | **New** — guest-side options (type, profile, network)                         |
+| `modules/common/incus.nix`                         | **New** — common module: auto-discovery, impermanence                         |
+| `flake.nix`                                        | **Edit** — add builders, overlay, remove messeldam/trista, add test checks    |
+| `hosts/calvard/incus/default.nix`                  | **Rewrite** — use `common.incus` + raw preseed                                |
+| `hosts/erebonia/incus/default.nix`                 | **Rewrite** — same                                                            |
+| `hosts/calvard/incus/guests/messeldam/default.nix` | **Edit** — add incus-guest options                                            |
+| `hosts/erebonia/incus/guests/trista/default.nix`   | **Edit** — add incus-guest options                                            |
+| `CLAUDE.md`                                        | **Edit** — document module architecture convention                            |
+| `scripts/setup-incus-guests.sh`                    | **Edit** — use helper script for updates                                      |
+| `tests/modules/incus-container.nix`                | **New** — container integration test                                          |
+| `tests/modules/incus-vm.nix`                       | **New** — VM integration test                                                 |
 
 ## Verification
 
@@ -251,7 +261,7 @@ ssh "$TARGET" "incus-update-instance ${guest}" || true
 
 ## Addendum: Implementation Notes
 
-*Added after implementation was complete.*
+_Added after implementation was complete._
 
 ### Deviations from Plan
 
@@ -280,16 +290,17 @@ During implementation, the accumulation of `options ? environment && options.env
 
 In addition to the files listed in the plan:
 
-| File | Action |
-|------|--------|
-| `modules/common/impermanence.nix` | **New** — common impermanence module |
-| `hosts/calvard/impermanence.nix` | **Simplified** — uses `common.impermanence` |
-| `hosts/erebonia/impermanence.nix` | **Simplified** — uses `common.impermanence` |
+| File                               | Action                                      |
+| ---------------------------------- | ------------------------------------------- |
+| `modules/common/impermanence.nix`  | **New** — common impermanence module        |
+| `hosts/calvard/impermanence.nix`   | **Simplified** — uses `common.impermanence` |
+| `hosts/erebonia/impermanence.nix`  | **Simplified** — uses `common.impermanence` |
 | `hosts/thebeyond/impermanence.nix` | **Simplified** — uses `common.impermanence` |
 
 ### Verification Results
 
 All verification steps pass:
+
 1. calvard toplevel builds ✅
 2. erebonia toplevel builds ✅
 3. incus-container test passes ✅

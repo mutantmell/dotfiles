@@ -1,7 +1,10 @@
-{ config, pkgs, lib, ... }:
-
 {
+  config,
+  pkgs,
+  lib,
+  ...
+}: {
   programs.emacs = {
-    extraPackages = (epkgs: [ epkgs.rust-mode ]);
+    extraPackages = epkgs: [epkgs.rust-mode];
   };
 }

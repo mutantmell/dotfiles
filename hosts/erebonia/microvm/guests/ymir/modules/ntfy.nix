@@ -1,6 +1,5 @@
-{ config, ... }:
-{
-  networking.firewall.allowedTCPPorts = [ 2586 ];
+{config, ...}: {
+  networking.firewall.allowedTCPPorts = [2586];
 
   services.ntfy-sh = {
     enable = true;

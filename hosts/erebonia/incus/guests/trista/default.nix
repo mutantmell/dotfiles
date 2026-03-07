@@ -1,5 +1,10 @@
-{ pkgs, config, lib, modulesPath, ... }:
 {
+  pkgs,
+  config,
+  lib,
+  modulesPath,
+  ...
+}: {
   imports = [
     ./sops.nix
   ];
@@ -9,7 +14,7 @@
     network = "incusbr100";
   };
 
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.experimental-features = ["nix-command" "flakes"];
 
   networking.hostName = "trista";
   networking.useNetworkd = true;
@@ -25,20 +30,20 @@
       IPv6AcceptRA = false;
     };
     address = [
-      "10.97.100.51/24"   # Primary
-      "10.0.100.51/24"    # Legacy (remove after migration)
+      "10.97.100.51/24" # Primary
+      "10.0.100.51/24" # Legacy (remove after migration)
       "fdc6:55f2:0a5e:64::33/64"
     ];
     routes = [
-      { Gateway = "10.97.100.1"; }
-      { Gateway = "fdc6:55f2:0a5e:64::1"; }
+      {Gateway = "10.97.100.1";}
+      {Gateway = "fdc6:55f2:0a5e:64::1";}
     ];
-    dns = [ "10.97.100.1" "10.0.100.1" "fdc6:55f2:0a5e:64::1" ];
+    dns = ["10.97.100.1" "10.0.100.1" "fdc6:55f2:0a5e:64::1"];
   };
 
   common.openssh = {
     enable = true;
-    keys = [ "deploy" "erebonia" ];
+    keys = ["deploy" "erebonia"];
   };
 
   environment.systemPackages = with pkgs; [
@@ -50,8 +55,8 @@
   ];
 
   nix.settings = {
-    allowed-users = [ "@wheel" ];
-    trusted-users = [ "root" "@wheel" ];
+    allowed-users = ["@wheel"];
+    trusted-users = ["root" "@wheel"];
   };
 
   time.timeZone = "UTC";

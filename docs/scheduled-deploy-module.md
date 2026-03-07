@@ -45,6 +45,7 @@ git push
 ### SSH Access
 
 The VM host needs SSH access to:
+
 - The git repo (for clone/pull/push)
 - The deployment target (for deploy-rs)
 
@@ -103,6 +104,7 @@ On each scheduled run, the service:
 ## Systemd Units
 
 Each node gets individual units:
+
 - `scheduled-deploy-<node>.service` — the deployment oneshot
 - `scheduled-deploy-<node>.timer` — triggers on schedule with `Persistent = true` and `RandomizedDelaySec = 1h`
 

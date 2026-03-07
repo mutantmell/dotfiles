@@ -1,6 +1,5 @@
 # NETGEAR GS108T v3 — managed switch with VLAN-filtering bridge
-{ owrtData }:
-{
+{owrtData}: {
   type = "switch";
   hostname = "arseille";
   profile = "netgear_gs108t-v3";
@@ -10,5 +9,5 @@
   vlanId = 10;
   timezone = owrtData.defaultTimezone;
   trunkPorts = owrtData.defaultSwitchTrunkPorts;
-  extraPackages = [ "luci" "luci-proto-batman-adv" ];
+  extraPackages = ["luci" "luci-proto-batman-adv"];
 }

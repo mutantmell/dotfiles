@@ -1,19 +1,23 @@
-{ config, options, pkgs, lib, ... }:
-
-let
+{
+  config,
+  options,
+  pkgs,
+  lib,
+  ...
+}: let
   cfg = config.common.openssh;
 in {
   options.common.openssh = {
     enable = lib.mkEnableOption "Common OpenSSH Configuration";
     users = lib.mkOption {
       type = lib.types.nonEmptyListOf lib.types.str;
-      default = [ "root" ];
+      default = ["root"];
     };
     keys = lib.mkOption {
       type = lib.types.nonEmptyListOf (lib.types.enum (
         builtins.attrNames pkgs.mmell.lib.data.keys.ssh
       ));
-      default = [ "deploy" ];
+      default = ["deploy"];
     };
     allowPassword = lib.mkOption {
       type = lib.types.bool;
@@ -31,10 +35,12 @@ in {
       };
     };
 
-    users.extraUsers = builtins.listToAttrs (builtins.map (user:
-      lib.attrsets.nameValuePair user {
-        openssh.authorizedKeys.keys = builtins.map (key: pkgs.mmell.lib.data.keys.ssh.${key}) cfg.keys;
-      }
-    ) cfg.users);
+    users.extraUsers = builtins.listToAttrs (builtins.map (
+        user:
+          lib.attrsets.nameValuePair user {
+            openssh.authorizedKeys.keys = builtins.map (key: pkgs.mmell.lib.data.keys.ssh.${key}) cfg.keys;
+          }
+      )
+      cfg.users);
   };
 }

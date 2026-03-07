@@ -8,20 +8,24 @@
 # OpenWrt management:
 #   nix run .#openwrt-build -- <device>         # Build image
 #   nix run .#openwrt-deploy -- <device> <ip>   # Build + deploy to device
-{ pkgs, openwrtDevices, openwrtConfigurations }:
-
-let
-  openwrt = import ./openwrt { inherit pkgs openwrtDevices openwrtConfigurations; };
+{
+  pkgs,
+  openwrtDevices,
+  openwrtConfigurations,
+}: let
+  openwrt = import ./openwrt {inherit pkgs openwrtDevices openwrtConfigurations;};
 in {
   # Network registry lookup
-  netinfo = import ./netinfo.nix { inherit pkgs; };
+  netinfo = import ./netinfo.nix {inherit pkgs;};
 
   # OpenWrt device management
-  inherit (openwrt)
+  inherit
+    (openwrt)
     openwrt-build
     openwrt-deploy
     openwrt-run
     openwrt-export-config
     openwrt-analyze-packages
-    openwrt-analyze-local;
+    openwrt-analyze-local
+    ;
 }

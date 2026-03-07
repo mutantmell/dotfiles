@@ -44,6 +44,7 @@ The `scheduled-deploy` module deploys the router on a weekly schedule using depl
 ### How It Works
 
 The module maintains a local checkout of the wrapper flake repo on the VM host. On each scheduled run, it:
+
 1. Pulls the latest wrapper flake from git
 2. Runs `nix flake update` (updates nixpkgs + dotfiles inputs)
 3. Commits and pushes the updated `flake.lock`
@@ -73,6 +74,7 @@ Create a wrapper flake repo for the router (see `docs/scheduled-deploy-module.md
 ```
 
 Then import it:
+
 ```nix
 # hosts/remiferia/default.nix
 {
@@ -127,6 +129,7 @@ The deployment process includes comprehensive testing:
 ### Integration Tests
 
 Located in `tests/`, these verify:
+
 - IPv6 addressing
 - Firewall rules
 - Bond/bridge configuration
@@ -134,6 +137,7 @@ Located in `tests/`, these verify:
 - Disko profiles
 
 Run manually:
+
 ```bash
 nix build .#checks.x86_64-linux.router6-ipv6
 nix build .#checks.x86_64-linux.router6-firewall
@@ -143,6 +147,7 @@ nix build .#checks.x86_64-linux.router6-firewall
 ### Build Verification
 
 Before deploying, the script builds the full system closure to ensure it evaluates correctly:
+
 ```bash
 nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
 ```
@@ -150,6 +155,7 @@ nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
 ### Deploy-rs Checks
 
 The flake includes deploy-rs validation:
+
 ```bash
 nix flake check
 ```
@@ -164,6 +170,7 @@ deploy-rs includes automatic rollback protection:
 2. **autoRollback**: If the host becomes unreachable during activation, it automatically reverts
 
 If something goes wrong:
+
 - The router will automatically rollback to the previous generation
 - You can manually rollback: `ssh thebeyond 'sudo nixos-rebuild --rollback switch'`
 - Check previous generations: `ssh thebeyond 'nix-env --list-generations --profile /nix/var/nix/profiles/system'`
@@ -227,6 +234,7 @@ deploy.nodes.thebeyond = {
 ### SSH Connection Issues
 
 Ensure SSH keys are configured:
+
 ```bash
 ssh-add ~/.ssh/id_ed25519  # or your deploy key
 ssh root@thebeyond.local 'echo connected'
@@ -235,6 +243,7 @@ ssh root@thebeyond.local 'echo connected'
 ### Build Failures
 
 Check the build locally first:
+
 ```bash
 nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
 ```
@@ -242,6 +251,7 @@ nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
 ### Test Failures
 
 Run tests individually to identify issues:
+
 ```bash
 nix build .#checks.x86_64-linux.router6-ipv6
 # Check the output for errors
@@ -250,6 +260,7 @@ nix build .#checks.x86_64-linux.router6-ipv6
 ### Deployment Stuck
 
 If deployment hangs:
+
 1. Check router is reachable: `ping thebeyond.local`
 2. Check SSH access: `ssh root@thebeyond.local`
 3. Cancel deployment (Ctrl+C) - auto-rollback should trigger
@@ -277,6 +288,7 @@ However, this lacks the automatic rollback features of deploy-rs.
 ## Future Enhancements
 
 Potential improvements:
+
 - [ ] Add deployment notifications (email, webhook, etc.)
 - [ ] Integrate with CI/CD (GitHub Actions, Gitea Actions, etc.)
 - [ ] Pre-deployment configuration diff

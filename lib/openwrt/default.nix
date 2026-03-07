@@ -6,20 +6,18 @@
 # - Managing mesh networking with batman-adv
 # - Managing managed switches with VLAN filtering
 # - Deploying to devices via SSH/sysupgrade
-{ lib }:
-
-let
-  uci = import ./uci.nix { inherit lib; };
+{lib}: let
+  uci = import ./uci.nix {inherit lib;};
 
   # Packages to remove from default OpenWrt image
   removeDefaultPackages = [
-    "-dnsmasq"          # We don't run DHCP on mesh APs
-    "-odhcpd-ipv6only"  # No DHCP
-    "-ppp"              # No PPPoE
+    "-dnsmasq" # We don't run DHCP on mesh APs
+    "-odhcpd-ipv6only" # No DHCP
+    "-ppp" # No PPPoE
     "-ppp-mod-pppoe"
-    "-firewall4"        # Mesh APs don't need firewall
+    "-firewall4" # Mesh APs don't need firewall
     "-nftables"
-    "-wpad-basic-mbedtls"  # Replaced by mesh-capable wpad
+    "-wpad-basic-mbedtls" # Replaced by mesh-capable wpad
   ];
 
   # Packages to remove for switch/simple-AP (keep firewall, no mesh wpad)
@@ -32,11 +30,13 @@ let
 
   # Minimal packages required for batman-adv mesh AP
   # Note: 802.1Q VLAN support is built into the kernel in OpenWrt 24.10+
-  minimalMeshPackages = removeDefaultPackages ++ [
-    "kmod-batman-adv"
-    "batctl-full"
-    "wpad-mesh-openssl"
-  ];
+  minimalMeshPackages =
+    removeDefaultPackages
+    ++ [
+      "kmod-batman-adv"
+      "batctl-full"
+      "wpad-mesh-openssl"
+    ];
 
   # Additional packages for web UI management
   luciPackages = [
@@ -87,25 +87,26 @@ let
     lanAddresses,
     mgmtAddresses,
     gateway,
-  }:
-    let
-      routingAlgo = "BATMAN_V";
-      homeVlan = vlans.HOME or null;
-      mgmtVlan = vlans.MGMT or null;
+  }: let
+    routingAlgo = "BATMAN_V";
+    homeVlan = vlans.HOME or null;
+    mgmtVlan = vlans.MGMT or null;
 
-      # br-lan bridges physical LAN ports + bat0.HOME_VLAN
-      brLanPorts =
-        [ "lan2" "lan3" "lan4" ]
-        ++ lib.optional (homeVlan != null) "bat0.${toString homeVlan.tag}";
+    # br-lan bridges physical LAN ports + bat0.HOME_VLAN
+    brLanPorts =
+      ["lan2" "lan3" "lan4"]
+      ++ lib.optional (homeVlan != null) "bat0.${toString homeVlan.tag}";
 
-      # Derive MGMT gateway from HOME gateway (same last octet, different VLAN subnet)
-      mgmtGateway = if gateway != null && mgmtVlan != null then
-        let parts = lib.splitString "." gateway;
-        in "${builtins.elemAt parts 0}.${builtins.elemAt parts 1}.${toString mgmtVlan.tag}.${builtins.elemAt parts 3}"
+    # Derive MGMT gateway from HOME gateway (same last octet, different VLAN subnet)
+    mgmtGateway =
+      if gateway != null && mgmtVlan != null
+      then let
+        parts = lib.splitString "." gateway;
+      in "${builtins.elemAt parts 0}.${builtins.elemAt parts 1}.${toString mgmtVlan.tag}.${builtins.elemAt parts 3}"
       else null;
-
-    in {
-      network = {
+  in {
+    network =
+      {
         # Loopback
         loopback = {
           _type = "interface";
@@ -165,41 +166,52 @@ let
         };
 
         # LAN interface (HOME network)
-        lan = {
-          _type = "interface";
-          device = "br-lan";
-          proto = if lanAddresses != [] then "static" else "dhcp";
-        } // lib.optionalAttrs (lanAddresses != []) {
-          ipaddr = lanAddresses;
-          gateway = gateway;
-          dns = gateway;
-        };
-
-      } // lib.optionalAttrs (mgmtVlan != null) {
+        lan =
+          {
+            _type = "interface";
+            device = "br-lan";
+            proto =
+              if lanAddresses != []
+              then "static"
+              else "dhcp";
+          }
+          // lib.optionalAttrs (lanAddresses != []) {
+            ipaddr = lanAddresses;
+            gateway = gateway;
+            dns = gateway;
+          };
+      }
+      // lib.optionalAttrs (mgmtVlan != null) {
         # br-mgmt: management VLAN from bat0
         br_mgmt = {
           _type = "device";
           type = "bridge";
           name = "br-mgmt";
-          ports = [ "bat0.${toString mgmtVlan.tag}" ];
+          ports = ["bat0.${toString mgmtVlan.tag}"];
           mtu = 1536;
         };
 
-        mgmt = {
-          _type = "interface";
-          proto = if mgmtAddresses != [] then "static" else "dhcp";
-          device = "br-mgmt";
-        } // lib.optionalAttrs (mgmtAddresses != []) {
-          ipaddr = mgmtAddresses;
-          gateway = mgmtGateway;
-        };
-      } // {
+        mgmt =
+          {
+            _type = "interface";
+            proto =
+              if mgmtAddresses != []
+              then "static"
+              else "dhcp";
+            device = "br-mgmt";
+          }
+          // lib.optionalAttrs (mgmtAddresses != []) {
+            ipaddr = mgmtAddresses;
+            gateway = mgmtGateway;
+          };
+      }
+      // {
         # br-admin: emergency access on lan1
         br_admin = {
           _type = "device";
           type = "bridge";
           name = "br-admin";
-          ports = [ "lan1" ];
+          ports = ["lan1"];
         };
 
         admin = {
@@ -212,7 +224,7 @@ let
           dns = "192.168.1.1";
         };
       };
-    };
+  };
 
   # Generate wireless configuration for mesh + AP
   # Secret fields (wifi.<name>.ssid, wifi.<name>.key, wifi.mesh.id, wifi.mesh.key) are declared with { _secret = "key"; }
@@ -223,25 +235,25 @@ let
     country,
     heBssColor,
     legacyRates,
-  }:
-    let
-      # Generate mesh interface (on 5GHz radio only)
-      meshIface = {
-        batmesh = {
-          _type = "wifi-iface";
-          ifname = "batmesh";
-          device = "radio1";
-          mode = "mesh";
-          network = "bat0_mesh0";
-          encryption = "sae";
-          mesh_fwding = false;
-          mesh_id = { _secret = "wifi.mesh.id"; };
-          key      = { _secret = "wifi.mesh.key"; };
-        };
+  }: let
+    # Generate mesh interface (on 5GHz radio only)
+    meshIface = {
+      batmesh = {
+        _type = "wifi-iface";
+        ifname = "batmesh";
+        device = "radio1";
+        mode = "mesh";
+        network = "bat0_mesh0";
+        encryption = "sae";
+        mesh_fwding = false;
+        mesh_id = {_secret = "wifi.mesh.id";};
+        key = {_secret = "wifi.mesh.key";};
       };
+    };
 
-      # Generate AP interfaces for each network on each radio
-      mkAPInterfaces = radio: band: lib.mapAttrs' (name: ap: {
+    # Generate AP interfaces for each network on each radio
+    mkAPInterfaces = radio: band:
+      lib.mapAttrs' (name: ap: {
         name = "ap_${band}_${name}";
         value = {
           _type = "wifi-iface";
@@ -249,8 +261,8 @@ let
           mode = "ap";
           network = ap.network or "lan";
           encryption = ap.encryption or "sae-mixed";
-          ssid = { _secret = "wifi.${name}.ssid"; };
-          key  = { _secret = "wifi.${name}.key"; };
+          ssid = {_secret = "wifi.${name}.ssid";};
+          key = {_secret = "wifi.${name}.key";};
           # 802.11r fast roaming
           ieee80211r = true;
           ft_psk_generate_local = true;
@@ -266,42 +278,52 @@ let
           rrm_neighbor_report = true;
           rrm_beacon_report = true;
         };
-      }) apNetworks;
+      })
+      apNetworks;
+  in {
+    wireless =
+      {
+        radio0 =
+          {
+            _type = "wifi-device";
+            type = "mac80211";
+            band = "2g";
+            channel = 1;
+            htmode = "HT20";
+            cell_density = 0;
+            country = country;
+            disabled = false;
+          }
+          // lib.optionalAttrs legacyRates {
+            legacy_rates = true;
+          };
 
-    in {
-      wireless = {
-        radio0 = {
-          _type = "wifi-device";
-          type = "mac80211";
-          band = "2g";
-          channel = 1;
-          htmode = "HT20";
-          cell_density = 0;
-          country = country;
-          disabled = false;
-        } // lib.optionalAttrs legacyRates {
-          legacy_rates = true;
-        };
-
-        radio1 = {
-          _type = "wifi-device";
-          type = "mac80211";
-          band = "5g";
-          channel = 36;
-          htmode = "HE80";
-          cell_density = 0;
-          country = country;
-          disabled = false;
-        } // lib.optionalAttrs (heBssColor != null) {
-          he_bss_color = heBssColor;
-        };
-      } // meshIface
-        // mkAPInterfaces "radio0" "2g"
-        // mkAPInterfaces "radio1" "5g";
-    };
+        radio1 =
+          {
+            _type = "wifi-device";
+            type = "mac80211";
+            band = "5g";
+            channel = 36;
+            htmode = "HE80";
+            cell_density = 0;
+            country = country;
+            disabled = false;
+          }
+          // lib.optionalAttrs (heBssColor != null) {
+            he_bss_color = heBssColor;
+          };
+      }
+      // meshIface
+      // mkAPInterfaces "radio0" "2g"
+      // mkAPInterfaces "radio1" "5g";
+  };
 
   # Generate simple AP wireless config (no mesh, no 802.11r)
-  mkSimpleAPWirelessConfig = { encryption, network, country }: {
+  mkSimpleAPWirelessConfig = {
+    encryption,
+    network,
+    country,
+  }: {
     wireless = {
       radio0 = {
         _type = "wifi-device";
@@ -331,8 +353,8 @@ let
         inherit network;
         mode = "ap";
         inherit encryption;
-        ssid = { _secret = "wifi.main.ssid"; };
-        key  = { _secret = "wifi.main.key"; };
+        ssid = {_secret = "wifi.main.ssid";};
+        key = {_secret = "wifi.main.key";};
       };
 
       ap_5g_main = {
@@ -341,8 +363,8 @@ let
         inherit network;
         mode = "ap";
         inherit encryption;
-        ssid = { _secret = "wifi.main.ssid"; };
-        key  = { _secret = "wifi.main.key"; };
+        ssid = {_secret = "wifi.main.ssid";};
+        key = {_secret = "wifi.main.key";};
       };
     };
   };
@@ -354,39 +376,42 @@ let
     gateway,
     vlans,
     trunkPorts,
-  }:
-    let
-      allPorts = [ "lan1" "lan2" "lan3" "lan4" "lan5" "lan6" "lan7" "lan8" ];
-      portMTU = 1532;
+  }: let
+    allPorts = ["lan1" "lan2" "lan3" "lan4" "lan5" "lan6" "lan7" "lan8"];
+    portMTU = 1532;
 
-      # Generate per-port MTU device entries
-      portDevices = lib.listToAttrs (map (port: {
+    # Generate per-port MTU device entries
+    portDevices = lib.listToAttrs (map (port: {
         name = "port_${port}";
         value = {
           _type = "device";
           name = port;
           mtu = portMTU;
         };
-      }) allPorts);
+      })
+      allPorts);
 
-      # Generate bridge-vlan entries
-      bridgeVlanConfigs = lib.mapAttrs' (name: vlan: {
+    # Generate bridge-vlan entries
+    bridgeVlanConfigs =
+      lib.mapAttrs' (name: vlan: {
         name = "brvlan_${name}";
         value = {
           _type = "bridge-vlan";
           device = "switch";
           vlan = vlan.tag;
-          ports = map (p: "${p}:t") trunkPorts
+          ports =
+            map (p: "${p}:t") trunkPorts
             ++ (vlan.accessPorts or []);
         };
-      }) vlans;
+      })
+      vlans;
 
-      # VLAN device for management interface
-      mgmtVlan = vlans.MGMT or (throw "mkSwitchNetworkConfig: MGMT VLAN required");
-      lanVlan = vlans.HOME or null;
-
-    in {
-      network = {
+    # VLAN device for management interface
+    mgmtVlan = vlans.MGMT or (throw "mkSwitchNetworkConfig: MGMT VLAN required");
+    lanVlan = vlans.HOME or null;
+  in {
+    network =
+      {
         # Loopback
         loopback = {
           _type = "interface";
@@ -410,7 +435,8 @@ let
           _type = "device";
           type = "bridge";
           name = "lan-br";
-          ports = [ "switch.${toString mgmtVlan.tag}" ]
+          ports =
+            ["switch.${toString mgmtVlan.tag}"]
             ++ lib.optional (lanVlan != null) "switch.${toString lanVlan.tag}";
           mtu = portMTU;
         };
@@ -424,12 +450,16 @@ let
           inherit gateway;
           dns = gateway;
         };
-
-      } // portDevices // bridgeVlanConfigs;
-    };
+      }
+      // portDevices // bridgeVlanConfigs;
+  };
 
   # Generate simple AP network config (simple bridge, no batman)
-  mkSimpleAPNetworkConfig = { hostname, lanAddresses, gateway }: {
+  mkSimpleAPNetworkConfig = {
+    hostname,
+    lanAddresses,
+    gateway,
+  }: {
     network = {
       loopback = {
         _type = "interface";
@@ -443,18 +473,23 @@ let
         _type = "device";
         name = "br-lan";
         type = "bridge";
-        ports = [ "lan0" "lan1" "lan2" "lan3" ];
+        ports = ["lan0" "lan1" "lan2" "lan3"];
       };
 
-      lan = {
-        _type = "interface";
-        device = "br-lan";
-        proto = if lanAddresses != [] then "static" else "dhcp";
-      } // lib.optionalAttrs (lanAddresses != []) {
-        ipaddr = lanAddresses;
-        inherit gateway;
-        dns = gateway;
-      };
+      lan =
+        {
+          _type = "interface";
+          device = "br-lan";
+          proto =
+            if lanAddresses != []
+            then "static"
+            else "dhcp";
+        }
+        // lib.optionalAttrs (lanAddresses != []) {
+          ipaddr = lanAddresses;
+          inherit gateway;
+          dns = gateway;
+        };
     };
   };
 
@@ -468,32 +503,37 @@ let
     # When non-null, bat0 is added to br-lan as a trunk port and included in
     # bridge-vlan entries for VLANs that appear in meshVlans (by name).
     meshVlans ? null,
-  }:
-    let
-      # Collect all access ports from all VLANs
-      allAccessPorts = lib.concatMap (v: v.accessPorts or []) (builtins.attrValues vlans);
-      # Add bat0 as a bridge trunk port when mesh is enabled
-      allBridgePorts = trunkPorts ++ allAccessPorts
-        ++ lib.optional (meshVlans != null) "bat0";
+  }: let
+    # Collect all access ports from all VLANs
+    allAccessPorts = lib.concatMap (v: v.accessPorts or []) (builtins.attrValues vlans);
+    # Add bat0 as a bridge trunk port when mesh is enabled
+    allBridgePorts =
+      trunkPorts
+      ++ allAccessPorts
+      ++ lib.optional (meshVlans != null) "bat0";
 
-      # Bridge-VLAN entries: trunk ports tagged, access ports untagged+PVID,
-      # bat0 tagged for VLANs that are part of the batman mesh fabric.
-      bridgeVlanConfigs = lib.mapAttrs' (name: vlan: {
+    # Bridge-VLAN entries: trunk ports tagged, access ports untagged+PVID,
+    # bat0 tagged for VLANs that are part of the batman mesh fabric.
+    bridgeVlanConfigs =
+      lib.mapAttrs' (name: vlan: {
         name = "brvlan_${lib.toLower name}";
         value = {
           _type = "bridge-vlan";
           device = "br-lan";
           vlan = vlan.tag;
-          ports = map (p: "${p}:t") trunkPorts
+          ports =
+            map (p: "${p}:t") trunkPorts
             ++ map (p: "${p}:u*") (vlan.accessPorts or [])
             ++ lib.optional (meshVlans != null && builtins.hasAttr name meshVlans) "bat0:t";
         };
-      }) vlans;
+      })
+      vlans;
 
-      # Primary per-VLAN interfaces: 10.0 address only.
-      # dnsmasq pools attach here — keeping a single address ensures only one
-      # DHCP pool is generated per VLAN (10.0.x.100–249).
-      primaryVlanInterfaces = lib.mapAttrs' (name: vlan: {
+    # Primary per-VLAN interfaces: 10.0 address only.
+    # dnsmasq pools attach here — keeping a single address ensures only one
+    # DHCP pool is generated per VLAN (10.0.x.100–249).
+    primaryVlanInterfaces =
+      lib.mapAttrs' (name: vlan: {
         name = lib.toLower name;
         value = {
           _type = "interface";
@@ -502,11 +542,13 @@ let
           ipaddr = mkPrimaryGatewayAddress vlan.tag;
           dns = "127.0.0.1";
         };
-      }) vlans;
+      })
+      vlans;
 
-      # Extra alias interfaces per VLAN: 10.1 + 10.97 addresses.
-      # No dhcp section is generated for these, so they carry no DHCP pool.
-      extraVlanInterfaces = lib.mapAttrs' (name: vlan: {
+    # Extra alias interfaces per VLAN: 10.1 + 10.97 addresses.
+    # No dhcp section is generated for these, so they carry no DHCP pool.
+    extraVlanInterfaces =
+      lib.mapAttrs' (name: vlan: {
         name = "${lib.toLower name}_x";
         value = {
           _type = "interface";
@@ -514,10 +556,11 @@ let
           proto = "static";
           ipaddr = mkExtraGatewayAddresses vlan.tag;
         };
-      }) vlans;
-
-    in {
-      network = {
+      })
+      vlans;
+  in {
+    network =
+      {
         # Loopback
         loopback = {
           _type = "interface";
@@ -542,8 +585,10 @@ let
           vlan_filtering = true;
           ports = allBridgePorts;
         };
-
-      } // bridgeVlanConfigs // primaryVlanInterfaces // extraVlanInterfaces
+      }
+      // bridgeVlanConfigs
+      // primaryVlanInterfaces
+      // extraVlanInterfaces
       // lib.optionalAttrs (meshVlans != null) {
         # batman-adv interface — gateway mode advertises this node as the
         # internet gateway to batman clients that use gw_mode=client.
@@ -574,66 +619,65 @@ let
           mtu = 2304;
         };
       };
-    };
+  };
 
   # Generate firewall configuration for a router
-  mkRouterFirewallConfig = { vlans }:
-    let
-      vlanIfaceNames = map lib.toLower (builtins.attrNames vlans);
-      # Include the _x alias interfaces so 10.1/10.97 traffic is also in the LAN zone
-      extraIfaceNames = map (n: "${n}_x") vlanIfaceNames;
-      allLanNetworks = vlanIfaceNames ++ extraIfaceNames;
-    in {
-      firewall = {
-        defaults = {
-          _type = "defaults";
-          syn_flood = true;
-          input = "REJECT";
-          output = "ACCEPT";
-          forward = "REJECT";
-        };
+  mkRouterFirewallConfig = {vlans}: let
+    vlanIfaceNames = map lib.toLower (builtins.attrNames vlans);
+    # Include the _x alias interfaces so 10.1/10.97 traffic is also in the LAN zone
+    extraIfaceNames = map (n: "${n}_x") vlanIfaceNames;
+    allLanNetworks = vlanIfaceNames ++ extraIfaceNames;
+  in {
+    firewall = {
+      defaults = {
+        _type = "defaults";
+        syn_flood = true;
+        input = "REJECT";
+        output = "ACCEPT";
+        forward = "REJECT";
+      };
 
-        zone_wan = {
-          _type = "zone";
-          name = "wan";
-          network = [ "wan" ];
-          input = "REJECT";
-          output = "ACCEPT";
-          forward = "REJECT";
-          masq = true;
-          mtu_fix = true;
-        };
+      zone_wan = {
+        _type = "zone";
+        name = "wan";
+        network = ["wan"];
+        input = "REJECT";
+        output = "ACCEPT";
+        forward = "REJECT";
+        masq = true;
+        mtu_fix = true;
+      };
 
-        zone_lan = {
-          _type = "zone";
-          name = "lan";
-          network = allLanNetworks;
-          input = "ACCEPT";
-          output = "ACCEPT";
-          forward = "ACCEPT";
-        };
+      zone_lan = {
+        _type = "zone";
+        name = "lan";
+        network = allLanNetworks;
+        input = "ACCEPT";
+        output = "ACCEPT";
+        forward = "ACCEPT";
+      };
 
-        fwd_lan_wan = {
-          _type = "forwarding";
-          src = "lan";
-          dest = "wan";
-        };
+      fwd_lan_wan = {
+        _type = "forwarding";
+        src = "lan";
+        dest = "wan";
+      };
 
-        rule_wan_dhcp = {
-          _type = "rule";
-          name = "Allow-WAN-DHCP";
-          src = "wan";
-          proto = "udp";
-          dest_port = 68;
-          target = "ACCEPT";
-        };
+      rule_wan_dhcp = {
+        _type = "rule";
+        name = "Allow-WAN-DHCP";
+        src = "wan";
+        proto = "udp";
+        dest_port = 68;
+        target = "ACCEPT";
       };
     };
+  };
 
   # Generate DHCP configuration for a router
-  mkRouterDHCPConfig = { vlans }:
-    let
-      vlanPools = lib.mapAttrs' (name: _vlan: {
+  mkRouterDHCPConfig = {vlans}: let
+    vlanPools =
+      lib.mapAttrs' (name: _vlan: {
         name = lib.toLower name;
         value = {
           _type = "dhcp";
@@ -643,9 +687,11 @@ let
           leasetime = "12h";
           dhcpv4 = "server";
         };
-      }) vlans;
-    in {
-      dhcp = {
+      })
+      vlans;
+  in {
+    dhcp =
+      {
         dnsmasq = {
           _type = "dnsmasq";
           domainneeded = true;
@@ -664,22 +710,29 @@ let
           ednspacket_max = 1232;
           cachesize = 1000;
         };
-      } // vlanPools;
-    };
+      }
+      // vlanPools;
+  };
 
   # Select packages for a device based on its type
-  packagesForDevice = device:
-    let extraPackages = device.extraPackages;
-    in
-      if device.type == "meshAP" then defaultMeshPackages ++ extraPackages
-      else if device.type == "switch" then defaultSwitchPackages ++ extraPackages
-      else if device.type == "simpleAP" then defaultSimpleAPPackages ++ extraPackages
-      else if device.type == "router" then
-        (if device.hasMesh or false
-         then defaultRouterPackages ++ meshRouterPackageAdditions
-         else defaultRouterPackages)
-        ++ extraPackages
-      else throw "packagesForDevice: unknown device type '${device.type}'";
+  packagesForDevice = device: let
+    extraPackages = device.extraPackages;
+  in
+    if device.type == "meshAP"
+    then defaultMeshPackages ++ extraPackages
+    else if device.type == "switch"
+    then defaultSwitchPackages ++ extraPackages
+    else if device.type == "simpleAP"
+    then defaultSimpleAPPackages ++ extraPackages
+    else if device.type == "router"
+    then
+      (
+        if device.hasMesh or false
+        then defaultRouterPackages ++ meshRouterPackageAdditions
+        else defaultRouterPackages
+      )
+      ++ extraPackages
+    else throw "packagesForDevice: unknown device type '${device.type}'";
 
   # Generate per-device Nix store files using builtins.toFile.
   # Returns { configJson, uciFile, secretsFile, keysFile } — all store paths.
@@ -688,33 +741,35 @@ let
   # Note: builtins.toFile cannot reference other store paths, so configJson
   # contains only metadata (no file paths). The shell wrapper resolves all
   # file paths from the lookup table and passes them to the builder.
-  mkConfigFiles = { device, owrtData }:
-    let
-      config = mkDeviceConfig { inherit device owrtData; };
-      packages = packagesForDevice device;
+  mkConfigFiles = {
+    device,
+    owrtData,
+  }: let
+    config = mkDeviceConfig {inherit device owrtData;};
+    packages = packagesForDevice device;
 
-      uciScript = uci.mkUCIDefaults {
-        name = "nix-config";
-        inherit config;
-        preCommands = migrationPreCommands;
-      };
-      secretsMap = mkSecretsMap { inherit device owrtData; };
-      keysContent = lib.concatStringsSep "\n" (owrtData.authorizedKeys ++ [ "" ]);
-
-      configJson = builtins.toFile "openwrt-config-${device.hostname}.json" (builtins.toJSON {
-        hostname = device.hostname;
-        profile = device.profile;
-        target = device.target;
-        subtarget = device.subtarget;
-        release = device.release or owrtData.defaultRelease;
-        deviceType = device.type;
-        inherit packages secretsMap;
-      });
-      uciFile = builtins.toFile "uci-defaults-${device.hostname}.sh" uciScript;
-      keysFile = builtins.toFile "authorized-keys" keysContent;
-    in {
-      inherit configJson uciFile keysFile;
+    uciScript = uci.mkUCIDefaults {
+      name = "nix-config";
+      inherit config;
+      preCommands = migrationPreCommands;
     };
+    secretsMap = mkSecretsMap {inherit device owrtData;};
+    keysContent = lib.concatStringsSep "\n" (owrtData.authorizedKeys ++ [""]);
+
+    configJson = builtins.toFile "openwrt-config-${device.hostname}.json" (builtins.toJSON {
+      hostname = device.hostname;
+      profile = device.profile;
+      target = device.target;
+      subtarget = device.subtarget;
+      release = device.release or owrtData.defaultRelease;
+      deviceType = device.type;
+      inherit packages secretsMap;
+    });
+    uciFile = builtins.toFile "uci-defaults-${device.hostname}.sh" uciScript;
+    keysFile = builtins.toFile "authorized-keys" keysContent;
+  in {
+    inherit configJson uciFile keysFile;
+  };
 
   # Build complete router configuration
   mkRouterConfig = {
@@ -737,60 +792,80 @@ let
     extraConfig ? {},
   }:
     lib.recursiveUpdate (
-      mkSystemConfig { inherit hostname timezone; }
+      mkSystemConfig {inherit hostname timezone;}
       // mkRouterNetworkConfig {
-           inherit hostname vlans trunkPorts mkPrimaryGatewayAddress mkExtraGatewayAddresses;
-           meshVlans = if hasMesh then meshVlans else null;
-         }
-      // (if hasMesh
-          then mkMeshWirelessConfig { inherit apNetworks country heBssColor legacyRates; }
-          else mkSimpleAPWirelessConfig { inherit encryption country; network = "home"; })
-      // mkRouterFirewallConfig { inherit vlans; }
-      // mkRouterDHCPConfig { inherit vlans; }
-      // mkDropbearConfig { inherit authorizedKeys; }
-    ) extraConfig;
+        inherit hostname vlans trunkPorts mkPrimaryGatewayAddress mkExtraGatewayAddresses;
+        meshVlans =
+          if hasMesh
+          then meshVlans
+          else null;
+      }
+      // (
+        if hasMesh
+        then mkMeshWirelessConfig {inherit apNetworks country heBssColor legacyRates;}
+        else
+          mkSimpleAPWirelessConfig {
+            inherit encryption country;
+            network = "home";
+          }
+      )
+      // mkRouterFirewallConfig {inherit vlans;}
+      // mkRouterDHCPConfig {inherit vlans;}
+      // mkDropbearConfig {inherit authorizedKeys;}
+    )
+    extraConfig;
 
   # Generate system configuration
-  mkSystemConfig = { hostname, timezone, log_ip ? null }:
-    {
-      system = {
-        system = {
+  mkSystemConfig = {
+    hostname,
+    timezone,
+    log_ip ? null,
+  }: {
+    system = {
+      system =
+        {
           _type = "system";
           hostname = hostname;
           timezone = timezone;
           log_size = 64;
-        } // lib.optionalAttrs (log_ip != null) {
+        }
+        // lib.optionalAttrs (log_ip != null) {
           log_ip = log_ip;
           log_proto = "udp";
           log_remote = true;
         };
 
-        ntp = {
-          _type = "timeserver";
-          enabled = true;
-          enable_server = false;
-          server = [
-            "0.openwrt.pool.ntp.org"
-            "1.openwrt.pool.ntp.org"
-            "2.openwrt.pool.ntp.org"
-            "3.openwrt.pool.ntp.org"
-          ];
-        };
+      ntp = {
+        _type = "timeserver";
+        enabled = true;
+        enable_server = false;
+        server = [
+          "0.openwrt.pool.ntp.org"
+          "1.openwrt.pool.ntp.org"
+          "2.openwrt.pool.ntp.org"
+          "3.openwrt.pool.ntp.org"
+        ];
       };
     };
+  };
 
   # Generate dropbear (SSH) configuration
-  mkDropbearConfig = { authorizedKeys }:
-    {
-      dropbear = {
-        main = {
-          _type = "dropbear";
-          PasswordAuth = if authorizedKeys != [] then false else true;
-          RootPasswordAuth = if authorizedKeys != [] then false else true;
-          Port = 22;
-        };
+  mkDropbearConfig = {authorizedKeys}: {
+    dropbear = {
+      main = {
+        _type = "dropbear";
+        PasswordAuth =
+          if authorizedKeys != []
+          then false
+          else true;
+        RootPasswordAuth =
+          if authorizedKeys != []
+          then false
+          else true;
+        Port = 22;
       };
     };
+  };
 
   # Build complete mesh AP configuration
   mkMeshAPConfig = {
@@ -808,11 +883,12 @@ let
     extraConfig ? {},
   }:
     lib.recursiveUpdate (
-      mkSystemConfig { inherit hostname timezone; }
-      // mkMeshNetworkConfig { inherit hostname vlans lanAddresses mgmtAddresses gateway; }
-      // mkMeshWirelessConfig { inherit apNetworks country heBssColor legacyRates; }
-      // mkDropbearConfig { inherit authorizedKeys; }
-    ) extraConfig;
+      mkSystemConfig {inherit hostname timezone;}
+      // mkMeshNetworkConfig {inherit hostname vlans lanAddresses mgmtAddresses gateway;}
+      // mkMeshWirelessConfig {inherit apNetworks country heBssColor legacyRates;}
+      // mkDropbearConfig {inherit authorizedKeys;}
+    )
+    extraConfig;
 
   # Build complete switch configuration
   mkSwitchConfig = {
@@ -826,10 +902,11 @@ let
     extraConfig ? {},
   }:
     lib.recursiveUpdate (
-      mkSystemConfig { inherit hostname timezone; }
-      // mkSwitchNetworkConfig { inherit hostname lanAddresses gateway vlans trunkPorts; }
-      // mkDropbearConfig { inherit authorizedKeys; }
-    ) extraConfig;
+      mkSystemConfig {inherit hostname timezone;}
+      // mkSwitchNetworkConfig {inherit hostname lanAddresses gateway vlans trunkPorts;}
+      // mkDropbearConfig {inherit authorizedKeys;}
+    )
+    extraConfig;
 
   # Build complete simple AP configuration
   mkSimpleAPConfig = {
@@ -843,11 +920,15 @@ let
     extraConfig ? {},
   }:
     lib.recursiveUpdate (
-      mkSystemConfig { inherit hostname timezone; }
-      // mkSimpleAPNetworkConfig { inherit hostname lanAddresses gateway; }
-      // mkSimpleAPWirelessConfig { inherit encryption country; network = "lan"; }
-      // mkDropbearConfig { inherit authorizedKeys; }
-    ) extraConfig;
+      mkSystemConfig {inherit hostname timezone;}
+      // mkSimpleAPNetworkConfig {inherit hostname lanAddresses gateway;}
+      // mkSimpleAPWirelessConfig {
+        inherit encryption country;
+        network = "lan";
+      }
+      // mkDropbearConfig {inherit authorizedKeys;}
+    )
+    extraConfig;
 
   # Generate a map of sops secret key names → UCI paths for a device.
   # Derived by traversing the generated device config for { _secret = "key"; }
@@ -856,40 +937,47 @@ let
   #
   # Produces: { "secret.key" = [ "config.section.option" ... ]; ... }
   # Multiple UCI paths may share the same secret key (e.g., same SSID on 2g+5g).
-  mkSecretsMap = { device, owrtData }:
-    let
-      config = mkDeviceConfig { inherit device owrtData; };
+  mkSecretsMap = {
+    device,
+    owrtData,
+  }: let
+    config = mkDeviceConfig {inherit device owrtData;};
 
-      # Recursively collect { _secret = "key"; } markers from the config.
-      # path: the dot-joined UCI path built so far (e.g. "wireless.ap_2g_main")
-      # value: the current node being examined
-      # Returns an attrset of { secretKey = [ uciPath ... ]; }
-      collect = path: value:
-        if builtins.isAttrs value && value ? _secret then
-          # Leaf: secret marker found.
-          { "${value._secret}" = [ path ]; }
-        else if builtins.isAttrs value then
-          # Interior node: recurse into children, skipping rendering hints.
-          lib.foldlAttrs
-            (acc: key: child:
-              if key == "_type" || key == "_anonymous" then acc
-              else
-                let
-                  childPath = if path == "" then key else "${path}.${key}";
-                  found = collect childPath child;
-                in
-                  # Merge: if two paths share a secret key, union their lists.
-                  lib.foldlAttrs
-                    (acc2: k: v: acc2 // { "${k}" = (acc2.${k} or []) ++ v; })
-                    acc
-                    found)
-            {}
-            value
-        else
-          # Leaf scalar or list — not a secret marker, nothing to collect.
-          {};
-
-    in collect "" config;
+    # Recursively collect { _secret = "key"; } markers from the config.
+    # path: the dot-joined UCI path built so far (e.g. "wireless.ap_2g_main")
+    # value: the current node being examined
+    # Returns an attrset of { secretKey = [ uciPath ... ]; }
+    collect = path: value:
+      if builtins.isAttrs value && value ? _secret
+      then
+        # Leaf: secret marker found.
+        {"${value._secret}" = [path];}
+      else if builtins.isAttrs value
+      then
+        # Interior node: recurse into children, skipping rendering hints.
+        lib.foldlAttrs
+        (acc: key: child:
+          if key == "_type" || key == "_anonymous"
+          then acc
+          else let
+            childPath =
+              if path == ""
+              then key
+              else "${path}.${key}";
+            found = collect childPath child;
+          in
+            # Merge: if two paths share a secret key, union their lists.
+            lib.foldlAttrs
+            (acc2: k: v: acc2 // {"${k}" = (acc2.${k} or []) ++ v;})
+            acc
+            found)
+        {}
+        value
+      else
+        # Leaf scalar or list — not a secret marker, nothing to collect.
+        {};
+  in
+    collect "" config;
 
   # Generate config files derivation (uci-defaults + authorized_keys)
   # Single function replacing the copy-pasted runCommand blocks in mk*Image
@@ -912,54 +1000,68 @@ let
 
   # Generate UCI config from a device declaration (pure data with a type field)
   # Dispatches to the appropriate mk*Config function based on device.type
-  mkDeviceConfig = { device, owrtData }:
-    let
-      inherit (owrtData) mkAddresses mkGateway meshVlans switchVlans routerVlans
-                         authorizedKeys defaultAPNetworks
-                         mkPrimaryGatewayAddress mkExtraGatewayAddresses;
-    in
-      if device.type == "meshAP" then
-        mkMeshAPConfig {
-          inherit (device) hostname timezone country heBssColor legacyRates;
-          extraConfig = device.extraConfig or {};
-          inherit authorizedKeys;
-          vlans = meshVlans;
-          apNetworks = defaultAPNetworks;
-          lanAddresses = mkAddresses meshVlans.HOME.tag device.hostId;
-          mgmtAddresses = mkAddresses meshVlans.MGMT.tag device.hostId;
-          gateway = mkGateway meshVlans.HOME.tag;
-        }
-      else if device.type == "switch" then
-        mkSwitchConfig {
-          inherit (device) hostname timezone trunkPorts;
-          extraConfig = device.extraConfig or {};
-          inherit authorizedKeys;
-          lanAddresses = mkAddresses device.vlanId device.hostId;
-          gateway = mkGateway device.vlanId;
-          vlans = switchVlans;
-        }
-      else if device.type == "simpleAP" then
-        mkSimpleAPConfig {
-          inherit (device) hostname timezone country encryption;
-          extraConfig = device.extraConfig or {};
-          inherit authorizedKeys;
-          lanAddresses = mkAddresses device.vlanId device.hostId;
-          gateway = mkGateway device.vlanId;
-        }
-      else if device.type == "router" then
-        mkRouterConfig {
-          inherit (device) hostname timezone country encryption trunkPorts;
-          extraConfig = device.extraConfig or {};
-          inherit authorizedKeys mkPrimaryGatewayAddress mkExtraGatewayAddresses;
-          vlans = routerVlans;
-          hasMesh = device.hasMesh or false;
-          inherit meshVlans;
-          apNetworks = defaultAPNetworks;
-          heBssColor = device.heBssColor or null;
-          legacyRates = device.legacyRates or false;
-        }
-      else throw "mkDeviceConfig: unknown device type '${device.type}'";
-
+  mkDeviceConfig = {
+    device,
+    owrtData,
+  }: let
+    inherit
+      (owrtData)
+      mkAddresses
+      mkGateway
+      meshVlans
+      switchVlans
+      routerVlans
+      authorizedKeys
+      defaultAPNetworks
+      mkPrimaryGatewayAddress
+      mkExtraGatewayAddresses
+      ;
+  in
+    if device.type == "meshAP"
+    then
+      mkMeshAPConfig {
+        inherit (device) hostname timezone country heBssColor legacyRates;
+        extraConfig = device.extraConfig or {};
+        inherit authorizedKeys;
+        vlans = meshVlans;
+        apNetworks = defaultAPNetworks;
+        lanAddresses = mkAddresses meshVlans.HOME.tag device.hostId;
+        mgmtAddresses = mkAddresses meshVlans.MGMT.tag device.hostId;
+        gateway = mkGateway meshVlans.HOME.tag;
+      }
+    else if device.type == "switch"
+    then
+      mkSwitchConfig {
+        inherit (device) hostname timezone trunkPorts;
+        extraConfig = device.extraConfig or {};
+        inherit authorizedKeys;
+        lanAddresses = mkAddresses device.vlanId device.hostId;
+        gateway = mkGateway device.vlanId;
+        vlans = switchVlans;
+      }
+    else if device.type == "simpleAP"
+    then
+      mkSimpleAPConfig {
+        inherit (device) hostname timezone country encryption;
+        extraConfig = device.extraConfig or {};
+        inherit authorizedKeys;
+        lanAddresses = mkAddresses device.vlanId device.hostId;
+        gateway = mkGateway device.vlanId;
+      }
+    else if device.type == "router"
+    then
+      mkRouterConfig {
+        inherit (device) hostname timezone country encryption trunkPorts;
+        extraConfig = device.extraConfig or {};
+        inherit authorizedKeys mkPrimaryGatewayAddress mkExtraGatewayAddresses;
+        vlans = routerVlans;
+        hasMesh = device.hasMesh or false;
+        inherit meshVlans;
+        apNetworks = defaultAPNetworks;
+        heBssColor = device.heBssColor or null;
+        legacyRates = device.legacyRates or false;
+      }
+    else throw "mkDeviceConfig: unknown device type '${device.type}'";
 in {
   # Re-export UCI library
   inherit uci;
@@ -977,7 +1079,8 @@ in {
       defaultSwitchPackages
       defaultSimpleAPPackages
       defaultRouterPackages
-      meshRouterPackageAdditions;
+      meshRouterPackageAdditions
+      ;
   };
 
   # High-level API
@@ -1004,5 +1107,6 @@ in {
     mkSimpleAPConfig
     mkSecretsMap
     mkDeviceConfig
-    migrationPreCommands;
+    migrationPreCommands
+    ;
 }

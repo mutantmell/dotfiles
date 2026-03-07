@@ -12,15 +12,15 @@ A new top-level `openwrtConfigurations` flake output (similar to `nixosConfigura
 
 ## Files to Modify
 
-| File | Change |
-|------|--------|
-| `lib/openwrt/default.nix` | Add `mkConfigFiles` function |
-| `flake.nix` | Remove `openwrtBuildInfo`, add `openwrtConfigurations` output, update `apps` call |
-| `apps/default.nix` | Change function signature |
-| `apps/openwrt/default.nix` | Replace JSON blob with per-device file lookup table |
-| `packages/openwrt-builder/build.py` | Replace `--build-info` with `--config-file`, load JSON + referenced files |
-| `tests/lib/openwrt-config.nix` | Add config file tests (pure eval using `builtins.readFile`) |
-| `CLAUDE.md` | Document `nix build .#openwrtConfigurations.<device>` |
+| File                                | Change                                                                            |
+| ----------------------------------- | --------------------------------------------------------------------------------- |
+| `lib/openwrt/default.nix`           | Add `mkConfigFiles` function                                                      |
+| `flake.nix`                         | Remove `openwrtBuildInfo`, add `openwrtConfigurations` output, update `apps` call |
+| `apps/default.nix`                  | Change function signature                                                         |
+| `apps/openwrt/default.nix`          | Replace JSON blob with per-device file lookup table                               |
+| `packages/openwrt-builder/build.py` | Replace `--build-info` with `--config-file`, load JSON + referenced files         |
+| `tests/lib/openwrt-config.nix`      | Add config file tests (pure eval using `builtins.readFile`)                       |
+| `CLAUDE.md`                         | Document `nix build .#openwrtConfigurations.<device>`                             |
 
 ## Step 1: Add `mkConfigFiles` to `lib/openwrt/default.nix`
 
@@ -29,6 +29,7 @@ Add a function `mkConfigFiles = { device, owrtData }: { ... }` that returns an a
 Package selection logic (meshAP→`defaultMeshPackages`, etc.) moves from `flake.nix:openwrtBuildInfo` into this function.
 
 **Return value:**
+
 ```nix
 {
   configJson = builtins.toFile "openwrt-config-<hostname>.json" (builtins.toJSON {
@@ -93,9 +94,11 @@ Due to `builtins.toFile` content-addressing, the store paths from `openwrtConfig
 ## Step 3: Update app wrappers
 
 ### `apps/default.nix`
+
 Change signature from `{ pkgs, openwrtBuildInfo }` to `{ pkgs, openwrtDevices, openwrtDeviceFiles }`.
 
 ### `apps/openwrt/default.nix`
+
 Signature: `{ pkgs, openwrtDevices, openwrtDeviceFiles }`.
 
 **Remove** `buildInfoFile` (the `pkgs.writeText` JSON blob).
@@ -159,6 +162,7 @@ meshUci = builtins.readFile meshFiles.uciFile;
 ```
 
 Test assertions:
+
 - `meshMeta.hostname == "test-mesh"`
 - `meshMeta.deviceType == "meshAP"`
 - `meshMeta ? profile && meshMeta ? target && meshMeta ? packages`
@@ -176,6 +180,7 @@ These are all pure eval — no `pkgs` needed, fast.
 ## Step 6: Update CLAUDE.md
 
 Add:
+
 ```
 # Build an OpenWrt config (pure Nix, no secrets, no network)
 nix build .#openwrtConfigurations.<device-name>

@@ -1,6 +1,10 @@
-{ config, lib, pkgs, options, ... }:
-
-let
+{
+  config,
+  lib,
+  pkgs,
+  options,
+  ...
+}: let
   cfg = config.common.microvm;
   impCfg = config.common.impermanence;
   # microvm.vms only exists when the microvm host module is loaded.
@@ -36,20 +40,27 @@ in {
 
     # microvm.vms, microvm.autostart — requires microvm host module
     (lib.optionalAttrs isMicrovmHost (lib.mkIf (cfg.enable && cfg.guestDir != null) (
-      let guestEntries = builtins.readDir cfg.guestDir; in {
+      let
+        guestEntries = builtins.readDir cfg.guestDir;
+      in {
         microvm = rec {
-          vms = builtins.mapAttrs (name: type:
-            if type != "directory" then abort "invalid guest: ${name}" else {
-              inherit pkgs;
-              config = pkgs.mmell.lib.builders.mk-microvm (import (cfg.guestDir + "/${name}"));
-            }
-          ) guestEntries;
+          vms =
+            builtins.mapAttrs (
+              name: type:
+                if type != "directory"
+                then abort "invalid guest: ${name}"
+                else {
+                  inherit pkgs;
+                  config = pkgs.mmell.lib.builders.mk-microvm (import (cfg.guestDir + "/${name}"));
+                }
+            )
+            guestEntries;
           autostart = builtins.attrNames vms;
         };
 
         # Ensure virtiofs share directories exist before microVMs start
-        systemd.tmpfiles.rules = builtins.map (name:
-          "d ${impCfg.persistDir}/guests/${name}/static 0755 root root -"
+        systemd.tmpfiles.rules = builtins.map (
+          name: "d ${impCfg.persistDir}/guests/${name}/static 0755 root root -"
         ) (builtins.attrNames guestEntries);
 
         environment.systemPackages = [
@@ -61,7 +72,11 @@ in {
     # Persist microvm state via impermanence
     (lib.mkIf (cfg.enable && cfg.guestDir != null && impCfg.enable) {
       environment.persistence.${impCfg.persistDir}.directories = [
-        { directory = "/var/lib/microvms"; user = "microvm"; group = "kvm"; }
+        {
+          directory = "/var/lib/microvms";
+          user = "microvm";
+          group = "kvm";
+        }
       ];
     })
   ];

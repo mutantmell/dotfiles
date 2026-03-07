@@ -108,6 +108,7 @@ nodes = {
 **Test cases (each becomes a named test function):**
 
 Input chain tests:
+
 1. **management → router: full access** — mgmt can reach all router ports (SSH, DNS, any service)
 2. **trusted → router: full access** — trusted can reach all router ports
 3. **untrusted → router: DNS/DHCP only** — guest can reach DNS (53/tcp, 53/udp) and DHCP (67/udp) but NOT SSH (22/tcp) or HTTP (80/tcp)
@@ -115,18 +116,7 @@ Input chain tests:
 5. **external → router: stealth** — attacker gets nothing (already covered by existing test, but good to have in the matrix)
 6. **ICMP echo: internal only** — mgmt/trusted/untrusted can ping router; external/isolated cannot
 
-Forward chain tests:
-7. **management → trusted: allowed** — mgmt can reach trusted node
-8. **management → untrusted: allowed** — mgmt can reach guest node
-9. **management → external: allowed** — mgmt can reach internet (via NAT)
-10. **trusted → management: allowed** — trusted can reach mgmt node
-11. **trusted → untrusted: allowed** — trusted can reach guest node
-12. **trusted → external: allowed** — trusted can reach internet
-13. **untrusted → external: allowed** — guest can reach internet
-14. **untrusted → management: blocked** — guest cannot reach mgmt node
-15. **untrusted → trusted: blocked** — guest cannot reach trusted node
-16. **isolated → anything: blocked** — isolated cannot forward anywhere
-17. **external → internal: blocked** — attacker cannot reach any internal network
+Forward chain tests: 7. **management → trusted: allowed** — mgmt can reach trusted node 8. **management → untrusted: allowed** — mgmt can reach guest node 9. **management → external: allowed** — mgmt can reach internet (via NAT) 10. **trusted → management: allowed** — trusted can reach mgmt node 11. **trusted → untrusted: allowed** — trusted can reach guest node 12. **trusted → external: allowed** — trusted can reach internet 13. **untrusted → external: allowed** — guest can reach internet 14. **untrusted → management: blocked** — guest cannot reach mgmt node 15. **untrusted → trusted: blocked** — guest cannot reach trusted node 16. **isolated → anything: blocked** — isolated cannot forward anywhere 17. **external → internal: blocked** — attacker cannot reach any internal network
 
 ### 0.2 Snapshot the nftables ruleset
 
@@ -295,6 +285,7 @@ firewall.baseRules = mkOption {
 **File:** `modules/router6/default.nix` — `mkNetworkSubmodule`
 
 Replace the hardcoded enum with a required zone reference:
+
 ```nix
 # Before:
 trust = mkOption {
@@ -386,6 +377,7 @@ rules based on the `icmpEcho` value, before any `inputRules` for that zone. Esse
 Replace the hardcoded interface selectors with zone-driven iteration.
 
 **Remove** the fixed selectors:
+
 ```nix
 # Remove these:
 externalInterfaces = interfacesWithTrust ["management" "trusted" "untrusted"];  # was internalInterfaces
@@ -397,6 +389,7 @@ interfacesInZone = zone:
 ```
 
 **New helper functions:**
+
 ```nix
 # Get all interfaces for a zone (alias)
 zoneInterfaces = zoneName: interfacesInZone zoneName;
@@ -413,6 +406,7 @@ activeZones = filter zoneHasInterfaces (attrNames cfg.zones);
 ```
 
 **Input chain generation:**
+
 ```nix
 chain input {
   type filter hook input priority filter; policy drop;
@@ -467,6 +461,7 @@ chain input {
 ```
 
 **Forward chain generation:**
+
 ```nix
 chain forward {
   type filter hook forward priority filter; policy drop;
@@ -583,6 +578,7 @@ The main new capability that `accessTo` alone doesn't cover. Define a zone that 
 `forwardRules` for per-port filtered forwarding and verify the correct behavior.
 
 **Test config:**
+
 ```nix
 zones = {
   external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
@@ -602,6 +598,7 @@ zones = {
 ```
 
 **Test cases:**
+
 - restricted → external on port 443: **allowed**
 - restricted → external on port 80: **allowed**
 - restricted → external on port 123/udp: **allowed**
@@ -618,6 +615,7 @@ Verify that a zone with multiple interfaces generates correct nftables `iifname`
 (`iifname { "eth1", "eth2" }` rather than only matching the first interface).
 
 **Test config:**
+
 ```nix
 zones = {
   external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
@@ -635,6 +633,7 @@ topology = {
 ```
 
 **Test cases (pure Nix eval — snapshot or string check):**
+
 - Generated input rules contain `iifname { "eth2", "eth3" }` (set syntax, not two separate rules)
 - Generated forward rules contain `iifname { "eth2", "eth3" } oifname "eth1" accept`
 - Both interfaces can reach the router (VM test if desired)
@@ -651,11 +650,13 @@ code paths that need explicit testing.
 
 **Test approach: pure Nix eval** — evaluate a config with `icmpEcho = "ipv4-only"` and
 verify the generated ruleset:
+
 - Contains `icmp type { echo-request, echo-reply } accept` (IPv4 ICMP)
 - Does NOT contain `icmpv6 type { echo-request, echo-reply } accept` (IPv6 ICMP echo)
 - Still contains essential ICMPv6 (NDP, PMTUD) from baseRules — only echo is suppressed
 
 And the inverse for `ipv6-only`:
+
 - Contains `icmpv6 type { echo-request, echo-reply } accept`
 - Does NOT contain `icmp type { echo-request, echo-reply } accept` (IPv4 ICMP echo)
 - Still contains essential ICMPv4 (PMTUD) from baseRules
@@ -670,6 +671,7 @@ communicate through the router (e.g., two devices on the same VLAN that need L3 
 between subnets, or hairpin scenarios).
 
 **Test config:**
+
 ```nix
 zones = {
   internal = {
@@ -681,6 +683,7 @@ zones = {
 ```
 
 **Test cases:**
+
 - Generated forward chain contains a rule where `iifname` and `oifname` list the same interfaces
 - Traffic from one internal host to another internal host (through the router): **allowed**
 
@@ -694,6 +697,7 @@ zone-generated rules. The escape hatches are meant for one-off rules that don't 
 zone model, and they must not be clobbered or reordered unexpectedly.
 
 **Test approach: pure Nix eval** — evaluate a config that uses both zones and escape hatches:
+
 ```nix
 zones = {
   lan = { icmpEcho = "enable"; accessTo = []; inputRules = [ { verdict = "accept"; } ]; };
@@ -709,6 +713,7 @@ firewall = {
 ```
 
 **Verify:**
+
 - Zone-generated input rules appear in the input chain
 - `extraInputRules` appear AFTER zone rules (as shown in Phase 1.5 template)
 - `extraForwardRules` appear AFTER zone forwarding rules
@@ -719,11 +724,13 @@ firewall = {
 These cover edge cases that are less likely to break but worth documenting for completeness:
 
 **Empty zones** — a zone is defined in `router6.zones` but no interface references it:
+
 - Should be silently skipped in nftables generation (no rules emitted)
 - Should not cause evaluation errors
 - Pure eval test: verify the generated ruleset doesn't mention the empty zone
 
 **`baseRules = false`** — disables connection tracking, loopback accept, and essential ICMP:
+
 - Generated ruleset should contain ONLY zone-defined rules and escape hatches
 - No `ct state established,related accept` in input or forward chains
 - No loopback accept, no essential ICMP/ICMPv6
@@ -732,6 +739,7 @@ These cover edge cases that are less likely to break but worth documenting for c
 
 **Zone ordering stability** — the order of rules in the generated nftables output should
 be deterministic regardless of the order zones are defined in the Nix attrset:
+
 - Nix attrsets are sorted by key name, so `attrNames cfg.zones` produces a stable order
 - Pure eval test: evaluate the same config twice (or with zones defined in different order
   in an overlay) and verify identical output
@@ -762,6 +770,7 @@ may need care. Test carefully if implementing these.
 All host configs must be updated to use `zone = "..."` instead of `trust = "..."`. This is a mechanical find-and-replace across all topology definitions. Since every network interface previously had `trust = "someValue"` (none used `null` in practice), this is straightforward.
 
 Example:
+
 ```nix
 # Before:
 network = { type = "static"; trust = "external"; ... };
@@ -776,12 +785,12 @@ The existing test configs (`router6-firewall.nix`, etc.) must also be updated.
 
 ## Complete File Change List
 
-| File | Phase | Changes |
-|------|-------|---------|
-| `modules/router6/default.nix` | 0, 1 | Add `zones` option, `baseRules` option, rename `trust` to `zone` (required), rewrite nftables generation to iterate zones, add zone assertions |
-| `tests/modules/router6-firewall-zones.nix` | 0, 1.7 | New comprehensive multi-zone firewall test; forwardRules + multi-interface tests added in 1.7 |
-| `tests/lib/router6-firewall-snapshot.nix` | 0, 1.7 | New snapshot test for nftables output stability; icmpEcho variant + escape hatch + edge case tests in 1.7 |
-| `tests/default.nix` | 0 | Register new tests |
-| `hosts/thebeyond/default.nix` | 1 | Define zone configs reproducing current trust behavior, change `trust` → `zone` on all interfaces |
-| All host configs with `trust =` | 1 | Mechanical rename `trust` → `zone` |
-| All test configs with `trust =` | 1 | Mechanical rename `trust` → `zone` |
+| File                                       | Phase  | Changes                                                                                                                                        |
+| ------------------------------------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modules/router6/default.nix`              | 0, 1   | Add `zones` option, `baseRules` option, rename `trust` to `zone` (required), rewrite nftables generation to iterate zones, add zone assertions |
+| `tests/modules/router6-firewall-zones.nix` | 0, 1.7 | New comprehensive multi-zone firewall test; forwardRules + multi-interface tests added in 1.7                                                  |
+| `tests/lib/router6-firewall-snapshot.nix`  | 0, 1.7 | New snapshot test for nftables output stability; icmpEcho variant + escape hatch + edge case tests in 1.7                                      |
+| `tests/default.nix`                        | 0      | Register new tests                                                                                                                             |
+| `hosts/thebeyond/default.nix`              | 1      | Define zone configs reproducing current trust behavior, change `trust` → `zone` on all interfaces                                              |
+| All host configs with `trust =`            | 1      | Mechanical rename `trust` → `zone`                                                                                                             |
+| All test configs with `trust =`            | 1      | Mechanical rename `trust` → `zone`                                                                                                             |

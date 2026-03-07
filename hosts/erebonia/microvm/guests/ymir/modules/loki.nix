@@ -1,6 +1,5 @@
-{ config, ... }:
-{
-  networking.firewall.allowedTCPPorts = [ 3100 ];
+{config, ...}: {
+  networking.firewall.allowedTCPPorts = [3100];
 
   services.loki = {
     enable = true;
@@ -18,16 +17,18 @@
         replication_factor = 1;
       };
 
-      schema_config.configs = [{
-        from = "2025-01-01";
-        store = "tsdb";
-        object_store = "filesystem";
-        schema = "v13";
-        index = {
-          prefix = "index_";
-          period = "24h";
-        };
-      }];
+      schema_config.configs = [
+        {
+          from = "2025-01-01";
+          store = "tsdb";
+          object_store = "filesystem";
+          schema = "v13";
+          index = {
+            prefix = "index_";
+            period = "24h";
+          };
+        }
+      ];
 
       storage_config.filesystem.directory = "/var/lib/loki/chunks";
 

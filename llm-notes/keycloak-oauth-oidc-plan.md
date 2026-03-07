@@ -21,16 +21,16 @@
 
 ## Target Service Placement
 
-| Component | Host | Network | External Name | Notes |
-|-----------|------|---------|--------------|-------|
-| Keycloak | dedicated microvm | vINFRA | `auth.mutantmell.net` | OIDC provider, user directory |
-| step-ca | dedicated microvm | vINFRA | — (internal only) | SSH CA + ACME CA, isolated key material |
-| oauth2-proxy + nginx | ordis | vDMZ | `mutantmell.net` | Web traffic gating for externally-reachable services |
-| oauth2-proxy + nginx | phantasma | vINFRA | — (internal only) | Auth gating for strictly internal services (Adguard, etc.) |
-| SSH bastion | dedicated microvm | vDMZ | — (SSH only) | SSH-only jump host, reachable from wg-ba |
-| nginx (Keycloak proxy) | ordis | vDMZ | `auth.mutantmell.net` | Proxies Keycloak for external users (separate vhost) |
-| nginx (Keycloak local) | Keycloak microvm | vINFRA | — | Local reverse proxy for Keycloak |
-| nginx (ACME endpoint) | step-ca microvm | vINFRA | — | TLS termination + proxy to step-ca :9443 |
+| Component              | Host              | Network | External Name         | Notes                                                      |
+| ---------------------- | ----------------- | ------- | --------------------- | ---------------------------------------------------------- |
+| Keycloak               | dedicated microvm | vINFRA  | `auth.mutantmell.net` | OIDC provider, user directory                              |
+| step-ca                | dedicated microvm | vINFRA  | — (internal only)     | SSH CA + ACME CA, isolated key material                    |
+| oauth2-proxy + nginx   | ordis             | vDMZ    | `mutantmell.net`      | Web traffic gating for externally-reachable services       |
+| oauth2-proxy + nginx   | phantasma         | vINFRA  | — (internal only)     | Auth gating for strictly internal services (Adguard, etc.) |
+| SSH bastion            | dedicated microvm | vDMZ    | — (SSH only)          | SSH-only jump host, reachable from wg-ba                   |
+| nginx (Keycloak proxy) | ordis             | vDMZ    | `auth.mutantmell.net` | Proxies Keycloak for external users (separate vhost)       |
+| nginx (Keycloak local) | Keycloak microvm  | vINFRA  | —                     | Local reverse proxy for Keycloak                           |
+| nginx (ACME endpoint)  | step-ca microvm   | vINFRA  | —                     | TLS termination + proxy to step-ca :9443                   |
 
 ### What exists in Keycloak today
 
@@ -62,14 +62,14 @@ service that authenticates users depends on it. This puts it in the same categor
 (phantasma), NTP (thebeyond), and step-ca: foundational services that belong on the
 management plane.
 
-| Consideration | vHOME | vINFRA |
-|---------------|-------|--------|
-| Role classification | User devices, media, home automation | Infrastructure services (DNS, NTP, CA) |
-| step-ca → Keycloak (OIDC) | Cross-zone (management → trusted) | Intra-zone (management → management) |
-| phantasma → Keycloak | Cross-zone (management → trusted) | Intra-zone (management → management) |
-| User browsers → Keycloak | Intra-zone (trusted → trusted) | Cross-zone (trusted → management, allowed by `accessTo`) |
-| Can be reached from vDMZ | Needs explicit rule | Needs explicit rule |
-| Internet access | Unfiltered | Filtered (HTTP/HTTPS/DNS/NTP — sufficient for Keycloak) |
+| Consideration             | vHOME                                | vINFRA                                                   |
+| ------------------------- | ------------------------------------ | -------------------------------------------------------- |
+| Role classification       | User devices, media, home automation | Infrastructure services (DNS, NTP, CA)                   |
+| step-ca → Keycloak (OIDC) | Cross-zone (management → trusted)    | Intra-zone (management → management)                     |
+| phantasma → Keycloak      | Cross-zone (management → trusted)    | Intra-zone (management → management)                     |
+| User browsers → Keycloak  | Intra-zone (trusted → trusted)       | Cross-zone (trusted → management, allowed by `accessTo`) |
+| Can be reached from vDMZ  | Needs explicit rule                  | Needs explicit rule                                      |
+| Internet access           | Unfiltered                           | Filtered (HTTP/HTTPS/DNS/NTP — sufficient for Keycloak)  |
 
 Both zones require an explicit firewall rule for vDMZ access, so that's a wash. The
 deciding factor is that vINFRA consolidates auth infrastructure: step-ca → Keycloak and
@@ -105,11 +105,11 @@ lightweight, the extra microvm nginx is negligible cost for meaningful isolation
 
 ### Microvm sizing
 
-| Microvm | vCPU | RAM | Persistent Storage | Services |
-|---------|------|-----|-------------------|----------|
-| Keycloak | 2 | 2048MB | ~100GB (PostgreSQL) | Keycloak, PostgreSQL, nginx |
-| step-ca | 1 | 512MB | Small (badger DB, CA keys) | step-ca, nginx (ACME endpoint) |
-| SSH bastion | 1 | 256MB | None (stateless) | sshd only |
+| Microvm     | vCPU | RAM    | Persistent Storage         | Services                       |
+| ----------- | ---- | ------ | -------------------------- | ------------------------------ |
+| Keycloak    | 2    | 2048MB | ~100GB (PostgreSQL)        | Keycloak, PostgreSQL, nginx    |
+| step-ca     | 1    | 512MB  | Small (badger DB, CA keys) | step-ca, nginx (ACME endpoint) |
+| SSH bastion | 1    | 256MB  | None (stateless)           | sshd only                      |
 
 > **Note on bastion hosting:** The SSH bastion will likely need to be a VM hosted by
 > Incus rather than a cloud-hypervisor microvm, since it lives on vDMZ (hosted by
@@ -171,6 +171,7 @@ other infrastructure secrets.
 ### Update to SSH certificates plan
 
 The SSH certificates plan should be updated to reflect:
+
 1. Keycloak moves to a dedicated vINFRA microvm (not "a vINFRA host" generically,
    and not vHOME)
 2. step-ca moves to a dedicated vINFRA microvm (updated to say vINFRA rather than
@@ -196,12 +197,12 @@ control within a single realm provides the same granularity.
 
 Each service that authenticates against Keycloak needs a registered client:
 
-| Client ID | Type | Grant Types | Purpose | Redirect URIs |
-|-----------|------|-------------|---------|---------------|
-| `oauth2-proxy` | Confidential | Authorization Code | External web traffic gating (ordis) | `https://mutantmell.net/oauth2/callback` |
-| `oauth2-proxy-internal` | Confidential | Authorization Code | Internal service auth gating (phantasma) | `https://phantasma.internal.mutantmell.net/oauth2/callback` |
-| `step-ca` | Confidential | Authorization Code | SSH certificate issuance (interactive) | `http://127.0.0.1:*` (localhost callback for `step ssh login`) |
-| `cicd-deploy` | Confidential | Client Credentials | CI/CD machine-to-machine auth | N/A (no browser redirect) |
+| Client ID               | Type         | Grant Types        | Purpose                                  | Redirect URIs                                                  |
+| ----------------------- | ------------ | ------------------ | ---------------------------------------- | -------------------------------------------------------------- |
+| `oauth2-proxy`          | Confidential | Authorization Code | External web traffic gating (ordis)      | `https://mutantmell.net/oauth2/callback`                       |
+| `oauth2-proxy-internal` | Confidential | Authorization Code | Internal service auth gating (phantasma) | `https://phantasma.internal.mutantmell.net/oauth2/callback`    |
+| `step-ca`               | Confidential | Authorization Code | SSH certificate issuance (interactive)   | `http://127.0.0.1:*` (localhost callback for `step ssh login`) |
+| `cicd-deploy`           | Confidential | Client Credentials | CI/CD machine-to-machine auth            | N/A (no browser redirect)                                      |
 
 Note that `oauth2-proxy` needs only a single redirect URI — split-horizon DNS means
 internal and external users both access ordis via `mutantmell.net`.
@@ -215,6 +216,7 @@ Additional clients added per-service as OIDC integrations are enabled (see
 [OIDC Integrations](#oidc-integrations) below).
 
 **Client secrets** are stored in sops-nix on the hosts that need them:
+
 - `oauth2-proxy` secret → ordis's sops secrets
 - `oauth2-proxy-internal` secret → phantasma's sops secrets
 - `step-ca` OIDC provisioner secret → step-ca microvm's sops secrets
@@ -223,23 +225,25 @@ Additional clients added per-service as OIDC integrations are enabled (see
 ### Groups and roles
 
 Groups control access across services. Keycloak groups can be mapped to:
+
 - oauth2-proxy's `--allowed-groups` (restrict which users can access web services)
 - step-ca SSH certificate principals (map groups → SSH principals)
 - Per-service OIDC claims (service-specific role mapping)
 
-| Group | Purpose | SSH Principal | Web Access |
-|-------|---------|---------------|------------|
-| `admins` | Full access to everything | `admin` | All services |
-| `media-users` | Jellyfin and media services | — | Media services only |
-| `deploy` | CI/CD service accounts | `deploy` | — |
+| Group         | Purpose                     | SSH Principal | Web Access          |
+| ------------- | --------------------------- | ------------- | ------------------- |
+| `admins`      | Full access to everything   | `admin`       | All services        |
+| `media-users` | Jellyfin and media services | —             | Media services only |
+| `deploy`      | CI/CD service accounts      | `deploy`      | —                   |
 
 Group membership is managed dynamically via the Keycloak admin console. The group
-*structure* (names, role mappings, protocol mappers) can be managed declaratively
+_structure_ (names, role mappings, protocol mappers) can be managed declaratively
 (see [Static vs Dynamic Configuration](#static-vs-dynamic-configuration)).
 
 ### Authentication policies
 
 Configure at the realm level:
+
 - **MFA required for admins:** Conditional OTP or WebAuthn for the `admins` group
 - **Password policy:** Minimum length, no reuse (realm-level setting)
 - **Session timeouts:** Access token lifetime 5min, refresh token 30min, SSO session 12h
@@ -261,15 +265,15 @@ After the [zone-based firewall refactor](./zone-refactor-plan.md), the forwardin
 The OAuth2/OIDC flow requires these cross-VLAN connections that are not covered by
 zone-level `accessTo`:
 
-| Source | Destination | Port | Purpose | Status |
-|--------|-------------|------|---------|--------|
-| ordis (vDMZ) | Keycloak microvm (vINFRA) | 443 | oauth2-proxy → Keycloak OIDC | **Needs explicit rule** |
-| vDMZ ACME clients | step-ca microvm (vINFRA) | 443 | ACME cert issuance | **Needs explicit rule** |
-| wg-ba peers | bastion microvm (vDMZ) | 22 | SSH from cloud host | **Needs explicit rule** (replaces ordis port forward) |
-| wg-ba peers | ordis (vDMZ) | 443 | External web traffic | Already in extraForwardRules |
-| step-ca (vINFRA) | Keycloak microvm (vINFRA) | 443 | OIDC provisioner → Keycloak token validation | Intra-zone (management → management) |
-| phantasma (vINFRA) | Keycloak microvm (vINFRA) | 443 | Internal oauth2-proxy → Keycloak OIDC | Intra-zone (management → management) |
-| User browsers (vHOME) | Keycloak microvm (vINFRA) | 443 | OAuth login page | Allowed (trusted → management) |
+| Source                | Destination               | Port | Purpose                                      | Status                                                |
+| --------------------- | ------------------------- | ---- | -------------------------------------------- | ----------------------------------------------------- |
+| ordis (vDMZ)          | Keycloak microvm (vINFRA) | 443  | oauth2-proxy → Keycloak OIDC                 | **Needs explicit rule**                               |
+| vDMZ ACME clients     | step-ca microvm (vINFRA)  | 443  | ACME cert issuance                           | **Needs explicit rule**                               |
+| wg-ba peers           | bastion microvm (vDMZ)    | 22   | SSH from cloud host                          | **Needs explicit rule** (replaces ordis port forward) |
+| wg-ba peers           | ordis (vDMZ)              | 443  | External web traffic                         | Already in extraForwardRules                          |
+| step-ca (vINFRA)      | Keycloak microvm (vINFRA) | 443  | OIDC provisioner → Keycloak token validation | Intra-zone (management → management)                  |
+| phantasma (vINFRA)    | Keycloak microvm (vINFRA) | 443  | Internal oauth2-proxy → Keycloak OIDC        | Intra-zone (management → management)                  |
+| User browsers (vHOME) | Keycloak microvm (vINFRA) | 443  | OAuth login page                             | Allowed (trusted → management)                        |
 
 The first three rows require explicit firewall rules. The OIDC and ACME rules are
 separate with distinct destination IPs (compromise of one doesn't grant access to the
@@ -404,12 +408,12 @@ Use `mutantmell.net` as the root of all DNS naming:
 
 ### Naming scheme
 
-| Name | Zone type | Internal DNS target | External DNS target | Purpose |
-|------|-----------|-------------------|-------------------|---------|
-| `auth.mutantmell.net` | `transparent` | Keycloak microvm (vINFRA) | Cloud host → ordis → Keycloak | OIDC provider |
-| `mutantmell.net` | `transparent` | ordis (vDMZ) | Cloud host → ordis | Externally-reachable services |
-| `*.internal.mutantmell.net` | `static` | Per host | N/A (NXDOMAIN externally) | Internal-only hosts (canonical) |
-| `*.internal` | `static` | Per host (same IPs) | N/A | Internal-only hosts (short alias) |
+| Name                        | Zone type     | Internal DNS target       | External DNS target           | Purpose                           |
+| --------------------------- | ------------- | ------------------------- | ----------------------------- | --------------------------------- |
+| `auth.mutantmell.net`       | `transparent` | Keycloak microvm (vINFRA) | Cloud host → ordis → Keycloak | OIDC provider                     |
+| `mutantmell.net`            | `transparent` | ordis (vDMZ)              | Cloud host → ordis            | Externally-reachable services     |
+| `*.internal.mutantmell.net` | `static`      | Per host                  | N/A (NXDOMAIN externally)     | Internal-only hosts (canonical)   |
+| `*.internal`                | `static`      | Per host (same IPs)       | N/A                           | Internal-only hosts (short alias) |
 
 > **Note:** `mutantmell.net` is a placeholder — the specific domain/subdomain scheme for
 > externally-reachable services (e.g., `jellyfin.mutantmell.net` vs `mutantmell.net/jellyfin`)
@@ -569,13 +573,13 @@ request a cert for `auth.mutantmell.net`. See S9 for mitigations.
 
 ### TLS certificate strategy
 
-| Access path | Certificate issuer | Certificate SANs | Why it's trusted |
-|------------|-------------------|-----------------|-----------------|
-| LAN → Keycloak (OIDC) | step-CA | `auth.mutantmell.net` + `<keycloak-host>.internal.mutantmell.net` + `<keycloak-host>.internal` | Internal hosts have step-CA root in `security.pki.certificates` |
-| LAN → ordis (services) | step-CA | `mutantmell.net` + `ordis.internal.mutantmell.net` + `ordis.internal` | Same |
-| LAN → phantasma (admin) | step-CA | `phantasma.internal.mutantmell.net` + `phantasma.internal` | Same |
-| Internet → cloud host | Let's Encrypt | `*.mutantmell.net` (or per-subdomain) | Browsers trust LE root |
-| Cloud host → ordis (WireGuard) | step-CA | (same as LAN → ordis) | Cloud host imports step-CA root |
+| Access path                    | Certificate issuer | Certificate SANs                                                                               | Why it's trusted                                                |
+| ------------------------------ | ------------------ | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| LAN → Keycloak (OIDC)          | step-CA            | `auth.mutantmell.net` + `<keycloak-host>.internal.mutantmell.net` + `<keycloak-host>.internal` | Internal hosts have step-CA root in `security.pki.certificates` |
+| LAN → ordis (services)         | step-CA            | `mutantmell.net` + `ordis.internal.mutantmell.net` + `ordis.internal`                          | Same                                                            |
+| LAN → phantasma (admin)        | step-CA            | `phantasma.internal.mutantmell.net` + `phantasma.internal`                                     | Same                                                            |
+| Internet → cloud host          | Let's Encrypt      | `*.mutantmell.net` (or per-subdomain)                                                          | Browsers trust LE root                                          |
+| Cloud host → ordis (WireGuard) | step-CA            | (same as LAN → ordis)                                                                          | Cloud host imports step-CA root                                 |
 
 Internal hosts already trust the step-CA root (distributed via `security.pki.certificates`).
 External users never see step-CA certs — the cloud host terminates their TLS with a
@@ -592,12 +596,12 @@ regardless of which name is used.
 Internal-only services use `*.internal.mutantmell.net` (canonical) and `*.internal`
 (short alias). These names are never reachable from the internet:
 
-| Service | Canonical name | Short alias | Notes |
-|---------|---------------|-------------|-------|
-| AdGuard Home admin | `phantasma.internal.mutantmell.net` | `phantasma.internal` | Strictly internal, infrastructure |
-| Keycloak admin console | `<keycloak-host>.internal.mutantmell.net` | `<keycloak-host>.internal` | Never exposed externally (S5) |
-| step-CA ACME endpoint | `<step-ca-host>.internal.mutantmell.net` | `<step-ca-host>.internal` | Internal cert issuance only |
-| Future vINFRA admin UIs | `*.internal.mutantmell.net` | `*.internal` | Infrastructure services stay internal |
+| Service                 | Canonical name                            | Short alias                | Notes                                 |
+| ----------------------- | ----------------------------------------- | -------------------------- | ------------------------------------- |
+| AdGuard Home admin      | `phantasma.internal.mutantmell.net`       | `phantasma.internal`       | Strictly internal, infrastructure     |
+| Keycloak admin console  | `<keycloak-host>.internal.mutantmell.net` | `<keycloak-host>.internal` | Never exposed externally (S5)         |
+| step-CA ACME endpoint   | `<step-ca-host>.internal.mutantmell.net`  | `<step-ca-host>.internal`  | Internal cert issuance only           |
+| Future vINFRA admin UIs | `*.internal.mutantmell.net`               | `*.internal`               | Infrastructure services stay internal |
 
 The Keycloak microvm's nginx serves two vhosts: the internal name
 (`<keycloak-host>.internal.mutantmell.net`) for admin console access, and
@@ -626,6 +630,7 @@ host can only reach vDMZ through WireGuard, not the Keycloak microvm on vINFRA d
 So external auth traffic needs to be proxied through ordis.
 
 There are two sub-flows that need Keycloak:
+
 1. **Browser redirect** — user's browser loads Keycloak login page (needs browser → Keycloak)
 2. **Token exchange** — oauth2-proxy exchanges auth code for tokens (needs ordis → Keycloak)
 
@@ -841,6 +846,7 @@ decisions for Adguard Home (an infrastructure DNS management service), creating 
 privilege escalation path from vDMZ into vINFRA service control.
 
 With a local oauth2-proxy on phantasma:
+
 - Auth decisions for internal services stay entirely within vINFRA
 - The oauth2-proxy → Keycloak OIDC path is intra-zone (no cross-zone dependency)
 - A ordis compromise has zero impact on internal service authentication
@@ -874,12 +880,12 @@ services.oauth2-proxy = {
 
 **What uses which proxy:**
 
-| Service | Proxy | Host | Why |
-|---------|-------|------|-----|
-| Jellyfin | ordis (external) | heimdallr (vDMZ) | Externally reachable via cloud host |
-| Adguard Home admin | phantasma (internal) | phantasma (vINFRA) | Strictly internal, infrastructure service |
-| Future internal UIs | phantasma (internal) | vINFRA hosts | Infrastructure services should not depend on vDMZ |
-| Future external services | ordis (external) | vDMZ hosts | Externally reachable via cloud host |
+| Service                  | Proxy                | Host               | Why                                               |
+| ------------------------ | -------------------- | ------------------ | ------------------------------------------------- |
+| Jellyfin                 | ordis (external)     | heimdallr (vDMZ)   | Externally reachable via cloud host               |
+| Adguard Home admin       | phantasma (internal) | phantasma (vINFRA) | Strictly internal, infrastructure service         |
+| Future internal UIs      | phantasma (internal) | vINFRA hosts       | Infrastructure services should not depend on vDMZ |
+| Future external services | ordis (external)     | vDMZ hosts         | Externally reachable via cloud host               |
 
 Services that support OIDC natively (see [OIDC Integrations](#oidc-integrations)) bypass
 oauth2-proxy entirely and authenticate directly against Keycloak.
@@ -890,16 +896,16 @@ oauth2-proxy entirely and authenticate directly against Keycloak.
 
 ### What lives in Nix config (declarative, version-controlled)
 
-| Component | Configuration | File |
-|-----------|--------------|------|
-| Keycloak service | Port, hostname, proxy-headers, database | Keycloak microvm config (vINFRA) |
-| step-ca service | Address, port, provisioners, policy | step-ca microvm config (vINFRA) |
-| nginx (Keycloak microvm) | Keycloak proxy, ACME proxy to step-ca | Keycloak microvm config (vINFRA) |
-| nginx (ordis) | Backend proxy, /auth Keycloak proxy | `ordis/proxy.nix` |
-| oauth2-proxy | Client ID, issuer URL, upstream, cookie settings | `ordis/proxy.nix` |
-| ACME | Server URL, email | Per-host ACME config |
-| Firewall rules | Cross-VLAN forwarding | `thebeyond/default.nix` |
-| Sops secrets refs | Secret file paths | Per-host `sops.nix` |
+| Component                | Configuration                                    | File                             |
+| ------------------------ | ------------------------------------------------ | -------------------------------- |
+| Keycloak service         | Port, hostname, proxy-headers, database          | Keycloak microvm config (vINFRA) |
+| step-ca service          | Address, port, provisioners, policy              | step-ca microvm config (vINFRA)  |
+| nginx (Keycloak microvm) | Keycloak proxy, ACME proxy to step-ca            | Keycloak microvm config (vINFRA) |
+| nginx (ordis)            | Backend proxy, /auth Keycloak proxy              | `ordis/proxy.nix`                |
+| oauth2-proxy             | Client ID, issuer URL, upstream, cookie settings | `ordis/proxy.nix`                |
+| ACME                     | Server URL, email                                | Per-host ACME config             |
+| Firewall rules           | Cross-VLAN forwarding                            | `thebeyond/default.nix`          |
+| Sops secrets refs        | Secret file paths                                | Per-host `sops.nix`              |
 
 ### What could be semi-declarative (keycloak-config-cli)
 
@@ -929,9 +935,7 @@ it multiple times produces the same result.
       "publicClient": false,
       "directAccessGrantsEnabled": false,
       "standardFlowEnabled": true,
-      "redirectUris": [
-        "https://mutantmell.net/oauth2/callback"
-      ],
+      "redirectUris": ["https://mutantmell.net/oauth2/callback"],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
     {
@@ -968,9 +972,7 @@ it multiple times produces the same result.
     { "name": "deploy" }
   ],
   "clientScopeMappings": {
-    "oauth2-proxy": [
-      { "client": "oauth2-proxy", "roles": [] }
-    ]
+    "oauth2-proxy": [{ "client": "oauth2-proxy", "roles": [] }]
   }
 }
 ```
@@ -1066,19 +1068,21 @@ This can be included in the keycloak-config-cli JSON configuration.
 
 ### Services to integrate (current and planned)
 
-| Service | Host | Integration Type | Priority |
-|---------|------|-----------------|----------|
-| Jellyfin | heimdallr (vDMZ) | oauth2-proxy via ordis (already working) | Done |
-| Adguard Home | phantasma (vINFRA) | oauth2-proxy on phantasma (migrating from ordis) | Phase 1 |
-| step-ca | dedicated microvm (vINFRA) | OIDC provisioner (SSH cert plan) | Phase 4 |
-| Future services | Various | Direct OIDC or oauth2-proxy | As deployed |
+| Service         | Host                       | Integration Type                                 | Priority    |
+| --------------- | -------------------------- | ------------------------------------------------ | ----------- |
+| Jellyfin        | heimdallr (vDMZ)           | oauth2-proxy via ordis (already working)         | Done        |
+| Adguard Home    | phantasma (vINFRA)         | oauth2-proxy on phantasma (migrating from ordis) | Phase 1     |
+| step-ca         | dedicated microvm (vINFRA) | OIDC provisioner (SSH cert plan)                 | Phase 4     |
+| Future services | Various                    | Direct OIDC or oauth2-proxy                      | As deployed |
 
 For services that don't support OIDC natively, the oauth2-proxy pattern scales to any
 number of backends. Use the appropriate proxy instance based on zone:
+
 - **External services (vDMZ):** auth_request to ordis's oauth2-proxy
 - **Internal services (vINFRA):** auth_request to phantasma's oauth2-proxy
 
 Each new backend needs:
+
 - An nginx `location` block with `auth_request /oauth2/auth`
 - The oauth2-proxy instance on the appropriate host handles auth
 - Optionally, per-location group restrictions via `--allowed-groups` or
@@ -1136,11 +1140,11 @@ summary. Additional detail below.
 
 The Keycloak microvm runs Keycloak (JVM), PostgreSQL, and nginx:
 
-| Service | Typical RAM | Notes |
-|---------|------------|-------|
-| Keycloak (JVM) | 512MB–768MB | Java heap + metaspace |
-| PostgreSQL | 128MB–256MB | Shared buffers + connections |
-| nginx | ~10MB | Reverse proxy (Keycloak + ACME passthrough) |
+| Service        | Typical RAM | Notes                                       |
+| -------------- | ----------- | ------------------------------------------- |
+| Keycloak (JVM) | 512MB–768MB | Java heap + metaspace                       |
+| PostgreSQL     | 128MB–256MB | Shared buffers + connections                |
+| nginx          | ~10MB       | Reverse proxy (Keycloak + ACME passthrough) |
 
 **2048MB** gives comfortable headroom. Constrain Keycloak's JVM heap to prevent it from
 consuming all available memory:
@@ -1178,6 +1182,7 @@ operational and properly configured. Specifically:
   - Group → principal mapping (this plan's groups map to SSH principals)
 
 The SSH cert plan should be updated to:
+
 1. Keycloak on a dedicated vINFRA microvm (not "a vINFRA host" generically)
 2. step-ca on a dedicated vINFRA microvm (not vMGMT — vMGMT becomes the locked-down
    networking gear zone after the split)
@@ -1195,6 +1200,7 @@ interfaces set). This should be explicitly verified rather than assumed.
 
 The [vMGMT split](./secure-mgmt-vlan-plan.md) moves phantasma to vINFRA. With Keycloak
 also on vINFRA:
+
 - phantasma's oauth2-proxy talks directly to Keycloak (intra-zone, management → management)
 - No cross-zone dependency on ordis for internal auth decisions
 - The auth infrastructure is consolidated on vINFRA alongside DNS
@@ -1275,37 +1281,37 @@ a dedicated bastion.
 3. **Reissue step-CA certs** with new names and dual SANs
    - Each internal host: `<host>.internal.mutantmell.net` + `<host>.internal`
    - Keycloak microvm: `auth.mutantmell.net` + `<keycloak-host>.internal.mutantmell.net`
-     + `<keycloak-host>.internal`
+     - `<keycloak-host>.internal`
    - ordis: `mutantmell.net` + `ordis.internal.mutantmell.net` + `ordis.internal`
 4. **Update all host configs** that reference `.local` hostnames
    - nginx `server_name` / virtualHosts
    - ACME server URLs (`<step-ca-host>.internal.mutantmell.net/acme/...`)
    - `networking.extraHosts` entries on hosts with hardcoded fallbacks
    - oauth2-proxy redirect URLs
-4. **Configure Keycloak** `hostname = "auth.mutantmell.net"` (strict mode, no
+5. **Configure Keycloak** `hostname = "auth.mutantmell.net"` (strict mode, no
    `hostname-backchannel-dynamic`)
-5. **Reconfigure ordis's nginx** with two virtual hosts:
+6. **Reconfigure ordis's nginx** with two virtual hosts:
    - `auth.mutantmell.net` — Keycloak proxy for external users
      - Block `/auth/admin/` and `/auth/realms/master/` (S5)
      - Use `X-Forwarded-For $remote_addr` not `$proxy_add_x_forwarded_for` (S13)
    - `mutantmell.net` — services + oauth2-proxy
-6. **Reconfigure ordis's oauth2-proxy** with canonical URLs
+7. **Reconfigure ordis's oauth2-proxy** with canonical URLs
    - `oidc-issuer-url = "https://auth.mutantmell.net/auth/realms/homelab"` (S4, S6)
    - `redirectURL = "https://mutantmell.net/oauth2/callback"`
    - `cookie.domain = ".mutantmell.net"`
    - No explicit login-url/redeem-url/oidc-jwks-url overrides needed
-7. **Update phantasma's oauth2-proxy** issuer URL to `auth.mutantmell.net`, redirect URL
+8. **Update phantasma's oauth2-proxy** issuer URL to `auth.mutantmell.net`, redirect URL
    to `phantasma.internal.mutantmell.net`
-8. **Add nginx rate limiting** on ordis for `/auth/` and `/oauth2/` paths (S11)
-9. **Provision SSH bastion VM** on vDMZ via Incus (256MB RAM, 1 vCPU, sshd only) (S8)
-   - Requires figuring out Incus VM configuration (currently only containers)
-   - Key-only auth, `AllowUsers`, minimal NixOS profile
-   - No persistent storage (stateless)
-10. **Tighten wg-ba firewall rules** (S8)
+9. **Add nginx rate limiting** on ordis for `/auth/` and `/oauth2/` paths (S11)
+10. **Provision SSH bastion VM** on vDMZ via Incus (256MB RAM, 1 vCPU, sshd only) (S8)
+    - Requires figuring out Incus VM configuration (currently only containers)
+    - Key-only auth, `AllowUsers`, minimal NixOS profile
+    - No persistent storage (stateless)
+11. **Tighten wg-ba firewall rules** (S8)
     - Remove blanket `wg-ba → ordis` rule and SSH port forward
     - Add per-service rules: wg-ba → ordis:443 (HTTPS), wg-ba → bastion:22 (SSH)
-11. **Remove SSH daemon from ordis** — no interactive login from external paths
-12. **Configure host-level egress filtering on ordis and bastion** — restrict outbound
+12. **Remove SSH daemon from ordis** — no interactive login from external paths
+13. **Configure host-level egress filtering on ordis and bastion** — restrict outbound
     connections via custom nftables output chain (see MGMT VLAN plan Phase 4.4):
 
     **ordis egress allowlist:**
@@ -1327,16 +1333,17 @@ a dedicated bastion.
     Everything else is dropped. This limits lateral movement and exfiltration if either
     host is compromised. A compromised ordis can't reach game servers, headscale, or
     arbitrary internet hosts; a compromised bastion can only reach SSH ports.
-13. **Deploy cloud host** with nginx + WireGuard + Let's Encrypt cert
+
+14. **Deploy cloud host** with nginx + WireGuard + Let's Encrypt cert
     - Wildcard cert for `*.mutantmell.net` (DNS-01 challenge) or per-subdomain certs
     - Import step-CA root cert (to verify ordis's TLS over WireGuard)
     - Proxy by Host header: `auth.mutantmell.net` and `mutantmell.net` both → ordis
     - Strip/overwrite `X-Forwarded-For` at the cloud host (S13)
-13. **Test end-to-end (internal):** LAN browser → `mutantmell.net` (DNS: ordis) →
+15. **Test end-to-end (internal):** LAN browser → `mutantmell.net` (DNS: ordis) →
     oauth2-proxy → `auth.mutantmell.net` (DNS: Keycloak) → login → redirect back → service
-14. **Test end-to-end (external):** External browser → cloud host → WireGuard → ordis →
+16. **Test end-to-end (external):** External browser → cloud host → WireGuard → ordis →
     `auth.mutantmell.net` (ordis proxy to Keycloak) → login → redirect back → service
-15. **Test SSH path:** Cloud host → WireGuard → bastion → SSH to vDMZ hosts
+17. **Test SSH path:** Cloud host → WireGuard → bastion → SSH to vDMZ hosts
 
 ### Phase 4: step-ca OIDC provisioner (SSH certificates)
 
@@ -1366,6 +1373,7 @@ unauthenticated requests. This matters most for vDMZ services reachable through 
 - **Services without OIDC support**: Continue relying on oauth2-proxy; accept the risk.
 
 For each new service:
+
 1. Register client in Keycloak (admin console or keycloak-config-cli)
 2. Store client secret in sops
 3. Configure service's OIDC settings in Nix (native OIDC preferred over oauth2-proxy)
@@ -1424,7 +1432,7 @@ must be added.
    infrastructure UIs remain gated by their own auth path.
 
    Mitigations (defense in depth, each survives ordis compromise independently):
-   - ordis is the *right* place for external-facing responsibilities — it's the external
+   - ordis is the _right_ place for external-facing responsibilities — it's the external
      choke point by design, treated as a hardened bastion: minimal packages, no SSH daemon,
      fixes from S1-S7 applied
    - **Host-level egress filtering** (Phase 3, step 12): ordis can only reach its direct
@@ -1497,6 +1505,7 @@ as the internet-facing bastion — it warrants hardening as described above.
 The OAuth session cookie is sent over HTTP. Any network observer between the user and
 ordis can steal the cookie and hijack the session. This is currently mitigated by the
 fact that all traffic is on the LAN or inside a WireGuard tunnel, but:
+
 - The plan enables external access, where the cloud host terminates TLS and forwards
   to ordis. If the cloud-to-ordis path ever drops to HTTP (misconfiguration, debugging),
   cookies leak.
@@ -1543,6 +1552,7 @@ which would let Keycloak derive its issuer URL from the incoming `Host` header �
 security risk.
 
 The [DNS and Naming Strategy](#dns-and-naming-strategy) eliminates this entirely:
+
 ```nix
 services.keycloak.settings = {
   hostname = "auth.mutantmell.net";   # Single fixed hostname for all audiences
@@ -1563,6 +1573,7 @@ to the Keycloak microvm. This includes `/auth/admin/` — the Keycloak admin con
 External users can reach the admin login page and attempt credential attacks.
 
 **Fix:** Block the admin console path in ordis's nginx:
+
 ```nginx
 location /auth/admin/ {
     return 403;
@@ -1573,7 +1584,9 @@ location /auth/realms/homelab/protocol/ {
     ...
 }
 ```
+
 Whitelist only the paths external users need:
+
 - `/auth/realms/homelab/protocol/openid-connect/*` (login, token, certs, userinfo)
 - `/auth/realms/homelab/login-actions/*` (login forms, consent)
 - `/auth/resources/*` (Keycloak static assets: CSS, JS, images for login theme)
@@ -1600,17 +1613,20 @@ oauth2-proxy passes the Keycloak access token to every backend service in the
 `Authorization` header and `X-Forwarded-Access-Token` header. If any backend service
 is compromised, the attacker obtains valid Keycloak access tokens for every user who
 accesses that service. These tokens can be used to:
+
 - Access other Keycloak-protected services (if `skip-jwt-bearer-tokens` is enabled)
 - Query Keycloak's userinfo endpoint to enumerate user data
 - Act as the user against any service that trusts Keycloak tokens
 
 **Fix:** Disable unless a specific backend needs it:
+
 ```nix
 passAccessToken = false;
 extraConfig = {
   "set-authorization-header" = false;
 };
 ```
+
 If a specific backend needs the token (e.g., for user identity), pass it selectively
 via per-location nginx configuration rather than globally.
 
@@ -1628,7 +1644,7 @@ access and web traffic gating should not share a host.
   cloud host → wg-ba). Placing it on vINFRA or vHOME would require letting the
   `isolated` wg-ba tunnel reach a trusted/management zone — strictly worse. vDMZ is
   the right trust level for something exposed to an isolated tunnel. The concern that
-  "vDMZ has the biggest attack surface" is about the services *on* vDMZ, not the zone
+  "vDMZ has the biggest attack surface" is about the services _on_ vDMZ, not the zone
   itself; the bastion's attack surface (sshd with key-only auth) is minimal regardless
   of zone placement.
 
@@ -1667,11 +1683,13 @@ for **any** allowed hostname — including `auth.mutantmell.net`,
 `phantasma.internal.mutantmell.net`, or `thebeyond.internal`.
 
 A compromised vDMZ service (e.g., a vulnerable web app on heimdallr) could:
+
 1. Request a TLS certificate for `auth.mutantmell.net`
 2. Use it to MITM internal traffic (limited impact since vDMZ can't route to vINFRA
    arbitrarily, but still a certificate integrity concern)
 
 **Fix options:**
+
 - **ACME account binding:** Require ACME accounts to be pre-registered (step-ca
   supports external account binding)
 - **Narrower certificate policy per zone:** If possible, restrict the ACME
@@ -1702,11 +1720,13 @@ Alternatively, use `--allowed-groups` to restrict access by Keycloak group membe
 The oauth2-proxy login flow, Keycloak login page, and ACME endpoint are all reachable
 from the internet (via wg-ba → ordis). There is no network-level rate limiting.
 Keycloak has built-in brute force protection (enabled in the plan's realm config), but:
+
 - oauth2-proxy itself has no rate limiting
 - nginx on ordis has no `limit_req` zones configured
 - A flood of requests could exhaust resources on ordis or the Keycloak microvm
 
 **Fix:** Add nginx rate limiting on ordis for auth-related paths:
+
 ```nginx
 limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/s;
 
@@ -1727,6 +1747,7 @@ OIDC rule is already narrowed to ordis. A compromised vDMZ host could use the AC
 rule to interact with step-ca (requesting certs, see S9).
 
 **Fix (optional):** Restrict ACME source IPs to known vDMZ hosts with ACME certs:
+
 ```nix
 {
   iifname = "vDMZ.br0";
@@ -1737,6 +1758,7 @@ rule to interact with step-ca (requesting certs, see S9).
   verdict = "accept";
 }
 ```
+
 This adds maintenance overhead (must update when adding vDMZ hosts) but limits blast
 radius. Whether this is worth it depends on how many vDMZ hosts there will be.
 
@@ -1785,38 +1807,38 @@ confusion is possible.
 
 ### Summary of required changes to the plan
 
-| ID | Finding | Plan section to update |
-|----|---------|----------------------|
-| S1 | `cookie.secure = true` | Phase 1 (ordis proxy config) |
-| S2 | HTTPS redirect URL | Phase 1 (ordis proxy config) |
-| S3 | Remove `skip-jwt-bearer-tokens` | Phase 1 (ordis proxy config) |
-| S4 | ~~Keycloak hostname~~ | Resolved by DNS strategy (single fixed hostname) |
-| S5 | Block admin console in ordis proxy | Phase 3 (ordis `auth.mutantmell.net` vhost) |
-| S6 | ~~OIDC issuer mismatch~~ | Resolved by DNS strategy (single canonical issuer URL) |
-| S7 | Disable `passAccessToken` / `set-authorization-header` | Phase 1 (ordis proxy config) |
-| S8 | Split SSH to dedicated bastion microvm on vDMZ | Phase 3 (bastion + firewall tightening) |
-| S9 | Investigate ACME provisioner authorization | Phase 1 (step-ca config) |
-| S10 | Replace `email.domains = ["*"]` with group-based access | Phase 2 (realm restructuring) |
-| S11 | Add nginx rate limiting | Phase 3 (ordis nginx config) |
-| S12 | Consider narrowing ACME firewall source IPs | Phase 1 (firewall rules) |
-| S13 | Fix X-Forwarded-For trust chain | Phase 3 (proxy chain config) |
+| ID  | Finding                                                 | Plan section to update                                 |
+| --- | ------------------------------------------------------- | ------------------------------------------------------ |
+| S1  | `cookie.secure = true`                                  | Phase 1 (ordis proxy config)                           |
+| S2  | HTTPS redirect URL                                      | Phase 1 (ordis proxy config)                           |
+| S3  | Remove `skip-jwt-bearer-tokens`                         | Phase 1 (ordis proxy config)                           |
+| S4  | ~~Keycloak hostname~~                                   | Resolved by DNS strategy (single fixed hostname)       |
+| S5  | Block admin console in ordis proxy                      | Phase 3 (ordis `auth.mutantmell.net` vhost)            |
+| S6  | ~~OIDC issuer mismatch~~                                | Resolved by DNS strategy (single canonical issuer URL) |
+| S7  | Disable `passAccessToken` / `set-authorization-header`  | Phase 1 (ordis proxy config)                           |
+| S8  | Split SSH to dedicated bastion microvm on vDMZ          | Phase 3 (bastion + firewall tightening)                |
+| S9  | Investigate ACME provisioner authorization              | Phase 1 (step-ca config)                               |
+| S10 | Replace `email.domains = ["*"]` with group-based access | Phase 2 (realm restructuring)                          |
+| S11 | Add nginx rate limiting                                 | Phase 3 (ordis nginx config)                           |
+| S12 | Consider narrowing ACME firewall source IPs             | Phase 1 (firewall rules)                               |
+| S13 | Fix X-Forwarded-For trust chain                         | Phase 3 (proxy chain config)                           |
 
 ---
 
 ## Complete File Change List
 
-| File | Phase | Changes |
-|------|-------|---------|
-| Keycloak microvm config (new, on vINFRA host) | 1 | New microvm: Keycloak, PostgreSQL, nginx (/auth proxy), sops secrets |
-| step-ca microvm config (new, on vINFRA host) | 1 | New microvm: step-ca, nginx (ACME endpoint), CA key material, sops secrets |
-| SSH bastion microvm config (new, on vDMZ host) | 3 | New microvm: sshd only, key-only auth, minimal profile, 256MB RAM |
-| `hosts/thebeyond/default.nix` | 1, 3 | Add ordis → Keycloak + vDMZ → step-ca FW rules (Phase 1); replace wg-ba blanket rule + SSH port forward with per-service rules (Phase 3); add DNS entries |
-| `hosts/erebonia/guests/ordis/proxy.nix` | 1, 2, 3 | Update OIDC issuer URL, update realm, add `/auth` proxy location, split oauth2-proxy URLs |
-| `hosts/erebonia/guests/ordis/` (SSH removal) | 3 | Remove SSH daemon / openssh config from ordis |
-| `hosts/thebeyond/guests/phantasma/modules/proxy.nix` | 1 | Deploy local oauth2-proxy, update nginx auth_request to local proxy (remove ordis dependency) |
-| `hosts/thebeyond/guests/phantasma/sops.nix` | 1 | Add `oauth2-proxy-internal` client secret |
-| `hosts/thebeyond/guests/phantasma/modules/dns.nix` | 3 | Replace `.local` zone with `internal.mutantmell.net` + `internal` + `mutantmell.net` zones |
-| Per-host ACME configs | 1, 3 | Update ACME server URL to step-ca microvm; update cert names from `*.local` to `*.internal.mutantmell.net` with dual SANs |
-| `hosts/erebonia/guests/ordis/sops.nix` | 2 | Update oauth2-proxy key file for new realm |
-| gridr config (retire/repurpose) | 1 | Remove Keycloak, step-ca, and associated nginx/sops config |
-| `llm-notes/ssh-certificates-sso-plan.md` | — | Update Keycloak and step-ca placement (both vINFRA) |
+| File                                                 | Phase   | Changes                                                                                                                                                   |
+| ---------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Keycloak microvm config (new, on vINFRA host)        | 1       | New microvm: Keycloak, PostgreSQL, nginx (/auth proxy), sops secrets                                                                                      |
+| step-ca microvm config (new, on vINFRA host)         | 1       | New microvm: step-ca, nginx (ACME endpoint), CA key material, sops secrets                                                                                |
+| SSH bastion microvm config (new, on vDMZ host)       | 3       | New microvm: sshd only, key-only auth, minimal profile, 256MB RAM                                                                                         |
+| `hosts/thebeyond/default.nix`                        | 1, 3    | Add ordis → Keycloak + vDMZ → step-ca FW rules (Phase 1); replace wg-ba blanket rule + SSH port forward with per-service rules (Phase 3); add DNS entries |
+| `hosts/erebonia/guests/ordis/proxy.nix`              | 1, 2, 3 | Update OIDC issuer URL, update realm, add `/auth` proxy location, split oauth2-proxy URLs                                                                 |
+| `hosts/erebonia/guests/ordis/` (SSH removal)         | 3       | Remove SSH daemon / openssh config from ordis                                                                                                             |
+| `hosts/thebeyond/guests/phantasma/modules/proxy.nix` | 1       | Deploy local oauth2-proxy, update nginx auth_request to local proxy (remove ordis dependency)                                                             |
+| `hosts/thebeyond/guests/phantasma/sops.nix`          | 1       | Add `oauth2-proxy-internal` client secret                                                                                                                 |
+| `hosts/thebeyond/guests/phantasma/modules/dns.nix`   | 3       | Replace `.local` zone with `internal.mutantmell.net` + `internal` + `mutantmell.net` zones                                                                |
+| Per-host ACME configs                                | 1, 3    | Update ACME server URL to step-ca microvm; update cert names from `*.local` to `*.internal.mutantmell.net` with dual SANs                                 |
+| `hosts/erebonia/guests/ordis/sops.nix`               | 2       | Update oauth2-proxy key file for new realm                                                                                                                |
+| gridr config (retire/repurpose)                      | 1       | Remove Keycloak, step-ca, and associated nginx/sops config                                                                                                |
+| `llm-notes/ssh-certificates-sso-plan.md`             | —       | Update Keycloak and step-ca placement (both vINFRA)                                                                                                       |

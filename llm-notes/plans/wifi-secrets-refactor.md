@@ -86,30 +86,30 @@ The hierarchy directly expresses the intent: a wifi network has an ssid and a ke
 
 ### 1. `lib/openwrt/default.nix` — update `_secret` markers
 
-| Old | New |
-|-----|-----|
-| `{ _secret = "mesh_id"; }` | `{ _secret = "wifi.mesh.id"; }` |
-| `{ _secret = "mesh_key"; }` | `{ _secret = "wifi.mesh.key"; }` |
+| Old                                   | New                                  |
+| ------------------------------------- | ------------------------------------ |
+| `{ _secret = "mesh_id"; }`            | `{ _secret = "wifi.mesh.id"; }`      |
+| `{ _secret = "mesh_key"; }`           | `{ _secret = "wifi.mesh.key"; }`     |
 | `{ _secret = "wifi_ssids.${name}"; }` | `{ _secret = "wifi.${name}.ssid"; }` |
-| `{ _secret = "wifi_keys.${name}"; }` | `{ _secret = "wifi.${name}.key"; }` |
+| `{ _secret = "wifi_keys.${name}"; }`  | `{ _secret = "wifi.${name}.key"; }`  |
 
 `mkSecretsMap` is a pure function of the device config, so the generated `secretsMap` keys update automatically — no other Nix changes needed.
 
 ### 2. `tests/lib/openwrt-config.nix` — update secret-key assertions
 
-| Old assertion | New assertion |
-|---|---|
-| `meshSecretsMap ? mesh_id` | `meshSecretsMap ? "mesh.id"` |
-| `meshSecretsMap ? mesh_key` | `meshSecretsMap ? "mesh.key"` |
-| `meshSecretsMap ? "wifi_ssids.main"` | `meshSecretsMap ? "wifi.main.ssid"` |
-| `meshSecretsMap ? "wifi_keys.main"` | `meshSecretsMap ? "wifi.main.key"` |
-| `meshSecretsMap ? "wifi_ssids.secondary"` | `meshSecretsMap ? "wifi.secondary.ssid"` |
-| `meshSecretsMap."wifi_ssids.main"` (length check) | `meshSecretsMap."wifi.main.ssid"` |
-| `simpleAPSecretsMap ? "wifi_ssids.main"` | `simpleAPSecretsMap ? "wifi.main.ssid"` |
-| `simpleAPSecretsMap ? "wifi_keys.main"` | `simpleAPSecretsMap ? "wifi.main.key"` |
-| `simpleAPSecretsMap."wifi_ssids.main"` (length check) | `simpleAPSecretsMap."wifi.main.ssid"` |
-| `routerSecretsMap ? "wifi_keys.main"` | `routerSecretsMap ? "wifi.main.key"` |
-| `sm ? "wifi_ssids.iot"` (derfflinger) | `sm ? "wifi.iot.ssid"` |
+| Old assertion                                         | New assertion                            |
+| ----------------------------------------------------- | ---------------------------------------- |
+| `meshSecretsMap ? mesh_id`                            | `meshSecretsMap ? "mesh.id"`             |
+| `meshSecretsMap ? mesh_key`                           | `meshSecretsMap ? "mesh.key"`            |
+| `meshSecretsMap ? "wifi_ssids.main"`                  | `meshSecretsMap ? "wifi.main.ssid"`      |
+| `meshSecretsMap ? "wifi_keys.main"`                   | `meshSecretsMap ? "wifi.main.key"`       |
+| `meshSecretsMap ? "wifi_ssids.secondary"`             | `meshSecretsMap ? "wifi.secondary.ssid"` |
+| `meshSecretsMap."wifi_ssids.main"` (length check)     | `meshSecretsMap."wifi.main.ssid"`        |
+| `simpleAPSecretsMap ? "wifi_ssids.main"`              | `simpleAPSecretsMap ? "wifi.main.ssid"`  |
+| `simpleAPSecretsMap ? "wifi_keys.main"`               | `simpleAPSecretsMap ? "wifi.main.key"`   |
+| `simpleAPSecretsMap."wifi_ssids.main"` (length check) | `simpleAPSecretsMap."wifi.main.ssid"`    |
+| `routerSecretsMap ? "wifi_keys.main"`                 | `routerSecretsMap ? "wifi.main.key"`     |
+| `sm ? "wifi_ssids.iot"` (derfflinger)                 | `sm ? "wifi.iot.ssid"`                   |
 
 ### 3. `apps/openwrt/default.nix` — update YAML format comment
 

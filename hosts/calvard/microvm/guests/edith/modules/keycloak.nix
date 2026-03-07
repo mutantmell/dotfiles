@@ -1,6 +1,8 @@
-{ config, pkgs, ... }:
-
 {
+  config,
+  pkgs,
+  ...
+}: {
   services.keycloak = {
     enable = true;
     settings = {
@@ -12,13 +14,13 @@
       hostname-admin = "https://edith.internal.mutantmell.net";
     };
     database.passwordFile = config.sops.secrets."keycloak_password_file".path;
-    realmFiles = [ ./homelab-realm.json ];
+    realmFiles = [./homelab-realm.json];
   };
 
   # Cap JVM heap to prevent Keycloak from consuming all available RAM
   systemd.services.keycloak.environment.JAVA_OPTS_APPEND = "-Xms256m -Xmx768m";
 
-  networking.firewall.allowedTCPPorts = [ 80 443 ];
+  networking.firewall.allowedTCPPorts = [80 443];
 
   services.nginx = {
     enable = true;
@@ -76,18 +78,22 @@
     };
     acceptTerms = true;
     certs."auth.mutantmell.net" = {
-      extraDomainNames = [ "edith.internal.mutantmell.net" ];
+      extraDomainNames = ["edith.internal.mutantmell.net"];
     };
   };
 
   systemd.services = {
-    "keycloak".before = [ "nginx.service" ];
-    "keycloak".requiredBy = [ "nginx.service" ];
+    "keycloak".before = ["nginx.service"];
+    "keycloak".requiredBy = ["nginx.service"];
   };
 
   environment.persistence."/persist" = {
     directories = [
-      { directory = "/var/lib/postgresql"; user = "postgres"; group = "postgres"; }
+      {
+        directory = "/var/lib/postgresql";
+        user = "postgres";
+        group = "postgres";
+      }
     ];
   };
 }

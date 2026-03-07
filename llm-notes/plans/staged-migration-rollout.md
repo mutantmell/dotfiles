@@ -10,12 +10,12 @@ but has no internal DNS host entries.
 
 ## Current State
 
-| Host | Current IP | Config Target IP | Role | Status |
-|------|-----------|-----------------|------|--------|
-| calvard | unused (wiped) | 10.97.11.30 + 10.0.11.30 (VLAN 11) | VM host | Ready for nixos-anywhere |
-| remiferia | 10.0.10.32 (VLAN 10 untagged) | 10.97.11.20 + 10.0.11.20 (VLAN 11 tagged) | NAS | In-place update required |
-| erebonia | unused (wiped) | 10.97.11.31 + 10.0.11.31 (VLAN 11) | VM host | Blocked on ZyXEL switch |
-| interim router | manages VLANs 10/11/20/100 | N/A | Gateway | No internal DNS |
+| Host           | Current IP                    | Config Target IP                          | Role    | Status                   |
+| -------------- | ----------------------------- | ----------------------------------------- | ------- | ------------------------ |
+| calvard        | unused (wiped)                | 10.97.11.30 + 10.0.11.30 (VLAN 11)        | VM host | Ready for nixos-anywhere |
+| remiferia      | 10.0.10.32 (VLAN 10 untagged) | 10.97.11.20 + 10.0.11.20 (VLAN 11 tagged) | NAS     | In-place update required |
+| erebonia       | unused (wiped)                | 10.97.11.31 + 10.0.11.31 (VLAN 11)        | VM host | Blocked on ZyXEL switch  |
+| interim router | manages VLANs 10/11/20/100    | N/A                                       | Gateway | No internal DNS          |
 
 ## Pre-deployment Blockers
 
@@ -27,19 +27,20 @@ internal hosts. Without DNS, hosts can't resolve each other by name.
 **Options (pick one at deploy time):**
 
 A. **Manual dnsmasq config on router** — SSH to the router and add
-   `/etc/hosts` or dnsmasq `address=` entries for the hosts being deployed.
-   Minimum entries needed per phase:
-   - Phase 1 (calvard): `10.0.11.30 calvard.internal` (and any guests)
-   - Phase 2 (remiferia): `10.0.11.20 remiferia.internal`
-   - All entries need both 10.97 and 10.0 addresses
+`/etc/hosts` or dnsmasq `address=` entries for the hosts being deployed.
+Minimum entries needed per phase:
+
+- Phase 1 (calvard): `10.0.11.30 calvard.internal` (and any guests)
+- Phase 2 (remiferia): `10.0.11.20 remiferia.internal`
+- All entries need both 10.97 and 10.0 addresses
 
 B. **Use IP addresses directly** — Skip DNS entirely during bootstrap.
-   Configure calvard/remiferia to use IPs instead of hostnames for
-   cross-host references (NFS mounts, prometheus targets, etc.).
-   Less clean but avoids router changes.
+Configure calvard/remiferia to use IPs instead of hostnames for
+cross-host references (NFS mounts, prometheus targets, etc.).
+Less clean but avoids router changes.
 
 C. ~~Deploy phantasma (Unbound) on calvard first~~ — Not viable.
-   Phantasma is a thebeyond guest, and thebeyond hardware is months away.
+Phantasma is a thebeyond guest, and thebeyond hardware is months away.
 
 **Recommendation:** Use (A) for the entire rollout. The full `/etc/hosts`
 block is provided below — paste it once and it covers all phases.
@@ -135,6 +136,7 @@ Erebonia deployment is blocked until this is done.
 ## Phase 1: Deploy calvard (nixos-anywhere)
 
 ### Prerequisites
+
 - Switch port for calvard passes VLAN 11 tagged traffic
 - Interim router has DNS entry for calvard (or use IPs)
 - Boot calvard into NixOS installer / kexec image
@@ -142,13 +144,16 @@ Erebonia deployment is blocked until this is done.
 ### Steps
 
 1. **Run the deploy script:**
+
    ```bash
    ./scripts/deploy-nixos-anywhere.sh calvard root@<calvard-installer-ip>
    ```
+
    This handles: disko partitioning, ZFS encryption, SSH key generation,
    guest SSH keys, sops re-encryption, NixOS install.
 
 2. **Reboot and unlock ZFS** via SSH on port 2222:
+
    ```bash
    ssh -p 2222 root@10.0.11.30
    # Enter ZFS passphrase when prompted
@@ -179,6 +184,7 @@ Erebonia deployment is blocked until this is done.
    must come from manual router `/etc/hosts` entries for the entire rollout.
 
 ### Rollback
+
 Calvard is a fresh install on a wiped machine. If it fails, reboot into
 the installer and re-run the deploy script. No data at risk.
 
@@ -198,16 +204,17 @@ and is currently the machine running claude-code.
 
 ### Risk analysis
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Network change breaks connectivity | Lose SSH to NAS | Pre-configure switch; have physical/IPMI access |
-| ZFS pool fails to import | Data inaccessible | Pool name (`data`) matches config; test with `zpool status` first |
-| NFS exports break | Clients lose mounts | New config exports on both 10.97 + 10.0 subnets (dual-stack) |
-| Samba breaks | Windows clients lose shares | Config preserves shares + JOTUNHEIMR alias |
-| Claude-code session dies | Lose working session | Move session to calvard first |
-| Services fail to start | NAS partially down | Select previous generation in boot menu, or `nixos-rebuild boot --rollback && reboot` |
+| Risk                               | Impact                      | Mitigation                                                                            |
+| ---------------------------------- | --------------------------- | ------------------------------------------------------------------------------------- |
+| Network change breaks connectivity | Lose SSH to NAS             | Pre-configure switch; have physical/IPMI access                                       |
+| ZFS pool fails to import           | Data inaccessible           | Pool name (`data`) matches config; test with `zpool status` first                     |
+| NFS exports break                  | Clients lose mounts         | New config exports on both 10.97 + 10.0 subnets (dual-stack)                          |
+| Samba breaks                       | Windows clients lose shares | Config preserves shares + JOTUNHEIMR alias                                            |
+| Claude-code session dies           | Lose working session        | Move session to calvard first                                                         |
+| Services fail to start             | NAS partially down          | Select previous generation in boot menu, or `nixos-rebuild boot --rollback && reboot` |
 
 ### Prerequisites
+
 - [ ] calvard is deployed and stable (Phase 1 complete)
 - [ ] Move claude-code session off remiferia to calvard (or a laptop)
 - [ ] Switch port for remiferia configured for VLAN 11 tagged traffic
@@ -220,6 +227,7 @@ and is currently the machine running claude-code.
 ### Steps
 
 1. **Pre-flight checks on remiferia (via current 10.0.10.32 connection):**
+
    ```bash
    # Verify ZFS pool health
    zpool status data
@@ -237,25 +245,31 @@ and is currently the machine running claude-code.
    - Verify: remiferia should still be reachable at 10.0.10.32
 
 3. **Test the new config builds cleanly:**
+
    ```bash
    cd /path/to/dotfiles
    nixos-rebuild build --flake .#remiferia
    ```
+
    This builds without applying. If it fails, fix config issues before proceeding.
 
    **Note:** remiferia's current NixOS is very old. If `nixos-rebuild` fails
    due to an outdated Nix version, enter a shell with a newer Nix first:
+
    ```bash
    nix shell nixpkgs#nix -c nixos-rebuild build --flake .#remiferia
    ```
+
    Alternatively, build the closure on calvard and copy it to remiferia
    via `nix copy`.
 
 4. **Apply the update (point of no return for network config):**
+
    ```bash
    nixos-rebuild boot --flake .#remiferia
    reboot
    ```
+
    Using `boot` instead of `switch` — given the volume of changes (network
    migration, systemd-networkd, firewall, services), a clean boot into the
    new config is safer than live-switching all services at once.
@@ -267,6 +281,7 @@ and is currently the machine running claude-code.
    - New SSH endpoint: 10.0.11.20 or 10.97.11.20
 
 5. **Reconnect and verify:**
+
    ```bash
    ssh root@10.0.11.20  # or 10.97.11.20
    # Verify networking
@@ -297,17 +312,20 @@ and is currently the machine running claude-code.
 ### Rollback plan
 
 **If network breaks (can't SSH in):**
+
 - Access via physical console or IPMI
 - Select the previous generation from the systemd-boot menu, or
   `nixos-rebuild boot --rollback && reboot`
 - This restores VLAN 10 untagged networking
 
 **If ZFS pool won't import:**
+
 - The pool name `data` hasn't changed; `extraPools = [ "data" ]` matches
 - Manual import: `zpool import data`
 - If pool is damaged (unlikely from config change): restore from snapshots
 
 **If NFS exports break but host is reachable:**
+
 - Check `exportfs -v` for active exports
 - Verify firewall allows NFS: `nft list ruleset | grep 2049`
 - The new config allows both 10.97 and 10.0 subnets, so old clients should work
@@ -317,28 +335,34 @@ and is currently the machine running claude-code.
 ## Phase 3: Deploy erebonia (nixos-anywhere) — BLOCKED
 
 ### Blocker
+
 ZyXEL GS1900-10HP switch must be imported into the repository and configured
 to pass VLAN 11 tagged traffic to erebonia's port.
 
 ### Prerequisites
+
 - [ ] ZyXEL switch config added to repository
 - [ ] VLAN 11 configured on erebonia's switch port
 - [ ] DNS entries for erebonia (via phantasma or manual)
 - [ ] erebonia `sops.nix` created (currently missing)
 
 ### Steps
+
 Same pattern as Phase 1 (calvard), using:
+
 ```bash
 ./scripts/deploy-nixos-anywhere.sh erebonia root@<erebonia-installer-ip>
 ```
 
 Erebonia-specific post-deploy:
+
 - NFS mounts from remiferia (`/mnt/data`, `/mnt/media`) should auto-mount
 - Verify NFS connectivity to remiferia at new IP
 - Start microVM guests (roer, legram, ymir, heimdallr, ordis, saint-arkh)
 - Set up Incus guest (trista)
 
 ### Rollback
+
 Same as calvard — fresh install on wiped machine, re-run deploy script.
 
 ---
@@ -382,12 +406,12 @@ After all three hosts are deployed and stable:
 
 ## Quick Reference: Key IPs
 
-| Host | Current | Target (10.97) | Target (10.0 legacy) | VLAN |
-|------|---------|----------------|---------------------|------|
-| calvard | none | 10.97.11.30 | 10.0.11.30 | 11 |
-| remiferia | 10.0.10.32 | 10.97.11.20 | 10.0.11.20 | 11 |
-| erebonia | none | 10.97.11.31 | 10.0.11.31 | 11 |
-| phantasma | none | 10.97.11.2 | 10.0.11.2 | 11 |
+| Host      | Current    | Target (10.97) | Target (10.0 legacy) | VLAN |
+| --------- | ---------- | -------------- | -------------------- | ---- |
+| calvard   | none       | 10.97.11.30    | 10.0.11.30           | 11   |
+| remiferia | 10.0.10.32 | 10.97.11.20    | 10.0.11.20           | 11   |
+| erebonia  | none       | 10.97.11.31    | 10.0.11.31           | 11   |
+| phantasma | none       | 10.97.11.2     | 10.0.11.2            | 11   |
 
 ## Quick Reference: Deploy commands
 

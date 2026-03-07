@@ -10,36 +10,43 @@
 # 4. Physical interface without VLANs (implicit - bond members)
 # 5. Physical interface with VLANs (parent disabled, VLAN has IP)
 # 6. Correct numeric prefixes for all systemd-networkd files
-
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
+{
+  pkgs ? import <nixpkgs> {},
+  lib ? pkgs.lib,
 }:
-
 pkgs.testers.nixosTest {
   name = "router6-device-vlans";
 
   nodes = {
-    router = { config, pkgs, ... }: {
-      imports = [ ../../modules/router6 ];
+    router = {
+      config,
+      pkgs,
+      ...
+    }: {
+      imports = [../../modules/router6];
 
       # Virtual network setup
-      virtualisation.vlans = [ 1 2 3 4 ];
+      virtualisation.vlans = [1 2 3 4];
 
       router6 = {
         enable = true;
         ulaPrefix = "fd00::/48";
 
         zones = {
-          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          external = {
+            icmpEcho = "disable";
+            accessTo = [];
+            inputRules = [];
+          };
           management = {
             icmpEcho = "enable";
-            accessTo = [ "management" "trusted" "external" ];
-            inputRules = [{ verdict = "accept"; }];
+            accessTo = ["management" "trusted" "external"];
+            inputRules = [{verdict = "accept";}];
           };
           trusted = {
             icmpEcho = "enable";
-            accessTo = [ "management" "trusted" "external" ];
-            inputRules = [{ verdict = "accept"; }];
+            accessTo = ["management" "trusted" "external"];
+            inputRules = [{verdict = "accept";}];
           };
         };
 

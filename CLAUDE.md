@@ -83,6 +83,7 @@ This is a NixOS flake-based infrastructure project managing a home network with 
 ### Network Registry Pattern
 
 Hosts access their network config through the registry:
+
 ```nix
 net = pkgs.mmell.lib.data.network;
 inherit (net.forHost "hostname") host zone;
@@ -93,6 +94,7 @@ inherit (net.forHost "hostname") host zone;
 ### Router6 Zone Model
 
 Firewall zones (not a fixed enum — configurable per-deployment):
+
 ```nix
 router6.zones.<name> = {
   icmpEcho = "enable"|"disable";

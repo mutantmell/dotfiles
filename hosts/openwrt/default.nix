@@ -15,22 +15,20 @@
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
 #
 # To update secrets, rebuild and redeploy the image.
-{ lib }:
-
-let
-  owrtData = import ../../lib/common/data/openwrt.nix { inherit lib; };
-  importDevice = file: import file { inherit owrtData; };
+{lib}: let
+  owrtData = import ../../lib/common/data/openwrt.nix {inherit lib;};
+  importDevice = file: import file {inherit owrtData;};
 in {
   # Mesh APs — batman-adv mesh, 802.11r/k roaming, wired backhaul
-  bobcat      = importDevice ./bobcat.nix;
-  lusitania   = importDevice ./lusitania.nix;
-  merkabah    = importDevice ./merkabah.nix;
+  bobcat = importDevice ./bobcat.nix;
+  lusitania = importDevice ./lusitania.nix;
+  merkabah = importDevice ./merkabah.nix;
   derfflinger = importDevice ./derfflinger.nix;
-  pantagruel  = importDevice ./pantagruel.nix;
+  pantagruel = importDevice ./pantagruel.nix;
 
   # Managed switch
-  arseille    = importDevice ./arseille.nix;
+  arseille = importDevice ./arseille.nix;
 
   # Simple AP
-  glorious    = importDevice ./glorious.nix;
+  glorious = importDevice ./glorious.nix;
 }

@@ -1,7 +1,6 @@
-{ lib }:
-let
+{lib}: let
   ipv4Prefix = "10.97";
-  legacyIpv4Prefix = "10.0";  # Remove after migration to 10.97 is complete
+  legacyIpv4Prefix = "10.0"; # Remove after migration to 10.97 is complete
   ulaPrefix = "fdc6:55f2:0a5e";
 
   vlanHex = vlanId: lib.toLower (lib.toHexString vlanId);
@@ -19,24 +18,24 @@ let
     management = {
       vlanId = 11;
       hosts = {
-        thebeyond  = 1;
-        phantasma  = 2;
-        roer       = 3;    # Keycloak OIDC (erebonia — being migrated to edith on calvard)
-        legram     = 4;    # step-ca / PKI (erebonia — being migrated to basel on calvard)
-        ymir       = 5;    # Metrics / monitoring (erebonia — being migrated to tharbad on calvard)
-        edith      = 6;    # Keycloak OIDC (calvard)
-        basel      = 7;    # step-ca / PKI (calvard)
-        remiferia  = 20;   # NAS — before VM hosts
-        calvard    = 30;   # VM host
-        erebonia   = 31;   # VM host
+        thebeyond = 1;
+        phantasma = 2;
+        roer = 3; # Keycloak OIDC (erebonia — being migrated to edith on calvard)
+        legram = 4; # step-ca / PKI (erebonia — being migrated to basel on calvard)
+        ymir = 5; # Metrics / monitoring (erebonia — being migrated to tharbad on calvard)
+        edith = 6; # Keycloak OIDC (calvard)
+        basel = 7; # step-ca / PKI (calvard)
+        remiferia = 20; # NAS — before VM hosts
+        calvard = 30; # VM host
+        erebonia = 31; # VM host
       };
     };
     trusted = {
       vlanId = 20;
       hosts = {
-        denai      = 40;
-        tharbad    = 41;    # Prometheus+Loki+Alertmanager+ntfy (calvard)
-        messeldam  = 42;    # Dev environment / task runner (calvard Incus container)
+        denai = 40;
+        tharbad = 41; # Prometheus+Loki+Alertmanager+ntfy (calvard)
+        messeldam = 42; # Dev environment / task runner (calvard Incus container)
       };
     };
     untrusted = {
@@ -60,29 +59,32 @@ let
     dmz = {
       vlanId = 100;
       hosts = {
-        ardent    = 31;
-        ordis     = 40;    # Reverse proxy (erebonia — being migrated to langport on calvard)
-        heimdallr = 50;    # Jellyfin (erebonia — being migrated to oracion on calvard)
-        trista    = 51;
-        langport  = 41;    # Reverse proxy (calvard)
-        oracion   = 52;    # Jellyfin media server (calvard)
-        creil     = 53;    # Forgejo git hosting (calvard)
-        monrain   = 32;    # cgit bare repository hosting (remiferia)
+        ardent = 31;
+        ordis = 40; # Reverse proxy (erebonia — being migrated to langport on calvard)
+        heimdallr = 50; # Jellyfin (erebonia — being migrated to oracion on calvard)
+        trista = 51;
+        langport = 41; # Reverse proxy (calvard)
+        oracion = 52; # Jellyfin media server (calvard)
+        creil = 53; # Forgejo git hosting (calvard)
+        monrain = 32; # cgit bare repository hosting (remiferia)
         "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia)
       };
     };
   };
 
   # Enhance each network with derived subnet and gateway addresses
-  networks = lib.mapAttrs (_: net: net // {
-    subnet4 = "${ipv4Prefix}.${toString net.vlanId}.0/24";
-    subnet6 = "${ulaPrefix}:${vlanHex net.vlanId}::/64";
-    gateway4 = "${ipv4Prefix}.${toString net.vlanId}.1";
-    gateway6 = "${ulaPrefix}:${vlanHex net.vlanId}::1";
-    # Legacy addresses — remove after 10.0 → 10.97 migration complete
-    subnet4Legacy = "${legacyIpv4Prefix}.${toString net.vlanId}.0/24";
-    gateway4Legacy = "${legacyIpv4Prefix}.${toString net.vlanId}.1";
-  }) rawNetworks;
+  networks = lib.mapAttrs (_: net:
+    net
+    // {
+      subnet4 = "${ipv4Prefix}.${toString net.vlanId}.0/24";
+      subnet6 = "${ulaPrefix}:${vlanHex net.vlanId}::/64";
+      gateway4 = "${ipv4Prefix}.${toString net.vlanId}.1";
+      gateway6 = "${ulaPrefix}:${vlanHex net.vlanId}::1";
+      # Legacy addresses — remove after 10.0 → 10.97 migration complete
+      subnet4Legacy = "${legacyIpv4Prefix}.${toString net.vlanId}.0/24";
+      gateway4Legacy = "${legacyIpv4Prefix}.${toString net.vlanId}.1";
+    })
+  rawNetworks;
 
   # Derive a full host record from network membership and host ID
   mkHost = zoneName: vlanId: hostId: {
@@ -107,28 +109,34 @@ let
   };
 
   # Flatten networks into a single hosts attrset for direct lookup
-  hosts = (lib.concatMapAttrs (zoneName: net:
-    lib.mapAttrs (_: hostId: mkHost zoneName net.vlanId hostId) net.hosts
-  ) networks) // {
-    # Mesh hosts (10.1.x.x — separate prefix, not yet migrated)
-    merkabah    = mkMeshHost 10 20;
-    derfflinger = mkMeshHost 10 21;
-    pantagruel  = mkMeshHost 10 22;
-    bobcat      = mkMeshHost 10 23;
-    lusitania   = mkMeshHost 10 24;
-    azoth       = mkMeshHost 20 50;
-  };
+  hosts =
+    (lib.concatMapAttrs (
+        zoneName: net:
+          lib.mapAttrs (_: hostId: mkHost zoneName net.vlanId hostId) net.hosts
+      )
+      networks)
+    // {
+      # Mesh hosts (10.1.x.x — separate prefix, not yet migrated)
+      merkabah = mkMeshHost 10 20;
+      derfflinger = mkMeshHost 10 21;
+      pantagruel = mkMeshHost 10 22;
+      bobcat = mkMeshHost 10 23;
+      lusitania = mkMeshHost 10 24;
+      azoth = mkMeshHost 20 50;
+    };
 
   # Human-readable summary table
   pad = n: s: let
     padLen = n - builtins.stringLength s;
-  in if padLen <= 0 then s else s + lib.fixedWidthString padLen " " "";
+  in
+    if padLen <= 0
+    then s
+    else s + lib.fixedWidthString padLen " " "";
 
   header = "${pad 18 "Host"}${pad 18 "Zone"}${pad 18 "IPv4"}${pad 18 "IPv4 (legacy)"}IPv6";
   separator = builtins.concatStringsSep "" (builtins.genList (_: "-") (builtins.stringLength header));
 
-  row = name: h:
-    "${pad 18 name}${pad 18 h.zoneName}${pad 18 h.ipv4}${pad 18 (h.ipv4Legacy or "")}${h.ipv6 or ""}";
+  row = name: h: "${pad 18 name}${pad 18 h.zoneName}${pad 18 h.ipv4}${pad 18 (h.ipv4Legacy or "")}${h.ipv6 or ""}";
 
   hostList = lib.mapAttrsToList lib.nameValuePair hosts;
   hostsByZone = lib.groupBy (e: e.value.zoneName) hostList;
@@ -136,41 +144,60 @@ let
   renderZone = _zoneName: entries:
     lib.concatMapStringsSep "\n" (e: row e.name e.value) entries;
 
-  summary = lib.concatStringsSep "\n\n" (
-    [ header separator ]
-    ++ lib.mapAttrsToList renderZone hostsByZone
-  ) + "\n";
+  summary =
+    lib.concatStringsSep "\n\n" (
+      [header separator]
+      ++ lib.mapAttrsToList renderZone hostsByZone
+    )
+    + "\n";
 
   # Markdown table for docs
-  markdownRow = name: h:
-    "| ${name} | ${h.zoneName} | `${h.ipv4}` | ${if h ? ipv4Legacy then "`${h.ipv4Legacy}`" else ""} | ${if h ? ipv6 then "`${h.ipv6}`" else ""} |";
+  markdownRow = name: h: "| ${name} | ${h.zoneName} | `${h.ipv4}` | ${
+    if h ? ipv4Legacy
+    then "`${h.ipv4Legacy}`"
+    else ""
+  } | ${
+    if h ? ipv6
+    then "`${h.ipv6}`"
+    else ""
+  } |";
 
-  markdown = ''
-    # Network Host Registry
+  markdown =
+    ''
+      # Network Host Registry
 
-    > **Auto-generated from `lib/common/data/network.nix`.** Do not edit manually.
-    > Regenerate with: `nix run .#netinfo -- --generate-docs`
+      > **Auto-generated from `lib/common/data/network.nix`.** Do not edit manually.
+      > Regenerate with: `nix run .#netinfo -- --generate-docs`
 
-    | Host | Zone | IPv4 | IPv4 (legacy) | IPv6 |
-    |------|------|------|---------------|------|
-  '' + lib.concatStringsSep "\n" (lib.mapAttrsToList markdownRow hosts) + "\n";
+      | Host | Zone | IPv4 | IPv4 (legacy) | IPv6 |
+      |------|------|------|---------------|------|
+    ''
+    + lib.concatStringsSep "\n" (lib.mapAttrsToList markdownRow hosts)
+    + "\n";
 
   forHost = hostname: let
     h = hosts.${hostname} or (throw "Host '${hostname}' not found in network registry");
-    z = if networks ? ${h.zoneName} then networks.${h.zoneName}
-        else throw "Zone '${h.zoneName}' for host '${hostname}' not found in network registry";
-  in { host = h; zone = z; };
+    z =
+      if networks ? ${h.zoneName}
+      then networks.${h.zoneName}
+      else throw "Zone '${h.zoneName}' for host '${hostname}' not found in network registry";
+  in {
+    host = h;
+    zone = z;
+  };
 
   # mkExtraHosts: Generate /etc/hosts entries for a list of hostnames
   # Produces IPv4, legacy IPv4, and IPv6 lines with canonical and short names
   mkExtraHosts = hostnames:
     lib.concatMapStringsSep "\n" (name: let
       h = hosts.${name};
-    in lib.concatStringsSep "\n" (lib.filter (s: s != "") [
-      (lib.optionalString (h ? ipv4) "${h.ipv4} ${name}.internal.mutantmell.net ${name}.internal")
-      (lib.optionalString (h ? ipv4Legacy) "${h.ipv4Legacy} ${name}.internal.mutantmell.net ${name}.internal")
-      (lib.optionalString (h ? ipv6) "${h.ipv6} ${name}.internal.mutantmell.net ${name}.internal")
-    ])) hostnames;
+    in
+      lib.concatStringsSep "\n" (lib.filter (s: s != "") [
+        (lib.optionalString (h ? ipv4) "${h.ipv4} ${name}.internal.mutantmell.net ${name}.internal")
+        (lib.optionalString (h ? ipv4Legacy) "${h.ipv4Legacy} ${name}.internal.mutantmell.net ${name}.internal")
+        (lib.optionalString (h ? ipv6) "${h.ipv6} ${name}.internal.mutantmell.net ${name}.internal")
+      ]))
+    hostnames;
 
   # mkUnboundLocalData: Generate Unbound local-data entries (A + AAAA)
   # Produces canonical (.internal.mutantmell.net) and short alias (.internal) records
@@ -178,45 +205,65 @@ let
   mkUnboundLocalData = hostnames:
     lib.concatMap (name: let
       h = hosts.${name};
-    in lib.filter (s: s != "") [
-      (lib.optionalString (h ? ipv4) ''"${name}.internal.mutantmell.net. A ${h.ipv4}"'')
-      (lib.optionalString (h ? ipv4Legacy) ''"${name}.internal.mutantmell.net. A ${h.ipv4Legacy}"'')
-      (lib.optionalString (h ? ipv4) ''"${name}.internal. A ${h.ipv4}"'')
-      (lib.optionalString (h ? ipv4Legacy) ''"${name}.internal. A ${h.ipv4Legacy}"'')
-      (lib.optionalString (h ? ipv6) ''"${name}.internal.mutantmell.net. AAAA ${h.ipv6}"'')
-      (lib.optionalString (h ? ipv6) ''"${name}.internal. AAAA ${h.ipv6}"'')
-    ]) hostnames;
+    in
+      lib.filter (s: s != "") [
+        (lib.optionalString (h ? ipv4) ''"${name}.internal.mutantmell.net. A ${h.ipv4}"'')
+        (lib.optionalString (h ? ipv4Legacy) ''"${name}.internal.mutantmell.net. A ${h.ipv4Legacy}"'')
+        (lib.optionalString (h ? ipv4) ''"${name}.internal. A ${h.ipv4}"'')
+        (lib.optionalString (h ? ipv4Legacy) ''"${name}.internal. A ${h.ipv4Legacy}"'')
+        (lib.optionalString (h ? ipv6) ''"${name}.internal.mutantmell.net. AAAA ${h.ipv6}"'')
+        (lib.optionalString (h ? ipv6) ''"${name}.internal. AAAA ${h.ipv6}"'')
+      ])
+    hostnames;
 
   # mkDualEgressRules: Expand host-based egress rules into dual-stack nftables strings
   # Each rule: { host OR gateway = true; proto = "tcp"|"udp"; port = int|string; comment? = string; }
   # "gateway" uses the zone's gateway addresses instead of a host
   # Emits rules for both primary and legacy IPv4 addresses during migration
   mkDualEgressRules = zone: rules:
-    lib.concatMap (rule: let
-      addrs =
-        if rule ? gateway && rule.gateway then {
-          v4 = zone.gateway4; v6 = zone.gateway6;
-          v4Legacy = zone.gateway4Legacy or null;
-        }
-        else if rule ? host then {
-          v4 = hosts.${rule.host}.ipv4;
-          v6 = hosts.${rule.host}.ipv6 or null;
-          v4Legacy = hosts.${rule.host}.ipv4Legacy or null;
-        }
-        else abort "mkDualEgressRules: rule must have 'gateway' or 'host'";
-      port = if builtins.isList rule.port
-             then "{ ${lib.concatMapStringsSep ", " toString rule.port} }"
-             else toString rule.port;
-      comment = lib.optionalString (rule ? comment) "  comment \"${rule.comment}\"";
-      v4 = "ip daddr ${addrs.v4} ${rule.proto} dport ${port} accept${comment}";
-      v4Legacy = "ip daddr ${addrs.v4Legacy} ${rule.proto} dport ${port} accept${comment}";
-      v6 = "ip6 daddr ${addrs.v6} ${rule.proto} dport ${port} accept${comment}";
-    in [ v4 ]
-       ++ lib.optional (addrs.v4Legacy != null) v4Legacy
-       ++ lib.optional (addrs.v6 != null) v6
-    ) rules;
-
+    lib.concatMap (
+      rule: let
+        addrs =
+          if rule ? gateway && rule.gateway
+          then {
+            v4 = zone.gateway4;
+            v6 = zone.gateway6;
+            v4Legacy = zone.gateway4Legacy or null;
+          }
+          else if rule ? host
+          then {
+            v4 = hosts.${rule.host}.ipv4;
+            v6 = hosts.${rule.host}.ipv6 or null;
+            v4Legacy = hosts.${rule.host}.ipv4Legacy or null;
+          }
+          else abort "mkDualEgressRules: rule must have 'gateway' or 'host'";
+        port =
+          if builtins.isList rule.port
+          then "{ ${lib.concatMapStringsSep ", " toString rule.port} }"
+          else toString rule.port;
+        comment = lib.optionalString (rule ? comment) "  comment \"${rule.comment}\"";
+        v4 = "ip daddr ${addrs.v4} ${rule.proto} dport ${port} accept${comment}";
+        v4Legacy = "ip daddr ${addrs.v4Legacy} ${rule.proto} dport ${port} accept${comment}";
+        v6 = "ip6 daddr ${addrs.v6} ${rule.proto} dport ${port} accept${comment}";
+      in
+        [v4]
+        ++ lib.optional (addrs.v4Legacy != null) v4Legacy
+        ++ lib.optional (addrs.v6 != null) v6
+    )
+    rules;
 in {
-  inherit networks ipv4Prefix legacyIpv4Prefix ulaPrefix mkHost hosts summary markdown forHost
-          mkExtraHosts mkUnboundLocalData mkDualEgressRules;
+  inherit
+    networks
+    ipv4Prefix
+    legacyIpv4Prefix
+    ulaPrefix
+    mkHost
+    hosts
+    summary
+    markdown
+    forHost
+    mkExtraHosts
+    mkUnboundLocalData
+    mkDualEgressRules
+    ;
 }

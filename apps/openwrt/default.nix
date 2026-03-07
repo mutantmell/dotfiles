@@ -40,9 +40,11 @@
 #       mesh:
 #         id: "your-mesh-id"
 #         key: "your-mesh-password"
-{ pkgs, openwrtDevices, openwrtConfigurations }:
-
-let
+{
+  pkgs,
+  openwrtDevices,
+  openwrtConfigurations,
+}: let
   lib = pkgs.lib;
   builder = pkgs.mmell.openwrt-builder;
   deployer = pkgs.mmell.openwrt-deployer;
@@ -50,14 +52,16 @@ let
   # Device name → config dir lookup (shell case statement)
   # ${drv} interpolation embeds the store path AND adds drv to the closure,
   # so all openwrtConfigurations derivations are built before these scripts run.
-  deviceConfigLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: drv:
-    "    ${name}) CONFIG_DIR=\"${drv}\" ;;"
-  ) openwrtConfigurations);
+  deviceConfigLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (
+      name: drv: "    ${name}) CONFIG_DIR=\"${drv}\" ;;"
+    )
+    openwrtConfigurations);
 
   # Device name → target/subtarget lookup (for update flow)
-  deviceTargetLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: device:
-    "    ${name}) DEVICE_TARGET=\"${device.target}/${device.subtarget}\" ;;"
-  ) openwrtDevices);
+  deviceTargetLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (
+      name: device: "    ${name}) DEVICE_TARGET=\"${device.target}/${device.subtarget}\" ;;"
+    )
+    openwrtDevices);
 
   # Space-separated list of all unique targets across all devices (for --update-pins)
   allTargets = lib.concatStringsSep " " (
@@ -65,9 +69,10 @@ let
   );
 
   # Device listing info embedded at eval time
-  deviceListInfo = lib.concatStringsSep "\n" (lib.mapAttrsToList (name: device:
-    "  printf '  %-20s %-10s %s\\n' '${name}' '${device.type}' '${device.profile}'"
-  ) openwrtDevices);
+  deviceListInfo = lib.concatStringsSep "\n" (lib.mapAttrsToList (
+      name: device: "  printf '  %-20s %-10s %s\\n' '${name}' '${device.type}' '${device.profile}'"
+    )
+    openwrtDevices);
 
   # Resolve device name to CONFIG_DIR, or error
   resolveDevice = ''
@@ -152,7 +157,6 @@ let
       fi
     }
   '';
-
 in {
   # Build an OpenWrt image using the upstream Image Builder
   openwrt-build = {

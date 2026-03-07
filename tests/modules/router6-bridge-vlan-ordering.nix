@@ -10,30 +10,37 @@
 #   02- batman
 #   03- bridge
 #   04- vlan (after all potential parents)
-
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
+{
+  pkgs ? import <nixpkgs> {},
+  lib ? pkgs.lib,
 }:
-
 pkgs.testers.nixosTest {
   name = "router6-bridge-vlan-ordering";
 
   nodes = {
-    router = { config, pkgs, ... }: {
-      imports = [ ../../modules/router6 ];
+    router = {
+      config,
+      pkgs,
+      ...
+    }: {
+      imports = [../../modules/router6];
 
-      virtualisation.vlans = [ 1 2 3 ];
+      virtualisation.vlans = [1 2 3];
 
       router6 = {
         enable = true;
         ulaPrefix = "fd00::/48";
 
         zones = {
-          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          external = {
+            icmpEcho = "disable";
+            accessTo = [];
+            inputRules = [];
+          };
           trusted = {
             icmpEcho = "enable";
-            accessTo = [ "trusted" "external" ];
-            inputRules = [{ verdict = "accept"; }];
+            accessTo = ["trusted" "external"];
+            inputRules = [{verdict = "accept";}];
           };
         };
 
@@ -72,11 +79,11 @@ pkgs.testers.nixosTest {
             vlans = {
               vlan10 = {
                 tag = 10;
-                network.type = "disabled";  # Will be bridge member
+                network.type = "disabled"; # Will be bridge member
               };
               vlan20 = {
                 tag = 20;
-                network.type = "disabled";  # Will be bridge member
+                network.type = "disabled"; # Will be bridge member
               };
             };
           };
@@ -96,7 +103,7 @@ pkgs.testers.nixosTest {
           # Create bridge -> Create VLANs on bridge interface
           br1 = {
             kind = "bridge";
-            members = ["eth3"];  # Bridge needs at least one member to get carrier
+            members = ["eth3"]; # Bridge needs at least one member to get carrier
             network.type = "disabled";
             vlans = {
               vlan30 = {
@@ -125,19 +132,22 @@ pkgs.testers.nixosTest {
     # DHCP client on VLAN 30 (VLANs-on-bridge scenario)
     # Shares L2 segment with router's eth3 (bridge member of br1).
     # Tagged 802.1Q frames pass through the vde switch transparently.
-    client = { lib, ... }: {
-      virtualisation.vlans = [ 3 ];
+    client = {lib, ...}: {
+      virtualisation.vlans = [3];
       networking.useDHCP = false;
       networking.interfaces.eth1.useDHCP = false;
       systemd.network = {
         enable = true;
         netdevs."10-vlan30" = {
-          netdevConfig = { Name = "vlan30"; Kind = "vlan"; };
+          netdevConfig = {
+            Name = "vlan30";
+            Kind = "vlan";
+          };
           vlanConfig.Id = 30;
         };
         networks."10-eth1" = {
           matchConfig.Name = "eth1";
-          vlan = [ "vlan30" ];
+          vlan = ["vlan30"];
           linkConfig.RequiredForOnline = "carrier";
         };
         networks."20-vlan30" = {

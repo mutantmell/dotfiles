@@ -1,9 +1,10 @@
-{ config, pkgs, ... }:
-
 {
-
+  config,
+  pkgs,
+  ...
+}: {
   nixpkgs.config.allowUnfree = true;
-  
+
   jovian = {
     steam = {
       enable = true;
@@ -21,7 +22,7 @@
     enable = true;
     libraries = [pkgs.pciutils];
   };
-  
+
   networking.hostName = "arcus";
   networking.networkmanager.enable = true;
 
@@ -36,5 +37,4 @@
 
   # Set state version to match when config was created (Oct 2023)
   system.stateVersion = "25.11";
-
 }

@@ -1,10 +1,7 @@
 # Linksys E8450 (UBI) — mesh AP with IoT VLAN
-{ owrtData }:
-
-let
+{owrtData}: let
   inherit (owrtData) mkAddresses mkGateway;
-in
-{
+in {
   type = "meshAP";
   hostname = "derfflinger";
   profile = "linksys_e8450-ubi";
@@ -15,7 +12,7 @@ in
   country = owrtData.defaultCountry;
   heBssColor = 25;
   legacyRates = true;
-  extraPackages = [ "usteer" ];
+  extraPackages = ["usteer"];
   extraConfig = {
     # IoT VLAN — additional bat0.1040 interface with IoT SSID
     network = {
@@ -36,8 +33,8 @@ in
         mode = "ap";
         encryption = "sae-mixed";
         network = "iot";
-        ssid = { _secret = "wifi.iot.ssid"; };
-        key  = { _secret = "wifi.iot.key"; };
+        ssid = {_secret = "wifi.iot.ssid";};
+        key = {_secret = "wifi.iot.key";};
       };
     };
   };

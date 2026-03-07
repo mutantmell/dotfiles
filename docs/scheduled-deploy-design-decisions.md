@@ -30,6 +30,7 @@ This document explains key design decisions in the scheduled-deploy module.
 **Decision**: The wrapper flake is a durable artifact in a git repo, not a file generated at activation time.
 
 **Why**: Flakes are designed to work with source control — that's why Nix has first-class `git+ssh://` support. Dynamically generating `flake.nix` files in `/var/lib/` is fragile, hard to audit, and goes against the grain of how flakes work. A git repo gives you:
+
 - Version history of the flake definition
 - Audit trail of every `flake.lock` update (via commits)
 - Deployment history (via tags)
@@ -53,6 +54,7 @@ The router is purely a deployment target. It doesn't manage its own updates.
 **Decision**: Tag the repo after each successful deployment with `deploy/<node>/<timestamp>`.
 
 **Why**: Commits record input updates, but not whether the deployment succeeded. A tag after `deploy` succeeds tells you exactly what was deployed and when. You can:
+
 - `git log --tags` to see deployment timeline
 - `git diff deploy/thebeyond/20260215.. deploy/thebeyond/20260222..` to see what changed between deployments
 - Quickly identify the last successful deployment

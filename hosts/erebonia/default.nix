@@ -1,15 +1,17 @@
-{ config, pkgs, ... }:
-
-let
+{
+  config,
+  pkgs,
+  ...
+}: let
   hostname = "erebonia";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
   nas = net.hosts.remiferia;
 in {
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
-    (import ../../profiles/disko/vm-host.nix { disk = "/dev/sda"; })
+    (import ../../profiles/disko/vm-host.nix {disk = "/dev/sda";})
     ./impermanence.nix
     ./sops.nix
     ./microvm
@@ -24,7 +26,7 @@ in {
   common.zfs.remoteUnlock.hostkey = /persist/etc/ssh/initrd_ssh_host_ed25519_key;
 
   boot.extraModprobeConfig = "options kvm_intel nested=1";
-  boot.initrd.availableKernelModules = [ "e1000e" "8021q" ];
+  boot.initrd.availableKernelModules = ["e1000e" "8021q"];
   boot.initrd.systemd.network = {
     netdevs."20-eno1.11" = {
       netdevConfig.Kind = "vlan";
@@ -43,12 +45,12 @@ in {
       matchConfig.Name = "eno1.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
+      networkConfig.Address = [host.cidr4 host.cidr4Legacy host.cidr6];
       networkConfig.MulticastDNS = true;
-      networkConfig.DNS = [ zone.gateway4 zone.gateway4Legacy zone.gateway6 ];
+      networkConfig.DNS = [zone.gateway4 zone.gateway4Legacy zone.gateway6];
       routes = [
-        { Gateway = zone.gateway4; }
-        { Gateway = zone.gateway6; }
+        {Gateway = zone.gateway4;}
+        {Gateway = zone.gateway6;}
       ];
     };
   };
@@ -117,7 +119,7 @@ in {
       ];
     };
     networks."20-vm11-bridge" = {
-      matchConfig.Name = [ "eno1.11" "vm-11-*" ];
+      matchConfig.Name = ["eno1.11" "vm-11-*"];
       networkConfig.Bridge = "br11";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
@@ -127,22 +129,22 @@ in {
       matchConfig.Name = "br11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
+      networkConfig.Address = [host.cidr4 host.cidr4Legacy host.cidr6];
       networkConfig.MulticastDNS = true;
       routes = [
-        { Gateway = zone.gateway4; }
-        { Gateway = zone.gateway6; }
+        {Gateway = zone.gateway4;}
+        {Gateway = zone.gateway6;}
       ];
     };
     networks."20-vm20-bridge" = {
-      matchConfig.Name = [ "eno1.20" "vm-20-*" ];
+      matchConfig.Name = ["eno1.20" "vm-20-*"];
       networkConfig.Bridge = "br20";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
     networks."20-vm100-bridge" = {
-      matchConfig.Name = [ "eno1.100" "vm-100-*" ];
+      matchConfig.Name = ["eno1.100" "vm-100-*"];
       networkConfig.Bridge = "br100";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
@@ -166,7 +168,7 @@ in {
   # Host-based input firewall: restrict SSH to router + vHOME
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ 9100 ];
+    allowedTCPPorts = [9100];
     extraInputRules = ''
       ip saddr { ${zone.gateway4}, ${zone.gateway4Legacy}, ${net.networks.trusted.subnet4}, ${net.networks.trusted.subnet4Legacy} } tcp dport 22 accept
       ip6 saddr { ${zone.gateway6}, ${net.networks.trusted.subnet6} } tcp dport 22 accept
@@ -178,7 +180,7 @@ in {
 
   services.prometheus.exporters.node = {
     enable = true;
-    enabledCollectors = [ "systemd" ];
+    enabledCollectors = ["systemd"];
     port = 9100;
   };
 
@@ -195,8 +197,8 @@ in {
 
   common.openssh = {
     enable = true;
-    users = [ "root" ];
-    keys = [ "deploy" "home" ];
+    users = ["root"];
+    keys = ["deploy" "home"];
   };
 
   programs.ssh.extraConfig = ''

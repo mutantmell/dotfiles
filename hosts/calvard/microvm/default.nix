@@ -1,6 +1,8 @@
-{ config, pkgs, ... }:
-
-let
+{
+  config,
+  pkgs,
+  ...
+}: let
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost "calvard") host zone;
 in {
@@ -12,7 +14,7 @@ in {
   environment.systemPackages = [
     (pkgs.writeShellApplication {
       name = "mk-volume-with-ssh-key";
-      runtimeInputs = [ pkgs.mmell.mk-volume ];
+      runtimeInputs = [pkgs.mmell.mk-volume];
       text = ''
         set -euxo pipefail
         if [ "$#" -lt 2 ]; then
@@ -85,7 +87,7 @@ in {
     };
     # Bridge enp88s0.11 and all vm-11-* tap interfaces into br11
     networks."20-vm11-bridge" = {
-      matchConfig.Name = [ "enp88s0.11" "vm-11-*" ];
+      matchConfig.Name = ["enp88s0.11" "vm-11-*"];
       networkConfig.Bridge = "br11";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
@@ -96,22 +98,22 @@ in {
       matchConfig.Name = "br11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
+      networkConfig.Address = [host.cidr4 host.cidr4Legacy host.cidr6];
       networkConfig.MulticastDNS = true;
       routes = [
-        { Gateway = zone.gateway4; }
-        { Gateway = zone.gateway6; }
+        {Gateway = zone.gateway4;}
+        {Gateway = zone.gateway6;}
       ];
     };
     networks."20-vm20-bridge" = {
-      matchConfig.Name = [ "enp88s0.20" "vm-20-*" ];
+      matchConfig.Name = ["enp88s0.20" "vm-20-*"];
       networkConfig.Bridge = "br20";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
     networks."20-vm100-bridge" = {
-      matchConfig.Name = [ "enp88s0.100" "vm-100-*" ];
+      matchConfig.Name = ["enp88s0.100" "vm-100-*"];
       networkConfig.Bridge = "br100";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
@@ -135,7 +137,7 @@ in {
   # Host-based input firewall: restrict SSH to router + vHOME
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ 9100 ];
+    allowedTCPPorts = [9100];
     extraInputRules = ''
       ip saddr { ${zone.gateway4}, ${zone.gateway4Legacy}, ${net.networks.trusted.subnet4}, ${net.networks.trusted.subnet4Legacy} } tcp dport 22 accept
       ip6 saddr { ${zone.gateway6}, ${net.networks.trusted.subnet6} } tcp dport 22 accept

@@ -4,9 +4,7 @@
 #   nix run .#netinfo                        # Show all hosts
 #   nix run .#netinfo -- <hostname>           # Look up a specific host
 #   nix run .#netinfo -- --generate-docs      # Generate docs/network-hosts.md
-{ pkgs }:
-
-let
+{pkgs}: let
   script = pkgs.writeShellScript "netinfo" ''
     set -euo pipefail
     FLAKE_ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo ".")"

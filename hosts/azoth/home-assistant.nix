@@ -1,8 +1,7 @@
-{ config, ... }: {
-
+{config, ...}: {
   # home-assistant requires EoL openssl
-  nixpkgs.config.permittedInsecurePackages = [ "openssl-1.1.1w" ];
-  
+  nixpkgs.config.permittedInsecurePackages = ["openssl-1.1.1w"];
+
   services.home-assistant = {
     enable = true;
     extraComponents = [
@@ -35,5 +34,4 @@
     serialPort = "/dev/ttyUSB0";
     secretsConfigFile = config.sops.secrets."zwavejs.secrets".path;
   };
-
 }

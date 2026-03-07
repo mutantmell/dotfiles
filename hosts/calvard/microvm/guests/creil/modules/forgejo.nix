@@ -1,5 +1,4 @@
-{ ... }:
-{
+{...}: {
   services.forgejo = {
     enable = true;
     database.type = "sqlite3";
@@ -40,7 +39,11 @@
 
   environment.persistence."/persist" = {
     directories = [
-      { directory = "/var/lib/forgejo"; user = "forgejo"; group = "forgejo"; }
+      {
+        directory = "/var/lib/forgejo";
+        user = "forgejo";
+        group = "forgejo";
+      }
     ];
   };
 }

@@ -1,12 +1,14 @@
-{ config, pkgs, ...}:
-
-let
+{
+  config,
+  pkgs,
+  ...
+}: let
   net = pkgs.mmell.lib.data.network;
 in {
   systemd.services."jellyfin-cert-renew" = {
     serviceConfig.Type = "oneshot";
     description = "Mangage Jellyfin's pkcs12 key";
-    path = [ pkgs.bash pkgs.openssl ];
+    path = [pkgs.bash pkgs.openssl];
     script = let
       acmedir = "/var/lib/acme/${config.networking.hostName}.internal";
       jellydir = config.systemd.services.jellyfin.serviceConfig.WorkingDirectory;
@@ -17,8 +19,8 @@ in {
       chmod 640 ${jellydir}/key.pfx
       chown acme:acme-cert ${jellydir}/key.pfx
     '';
-    wantedBy = [ "acme-${config.networking.hostName}.internal.service" ];
-    after = [ "acme-${config.networking.hostName}.internal.service" ];
+    wantedBy = ["acme-${config.networking.hostName}.internal.service"];
+    after = ["acme-${config.networking.hostName}.internal.service"];
   };
 
   networking.firewall = {
@@ -37,7 +39,7 @@ in {
 
   users.users = {
     jellyfin.extraGroups = ["acme-cert"];
-    nginx.extraGroups = [ "acme-cert" ];
+    nginx.extraGroups = ["acme-cert"];
   };
   users.groups."acme-cert" = {};
 
@@ -57,7 +59,7 @@ in {
       intel-compute-runtime # OpenCL filter support (hardware tonemapping and subtitle burn-in)
     ];
   };
-  
+
   services.jellyfin = {
     enable = true;
   };
@@ -116,7 +118,7 @@ in {
       mode = "0444";
     };
   };
-  networking.extraHosts = net.mkExtraHosts [ "legram" ];
+  networking.extraHosts = net.mkExtraHosts ["legram"];
   security.acme = {
     defaults = {
       server = "https://legram.internal/acme/acme/directory";
@@ -136,4 +138,3 @@ in {
     }
   ];
 }
-

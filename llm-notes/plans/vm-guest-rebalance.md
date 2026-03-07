@@ -16,27 +16,27 @@ Attic binary cache only.
 
 ### Host placement philosophy
 
-| Host | Character | Services |
-|------|-----------|---------|
-| calvard | Real-time, user-facing | Reverse proxy, OIDC, media, monitoring, Forgejo git, dev env |
-| erebonia | Background / async | CI/CD Actions runners, log aggregation, dev env backup |
-| remiferia | NAS-adjacent | Attic binary cache (large blobs benefit from NAS co-location) |
-| thebeyond | Router | DNS, DHCP only |
+| Host      | Character              | Services                                                      |
+| --------- | ---------------------- | ------------------------------------------------------------- |
+| calvard   | Real-time, user-facing | Reverse proxy, OIDC, media, monitoring, Forgejo git, dev env  |
+| erebonia  | Background / async     | CI/CD Actions runners, log aggregation, dev env backup        |
+| remiferia | NAS-adjacent           | Attic binary cache (large blobs benefit from NAS co-location) |
+| thebeyond | Router                 | DNS, DHCP only                                                |
 
 ---
 
 ## Current State
 
-| Guest | Host | Name origin | Hypervisor | Service |
-|-------|------|-------------|------------|---------|
-| roer | erebonia | Erebonian city | microvm (QEMU) | Keycloak OIDC |
-| legram | erebonia | Erebonian city | microvm (QEMU) | step-ca PKI / CA |
-| ordis | erebonia | Erebonian city | microvm (QEMU) | Reverse proxy |
-| heimdallr | erebonia | Erebonian city | microvm (QEMU) | Jellyfin media |
-| ymir | erebonia | Erebonian city | microvm (QEMU) | Monitoring |
-| trista | erebonia | Erebonian city | Incus VM | Dev env (backup) |
-| ardent | remiferia | Remiferian city | cloud-hypervisor | Binary cache + Git |
-| denai | remiferia | Remiferian city | microvm (QEMU) | Dev workstation |
+| Guest     | Host      | Name origin     | Hypervisor       | Service            |
+| --------- | --------- | --------------- | ---------------- | ------------------ |
+| roer      | erebonia  | Erebonian city  | microvm (QEMU)   | Keycloak OIDC      |
+| legram    | erebonia  | Erebonian city  | microvm (QEMU)   | step-ca PKI / CA   |
+| ordis     | erebonia  | Erebonian city  | microvm (QEMU)   | Reverse proxy      |
+| heimdallr | erebonia  | Erebonian city  | microvm (QEMU)   | Jellyfin media     |
+| ymir      | erebonia  | Erebonian city  | microvm (QEMU)   | Monitoring         |
+| trista    | erebonia  | Erebonian city  | Incus VM         | Dev env (backup)   |
+| ardent    | remiferia | Remiferian city | cloud-hypervisor | Binary cache + Git |
+| denai     | remiferia | Remiferian city | microvm (QEMU)   | Dev workstation    |
 
 calvard currently has no guests.
 
@@ -44,23 +44,24 @@ calvard currently has no guests.
 
 ## Target State
 
-| New Name | Old Name | Host | Hypervisor | Service |
-|----------|----------|------|------------|---------|
-| edith | roer | calvard | microvm (QEMU) | Keycloak OIDC |
-| basel | legram | calvard | microvm (QEMU) | step-ca PKI / CA |
-| langport | ordis | calvard | microvm (QEMU) | Reverse proxy |
-| oracion | heimdallr | calvard | microvm (QEMU) | Jellyfin media |
-| tharbad | ymir | calvard | microvm (QEMU) | Monitoring |
-| messeldam | (new) | calvard | Incus container | Dev env (primary) |
-| creil | ardent (split) | calvard | microvm (QEMU) | Forgejo git hosting |
-| trista | trista | erebonia | Incus VM | Dev env (backup) |
-| saint-arkh | ardent (split) | erebonia | microvm (QEMU) | Forgejo Actions CI/CD runners |
-| ardent | ardent (split) | remiferia | cloud-hypervisor | Attic binary cache only |
-| denai | denai | remiferia | microvm (QEMU) | Dev workstation (slated for removal) |
+| New Name   | Old Name       | Host      | Hypervisor       | Service                              |
+| ---------- | -------------- | --------- | ---------------- | ------------------------------------ |
+| edith      | roer           | calvard   | microvm (QEMU)   | Keycloak OIDC                        |
+| basel      | legram         | calvard   | microvm (QEMU)   | step-ca PKI / CA                     |
+| langport   | ordis          | calvard   | microvm (QEMU)   | Reverse proxy                        |
+| oracion    | heimdallr      | calvard   | microvm (QEMU)   | Jellyfin media                       |
+| tharbad    | ymir           | calvard   | microvm (QEMU)   | Monitoring                           |
+| messeldam  | (new)          | calvard   | Incus container  | Dev env (primary)                    |
+| creil      | ardent (split) | calvard   | microvm (QEMU)   | Forgejo git hosting                  |
+| trista     | trista         | erebonia  | Incus VM         | Dev env (backup)                     |
+| saint-arkh | ardent (split) | erebonia  | microvm (QEMU)   | Forgejo Actions CI/CD runners        |
+| ardent     | ardent (split) | remiferia | cloud-hypervisor | Attic binary cache only              |
+| denai      | denai          | remiferia | microvm (QEMU)   | Dev workstation (slated for removal) |
 
 ### Naming rationale
 
 Guest names serve as a mnemonic for which host they run on:
+
 - **Calvard city names** — calvard guests; edith, basel, langport, oracion, tharbad,
   messeldam, creil are assigned; altair (Headscale) and longlai (subnet router) are
   reserved for future phases; nemeth is unallocated
@@ -115,7 +116,7 @@ Each microVM migration follows the same pattern:
 - [ ] Add vINFRA (VLAN 11) bridge to calvard's network config
 - [ ] Verify vDMZ and vMGMT bridges exist and are functional
 - [ ] Add calvard's `microvm.nix` guest declarations for phases 2–5 (tap interfaces,
-  volume paths under `/persist/guests/`)
+      volume paths under `/persist/guests/`)
 - [ ] Configure Incus on calvard (enable container + VM support)
 - [ ] Verify Incus networking bridges match VLAN assignments
 
@@ -171,11 +172,11 @@ ardent currently runs Attic (binary cache) and Forgejo (git hosting + Actions CI
 runners). These are split into three independent guests with separate lifecycles,
 resource limits, and firewall egress rules:
 
-| Guest | Host | Services | Rationale |
-|-------|------|----------|-----------|
-| ardent | remiferia | Attic binary cache only | Large blobs benefit from NAS co-location |
-| TBD Calvard name | calvard | Forgejo git hosting + web UI | User-facing HTTP; close to langport and edith |
-| saint-arkh | erebonia | Forgejo Actions CI/CD runners | Async, CPU-spiky; isolated from real-time services |
+| Guest            | Host      | Services                      | Rationale                                          |
+| ---------------- | --------- | ----------------------------- | -------------------------------------------------- |
+| ardent           | remiferia | Attic binary cache only       | Large blobs benefit from NAS co-location           |
+| TBD Calvard name | calvard   | Forgejo git hosting + web UI  | User-facing HTTP; close to langport and edith      |
+| saint-arkh       | erebonia  | Forgejo Actions CI/CD runners | Async, CPU-spiky; isolated from real-time services |
 
 Runners communicate with the Forgejo API over the network using a registration token —
 the separation is already native to Forgejo Actions architecture.
@@ -254,11 +255,11 @@ After each phase, keep these in sync:
 Several plans written before calvard was designated the primary VM host still assign
 future (not-yet-configured) microvms to **erebonia**:
 
-| Plan | Stale Assignment | Correct Host |
-|------|-----------------|--------------|
-| `headscale-integration-plan.md` Phase 1 | headscale control server → erebonia | calvard |
-| `headscale-integration-plan.md` Phase 2 | fenrir (subnet router) → erebonia | calvard |
-| `feature-roadmap-analysis.md` summary | "All planned microvms are assigned to erebonia" | calvard |
+| Plan                                    | Stale Assignment                                | Correct Host |
+| --------------------------------------- | ----------------------------------------------- | ------------ |
+| `headscale-integration-plan.md` Phase 1 | headscale control server → erebonia             | calvard      |
+| `headscale-integration-plan.md` Phase 2 | fenrir (subnet router) → erebonia               | calvard      |
+| `feature-roadmap-analysis.md` summary   | "All planned microvms are assigned to erebonia" | calvard      |
 
 None of these VMs have been configured yet, so there is no migration work — the
 references simply need to be updated to point at calvard. The stale text in each plan
@@ -271,12 +272,12 @@ calvard as the target host.
 
 These are tracked in `microvm-inventory.md` and their respective feature plans:
 
-| Purpose | Plan | Name |
-|---------|------|------|
-| SSH jump host | `keycloak-oauth-oidc-plan.md` Phase 3 | TBD (Calvard name) |
-| Headscale control plane | `headscale-integration-plan.md` Phase 1 | TBD (Calvard name) |
-| Tailscale subnet router | `headscale-integration-plan.md` Phase 2 | TBD (Calvard name) |
-| Game servers | `headscale-integration-plan.md` Phase 6 | TBD (Calvard names) |
+| Purpose                 | Plan                                    | Name                |
+| ----------------------- | --------------------------------------- | ------------------- |
+| SSH jump host           | `keycloak-oauth-oidc-plan.md` Phase 3   | TBD (Calvard name)  |
+| Headscale control plane | `headscale-integration-plan.md` Phase 1 | TBD (Calvard name)  |
+| Tailscale subnet router | `headscale-integration-plan.md` Phase 2 | TBD (Calvard name)  |
+| Game servers            | `headscale-integration-plan.md` Phase 6 | TBD (Calvard names) |
 
 Remaining unallocated Calvard names: tharbad and messeldam are used above; remaining
 pool from `docs/hostnames.md`: none currently listed as spare — new names will need to

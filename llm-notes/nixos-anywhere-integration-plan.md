@@ -18,6 +18,7 @@ This plan restructures the dotfiles repository to properly integrate nixos-anywh
 ## In-Scope vs Out-of-Scope
 
 ### ✅ In Scope (This Migration)
+
 - Migrate **thebeyond** to new nixos-anywhere/disko structure
 - Add disko input to main flake
 - Create shared disko profile for routers (used by thebeyond)
@@ -26,6 +27,7 @@ This plan restructures the dotfiles repository to properly integrate nixos-anywh
 - Delete isolated `anywhere/` directory
 
 ### ⏸️ Out of Scope (Future Work)
+
 - Migrating **calvard** to new structure (vm-host, not scheduled for teardown yet)
 - Migrating **erebonia** to new structure (vm-host, not scheduled for teardown yet)
 - VM host configurations will be **documented** for when they are ready to be rebuilt from scratch
@@ -108,21 +110,25 @@ This plan restructures the dotfiles repository to properly integrate nixos-anywh
 **Decision:** Encrypt /persist using LUKS with automatic unlock via keyfile stored on /boot.
 
 **Security Model:**
+
 - **Protects against:** Disk removed from router and connected elsewhere, remote data exfiltration of /persist only
 - **Does NOT protect against:** Physical theft of entire router (both encrypted data and key are present)
 - **Philosophy:** Baseline encryption is better than no encryption; can upgrade to stronger methods later
 
 **Hardware Constraints:**
+
 - Router hardware does not support TPM 2.0 (too old for TPM-based automatic unlock)
 - Tang/Clevis network-bound encryption deferred (too many unknowns, added complexity)
 
 **Future Upgrade Paths:**
+
 1. **USB key storage** - Move keyfile to USB stick, require USB insertion for boot
 2. **Tang/Clevis** - Set up Tang server on calvard/erebonia when ready
 3. **Multiple key slots** - Add Tang as backup while keeping keyfile for redundancy
 4. **Key rotation** - LUKS supports multiple key slots, can rotate keys without re-encrypting
 
 **Benefits of This Approach:**
+
 - ✅ Simple, well-understood, minimal moving parts
 - ✅ Works seamlessly with nixos-anywhere
 - ✅ Autonomous reboots from day 1
@@ -234,6 +240,7 @@ Copy `anywhere/profiles/router.nix` to `profiles/disko/router.nix` and update to
 ```
 
 **Key changes:**
+
 - Added LUKS layer wrapping the ext4 filesystem
 - `keyFile = "/tmp/secret.key"` - nixos-anywhere will pass this during deployment
 - `allowDiscards = true` - enables TRIM support for SSDs
@@ -302,6 +309,7 @@ scp root@thebeyond:/tmp/hardware-config.nix hosts/thebeyond/hardware-configurati
 ```
 
 **Important**: The new hardware-configuration.nix should:
+
 - NOT contain any `fileSystems.*` definitions (disko handles this)
 - Keep `boot.initrd.availableKernelModules`
 - Keep `boot.initrd.kernelModules`
@@ -515,6 +523,7 @@ chmod +x scripts/test-disko-vm.sh
 **4.3: Create deployment documentation**
 
 Create `docs/deployment.md` with:
+
 - Prerequisites (SSH access, target machine requirements)
 - Step-by-step deployment process
 - Troubleshooting guide
@@ -572,12 +581,13 @@ nixos-anywhere uses **kexec** to boot the target machine into a temporary NixOS 
 
 **Division of Responsibilities:**
 
-| Component | Handles |
-|-----------|---------|
-| Disko | Disk partitioning, formatting, mount points, filesystems |
-| hardware-configuration.nix | CPU/GPU detection, kernel modules, boot loader settings |
+| Component                  | Handles                                                  |
+| -------------------------- | -------------------------------------------------------- |
+| Disko                      | Disk partitioning, formatting, mount points, filesystems |
+| hardware-configuration.nix | CPU/GPU detection, kernel modules, boot loader settings  |
 
 **Why both?**
+
 - Disko's `nixosModules.disko` automatically generates `fileSystems.*` configuration
 - hardware-configuration.nix (with `--no-filesystems`) captures hardware-specific settings that can't be in disko
 - Together they provide the complete hardware + disk configuration
@@ -601,6 +611,7 @@ This allows shared profiles to work with different hardware.
 **CRITICAL:** Encryption keyfiles must NEVER be committed to git!
 
 Add to `.gitignore`:
+
 ```
 # LUKS encryption keyfiles
 .keys/
@@ -612,22 +623,26 @@ The deployment script saves keyfiles to `.keys/<hostname>-disk.key` for convenie
 ## Migration Checklist (Thebeyond Only)
 
 ### Phase 1: Flake Integration
+
 - [ ] Add disko input to main flake.nix
 - [ ] Update flake.lock
 - [ ] Update flake.nix thebeyond configuration to include disko module
 
 ### Phase 2: Disko Profiles
+
 - [ ] Create profiles/disko/ directory
 - [ ] Move router.nix to profiles/disko/ and add LUKS encryption layer
 - [ ] Move vm-host.nix to profiles/disko/ (for future use, not actively used)
 - [ ] Delete anywhere/ directory
 
 ### Phase 3: Thebeyond Host Configuration
+
 - [ ] Update thebeyond configuration.nix to import disko profile
 - [ ] Add LUKS unlock configuration to thebeyond configuration.nix
 - [ ] Add activation script to create /boot/secrets directory
 
 ### Phase 4: Deployment Tooling
+
 - [ ] Create .keys/ directory for storing keyfiles
 - [ ] Add .keys/ to .gitignore
 - [ ] Create scripts/deploy-nixos-anywhere.sh with encryption support
@@ -636,11 +651,13 @@ The deployment script saves keyfiles to `.keys/<hostname>-disk.key` for convenie
 - [ ] Make scripts executable
 
 ### Phase 5: Testing
+
 - [ ] Test flake: `nix flake check`
 - [ ] Test disko validation: `./scripts/test-disko-vm.sh thebeyond`
 - [ ] Deploy to test environment (optional)
 
 ### Phase 6: Production Deployment (Thebeyond)
+
 - [ ] Deploy to production hardware: `./scripts/deploy-nixos-anywhere.sh thebeyond root@<ip>`
 - [ ] Copy encryption keyfile to /boot/secrets/disk.key
 - [ ] Get LUKS UUID and update configuration.nix
@@ -656,24 +673,28 @@ The deployment script saves keyfiles to `.keys/<hostname>-disk.key` for convenie
 After successful deployment:
 
 1. **Copy encryption keyfile to router:**
+
    ```bash
    scp .keys/thebeyond-disk.key root@thebeyond:/boot/secrets/disk.key
    ssh root@thebeyond 'chmod 600 /boot/secrets/disk.key'
    ```
 
 2. **Update configuration.nix with LUKS UUID:**
+
    ```bash
    ssh root@thebeyond 'blkid | grep crypto_LUKS'
    # Copy UUID and update hosts/thebeyond/configuration.nix
    ```
 
 3. **Regenerate hardware-config** and commit it:
+
    ```bash
    ssh root@thebeyond 'nixos-generate-config --no-filesystems --show-hardware-config > /tmp/hw.nix'
    scp root@thebeyond:/tmp/hw.nix hosts/thebeyond/hardware-configuration.nix
    ```
 
 4. **Rebuild with updated configuration:**
+
    ```bash
    # Commit changes first
    git add hosts/thebeyond/configuration.nix hosts/thebeyond/hardware-configuration.nix
@@ -684,6 +705,7 @@ After successful deployment:
    ```
 
 5. **Test autonomous reboot:**
+
    ```bash
    ssh root@thebeyond 'reboot'
    # Wait ~30 seconds, then verify it comes back up
@@ -691,6 +713,7 @@ After successful deployment:
    ```
 
 6. **Verify encryption and filesystems:**
+
    ```bash
    ssh root@thebeyond 'lsblk'
    ssh root@thebeyond 'df -h'
@@ -800,6 +823,7 @@ clevis luks bind -d /dev/sda3 tang '{"url":"http://calvard:8006"}' -s 1
 When calvard and/or erebonia are ready to be torn down and rebuilt from scratch, follow these steps:
 
 ### Prerequisites
+
 - The `profiles/disko/vm-host.nix` profile is already in place (moved in Phase 2)
 - The deployment scripts already support any host in the flake
 - The main flake already has disko as an input
@@ -807,6 +831,7 @@ When calvard and/or erebonia are ready to be torn down and rebuilt from scratch,
 ### Migration Steps for Each VM Host
 
 **1. Update host configuration.nix**
+
 ```nix
 # hosts/calvard/configuration.nix (or erebonia)
 {
@@ -822,6 +847,7 @@ When calvard and/or erebonia are ready to be torn down and rebuilt from scratch,
 ```
 
 **2. Update flake.nix**
+
 ```nix
 calvard = mk-nixos {
   hostname = "calvard";
@@ -836,6 +862,7 @@ calvard = mk-nixos {
 ```
 
 **3. Deploy**
+
 ```bash
 ./scripts/deploy-nixos-anywhere.sh calvard root@<ip>
 # Follow post-deployment steps as documented
@@ -844,11 +871,13 @@ calvard = mk-nixos {
 **4. Verify vm-host.nix profile**
 
 Review `profiles/disko/vm-host.nix` and adjust as needed for current requirements:
+
 - Check if ZFS encryption settings are still desired
 - Verify disk device paths (may differ from original)
 - Update tmpfs sizes if needed
 
 **Notes:**
+
 - VM hosts may or may not need LUKS encryption (review security requirements)
 - ZFS configuration in vm-host.nix may need updates based on current best practices
 - Test in a VM first using `./scripts/test-disko-vm.sh calvard`

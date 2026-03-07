@@ -1,5 +1,8 @@
-{ config, pkgs, ... }:
 {
+  config,
+  pkgs,
+  ...
+}: {
   services.gitea-actions-runner = {
     package = pkgs.forgejo-runner;
     instances.default = {

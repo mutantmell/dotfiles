@@ -1,7 +1,9 @@
-{ config, pkgs, ... }:
-
 {
-  networking.firewall.allowedTCPPorts = [ 80 443 ];
+  config,
+  pkgs,
+  ...
+}: {
+  networking.firewall.allowedTCPPorts = [80 443];
 
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
@@ -13,7 +15,7 @@
       mode = "0444";
     };
   };
-  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
 
   services.step-ca = {
     enable = true;
@@ -22,7 +24,7 @@
     openFirewall = true;
     intermediatePasswordFile = config.sops.secrets."intermediate-password-file".path;
     settings = {
-      dnsNames = [ "localhost" "${config.networking.hostName}" "${config.networking.hostName}.internal.mutantmell.net" "${config.networking.hostName}.internal" ];
+      dnsNames = ["localhost" "${config.networking.hostName}" "${config.networking.hostName}.internal.mutantmell.net" "${config.networking.hostName}.internal"];
       root = "/etc/step-ca/data/root_ca.crt";
       crt = "/etc/step-ca/data/intermediate_ca.crt";
       key = config.sops.secrets."intermediate_ca.key".path;
@@ -39,7 +41,7 @@
               "*.mutantmell.net"
               "mutantmell.net"
             ];
-            ip = [ "10.0.0.0/16" "10.1.0.0/16" "10.97.0.0/16" "fdc6:55f2:0a5e::/48" ];
+            ip = ["10.0.0.0/16" "10.1.0.0/16" "10.97.0.0/16" "fdc6:55f2:0a5e::/48"];
           };
         };
       in {
@@ -89,26 +91,26 @@
 
   systemd.services = {
     "acme-${config.networking.hostName}.internal" = let
-      deps = [ "step-ca.service" ];
+      deps = ["step-ca.service"];
     in {
       after = deps;
       requires = deps;
     };
-    "nginx".after = [ "step-ca.service" ];
-    "nginx".requires = [ "step-ca.service" ];
-    "step-ca".before = [ "nginx.service" ];
-    "step-ca".requiredBy = [ "nginx.service" ];
+    "nginx".after = ["step-ca.service"];
+    "nginx".requires = ["step-ca.service"];
+    "step-ca".before = ["nginx.service"];
+    "step-ca".requiredBy = ["nginx.service"];
   };
 
   # Bootstrap nginx TLS cert from step-ca (needed before ACME can work)
   systemd.services = {
     "nginx-cert-init" = {
       serviceConfig.Type = "oneshot";
-      after = [ "step-ca.service" ];
-      requires = [ "step-ca.service" ];
-      before = [ "nginx.service" ];
-      requiredBy = [ "nginx.service" ];
-      path = with pkgs; [ bash step-cli ];
+      after = ["step-ca.service"];
+      requires = ["step-ca.service"];
+      before = ["nginx.service"];
+      requiredBy = ["nginx.service"];
+      path = with pkgs; [bash step-cli];
       preStart = ''
         sleep 5
       '';
@@ -124,7 +126,7 @@
     };
     "nginx-cert-renew" = {
       serviceConfig.Type = "oneshot";
-      path = with pkgs; [ bash step-cli ];
+      path = with pkgs; [bash step-cli];
       script = ''
         #!/usr/bin/env bash
 
@@ -138,8 +140,8 @@
   };
   systemd.timers = {
     "nginx-cert-renew" = {
-      wantedBy = [ "timers.target" ];
-      partOf = [ "nginx-cert-renew.service" ];
+      wantedBy = ["timers.target"];
+      partOf = ["nginx-cert-renew.service"];
       timerConfig = {
         OnCalendar = "*-*-* 00,12:00:00";
         Unit = "nginx-cert-renew.service";
@@ -149,7 +151,11 @@
 
   environment.persistence."/persist" = {
     directories = [
-      { directory = "/var/lib/private/step-ca"; user = "step-ca"; group = "step-ca"; }
+      {
+        directory = "/var/lib/private/step-ca";
+        user = "step-ca";
+        group = "step-ca";
+      }
     ];
   };
 }

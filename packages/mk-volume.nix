@@ -1,6 +1,5 @@
-{
-  writeShellScriptBin
-}: writeShellScriptBin "mk-volume" ''
+{writeShellScriptBin}:
+writeShellScriptBin "mk-volume" ''
   set -euxo pipefail
 
   if [ "$#" -lt 2 ]; then

@@ -40,26 +40,44 @@
       url = github:serokell/deploy-rs;
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    treefmt-nix.url = "github:numtide/treefmt-nix";
   };
   outputs = {
-    self, nixpkgs, nixpkgs-stable, nixos-hardware, home-manager,
-      sops-nix, jovian, microvm, impermanence, disko,
-      home-manager-stable, microvm-stable,
-      deploy-rs,
+    self,
+    nixpkgs,
+    nixpkgs-stable,
+    nixos-hardware,
+    home-manager,
+    sops-nix,
+    jovian,
+    microvm,
+    impermanence,
+    disko,
+    home-manager-stable,
+    microvm-stable,
+    deploy-rs,
+    treefmt-nix,
   }: let
-    pkgsFor = basepkgs: system: import basepkgs {
-      inherit system;
-      overlays = builtins.attrValues self.overlays;
-      config.allowUnfree = true;
-    };
-    allSystems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-    forAllSystems = f: nixpkgs.lib.genAttrs allSystems (system: f {
-      inherit system;
-      pkgs = pkgsFor nixpkgs system;
-    });
-    openwrtDevices = import ./hosts/openwrt { inherit (nixpkgs) lib; };
+    pkgsFor = basepkgs: system:
+      import basepkgs {
+        inherit system;
+        overlays = builtins.attrValues self.overlays;
+        config.allowUnfree = true;
+      };
+    allSystems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
+    forAllSystems = f:
+      nixpkgs.lib.genAttrs allSystems (system:
+        f {
+          inherit system;
+          pkgs = pkgsFor nixpkgs system;
+        });
+    treefmtEval = forAllSystems (sys: treefmt-nix.lib.evalModule sys.pkgs ./treefmt.nix);
+    openwrtDevices = import ./hosts/openwrt {inherit (nixpkgs) lib;};
   in {
-    devShells = forAllSystems ({ system, pkgs }: {
+    devShells = forAllSystems ({
+      system,
+      pkgs,
+    }: {
       default = pkgs.mkShell {
         packages = [
           pkgs.bashInteractive
@@ -68,8 +86,13 @@
         ];
       };
     });
+    formatter = forAllSystems (sys: treefmtEval.${sys.pkgs.stdenv.hostPlatform.system}.config.build.wrapper);
 
-    packages = forAllSystems ({ system, pkgs, ... }: {
+    packages = forAllSystems ({
+      system,
+      pkgs,
+      ...
+    }: {
       cc = pkgs.claude-code;
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
@@ -78,9 +101,31 @@
         inherit (pkgs) writeShellScriptBin;
       };
       openwrt-builder = import ./packages/openwrt-builder {
-        inherit (pkgs) lib stdenv makeWrapper python3 sops gnumake gnutar
-          coreutils findutils gnugrep gawk gnused perl patch diffutils file
-          unzip bzip2 which ncurses rsync xz;
+        inherit
+          (pkgs)
+          lib
+          stdenv
+          makeWrapper
+          python3
+          sops
+          gnumake
+          gnutar
+          coreutils
+          findutils
+          gnugrep
+          gawk
+          gnused
+          perl
+          patch
+          diffutils
+          file
+          unzip
+          bzip2
+          which
+          ncurses
+          rsync
+          xz
+          ;
       };
       openwrt-deployer = import ./packages/openwrt-deployer {
         inherit (pkgs) lib stdenv makeWrapper openssh coreutils;
@@ -92,11 +137,12 @@
           modules = [
             "${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
             {
-              users.users.root.openssh.authorizedKeys.keys = [ keys.ssh.deploy ];
+              users.users.root.openssh.authorizedKeys.keys = [keys.ssh.deploy];
             }
           ];
         };
-      in installer.config.system.build.isoImage;
+      in
+        installer.config.system.build.isoImage;
     });
 
     nixosModules = let
@@ -104,7 +150,8 @@
         if value == "directory"
         then import (./modules + "/${dir}")
         else abort "invalid entry in modules";
-    in builtins.mapAttrs importModule (builtins.readDir ./modules);
+    in
+      builtins.mapAttrs importModule (builtins.readDir ./modules);
 
     overlays = {
       packages = final: prev: {
@@ -112,98 +159,123 @@
       };
 
       lib = final: prev: {
-        mmell = (prev.mmell or {}) // {
-          lib = self.lib.common // {
-            builders = { inherit (self.lib) mk-microvm mk-incus-vm mk-incus-container; };
-            inherit (self.lib) diskoProfiles;
+        mmell =
+          (prev.mmell or {})
+          // {
+            lib =
+              self.lib.common
+              // {
+                builders = {inherit (self.lib) mk-microvm mk-incus-vm mk-incus-container;};
+                inherit (self.lib) diskoProfiles;
+              };
           };
-        };
       };
     };
 
     lib = {
-      common = import ./lib/common { inherit (nixpkgs) lib; };
-      openwrt = import ./lib/openwrt { inherit (nixpkgs) lib; };
+      common = import ./lib/common {inherit (nixpkgs) lib;};
+      openwrt = import ./lib/openwrt {inherit (nixpkgs) lib;};
       diskoProfiles = {
         router = import ./profiles/disko/router.nix;
         vm-host = import ./profiles/disko/vm-host.nix;
       };
-      mk-nixos = args @ { nixpkgs, system, ... }: nixpkgs.lib.nixosSystem {
-        inherit system;
-        specialArgs = {
-          inherit self;
-          inputs = { inherit nixpkgs nixpkgs-stable sops-nix microvm disko deploy-rs; };
+      mk-nixos = args @ {
+        nixpkgs,
+        system,
+        ...
+      }:
+        nixpkgs.lib.nixosSystem {
+          inherit system;
+          specialArgs = {
+            inherit self;
+            inputs = {inherit nixpkgs nixpkgs-stable sops-nix microvm disko deploy-rs;};
+          };
+          modules =
+            [
+              {
+                nixpkgs = {
+                  overlays = builtins.attrValues self.overlays;
+                  config.allowUnfree = true;
+                };
+              }
+              self.nixosModules.common
+              self.nixosModules."promtail-client"
+              sops-nix.nixosModules.sops
+              impermanence.nixosModules.impermanence
+            ]
+            ++ args.modules;
         };
-        modules = [
-          {
-            nixpkgs = {
-              overlays = builtins.attrValues self.overlays;
-              config.allowUnfree = true;
-            };
-          }
-          self.nixosModules.common
-          self.nixosModules."promtail-client"
-          sops-nix.nixosModules.sops
-          impermanence.nixosModules.impermanence
-        ] ++ args.modules;
-      };
-      mk-home-config = args @ { nixpkgs, system, ... }: let
+      mk-home-config = args @ {
+        nixpkgs,
+        system,
+        ...
+      }: let
         pkgs = pkgsFor nixpkgs system;
-      in home-manager.lib.homeManagerConfiguration {
-        inherit pkgs;
-        extraSpecialArgs = { home-conf = builtins.removeAttrs args ["nixpkgs" "system"]; };
-        modules = [
-          ./home
-        ] ++ (
-          pkgs.lib.optional pkgs.stdenv.isDarwin ./home/darwin.nix
-        ) ++ (
-          pkgs.lib.optional pkgs.stdenv.isLinux ./home/linux.nix
-        );
-      };
-      mk-microvm = args: nixpkgs.lib.mkMerge [ args {
-        imports = [
-          sops-nix.nixosModules.sops
-          impermanence.nixosModules.impermanence
-          self.nixosModules.common
-          self.nixosModules."promtail-client"
-        ];
-      }];
-      mk-incus-vm = guestModule: nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          guestModule
-          sops-nix.nixosModules.sops
-          impermanence.nixosModules.impermanence
-          self.nixosModules.common
-          self.nixosModules."promtail-client"
-          ./modules/incus/guest-options.nix
-          "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
+      in
+        home-manager.lib.homeManagerConfiguration {
+          inherit pkgs;
+          extraSpecialArgs = {home-conf = builtins.removeAttrs args ["nixpkgs" "system"];};
+          modules =
+            [
+              ./home
+            ]
+            ++ (
+              pkgs.lib.optional pkgs.stdenv.isDarwin ./home/darwin.nix
+            )
+            ++ (
+              pkgs.lib.optional pkgs.stdenv.isLinux ./home/linux.nix
+            );
+        };
+      mk-microvm = args:
+        nixpkgs.lib.mkMerge [
+          args
           {
-            nixpkgs = {
-              overlays = builtins.attrValues self.overlays;
-              config.allowUnfree = true;
-            };
+            imports = [
+              sops-nix.nixosModules.sops
+              impermanence.nixosModules.impermanence
+              self.nixosModules.common
+              self.nixosModules."promtail-client"
+            ];
           }
         ];
-      };
-      mk-incus-container = guestModule: nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          guestModule
-          sops-nix.nixosModules.sops
-          impermanence.nixosModules.impermanence
-          self.nixosModules.common
-          self.nixosModules."promtail-client"
-          ./modules/incus/guest-options.nix
-          "${nixpkgs}/nixos/modules/virtualisation/lxc-container.nix"
-          {
-            nixpkgs = {
-              overlays = builtins.attrValues self.overlays;
-              config.allowUnfree = true;
-            };
-          }
-        ];
-      };
+      mk-incus-vm = guestModule:
+        nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            guestModule
+            sops-nix.nixosModules.sops
+            impermanence.nixosModules.impermanence
+            self.nixosModules.common
+            self.nixosModules."promtail-client"
+            ./modules/incus/guest-options.nix
+            "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
+            {
+              nixpkgs = {
+                overlays = builtins.attrValues self.overlays;
+                config.allowUnfree = true;
+              };
+            }
+          ];
+        };
+      mk-incus-container = guestModule:
+        nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          modules = [
+            guestModule
+            sops-nix.nixosModules.sops
+            impermanence.nixosModules.impermanence
+            self.nixosModules.common
+            self.nixosModules."promtail-client"
+            ./modules/incus/guest-options.nix
+            "${nixpkgs}/nixos/modules/virtualisation/lxc-container.nix"
+            {
+              nixpkgs = {
+                overlays = builtins.attrValues self.overlays;
+                config.allowUnfree = true;
+              };
+            }
+          ];
+        };
     };
 
     nixosConfigurations = {
@@ -251,24 +323,24 @@
         ];
       };
 
-#      azoth = self.lib.mk-nixos {
-#        inherit nixpkgs;
-#        system = "aarch64-linux";
-#        modules = [
-#          home-manager.nixosModules.home-manager
-#          nixos-hardware.nixosModules.raspberry-pi-4
-#          ./hosts/azoth
-#        ];
-#      };
-#      arcus = self.lib.mk-nixos {
-#        inherit nixpkgs;
-#        system = "x86_64-linux";
-#        modules = [
-#          home-manager.nixosModules.home-manager
-#          jovian.nixosModules.jovian
-#          ./hosts/arcus
-#        ];
-#      };
+      #      azoth = self.lib.mk-nixos {
+      #        inherit nixpkgs;
+      #        system = "aarch64-linux";
+      #        modules = [
+      #          home-manager.nixosModules.home-manager
+      #          nixos-hardware.nixosModules.raspberry-pi-4
+      #          ./hosts/azoth
+      #        ];
+      #      };
+      #      arcus = self.lib.mk-nixos {
+      #        inherit nixpkgs;
+      #        system = "x86_64-linux";
+      #        modules = [
+      #          home-manager.nixosModules.home-manager
+      #          jovian.nixosModules.jovian
+      #          ./hosts/arcus
+      #        ];
+      #      };
     };
 
     homeConfigurations = {
@@ -276,7 +348,7 @@
         inherit nixpkgs;
         system = "x86_64-linux";
         user = "mjollnir";
-        langs = [ "agda" "rust" ];
+        langs = ["agda" "rust"];
       };
     };
 
@@ -284,59 +356,64 @@
     # Text-only outputs — system choice doesn't affect content
     openwrtConfigurations = let
       pkgs = pkgsFor nixpkgs "x86_64-linux";
-      owrtData = import ./lib/common/data/openwrt.nix { inherit (nixpkgs) lib; };
+      owrtData = import ./lib/common/data/openwrt.nix {inherit (nixpkgs) lib;};
 
       # Returns a pkgs.fetchurl derivation for the Image Builder tarball for the
       # given device, or null if the hash isn't registered yet.
-      mkImageBuilderFetcher = device:
-        let
-          release = device.release or owrtData.defaultRelease;
-          targetKey = "${device.target}/${device.subtarget}";
-          hashes = owrtData.imageBuilderHashes.${release} or {};
-          hash = hashes.${targetKey} or null;
-          ibName = "openwrt-imagebuilder-${release}-${device.target}-${device.subtarget}.Linux-x86_64";
-        in
-        if hash == null || hash == "" then null
-        else pkgs.fetchurl {
-          name = "${ibName}.tar.zst";
-          url = "https://downloads.openwrt.org/releases/${release}/targets/${device.target}/${device.subtarget}/${ibName}.tar.zst";
-          inherit hash;
-        };
-
-    in builtins.mapAttrs (_: device:
-      let
-        files = self.lib.openwrt.mkConfigFiles { inherit device owrtData; };
-        ibTarball = mkImageBuilderFetcher device;
+      mkImageBuilderFetcher = device: let
         release = device.release or owrtData.defaultRelease;
-      in pkgs.runCommand "openwrt-config-${device.hostname}" {} ''
-        mkdir -p $out
-        cat > $out/build.json <<'EOF'
-        ${builtins.toJSON ({
-          hostname = device.hostname;
-          profile = device.profile;
-          target = device.target;
-          subtarget = device.subtarget;
-          inherit release;
-          deviceType = device.type;
-          packages = self.lib.openwrt.packagesForDevice device;
-          secretsMap = self.lib.openwrt.mkSecretsMap { inherit device owrtData; };
-          uciDefaults = "${files.uciFile}";
-          authorizedKeys = "${files.keysFile}";
-        } // nixpkgs.lib.optionalAttrs (ibTarball != null) {
-          imageBuilderTarball = "${ibTarball}";
-        })}
-        EOF
-      ''
-    ) openwrtDevices;
+        targetKey = "${device.target}/${device.subtarget}";
+        hashes = owrtData.imageBuilderHashes.${release} or {};
+        hash = hashes.${targetKey} or null;
+        ibName = "openwrt-imagebuilder-${release}-${device.target}-${device.subtarget}.Linux-x86_64";
+      in
+        if hash == null || hash == ""
+        then null
+        else
+          pkgs.fetchurl {
+            name = "${ibName}.tar.zst";
+            url = "https://downloads.openwrt.org/releases/${release}/targets/${device.target}/${device.subtarget}/${ibName}.tar.zst";
+            inherit hash;
+          };
+    in
+      builtins.mapAttrs (
+        _: device: let
+          files = self.lib.openwrt.mkConfigFiles {inherit device owrtData;};
+          ibTarball = mkImageBuilderFetcher device;
+          release = device.release or owrtData.defaultRelease;
+        in
+          pkgs.runCommand "openwrt-config-${device.hostname}" {} ''
+            mkdir -p $out
+            cat > $out/build.json <<'EOF'
+            ${builtins.toJSON ({
+                hostname = device.hostname;
+                profile = device.profile;
+                target = device.target;
+                subtarget = device.subtarget;
+                inherit release;
+                deviceType = device.type;
+                packages = self.lib.openwrt.packagesForDevice device;
+                secretsMap = self.lib.openwrt.mkSecretsMap {inherit device owrtData;};
+                uciDefaults = "${files.uciFile}";
+                authorizedKeys = "${files.keysFile}";
+              }
+              // nixpkgs.lib.optionalAttrs (ibTarball != null) {
+                imageBuilderTarball = "${ibTarball}";
+              })}
+            EOF
+          ''
+      )
+      openwrtDevices;
 
     # Apps for OpenWrt management
-    apps = nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
+    apps = nixpkgs.lib.genAttrs ["x86_64-linux"] (system: let
       pkgs = pkgsFor nixpkgs system;
-    in import ./apps {
-      inherit pkgs;
-      inherit openwrtDevices;
-      openwrtConfigurations = self.openwrtConfigurations;
-    });
+    in
+      import ./apps {
+        inherit pkgs;
+        inherit openwrtDevices;
+        openwrtConfigurations = self.openwrtConfigurations;
+      });
 
     # deploy-rs deployment configurations
     deploy = {
@@ -360,11 +437,18 @@
       };
     };
 
+    # TODO: resolve the below mess. This is a hack that I don't think is necessary,
+    #       and prevents us from doing a simple integration of formatting into checks.
     # Merge NixOS tests and deploy-rs checks
-    checks = nixpkgs.lib.recursiveUpdate
-      (nixpkgs.lib.genAttrs [ "x86_64-linux" ] (system: let
+    checks =
+      nixpkgs.lib.recursiveUpdate
+      (nixpkgs.lib.genAttrs ["x86_64-linux"] (system: let
         pkgs = pkgsFor nixpkgs system;
-      in import ./tests { inherit pkgs; lib = pkgs.lib; }))
+      in
+        import ./tests {
+          inherit pkgs;
+          lib = pkgs.lib;
+        }))
       (builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib);
   };
 }

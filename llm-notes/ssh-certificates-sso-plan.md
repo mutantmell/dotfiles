@@ -13,7 +13,7 @@ MAC allowlisting has two problems:
 2. **Tied to hardware, not identity.** Building a new desktop (or swapping a NIC)
    means losing access until the new MAC is manually added to the allowlist.
 
-SSH certificates fix both: they prove *who you are* cryptographically, independent
+SSH certificates fix both: they prove _who you are_ cryptographically, independent
 of what hardware you're using.
 
 ## Architecture overview
@@ -62,6 +62,7 @@ flowchart LR
    - Normal `ssh` commands then present the cert automatically
 
 4. **Target hosts** — NixOS hosts on vMGMT/vINFRA configure:
+
    ```nix
    services.openssh = {
      extraConfig = ''
@@ -70,6 +71,7 @@ flowchart LR
      '';
    };
    ```
+
    They trust the CA's public key, not individual user keys. No
    `authorized_keys` management needed.
 
@@ -84,6 +86,7 @@ flowchart LR
    Unix user would normally provide: sshd logs which principal authenticated,
    and the cert itself records who obtained it (via Keycloak) and when. The
    principals file for root lists which roles are allowed:
+
    ```
    # /etc/ssh/auth_principals/root
    admin          — human admin via Keycloak OIDC login
@@ -115,13 +118,13 @@ sequenceDiagram
 The vMGMT VLAN topology from the current plan stays **exactly the same**. The
 change is purely about the admission gate:
 
-| Aspect                   | Current (MAC)         | Future (SSH cert)           |
-|--------------------------|-----------------------|-----------------------------|
-| Network topology         | vMGMT VLAN            | vMGMT VLAN (unchanged)      |
-| Who can reach mgmt ports | MAC-allowlisted hosts | Any host on vMGMT*          |
-| Authentication           | SSH key (static)      | SSH certificate (short-lived)|
-| Identity binding         | Hardware (NIC MAC)    | User (Keycloak account)     |
-| MFA                      | None                  | Keycloak-enforced           |
+| Aspect                   | Current (MAC)         | Future (SSH cert)                   |
+| ------------------------ | --------------------- | ----------------------------------- |
+| Network topology         | vMGMT VLAN            | vMGMT VLAN (unchanged)              |
+| Who can reach mgmt ports | MAC-allowlisted hosts | Any host on vMGMT\*                 |
+| Authentication           | SSH key (static)      | SSH certificate (short-lived)       |
+| Identity binding         | Hardware (NIC MAC)    | User (Keycloak account)             |
+| MFA                      | None                  | Keycloak-enforced                   |
 | Revocation               | Remove MAC from list  | Revoke in Keycloak / short cert TTL |
 
 \* vMGMT admission could also move from MAC allowlisting to 802.1X (RADIUS
@@ -190,7 +193,7 @@ ssh -i /tmp/cicd_key root@target-host.local "deploy-image.sh $IMAGE_TAG"
 ### Principals and least privilege
 
 CI/CD certs get a narrow principal (e.g. `deploy`), not `admin`. Both log in
-as root, but the principals file on each host controls *which* principals are
+as root, but the principals file on each host controls _which_ principals are
 accepted:
 
 ```
@@ -208,13 +211,13 @@ reject the CI/CD certificate entirely.
 
 ### Comparison with static deploy keys
 
-| Aspect          | Static deploy key             | Certificate (client credentials)                    |
-|-----------------|-------------------------------|-----------------------------------------------------|
-| Lifetime        | Permanent until rotated       | Short-lived (30min–1h per job)                      |
-| Scope           | Any host trusting the key     | Principal-scoped (`deploy`, not `admin`)             |
-| Revocation      | Remove from every host        | Disable service account in Keycloak (one place)      |
-| Secret storage  | Private key on disk           | Client secret (or Vault-injected per-job)            |
-| Audit trail     | "A key was used"              | "cicd-server authed at 14:02, cert for `deploy`, 1h"|
+| Aspect         | Static deploy key         | Certificate (client credentials)                     |
+| -------------- | ------------------------- | ---------------------------------------------------- |
+| Lifetime       | Permanent until rotated   | Short-lived (30min–1h per job)                       |
+| Scope          | Any host trusting the key | Principal-scoped (`deploy`, not `admin`)             |
+| Revocation     | Remove from every host    | Disable service account in Keycloak (one place)      |
+| Secret storage | Private key on disk       | Client secret (or Vault-injected per-job)            |
+| Audit trail    | "A key was used"          | "cicd-server authed at 14:02, cert for `deploy`, 1h" |
 
 ### Where to store the client secret
 
@@ -229,9 +232,9 @@ The Keycloak client secret is the one static credential. Options:
 
 ## Host certificates
 
-User certificates (above) handle humans and CI authenticating *to* hosts. Host
+User certificates (above) handle humans and CI authenticating _to_ hosts. Host
 certificates handle the other direction — clients verifying they're connecting to
-the *right* host without TOFU (trust on first use).
+the _right_ host without TOFU (trust on first use).
 
 ### Problem with TOFU
 
@@ -247,6 +250,7 @@ this certificate to connecting clients. Clients trust the CA rather than individ
 host fingerprints.
 
 **Host-side** — sshd presents the certificate:
+
 ```nix
 services.openssh.extraConfig = ''
   HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub
@@ -254,6 +258,7 @@ services.openssh.extraConfig = ''
 ```
 
 **Client-side** — one line in `~/.ssh/known_hosts` replaces all per-host entries:
+
 ```
 @cert-authority *.home.local ssh-ed25519 AAAA...CA_PUBLIC_KEY...
 ```
@@ -264,7 +269,7 @@ No TOFU prompt, no per-host `known_hosts` entries needed.
 
 Host certificates do **not** replace host keys — they augment them. The host still
 has its private key at `/etc/ssh/ssh_host_ed25519_key`. The certificate is just the
-host's *public* key signed by the CA, stored alongside it.
+host's _public_ key signed by the CA, stored alongside it.
 
 The sops-nix decryption flow is unchanged:
 
@@ -282,10 +287,10 @@ to the repo, or fetched from step-ca at provisioning time.
 Unlike user certificates (short-lived, 12h), host certificates can be long-lived.
 The host's identity is stable.
 
-| Approach | Cert lifetime | Complexity | Best for |
-|----------|--------------|------------|----------|
-| Sign once at provisioning | 1–5 years | Minimal | Small fleet, infrequent rebuilds |
-| Automatic renewal via systemd timer | 30–90 days | Low | Larger fleet, defense in depth |
+| Approach                            | Cert lifetime | Complexity | Best for                         |
+| ----------------------------------- | ------------- | ---------- | -------------------------------- |
+| Sign once at provisioning           | 1–5 years     | Minimal    | Small fleet, infrequent rebuilds |
+| Automatic renewal via systemd timer | 30–90 days    | Low        | Larger fleet, defense in depth   |
 
 For a home network, **signing once at provisioning** is the right starting point.
 This avoids any runtime dependency on step-ca — the certificate is a static file
@@ -333,14 +338,14 @@ can be installed on OpenWRT but adds overhead on constrained devices.
 
 For OpenWRT devices (APs, managed switch), the approach is:
 
-| Concern | NixOS hosts | OpenWRT devices |
-|---------|-------------|-----------------|
-| Host identity | Host certificate (CA-signed) | Traditional host key (TOFU) |
-| User auth | SSH user certificate | SSH authorized_keys (public key) |
+| Concern           | NixOS hosts                              | OpenWRT devices                           |
+| ----------------- | ---------------------------------------- | ----------------------------------------- |
+| Host identity     | Host certificate (CA-signed)             | Traditional host key (TOFU)               |
+| User auth         | SSH user certificate                     | SSH authorized_keys (public key)          |
 | Management access | Via vMGMT, cert-verified both directions | Via vMGMT, key-based, firewall-restricted |
 
-This split is architecturally sound. OpenWRT devices are the *lowest* layer — they
-*are* the network infrastructure. They're already trusted implicitly (they route all
+This split is architecturally sound. OpenWRT devices are the _lowest_ layer — they
+_are_ the network infrastructure. They're already trusted implicitly (they route all
 traffic) and are secured by:
 
 - Being on vMGMT only (not reachable from other VLANs)
@@ -348,7 +353,7 @@ traffic) and are secured by:
 - Physical/network topology (they are the network boundary)
 - Host-level nftables restricting SSH to the router only
 
-The certificate infrastructure protects everything *above* them. If OpenWRT devices
+The certificate infrastructure protects everything _above_ them. If OpenWRT devices
 are later replaced with NixOS-based routing, they gain full certificate support
 naturally.
 
@@ -374,7 +379,7 @@ Each layer provides value on its own:
   gained network access to vMGMT — they still can't authenticate without a
   valid certificate.
 - **Together**, they provide defense in depth: you need to be on the right
-  network *and* have the right identity.
+  network _and_ have the right identity.
 
 This means:
 
@@ -390,12 +395,14 @@ This means:
 ## Implementation sketch (for when this becomes active)
 
 ### Phase 1: Deploy Keycloak
+
 - Covered by the [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) (Phase 1):
   dedicated vINFRA microvm with Keycloak, PostgreSQL, nginx
 - Configure `homelab` realm, register `step-ca` client, users, MFA policies
 - Expose on internal DNS: `auth.home.local`
 
 ### Phase 2: Deploy step-ca as a vINFRA microvm
+
 - Provision a dedicated microvm on an existing NixOS host (e.g. calvard or
   erebonia), on the vINFRA network
 - Generate SSH CA keypair (user CA + host CA — can be the same keypair or
@@ -407,6 +414,7 @@ This means:
   stable host key, minimal attack surface)
 
 ### Phase 3: Sign host certificates
+
 - For each NixOS host on vMGMT/vINFRA: sign its `ssh_host_ed25519_key.pub`
   with the CA, producing a host certificate
 - Deploy host certificates via `modules/common/ssh-ca.nix` (shared module
@@ -416,16 +424,19 @@ This means:
 - OpenWRT devices: no change (continue using traditional TOFU/key-based auth)
 
 ### Phase 4: Configure user certificate auth on target hosts
+
 - `TrustedUserCAKeys /etc/ssh/ca.pub` on all vMGMT/vINFRA NixOS hosts
   (already in the shared `ssh-ca.nix` module from Phase 3)
 - `AuthorizedPrincipalsFile` to control which principals can log in where
 - Verify both directions work: client trusts host cert, host trusts user cert
 
 ### Phase 5: Client setup
+
 - Install `step` CLI on admin machines
 - `step ssh login` for interactive use
 - Optionally: PAM integration so certificate is refreshed on desktop login
 
 ### Phase 6: Remove MAC allowlist
+
 - Update router firewall: vMGMT no longer filters by MAC
 - Security now comes from: network isolation (VLAN) + identity (certificate)

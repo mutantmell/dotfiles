@@ -1,20 +1,21 @@
-{ config, pkgs, ... }:
-
-let
+{
+  config,
+  pkgs,
+  ...
+}: let
   hostname = "thebeyond";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host;
   phantasma = net.hosts.phantasma;
 in {
-  imports =
-    [
-      ./hardware-configuration.nix
-      (import ../../profiles/disko/router.nix { })
-      ./impermanence.nix
-      ./sops.nix
-      ./microvm
-      ./router.nix
-    ];
+  imports = [
+    ./hardware-configuration.nix
+    (import ../../profiles/disko/router.nix {})
+    ./impermanence.nix
+    ./sops.nix
+    ./microvm
+    ./router.nix
+  ];
 
   # Boot loader configuration is handled by disko
   boot.loader.grub.enable = true;
@@ -24,7 +25,7 @@ in {
 
   # LUKS automatic unlock: mount the ESP in initrd to access the keyfile,
   # then unmount so NixOS can mount it normally later.
-  boot.initrd.supportedFilesystems = [ "vfat" ];
+  boot.initrd.supportedFilesystems = ["vfat"];
   boot.initrd.luks.devices."cryptroot" = {
     device = "/dev/disk/by-partlabel/disk-main-persist";
     allowDiscards = true;
@@ -64,28 +65,29 @@ in {
 
   common.openssh = {
     enable = true;
-    keys = [ "deploy" "home" ];
+    keys = ["deploy" "home"];
   };
 
-  networking.extraHosts = ''
-    ${host.ipv4} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
-    ${host.ipv4Legacy} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
-    ${host.ipv6} thebeyond.internal.mutantmell.net thebeyond.internal
-    ${host.ipv4} yggdrasil.internal
-    ${host.ipv4Legacy} yggdrasil.internal
-    ${phantasma.ipv4} phantasma phantasma.internal.mutantmell.net phantasma.internal
-    ${phantasma.ipv4Legacy} phantasma phantasma.internal.mutantmell.net phantasma.internal
-    ${phantasma.ipv6} phantasma.internal.mutantmell.net phantasma.internal
-  '' + net.mkExtraHosts [ "roer" "legram" "ordis" "heimdallr" "trista" ];
+  networking.extraHosts =
+    ''
+      ${host.ipv4} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
+      ${host.ipv4Legacy} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
+      ${host.ipv6} thebeyond.internal.mutantmell.net thebeyond.internal
+      ${host.ipv4} yggdrasil.internal
+      ${host.ipv4Legacy} yggdrasil.internal
+      ${phantasma.ipv4} phantasma phantasma.internal.mutantmell.net phantasma.internal
+      ${phantasma.ipv4Legacy} phantasma phantasma.internal.mutantmell.net phantasma.internal
+      ${phantasma.ipv6} phantasma.internal.mutantmell.net phantasma.internal
+    ''
+    + net.mkExtraHosts ["roer" "legram" "ordis" "heimdallr" "trista"];
 
   promtail-client.enable = true;
 
   services.prometheus.exporters.node = {
     enable = true;
-    enabledCollectors = [ "systemd" ];
+    enabledCollectors = ["systemd"];
     port = 9100;
   };
 
   system.stateVersion = "25.11";
-
 }

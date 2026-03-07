@@ -1,5 +1,4 @@
-{ config, ...}:
-{
+{config, ...}: {
   services.atticd = {
     enable = true;
     environmentFile = config.sops.secrets."attic.env".path;
@@ -19,7 +18,11 @@
 
   environment.persistence."/persist" = {
     directories = [
-      { directory = "/var/lib/private/atticd"; user = "atticd"; group = "atticd"; }
+      {
+        directory = "/var/lib/private/atticd";
+        user = "atticd";
+        group = "atticd";
+      }
     ];
   };
 
