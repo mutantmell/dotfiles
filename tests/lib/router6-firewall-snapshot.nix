@@ -170,7 +170,7 @@
     ];
   };
 
-  ruleset = eval.config.networking.nftables.ruleset;
+  inherit (eval.config.networking.nftables) ruleset;
 in
   if updateGolden
   then ruleset

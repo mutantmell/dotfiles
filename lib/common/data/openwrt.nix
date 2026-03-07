@@ -9,11 +9,11 @@
 in {
   # Default OpenWrt release for all devices (can be overridden per-device).
   # Managed in openwrt-hashes.json — use `nix run .#openwrt-build -- --update-pins` to update.
-  defaultRelease = pins.defaultRelease;
+  inherit (pins) defaultRelease;
 
   # SHA-256 hashes for OpenWrt Image Builder tarballs, keyed by release then
   # "target/subtarget". Managed in openwrt-hashes.json.
-  imageBuilderHashes = pins.imageBuilderHashes;
+  inherit (pins) imageBuilderHashes;
 
   # IP prefixes - each device gets one address per prefix for migration compatibility
   ipPrefixes = ["10.0" "10.1" "10.97"];

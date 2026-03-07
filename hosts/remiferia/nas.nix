@@ -7,7 +7,7 @@
   net = pkgs.mmell.lib.data.network;
   h = net.hosts;
   mgmt = net.networks.management;
-  trusted = net.networks.trusted;
+  inherit (net.networks) trusted;
 in {
   environment.systemPackages = with pkgs; [
     smartmontools

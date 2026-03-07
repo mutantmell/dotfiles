@@ -9,7 +9,7 @@
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
 }: let
-  mkEgressFilter = (import ../../lib/common {inherit lib;}).nftables.mkEgressFilter;
+  inherit ((import ../../lib/common {inherit lib;}).nftables) mkEgressFilter;
 in
   pkgs.testers.nixosTest {
     name = "egress-filter";

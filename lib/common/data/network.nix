@@ -139,7 +139,7 @@
   row = name: h: "${pad 18 name}${pad 18 h.zoneName}${pad 18 h.ipv4}${pad 18 (h.ipv4Legacy or "")}${h.ipv6 or ""}";
 
   hostList = lib.mapAttrsToList lib.nameValuePair hosts;
-  hostsByZone = lib.groupBy (e: e.value.zoneName) hostList;
+  hostsByZone = builtins.groupBy (e: e.value.zoneName) hostList;
 
   renderZone = _zoneName: entries:
     lib.concatMapStringsSep "\n" (e: row e.name e.value) entries;
@@ -178,9 +178,7 @@
   forHost = hostname: let
     h = hosts.${hostname} or (throw "Host '${hostname}' not found in network registry");
     z =
-      if networks ? ${h.zoneName}
-      then networks.${h.zoneName}
-      else throw "Zone '${h.zoneName}' for host '${hostname}' not found in network registry";
+      networks.${h.zoneName} or (throw "Zone '${h.zoneName}' for host '${hostname}' not found in network registry");
   in {
     host = h;
     zone = z;

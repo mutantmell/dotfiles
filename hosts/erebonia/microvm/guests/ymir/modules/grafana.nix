@@ -43,7 +43,7 @@
     {
       directory = toString config.services.grafana.dataDir;
       user = "grafana";
-      group = config.users.users.grafana.group;
+      inherit (config.users.users.grafana) group;
     }
   ];
 }

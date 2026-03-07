@@ -1,43 +1,43 @@
 {
   inputs = {
-    nixpkgs.url = github:NixOS/nixpkgs/nixos-unstable;
-    nixpkgs-stable.url = github:NixOS/nixpkgs/nixos-24.11;
-    nixos-hardware.url = github:NixOS/nixos-hardware/master;
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixos-hardware.url = "github:NixOS/nixos-hardware/master";
     home-manager = {
-      url = github:nix-community/home-manager;
+      url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     home-manager-stable = {
-      url = github:nix-community/home-manager/release-24.11;
+      url = "github:nix-community/home-manager/release-24.11";
       inputs.nixpkgs.follows = "nixpkgs-stable";
     };
     sops-nix = {
-      url = github:Mic92/sops-nix;
+      url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     jovian = {
-      url = github:Jovian-Experiments/Jovian-NixOS;
+      url = "github:Jovian-Experiments/Jovian-NixOS";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     microvm = {
-      url = github:astro/microvm.nix;
+      url = "github:astro/microvm.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     microvm-stable = {
-      url = github:microvm-nix/microvm.nix;
+      url = "github:microvm-nix/microvm.nix";
       inputs.nixpkgs.follows = "nixpkgs-stable";
     };
     impermanence = {
-      url = github:nix-community/impermanence;
+      url = "github:nix-community/impermanence";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
     };
     disko = {
-      url = github:nix-community/disko;
+      url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     deploy-rs = {
-      url = github:serokell/deploy-rs;
+      url = "github:serokell/deploy-rs";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
@@ -386,10 +386,10 @@
             mkdir -p $out
             cat > $out/build.json <<'EOF'
             ${builtins.toJSON ({
-                hostname = device.hostname;
-                profile = device.profile;
-                target = device.target;
-                subtarget = device.subtarget;
+                inherit (device) hostname;
+                inherit (device) profile;
+                inherit (device) target;
+                inherit (device) subtarget;
                 inherit release;
                 deviceType = device.type;
                 packages = self.lib.openwrt.packagesForDevice device;
@@ -412,7 +412,7 @@
       import ./apps {
         inherit pkgs;
         inherit openwrtDevices;
-        openwrtConfigurations = self.openwrtConfigurations;
+        inherit (self) openwrtConfigurations;
       });
 
     # deploy-rs deployment configurations
@@ -443,7 +443,7 @@
     }:
       (import ./tests {
         inherit pkgs;
-        lib = pkgs.lib;
+        inherit (pkgs) lib;
       })
       // (nixpkgs.lib.optionalAttrs (deploy-rs.lib ? ${system})
         (deploy-rs.lib.${system}.deployChecks self.deploy))

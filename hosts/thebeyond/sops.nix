@@ -5,11 +5,11 @@
     secrets = {
       "wg-vpn-privatekey" = {
         mode = "0440";
-        group = config.users.users."systemd-network".group;
+        inherit (config.users.users."systemd-network") group;
       };
       "wg-ba-privatekey" = {
         mode = "0440";
-        group = config.users.users."systemd-network".group;
+        inherit (config.users.users."systemd-network") group;
       };
       "dyndns-host-domain" = {};
       "dyndns-host-password" = {};

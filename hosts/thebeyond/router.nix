@@ -16,11 +16,11 @@
 }: let
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost "thebeyond") host;
-  phantasma = net.hosts.phantasma;
-  ordis = net.hosts.ordis;
-  roer = net.hosts.roer;
-  legram = net.hosts.legram;
-  ymir = net.hosts.ymir;
+  inherit (net.hosts) phantasma;
+  inherit (net.hosts) ordis;
+  inherit (net.hosts) roer;
+  inherit (net.hosts) legram;
+  inherit (net.hosts) ymir;
 
   # Helper to define a per-VLAN bridge with bond0 + bat0 members.
   # Batman-adv only carries mesh-encapsulated frames on hard interfaces,

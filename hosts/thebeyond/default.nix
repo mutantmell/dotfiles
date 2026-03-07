@@ -6,7 +6,7 @@
   hostname = "thebeyond";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host;
-  phantasma = net.hosts.phantasma;
+  inherit (net.hosts) phantasma;
 in {
   imports = [
     ./hardware-configuration.nix

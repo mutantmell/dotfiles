@@ -6,7 +6,7 @@
       step-ca = {
         mode = "0400";
         owner = config.users.users."step-ca".name;
-        group = config.users.users."step-ca".group;
+        inherit (config.users.users."step-ca") group;
       };
     in {
       "intermediate_ca.key" = step-ca;

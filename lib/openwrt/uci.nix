@@ -134,7 +134,7 @@
     # Render anonymous sections (need to track indices per type)
     renderAnonymousSections = sections: let
       # Group by type to track indices
-      byType = lib.groupBy (s: s.value._type) (mapAttrsToList (n: v: {
+      byType = builtins.groupBy (s: s.value._type) (mapAttrsToList (n: v: {
           name = n;
           value = v;
         })
@@ -154,7 +154,7 @@
           in
             go {
               commands = acc.commands ++ result.commands;
-              nextIndex = result.nextIndex;
+              inherit (result) nextIndex;
             } (builtins.tail items);
       in
         go {

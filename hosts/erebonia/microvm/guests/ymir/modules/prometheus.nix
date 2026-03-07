@@ -75,7 +75,7 @@
     {
       directory = "/var/lib/" + config.services.prometheus.stateDir;
       user = "prometheus";
-      group = config.users.users.prometheus.group;
+      inherit (config.users.users.prometheus) group;
     }
   ];
 }

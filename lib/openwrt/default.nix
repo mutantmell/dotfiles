@@ -177,7 +177,7 @@
           }
           // lib.optionalAttrs (lanAddresses != []) {
             ipaddr = lanAddresses;
-            gateway = gateway;
+            inherit gateway;
             dns = gateway;
           };
       }
@@ -291,7 +291,7 @@
             channel = 1;
             htmode = "HT20";
             cell_density = 0;
-            country = country;
+            inherit country;
             disabled = false;
           }
           // lib.optionalAttrs legacyRates {
@@ -306,7 +306,7 @@
             channel = 36;
             htmode = "HE80";
             cell_density = 0;
-            country = country;
+            inherit country;
             disabled = false;
           }
           // lib.optionalAttrs (heBssColor != null) {
@@ -332,7 +332,7 @@
         channel = 1;
         htmode = "HT20";
         cell_density = 0;
-        country = country;
+        inherit country;
         disabled = false;
       };
 
@@ -343,7 +343,7 @@
         channel = 36;
         htmode = "HE80";
         cell_density = 0;
-        country = country;
+        inherit country;
         disabled = false;
       };
 
@@ -716,7 +716,7 @@
 
   # Select packages for a device based on its type
   packagesForDevice = device: let
-    extraPackages = device.extraPackages;
+    inherit (device) extraPackages;
   in
     if device.type == "meshAP"
     then defaultMeshPackages ++ extraPackages
@@ -757,10 +757,10 @@
     keysContent = lib.concatStringsSep "\n" (owrtData.authorizedKeys ++ [""]);
 
     configJson = builtins.toFile "openwrt-config-${device.hostname}.json" (builtins.toJSON {
-      hostname = device.hostname;
-      profile = device.profile;
-      target = device.target;
-      subtarget = device.subtarget;
+      inherit (device) hostname;
+      inherit (device) profile;
+      inherit (device) target;
+      inherit (device) subtarget;
       release = device.release or owrtData.defaultRelease;
       deviceType = device.type;
       inherit packages secretsMap;
@@ -825,12 +825,12 @@
       system =
         {
           _type = "system";
-          hostname = hostname;
-          timezone = timezone;
+          inherit hostname;
+          inherit timezone;
           log_size = 64;
         }
         // lib.optionalAttrs (log_ip != null) {
-          log_ip = log_ip;
+          inherit log_ip;
           log_proto = "udp";
           log_remote = true;
         };

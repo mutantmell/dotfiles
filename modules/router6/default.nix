@@ -232,7 +232,7 @@ let
       baseInterface = {
         inherit name;
         network = device.network or {type = "disabled";};
-        kind = device.kind;
+        inherit (device) kind;
         isVlan = false;
         parent = null;
         tag = null;
@@ -250,7 +250,7 @@ let
           else vlan.network;
         isVlan = true;
         parent = name;
-        tag = vlan.tag;
+        inherit (vlan) tag;
         bridge =
           if isMember "bridge" vlanName
           then findContaining "bridge" vlanName
@@ -893,7 +893,7 @@ in {
             ip-address = r.ip;
           }
           // optionalAttrs (r.hostname != null) {
-            hostname = r.hostname;
+            inherit (r) hostname;
           }) (dhcpCfg.reservations or []);
       };
 
@@ -1250,7 +1250,7 @@ in {
                     standaloneVlan = {
                       name = "21-${vlanName}";
                       value = mkNetworkConfig vlanName ifaceData {
-                        network = vlan.network;
+                        inherit (vlan) network;
                         kind = "vlan";
                       };
                     };
@@ -1525,7 +1525,7 @@ in {
       # Dynamic DNS
       # ===================
       (mkIf cfg.dyndns.enable (let
-        dyndns = cfg.dyndns;
+        inherit (cfg) dyndns;
         dhcpIfaces = filter (i: i.network.type == "dhcp") flattenTopology;
         inferredIface =
           if length dhcpIfaces == 1

@@ -126,7 +126,7 @@ pkgs.testers.nixosTest {
       };
     };
 
-    client = {...}: {
+    client = _: {
       virtualisation.vlans = [10];
       networking = {
         useDHCP = false;

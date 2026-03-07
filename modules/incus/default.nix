@@ -100,7 +100,7 @@ let
 
   # Per-instance update script: push pre-built closure via nix copy + switch-to-configuration
   mkInstanceUpdateScript = name: guestCfg: let
-    toplevel = guestCfg.system.config.system.build.toplevel;
+    inherit (guestCfg.system.config.system.build) toplevel;
   in
     pkgs.writeShellScript "incus-update-${name}" ''
       set -e

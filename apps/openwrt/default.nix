@@ -45,7 +45,7 @@
   openwrtDevices,
   openwrtConfigurations,
 }: let
-  lib = pkgs.lib;
+  inherit (pkgs) lib;
   builder = pkgs.mmell.openwrt-builder;
   deployer = pkgs.mmell.openwrt-deployer;
 
