@@ -295,13 +295,6 @@ let
     "real derfflinger has IoT extraConfig" =
       (openwrt.mkDeviceConfig { device = realDevices.derfflinger; inherit owrtData; }).network ? iot;
 
-    # Real bobcat-router
-    "real devices has bobcat-router" = realDevices ? bobcat-router;
-    "real bobcat-router is router" = realDevices.bobcat-router.type == "router";
-    "real bobcat-router config generates" =
-      let cfg = openwrt.mkDeviceConfig { device = realDevices.bobcat-router; inherit owrtData; };
-      in cfg ? network && cfg ? firewall && cfg ? dhcp;
-
     # Secret fields declared as _secret markers (not absent, not plaintext)
     "meshAP batmesh mesh_id is a secret marker" = meshConfig.wireless.batmesh.mesh_id ? _secret;
     "meshAP batmesh key is a secret marker" = meshConfig.wireless.batmesh.key ? _secret;
@@ -354,7 +347,6 @@ let
     "real arseille subtarget is rtl838x" = realDevices.arseille.subtarget == "rtl838x";
     "real glorious target is ramips" = realDevices.glorious.target == "ramips";
     "real glorious subtarget is mt7621" = realDevices.glorious.subtarget == "mt7621";
-    "real bobcat-router has target" = realDevices.bobcat-router ? target;
     "all real devices have target" =
       lib.all (d: d ? target && d ? subtarget) (builtins.attrValues realDevices);
 
