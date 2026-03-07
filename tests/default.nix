@@ -12,6 +12,10 @@
 # Router tests in sub-module
 (import ./router6.nix { inherit pkgs lib; })
 // {
+  # Incus integration tests
+  incus-container = import ./modules/incus-container.nix { inherit pkgs lib; };
+  incus-vm = import ./modules/incus-vm.nix { inherit pkgs lib; };
+
   # Disko profile validation
   disko-router = let
     profile = import ../profiles/disko/router.nix {};

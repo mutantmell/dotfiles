@@ -2,14 +2,11 @@
 
 let
   cfg = config.common.microvm;
+  impCfg = config.common.impermanence;
   # microvm.vms only exists when the microvm host module is loaded.
   # These checks use `options` (not `config`) to avoid infinite recursion
   # and prevent registering definitions for options that don't exist.
   isMicrovmHost = options ? microvm && options.microvm ? vms;
-  # TODO: Once impermanence is moved to a common module (e.g. common.impermanence),
-  # replace this options check with `cfg.impermanence.enable` or similar, and use
-  # it to determine the persistence directory path.
-  hasImpermanence = options ? environment && options.environment ? persistence;
 in {
   options.common.microvm = {
     enable = lib.mkEnableOption "common microvm host options";
@@ -52,7 +49,7 @@ in {
 
         # Ensure virtiofs share directories exist before microVMs start
         systemd.tmpfiles.rules = builtins.map (name:
-          "d /persist/guests/${name}/static 0755 root root -"
+          "d ${impCfg.persistDir}/guests/${name}/static 0755 root root -"
         ) (builtins.attrNames guestEntries);
 
         environment.systemPackages = [
@@ -61,11 +58,11 @@ in {
       }
     )))
 
-    # environment.persistence — requires impermanence module
-    (lib.optionalAttrs hasImpermanence (lib.mkIf (cfg.enable && cfg.guestDir != null) {
-      environment.persistence."/persist".directories = [
+    # Persist microvm state via impermanence
+    (lib.mkIf (cfg.enable && cfg.guestDir != null && impCfg.enable) {
+      environment.persistence.${impCfg.persistDir}.directories = [
         { directory = "/var/lib/microvms"; user = "microvm"; group = "kvm"; }
       ];
-    }))
+    })
   ];
 }

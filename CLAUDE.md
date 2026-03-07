@@ -14,7 +14,7 @@ nix build .#checks.x86_64-linux.<name>
 #   router6-bond-bridge, router6-device-vlans, router6-bridge-vlan-ordering,
 #   egress-filter, router6-thebeyond, nftables-dsl, router6-firewall-snapshot,
 #   thebeyond-firewall-snapshot, router6-zone-system, network-helpers,
-#   disko-router, disko-vm-host
+#   incus-container, incus-vm, disko-router, disko-vm-host
 
 # Run pure Nix eval tests directly
 nix-instantiate --eval --strict tests/lib/<file>.nix
@@ -68,6 +68,11 @@ This is a NixOS flake-based infrastructure project managing a home network with 
 - `lib.mk-microvm` — Builds microVM guests with sops-nix, impermanence, and common module.
 - Overlays expose custom packages as `pkgs.mmell.*` and library as `pkgs.mmell.lib.*`.
 - All modules in `modules/` are auto-discovered via `builtins.readDir`.
+
+### Module Architecture
+
+- **Top-level modules** (`modules/<name>/`) — Define new services or integrations. Designed to be extractable from this flake. No project-specific logic (no hardcoded host names, no impermanence assumptions, no guestDir auto-discovery). Examples: `modules/router6/`, `modules/incus/`.
+- **Common modules** (`modules/common/<name>.nix`) — Project-specific coordination and shared configuration across hosts. Handle things like auto-discovery, impermanence integration, builder wiring. Not designed to be extracted. Examples: `modules/common/microvm.nix`, `modules/common/incus.nix`.
 
 ### Network Registry Pattern
 

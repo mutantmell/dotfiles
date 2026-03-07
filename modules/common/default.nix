@@ -1,5 +1,7 @@
 {
   imports = [
+    ./impermanence.nix
+    ./incus.nix
     ./microvm.nix
     ./networking.nix
     ./openssh.nix

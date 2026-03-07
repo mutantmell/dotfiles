@@ -4,6 +4,11 @@
     ./sops.nix
   ];
 
+  incus-guest = {
+    profile = "dmz-vm";
+    network = "incusbr100";
+  };
+
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   networking.hostName = "trista";

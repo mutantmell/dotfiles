@@ -4,6 +4,11 @@
     ./sops.nix
   ];
 
+  incus-guest = {
+    profile = "dev";
+    network = "incusbr20";
+  };
+
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   networking.hostName = "messeldam";
