@@ -29,13 +29,16 @@ FORCE=""
 SSH_KEY=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --force) FORCE="1" ;;
-    --ssh-key) shift; SSH_KEY="$1" ;;
-    *)
-      echo "Unknown argument: $1"
-      usage
-      exit 1
-      ;;
+  --force) FORCE="1" ;;
+  --ssh-key)
+    shift
+    SSH_KEY="$1"
+    ;;
+  *)
+    echo "Unknown argument: $1"
+    usage
+    exit 1
+    ;;
   esac
   shift
 done

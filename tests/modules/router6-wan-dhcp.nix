@@ -18,25 +18,39 @@
 # (192.168.1.0/24), forwards traffic to a second "internet" subnet
 # (10.99.99.0/24). The router must get a DHCP lease, install a default route
 # via the upstream gateway, and be able to reach 10.99.99.1.
-
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
+{
+  pkgs ? import <nixpkgs> {},
+  lib ? pkgs.lib,
 }:
-
 pkgs.testers.nixosTest {
   name = "router6-wan-dhcp";
 
   nodes = {
     # Simulated ISP upstream: DHCP server on WAN link + "internet" subnet
-    upstream = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 1 2 ];
+    upstream = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [1 2];
 
       networking.useDHCP = false;
       networking.firewall.enable = false;
 
       # eth1 = WAN link (DHCP server side), eth2 = "internet"
-      networking.interfaces.eth1.ipv4.addresses = [{ address = "192.168.1.1"; prefixLength = 24; }];
-      networking.interfaces.eth2.ipv4.addresses = [{ address = "10.99.99.1"; prefixLength = 24; }];
+      networking.interfaces.eth1.ipv4.addresses = [
+        {
+          address = "192.168.1.1";
+          prefixLength = 24;
+        }
+      ];
+      networking.interfaces.eth2.ipv4.addresses = [
+        {
+          address = "10.99.99.1";
+          prefixLength = 24;
+        }
+      ];
 
       # Enable forwarding so traffic from WAN subnet can reach "internet"
       boot.kernel.sysctl."net.ipv4.conf.all.forwarding" = true;
@@ -57,27 +71,36 @@ pkgs.testers.nixosTest {
     };
 
     # Router under test: DHCP WAN + static LAN with NAT
-    router = { config, pkgs, lib, ... }: {
-      imports = [ ../../modules/router6 ];
+    router = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      imports = [../../modules/router6];
 
       # eth1 = WAN (VLAN 1), eth2 = LAN (VLAN 3)
-      virtualisation.vlans = [ 1 3 ];
+      virtualisation.vlans = [1 3];
 
       router6 = {
         enable = true;
         ulaPrefix = "fdc6:55f2:0a5e::/48";
 
         zones = {
-          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          external = {
+            icmpEcho = "disable";
+            accessTo = [];
+            inputRules = [];
+          };
           trusted = {
             icmpEcho = "enable";
-            accessTo = [ "trusted" "external" ];
-            inputRules = [{ verdict = "accept"; }];
+            accessTo = ["trusted" "external"];
+            inputRules = [{verdict = "accept";}];
           };
         };
 
         dns = {
-          upstream = [ "192.168.1.1" ];
+          upstream = ["192.168.1.1"];
           useDHCPFallback = false;
           localDomain = "test.local";
         };
@@ -96,7 +119,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth2";
             network = {
               type = "static";
-              addresses = [ "10.0.10.1/24" ];
+              addresses = ["10.0.10.1/24"];
               zone = "trusted";
               dhcp.enable = true;
             };
@@ -106,8 +129,13 @@ pkgs.testers.nixosTest {
     };
 
     # LAN client: gets DHCP from router
-    client = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 3 ];
+    client = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [3];
       networking.useDHCP = false;
       networking.interfaces.eth1.useDHCP = true;
     };

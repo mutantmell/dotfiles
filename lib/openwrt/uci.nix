@@ -10,11 +10,19 @@
 #     list <key> '<value>'       # List item (multiple allowed)
 #
 # This library converts Nix attrsets to UCI batch commands.
-{ lib }:
-
-let
-  inherit (lib) concatStringsSep mapAttrsToList flatten optionalString
-    isString isList isAttrs isBool isInt;
+{lib}: let
+  inherit
+    (lib)
+    concatStringsSep
+    mapAttrsToList
+    flatten
+    optionalString
+    isString
+    isList
+    isAttrs
+    isBool
+    isInt
+    ;
   inherit (builtins) typeOf toString;
 
   # Escape single quotes in UCI values
@@ -23,20 +31,35 @@ let
 
   # Convert a Nix value to UCI string representation
   toUCIValue = value:
-    if isBool value then (if value then "1" else "0")
-    else if isInt value then toString value
-    else if isString value then value
-    else if isList value then throw "Lists should be handled separately"
+    if isBool value
+    then
+      (
+        if value
+        then "1"
+        else "0"
+      )
+    else if isInt value
+    then toString value
+    else if isString value
+    then value
+    else if isList value
+    then throw "Lists should be handled separately"
     else throw "Unsupported UCI value type: ${typeOf value}";
 
   # Generate UCI commands for a single option
-  renderOption = { config, section, key, value }:
-    if isList value then
+  renderOption = {
+    config,
+    section,
+    key,
+    value,
+  }:
+    if isList value
+    then
       # List options use 'add_list'
       map (v: "add_list ${config}.${section}.${key}='${escapeUCI (toUCIValue v)}'") value
     else
       # Single value options use 'set'
-      [ "set ${config}.${section}.${key}='${escapeUCI (toUCIValue value)}'" ];
+      ["set ${config}.${section}.${key}='${escapeUCI (toUCIValue value)}'"];
 
   # Detect a secret marker: { _secret = "key.name"; }
   # These fields are omitted from the UCI script and injected later from the
@@ -44,110 +67,151 @@ let
   isSecret = v: isAttrs v && v ? _secret;
 
   # Generate UCI commands for a section's options
-  renderSectionOptions = { config, section, options }:
-    flatten (mapAttrsToList (key: value:
-      # Skip null values and secret markers (secrets injected separately)
-      if value == null || isSecret value then []
-      else renderOption { inherit config section key value; }
-    ) options);
+  renderSectionOptions = {
+    config,
+    section,
+    options,
+  }:
+    flatten (mapAttrsToList (
+        key: value:
+        # Skip null values and secret markers (secrets injected separately)
+          if value == null || isSecret value
+          then []
+          else renderOption {inherit config section key value;}
+      )
+      options);
 
   # Generate UCI commands for a named section
-  renderNamedSection = { config, name, type, options }:
-    [ "set ${config}.${name}=${type}" ]
-    ++ renderSectionOptions { inherit config; section = name; inherit options; };
+  renderNamedSection = {
+    config,
+    name,
+    type,
+    options,
+  }:
+    ["set ${config}.${name}=${type}"]
+    ++ renderSectionOptions {
+      inherit config;
+      section = name;
+      inherit options;
+    };
 
   # Generate UCI commands for an anonymous section
   # Returns { commands, nextIndex } to track anonymous section indices
-  renderAnonymousSection = { config, type, options, index }:
-    let section = "@${type}[${toString index}]";
-    in {
-      commands = [ "add ${config} ${type}" ]
-        ++ renderSectionOptions { inherit config section options; };
-      nextIndex = index + 1;
-    };
+  renderAnonymousSection = {
+    config,
+    type,
+    options,
+    index,
+  }: let
+    section = "@${type}[${toString index}]";
+  in {
+    commands =
+      ["add ${config} ${type}"]
+      ++ renderSectionOptions {inherit config section options;};
+    nextIndex = index + 1;
+  };
 
   # Render a complete UCI config file from Nix
   # Structure: { <config-name> = { <section-name> = { _type = "..."; options... }; }; }
   # Anonymous sections use _anonymous = true
-  renderConfig = configName: sections:
-    let
-      # Separate named and anonymous sections
-      namedSections = lib.filterAttrs (n: v: !(v._anonymous or false)) sections;
-      anonymousSections = lib.filterAttrs (n: v: v._anonymous or false) sections;
+  renderConfig = configName: sections: let
+    # Separate named and anonymous sections
+    namedSections = lib.filterAttrs (n: v: !(v._anonymous or false)) sections;
+    anonymousSections = lib.filterAttrs (n: v: v._anonymous or false) sections;
 
-      # Render named sections
-      namedCommands = flatten (mapAttrsToList (name: section:
-        renderNamedSection {
-          config = configName;
-          inherit name;
-          type = section._type;
-          options = removeAttrs section [ "_type" "_anonymous" ];
+    # Render named sections
+    namedCommands = flatten (mapAttrsToList (
+        name: section:
+          renderNamedSection {
+            config = configName;
+            inherit name;
+            type = section._type;
+            options = removeAttrs section ["_type" "_anonymous"];
+          }
+      )
+      namedSections);
+
+    # Render anonymous sections (need to track indices per type)
+    renderAnonymousSections = sections: let
+      # Group by type to track indices
+      byType = lib.groupBy (s: s.value._type) (mapAttrsToList (n: v: {
+          name = n;
+          value = v;
+        })
+        sections);
+      renderGroup = type: items: let
+        go = acc: items:
+          if items == []
+          then acc.commands
+          else let
+            item = builtins.head items;
+            result = renderAnonymousSection {
+              config = configName;
+              inherit type;
+              options = removeAttrs item.value ["_type" "_anonymous"];
+              index = acc.nextIndex;
+            };
+          in
+            go {
+              commands = acc.commands ++ result.commands;
+              nextIndex = result.nextIndex;
+            } (builtins.tail items);
+      in
+        go {
+          commands = [];
+          nextIndex = 0;
         }
-      ) namedSections);
+        items;
+    in
+      flatten (mapAttrsToList renderGroup byType);
 
-      # Render anonymous sections (need to track indices per type)
-      renderAnonymousSections = sections:
-        let
-          # Group by type to track indices
-          byType = lib.groupBy (s: s.value._type) (mapAttrsToList (n: v: { name = n; value = v; }) sections);
-          renderGroup = type: items:
-            let
-              go = acc: items:
-                if items == [] then acc.commands
-                else let
-                  item = builtins.head items;
-                  result = renderAnonymousSection {
-                    config = configName;
-                    inherit type;
-                    options = removeAttrs item.value [ "_type" "_anonymous" ];
-                    index = acc.nextIndex;
-                  };
-                in go {
-                  commands = acc.commands ++ result.commands;
-                  nextIndex = result.nextIndex;
-                } (builtins.tail items);
-            in go { commands = []; nextIndex = 0; } items;
-        in flatten (mapAttrsToList renderGroup byType);
-
-      anonymousCommands = renderAnonymousSections anonymousSections;
-
-    in namedCommands ++ anonymousCommands;
+    anonymousCommands = renderAnonymousSections anonymousSections;
+  in
+    namedCommands ++ anonymousCommands;
 
   # Render multiple UCI configs
   renderConfigs = configs:
     flatten (mapAttrsToList renderConfig configs);
 
   # Generate a uci-defaults script from UCI commands
-  mkUCIDefaultsScript = { name, commands, preCommands ? [], postCommands ? [] }:
-    ''
-      #!/bin/sh
-      # ${name} - generated by nix-openwrt
-      # This script runs on first boot to configure the device
+  mkUCIDefaultsScript = {
+    name,
+    commands,
+    preCommands ? [],
+    postCommands ? [],
+  }: ''
+    #!/bin/sh
+    # ${name} - generated by nix-openwrt
+    # This script runs on first boot to configure the device
 
-      ${optionalString (preCommands != []) ''
+    ${optionalString (preCommands != []) ''
       # Pre-UCI commands
       ${concatStringsSep "\n" preCommands}
 
-      ''}
-      # UCI configuration
-      ${concatStringsSep "\n" (map (cmd: "uci -q ${cmd}") commands)}
+    ''}
+    # UCI configuration
+    ${concatStringsSep "\n" (map (cmd: "uci -q ${cmd}") commands)}
 
-      # Commit changes
-      uci commit
+    # Commit changes
+    uci commit
 
-      ${optionalString (postCommands != []) ''
+    ${optionalString (postCommands != []) ''
       # Post-UCI commands
       ${concatStringsSep "\n" postCommands}
-      ''}
-    '';
+    ''}
+  '';
 
   # Generate uci-defaults script from Nix config
-  mkUCIDefaults = { name, config, preCommands ? [], postCommands ? [] }:
+  mkUCIDefaults = {
+    name,
+    config,
+    preCommands ? [],
+    postCommands ? [],
+  }:
     mkUCIDefaultsScript {
       inherit name preCommands postCommands;
       commands = renderConfigs config;
     };
-
 in {
   inherit
     escapeUCI
@@ -160,5 +224,6 @@ in {
     renderConfig
     renderConfigs
     mkUCIDefaultsScript
-    mkUCIDefaults;
+    mkUCIDefaults
+    ;
 }

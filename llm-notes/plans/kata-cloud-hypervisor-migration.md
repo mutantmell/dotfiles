@@ -14,6 +14,7 @@ Kata containers workload is not achievable with Kata as currently designed. The 
 ### The core requirement conflicts with Kata's architecture
 
 The goal was to run a mutable NixOS system where:
+
 - systemd runs as PID 1 of the guest
 - The nix store is writable (home-manager installs packages)
 - systemd user services work (home-manager activations, background services)

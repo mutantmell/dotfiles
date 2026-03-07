@@ -1,23 +1,24 @@
-{ config, pkgs, ... }:
-
-let
+{
+  config,
+  pkgs,
+  ...
+}: let
   hostname = "remiferia";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
 in {
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  imports =
-    [
-      ./hardware-configuration.nix
-      ./sops.nix
-      ./nas.nix
-      ./monit.nix
-      ./microvm
-    ];
+  nix.settings.experimental-features = ["nix-command" "flakes"];
+  imports = [
+    ./hardware-configuration.nix
+    ./sops.nix
+    ./nas.nix
+    ./monit.nix
+    ./microvm
+  ];
 
   boot.loader.systemd-boot.enable = true;
-  boot.supportedFilesystems = [ "zfs" ];
-  boot.zfs.extraPools = [ "data" ];
+  boot.supportedFilesystems = ["zfs"];
+  boot.zfs.extraPools = ["data"];
 
   services.zfs.autoScrub.enable = true;
   services.zfs.trim.enable = true;
@@ -90,24 +91,24 @@ in {
       matchConfig.Name = "enp4s0.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
+      networkConfig.Address = [host.cidr4 host.cidr4Legacy host.cidr6];
       networkConfig.MulticastDNS = true;
       networkConfig.LLMNR = true;
-      networkConfig.DNS = [ zone.gateway4 zone.gateway6 ];
+      networkConfig.DNS = [zone.gateway4 zone.gateway6];
       routes = [
-        { Gateway = zone.gateway4; }
-        { Gateway = zone.gateway6; }
+        {Gateway = zone.gateway4;}
+        {Gateway = zone.gateway6;}
       ];
     };
     networks."20-vm20-bridge" = {
-      matchConfig.Name = [ "enp4s0.20" "vm-20-*" ];
+      matchConfig.Name = ["enp4s0.20" "vm-20-*"];
       networkConfig.Bridge = "br20";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
     networks."20-vm100-bridge" = {
-      matchConfig.Name = [ "enp4s0.100" "vm-100-*" ];
+      matchConfig.Name = ["enp4s0.100" "vm-100-*"];
       networkConfig.Bridge = "br100";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
@@ -147,7 +148,7 @@ in {
 
   common.openssh = {
     enable = true;
-    keys = [ "deploy" "home" ];
+    keys = ["deploy" "home"];
   };
 
   users.users.mjollnir = {
@@ -169,5 +170,4 @@ in {
   };
 
   system.stateVersion = "22.11";
-
 }

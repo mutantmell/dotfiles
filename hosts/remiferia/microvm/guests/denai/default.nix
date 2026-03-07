@@ -1,6 +1,9 @@
-{ config, pkgs, lib, ... }:
-
-let
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}: let
   hostname = "denai";
   inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
 in {
@@ -17,7 +20,7 @@ in {
   ];
   time.timeZone = "America/Los_Angeles";
 
-  boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+  boot.binfmt.emulatedSystems = ["aarch64-linux"];
 
   networking.hostName = hostname;
   systemd.network.enable = true;
@@ -25,15 +28,15 @@ in {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:A4:B9:D2:F8:03";
     networkConfig = {
-      Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
+      Address = [host.cidr4 host.cidr4Legacy host.cidr6];
       Gateway = zone.gateway4;
-      DNS = [ zone.gateway4 zone.gateway6 ];
+      DNS = [zone.gateway4 zone.gateway6];
       IPv6AcceptRA = false;
       DHCP = "no";
     };
     routes = [
-      { Gateway = zone.gateway4; }
-      { Gateway = zone.gateway6; }
+      {Gateway = zone.gateway4;}
+      {Gateway = zone.gateway6;}
     ];
   };
 
@@ -47,23 +50,25 @@ in {
       workstation = true;
     };
   };
-  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
 
   users.users.mjollnir = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "systemd-journal" ];
+    extraGroups = ["wheel" "systemd-journal"];
     uid = 1000;
   };
   common.openssh = {
     enable = true;
-    users = [ "mjollnir" "root" ];
-    keys = [ "home" ];
+    users = ["mjollnir" "root"];
+    keys = ["home"];
     allowPassword = true;
   };
-  services.openssh.hostKeys = [{
-    path = "/static/etc/ssh/ssh_host_ed25519_key";
-    type = "ed25519";
-  }];
+  services.openssh.hostKeys = [
+    {
+      path = "/static/etc/ssh/ssh_host_ed25519_key";
+      type = "ed25519";
+    }
+  ];
 
   fileSystems."/mnt/drive" = let
     user = config.users.extraUsers.mjollnir;
@@ -77,7 +82,7 @@ in {
     in ["${mount_opts},${automount_opts},credentials=${config.sops.secrets.smb-credentials.path}"];
   };
 
-  environment.systemPackages = [ pkgs.git ];
+  environment.systemPackages = [pkgs.git];
 
   services.openssh.enable = true;
   services.openssh.settings.X11Forwarding = true;
@@ -85,5 +90,4 @@ in {
   promtail-client.enable = true;
 
   system.stateVersion = "25.11";
-
 }

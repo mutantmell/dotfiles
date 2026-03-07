@@ -5,13 +5,13 @@ and providing a unified implementation guide.
 
 ## Plans Analyzed
 
-| Plan | File | Summary |
-|------|------|---------|
-| Zone Refactor | `zone-refactor-plan.md` | Replace hardcoded trust enum with configurable zone system |
-| Secure MGMT VLAN | `secure-mgmt-vlan-plan.md` | Split vMGMT into vMGMT (network gear) + vINFRA (infrastructure) |
-| Keycloak OIDC | `keycloak-oauth-oidc-plan.md` | Centralized identity infrastructure with OAuth2/OIDC |
-| SSH Certificates | `ssh-certificates-sso-plan.md` | SSH certificate auth via Keycloak + step-ca |
-| Headscale | `headscale-integration-plan.md` | Self-hosted Tailscale for friend game server access |
+| Plan             | File                            | Summary                                                         |
+| ---------------- | ------------------------------- | --------------------------------------------------------------- |
+| Zone Refactor    | `zone-refactor-plan.md`         | Replace hardcoded trust enum with configurable zone system      |
+| Secure MGMT VLAN | `secure-mgmt-vlan-plan.md`      | Split vMGMT into vMGMT (network gear) + vINFRA (infrastructure) |
+| Keycloak OIDC    | `keycloak-oauth-oidc-plan.md`   | Centralized identity infrastructure with OAuth2/OIDC            |
+| SSH Certificates | `ssh-certificates-sso-plan.md`  | SSH certificate auth via Keycloak + step-ca                     |
+| Headscale        | `headscale-integration-plan.md` | Self-hosted Tailscale for friend game server access             |
 
 ## MicroVM Inventory
 
@@ -48,12 +48,12 @@ Four security recommendations were identified through ordis compromise analysis 
 have been applied to the source plans. The common thread: **defenses that live on ordis
 are useless after ordis is compromised.**
 
-| ID | Summary | Applied to |
-|----|---------|------------|
-| R1 | `hostname-admin` restricts Keycloak admin console to internal hostname | `keycloak-oauth-oidc-plan.md` Phase 1 |
-| R2 | Native OIDC on vDMZ backends (Jellyfin) survives oauth2-proxy bypass | `keycloak-oauth-oidc-plan.md` Phase 5 + architectural tension section |
-| R3 | Host-level egress filtering for all vDMZ hosts (nftables output chain) | `secure-mgmt-vlan-plan.md` Phase 4.4, `keycloak-oauth-oidc-plan.md` Phase 3, `headscale-integration-plan.md` interaction section |
-| R4 | Verify `oauth2-proxy` client has minimal Keycloak permissions | `keycloak-oauth-oidc-plan.md` Phase 2 step 3 |
+| ID  | Summary                                                                | Applied to                                                                                                                       |
+| --- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | `hostname-admin` restricts Keycloak admin console to internal hostname | `keycloak-oauth-oidc-plan.md` Phase 1                                                                                            |
+| R2  | Native OIDC on vDMZ backends (Jellyfin) survives oauth2-proxy bypass   | `keycloak-oauth-oidc-plan.md` Phase 5 + architectural tension section                                                            |
+| R3  | Host-level egress filtering for all vDMZ hosts (nftables output chain) | `secure-mgmt-vlan-plan.md` Phase 4.4, `keycloak-oauth-oidc-plan.md` Phase 3, `headscale-integration-plan.md` interaction section |
+| R4  | Verify `oauth2-proxy` client has minimal Keycloak permissions          | `keycloak-oauth-oidc-plan.md` Phase 2 step 3                                                                                     |
 
 ---
 
@@ -194,6 +194,7 @@ Provisions Keycloak + step-ca on vINFRA, creates `homelab` realm, implements
 split-horizon DNS, deploys SSH bastion, enables external access.
 
 **Phase 1: Infrastructure migration**
+
 - [x] Provision Keycloak microvm on vINFRA
 - [x] Configure `hostname-admin` for internal-only admin console (R1)
 - [x] Provision step-ca microvm on vINFRA
@@ -203,6 +204,7 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [x] Migrate from gridr, decommission gridr
 
 **Phase 2: Realm restructuring**
+
 - [x] Create `homelab` realm
 - [x] Register clients: `oauth2-proxy`, `step-ca`, `cicd-deploy`
 - [ ] Verify client scope restrictions — minimal permissions per client (R4)
@@ -213,6 +215,7 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [ ] Retire `external` realm
 
 **Phase 3: DNS, external access, hardening**
+
 - [x] Implement split-horizon DNS (`mutantmell.net` hierarchy)
 - [x] Add ordis nginx rate limiting for `/auth/` and `/oauth2/` (S11)
 - [ ] Provision SSH bastion VM on vDMZ (Incus VM — new capability)

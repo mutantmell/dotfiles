@@ -1,5 +1,9 @@
-{ config, pkgs, lib, ... }:
 {
+  config,
+  pkgs,
+  lib,
+  ...
+}: {
   config = {
     networking.firewall.allowedTCPPorts = [
       config.services.prometheus.exporters.node.port
@@ -9,7 +13,7 @@
     services.prometheus.exporters = {
       node = {
         enable = true;
-        enabledCollectors = [ "systemd" ];
+        enabledCollectors = ["systemd"];
         port = 9001;
       };
       zfs = {

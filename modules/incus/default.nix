@@ -1,5 +1,9 @@
-{ config, pkgs, lib, ... }:
-
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 # Incus Instance Management Module
 #
 # Manages the lifecycle of Incus containers and virtual machines declaratively.
@@ -15,28 +19,38 @@
 # This is a generic, extractable module — no project-specific logic.
 # Project-specific coordination (auto-discovery, impermanence) lives in
 # modules/common/incus.nix.
-
 let
   cfg = config.incus-manager;
 
-  inherit (lib) mkOption mkEnableOption types mkIf mkMerge
-    mapAttrsToList optionalString concatStringsSep;
+  inherit
+    (lib)
+    mkOption
+    mkEnableOption
+    types
+    mkIf
+    mkMerge
+    mapAttrsToList
+    optionalString
+    concatStringsSep
+    ;
   inherit (builtins) attrNames;
 
   hasGuests = cfg.guests != {};
 
   # Build an image derivation from a NixOS system
-  mkVMImage = name: guestCfg: pkgs.runCommand "${name}-vm-image" {} ''
-    mkdir -p $out
-    ln -s ${guestCfg.system.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
-    ln -s ${guestCfg.system.config.system.build.qemuImage}/*.qcow2 $out/disk.qcow2
-  '';
+  mkVMImage = name: guestCfg:
+    pkgs.runCommand "${name}-vm-image" {} ''
+      mkdir -p $out
+      ln -s ${guestCfg.system.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
+      ln -s ${guestCfg.system.config.system.build.qemuImage}/*.qcow2 $out/disk.qcow2
+    '';
 
-  mkContainerImage = name: guestCfg: pkgs.runCommand "${name}-container-image" {} ''
-    mkdir -p $out
-    ln -s ${guestCfg.system.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
-    ln -s ${guestCfg.system.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
-  '';
+  mkContainerImage = name: guestCfg:
+    pkgs.runCommand "${name}-container-image" {} ''
+      mkdir -p $out
+      ln -s ${guestCfg.system.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
+      ln -s ${guestCfg.system.config.system.build.tarball}/tarball/*.tar.xz $out/rootfs.tar.xz
+    '';
 
   imageForGuest = name: guestCfg:
     if guestCfg.type == "vm"
@@ -47,84 +61,88 @@ let
   mkInstanceEnsureScript = name: guestCfg: let
     image = imageForGuest name guestCfg;
     isVM = guestCfg.type == "vm";
-    imageFiles = if isVM
+    imageFiles =
+      if isVM
       then "${image}/metadata.tar.xz ${image}/disk.qcow2"
       else "${image}/metadata.tar.xz ${image}/rootfs.tar.xz";
     vmFlag = optionalString isVM " --vm";
     profileFlag = optionalString (guestCfg.profile != null) " --profile ${guestCfg.profile}";
-  in pkgs.writeShellScript "incus-ensure-${name}" ''
-    set -e
-    INSTANCE="${name}"
-    IMAGE_ALIAS="${name}"
+  in
+    pkgs.writeShellScript "incus-ensure-${name}" ''
+      set -e
+      INSTANCE="${name}"
+      IMAGE_ALIAS="${name}"
 
-    # Import image if alias doesn't exist
-    if ! ${pkgs.incus}/bin/incus image list --format=csv -c l | grep -q "^$IMAGE_ALIAS$"; then
-      echo "Importing image: $IMAGE_ALIAS"
-      ${pkgs.incus}/bin/incus image import ${imageFiles} --alias "$IMAGE_ALIAS"
-    fi
+      # Import image if alias doesn't exist
+      if ! ${pkgs.incus}/bin/incus image list --format=csv -c l | grep -q "^$IMAGE_ALIAS$"; then
+        echo "Importing image: $IMAGE_ALIAS"
+        ${pkgs.incus}/bin/incus image import ${imageFiles} --alias "$IMAGE_ALIAS"
+      fi
 
-    # Create instance if it doesn't exist
-    if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$INSTANCE$"; then
-      echo "Creating instance: $INSTANCE"
-      ${pkgs.incus}/bin/incus init "$IMAGE_ALIAS" "$INSTANCE"${vmFlag}${profileFlag}
-      ${optionalString (guestCfg.network != null) ''
-      ${pkgs.incus}/bin/incus config device add "$INSTANCE" eth0 nic \
-        network="${guestCfg.network}" name=eth0 || true
+      # Create instance if it doesn't exist
+      if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$INSTANCE$"; then
+        echo "Creating instance: $INSTANCE"
+        ${pkgs.incus}/bin/incus init "$IMAGE_ALIAS" "$INSTANCE"${vmFlag}${profileFlag}
+        ${optionalString (guestCfg.network != null) ''
+        ${pkgs.incus}/bin/incus config device add "$INSTANCE" eth0 nic \
+          network="${guestCfg.network}" name=eth0 || true
       ''}
-    fi
+      fi
 
-    # Start if autoStart and not running
-    ${optionalString guestCfg.autoStart ''
-    if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
-      echo "Starting instance: $INSTANCE"
-      ${pkgs.incus}/bin/incus start "$INSTANCE"
-    fi
-    ''}
-  '';
+      # Start if autoStart and not running
+      ${optionalString guestCfg.autoStart ''
+        if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
+          echo "Starting instance: $INSTANCE"
+          ${pkgs.incus}/bin/incus start "$INSTANCE"
+        fi
+      ''}
+    '';
 
   # Per-instance update script: push pre-built closure via nix copy + switch-to-configuration
   mkInstanceUpdateScript = name: guestCfg: let
     toplevel = guestCfg.system.config.system.build.toplevel;
-  in pkgs.writeShellScript "incus-update-${name}" ''
-    set -e
-    INSTANCE="${name}"
+  in
+    pkgs.writeShellScript "incus-update-${name}" ''
+      set -e
+      INSTANCE="${name}"
 
-    if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
-      echo "Instance $INSTANCE is not running, skipping update"
-      exit 0
-    fi
+      if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
+        echo "Instance $INSTANCE is not running, skipping update"
+        exit 0
+      fi
 
-    echo "Updating instance: $INSTANCE"
+      echo "Updating instance: $INSTANCE"
 
-    # Copy the closure to the instance via SSH
-    ${pkgs.nix}/bin/nix copy --to "ssh://root@$INSTANCE" ${toplevel} --no-check-sigs
+      # Copy the closure to the instance via SSH
+      ${pkgs.nix}/bin/nix copy --to "ssh://root@$INSTANCE" ${toplevel} --no-check-sigs
 
-    # Activate the new configuration
-    ssh -o StrictHostKeyChecking=no root@"$INSTANCE" \
-      "${toplevel}/bin/switch-to-configuration switch"
+      # Activate the new configuration
+      ssh -o StrictHostKeyChecking=no root@"$INSTANCE" \
+        "${toplevel}/bin/switch-to-configuration switch"
 
-    echo "Instance $INSTANCE updated successfully"
-  '';
+      echo "Instance $INSTANCE updated successfully"
+    '';
 
   # Aggregate scripts
   ensureAllScript = pkgs.writeShellScript "incus-ensure-instances" ''
     set -e
     echo "Ensuring Incus instances..."
-    ${concatStringsSep "\n" (mapAttrsToList (name: guestCfg:
-      "${mkInstanceEnsureScript name guestCfg} || echo 'Warning: Failed to ensure ${name}, continuing...'"
-    ) cfg.guests)}
+    ${concatStringsSep "\n" (mapAttrsToList (
+        name: guestCfg: "${mkInstanceEnsureScript name guestCfg} || echo 'Warning: Failed to ensure ${name}, continuing...'"
+      )
+      cfg.guests)}
     echo "Instance check complete."
   '';
 
   updateAllScript = pkgs.writeShellScript "incus-update-instances" ''
     set -e
     echo "Updating Incus instances..."
-    ${concatStringsSep "\n" (mapAttrsToList (name: guestCfg:
-      "${mkInstanceUpdateScript name guestCfg} || echo 'Warning: Failed to update ${name}, continuing...'"
-    ) cfg.guests)}
+    ${concatStringsSep "\n" (mapAttrsToList (
+        name: guestCfg: "${mkInstanceUpdateScript name guestCfg} || echo 'Warning: Failed to update ${name}, continuing...'"
+      )
+      cfg.guests)}
     echo "Instance update complete."
   '';
-
 in {
   options.incus-manager = {
     enable = mkEnableOption "Incus instance management";
@@ -133,7 +151,7 @@ in {
       type = types.attrsOf (types.submodule {
         options = {
           type = mkOption {
-            type = types.enum [ "vm" "container" ];
+            type = types.enum ["vm" "container"];
             default = "vm";
             description = "Instance type: vm or container.";
           };
@@ -179,9 +197,9 @@ in {
       # Systemd service to ensure instances exist after incus daemon is up
       systemd.services.incus-ensure-instances = {
         description = "Ensure Incus instances exist and are started";
-        after = [ "incus.service" "incus-preseed.service" ];
-        wants = [ "incus.service" ];
-        wantedBy = [ "multi-user.target" ];
+        after = ["incus.service" "incus-preseed.service"];
+        wants = ["incus.service"];
+        wantedBy = ["multi-user.target"];
 
         serviceConfig = {
           Type = "oneshot";
@@ -193,8 +211,8 @@ in {
       # Systemd service for updating instances (manual trigger)
       systemd.services.incus-update-instances = {
         description = "Update Incus instances with pre-built closures";
-        after = [ "incus-ensure-instances.service" ];
-        requires = [ "incus.service" ];
+        after = ["incus-ensure-instances.service"];
+        requires = ["incus.service"];
 
         serviceConfig = {
           Type = "oneshot";
@@ -222,9 +240,10 @@ in {
           fi
           INSTANCE="$1"
           case "$INSTANCE" in
-            ${concatStringsSep "\n            " (mapAttrsToList (name: guestCfg:
-              "${name}) exec ${mkInstanceUpdateScript name guestCfg} ;;"
-            ) cfg.guests)}
+            ${concatStringsSep "\n            " (mapAttrsToList (
+              name: guestCfg: "${name}) exec ${mkInstanceUpdateScript name guestCfg} ;;"
+            )
+            cfg.guests)}
             *)
               echo "Error: Instance '$INSTANCE' is not managed by incus-manager"
               echo "Managed instances: ${concatStringsSep ", " (attrNames cfg.guests)}"

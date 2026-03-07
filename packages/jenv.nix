@@ -1,9 +1,9 @@
-{ lib
-, stdenv
-, fetchFromGitHub
-, installShellFiles
+{
+  lib,
+  stdenv,
+  fetchFromGitHub,
+  installShellFiles,
 }:
-
 stdenv.mkDerivation rec {
   pname = "jenv";
   version = "0.5.6";

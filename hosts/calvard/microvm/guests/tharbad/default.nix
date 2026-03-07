@@ -1,10 +1,13 @@
-{ pkgs, lib, config, ... }:
-
-let
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}: let
   hostname = "tharbad";
   inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
 in {
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.experimental-features = ["nix-command" "flakes"];
 
   imports = [
     ./microvm.nix
@@ -20,10 +23,12 @@ in {
   networking.hostName = hostname;
 
   common.openssh.enable = true;
-  services.openssh.hostKeys = [{
-    path = "/static/etc/ssh/ssh_host_ed25519_key";
-    type = "ed25519";
-  }];
+  services.openssh.hostKeys = [
+    {
+      path = "/static/etc/ssh/ssh_host_ed25519_key";
+      type = "ed25519";
+    }
+  ];
 
   networking.useNetworkd = true;
   networking.useDHCP = false;
@@ -32,20 +37,20 @@ in {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:A2:E4:CB:05:DA";
     networkConfig = {
-      Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
+      Address = [host.cidr4 host.cidr4Legacy host.cidr6];
       Gateway = zone.gateway4;
-      DNS = [ zone.gateway4 zone.gateway6 ];
+      DNS = [zone.gateway4 zone.gateway6];
       IPv6AcceptRA = false;
       DHCP = "no";
     };
     routes = [
-      { Gateway = zone.gateway4; }
-      { Gateway = zone.gateway6; }
+      {Gateway = zone.gateway4;}
+      {Gateway = zone.gateway6;}
     ];
   };
 
   time.timeZone = "UTC";
-  security.pki.certificates = [ (builtins.readFile pkgs.mmell.lib.data.certs.root) ];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
 
   environment.persistence."/persist" = {
     hideMounts = true;

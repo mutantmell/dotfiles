@@ -1,6 +1,9 @@
-{ config, pkgs, microvm, ... }:
-
 {
+  config,
+  pkgs,
+  microvm,
+  ...
+}: {
   common.microvm = {
     enable = true;
     guestDir = ./guests;
@@ -9,7 +12,7 @@
   environment.systemPackages = [
     (pkgs.writeShellApplication {
       name = "mk-volume-with-ssh-key";
-      runtimeInputs = [ pkgs.mmell.mk-volume ];
+      runtimeInputs = [pkgs.mmell.mk-volume];
       text = ''
         set -euxo pipefail
         if [ "$#" -lt 2 ]; then

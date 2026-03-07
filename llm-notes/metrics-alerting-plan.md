@@ -10,15 +10,18 @@ notifications.
 ## Current State
 
 **ymir** (on erebonia, VLAN 20 — trusted zone) currently runs:
+
 - Prometheus (port 9001) — scrapes itself + remiferia exporters
 - Grafana (via nginx) — visualization
 - Loki/Promtail — **disabled** (configured but commented out)
 - 2 vCPU, 1 GB RAM, 10 GB persist volume
 
 **remiferia** exports:
+
 - node_exporter (9001), zfs_exporter (9002), smartctl_exporter (9003)
 
 **Problems with the current setup:**
+
 1. ymir is on VLAN 20 (trusted/home) — infrastructure monitoring belongs on
    VLAN 11 (management)
 2. Only scraping 2 hosts (ymir itself + remiferia)
@@ -38,14 +41,14 @@ host needs no changes beyond the tap interface name.
 
 ### Stack Selection
 
-| Component | Choice | Rationale |
-|-----------|--------|-----------|
-| Metrics | **Prometheus** | Already running on ymir, NixOS module is mature, pull-based model works well for homelab |
-| Visualization | **Grafana** | Already running on ymir, rich dashboard ecosystem |
-| Log aggregation | **Loki** | Already configured (disabled) on ymir, designed for Prometheus+Grafana stack, low resource usage vs ELK |
-| Log shipping | **Promtail** | Native Loki companion; can scrape systemd journal on each host |
-| Alerting | **Alertmanager** | Native Prometheus integration, supports multiple notification channels |
-| Notifications | **ntfy** (self-hosted) | See Notification System section below |
+| Component       | Choice                 | Rationale                                                                                               |
+| --------------- | ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| Metrics         | **Prometheus**         | Already running on ymir, NixOS module is mature, pull-based model works well for homelab                |
+| Visualization   | **Grafana**            | Already running on ymir, rich dashboard ecosystem                                                       |
+| Log aggregation | **Loki**               | Already configured (disabled) on ymir, designed for Prometheus+Grafana stack, low resource usage vs ELK |
+| Log shipping    | **Promtail**           | Native Loki companion; can scrape systemd journal on each host                                          |
+| Alerting        | **Alertmanager**       | Native Prometheus integration, supports multiple notification channels                                  |
+| Notifications   | **ntfy** (self-hosted) | See Notification System section below                                                                   |
 
 ### Why not VictoriaMetrics / Mimir / Thanos?
 
@@ -62,6 +65,7 @@ what Prometheus compaction provides. Keep it simple.
 [ntfy](https://ntfy.sh) is a simple HTTP-based pub/sub notification service.
 
 **Why ntfy:**
+
 - Self-hosted (runs as a single binary, NixOS module available)
 - Push notifications to phone via ntfy Android/iOS app — no email server needed
 - Dead simple API: `curl -d "disk full" ntfy.example.com/alerts`
@@ -73,15 +77,16 @@ what Prometheus compaction provides. Keep it simple.
 
 **Notification channels and routing:**
 
-| Alert Category | ntfy Topic | Priority | Examples |
-|----------------|-----------|----------|----------|
-| Critical infra | `infra-critical` | urgent | Host down, disk >90%, ZFS degraded, OOM |
-| Security | `security` | high | SSH brute force, firewall drops spike, failed sudo |
-| Service health | `services` | default | Prometheus target down, cert expiring, DNS failure |
-| CI/CD | `cicd` | default | Deploy success/failure, build status |
-| Informational | `homelab-info` | low | Backup completed, package updates available |
+| Alert Category | ntfy Topic       | Priority | Examples                                           |
+| -------------- | ---------------- | -------- | -------------------------------------------------- |
+| Critical infra | `infra-critical` | urgent   | Host down, disk >90%, ZFS degraded, OOM            |
+| Security       | `security`       | high     | SSH brute force, firewall drops spike, failed sudo |
+| Service health | `services`       | default  | Prometheus target down, cert expiring, DNS failure |
+| CI/CD          | `cicd`           | default  | Deploy success/failure, build status               |
+| Informational  | `homelab-info`   | low      | Backup completed, package updates available        |
 
 **Alternatives considered:**
+
 - **Gotify**: Similar to ntfy but less actively maintained, no iOS app
 - **Email (SMTP)**: Requires mail server or relay, spam filtering hassle, slower
   delivery for urgent alerts
@@ -98,18 +103,18 @@ what Prometheus compaction provides. Keep it simple.
 
 ### What Changes
 
-| Property | Before | After |
-|----------|--------|-------|
-| Zone | trusted (VLAN 20) | management (VLAN 11) |
+| Property         | Before                    | After                       |
+| ---------------- | ------------------------- | --------------------------- |
+| Zone             | trusted (VLAN 20)         | management (VLAN 11)        |
 | Network registry | `trusted.hosts.ymir = 41` | `management.hosts.ymir = 5` |
-| IPv4 | `10.97.20.41` | `10.97.11.5` |
-| IPv6 | `fdc6:55f2:0a5e:14::29` | `fdc6:55f2:0a5e:b::5` |
-| Legacy IPv4 | `10.0.20.41` | `10.0.11.5` |
-| Tap interface | `vm-20-ymir` | `vm-11-ymir` |
-| MAC | `5E:A2:E4:CB:05:DA` | New MAC (VLAN 11 encoded) |
-| RAM | 1024 MB | 2048 MB |
-| Persist volume | 10 GB | 30 GB |
-| Grafana domain | `ymir.internal` | `ymir.internal` (unchanged) |
+| IPv4             | `10.97.20.41`             | `10.97.11.5`                |
+| IPv6             | `fdc6:55f2:0a5e:14::29`   | `fdc6:55f2:0a5e:b::5`       |
+| Legacy IPv4      | `10.0.20.41`              | `10.0.11.5`                 |
+| Tap interface    | `vm-20-ymir`              | `vm-11-ymir`                |
+| MAC              | `5E:A2:E4:CB:05:DA`       | New MAC (VLAN 11 encoded)   |
+| RAM              | 1024 MB                   | 2048 MB                     |
+| Persist volume   | 10 GB                     | 30 GB                       |
+| Grafana domain   | `ymir.internal`           | `ymir.internal` (unchanged) |
 
 ### What Stays the Same
 
@@ -124,11 +129,11 @@ what Prometheus compaction provides. Keep it simple.
 
 ### Resources
 
-| Resource | Value | Rationale |
-|----------|-------|-----------|
-| vCPU | 2 | Prometheus compaction + Loki ingestion |
-| RAM | 2048 MB | Prometheus TSDB in-memory chunks + Loki + Grafana |
-| Persist volume | 30 GB | ~90 days retention at expected cardinality |
+| Resource       | Value   | Rationale                                         |
+| -------------- | ------- | ------------------------------------------------- |
+| vCPU           | 2       | Prometheus compaction + Loki ingestion            |
+| RAM            | 2048 MB | Prometheus TSDB in-memory chunks + Loki + Grafana |
+| Persist volume | 30 GB   | ~90 days retention at expected cardinality        |
 
 ### Persistence
 
@@ -173,12 +178,12 @@ Strict egress filter — ymir should only talk to known targets:
 
 ### Secrets (sops-nix)
 
-| Secret | Used by |
-|--------|---------|
-| `grafana-admin-password` | Grafana initial admin |
-| `ntfy-auth-token` | ntfy access control |
-| `alertmanager-ntfy-url` | Alertmanager webhook config (includes topic auth) |
-| `grafana-oidc-secret` | Grafana → Keycloak OIDC (if roer is deployed) |
+| Secret                   | Used by                                           |
+| ------------------------ | ------------------------------------------------- |
+| `grafana-admin-password` | Grafana initial admin                             |
+| `ntfy-auth-token`        | ntfy access control                               |
+| `alertmanager-ntfy-url`  | Alertmanager webhook config (includes topic auth) |
+| `grafana-oidc-secret`    | Grafana → Keycloak OIDC (if roer is deployed)     |
 
 ---
 
@@ -194,34 +199,34 @@ Scrape interval: 15s (default), 60s (slow targets)
 
 **Scrape targets — Phase 1 (management zone hosts):**
 
-| Job | Target | Port | Exporter |
-|-----|--------|------|----------|
-| ymir_node | localhost | 9100 | node_exporter |
-| remiferia_node | remiferia.internal | 9001 | node_exporter |
-| remiferia_zfs | remiferia.internal | 9002 | zfs_exporter |
+| Job                | Target             | Port | Exporter          |
+| ------------------ | ------------------ | ---- | ----------------- |
+| ymir_node          | localhost          | 9100 | node_exporter     |
+| remiferia_node     | remiferia.internal | 9001 | node_exporter     |
+| remiferia_zfs      | remiferia.internal | 9002 | zfs_exporter      |
 | remiferia_smartctl | remiferia.internal | 9003 | smartctl_exporter |
-| thebeyond_node | thebeyond.internal | 9100 | node_exporter |
-| erebonia_node | erebonia.internal | 9100 | node_exporter |
-| calvard_node | calvard.internal | 9100 | node_exporter |
+| thebeyond_node     | thebeyond.internal | 9100 | node_exporter     |
+| erebonia_node      | erebonia.internal  | 9100 | node_exporter     |
+| calvard_node       | calvard.internal   | 9100 | node_exporter     |
 
 **Scrape targets — Phase 2 (cross-zone, microVM guests):**
 
-| Job | Target | Port | Exporter |
-|-----|--------|------|----------|
+| Job            | Target             | Port | Exporter      |
+| -------------- | ------------------ | ---- | ------------- |
 | phantasma_node | phantasma.internal | 9100 | node_exporter |
-| ordis_node | ordis.internal | 9100 | node_exporter |
+| ordis_node     | ordis.internal     | 9100 | node_exporter |
 | heimdallr_node | heimdallr.internal | 9100 | node_exporter |
-| roer_node | roer.internal | 9100 | node_exporter |
-| legram_node | legram.internal | 9100 | node_exporter |
-| ardent_node | ardent.internal | 9100 | node_exporter |
+| roer_node      | roer.internal      | 9100 | node_exporter |
+| legram_node    | legram.internal    | 9100 | node_exporter |
+| ardent_node    | ardent.internal    | 9100 | node_exporter |
 
 **Scrape targets — Phase 3 (service-specific exporters):**
 
-| Job | Target | Exporter |
-|-----|--------|----------|
-| unbound | phantasma.internal:9167 | unbound_exporter |
-| kea_dhcp | thebeyond.internal:9547 | kea_exporter |
-| nginx | ordis.internal:9113 | nginx_exporter |
+| Job      | Target                  | Exporter          |
+| -------- | ----------------------- | ----------------- |
+| unbound  | phantasma.internal:9167 | unbound_exporter  |
+| kea_dhcp | thebeyond.internal:9547 | kea_exporter      |
+| nginx    | ordis.internal:9113     | nginx_exporter    |
 | nftables | thebeyond.internal:9630 | nftables_exporter |
 
 ### 2. Loki
@@ -318,6 +323,7 @@ Port: 2586 (internal, localhost only for alertmanager)
 ```
 
 **Access control:**
+
 - Read-only token for phone app subscriptions
 - Write token for Alertmanager (localhost, can be unrestricted)
 - Write token for CI/CD webhooks (Forgejo on ardent)
@@ -331,11 +337,13 @@ Domain: ymir.internal
 ```
 
 **Datasources (provisioned):**
+
 - Prometheus → `http://localhost:9090`
 - Loki → `http://localhost:3100`
 - Alertmanager → `http://localhost:9093`
 
 **Dashboards (provisioned as JSON):**
+
 - Node Exporter Full (community dashboard #1860)
 - ZFS overview (custom or community)
 - Loki log explorer

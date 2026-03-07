@@ -1,6 +1,10 @@
-{ config, options, pkgs, lib, ... }:
-
-let
+{
+  config,
+  options,
+  pkgs,
+  lib,
+  ...
+}: let
   cfg = config.common.zfs;
 in {
   options.common.zfs = {
@@ -44,9 +48,10 @@ in {
         ssh = {
           enable = true;
           port = 2222;
-          hostKeys = [ cfg.remoteUnlock.hostkey ];
-          authorizedKeys = builtins.map (key:
-            pkgs.mmell.lib.data.keys.ssh.${key}
+          hostKeys = [cfg.remoteUnlock.hostkey];
+          authorizedKeys = builtins.map (
+            key:
+              pkgs.mmell.lib.data.keys.ssh.${key}
           ) ["deploy" "home"];
         };
       };
@@ -55,10 +60,10 @@ in {
       # c/o https://discourse.nixos.org/t/impermanence-vs-systemd-initrd-w-tpm-unlocking/25167/2
       boot.initrd.systemd.services.rollback = {
         description = "Rollback ZFS datasets to a pristine state";
-        wantedBy = [ "initrd.target" ];
-        after = [ "zfs-import-zroot.service" ];
-        before = [ "sysroot.mount" ];
-        path = [ pkgs.zfs ];
+        wantedBy = ["initrd.target"];
+        after = ["zfs-import-zroot.service"];
+        before = ["sysroot.mount"];
+        path = [pkgs.zfs];
         unitConfig.DefaultDependencies = "no";
         serviceConfig.Type = "oneshot";
         script = ''

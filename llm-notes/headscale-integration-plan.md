@@ -8,13 +8,13 @@
 The homelab will host game servers for friends. These friends need network access to reach
 those servers. The options considered:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| Direct internet exposure | Simple | Large attack surface, DDoS risk, exposes homelab IP |
-| WireGuard (manual) | Secure, fast | Non-technical friends can't set it up; key distribution is painful; no identity-based access control |
-| WireGuard dynamic | Would solve the UX problem | Project is not pursuing this use case |
-| Tailscale (hosted) | Excellent UX, easy onboarding | Depends on a commercial company's continued support and survival |
-| **Headscale + Tailscale clients** | **Same UX as Tailscale; self-hosted control plane; OIDC auth via Keycloak; ACL-based access control** | **Must maintain the control server; DERP relay adds latency if direct connections fail** |
+| Approach                          | Pros                                                                                                  | Cons                                                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Direct internet exposure          | Simple                                                                                                | Large attack surface, DDoS risk, exposes homelab IP                                                  |
+| WireGuard (manual)                | Secure, fast                                                                                          | Non-technical friends can't set it up; key distribution is painful; no identity-based access control |
+| WireGuard dynamic                 | Would solve the UX problem                                                                            | Project is not pursuing this use case                                                                |
+| Tailscale (hosted)                | Excellent UX, easy onboarding                                                                         | Depends on a commercial company's continued support and survival                                     |
+| **Headscale + Tailscale clients** | **Same UX as Tailscale; self-hosted control plane; OIDC auth via Keycloak; ACL-based access control** | **Must maintain the control server; DERP relay adds latency if direct connections fail**             |
 
 Headscale is the right fit: it provides the same frictionless onboarding experience as
 Tailscale (install app, click login, done) while keeping the control plane self-hosted
@@ -27,6 +27,7 @@ plane). It does **not** handle data plane traffic — that flows directly betwee
 WireGuard, with DERP relay servers as fallback when direct connections aren't possible.
 
 Headscale's responsibilities:
+
 - Node registration and authentication (supports OIDC)
 - WireGuard public key exchange between nodes
 - ACL policy distribution
@@ -107,13 +108,13 @@ split into a separate service on a different VLAN. This makes vINFRA placement i
 2. **DERP is embedded, not separable.** You cannot run just DERP/STUN on vDMZ while
    keeping headscale's control plane on vINFRA — they're the same process.
 
-| Consideration | vDMZ (chosen) | vINFRA |
-|---------------|---------------|--------|
-| DERP/STUN reachability | Reachable via langport proxy / wg-ba | Broken — no direct WAN path, STUN fails through WireGuard |
-| Keycloak integration (OIDC) | Cross-zone rule (vDMZ → vINFRA), same as langport | Intra-zone |
-| Subnet router → headscale | Intra-zone (no firewall rule needed) | Cross-zone rule needed |
-| Compromise impact | Attacker on vDMZ (same as any DMZ service) | Attacker on vINFRA (alongside Keycloak, step-ca, DNS — worse) |
-| Precedent | langport (web proxy), game servers | Keycloak, step-ca, phantasma |
+| Consideration               | vDMZ (chosen)                                     | vINFRA                                                        |
+| --------------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
+| DERP/STUN reachability      | Reachable via langport proxy / wg-ba              | Broken — no direct WAN path, STUN fails through WireGuard     |
+| Keycloak integration (OIDC) | Cross-zone rule (vDMZ → vINFRA), same as langport | Intra-zone                                                    |
+| Subnet router → headscale   | Intra-zone (no firewall rule needed)              | Cross-zone rule needed                                        |
+| Compromise impact           | Attacker on vDMZ (same as any DMZ service)        | Attacker on vINFRA (alongside Keycloak, step-ca, DNS — worse) |
+| Precedent                   | langport (web proxy), game servers                | Keycloak, step-ca, phantasma                                  |
 
 Headscale on vDMZ needs an explicit cross-zone firewall rule to reach Keycloak on
 vINFRA for OIDC validation — the same pattern as langport → Keycloak. External access is
@@ -127,6 +128,7 @@ Tailscale client daemon, which maintains WireGuard tunnels to friends' devices a
 their traffic to game servers.
 
 The subnet router belongs on vDMZ because:
+
 - It handles traffic from untrusted external users (friends)
 - Game servers are on vDMZ — keeping the subnet router on the same zone avoids cross-zone
   forwarding for game traffic
@@ -150,6 +152,7 @@ are services, not client devices.
 
 A dedicated "game server" VLAN would provide marginally finer isolation (game servers
 can't talk to Jellyfin) but adds complexity:
+
 - Another VLAN to configure on the switch trunk
 - Another firewall zone to define and test
 - Another bridge interface on the VM host
@@ -166,17 +169,17 @@ can be revisited, but it's premature now.
 
 ### Microvm specification
 
-| Property | Value |
-|----------|-------|
-| Host | calvard (vDMZ bridge required; see `plans/vm-guest-rebalance.md`) |
-| vCPU | 1 |
-| RAM | 512MB |
-| Persistent storage | Small (SQLite database, private keys, ACL policy file) |
-| Network | vDMZ (VLAN 100) |
-| IP | Next available vDMZ address |
-| Services | headscale, nginx (TLS termination + reverse proxy) |
-| DNS name | `headscale.internal.mutantmell.net` / `headscale.internal` (internal) |
-| External name | `vpn.mutantmell.net` (proxied through langport for friends) |
+| Property           | Value                                                                 |
+| ------------------ | --------------------------------------------------------------------- |
+| Host               | calvard (vDMZ bridge required; see `plans/vm-guest-rebalance.md`)     |
+| vCPU               | 1                                                                     |
+| RAM                | 512MB                                                                 |
+| Persistent storage | Small (SQLite database, private keys, ACL policy file)                |
+| Network            | vDMZ (VLAN 100)                                                       |
+| IP                 | Next available vDMZ address                                           |
+| Services           | headscale, nginx (TLS termination + reverse proxy)                    |
+| DNS name           | `headscale.internal.mutantmell.net` / `headscale.internal` (internal) |
+| External name      | `vpn.mutantmell.net` (proxied through langport for friends)           |
 
 Headscale is a single Go binary with a SQLite database. 512MB RAM is more than sufficient.
 
@@ -275,6 +278,7 @@ Headscale has a native NixOS module (`services.headscale`) available in nixpkgs:
 ### Secrets (SOPS)
 
 Add to the headscale microvm's `sops.nix`:
+
 - `headscale-oidc-client-secret` — Keycloak client secret for headscale
 - `headscale-private-key` — headscale's noise private key (auto-generated on first run,
   but should be persisted and backed up)
@@ -282,6 +286,7 @@ Add to the headscale microvm's `sops.nix`:
 ### Persistence
 
 The headscale microvm needs persistent storage for:
+
 - `/var/lib/headscale/db.sqlite` — node registrations, users, key state
 - `/var/lib/headscale/noise_private.key` — server identity key
 - `/etc/headscale/acl.json` — ACL policy (could also be deployed via Nix)
@@ -298,16 +303,16 @@ It advertises routes to game server IPs, allowing friends on the tailnet to reac
 
 ### Microvm specification
 
-| Property | Value |
-|----------|-------|
-| Host | calvard (vDMZ bridge required; see `plans/vm-guest-rebalance.md`) |
-| vCPU | 1 |
-| RAM | 256MB |
-| Persistent storage | Minimal (Tailscale state) |
-| Network | vDMZ (VLAN 100) |
-| IP | Next available vDMZ address (e.g., 10.0.100.60) |
-| Services | tailscale daemon only |
-| Name | TBD Calvard city name (was **fenrir** in the Norse naming scheme) |
+| Property           | Value                                                             |
+| ------------------ | ----------------------------------------------------------------- |
+| Host               | calvard (vDMZ bridge required; see `plans/vm-guest-rebalance.md`) |
+| vCPU               | 1                                                                 |
+| RAM                | 256MB                                                             |
+| Persistent storage | Minimal (Tailscale state)                                         |
+| Network            | vDMZ (VLAN 100)                                                   |
+| IP                 | Next available vDMZ address (e.g., 10.0.100.60)                   |
+| Services           | tailscale daemon only                                             |
+| Name               | TBD Calvard city name (was **fenrir** in the Norse naming scheme) |
 
 ### NixOS configuration sketch
 
@@ -339,6 +344,7 @@ tailnet. ACLs on headscale then restrict which specific IPs and ports friends ca
 reach (see [ACL Configuration](#acl-configuration)).
 
 After the subnet router registers, approve its routes on headscale:
+
 ```bash
 headscale nodes approve-routes --identifier <node-id> --routes 10.0.100.0/24
 ```
@@ -362,13 +368,13 @@ oauth2-proxy and step-ca in the [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.
 
 ### Keycloak client registration
 
-| Property | Value |
-|----------|-------|
-| Client ID | `headscale` |
-| Type | Confidential |
-| Grant Types | Authorization Code |
-| Redirect URIs | `https://vpn.mutantmell.net/oidc/callback` |
-| Default Client Scopes | `openid`, `profile`, `email`, `groups` |
+| Property              | Value                                      |
+| --------------------- | ------------------------------------------ |
+| Client ID             | `headscale`                                |
+| Type                  | Confidential                               |
+| Grant Types           | Authorization Code                         |
+| Redirect URIs         | `https://vpn.mutantmell.net/oidc/callback` |
+| Default Client Scopes | `openid`, `profile`, `email`, `groups`     |
 
 The `groups` client scope (with the Group Membership mapper) is already planned in the
 Keycloak OIDC plan. Headscale uses the `groups` claim to enforce `allowed_groups`.
@@ -377,10 +383,10 @@ Keycloak OIDC plan. Headscale uses the `groups` claim to enforce `allowed_groups
 
 Extend the group structure from the Keycloak OIDC plan:
 
-| Group | Purpose | Headscale Access |
-|-------|---------|-----------------|
-| `admins` | Full homelab access | Full tailnet access (admin ACL) |
-| `gamers` | Friends who play games | Game server ports only (restricted ACL) |
+| Group         | Purpose                 | Headscale Access                              |
+| ------------- | ----------------------- | --------------------------------------------- |
+| `admins`      | Full homelab access     | Full tailnet access (admin ACL)               |
+| `gamers`      | Friends who play games  | Game server ports only (restricted ACL)       |
 | `media-users` | Jellyfin / media access | No tailnet access (web-only via oauth2-proxy) |
 
 Friends get Keycloak accounts in the `gamers` group. Admins are in both `admins` and
@@ -417,6 +423,7 @@ Tailscale client receives WireGuard config
 ```
 
 For non-technical friends, the experience is:
+
 1. Install Tailscale from their app store
 2. Run one command (or click a link you send them)
 3. Log in with credentials you gave them
@@ -444,7 +451,10 @@ nodes can talk to which destinations.
 {
   "groups": {
     "group:admins": ["admin-user@auth.mutantmell.net"],
-    "group:gamers": ["friend1@auth.mutantmell.net", "friend2@auth.mutantmell.net"]
+    "group:gamers": [
+      "friend1@auth.mutantmell.net",
+      "friend2@auth.mutantmell.net"
+    ]
   },
 
   "tagOwners": {
@@ -505,6 +515,7 @@ nodes can talk to which destinations.
 ### Adding a new game server
 
 When a new game server is deployed on vDMZ:
+
 1. Deploy the game server microvm/container with a vDMZ IP
 2. Add the IP:port to the ACL's `group:gamers` destination list
 3. Headscale picks up the policy change — friends can now connect
@@ -527,6 +538,7 @@ No subnet router reconfiguration needed (it already advertises `10.0.100.0/24`).
 
 Headscale's MagicDNS gives each tailnet node a hostname under a configurable base domain.
 With `base_domain = "tail.internal"`:
+
 - The subnet router: `<TBD-calvard-name>.tail.internal`
 - A friend's laptop: `friendname-laptop.tail.internal`
 
@@ -577,13 +589,13 @@ equivalent to being on vHOME — all internal services, NFS shares, admin UIs, e
 
 Headscale does **not** replace wg-vpn. The trust models are different:
 
-| Aspect | wg-vpn | Headscale (friends) |
-|--------|--------|-------------------|
-| Trust level | Trusted (full homelab access) | Untrusted (game server ports only) |
-| Users | You only | Friends |
-| Network zone | Trusted (like vHOME) | Restricted via ACLs to vDMZ game ports |
-| Authentication | Static WireGuard keys | OIDC (Keycloak) |
-| Revocation | Remove peer from config, rebuild | Disable Keycloak account (instant) |
+| Aspect         | wg-vpn                           | Headscale (friends)                    |
+| -------------- | -------------------------------- | -------------------------------------- |
+| Trust level    | Trusted (full homelab access)    | Untrusted (game server ports only)     |
+| Users          | You only                         | Friends                                |
+| Network zone   | Trusted (like vHOME)             | Restricted via ACLs to vDMZ game ports |
+| Authentication | Static WireGuard keys            | OIDC (Keycloak)                        |
+| Revocation     | Remove peer from config, rebuild | Disable Keycloak account (instant)     |
 
 Migrating personal devices to headscale was considered and rejected: it would require
 replacing the native WireGuard app with the Tailscale app on every personal device. The
@@ -739,6 +751,7 @@ Headscale includes a built-in DERP server that runs in the same process. This is
 simplest self-hosted option — no separate service to deploy.
 
 The embedded DERP server provides:
+
 - **DERP relay** (TCP/HTTPS) — relays encrypted WireGuard packets when direct connections
   fail
 - **STUN** (UDP 3478) — helps clients discover their public IP and perform NAT traversal
@@ -747,6 +760,7 @@ The embedded DERP server provides:
 ### Network requirements
 
 For DERP and STUN to work, the headscale server must be reachable from the internet on:
+
 - **TCP 443** — DERP relay traffic (piggybacks on the HTTPS port)
 - **UDP 3478** — STUN for NAT traversal
 
@@ -801,14 +815,14 @@ configurations). There is no Tailscale Inc. dependency.
 
 ### Tradeoffs vs Tailscale's public DERP
 
-| Aspect | Self-hosted (embedded) | Tailscale public DERP |
-|--------|----------------------|----------------------|
-| Dependency on Tailscale Inc. | None | Full |
-| Maintenance | Runs with headscale (minimal) | Zero |
-| Geographic distribution | Single location (your ISP) | Global |
-| Relay latency | Depends on friend-to-homelab distance | Low (nearest POP) |
-| Metadata visibility | You control the server | Tailscale sees connection metadata |
-| Availability | Single point of failure | Redundant global fleet |
+| Aspect                       | Self-hosted (embedded)                | Tailscale public DERP              |
+| ---------------------------- | ------------------------------------- | ---------------------------------- |
+| Dependency on Tailscale Inc. | None                                  | Full                               |
+| Maintenance                  | Runs with headscale (minimal)         | Zero                               |
+| Geographic distribution      | Single location (your ISP)            | Global                             |
+| Relay latency                | Depends on friend-to-homelab distance | Low (nearest POP)                  |
+| Metadata visibility          | You control the server                | Tailscale sees connection metadata |
+| Availability                 | Single point of failure               | Redundant global fleet             |
 
 For a homelab serving friends in roughly the same geographic area, single-location DERP
 is fine. DERP is only a relay fallback — most connections will be direct via STUN NAT
@@ -838,21 +852,21 @@ policies:
 
 **headscale:**
 
-| Destination | Protocol | Port | Purpose |
-|-------------|----------|------|---------|
-| Keycloak microvm (vINFRA) | TCP | 443 | OIDC authentication |
-| phantasma (vINFRA) | UDP/TCP | 53 | DNS resolution |
+| Destination               | Protocol | Port | Purpose             |
+| ------------------------- | -------- | ---- | ------------------- |
+| Keycloak microvm (vINFRA) | TCP      | 443  | OIDC authentication |
+| phantasma (vINFRA)        | UDP/TCP  | 53   | DNS resolution      |
 
 Headscale has minimal egress needs — DERP/STUN are inbound, control plane API is
 also inbound. No internet access needed.
 
 **Subnet router (TBD Calvard name):**
 
-| Destination | Protocol | Port | Purpose |
-|-------------|----------|------|---------|
-| headscale (vDMZ) | TCP | control port | Tailscale control plane |
-| Game servers (vDMZ) | TCP/UDP | game ports | Subnet routing target |
-| phantasma (vINFRA) | UDP/TCP | 53 | DNS resolution |
+| Destination         | Protocol | Port         | Purpose                 |
+| ------------------- | -------- | ------------ | ----------------------- |
+| headscale (vDMZ)    | TCP      | control port | Tailscale control plane |
+| Game servers (vDMZ) | TCP/UDP  | game ports   | Subnet routing target   |
+| phantasma (vINFRA)  | UDP/TCP  | 53           | DNS resolution          |
 
 The subnet router only needs to reach services it routes to. No internet access — all
 Tailscale traffic arrives through the WireGuard mesh.
@@ -861,13 +875,13 @@ Tailscale traffic arrives through the WireGuard mesh.
 
 Headscale becomes another OIDC client. The changes to the Keycloak plan are additive:
 
-| Addition | Location |
-|----------|----------|
-| `headscale` client in Keycloak | Phase 2 (realm restructuring) |
-| `gamers` group in Keycloak | Phase 2 (realm restructuring) |
-| `vpn.mutantmell.net` split-horizon DNS | Phase 3 (DNS strategy) |
-| langport vhost for `vpn.mutantmell.net` | Phase 3 (external access) |
-| Client secret in headscale microvm sops | Phase 1 |
+| Addition                                | Location                      |
+| --------------------------------------- | ----------------------------- |
+| `headscale` client in Keycloak          | Phase 2 (realm restructuring) |
+| `gamers` group in Keycloak              | Phase 2 (realm restructuring) |
+| `vpn.mutantmell.net` split-horizon DNS  | Phase 3 (DNS strategy)        |
+| langport vhost for `vpn.mutantmell.net` | Phase 3 (external access)     |
+| Client secret in headscale microvm sops | Phase 1                       |
 
 ### SSH certificates plan — no direct interaction
 
@@ -886,13 +900,13 @@ separate file (not compiled into NixOS config), this is a quick edit.
 
 ### Threat model
 
-| Threat | Mitigation |
-|--------|-----------|
-| Friend's device compromised | ACLs restrict to game server ports only; no lateral movement to other vDMZ services, vINFRA, or vHOME |
-| Friend's Keycloak credentials stolen | Disable account in Keycloak → headscale rejects re-auth; existing sessions expire per `UseExpiryFromToken` |
+| Threat                               | Mitigation                                                                                                                              |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Friend's device compromised          | ACLs restrict to game server ports only; no lateral movement to other vDMZ services, vINFRA, or vHOME                                   |
+| Friend's Keycloak credentials stolen | Disable account in Keycloak → headscale rejects re-auth; existing sessions expire per `UseExpiryFromToken`                              |
 | Headscale control server compromised | Attacker can manipulate overlay network; contained to vDMZ microvm with egress filtering; cannot reach vINFRA/vHOME except Keycloak:443 |
-| Subnet router compromised | Attacker gains vDMZ network position; same as compromising any vDMZ service; no access to vINFRA/vHOME |
-| DERP relay operator (Tailscale Inc.) | Traffic is WireGuard-encrypted end-to-end; relay sees encrypted packets only; metadata (source/dest IPs, timing) visible |
+| Subnet router compromised            | Attacker gains vDMZ network position; same as compromising any vDMZ service; no access to vINFRA/vHOME                                  |
+| DERP relay operator (Tailscale Inc.) | Traffic is WireGuard-encrypted end-to-end; relay sees encrypted packets only; metadata (source/dest IPs, timing) visible                |
 
 ### Defense in depth layers
 
@@ -908,6 +922,7 @@ separate file (not compiled into NixOS config), this is a quick edit.
 ### Revocation
 
 Revoking a friend's access:
+
 1. Disable their Keycloak account (immediate: new auth fails)
 2. Delete their node in headscale (`headscale nodes delete`)
 3. Remove from ACL groups (optional if account is disabled)
@@ -926,14 +941,12 @@ What you'd send a friend:
 >    - **Windows/Mac:** Download from https://tailscale.com/download
 >    - **Linux:** `curl -fsSL https://tailscale.com/install.sh | sh`
 >    - **iOS/Android:** Search "Tailscale" in your app store
->
 > 2. Connect to my game server:
 >    - Open a terminal/command prompt and run:
 >      ```
 >      tailscale login --login-server https://vpn.mutantmell.net
 >      ```
 >    - A browser window will open — log in with the username and password I gave you
->
 > 3. Connect to the game:
 >    - Server address: `10.0.100.70`
 >    - Port: `25565` (or whatever the game uses)
@@ -1013,21 +1026,22 @@ ready.
 
 ## Complete File Change List
 
-| File | Phase | Changes |
-|------|-------|---------|
-| New: headscale microvm config (calvard, vDMZ) | 1 | New microvm: headscale, nginx, sops secrets, egress filtering |
-| New: subnet router microvm config (calvard, vDMZ) — TBD name | 2 | New microvm: tailscale daemon, subnet router |
-| New: `/etc/headscale/acl.json` (on headscale microvm) | 4 | ACL policy file |
-| `hosts/thebeyond/default.nix` | 1 | Firewall rule: headscale → Keycloak (vDMZ → vINFRA) |
-| `hosts/calvard/guests/langport/proxy.nix` | 1 | Add `vpn.mutantmell.net` vhost |
-| `hosts/thebeyond/guests/phantasma/modules/dns.nix` | 1 | DNS records for headscale + subnet router |
-| `hosts/calvard/default.nix` | 2 | Bridge config for subnet router tap interface (vDMZ bridge already required for other calvard guests) |
-| Keycloak config (admin console or keycloak-config-cli) | 3 | `headscale` client, `gamers` group |
-| `flake.nix` | 1-2 | Add headscale + subnet router to nixosConfigurations |
+| File                                                         | Phase | Changes                                                                                               |
+| ------------------------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------- |
+| New: headscale microvm config (calvard, vDMZ)                | 1     | New microvm: headscale, nginx, sops secrets, egress filtering                                         |
+| New: subnet router microvm config (calvard, vDMZ) — TBD name | 2     | New microvm: tailscale daemon, subnet router                                                          |
+| New: `/etc/headscale/acl.json` (on headscale microvm)        | 4     | ACL policy file                                                                                       |
+| `hosts/thebeyond/default.nix`                                | 1     | Firewall rule: headscale → Keycloak (vDMZ → vINFRA)                                                   |
+| `hosts/calvard/guests/langport/proxy.nix`                    | 1     | Add `vpn.mutantmell.net` vhost                                                                        |
+| `hosts/thebeyond/guests/phantasma/modules/dns.nix`           | 1     | DNS records for headscale + subnet router                                                             |
+| `hosts/calvard/default.nix`                                  | 2     | Bridge config for subnet router tap interface (vDMZ bridge already required for other calvard guests) |
+| Keycloak config (admin console or keycloak-config-cli)       | 3     | `headscale` client, `gamers` group                                                                    |
+| `flake.nix`                                                  | 1-2   | Add headscale + subnet router to nixosConfigurations                                                  |
 
 ### Relationship to other plan file changes
 
 The [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) should be updated to include:
+
 - `headscale` in the client registration table
 - `gamers` in the groups table
 - `vpn.mutantmell.net` in the DNS naming scheme table

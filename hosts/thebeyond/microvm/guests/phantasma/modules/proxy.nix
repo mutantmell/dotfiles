@@ -1,5 +1,8 @@
-{ config, pkgs, ... }:
-
+{
+  config,
+  pkgs,
+  ...
+}:
 # OAuth-protected reverse proxy for Adguard Home web UI
 # Uses a local oauth2-proxy instance that authenticates directly against Keycloak (on roer)
 #
@@ -9,11 +12,10 @@
 # 3. If not authenticated, oauth2-proxy redirects to Keycloak (on roer)
 # 4. After successful OAuth, user is redirected back
 # 5. Nginx proxies authenticated requests to local Adguard Home
-
 {
   networking.firewall.allowedTCPPorts = [
-    80    # HTTP (redirects to HTTPS)
-    443   # HTTPS
+    80 # HTTP (redirects to HTTPS)
+    443 # HTTPS
   ];
 
   services.nginx = {

@@ -14,12 +14,12 @@ nftables output) and is tracked separately because of its distinct risk profile.
 
 ### Threat Model
 
-| Device Class | Compromise Risk | Compromise Impact | Lockdown Level |
-|---|---|---|---|
-| APs / Switch | Higher (exposed to wireless attacks, firmware vulnerabilities) | L2 eavesdropping, MitM on bridged traffic | Maximum: no internet, no lateral movement |
-| NAS | Medium (network-exposed services: NFS, SMB) | Data exfiltration, ransomware on shared storage | High: restrict NFS to specific IPs, host firewall |
-| VM Hosts | Lower (no exposed services beyond SSH) | Guest VM compromise, pivot to NAS via NFS | High: host firewall, restricted SSH |
-| DNS (phantasma) | Lower (MicroVM on router, minimal attack surface) | DNS poisoning, traffic redirection | High: moves to vINFRA, no direct external exposure |
+| Device Class    | Compromise Risk                                                | Compromise Impact                               | Lockdown Level                                     |
+| --------------- | -------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------- |
+| APs / Switch    | Higher (exposed to wireless attacks, firmware vulnerabilities) | L2 eavesdropping, MitM on bridged traffic       | Maximum: no internet, no lateral movement          |
+| NAS             | Medium (network-exposed services: NFS, SMB)                    | Data exfiltration, ransomware on shared storage | High: restrict NFS to specific IPs, host firewall  |
+| VM Hosts        | Lower (no exposed services beyond SSH)                         | Guest VM compromise, pivot to NAS via NFS       | High: host firewall, restricted SSH                |
+| DNS (phantasma) | Lower (MicroVM on router, minimal attack surface)              | DNS poisoning, traffic redirection              | High: moves to vINFRA, no direct external exposure |
 
 ### Architecture: Before and After
 
@@ -85,6 +85,7 @@ router6.zones.network = {
 ```
 
 This automatically generates:
+
 - Input: `iifname { "vMGMT.br0" } icmp type { echo-request, echo-reply } accept` (from icmpEcho)
 - Input: `iifname { "vMGMT.br0" } icmpv6 type { echo-request, echo-reply } accept` (from icmpEcho)
 - Input: `iifname { "vMGMT.br0" } udp dport 123 accept` (from inputRules)
@@ -169,6 +170,7 @@ Update the comment from "Management network - trusted devices and infrastructure
 **File:** `hosts/thebeyond/default.nix` — systemd.network for MicroVM tap
 
 Rename phantasma's tap to `vm-11-phantasma` and add a new bridge rule:
+
 ```nix
 systemd.network.networks."10-vm-infra" = {
   matchConfig.Name = "vm-11-*";
@@ -182,6 +184,7 @@ systemd.network.networks."10-vm-infra" = {
 ```
 
 And in phantasma's microvm.nix:
+
 ```nix
 microvm.interfaces = [{
   type = "tap";
@@ -209,6 +212,7 @@ dns = {
 **File:** `hosts/thebeyond/default.nix` — `firewall.extraNatRules`
 
 Update phantasma's IP in DNS interception exclusions (IPv4):
+
 ```nix
 # IPv4 DNS interception (in table ip nat)
 {
@@ -229,6 +233,7 @@ Update phantasma's IP in DNS interception exclusions (IPv4):
 
 **IPv6 DNS interception** — add parallel rules to the `table ip6 nat` prerouting chain
 (currently empty). These catch IPv6 DNS bypass attempts:
+
 ```nix
 # IPv6 DNS interception (in table ip6 nat — currently empty, needs populating)
 {
@@ -276,6 +281,7 @@ networking.extraHosts = ''
 ### 1.9 Add tests for `network` zone
 
 Add test cases to `router6-firewall-zones.nix`:
+
 - **network → router: NTP only** — can reach UDP 123, cannot reach DNS (53), cannot reach SSH (22), cannot reach DHCP (67)
 - **network → any: no forwarding** — cannot reach any other zone
 - **network → internet: blocked** — no NAT/forwarding to external
@@ -289,6 +295,7 @@ Add test cases to `router6-firewall-zones.nix`:
 **File:** `hosts/thebeyond/guests/phantasma/microvm.nix`
 
 Change tap interface name and MAC:
+
 ```nix
 microvm.interfaces = [{
   type = "tap";
@@ -300,6 +307,7 @@ microvm.interfaces = [{
 **File:** `hosts/thebeyond/guests/phantasma/default.nix`
 
 Update network configuration — assign static IPv6 alongside IPv4:
+
 ```nix
 systemd.network.networks."20-tap" = {
   matchConfig.Type = "ether";
@@ -316,6 +324,7 @@ systemd.network.networks."20-tap" = {
 ```
 
 Update `/etc/hosts`:
+
 ```nix
 networking.extraHosts = ''
   10.0.11.1 thebeyond.local
@@ -328,6 +337,7 @@ networking.extraHosts = ''
 **File:** `hosts/thebeyond/guests/phantasma/modules/dns.nix` — **critical, DNS breaks if missed**
 
 Update Adguard Home `allowed_clients` (add IPv6 addresses):
+
 ```nix
 allowed_clients = [
   "127.0.0.1"
@@ -343,6 +353,7 @@ allowed_clients = [
 
 Update Unbound `local-data` records — add AAAA records for IPv6-first resolution,
 update all infra hosts to 10.0.11.x:
+
 ```nix
 local-data = [
   # Router
@@ -395,6 +406,7 @@ get static assignments.
 **File:** `hosts/calvard/default.nix` — initrd network (for ZFS remote unlock)
 
 Change VLAN 10 to VLAN 11, add static IPv6:
+
 ```nix
 boot.initrd.systemd.network = {
   netdevs."20-enp88s0.11" = {
@@ -469,6 +481,7 @@ services.nfs.server = {
 **File:** `hosts/erebonia/default.nix`
 
 Use IPv6 addresses for NFS mounts (IPv6-first), with IPv4 as fallback:
+
 ```nix
 fileSystems."/mnt/data".device = "[fdc6:55f2:0a5e:b::14]:/data/data";
 fileSystems."/mnt/media".device = "[fdc6:55f2:0a5e:b::14]:/data/media/";
@@ -513,6 +526,7 @@ networking.firewall = {
 ### 4.2 calvard / erebonia (VM hosts)
 
 SSH only from router and admin workstation (dual-stack):
+
 ```nix
 networking.firewall = {
   enable = true;
@@ -530,7 +544,7 @@ The above rules use `10.0.20.0/24` as a placeholder. Tighten to a specific IP on
 
 ### 4.4 Egress filtering for vDMZ hosts
 
-Sections 4.1-4.2 use `extraInputRules` to restrict *inbound* connections. NixOS's
+Sections 4.1-4.2 use `extraInputRules` to restrict _inbound_ connections. NixOS's
 `networking.firewall` module doesn't manage output chains — egress is unfiltered by
 default. On vDMZ, where hosts face untrusted traffic and a compromise should be
 contained, egress filtering is critical. Without it, a compromised vDMZ host can pivot
@@ -582,6 +596,7 @@ APs stay on VLAN 10. The trust level change happens on the router side.
 **File:** `lib/openwrt/default.nix`
 
 APs need to use the router for NTP since they won't have internet:
+
 ```nix
 ntp = {
   _type = "timeserver";
@@ -592,6 +607,7 @@ ntp = {
 ```
 
 Add chrony/NTP server to thebeyond:
+
 ```nix
 services.chrony = {
   enable = true;
@@ -605,6 +621,7 @@ services.chrony = {
 ### 5.3 Host-level input protection
 
 Add nftables rules to AP images restricting SSH to router only (dual-stack):
+
 ```sh
 nft add table inet filter
 nft add chain inet filter input '{ type filter hook input priority 0; policy drop; }'
@@ -673,7 +690,7 @@ two facts: **which zone it's in** and **its host ID within that zone**.
 
 **File:** `lib/common/data/network.nix` (replaces `network.json`)
 
-Move from a JSON lookup table to a Nix file that stores the *generative data* and
+Move from a JSON lookup table to a Nix file that stores the _generative data_ and
 derives all addresses:
 
 ```nix
@@ -741,6 +758,7 @@ in {
 ```
 
 This gives every consumer exactly what it needs:
+
 - **Programmatic lookup:** `network.hosts.phantasma.ipv4` → `"10.97.11.2"`
 - **Router zone data:** `network.hosts.phantasma.zoneName` → `"management"`,
   `.hostId` → `2` — the router can use these to construct topology
@@ -778,11 +796,13 @@ in lib.concatStringsSep "\n\n" (
 ```
 
 This can be evaluated directly:
+
 ```bash
 nix eval .#lib.common.data.network.summary --raw
 ```
 
 Single-host lookups also work:
+
 ```bash
 nix eval .#lib.common.data.network.hosts.phantasma.ipv4 --raw
 # 10.97.11.2
@@ -831,6 +851,7 @@ in (import ./apps/openwrt { inherit pkgs; })
 ```
 
 Usage:
+
 ```bash
 # Full table
 nix run .#netinfo
@@ -889,6 +910,7 @@ git diff --exit-code docs/network-hosts.md || \
 ### 7.3 Consuming the registry programmatically
 
 **In host configs** (e.g. `hosts/remiferia/default.nix`):
+
 ```nix
 let
   net = pkgs.mmell.lib.data.network;
@@ -903,6 +925,7 @@ in {
 ```
 
 **In NFS exports** (`hosts/remiferia/nas.nix`):
+
 ```nix
 let
   net = pkgs.mmell.lib.data.network;
@@ -917,6 +940,7 @@ in {
 ```
 
 **In DNS records** (`phantasma/modules/dns.nix`):
+
 ```nix
 let
   net = pkgs.mmell.lib.data.network;
@@ -929,6 +953,7 @@ in {
 ```
 
 **In firewall rules** (`extraInputRules`):
+
 ```nix
 let
   net = pkgs.mmell.lib.data.network;
@@ -944,7 +969,7 @@ in ''
 ### 7.4 Relationship to router6 zones
 
 The registry's `zones` attrset defines the network topology (zone names → VLAN IDs).
-The router6 module's `zones` option defines the *firewall policy* (zone names → access
+The router6 module's `zones` option defines the _firewall policy_ (zone names → access
 rules, icmpEcho, forwardRules). They share zone names deliberately — the router6 module
 could optionally consume `network.zones` to auto-populate its zone list, but this
 coupling is optional. At minimum, an assertion can verify they stay in sync:
@@ -968,6 +993,7 @@ registry. This can be done file-by-file alongside the other changes in this plan
 ### 7.6 Search for remaining `10.0.10.` references
 
 Grep the codebase for `10.0.10.` to find remaining references:
+
 - MicroVM guest configs referencing remiferia's NAS IP
 - DNS configuration in phantasma's modules
 - Prometheus/monitoring targets
@@ -988,12 +1014,12 @@ All vINFRA hosts get **static ULA addresses** (not SLAAC) so they can be referen
 firewall rules, NFS exports, DNS records, and service configs. The addressing scheme mirrors
 the IPv4 last octet in hex:
 
-| Host | IPv4 | IPv6 |
-|------|------|------|
-| thebeyond | 10.0.11.1 | `fdc6:55f2:0a5e:b::1` |
-| phantasma | 10.0.11.2 | `fdc6:55f2:0a5e:b::2` |
-| calvard | 10.0.11.30 | `fdc6:55f2:0a5e:b::1e` |
-| erebonia | 10.0.11.31 | `fdc6:55f2:0a5e:b::1f` |
+| Host      | IPv4       | IPv6                   |
+| --------- | ---------- | ---------------------- |
+| thebeyond | 10.0.11.1  | `fdc6:55f2:0a5e:b::1`  |
+| phantasma | 10.0.11.2  | `fdc6:55f2:0a5e:b::2`  |
+| calvard   | 10.0.11.30 | `fdc6:55f2:0a5e:b::1e` |
+| erebonia  | 10.0.11.31 | `fdc6:55f2:0a5e:b::1f` |
 | remiferia | 10.0.11.20 | `fdc6:55f2:0a5e:b::14` |
 
 Previously these hosts used SLAAC with privacy extensions (`IPv6PrivacyExtensions = "kernel"`),
@@ -1003,6 +1029,7 @@ predictable addresses suitable for ACLs, DNS AAAA records, and NFS exports.
 ### Dual-stack coverage
 
 IPv6 addresses are included in:
+
 - **DNS** (AAAA records in Unbound for all infra hosts)
 - **DNS interception** (IPv6 DNAT rules in `table ip6 nat`)
 - **NFS exports** (IPv6 per-host ACLs alongside IPv4)
@@ -1029,22 +1056,22 @@ continue to use SLAAC as before.
 
 ## Complete File Change List
 
-| File | Phase | Changes |
-|------|-------|---------|
-| `hosts/thebeyond/default.nix` | 1 | Add vINFRA VLAN, define `network` zone, override `management` zone with `forwardRules`, change vMGMT zone to "network", update DNS config, update DNS interception, update extraHosts, update MicroVM bridge rules, add NTP server |
-| `tests/modules/router6-firewall-zones.nix` | 1 | New `network` zone test cases |
-| `hosts/thebeyond/guests/phantasma/microvm.nix` | 2 | Change tap interface name and MAC |
-| `hosts/thebeyond/guests/phantasma/default.nix` | 2 | Update IP, gateway, MAC, extraHosts |
-| `hosts/thebeyond/guests/phantasma/modules/dns.nix` | 2 | Update allowed_clients IPs, Unbound local-data records (7 IPs) |
-| `hosts/calvard/default.nix` | 2 | Change VLAN 10→11 in initrd network, update IP/gateway/DNS |
-| `hosts/calvard/microvm.nix` | 2 | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall |
-| `hosts/erebonia/default.nix` | 2, 3 | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall |
-| `hosts/remiferia/default.nix` | 2 | Change VLAN 10→11, renumber `.32`→`.20` (boot-order), update IP/gateway/DNS, add host firewall |
-| `hosts/remiferia/nas.nix` | 3 | Tighten NFS exports to per-IP, update subnet references |
-| `lib/common/data/network.nix` | 7 | Replace `network.json` with Nix registry (zone+hostId → derived addresses) |
-| `lib/common/data/default.nix` | 7 | Load `network.nix` instead of `network.json` |
-| `modules/common/networking.nix` | 7 | Consume new registry format (interface unchanged) |
-| `lib/openwrt/default.nix` | 5 | Keep nftables package, change NTP servers to router IP, add host firewall script |
+| File                                               | Phase | Changes                                                                                                                                                                                                                            |
+| -------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hosts/thebeyond/default.nix`                      | 1     | Add vINFRA VLAN, define `network` zone, override `management` zone with `forwardRules`, change vMGMT zone to "network", update DNS config, update DNS interception, update extraHosts, update MicroVM bridge rules, add NTP server |
+| `tests/modules/router6-firewall-zones.nix`         | 1     | New `network` zone test cases                                                                                                                                                                                                      |
+| `hosts/thebeyond/guests/phantasma/microvm.nix`     | 2     | Change tap interface name and MAC                                                                                                                                                                                                  |
+| `hosts/thebeyond/guests/phantasma/default.nix`     | 2     | Update IP, gateway, MAC, extraHosts                                                                                                                                                                                                |
+| `hosts/thebeyond/guests/phantasma/modules/dns.nix` | 2     | Update allowed_clients IPs, Unbound local-data records (7 IPs)                                                                                                                                                                     |
+| `hosts/calvard/default.nix`                        | 2     | Change VLAN 10→11 in initrd network, update IP/gateway/DNS                                                                                                                                                                         |
+| `hosts/calvard/microvm.nix`                        | 2     | Change VLAN 10→11 in runtime network, update IP/gateway, add host firewall                                                                                                                                                         |
+| `hosts/erebonia/default.nix`                       | 2, 3  | Change VLAN 10→11, update IP/gateway/DNS, update NFS mount targets, add host firewall                                                                                                                                              |
+| `hosts/remiferia/default.nix`                      | 2     | Change VLAN 10→11, renumber `.32`→`.20` (boot-order), update IP/gateway/DNS, add host firewall                                                                                                                                     |
+| `hosts/remiferia/nas.nix`                          | 3     | Tighten NFS exports to per-IP, update subnet references                                                                                                                                                                            |
+| `lib/common/data/network.nix`                      | 7     | Replace `network.json` with Nix registry (zone+hostId → derived addresses)                                                                                                                                                         |
+| `lib/common/data/default.nix`                      | 7     | Load `network.nix` instead of `network.json`                                                                                                                                                                                       |
+| `modules/common/networking.nix`                    | 7     | Consume new registry format (interface unchanged)                                                                                                                                                                                  |
+| `lib/openwrt/default.nix`                          | 5     | Keep nftables package, change NTP servers to router IP, add host firewall script                                                                                                                                                   |
 
 ---
 
@@ -1058,6 +1085,7 @@ services via WireGuard from networks that also use `10.0.x.x`. The target range
 `10.97.0.0/16` is far less common and avoids these collisions.
 
 The migration has already partially started:
+
 - phantasma already has `10.97.10.2/24` as a secondary address
 - Adguard's `allowed_clients` includes `10.97.10.1` and `10.97.10.2`
 - gridr's auth config already includes `10.97.0.0/16` in its allowed IP list
@@ -1067,16 +1095,16 @@ The migration has already partially started:
 The mapping is `10.0.X.Y` → `10.97.X.Y` — identical third and fourth octets. This applies
 to all VLANs on the router and all host addresses:
 
-| VLAN | Current | Migration |
-|------|---------|-----------|
-| vMGMT | 10.0.10.0/24 | 10.97.10.0/24 |
-| vINFRA (new) | 10.0.11.0/24 | 10.97.11.0/24 |
-| vHOME | 10.0.20.0/24 | 10.97.20.0/24 |
-| vGUEST | 10.0.30.0/24 | 10.97.30.0/24 |
-| vADU | 10.0.31.0/24 | 10.97.31.0/24 |
-| vIOT | 10.0.40.0/24 | 10.97.40.0/24 |
-| vGAME | 10.0.41.0/24 | 10.97.41.0/24 |
-| vDMZ | 10.0.100.0/24 | 10.97.100.0/24 |
+| VLAN         | Current       | Migration      |
+| ------------ | ------------- | -------------- |
+| vMGMT        | 10.0.10.0/24  | 10.97.10.0/24  |
+| vINFRA (new) | 10.0.11.0/24  | 10.97.11.0/24  |
+| vHOME        | 10.0.20.0/24  | 10.97.20.0/24  |
+| vGUEST       | 10.0.30.0/24  | 10.97.30.0/24  |
+| vADU         | 10.0.31.0/24  | 10.97.31.0/24  |
+| vIOT         | 10.0.40.0/24  | 10.97.40.0/24  |
+| vGAME        | 10.0.41.0/24  | 10.97.41.0/24  |
+| vDMZ         | 10.0.100.0/24 | 10.97.100.0/24 |
 
 WireGuard tunnels (`10.100.x.x`) are a separate /16 and don't conflict with typical
 home networks. They can be migrated later if needed.
@@ -1086,6 +1114,7 @@ home networks. They can be migrated later if needed.
 **File:** `hosts/thebeyond/default.nix` — every VLAN in topology gets a secondary address
 
 For each VLAN, add the `10.97.x.x` address alongside the `10.0.x.x` address:
+
 ```nix
 # Example: vINFRA
 "vINFRA.br0" = {
@@ -1110,6 +1139,7 @@ via a second Kea subnet or by migrating the pool range.
 ### 8.2 Dual addresses on infra hosts
 
 Each infra host's systemd-networkd config gets a secondary address. Example for calvard:
+
 ```nix
 networkConfig.Address = [
   "10.0.11.30/24" "10.97.11.30/24"
@@ -1119,11 +1149,11 @@ networkConfig.Address = [
 
 All infra hosts:
 
-| Host | Primary | Secondary | IPv6 |
-|------|---------|-----------|------|
-| phantasma | 10.0.11.2/24 | 10.97.11.2/24 | fdc6:55f2:0a5e:b::2/64 |
-| calvard | 10.0.11.30/24 | 10.97.11.30/24 | fdc6:55f2:0a5e:b::1e/64 |
-| erebonia | 10.0.11.31/24 | 10.97.11.31/24 | fdc6:55f2:0a5e:b::1f/64 |
+| Host      | Primary       | Secondary      | IPv6                    |
+| --------- | ------------- | -------------- | ----------------------- |
+| phantasma | 10.0.11.2/24  | 10.97.11.2/24  | fdc6:55f2:0a5e:b::2/64  |
+| calvard   | 10.0.11.30/24 | 10.97.11.30/24 | fdc6:55f2:0a5e:b::1e/64 |
+| erebonia  | 10.0.11.31/24 | 10.97.11.31/24 | fdc6:55f2:0a5e:b::1f/64 |
 | remiferia | 10.0.11.20/24 | 10.97.11.20/24 | fdc6:55f2:0a5e:b::14/64 |
 
 Phantasma already has dual addresses (`10.0.10.2/24` + `10.97.10.2/24`), so just update
@@ -1133,15 +1163,15 @@ the octets for the VLAN 11 move.
 
 Guest VMs on other VLANs also need dual addresses if they have static IPs:
 
-| Guest | VLAN | Primary | Secondary |
-|-------|------|---------|-----------|
-| gridr | vHOME (20) | 10.0.20.30/24 | 10.97.20.30/24 |
-| denai | vHOME (20) | 10.0.20.40/24 | 10.97.20.40/24 |
-| ymir | vHOME (20) | 10.0.20.41/24 | 10.97.20.41/24 |
-| ordis | vDMZ (100) | 10.0.100.40/24 | 10.97.100.40/24 |
+| Guest     | VLAN       | Primary        | Secondary       |
+| --------- | ---------- | -------------- | --------------- |
+| gridr     | vHOME (20) | 10.0.20.30/24  | 10.97.20.30/24  |
+| denai     | vHOME (20) | 10.0.20.40/24  | 10.97.20.40/24  |
+| ymir      | vHOME (20) | 10.0.20.41/24  | 10.97.20.41/24  |
+| ordis     | vDMZ (100) | 10.0.100.40/24 | 10.97.100.40/24 |
 | heimdallr | vDMZ (100) | 10.0.100.50/24 | 10.97.100.50/24 |
-| trista | vDMZ (100) | 10.0.100.51/24 | 10.97.100.51/24 |
-| ardent | vDMZ (100) | 10.0.100.31/24 | 10.97.100.31/24 |
+| trista    | vDMZ (100) | 10.0.100.51/24 | 10.97.100.51/24 |
+| ardent    | vDMZ (100) | 10.0.100.31/24 | 10.97.100.31/24 |
 
 ### 8.4 DNS dual records
 
@@ -1149,6 +1179,7 @@ Guest VMs on other VLANs also need dual addresses if they have static IPs:
 
 Add A records for both ranges in Unbound's `local-data`. Clients resolving `.local`
 names will get both IPs and prefer whichever route works:
+
 ```nix
 # Each host gets two A records
 ''"thebeyond.local. A 10.0.11.1"''
@@ -1158,6 +1189,7 @@ names will get both IPs and prefer whichever route works:
 ```
 
 Adguard `allowed_clients` needs both ranges for the router and self:
+
 ```nix
 allowed_clients = [
   "127.0.0.1" "::1"
@@ -1172,6 +1204,7 @@ allowed_clients = [
 **File:** `hosts/thebeyond/default.nix` — `firewall.extraNatRules`
 
 DNS interception exclusions need to cover both phantasma addresses:
+
 ```nix
 {
   ip.saddr = { not = [ "10.0.11.2" "10.97.11.2" ]; };
@@ -1187,6 +1220,7 @@ DNS interception exclusions need to cover both phantasma addresses:
 **File:** `hosts/remiferia/nas.nix`
 
 NFS exports need both subnets (NFS matches source IP, so both ranges must be listed):
+
 ```nix
 /data/media 10.0.11.30(...) 10.97.11.30(...) fdc6:55f2:0a5e:b::1e(...) 10.0.11.31(...) 10.97.11.31(...) fdc6:55f2:0a5e:b::1f(...) 10.0.20.0/24(...) 10.97.20.0/24(...)
 ```
@@ -1196,6 +1230,7 @@ NFS exports need both subnets (NFS matches source IP, so both ranges must be lis
 **Files:** Phase 4 host configs
 
 All `ip saddr` rules need both ranges:
+
 ```nix
 extraInputRules = ''
   # NFS from VM hosts (10.0.x + 10.97.x + IPv6)
@@ -1212,6 +1247,7 @@ extraInputRules = ''
 ### 8.8 extraHosts dual entries
 
 **File:** `hosts/thebeyond/default.nix`
+
 ```nix
 networking.extraHosts = ''
   10.0.11.1 thebeyond thebeyond.local
@@ -1238,6 +1274,7 @@ doesn't change (it specifies the peer's tunnel IP, not routed subnets).
 The Kea DHCP4 server needs dual pools — one for each range — on every VLAN with DHCP
 enabled. DHCP clients will get addresses from whichever pool responds first, but in
 practice we want clients on the new range. This can be done by:
+
 - Adding a second Kea subnet for each VLAN's `10.97.x.x` range
 - Setting a shorter lease time on the `10.0.x.x` pools to encourage migration
 - Or simply switching the DHCP pool to `10.97.x.x` only (clients on the old range
@@ -1262,6 +1299,7 @@ mkHost = zoneName: hostId: let zone = zones.${zoneName}; in {
 ```
 
 If still using `network.json` at this point, add both addresses manually:
+
 ```json
 {
   "hosts": {
@@ -1279,6 +1317,7 @@ Once all clients and services are confirmed working on `10.97.x.x`, remove the l
 `10.0.x.x` addresses. This is a mechanical cleanup:
 
 ### Router (thebeyond)
+
 - [ ] Remove `10.0.x.1/24` secondary addresses from all VLAN topology entries
 - [ ] Remove `10.0.x.x` entries from `networking.extraHosts`
 - [ ] Remove `10.0.x.x` exclusions from DNS interception rules (`extraNatRules`)
@@ -1287,6 +1326,7 @@ Once all clients and services are confirmed working on `10.97.x.x`, remove the l
 - [ ] Remove `10.0.x.x` from chrony `allow` directives
 
 ### DNS (phantasma)
+
 - [ ] Remove `10.0.x.x` A records from Unbound `local-data` (keep only `10.97.x.x` + AAAA)
 - [ ] Remove `10.0.x.x` entries from Adguard `allowed_clients`
 - [ ] Remove `10.0.x.x` from `networking.extraHosts`
@@ -1294,42 +1334,51 @@ Once all clients and services are confirmed working on `10.97.x.x`, remove the l
 - [ ] Remove legacy migration entries (`10.97.10.1`, `10.97.10.2`) once VLAN 10→11 move is done
 
 ### Infra hosts (calvard, erebonia, remiferia)
+
 - [ ] Remove `10.0.x.x/24` from each host's `Address` list
 - [ ] Update `Gateway` to `10.97.x.1` only
 - [ ] Update `DNS` to `10.97.x.1` only
 - [ ] Update NFS mount targets to `10.97.x.x` only (erebonia)
 
 ### NAS (remiferia)
+
 - [ ] Remove `10.0.x.x` entries from NFS exports (keep `10.97.x.x` + IPv6)
 - [ ] Remove `10.0.x.x` from host firewall `ip saddr` rules
 
 ### Guest VMs
+
 - [ ] Remove `10.0.x.x/24` from each guest's `Address` list
 - [ ] Update `Gateway` and `DNS` to `10.97.x.x`
 - [ ] Update `networking.extraHosts` entries
 
 ### Auth (gridr)
+
 - [ ] Remove `10.0.0.0/16` from Keycloak allowed IP list (keep `10.97.0.0/16`)
 - [ ] Remove `10.1.0.0/16` if mesh network also migrated
 
 ### OpenWRT APs
+
 - [ ] Update static IPs from `10.0.10.x` to `10.97.10.x`
 - [ ] Update NTP server to `10.97.10.1`
 - [ ] Update AP firewall SSH allow from `10.0.10.1` → `10.97.10.1`
 
 ### Network registry / network.json
+
 - [ ] Remove `legacyPrefix` and `ipv4Legacy`/`cidr4Legacy` from `network.nix`
-  (or remove `ipv4_legacy` field from `network.json` if still using JSON)
+      (or remove `ipv4_legacy` field from `network.json` if still using JSON)
 
 ### WireGuard
+
 - [ ] Remove `10.0.0.0/16` from client AllowedIPs (keep `10.97.0.0/16`)
 - [ ] Consider migrating tunnel addresses (`10.100.x.x`) if needed
 
 ### Tests
+
 - [ ] Update test IP addresses in `tests/modules/router6-*.nix` files
-  (these use `10.0.x.x` as test values — can be updated independently)
+      (these use `10.0.x.x` as test values — can be updated independently)
 
 ### Verification
+
 - [ ] Confirm all services respond on `10.97.x.x`
 - [ ] Confirm WireGuard VPN works from external networks without conflicts
 - [ ] Confirm DNS resolution returns only `10.97.x.x` A records
@@ -1341,8 +1390,8 @@ Once all clients and services are confirmed working on `10.97.x.x`, remove the l
 ## Future Improvements (Out of Scope)
 
 1. **Samba authentication hardening:** Uncomment `valid users` / `force user` on shares
-3. **wg-vpn trust level:** Consider a "vpn" zone with different forwarding rules
-4. **Monitoring/alerting:** Prometheus exporters on infra devices
-5. **DoT/DoH blocking:** Block port 853 outbound from untrusted/IoT
-6. **deploy-rs integration:** Full deploy-rs flake configuration with magic rollback
-7. **Nix store signing:** Build host signs closures, infra devices verify signatures
+2. **wg-vpn trust level:** Consider a "vpn" zone with different forwarding rules
+3. **Monitoring/alerting:** Prometheus exporters on infra devices
+4. **DoT/DoH blocking:** Block port 853 outbound from untrusted/IoT
+5. **deploy-rs integration:** Full deploy-rs flake configuration with magic rollback
+6. **Nix store signing:** Build host signs closures, infra devices verify signatures

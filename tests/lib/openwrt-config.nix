@@ -5,17 +5,16 @@
 #
 # Run: nix-instantiate --eval --strict tests/lib/openwrt-config.nix
 # Or:  nix build .#checks.x86_64-linux.openwrt-config
-
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
-}:
-
-let
-  openwrt = import ../../lib/openwrt { inherit lib; };
-  owrtData = import ../../lib/common/data/openwrt.nix { inherit lib; };
+{
+  pkgs ? import <nixpkgs> {},
+  lib ? pkgs.lib,
+}: let
+  openwrt = import ../../lib/openwrt {inherit lib;};
+  owrtData = import ../../lib/common/data/openwrt.nix {inherit lib;};
 
   assertEq = name: a: b:
-    if a == b then true
+    if a == b
+    then true
     else builtins.trace "FAIL: ${name}\n  expected: ${builtins.toJSON b}\n  got:      ${builtins.toJSON a}" false;
 
   contains = needle: haystack: builtins.match ".*${lib.escapeRegex needle}.*" haystack != null;
@@ -76,24 +75,41 @@ let
     extraPackages = [];
   };
 
-  meshWithExtra = meshDevice // {
-    hostname = "test-mesh-extra";
-    extraConfig = {
-      network.custom = {
-        _type = "interface";
-        proto = "static";
-        device = "bat0.1040";
+  meshWithExtra =
+    meshDevice
+    // {
+      hostname = "test-mesh-extra";
+      extraConfig = {
+        network.custom = {
+          _type = "interface";
+          proto = "static";
+          device = "bat0.1040";
+        };
       };
     };
-  };
 
   # --- Generate configs ---
 
-  meshConfig = openwrt.mkDeviceConfig { device = meshDevice; inherit owrtData; };
-  switchConfig = openwrt.mkDeviceConfig { device = switchDevice; inherit owrtData; };
-  simpleAPConfig = openwrt.mkDeviceConfig { device = simpleAPDevice; inherit owrtData; };
-  meshExtraConfig = openwrt.mkDeviceConfig { device = meshWithExtra; inherit owrtData; };
-  routerConfig = openwrt.mkDeviceConfig { device = routerDevice; inherit owrtData; };
+  meshConfig = openwrt.mkDeviceConfig {
+    device = meshDevice;
+    inherit owrtData;
+  };
+  switchConfig = openwrt.mkDeviceConfig {
+    device = switchDevice;
+    inherit owrtData;
+  };
+  simpleAPConfig = openwrt.mkDeviceConfig {
+    device = simpleAPDevice;
+    inherit owrtData;
+  };
+  meshExtraConfig = openwrt.mkDeviceConfig {
+    device = meshWithExtra;
+    inherit owrtData;
+  };
+  routerConfig = openwrt.mkDeviceConfig {
+    device = routerDevice;
+    inherit owrtData;
+  };
 
   # --- Render to UCI commands ---
 
@@ -104,32 +120,56 @@ let
 
   # --- Secrets maps ---
 
-  meshSecretsMap = openwrt.mkSecretsMap { device = meshDevice; inherit owrtData; };
-  switchSecretsMap = openwrt.mkSecretsMap { device = switchDevice; inherit owrtData; };
-  simpleAPSecretsMap = openwrt.mkSecretsMap { device = simpleAPDevice; inherit owrtData; };
-  routerSecretsMap = openwrt.mkSecretsMap { device = routerDevice; inherit owrtData; };
+  meshSecretsMap = openwrt.mkSecretsMap {
+    device = meshDevice;
+    inherit owrtData;
+  };
+  switchSecretsMap = openwrt.mkSecretsMap {
+    device = switchDevice;
+    inherit owrtData;
+  };
+  simpleAPSecretsMap = openwrt.mkSecretsMap {
+    device = simpleAPDevice;
+    inherit owrtData;
+  };
+  routerSecretsMap = openwrt.mkSecretsMap {
+    device = routerDevice;
+    inherit owrtData;
+  };
 
   # --- Config files (mkConfigFiles) ---
 
-  meshFiles = openwrt.mkConfigFiles { device = meshDevice; inherit owrtData; };
+  meshFiles = openwrt.mkConfigFiles {
+    device = meshDevice;
+    inherit owrtData;
+  };
   meshMeta = builtins.fromJSON (builtins.readFile meshFiles.configJson);
   meshUciContent = builtins.readFile meshFiles.uciFile;
 
-  switchFiles = openwrt.mkConfigFiles { device = switchDevice; inherit owrtData; };
+  switchFiles = openwrt.mkConfigFiles {
+    device = switchDevice;
+    inherit owrtData;
+  };
   switchMeta = builtins.fromJSON (builtins.readFile switchFiles.configJson);
   switchUciContent = builtins.readFile switchFiles.uciFile;
 
-  simpleAPFiles = openwrt.mkConfigFiles { device = simpleAPDevice; inherit owrtData; };
+  simpleAPFiles = openwrt.mkConfigFiles {
+    device = simpleAPDevice;
+    inherit owrtData;
+  };
   simpleAPMeta = builtins.fromJSON (builtins.readFile simpleAPFiles.configJson);
   simpleAPUciContent = builtins.readFile simpleAPFiles.uciFile;
 
-  routerFiles = openwrt.mkConfigFiles { device = routerDevice; inherit owrtData; };
+  routerFiles = openwrt.mkConfigFiles {
+    device = routerDevice;
+    inherit owrtData;
+  };
   routerMeta = builtins.fromJSON (builtins.readFile routerFiles.configJson);
   routerUciContent = builtins.readFile routerFiles.uciFile;
 
   # --- Test real device declarations load ---
 
-  realDevices = import ../../hosts/openwrt { inherit lib; };
+  realDevices = import ../../hosts/openwrt {inherit lib;};
 
   # --- Tests ---
 
@@ -154,18 +194,18 @@ let
 
     "meshAP lan addresses use HOME VLAN" =
       assertEq "meshAP lan addresses"
-        meshConfig.network.lan.ipaddr
-        (owrtData.mkAddresses owrtData.meshVlans.HOME.tag 99);
+      meshConfig.network.lan.ipaddr
+      (owrtData.mkAddresses owrtData.meshVlans.HOME.tag 99);
 
     "meshAP mgmt addresses use MGMT VLAN" =
       assertEq "meshAP mgmt addresses"
-        meshConfig.network.mgmt.ipaddr
-        (owrtData.mkAddresses owrtData.meshVlans.MGMT.tag 99);
+      meshConfig.network.mgmt.ipaddr
+      (owrtData.mkAddresses owrtData.meshVlans.MGMT.tag 99);
 
     "meshAP gateway uses HOME VLAN" =
       assertEq "meshAP gateway"
-        meshConfig.network.lan.gateway
-        (owrtData.mkGateway owrtData.meshVlans.HOME.tag);
+      meshConfig.network.lan.gateway
+      (owrtData.mkGateway owrtData.meshVlans.HOME.tag);
 
     "meshAP dropbear disables password auth" =
       meshConfig.dropbear.main.PasswordAuth == false;
@@ -186,13 +226,13 @@ let
 
     "switch lan addresses use correct VLAN" =
       assertEq "switch lan addresses"
-        switchConfig.network.lan.ipaddr
-        (owrtData.mkAddresses 10 50);
+      switchConfig.network.lan.ipaddr
+      (owrtData.mkAddresses 10 50);
 
     "switch gateway correct" =
       assertEq "switch gateway"
-        switchConfig.network.lan.gateway
-        (owrtData.mkGateway 10);
+      switchConfig.network.lan.gateway
+      (owrtData.mkGateway 10);
 
     # Simple AP config structure
     "simpleAP has system config" = simpleAPConfig ? system;
@@ -206,8 +246,8 @@ let
 
     "simpleAP lan addresses use correct VLAN" =
       assertEq "simpleAP lan addresses"
-        simpleAPConfig.network.lan.ipaddr
-        (owrtData.mkAddresses 31 30);
+      simpleAPConfig.network.lan.ipaddr
+      (owrtData.mkAddresses 31 30);
 
     # Router config structure
     "router has system config" = routerConfig ? system;
@@ -241,12 +281,12 @@ let
     "router home device correct" = routerConfig.network.home.device == "br-lan.20";
     "router home addresses" =
       assertEq "router home addresses"
-        routerConfig.network.home.ipaddr
-        (owrtData.mkPrimaryGatewayAddress 20);
+      routerConfig.network.home.ipaddr
+      (owrtData.mkPrimaryGatewayAddress 20);
     "router mgmt addresses" =
       assertEq "router mgmt addresses"
-        routerConfig.network.mgmt.ipaddr
-        (owrtData.mkPrimaryGatewayAddress 10);
+      routerConfig.network.mgmt.ipaddr
+      (owrtData.mkPrimaryGatewayAddress 10);
 
     # Router firewall
     "router firewall has defaults" = routerConfig.firewall ? defaults;
@@ -291,9 +331,15 @@ let
     "real arseille is switch" = realDevices.arseille.type == "switch";
     "real glorious is simpleAP" = realDevices.glorious.type == "simpleAP";
     "real bobcat config generates" =
-      (openwrt.mkDeviceConfig { device = realDevices.bobcat; inherit owrtData; }) ? network;
+      (openwrt.mkDeviceConfig {
+        device = realDevices.bobcat;
+        inherit owrtData;
+      }) ? network;
     "real derfflinger has IoT extraConfig" =
-      (openwrt.mkDeviceConfig { device = realDevices.derfflinger; inherit owrtData; }).network ? iot;
+      (openwrt.mkDeviceConfig {
+        device = realDevices.derfflinger;
+        inherit owrtData;
+      }).network ? iot;
 
     # Secret fields declared as _secret markers (not absent, not plaintext)
     "meshAP batmesh mesh_id is a secret marker" = meshConfig.wireless.batmesh.mesh_id ? _secret;
@@ -335,9 +381,13 @@ let
     "router secrets has wifi.main.key" = routerSecretsMap ? "wifi.main.key";
 
     # Real device with IoT extra — derfflinger secrets map has IoT
-    "derfflinger secrets has wifi.iot.ssid" =
-      let sm = openwrt.mkSecretsMap { device = realDevices.derfflinger; inherit owrtData; };
-      in sm ? "wifi.iot.ssid";
+    "derfflinger secrets has wifi.iot.ssid" = let
+      sm = openwrt.mkSecretsMap {
+        device = realDevices.derfflinger;
+        inherit owrtData;
+      };
+    in
+      sm ? "wifi.iot.ssid";
 
     # target/subtarget on all real devices
     "real bobcat has target" = realDevices.bobcat ? target;
@@ -405,20 +455,24 @@ let
       contains "test-router" routerUciContent;
 
     # All real devices produce valid mkConfigFiles output
-    "all real devices produce configFiles" =
-      lib.all (name:
-        let files = openwrt.mkConfigFiles { device = realDevices.${name}; inherit owrtData; };
-            meta = builtins.fromJSON (builtins.readFile files.configJson);
-        in meta ? hostname && meta ? profile && meta ? target && meta ? packages
-      ) (builtins.attrNames realDevices);
+    "all real devices produce configFiles" = lib.all (
+      name: let
+        files = openwrt.mkConfigFiles {
+          device = realDevices.${name};
+          inherit owrtData;
+        };
+        meta = builtins.fromJSON (builtins.readFile files.configJson);
+      in
+        meta ? hostname && meta ? profile && meta ? target && meta ? packages
+    ) (builtins.attrNames realDevices);
   };
 
   failures = lib.filterAttrs (_: v: !v) allTests;
   failCount = builtins.length (builtins.attrNames failures);
   passCount = builtins.length (builtins.attrNames allTests) - failCount;
-
 in
-  if failCount > 0 then
+  if failCount > 0
+  then
     builtins.throw "openwrt-config: ${toString failCount} test(s) failed:\n${
       lib.concatMapStringsSep "\n" (name: "  FAIL: ${name}") (builtins.attrNames failures)
     }"

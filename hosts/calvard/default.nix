@@ -1,13 +1,15 @@
-{ config, pkgs, ... }:
-
-let
+{
+  config,
+  pkgs,
+  ...
+}: let
   hostname = "calvard";
   inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
 in {
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
-    (import ../../profiles/disko/vm-host.nix { disk = "/dev/nvme0n1"; })
+    (import ../../profiles/disko/vm-host.nix {disk = "/dev/nvme0n1";})
     ./impermanence.nix
     ./microvm
     ./incus
@@ -23,7 +25,7 @@ in {
 
   boot.extraModprobeConfig = "options kvm_intel nested=1";
   # todo: add after creating an initrd host key
-  boot.initrd.availableKernelModules = [ "e1000e" "8021q" ];
+  boot.initrd.availableKernelModules = ["e1000e" "8021q"];
   boot.initrd.systemd.network = {
     netdevs."20-enp88s0.11" = {
       netdevConfig.Kind = "vlan";
@@ -42,12 +44,12 @@ in {
       matchConfig.Name = "enp88s0.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [ host.cidr4 host.cidr4Legacy host.cidr6 ];
+      networkConfig.Address = [host.cidr4 host.cidr4Legacy host.cidr6];
       networkConfig.MulticastDNS = true;
-      networkConfig.DNS = [ zone.gateway4 zone.gateway4Legacy zone.gateway6 ];
+      networkConfig.DNS = [zone.gateway4 zone.gateway4Legacy zone.gateway6];
       routes = [
-        { Gateway = zone.gateway4; }
-        { Gateway = zone.gateway6; }
+        {Gateway = zone.gateway4;}
+        {Gateway = zone.gateway6;}
       ];
     };
   };
@@ -75,13 +77,13 @@ in {
     dhcpcd.enable = false;
   };
 
-  networking.firewall.allowedTCPPorts = [ 9100 ];
+  networking.firewall.allowedTCPPorts = [9100];
 
   promtail-client.enable = true;
 
   services.prometheus.exporters.node = {
     enable = true;
-    enabledCollectors = [ "systemd" ];
+    enabledCollectors = ["systemd"];
     port = 9100;
   };
 
@@ -89,8 +91,8 @@ in {
 
   common.openssh = {
     enable = true;
-    users = [ "root" ];
-    keys = [ "deploy" "home" ];
+    users = ["root"];
+    keys = ["deploy" "home"];
   };
 
   programs.ssh.extraConfig = ''

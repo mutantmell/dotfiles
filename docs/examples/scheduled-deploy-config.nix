@@ -7,10 +7,8 @@
 # Prerequisites:
 #   1. Create a git repo with a wrapper flake.nix for each target
 #   2. Ensure the VM host has SSH access to the repo and the target
-
-{ ... }:
-{
-  imports = [ ../modules/scheduled-deploy ];
+{...}: {
+  imports = [../modules/scheduled-deploy];
 
   services.scheduled-deploy = {
     enable = true;
@@ -33,8 +31,6 @@
     };
   };
 }
-
-
 # ============================================================================
 # WRAPPER FLAKE TEMPLATE
 # ============================================================================
@@ -50,8 +46,6 @@
 #     inherit (inputs.dotfiles) nixosConfigurations deploy;
 #   };
 # }
-
-
 # ============================================================================
 # MONITORING
 # ============================================================================
@@ -70,3 +64,4 @@
 # Deployment history:
 #   cd /var/lib/scheduled-deploy/thebeyond
 #   git tag -l 'deploy/*' --sort=-creatordate
+

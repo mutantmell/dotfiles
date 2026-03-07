@@ -1,6 +1,9 @@
-{ config, pkgs, lib, ... }:
-
 {
+  config,
+  pkgs,
+  lib,
+  ...
+}: {
   imports = [
     ./sops.nix
     ./home-assistant.nix
@@ -9,7 +12,7 @@
 
   boot = {
     kernelPackages = pkgs.linuxKernel.packages.linux_rpi4;
-    initrd.availableKernelModules = [ "xhci_pci" "usbhid" "usb_storage" ];
+    initrd.availableKernelModules = ["xhci_pci" "usbhid" "usb_storage"];
     loader = {
       grub.enable = false;
       generic-extlinux-compatible.enable = true;
@@ -32,7 +35,7 @@
     "/" = {
       device = "/dev/disk/by-label/NIXOS_SD";
       fsType = "ext4";
-      options = [ "noatime" ];
+      options = ["noatime"];
     };
   };
 
@@ -43,19 +46,19 @@
       environmentFile = config.sops.secrets."wpa.env".path;
       networks."@wpa_key@" = {
         psk = "@wpa_psk@";
-        authProtocols = [ "WPA-PSK-SHA256" ];
+        authProtocols = ["WPA-PSK-SHA256"];
         extraConfig = ''
           ieee80211w=2
         '';
       };
-      interfaces = [ "wlan0" ];
+      interfaces = ["wlan0"];
     };
     useDHCP = false;
     defaultGateway.address = "10.1.20.1";
     defaultGateway.interface = "bond0";
-    nameservers = [ "10.1.20.1" ];
+    nameservers = ["10.1.20.1"];
     bonds.bond0 = {
-      interfaces = [ "wlan0" "end0" ];
+      interfaces = ["wlan0" "end0"];
       driverOptions = {
         mode = "active-backup";
         primary = "wlan0";
@@ -66,9 +69,18 @@
     interfaces.bond0 = {
       useDHCP = false;
       ipv4.addresses = [
-        { address = "10.0.20.50"; prefixLength = 24; }
-        { address = "10.1.20.50"; prefixLength = 24; }
-        { address = "10.97.20.50"; prefixLength = 24; }
+        {
+          address = "10.0.20.50";
+          prefixLength = 24;
+        }
+        {
+          address = "10.1.20.50";
+          prefixLength = 24;
+        }
+        {
+          address = "10.97.20.50";
+          prefixLength = 24;
+        }
       ];
     };
   };
@@ -82,7 +94,7 @@
     };
   };
 
-  environment.systemPackages = with pkgs; [ vim ];
+  environment.systemPackages = with pkgs; [vim];
 
   common.openssh.enable = true;
 

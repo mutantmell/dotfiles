@@ -1,5 +1,4 @@
-{ ... }:
-{
+{...}: {
   services.forgejo = {
     enable = true;
     database.type = "sqlite3";
@@ -24,11 +23,15 @@
     };
   };
 
-  networking.firewall.allowedTCPPorts = [ 3000 2222 ];
+  networking.firewall.allowedTCPPorts = [3000 2222];
 
   environment.persistence."/persist" = {
     directories = [
-      { directory = "/var/lib/forgejo"; user = "forgejo"; group = "forgejo"; }
+      {
+        directory = "/var/lib/forgejo";
+        user = "forgejo";
+        group = "forgejo";
+      }
     ];
   };
 }

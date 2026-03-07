@@ -1,6 +1,5 @@
-{ lib }:
-{
-  network = import ./network.nix { inherit lib; };
+{lib}: {
+  network = import ./network.nix {inherit lib;};
   keys = builtins.fromJSON (
     builtins.readFile ./keys.json
   );

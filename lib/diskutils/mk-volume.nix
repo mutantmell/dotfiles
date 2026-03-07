@@ -1,10 +1,8 @@
-{ pkgs, ...}:
-
-let
+{pkgs, ...}: let
   preamble = ''
     set -euxo pipefail
   '';
-{
+in {
   mk-volume = pkgs.writeShellScriptBin "mk-volume" ''
     ${preamble}
 

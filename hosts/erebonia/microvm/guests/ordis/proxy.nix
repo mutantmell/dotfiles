@@ -1,7 +1,6 @@
-{ config, ... }:
-{
+{config, ...}: {
   config = {
-    networking.firewall.allowedTCPPorts = [ 80 443 ];
+    networking.firewall.allowedTCPPorts = [80 443];
     security.acme = {
       defaults = {
         server = "https://legram.internal/acme/acme/directory";
@@ -43,7 +42,7 @@
           # Enforces https content and restricts JS/CSS to origin
           # External Javascript (such as cast_sender.js for Chromecast or YouTube embed JS for external trailers) must be whitelisted.
           add_header Content-Security-Policy "default-src https: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://www.gstatic.com/cv/js/sender/v1/cast_sender.js https://www.youtube.com/iframe_api https://s.ytimg.com; worker-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'self'";
-      '';
+        '';
       in {
         forceSSL = true;
         enableACME = true;

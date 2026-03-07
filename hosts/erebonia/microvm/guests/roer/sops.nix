@@ -1,7 +1,7 @@
 {
   sops = {
     defaultSopsFile = ./secrets/secrets.yaml;
-    age.sshKeyPaths = [ "/static/etc/ssh/ssh_host_ed25519_key" ];
+    age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"];
     secrets = {
       "keycloak_password_file" = {};
     };

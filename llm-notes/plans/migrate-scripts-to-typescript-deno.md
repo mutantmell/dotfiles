@@ -18,12 +18,14 @@ Replace bash and python scripts with TypeScript + Deno, bundled as Nix packages 
 Use **build-time JSON generation** for stable config and **runtime `nix eval --json`** for values that depend on uncommitted changes.
 
 **Build-time (baked into app wrapper by Nix):**
+
 - Host profile type (router vs vm-host) — derived from disko config
 - MicroVM UID per host
 - Guest lists (microvm and incus) per host
 - KVM GID (system constant)
 
 **Runtime (script calls `nix eval --json`):**
+
 - Nothing initially — all needed values can be determined at build time from the flake
 
 The Nix app wrapper generates a JSON config file in the Nix store and passes its path to the TypeScript entrypoint via `--config <path>` or an environment variable.
@@ -72,10 +74,11 @@ Runtime deps injected via `makeWrapper --prefix PATH`: `openssh`, `ssh-to-age`, 
 ### Shell Command Integration: dax
 
 Use [dax](https://github.com/dsherret/dax) (`jsr:@david/dax`) for subprocess execution. It provides:
+
 - Tagged template literal syntax: `` await $`ssh ${target} "command"` ``
 - Output capture: `.text()`, `.json()`, `.lines()`, `.code()`
-- Piping: `` $`cmd1`.pipe($`cmd2`) ``
-- Stdin injection: `` $`sops updatekeys --yes ${file}`.stdinText(input) ``
+- Piping: ``$`cmd1`.pipe($`cmd2`)``
+- Stdin injection: ``$`sops updatekeys --yes ${file}`.stdinText(input)``
 - Auto-escaping of interpolated arguments
 - Throws on non-zero exit by default (`.noThrow()` to opt out)
 
@@ -103,11 +106,11 @@ packages/
 
 ## Scripts to Migrate
 
-| Current script | Language | Priority | Notes |
-|---|---|---|---|
-| `scripts/deploy-nixos-anywhere.sh` | bash | **P0** | Primary candidate. Highest complexity, most pain points. |
-| `scripts/setup-incus-guests.sh` | bash | **P1** | Small, tightly coupled with deploy script. Migrate immediately after. |
-| OpenWrt scripts (builder, deployer) | Python | **P2** | Already well-structured. Migrate only if/when they need significant changes. |
+| Current script                      | Language | Priority | Notes                                                                        |
+| ----------------------------------- | -------- | -------- | ---------------------------------------------------------------------------- |
+| `scripts/deploy-nixos-anywhere.sh`  | bash     | **P0**   | Primary candidate. Highest complexity, most pain points.                     |
+| `scripts/setup-incus-guests.sh`     | bash     | **P1**   | Small, tightly coupled with deploy script. Migrate immediately after.        |
+| OpenWrt scripts (builder, deployer) | Python   | **P2**   | Already well-structured. Migrate only if/when they need significant changes. |
 
 ## Migration Order
 
@@ -192,6 +195,7 @@ import $ from "jsr:@david/dax";
 ```
 
 Key improvements over bash version:
+
 - **No `nix eval` at runtime** — profile and guest lists come from build-time JSON
 - **YAML parser** for `.sops.yaml` — no grep/sed, can add new anchors programmatically
 - **Typed guest iteration** — `for (const guest of hostConfig.microvmGuests)` instead of `ls | while read`
@@ -280,16 +284,19 @@ apps.x86_64-linux.setup-incus-guests = {
 ## Testing Strategy
 
 ### Unit Tests (Deno test runner, run in `nix flake check`)
+
 - sops.yaml anchor detection and update logic (mock file content)
 - SSH key path resolution
 - Config parsing and validation
 - Profile-dependent logic branching
 
 ### Integration Testing
+
 - Manual: deploy to a test VM to validate the full flow
 - The deploy script is inherently destructive (wipes disks), so automated integration tests are impractical
 
 ### Nix Check
+
 ```nix
 checks.x86_64-linux.deploy-tests = pkgs.stdenv.mkDerivation {
   name = "deploy-tests";
@@ -350,13 +357,13 @@ These scripts run infrequently (new host deploys, hardware failures) but must wo
 
 ## Risks & Mitigations
 
-| Risk | Mitigation |
-|---|---|
-| YAML anchor round-tripping in `@std/yaml` | Test early in Phase 1; fall back to regex-based approach if anchors aren't preserved |
-| Deno cache reproducibility in Nix sandbox | Use `deno cache` with lockfile in build phase; vendor deps into derivation output |
-| `deno run` startup overhead vs bash | Negligible for a deployment script that takes minutes; not a concern |
-| Breaking working deploy flow during migration | Keep bash scripts until TypeScript version is validated end-to-end on a real deploy |
-| **Deno packaging in Nix is unsupported** | **See below — this is the primary blocker** |
+| Risk                                          | Mitigation                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| YAML anchor round-tripping in `@std/yaml`     | Test early in Phase 1; fall back to regex-based approach if anchors aren't preserved |
+| Deno cache reproducibility in Nix sandbox     | Use `deno cache` with lockfile in build phase; vendor deps into derivation output    |
+| `deno run` startup overhead vs bash           | Negligible for a deployment script that takes minutes; not a concern                 |
+| Breaking working deploy flow during migration | Keep bash scripts until TypeScript version is validated end-to-end on a real deploy  |
+| **Deno packaging in Nix is unsupported**      | **See below — this is the primary blocker**                                          |
 
 ## Blocker: Deno-in-Nix Packaging Maturity
 
@@ -371,6 +378,7 @@ There is no `buildDenoPackage` in nixpkgs. Three attempts to add one have failed
 **Impact on this plan:** The "source bundle + `deno run`" packaging approach described above is hand-rolled plumbing that `buildDenoPackage` was supposed to provide. Without upstream support, we'd be maintaining custom derivation logic that could break on any Deno version bump (cache format changes, lockfile format changes). This is exactly the fragility this migration was supposed to eliminate.
 
 **Options:**
+
 - **Wait** for `deno2nix` or a nixpkgs builder to stabilize before proceeding
 - **Evaluate alternatives** — Python (mature `buildPythonApplication`), Go (mature `buildGoModule`), or Rust (mature `buildRustPackage`) all have first-class Nix support. The core goals (typed config, YAML parsing, Nix value injection) don't require Deno specifically.
 - **Proceed anyway** with hand-rolled packaging, accepting the maintenance risk

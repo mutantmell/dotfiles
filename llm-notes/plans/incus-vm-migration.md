@@ -23,10 +23,10 @@ existing Incus setup. Supersedes the Kata containers approach; see prior researc
 
 ## Current State
 
-| Instance | Host | Type | Kernel isolation |
-|---|---|---|---|
-| messeldam | calvard | LXC container | None (shared host kernel) |
-| trista | erebonia | Incus VM (QEMU) | Yes |
+| Instance  | Host     | Type            | Kernel isolation          |
+| --------- | -------- | --------------- | ------------------------- |
+| messeldam | calvard  | LXC container   | None (shared host kernel) |
+| trista    | erebonia | Incus VM (QEMU) | Yes                       |
 
 After this migration both instances are Incus VMs.
 
@@ -252,6 +252,7 @@ options.incus-manager.flakePath = mkOption {
 ```
 
 Set this in each host's incus config:
+
 ```nix
 # hosts/calvard/incus.nix
 incus-manager = {

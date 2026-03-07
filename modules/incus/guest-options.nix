@@ -1,9 +1,7 @@
-{ lib, ... }:
-
-{
+{lib, ...}: {
   options.incus-guest = {
     type = lib.mkOption {
-      type = lib.types.enum [ "vm" "container" ];
+      type = lib.types.enum ["vm" "container"];
       default = "vm";
       description = "Whether this guest runs as an Incus VM or container.";
     };

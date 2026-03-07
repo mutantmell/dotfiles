@@ -6,11 +6,11 @@ Extend `scripts/deploy-nixos-anywhere.sh` to support deploying **erebonia** and 
 
 ### Supported hosts after this work
 
-| Host | Profile | Disk | Guests |
-|------|---------|------|--------|
-| thebeyond | router | LUKS (disko) | phantasma (microVM) |
-| erebonia | vm-host | ZFS (disko) | roer, legram, ordis, heimdallr, ymir, saint-arkh (microVM) + trista (Incus) |
-| calvard | vm-host | ZFS (disko) | edith, basel, tharbad, langport, oracion, creil (microVM) + messeldam (Incus) |
+| Host      | Profile | Disk         | Guests                                                                        |
+| --------- | ------- | ------------ | ----------------------------------------------------------------------------- |
+| thebeyond | router  | LUKS (disko) | phantasma (microVM)                                                           |
+| erebonia  | vm-host | ZFS (disko)  | roer, legram, ordis, heimdallr, ymir, saint-arkh (microVM) + trista (Incus)   |
+| calvard   | vm-host | ZFS (disko)  | edith, basel, tharbad, langport, oracion, creil (microVM) + messeldam (Incus) |
 
 ### Explicit non-goals
 
@@ -26,6 +26,7 @@ Extend `scripts/deploy-nixos-anywhere.sh` to support deploying **erebonia** and 
 `profiles/disko/vm-host.nix` already exists with the right layout (GPT + ESP + ZFS pool with encrypted datasets + tmpfs root). Both erebonia and calvard need to import it.
 
 **erebonia/default.nix changes:**
+
 ```nix
 imports = [
   ./hardware-configuration.nix
@@ -37,6 +38,7 @@ imports = [
 ```
 
 **calvard/default.nix changes:**
+
 ```nix
 imports = [
   ./hardware-configuration.nix
@@ -74,7 +76,7 @@ Both hosts currently use `boot.loader.systemd-boot.enable = true`. The vm-host d
 
 ### Why
 
-The deploy script needs to create `/persist/guests/<name>/static` directories owned by `microvm:kvm` *before* the first NixOS boot. Without a stable UID, the microvm user's ID is auto-assigned and might differ from what was used during deployment.
+The deploy script needs to create `/persist/guests/<name>/static` directories owned by `microvm:kvm` _before_ the first NixOS boot. Without a stable UID, the microvm user's ID is auto-assigned and might differ from what was used during deployment.
 
 ### What needs pinning
 
@@ -84,6 +86,7 @@ The deploy script needs to create `/persist/guests/<name>/static` directories ow
 ### Approach
 
 Add to each vm-host config (or a shared module):
+
 ```nix
 users.users.microvm.uid = 300;
 ```
@@ -106,12 +109,14 @@ Option A is simpler and there are only 3 hosts (thebeyond, erebonia, calvard). G
 ### 3a. Host-type detection
 
 The script needs to know whether a host uses the router or vm-host profile to determine:
+
 - Disk encryption method (LUKS keyfile vs ZFS passphrase)
 - Phase 2 behavior (/nix bind mount vs ZFS datasets handle this natively)
 - Post-install steps (LUKS keyfile copy vs ZFS passphrase save)
 - Guest setup (microVM guests, Incus guests, or both)
 
 **Approach:** Add a host metadata lookup. Options:
+
 1. **Convention-based:** Detect from the host's Nix config (e.g., check if disko profile is router vs vm-host).
 2. **Explicit map in the script:** Simple associative array.
 
@@ -134,6 +139,7 @@ fi
 ### 3b. ZFS passphrase handling for vm-hosts
 
 For vm-host profile:
+
 1. **Generate/reuse a ZFS passphrase** (stored in `.keys/<hostname>-zfs.passphrase`)
 2. **Pass it to disko** via nixos-anywhere's `--disk-encryption-keys /tmp/secret.key <passphrase-file>`
    - The vm-host disko profile currently uses `keylocation = "prompt"`. We need to temporarily set `keylocation = "file:///tmp/secret.key"` during disko, OR change the profile to accept a keyfile.
@@ -141,6 +147,7 @@ For vm-host profile:
 3. **No Phase 4** (no keyfile copy to /boot) — the passphrase is entered interactively on each boot via SSH remote unlock.
 
 **vm-host disko profile change:**
+
 ```nix
 zpool.zroot = {
   # ...
@@ -162,6 +169,7 @@ Actually, on reflection: the remote unlock in initrd uses `systemd-tty-ask-passw
 **Revised approach:** nixos-anywhere's `--disk-encryption-keys` copies a file to the target. The disko ZFS handler reads from `keylocation`. If `keylocation = "prompt"`, disko will prompt interactively during formatting. We can't easily pipe to that.
 
 **Simplest solution:** Change the disko profile to accept an optional `key-file` parameter:
+
 ```nix
 {
   disk ? "/dev/sda",
@@ -170,11 +178,13 @@ Actually, on reflection: the remote unlock in initrd uses `systemd-tty-ask-passw
   ...
 }:
 ```
+
 And set `keylocation = "file://${key-file}"` during formatting. After disko completes and the pool is imported, the deploy script SSHs in and runs `zfs set keylocation=prompt zroot` so that subsequent boots require the interactive passphrase.
 
 ### 3c. Phase adjustments for vm-hosts
 
 **Router profile (existing):**
+
 1. Phase 1: kexec + disko (LUKS)
 2. Phase 2: `/nix` bind mount on persistent storage
 3. Phase 3: Install with extra-files (SSH key)
@@ -182,6 +192,7 @@ And set `keylocation = "file://${key-file}"` during formatting. After disko comp
 5. Phase 5: Fetch hardware-config
 
 **VM-host profile (new):**
+
 1. Phase 1: kexec + disko (ZFS)
    - nixos-anywhere copies passphrase file via `--disk-encryption-keys`
 2. Phase 2: Set keylocation to prompt
@@ -205,6 +216,7 @@ After the host is installed (Phase 3), the deploy script sets up each microVM gu
 ### 4a. Discover guests from the Nix config
 
 The script needs to know which guests a host has. Options:
+
 1. **List directories:** `ls hosts/$HOSTNAME/microvm/guests/`
 2. **Nix eval:** `nix eval .#nixosConfigurations.$HOSTNAME.config.microvm.vms --apply builtins.attrNames`
 
@@ -222,6 +234,7 @@ fi
 For each guest in `$MICROVM_GUESTS`:
 
 1. **Generate or reuse SSH host key:**
+
    ```bash
    GUEST_SSH_KEY="$KEYFILE_DIR/${guest}-ssh_host_ed25519_key"
    if [[ -f "$KEYS_DIR/${guest}-ssh_host_ed25519_key" ]]; then
@@ -233,6 +246,7 @@ For each guest in `$MICROVM_GUESTS`:
    ```
 
 2. **Place SSH key in extra-files for virtiofs share:**
+
    ```bash
    mkdir -p "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh"
    cp "$GUEST_SSH_KEY" "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key"
@@ -249,11 +263,13 @@ For each guest in `$MICROVM_GUESTS`:
    ```
 
    **Ownership:** These directories need `microvm:kvm` ownership. With pinned IDs (Part 2), we can `chown` by UID/GID in the extra-files, or set ownership via a post-install SSH command:
+
    ```bash
    ssh "$TARGET" "chown -R 300:302 /mnt/persist/guests/"
    ```
 
    Actually, the `static/` directory should be owned by `root:root` (SSH keys are root-owned), and the `images/` directory by `microvm:kvm`. Handle this with targeted chowns:
+
    ```bash
    ssh "$TARGET" bash -c "'
      for guest_dir in /mnt/persist/guests/*/; do
@@ -264,6 +280,7 @@ For each guest in `$MICROVM_GUESTS`:
    ```
 
 4. **Derive age key and update .sops.yaml:**
+
    ```bash
    GUEST_AGE_KEY=$(ssh-to-age < "$GUEST_SSH_KEY.pub")
    GUEST_ANCHOR="&sv_${guest}"
@@ -272,6 +289,7 @@ For each guest in `$MICROVM_GUESTS`:
 
 5. **Ensure creation_rules exist in .sops.yaml:**
    The script should check if a creation rule exists for the guest's secrets path. If not, add one. The pattern is:
+
    ```yaml
    - path_regex: hosts/<parent>/microvm/guests/<guest>/secrets/[^/]+\.yaml$
      key_groups:
@@ -283,6 +301,7 @@ For each guest in `$MICROVM_GUESTS`:
    **Note:** The current `.sops.yaml` has inconsistent path patterns — some say `hosts/calvard/guests/` (wrong, should be `hosts/calvard/microvm/guests/`). This needs cleanup as part of this work.
 
 6. **Re-encrypt guest secrets:**
+
    ```bash
    GUEST_SECRET_FILES=$(find "$REPO_ROOT/hosts/" -path "*${guest}*/secrets/*.yaml" 2>/dev/null || true)
    if [[ -n "$GUEST_SECRET_FILES" ]]; then
@@ -301,6 +320,7 @@ For each guest in `$MICROVM_GUESTS`:
 ### 4c. Handling guests without secrets
 
 Not all guests have sops secrets (some may have empty or placeholder `secrets.yaml`). The script should:
+
 - Always generate SSH keys (every guest needs host identification)
 - Always update `.sops.yaml` age keys (needed if secrets are added later)
 - Only run `sops updatekeys` if secret files exist
@@ -312,6 +332,7 @@ Not all guests have sops secrets (some may have empty or placeholder `secrets.ya
 ### 5a. Discover Incus guests
 
 Similar to microVM guests, discover from directory structure:
+
 ```bash
 INCUS_GUEST_DIR="$REPO_ROOT/hosts/$HOSTNAME/incus/guests"
 if [[ -d "$INCUS_GUEST_DIR" ]]; then
@@ -326,6 +347,7 @@ fi
 2. **Derive age key and update .sops.yaml** (same pattern)
 
 3. **Add creation_rules to .sops.yaml** if missing:
+
    ```yaml
    - path_regex: hosts/<parent>/incus/guests/<guest>/secrets/[^/]+\.yaml$
      key_groups:
@@ -337,7 +359,7 @@ fi
 4. **Backup keys** (same pattern)
 
 5. **Push SSH key to running VM after boot:**
-   Incus VMs generate their own SSH keys on first boot. We need to replace those with our pre-generated keys. This happens *after* the host has booted and Incus VMs are running.
+   Incus VMs generate their own SSH keys on first boot. We need to replace those with our pre-generated keys. This happens _after_ the host has booted and Incus VMs are running.
 
    The deploy script should output instructions (not automate this part in the main flow) since the Incus VMs won't be running until the host boots and the activation script creates/starts them:
 
@@ -350,6 +372,7 @@ fi
    ```
 
    **Alternative (preferred):** Create a post-boot script that the operator runs after first host boot:
+
    ```bash
    # scripts/setup-incus-guests.sh <hostname>
    # SSHs to the host and pushes SSH keys to each Incus VM
@@ -362,6 +385,7 @@ fi
 Currently, Incus guests (messeldam, trista) have no sops.nix. To enable sops for them:
 
 1. Create `sops.nix` in each Incus guest config directory:
+
    ```nix
    {
      sops = {
@@ -431,6 +455,7 @@ The deploy script will add missing keys and creation rules automatically. But th
 ### 1. Disk device names
 
 From the hardware-configuration.nix files:
+
 - **erebonia:** Uses SATA (`ahci` module), ESP at `/dev/disk/by-uuid/CB34-6457`. The primary disk is likely `/dev/sda`. The interface is `eno1`.
 - **calvard:** Uses NVMe (`nvme` module), ESP at `/dev/disk/by-uuid/D757-F359`. The primary disk is likely `/dev/nvme0n1`. The interface is `enp88s0`. Already has tmpfs root.
 
@@ -451,6 +476,7 @@ esac
 The `common.zfs.remoteUnlock` module provides SSH in initrd with `systemd-tty-ask-password-agent`, which relays the `systemd-ask-password` prompts over the SSH session. This works correctly with `keylocation=prompt`.
 
 **Lifecycle:**
+
 1. disko creates pool with `keylocation=file:///tmp/secret.key` (passphrase in temp file)
 2. Deploy script runs `zfs set keylocation=prompt zroot` after disko completes
 3. Subsequent boots: initrd detects `keystatus=unavailable`, sees `keylocation=prompt`, uses `systemd-ask-password`
@@ -461,6 +487,7 @@ The `common.zfs.remoteUnlock` module provides SSH in initrd with `systemd-tty-as
 ### 3. Existing ZFS data — DESTRUCTIVE OPERATION WARNING
 
 Deploying with disko **will destroy all existing data** on the target disk. The deploy script must:
+
 - Print a prominent warning for vm-host profile deployments
 - Require explicit confirmation (separate from the general deploy confirmation)
 - Mention that erebonia has existing ZFS pools with microVM guest data
@@ -472,6 +499,7 @@ The microvm module (from `github:astro/microvm.nix`) creates the `microvm` user 
 The `kvm` group is defined by NixOS itself with **GID 302** (hardcoded in `nixos/modules/misc/ids.nix`). We do NOT need to pin it — it's already stable across all NixOS systems.
 
 **Revised approach for Part 2:**
+
 - Pin only `users.users.microvm.uid = 300`
 - Do NOT pin `users.groups.kvm.gid` — it's already 302 system-wide
 - Use UID 300 and GID 302 for chown operations in the deploy script
@@ -479,6 +507,7 @@ The `kvm` group is defined by NixOS itself with **GID 302** (hardcoded in `nixos
 ### 5. Incus guest SSH key replacement — POST-BOOT WORKFLOW
 
 After `incus file push` replaces the SSH key:
+
 1. `systemctl restart sshd` on the guest to pick up the new host key
 2. If sops-nix is configured, run `nixos-rebuild switch` on the guest to trigger sops activation (decrypts secrets using the new key)
 3. The `setup-incus-guests.sh` script should handle all three steps: push key, restart sshd, trigger rebuild
@@ -486,6 +515,7 @@ After `incus file push` replaces the SSH key:
 ### 6. creil guest — NEEDS SSH KEY SETUP, NO SOPS YET
 
 creil (Forgejo Actions runner on calvard) has:
+
 - SSH host key at `/static/etc/ssh/ssh_host_ed25519_key` (standard microVM pattern)
 - `common.openssh.enable = true`
 - No `sops.nix` — no encrypted secrets currently

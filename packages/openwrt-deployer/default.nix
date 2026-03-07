@@ -1,12 +1,17 @@
-{ lib, stdenv, makeWrapper, openssh, coreutils }:
-
+{
+  lib,
+  stdenv,
+  makeWrapper,
+  openssh,
+  coreutils,
+}:
 stdenv.mkDerivation {
   pname = "openwrt-deployer";
   version = "0.1.0";
 
   src = ./.;
 
-  nativeBuildInputs = [ makeWrapper ];
+  nativeBuildInputs = [makeWrapper];
 
   dontConfigure = true;
   dontBuild = true;
@@ -17,7 +22,7 @@ stdenv.mkDerivation {
     chmod +x $out/bin/openwrt-deploy
 
     wrapProgram $out/bin/openwrt-deploy \
-      --prefix PATH : ${lib.makeBinPath [ openssh coreutils ]}
+      --prefix PATH : ${lib.makeBinPath [openssh coreutils]}
   '';
 
   meta = {

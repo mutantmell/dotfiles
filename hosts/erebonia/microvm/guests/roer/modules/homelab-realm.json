@@ -33,12 +33,7 @@
       ]
     }
   ],
-  "defaultDefaultClientScopes": [
-    "openid",
-    "profile",
-    "email",
-    "groups"
-  ],
+  "defaultDefaultClientScopes": ["openid", "profile", "email", "groups"],
   "clients": [
     {
       "clientId": "oauth2-proxy",
@@ -49,12 +44,8 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": [
-        "https://mutantmell.net/oauth2/callback"
-      ],
-      "webOrigins": [
-        "https://mutantmell.net"
-      ],
+      "redirectUris": ["https://mutantmell.net/oauth2/callback"],
+      "webOrigins": ["https://mutantmell.net"],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
     {
@@ -66,12 +57,8 @@
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": [
-        "https://phantasma.internal/oauth2/callback"
-      ],
-      "webOrigins": [
-        "https://phantasma.internal"
-      ],
+      "redirectUris": ["https://phantasma.internal/oauth2/callback"],
+      "webOrigins": ["https://phantasma.internal"],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
     {
@@ -83,9 +70,7 @@
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": [
-        "http://127.0.0.1:*"
-      ],
+      "redirectUris": ["http://127.0.0.1:*"],
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
     {

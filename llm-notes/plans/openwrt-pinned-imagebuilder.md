@@ -53,24 +53,24 @@ to pick up the new hash before building. This mirrors how `nix flake update` wor
 
 ## Files
 
-| File | Role |
-|---|---|
-| `lib/common/data/openwrt-hashes.json` | `defaultRelease` + `imageBuilderHashes` registry; updated by `--update-pins` |
-| `lib/common/data/openwrt.nix` | Reads pins from JSON; exposes `defaultRelease` and `imageBuilderHashes` as Nix values |
-| `flake.nix` (`openwrtConfigurations`) | `mkImageBuilderFetcher` helper; assembles flat `build.json` with store paths |
-| `lib/openwrt/default.nix` (`mkConfigFiles`) | Produces per-device store files; `authorized-keys` named without hostname for dedup |
-| `packages/openwrt-builder/build.py` | Reads flat manifest; extracts imagebuilder from store path when available |
-| `apps/openwrt/default.nix` | Shell wrapper; parses `--update`/`--update-pins`/`--release`; passes `--config-file "$CONFIG_DIR/build.json"` |
+| File                                        | Role                                                                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `lib/common/data/openwrt-hashes.json`       | `defaultRelease` + `imageBuilderHashes` registry; updated by `--update-pins`                                  |
+| `lib/common/data/openwrt.nix`               | Reads pins from JSON; exposes `defaultRelease` and `imageBuilderHashes` as Nix values                         |
+| `flake.nix` (`openwrtConfigurations`)       | `mkImageBuilderFetcher` helper; assembles flat `build.json` with store paths                                  |
+| `lib/openwrt/default.nix` (`mkConfigFiles`) | Produces per-device store files; `authorized-keys` named without hostname for dedup                           |
+| `packages/openwrt-builder/build.py`         | Reads flat manifest; extracts imagebuilder from store path when available                                     |
+| `apps/openwrt/default.nix`                  | Shell wrapper; parses `--update`/`--update-pins`/`--release`; passes `--config-file "$CONFIG_DIR/build.json"` |
 
 ## Device → Image Builder Mapping
 
 All current devices map to three unique `(release, target, subtarget)` tuples:
 
-| Devices | target | subtarget |
-|---|---|---|
-| bobcat, lusitania, merkabah, derfflinger, pantagruel, bobcat-router | mediatek | mt7622 |
-| arseille | realtek | rtl838x |
-| glorious | ramips | mt7621 |
+| Devices                                                             | target   | subtarget |
+| ------------------------------------------------------------------- | -------- | --------- |
+| bobcat, lusitania, merkabah, derfflinger, pantagruel, bobcat-router | mediatek | mt7622    |
+| arseille                                                            | realtek  | rtl838x   |
+| glorious                                                            | ramips   | mt7621    |
 
 ## Workflows
 

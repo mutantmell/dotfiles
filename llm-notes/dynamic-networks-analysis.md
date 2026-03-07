@@ -451,6 +451,7 @@ address — the firewall rules don't need to change.
 #### Why this is smaller than the original approach
 
 The original dynamic topology system required:
+
 - A parallel type system (`mkDynamicOpt`, `dynType`, `from-dynamic`)
 - A second topology section (`cfg.dynamic.topology`)
 - A merge operation (`whole-topology`)
@@ -534,6 +535,7 @@ strategies:
    bypasses the buggy `.netdev` drop-in path entirely and works reliably.
 
 This gives you:
+
 - Firewall integration (interface in topology → zone rules generated)
 - Dynamic IP/route changes (`.network` drop-ins → `networkctl reconfigure`)
 - Dynamic WireGuard endpoints (`wg set` → no networkd restart needed)
@@ -549,6 +551,7 @@ interface already exists, so there is no ordering conflict with nftables.
 
 If a future use case involves interfaces that are truly created at runtime (not just
 reconfigured), the nftables ordering issue returns. In that case, either:
+
 - Ensure the creation service runs `Before=nftables.service`, or
 - Use nftables constructs that tolerate missing interfaces (wildcard patterns like
   `iifname "wg-*"`, or dynamically-populated named sets)
@@ -580,6 +583,7 @@ The original implementation can be found at commit `44e73da7`:
 https://github.com/mutantmell/dotfiles/blob/44e73da7ba10392c9be0cdaf1c0060f3091ede44/modules/router/default.nix
 
 Key line ranges in that file:
+
 - **Dynamic type system**: lines 14-23 (`mkTopologyOpt`, `mkDynamicOpt`, `dynType`)
 - **Dynamic topology option**: lines 429-438 (`dynamic.environmentFile`, `dynamic.topology`)
 - **Topology merge**: line 443 (`whole-topology`)

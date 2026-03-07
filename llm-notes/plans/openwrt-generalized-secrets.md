@@ -27,9 +27,11 @@ of treating a field as a secret without changing code.
 ## Approaches Considered
 
 ### Option A: UCI commands in secrets file
+
 Rejected. Requires hand-authoring UCI syntax outside Nix.
 
 ### Option B: Token strings in config values (user-proposed)
+
 The Nix config emits literal token strings (e.g., `"@@wifi_ssids.game@@"`) for
 fields that need secret injection. The build script scans the UCI script for
 those tokens and substitutes values from the secrets YAML.
@@ -43,6 +45,7 @@ the secrets map becomes an emergent property of scanning text rather than a
 first-class Nix value.
 
 ### Option C: `_secret` markers in the Nix config (recommended)
+
 Fields that require secret injection are declared with a special marker value
 `{ _secret = "key.name"; }` in the Nix attrset. The UCI generator skips these
 fields (leaves them unset). `mkSecretsMap` is derived automatically by
@@ -59,6 +62,7 @@ as a first-class concept in Nix rather than a runtime text-scanning convention.*
 ### How it works
 
 In any Nix config attrset, a field can be declared as needing secret injection:
+
 ```nix
 batmesh = {
   _type = "wifi-iface";
@@ -137,6 +141,7 @@ Update `mkMeshWirelessConfig`, `mkSimpleAPWirelessConfig`, and `mkRouterConfig`
 to include `_secret` markers at the fields that need injection:
 
 **`mkMeshWirelessConfig`** — mesh interface:
+
 ```nix
 batmesh = {
   _type = "wifi-iface";
@@ -147,6 +152,7 @@ batmesh = {
 ```
 
 **`mkMeshWirelessConfig`** — AP interfaces (generated per-network):
+
 ```nix
 "ap_2g_${name}" = {
   ...
@@ -156,6 +162,7 @@ batmesh = {
 ```
 
 **`mkSimpleAPWirelessConfig`** and router:
+
 ```nix
 ap_2g = {
   ...
@@ -185,6 +192,7 @@ To add a WiFi network for the vGAME VLAN, the operator:
 
 1. **Updates Nix config** (`lib/openwrt/default.nix` or device file):
    Adds a new AP interface with explicit `_secret` markers:
+
    ```nix
    "ap_2g_game" = {
      _type = "wifi-iface";
@@ -198,6 +206,7 @@ To add a WiFi network for the vGAME VLAN, the operator:
    ```
 
 2. **Updates `wifi.yaml`**:
+
    ```yaml
    wifi_ssids:
      game: "GameNetworkSSID"
@@ -263,13 +272,13 @@ sops.secrets.openwrt-wifi = {
 
 ### Security properties
 
-| Concern | Mitigation |
-|---------|------------|
-| Encrypted file in git leaks key names | Binary sops format — entire content is opaque |
-| Plain secrets written to disk during local dev | Avoided by piping through stdin; secrets exist only in kernel pipe buffer |
-| Plain secrets written to disk in deployed service | `/run/secrets/` is tmpfs (in-memory); mode `0400`, restricted ownership |
-| UCI script temp dir contains baked-in secrets | `chmod 0o700` on temp dir; `finally` block cleanup; unavoidable since Image Builder needs real files |
-| Output `.bin` image contains secrets | Treat as sensitive; restrict output directory permissions |
+| Concern                                           | Mitigation                                                                                           |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Encrypted file in git leaks key names             | Binary sops format — entire content is opaque                                                        |
+| Plain secrets written to disk during local dev    | Avoided by piping through stdin; secrets exist only in kernel pipe buffer                            |
+| Plain secrets written to disk in deployed service | `/run/secrets/` is tmpfs (in-memory); mode `0400`, restricted ownership                              |
+| UCI script temp dir contains baked-in secrets     | `chmod 0o700` on temp dir; `finally` block cleanup; unavoidable since Image Builder needs real files |
+| Output `.bin` image contains secrets              | Treat as sensitive; restrict output directory permissions                                            |
 
 ### Future integration: dedicated build service
 
@@ -281,6 +290,7 @@ the following three steps integrate it with sops-nix:
    decrypts the whole file content as a blob. Do not set `key`; that attribute
    is for extracting a named field from a YAML-format sops file, which is not
    what we want here.
+
    ```nix
    sops.secrets.openwrt-wifi = {
      sopsFile = ./secrets/wifi.yaml;
@@ -292,6 +302,7 @@ the following three steps integrate it with sops-nix:
 2. **Set permissions for the builder user.** By default sops-nix creates
    secrets as `mode = "0400"` owned by root. Grant the build service user
    access:
+
    ```nix
    sops.secrets.openwrt-wifi.owner = "openwrt-builder";
    # or use group + mode if multiple users need access
@@ -306,27 +317,27 @@ the following three steps integrate it with sops-nix:
 
 ### Files Changed (this section)
 
-| File | Change |
-|------|--------|
-| `packages/openwrt-builder/build.py` | Remove `decrypt_secrets`; accept `-` for stdin; read plain YAML directly |
-| `apps/openwrt/default.nix` | Pipe `sops -d` to build script via stdin instead of passing sops file path |
+| File                                | Change                                                                     |
+| ----------------------------------- | -------------------------------------------------------------------------- |
+| `packages/openwrt-builder/build.py` | Remove `decrypt_secrets`; accept `-` for stdin; read plain YAML directly   |
+| `apps/openwrt/default.nix`          | Pipe `sops -d` to build script via stdin instead of passing sops file path |
 
 ---
 
 ## Files Changed (full)
 
-| File | Change |
-|------|--------|
-| `lib/openwrt/uci.nix` | Skip fields whose value is `{ _secret = "..."; }` |
-| `lib/openwrt/default.nix` | Add `_secret` markers to wireless interface declarations; rewrite `mkSecretsMap` to traverse the config recursively; remove `mkSecretsApplyScript` |
-| `hosts/openwrt/derfflinger.nix` | Add explicit `_secret` markers to IoT AP interface |
-| `flake.nix` | Remove `secretsApply` field from manifest |
-| `packages/openwrt-builder/build.py` | Remove sops decryption; accept plain YAML via `--secrets-file -` (stdin) |
-| `apps/openwrt/default.nix` | Pipe `sops -d` to build script stdin |
-| `hosts/openwrt/secrets/wifi.yaml` | Re-encrypt in binary format (separate step, not in this commit) |
-| `hosts/openwrt/default.nix` | Update stale comment |
-| `tests/lib/openwrt-config.nix` | Update section names and secret marker assertions |
-| Device `.nix` files in `hosts/openwrt/` | No changes (except derfflinger above) |
+| File                                    | Change                                                                                                                                             |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/openwrt/uci.nix`                   | Skip fields whose value is `{ _secret = "..."; }`                                                                                                  |
+| `lib/openwrt/default.nix`               | Add `_secret` markers to wireless interface declarations; rewrite `mkSecretsMap` to traverse the config recursively; remove `mkSecretsApplyScript` |
+| `hosts/openwrt/derfflinger.nix`         | Add explicit `_secret` markers to IoT AP interface                                                                                                 |
+| `flake.nix`                             | Remove `secretsApply` field from manifest                                                                                                          |
+| `packages/openwrt-builder/build.py`     | Remove sops decryption; accept plain YAML via `--secrets-file -` (stdin)                                                                           |
+| `apps/openwrt/default.nix`              | Pipe `sops -d` to build script stdin                                                                                                               |
+| `hosts/openwrt/secrets/wifi.yaml`       | Re-encrypt in binary format (separate step, not in this commit)                                                                                    |
+| `hosts/openwrt/default.nix`             | Update stale comment                                                                                                                               |
+| `tests/lib/openwrt-config.nix`          | Update section names and secret marker assertions                                                                                                  |
+| Device `.nix` files in `hosts/openwrt/` | No changes (except derfflinger above)                                                                                                              |
 
 ---
 

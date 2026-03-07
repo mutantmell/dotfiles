@@ -5,6 +5,7 @@ Declarative Incus container management with automatic in-place updates.
 ## Overview
 
 The `incus-manager` module provides fully declarative Incus container management:
+
 - **Automatic image import** - Images built from your flake are auto-imported
 - **Automatic instance creation** - Containers are created on first deploy
 - **Automatic updates** - Running `nixos-rebuild switch` updates containers in-place
@@ -117,6 +118,7 @@ sudo nixos-rebuild switch
 ```
 
 **That's it!** The module will:
+
 1. Set up Incus with configured storage and networks
 2. Import the container image
 3. Create and start the instance
@@ -242,12 +244,14 @@ Done! Container is created and running.
 ## Container vs MicroVM Use Cases
 
 **Use Incus containers for:**
+
 - ✅ Development environments on trusted networks
 - ✅ Long-lived stateful workloads
 - ✅ User-managed environments (home-manager)
 - ✅ When you want minimal update disruption
 
 **Use microvm.nix for:**
+
 - ✅ DMZ/untrusted network workloads
 - ✅ When you need kernel isolation
 - ✅ Stateless ephemeral services
@@ -267,21 +271,22 @@ On `nixos-rebuild switch`:
 
 ## Benefits Over microvm.nix (for dev workloads)
 
-| Feature | microvm.nix | Incus Containers |
-|---------|-------------|------------------|
-| Writable /nix/store | ⚠️ Requires writableStoreOverlay | ✅ Native |
-| Update disruption | ❌ Full VM restart | ✅ Only changed services |
-| tmux survives updates | ❌ No | ✅ Usually yes |
-| User package management | ⚠️ Complex | ✅ Simple |
-| Declarative | ✅ Yes | ✅ Yes |
-| Kernel isolation | ✅ Yes (KVM) | ❌ No (shared kernel) |
-| Suitable for DMZ | ✅ Yes | ❌ No |
+| Feature                 | microvm.nix                      | Incus Containers         |
+| ----------------------- | -------------------------------- | ------------------------ |
+| Writable /nix/store     | ⚠️ Requires writableStoreOverlay | ✅ Native                |
+| Update disruption       | ❌ Full VM restart               | ✅ Only changed services |
+| tmux survives updates   | ❌ No                            | ✅ Usually yes           |
+| User package management | ⚠️ Complex                       | ✅ Simple                |
+| Declarative             | ✅ Yes                           | ✅ Yes                   |
+| Kernel isolation        | ✅ Yes (KVM)                     | ❌ No (shared kernel)    |
+| Suitable for DMZ        | ✅ Yes                           | ❌ No                    |
 
 ## Troubleshooting
 
 ### Container Doesn't Auto-Create
 
 Check Incus service status:
+
 ```bash
 systemctl status incus
 journalctl -u incus
@@ -290,11 +295,13 @@ journalctl -u incus
 ### Auto-Update Fails
 
 Check update service:
+
 ```bash
 journalctl -u incus-instance-updates
 ```
 
 Manually update:
+
 ```bash
 incus-update-instance myinstance
 ```
@@ -302,6 +309,7 @@ incus-update-instance myinstance
 ### Network Issues
 
 Verify bridge exists:
+
 ```bash
 ip link show br20
 incus network show incusbr20

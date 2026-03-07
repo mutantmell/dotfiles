@@ -1,6 +1,9 @@
-{ config, pkgs, microvm, ... }:
-
 {
+  config,
+  pkgs,
+  microvm,
+  ...
+}: {
   common.microvm = {
     enable = true;
     guestDir = ./guests;

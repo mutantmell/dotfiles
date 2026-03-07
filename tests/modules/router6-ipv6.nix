@@ -8,36 +8,44 @@
 # 5. kresd is listening on IPv6
 # 6. Client receives IPv6 via SLAAC
 # 7. Client can ping router over IPv6
-
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
+{
+  pkgs ? import <nixpkgs> {},
+  lib ? pkgs.lib,
 }:
-
 pkgs.testers.nixosTest {
   name = "router6-ipv6";
 
   nodes = {
-    router = { config, pkgs, lib, ... }: {
-      imports = [ ../../modules/router6 ];
+    router = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      imports = [../../modules/router6];
 
       # Virtual network setup - eth1 is WAN, eth2 is LAN
-      virtualisation.vlans = [ 1 2 ];
+      virtualisation.vlans = [1 2];
 
       router6 = {
         enable = true;
         ulaPrefix = "fdc6:55f2:0a5e::/48";
 
         zones = {
-          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          external = {
+            icmpEcho = "disable";
+            accessTo = [];
+            inputRules = [];
+          };
           trusted = {
             icmpEcho = "enable";
-            accessTo = [ "trusted" "external" ];
-            inputRules = [{ verdict = "accept"; }];
+            accessTo = ["trusted" "external"];
+            inputRules = [{verdict = "accept";}];
           };
         };
 
         dns = {
-          upstream = [ "1.1.1.1" ];
+          upstream = ["1.1.1.1"];
           useDHCPFallback = false;
           localDomain = "test.local";
         };
@@ -48,7 +56,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth1";
             network = {
               type = "static";
-              addresses = [ "192.168.1.1/24" ];
+              addresses = ["192.168.1.1/24"];
               zone = "external";
               nat.enable = true;
             };
@@ -66,7 +74,7 @@ pkgs.testers.nixosTest {
                 tag = 10;
                 network = {
                   type = "static";
-                  addresses = [ "10.0.10.1/24" ];
+                  addresses = ["10.0.10.1/24"];
                   zone = "trusted";
                   dhcp.enable = true;
                   dhcp6.enable = true;
@@ -78,8 +86,13 @@ pkgs.testers.nixosTest {
       };
     };
 
-    client = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 2 ];
+    client = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [2];
 
       # Use traditional networking with VLAN
       networking.useDHCP = false;

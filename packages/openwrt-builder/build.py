@@ -450,7 +450,7 @@ def run_update(targets, hashes_file, release=None):
         print(f"    {target_key}: {h}")
 
     update_hashes_json(hashes_file, release, new_hashes)
-    print(f"Hash update complete. Commit the changes to lib/common/data/openwrt-hashes.json.")
+    print("Hash update complete. Commit the changes to lib/common/data/openwrt-hashes.json.")
     return release
 
 

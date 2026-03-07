@@ -1,7 +1,6 @@
-{ config, ... }:
-{
+{config, ...}: {
   config = {
-    networking.firewall.allowedTCPPorts = [ 80 443 ];
+    networking.firewall.allowedTCPPorts = [80 443];
     security.acme = {
       defaults = {
         server = "https://basel.internal/acme/acme/directory";

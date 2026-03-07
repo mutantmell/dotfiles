@@ -5,12 +5,10 @@
 #
 # Run: nix-instantiate --eval --strict tests/lib/router6-zone-system.nix
 # Or:  nix build .#checks.x86_64-linux.router6-zone-system
-
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
-}:
-
-let
+{
+  pkgs ? import <nixpkgs> {},
+  lib ? pkgs.lib,
+}: let
   # Helper to evaluate a router6 config and extract the nftables ruleset
   evalRuleset = router6Config: let
     eval = import (pkgs.path + "/nixos/lib/eval-config.nix") {
@@ -19,14 +17,18 @@ let
         ../../modules/router6
         {
           boot.loader.grub.device = "nodev";
-          fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
+          fileSystems."/" = {
+            device = "none";
+            fsType = "tmpfs";
+          };
           nixpkgs.hostPlatform = "x86_64-linux";
           system.stateVersion = "25.11";
-          router6 = { enable = true; } // router6Config;
+          router6 = {enable = true;} // router6Config;
         }
       ];
     };
-  in eval.config.networking.nftables.ruleset;
+  in
+    eval.config.networking.nftables.ruleset;
 
   # Helper to check if a string contains a substring
   contains = needle: haystack: builtins.match ".*${lib.escapeRegex needle}.*" haystack != null;
@@ -38,15 +40,18 @@ let
   notContains = needle: haystack: !contains needle haystack;
 
   assertEq = name: a: b:
-    if a == b then true
+    if a == b
+    then true
     else throw "FAIL: ${name}\n  Expected: ${builtins.toJSON b}\n  Got:      ${builtins.toJSON a}";
 
   assertTrue = name: v:
-    if v then true
+    if v
+    then true
     else throw "FAIL: ${name}";
 
   assertFalse = name: v:
-    if !v then true
+    if !v
+    then true
     else throw "FAIL: ${name}";
 
   # ========================================================================
@@ -56,31 +61,61 @@ let
   # Test 1.7a: forwardRules integration
   forwardRulesConfig = {
     ulaPrefix = "fdc6:55f2:0a5e::/48";
-    dns.upstream = [ "1.1.1.1" ];
+    dns.upstream = ["1.1.1.1"];
     dns.useDHCPFallback = false;
     zones = {
-      external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
       restricted = {
         icmpEcho = "enable";
         accessTo = [];
         forwardRules.external = [
-          { tcp.dport = [ 443 80 ]; verdict = "accept"; comment = "HTTP(S) only"; }
-          { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+          {
+            tcp.dport = [443 80];
+            verdict = "accept";
+            comment = "HTTP(S) only";
+          }
+          {
+            udp.dport = 123;
+            verdict = "accept";
+            comment = "NTP";
+          }
         ];
         inputRules = [
-          { udp.dport = [ 53 67 ]; verdict = "accept"; comment = "DNS + DHCP"; }
-          { tcp.dport = 53; verdict = "accept"; comment = "DNS over TCP"; }
+          {
+            udp.dport = [53 67];
+            verdict = "accept";
+            comment = "DNS + DHCP";
+          }
+          {
+            tcp.dport = 53;
+            verdict = "accept";
+            comment = "DNS over TCP";
+          }
         ];
       };
     };
     topology = {
       eth1 = {
         hardwareName = "eth1";
-        network = { type = "static"; addresses = [ "203.0.113.1/24" ]; zone = "external"; nat.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["203.0.113.1/24"];
+          zone = "external";
+          nat.enable = true;
+        };
       };
       eth2 = {
         hardwareName = "eth2";
-        network = { type = "static"; addresses = [ "10.0.50.1/24" ]; zone = "restricted"; dhcp.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["10.0.50.1/24"];
+          zone = "restricted";
+          dhcp.enable = true;
+        };
       };
     };
   };
@@ -88,160 +123,253 @@ let
   # Test 1.7b: multiple interfaces per zone
   multiIfaceConfig = {
     ulaPrefix = "fdc6:55f2:0a5e::/48";
-    dns.upstream = [ "1.1.1.1" ];
+    dns.upstream = ["1.1.1.1"];
     dns.useDHCPFallback = false;
     zones = {
-      external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
       lan = {
         icmpEcho = "enable";
-        accessTo = [ "external" ];
-        inputRules = [ { verdict = "accept"; } ];
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
       };
     };
     topology = {
       eth1 = {
         hardwareName = "eth1";
-        network = { type = "static"; addresses = [ "203.0.113.1/24" ]; zone = "external"; nat.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["203.0.113.1/24"];
+          zone = "external";
+          nat.enable = true;
+        };
       };
       eth2 = {
         hardwareName = "eth2";
-        network = { type = "static"; addresses = [ "10.0.10.1/24" ]; zone = "lan"; dhcp.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "lan";
+          dhcp.enable = true;
+        };
       };
       eth3 = {
         hardwareName = "eth3";
-        network = { type = "static"; addresses = [ "10.0.20.1/24" ]; zone = "lan"; dhcp.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["10.0.20.1/24"];
+          zone = "lan";
+          dhcp.enable = true;
+        };
       };
     };
   };
 
   # Test 1.7c: icmpEcho ipv4-only and ipv6-only
   icmpV4OnlyConfig = {
-    dns.upstream = [ "1.1.1.1" ];
+    dns.upstream = ["1.1.1.1"];
     dns.useDHCPFallback = false;
     zones = {
-      external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
       v4only = {
         icmpEcho = "ipv4-only";
-        accessTo = [ "external" ];
-        inputRules = [ { verdict = "accept"; } ];
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
       };
     };
     topology = {
       eth1 = {
         hardwareName = "eth1";
-        network = { type = "static"; addresses = [ "203.0.113.1/24" ]; zone = "external"; nat.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["203.0.113.1/24"];
+          zone = "external";
+          nat.enable = true;
+        };
       };
       eth2 = {
         hardwareName = "eth2";
-        network = { type = "static"; addresses = [ "10.0.10.1/24" ]; zone = "v4only"; };
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "v4only";
+        };
       };
     };
   };
 
   icmpV6OnlyConfig = {
-    dns.upstream = [ "1.1.1.1" ];
+    dns.upstream = ["1.1.1.1"];
     dns.useDHCPFallback = false;
     zones = {
-      external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
       v6only = {
         icmpEcho = "ipv6-only";
-        accessTo = [ "external" ];
-        inputRules = [ { verdict = "accept"; } ];
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
       };
     };
     topology = {
       eth1 = {
         hardwareName = "eth1";
-        network = { type = "static"; addresses = [ "203.0.113.1/24" ]; zone = "external"; nat.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["203.0.113.1/24"];
+          zone = "external";
+          nat.enable = true;
+        };
       };
       eth2 = {
         hardwareName = "eth2";
-        network = { type = "static"; addresses = [ "10.0.10.1/24" ]; zone = "v6only"; };
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "v6only";
+        };
       };
     };
   };
 
   # Test 1.7d: self-forwarding within a zone
   selfForwardConfig = {
-    dns.upstream = [ "1.1.1.1" ];
+    dns.upstream = ["1.1.1.1"];
     dns.useDHCPFallback = false;
     zones = {
-      external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
       internal = {
         icmpEcho = "enable";
-        accessTo = [ "internal" ];
-        inputRules = [ { verdict = "accept"; } ];
+        accessTo = ["internal"];
+        inputRules = [{verdict = "accept";}];
       };
     };
     topology = {
       eth1 = {
         hardwareName = "eth1";
-        network = { type = "static"; addresses = [ "203.0.113.1/24" ]; zone = "external"; nat.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["203.0.113.1/24"];
+          zone = "external";
+          nat.enable = true;
+        };
       };
       eth2 = {
         hardwareName = "eth2";
-        network = { type = "static"; addresses = [ "10.0.10.1/24" ]; zone = "internal"; };
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "internal";
+        };
       };
     };
   };
 
   # Test 1.7e: escape hatch interaction
   escapeHatchConfig = {
-    dns.upstream = [ "1.1.1.1" ];
+    dns.upstream = ["1.1.1.1"];
     dns.useDHCPFallback = false;
     zones = {
-      external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
       lan = {
         icmpEcho = "enable";
         accessTo = [];
-        inputRules = [ { verdict = "accept"; } ];
+        inputRules = [{verdict = "accept";}];
       };
     };
     firewall = {
       extraInputRules = [
-        { tcp.dport = 8080; verdict = "accept"; comment = "Custom admin port"; }
+        {
+          tcp.dport = 8080;
+          verdict = "accept";
+          comment = "Custom admin port";
+        }
       ];
       extraForwardRules = [
-        { iifname = "wg0"; oifname = "eth1"; verdict = "accept"; comment = "WireGuard bypass"; }
+        {
+          iifname = "wg0";
+          oifname = "eth1";
+          verdict = "accept";
+          comment = "WireGuard bypass";
+        }
       ];
     };
     topology = {
       eth1 = {
         hardwareName = "eth1";
-        network = { type = "static"; addresses = [ "203.0.113.1/24" ]; zone = "external"; nat.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["203.0.113.1/24"];
+          zone = "external";
+          nat.enable = true;
+        };
       };
       eth2 = {
         hardwareName = "eth2";
-        network = { type = "static"; addresses = [ "10.0.10.1/24" ]; zone = "lan"; };
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "lan";
+        };
       };
     };
   };
 
   # Test 1.7f-1: empty zone
   emptyZoneConfig = {
-    dns.upstream = [ "1.1.1.1" ];
+    dns.upstream = ["1.1.1.1"];
     dns.useDHCPFallback = false;
     zones = {
-      external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
       lan = {
         icmpEcho = "enable";
-        accessTo = [ "external" ];
-        inputRules = [ { verdict = "accept"; } ];
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
       };
       unused = {
         icmpEcho = "enable";
-        accessTo = [ "external" ];
-        inputRules = [ { verdict = "accept"; } ];
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
       };
     };
     topology = {
       eth1 = {
         hardwareName = "eth1";
-        network = { type = "static"; addresses = [ "203.0.113.1/24" ]; zone = "external"; nat.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["203.0.113.1/24"];
+          zone = "external";
+          nat.enable = true;
+        };
       };
       eth2 = {
         hardwareName = "eth2";
-        network = { type = "static"; addresses = [ "10.0.10.1/24" ]; zone = "lan"; };
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "lan";
+        };
       };
       # Note: no interface references "unused" zone
     };
@@ -249,25 +377,38 @@ let
 
   # Test 1.7f-2: baseRules = false
   noBaseRulesConfig = {
-    dns.upstream = [ "1.1.1.1" ];
+    dns.upstream = ["1.1.1.1"];
     dns.useDHCPFallback = false;
     zones = {
-      external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
       lan = {
         icmpEcho = "enable";
-        accessTo = [ "external" ];
-        inputRules = [ { verdict = "accept"; } ];
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
       };
     };
     firewall.baseRules = false;
     topology = {
       eth1 = {
         hardwareName = "eth1";
-        network = { type = "static"; addresses = [ "203.0.113.1/24" ]; zone = "external"; nat.enable = true; };
+        network = {
+          type = "static";
+          addresses = ["203.0.113.1/24"];
+          zone = "external";
+          nat.enable = true;
+        };
       };
       eth2 = {
         hardwareName = "eth2";
-        network = { type = "static"; addresses = [ "10.0.10.1/24" ]; zone = "lan"; };
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "lan";
+        };
       };
     };
   };
@@ -396,16 +537,16 @@ let
     (let
       a = evalRuleset multiIfaceConfig;
       b = evalRuleset multiIfaceConfig;
-    in assertEq "ordering stability: same config produces same output" a b)
+    in
+      assertEq "ordering stability: same config produces same output" a b)
   ];
 
   allPass = lib.all (x: x) tests;
-
 in
-  if allPass then
+  if allPass
+  then
     pkgs.runCommand "router6-zone-system" {} ''
       echo "All ${toString (builtins.length tests)} zone system tests passed"
       echo "PASS" > $out
     ''
-  else
-    throw "Zone system tests failed"
+  else throw "Zone system tests failed"

@@ -11,6 +11,7 @@ All options build the configuration **remotely** (not on the router) to avoid re
 **Status**: ✅ Implemented in this flake
 
 ### Pros
+
 - Pure flake integration
 - Built-in automatic rollback (magicRollback)
 - Safe activation testing before setting boot default
@@ -19,10 +20,12 @@ All options build the configuration **remotely** (not on the router) to avoid re
 - Works well with existing infrastructure
 
 ### Cons
+
 - Adds another dependency
 - Requires understanding deploy-rs specifics
 
 ### Usage
+
 ```bash
 # Manual deployment
 deploy .#thebeyond
@@ -33,7 +36,9 @@ services.scheduled-deploy.enable = true;
 ```
 
 ### Configuration
+
 Already configured in `flake.nix`:
+
 ```nix
 deploy.nodes.thebeyond = {
   hostname = "thebeyond.local";
@@ -51,18 +56,21 @@ deploy.nodes.thebeyond = {
 **Status**: Available out of the box
 
 ### Pros
+
 - No additional dependencies
 - Core NixOS tooling
 - Well-documented and stable
 - Simple to understand
 
 ### Cons
+
 - No automatic rollback protection
 - Requires manual activation testing
 - Less safety features
 - More manual steps needed
 
 ### Usage
+
 ```bash
 # Build locally, deploy remotely
 nixos-rebuild switch \
@@ -87,6 +95,7 @@ nixos-rebuild boot \
 ```
 
 ### Configuration
+
 None needed - works with any NixOS configuration.
 
 ## Option 3: colmena
@@ -94,17 +103,20 @@ None needed - works with any NixOS configuration.
 **Status**: Not implemented
 
 ### Pros
+
 - Parallel deployments (useful for multiple routers)
 - Deployment keys management
 - Meta attributes for host grouping
 - Good for complex multi-host setups
 
 ### Cons
+
 - More complex than needed for single router
 - Different configuration format
 - Additional learning curve
 
 ### Usage (if implemented)
+
 ```bash
 colmena apply
 
@@ -113,6 +125,7 @@ colmena apply --on thebeyond
 ```
 
 ### Configuration (example)
+
 ```nix
 {
   meta = {
@@ -135,11 +148,13 @@ colmena apply --on thebeyond
 **Status**: Not recommended (legacy)
 
 ### Pros
+
 - Mature tooling
 - State management
 - Infrastructure provisioning
 
 ### Cons
+
 - Legacy/community-maintained
 - Stateful (requires managing NixOps state)
 - Not flake-native
@@ -150,17 +165,20 @@ colmena apply --on thebeyond
 **Status**: Could be implemented as alternative
 
 ### Pros
+
 - Full control
 - No dependencies beyond Nix
 - Simple to understand
 - Easy to customize
 
 ### Cons
+
 - Manual rollback required
 - No built-in safety features
 - More code to maintain
 
 ### Usage (example)
+
 ```bash
 # Build configuration
 nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
@@ -177,16 +195,16 @@ ssh thebeyond.local "sudo $(readlink ./result)/bin/switch-to-configuration switc
 
 ## Comparison Table
 
-| Feature | deploy-rs | nixos-rebuild | colmena | NixOps | Custom |
-|---------|-----------|---------------|---------|--------|--------|
-| Flake support | ✅ Native | ✅ Native | ✅ Native | ⚠️ Limited | ✅ Native |
-| Auto rollback | ✅ Yes | ❌ No | ❌ No | ❌ No | ❌ No |
-| Remote build | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
-| Parallel deploy | ❌ No | ❌ No | ✅ Yes | ✅ Yes | ⚠️ Custom |
-| Setup complexity | 🟡 Medium | 🟢 Low | 🔴 High | 🔴 High | 🟡 Medium |
-| Safety features | ✅ High | 🟡 Medium | 🟡 Medium | 🟡 Medium | 🔴 Low |
-| Dependencies | deploy-rs | None | colmena | NixOps | None |
-| Best for | 1-5 hosts | 1-3 hosts | 10+ hosts | Legacy | Custom needs |
+| Feature          | deploy-rs | nixos-rebuild | colmena   | NixOps     | Custom       |
+| ---------------- | --------- | ------------- | --------- | ---------- | ------------ |
+| Flake support    | ✅ Native | ✅ Native     | ✅ Native | ⚠️ Limited | ✅ Native    |
+| Auto rollback    | ✅ Yes    | ❌ No         | ❌ No     | ❌ No      | ❌ No        |
+| Remote build     | ✅ Yes    | ✅ Yes        | ✅ Yes    | ✅ Yes     | ✅ Yes       |
+| Parallel deploy  | ❌ No     | ❌ No         | ✅ Yes    | ✅ Yes     | ⚠️ Custom    |
+| Setup complexity | 🟡 Medium | 🟢 Low        | 🔴 High   | 🔴 High    | 🟡 Medium    |
+| Safety features  | ✅ High   | 🟡 Medium     | 🟡 Medium | 🟡 Medium  | 🔴 Low       |
+| Dependencies     | deploy-rs | None          | colmena   | NixOps     | None         |
+| Best for         | 1-5 hosts | 1-3 hosts     | 10+ hosts | Legacy     | Custom needs |
 
 ## Recommendation
 
@@ -199,6 +217,7 @@ ssh thebeyond.local "sudo $(readlink ./result)/bin/switch-to-configuration switc
 5. **Active development**: Well-maintained, good community support
 
 **Alternative**: If you want to avoid dependencies, `nixos-rebuild` is perfectly fine, but requires manual safety steps:
+
 ```bash
 # Always test first
 nixos-rebuild test --flake .#thebeyond --target-host thebeyond.local
@@ -231,6 +250,7 @@ For automated deployments:
 3. **CI/CD**: GitHub Actions, Gitea Actions, etc.
 
 Example automated workflow:
+
 ```
 git push → CI runs tests → CI deploys to router → Auto-rollback if fails
 ```

@@ -1,6 +1,4 @@
-{ config, ... }:
-
-let
+{config, ...}: let
   persistDir = config.common.impermanence.persistDir;
 in {
   common.impermanence.enable = true;

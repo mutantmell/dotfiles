@@ -1,6 +1,9 @@
-{ config, pkgs, lib, ... }:
-
-let
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}: let
   net = pkgs.mmell.lib.data.network;
   h = net.hosts;
   mgmt = net.networks.management;
@@ -13,7 +16,7 @@ in {
     rclone
     sshfs
   ];
-  
+
   # Source-restricted firewall rules for NAS services (both 10.97 + 10.0 legacy)
   networking.firewall.extraInputRules = ''
     # NFS from VM hosts and vHOME
@@ -32,15 +35,15 @@ in {
   fileSystems = let
     media = {
       device = "/data/media";
-      options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
+      options = ["bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service"];
     };
     data = {
       device = "/data/data";
-      options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
+      options = ["bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service"];
     };
     backup = {
       device = "/data/backup";
-      options = [ "bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service" ];
+      options = ["bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service"];
     };
   in {
     "/export/rw/media" = media;
@@ -68,20 +71,20 @@ in {
 
   services.devmon.enable = true;
   services.udisks2.enable = true;
-  boot.supportedFilesystems = [ "ntfs" ];
+  boot.supportedFilesystems = ["ntfs"];
 
   services.samba-wsdd.enable = true;
   services.samba = {
     enable = true;
-    openFirewall = false;  # Handled by source-restricted extraInputRules above
+    openFirewall = false; # Handled by source-restricted extraInputRules above
     settings.global = {
-      "invalid users" = [ "root" ];
+      "invalid users" = ["root"];
       "passwd program" = "/run/wrappers/bin/passwd %u";
       security = "user";
       "map to guest" = "Bad User";
       "server string" = "REMIFERIA";
       "netbios name" = "REMIFERIA";
-      "netbios aliases" = "JOTUNHEIMR";  # Backward-compat alias during migration
+      "netbios aliases" = "JOTUNHEIMR"; # Backward-compat alias during migration
       "load printers" = "no";
       "printcap name" = "/dev/null";
     };

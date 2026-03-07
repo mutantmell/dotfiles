@@ -5,11 +5,13 @@ This guide covers deploying NixOS systems from scratch using nixos-anywhere with
 ## Prerequisites
 
 ### On Your Local Machine
+
 - Nix with flakes enabled
 - SSH access to target machine
 - Network connectivity to target
 
 ### On Target Machine
+
 - Any Linux OS with SSH access (will be replaced)
 - Root access or passwordless sudo
 - Minimum 1.5 GB RAM (for kexec environment)
@@ -25,6 +27,7 @@ This guide covers deploying NixOS systems from scratch using nixos-anywhere with
 ```
 
 The script will:
+
 - Generate a random LUKS encryption keyfile
 - Boot target into kexec installer (no physical media needed)
 - Partition and encrypt disk using disko
@@ -49,6 +52,7 @@ ssh root@192.168.1.100 'blkid | grep crypto_LUKS'
 ```
 
 Output will look like:
+
 ```
 /dev/sda3: UUID="a1b2c3d4-..." TYPE="crypto_LUKS" PARTLABEL="persist"
 ```
@@ -133,6 +137,7 @@ nix flake check
 ```
 
 This runs all tests including:
+
 - Disko profile validation (router and vm-host)
 - Router6 module tests
 - Nftables DSL tests
@@ -152,10 +157,12 @@ Test full deployment in a VM before touching real hardware:
 ### Security Model
 
 **Protects against:**
+
 - Disk removed from router and connected elsewhere
 - Remote data exfiltration of `/persist` only
 
 **Does NOT protect against:**
+
 - Physical theft of entire router (keyfile is on `/boot`)
 - Targeted attacks on `/boot` partition
 
@@ -180,6 +187,7 @@ LUKS supports 8 key slots - can have multiple unlock methods.
 ### System Won't Boot After Deployment
 
 1. **Check if keyfile exists:**
+
    ```bash
    # Boot from rescue media
    mount /dev/sda2 /mnt  # ESP partition
@@ -187,6 +195,7 @@ LUKS supports 8 key slots - can have multiple unlock methods.
    ```
 
 2. **Manually unlock to debug:**
+
    ```bash
    cryptsetup open /dev/sda3 cryptroot
    # Enter passphrase if you set one during testing
@@ -205,6 +214,7 @@ LUKS supports 8 key slots - can have multiple unlock methods.
    - Network: ping the IP
 
 2. **Try serial console:**
+
    ```bash
    # If you have physical access
    ```

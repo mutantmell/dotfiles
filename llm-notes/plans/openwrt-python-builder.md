@@ -33,11 +33,11 @@ Nix (config generation - UNCHANGED)      Python (image building - NEW)
 
 Add two fields to each device file in `hosts/openwrt/`:
 
-| Device file | target | subtarget |
-|---|---|---|
-| `bobcat.nix`, `lusitania.nix`, `merkabah.nix`, `derfflinger.nix`, `pantagruel.nix`, `bobcat-router.nix` | `mediatek` | `mt7622` |
-| `arseille.nix` | `realtek` | `rtl838x` |
-| `glorious.nix` | `ramips` | `mt7621` |
+| Device file                                                                                             | target     | subtarget |
+| ------------------------------------------------------------------------------------------------------- | ---------- | --------- |
+| `bobcat.nix`, `lusitania.nix`, `merkabah.nix`, `derfflinger.nix`, `pantagruel.nix`, `bobcat-router.nix` | `mediatek` | `mt7622`  |
+| `arseille.nix`                                                                                          | `realtek`  | `rtl838x` |
+| `glorious.nix`                                                                                          | `ramips`   | `mt7621`  |
 
 ### 1.2 Export `migrationPreCommands` from `lib/openwrt/default.nix`
 
@@ -106,6 +106,7 @@ Single Python file with these functions:
 - **`main()`** — argparse CLI: `openwrt-build <device> [--no-secrets] [--output-dir DIR] [--cache-dir DIR]`
 
 Key design decisions:
+
 - Standard library only (no pip dependencies). Uses `subprocess` for sops/nix/make, `json` for parsing, `pathlib` for paths.
 - Temp directory with restricted permissions (0o700) for secrets; cleaned up in `finally` block.
 - Default output: `./openwrt-images/<device>/`
@@ -167,6 +168,7 @@ Still useful for changing WiFi passwords on running devices without reflashing. 
 ### 3.3 Update `openwrt-show-config`
 
 Change from evaluating via derivation to:
+
 ```bash
 nix eval --raw ".#openwrtBuildInfo.$DEVICE.uciDefaultsScript"
 ```
@@ -201,25 +203,25 @@ Or rewrite to fetch `profiles.json` from upstream directly (deferred — low pri
 
 ## Files Modified
 
-| File | Change |
-|---|---|
-| `hosts/openwrt/bobcat.nix` | Add `target`/`subtarget` |
-| `hosts/openwrt/lusitania.nix` | Add `target`/`subtarget` |
-| `hosts/openwrt/merkabah.nix` | Add `target`/`subtarget` |
-| `hosts/openwrt/derfflinger.nix` | Add `target`/`subtarget` |
-| `hosts/openwrt/pantagruel.nix` | Add `target`/`subtarget` |
-| `hosts/openwrt/bobcat-router.nix` | Add `target`/`subtarget` |
-| `hosts/openwrt/arseille.nix` | Add `target`/`subtarget` |
-| `hosts/openwrt/glorious.nix` | Add `target`/`subtarget` |
-| `lib/openwrt/default.nix` | Export `migrationPreCommands`; make `openwrt-imagebuilder` optional |
-| `flake.nix` | Add `openwrtBuildInfo` output; remove `openwrtImages` + input |
-| `apps/openwrt/build.py` | **NEW** — Python image builder |
-| `apps/openwrt/default.nix` | Add `openwrt-build` app; update `openwrt-deploy`, `openwrt-show-config` |
-| `apps/default.nix` | Wire `openwrt-build` |
-| `tests/lib/openwrt-config.nix` | Add tests for target/subtarget, migrationPreCommands export, buildInfo structure |
-| `.gitignore` | Add `openwrt-images/` |
-| `hosts/openwrt/default.nix` | Update header comments |
-| `CLAUDE.md` | Update build commands |
+| File                              | Change                                                                           |
+| --------------------------------- | -------------------------------------------------------------------------------- |
+| `hosts/openwrt/bobcat.nix`        | Add `target`/`subtarget`                                                         |
+| `hosts/openwrt/lusitania.nix`     | Add `target`/`subtarget`                                                         |
+| `hosts/openwrt/merkabah.nix`      | Add `target`/`subtarget`                                                         |
+| `hosts/openwrt/derfflinger.nix`   | Add `target`/`subtarget`                                                         |
+| `hosts/openwrt/pantagruel.nix`    | Add `target`/`subtarget`                                                         |
+| `hosts/openwrt/bobcat-router.nix` | Add `target`/`subtarget`                                                         |
+| `hosts/openwrt/arseille.nix`      | Add `target`/`subtarget`                                                         |
+| `hosts/openwrt/glorious.nix`      | Add `target`/`subtarget`                                                         |
+| `lib/openwrt/default.nix`         | Export `migrationPreCommands`; make `openwrt-imagebuilder` optional              |
+| `flake.nix`                       | Add `openwrtBuildInfo` output; remove `openwrtImages` + input                    |
+| `apps/openwrt/build.py`           | **NEW** — Python image builder                                                   |
+| `apps/openwrt/default.nix`        | Add `openwrt-build` app; update `openwrt-deploy`, `openwrt-show-config`          |
+| `apps/default.nix`                | Wire `openwrt-build`                                                             |
+| `tests/lib/openwrt-config.nix`    | Add tests for target/subtarget, migrationPreCommands export, buildInfo structure |
+| `.gitignore`                      | Add `openwrt-images/`                                                            |
+| `hosts/openwrt/default.nix`       | Update header comments                                                           |
+| `CLAUDE.md`                       | Update build commands                                                            |
 
 ## Verification
 

@@ -1,6 +1,9 @@
-{ config, lib, pkgs, ... }:
-
-let
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}: let
   cfg = config.programs.java.versions;
 in {
   options.programs.java.versions = {
@@ -15,9 +18,11 @@ in {
     home.file = let
       path = ver: ".local/share/java/${ver}";
       package = ver: pkgs.${"openjdk" + ver};
-    in builtins.listToAttrs (builtins.map (v: {
-      name = path v;
-      value.source = config.lib.file.mkOutOfStoreSymlink "${package v}";
-    }) cfg.versions);
+    in
+      builtins.listToAttrs (builtins.map (v: {
+          name = path v;
+          value.source = config.lib.file.mkOutOfStoreSymlink "${package v}";
+        })
+        cfg.versions);
   };
 }

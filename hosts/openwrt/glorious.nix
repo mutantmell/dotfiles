@@ -1,7 +1,6 @@
 # TP-Link EAP615-Wall v1 — ADU router/AP (UNCONFIRMED: verify before deploying)
 # Runs firewall + DHCP/DHCPv6/RA, no mesh, no batman-adv
-{ owrtData }:
-{
+{owrtData}: {
   type = "simpleAP";
   hostname = "glorious";
   profile = "tplink_eap615-wall-v1";
@@ -13,7 +12,7 @@
   country = owrtData.defaultCountry;
   encryption = owrtData.defaultEncryption;
   # Keep dnsmasq (removed by default) — glorious serves DHCP for the ADU network
-  extraPackages = [ "dnsmasq" "odhcpd-ipv6only" ];
+  extraPackages = ["dnsmasq" "odhcpd-ipv6only"];
   extraConfig = {
     # Firewall — stricter defaults than mesh APs (acts as a gateway)
     firewall = {
@@ -34,7 +33,7 @@
       zone_wan = {
         _type = "zone";
         name = "wan";
-        network = [ "wan" "wan6" ];
+        network = ["wan" "wan6"];
         input = "REJECT";
         output = "ACCEPT";
         forward = "REJECT";
@@ -77,7 +76,7 @@
         dhcpv4 = "server";
         dhcpv6 = "server";
         ra = "server";
-        ra_flags = [ "managed-config" "other-config" ];
+        ra_flags = ["managed-config" "other-config"];
         ignore = false;
       };
     };

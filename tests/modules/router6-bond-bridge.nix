@@ -12,36 +12,43 @@
 # 9. Non-bridged VLANs have their own IP
 # 10. DHCP/DHCPv6 through bridge
 # 11. End-to-end connectivity
-
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
+{
+  pkgs ? import <nixpkgs> {},
+  lib ? pkgs.lib,
 }:
-
 pkgs.testers.nixosTest {
   name = "router6-bond-bridge";
 
   nodes = {
-    router = { config, pkgs, ... }: {
-      imports = [ ../../modules/router6 ];
+    router = {
+      config,
+      pkgs,
+      ...
+    }: {
+      imports = [../../modules/router6];
 
       # Virtual network setup - eth0 is WAN, eth1/eth2 for bonding, VLAN 10 for bridge
-      virtualisation.vlans = [ 1 2 10 ];
+      virtualisation.vlans = [1 2 10];
 
       router6 = {
         enable = true;
         ulaPrefix = "fdc6:55f2:0a5e::/48";
 
         zones = {
-          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          external = {
+            icmpEcho = "disable";
+            accessTo = [];
+            inputRules = [];
+          };
           management = {
             icmpEcho = "enable";
-            accessTo = [ "management" "trusted" "external" ];
-            inputRules = [{ verdict = "accept"; }];
+            accessTo = ["management" "trusted" "external"];
+            inputRules = [{verdict = "accept";}];
           };
           trusted = {
             icmpEcho = "enable";
-            accessTo = [ "management" "trusted" "external" ];
-            inputRules = [{ verdict = "accept"; }];
+            accessTo = ["management" "trusted" "external"];
+            inputRules = [{verdict = "accept";}];
           };
         };
 
@@ -81,7 +88,7 @@ pkgs.testers.nixosTest {
             vlans = {
               vlan10 = {
                 tag = 10;
-                network.type = "disabled";  # Will be bridged
+                network.type = "disabled"; # Will be bridged
               };
               vlan20 = {
                 tag = 20;
@@ -99,7 +106,7 @@ pkgs.testers.nixosTest {
           # Physical interface on the client network (VLAN 10)
           eth3 = {
             hardwareName = "eth3";
-            network.type = "disabled";  # No IP, will be bridged
+            network.type = "disabled"; # No IP, will be bridged
           };
 
           # Bridge with VLAN from bond and physical interface
@@ -109,7 +116,7 @@ pkgs.testers.nixosTest {
             network = {
               type = "static";
               addresses = ["10.0.10.1/24"];
-              subnetId = 10;  # Should generate fdc6:55f2:0a5e:a::1/64
+              subnetId = 10; # Should generate fdc6:55f2:0a5e:a::1/64
               zone = "management";
               dhcp.enable = true;
               dhcp6.enable = true;
@@ -119,7 +126,7 @@ pkgs.testers.nixosTest {
       };
     };
 
-    client = { ... }: {
+    client = {...}: {
       virtualisation.vlans = [10];
       networking = {
         useDHCP = false;

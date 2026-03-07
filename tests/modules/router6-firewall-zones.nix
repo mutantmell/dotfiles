@@ -29,17 +29,21 @@
 # 20.  network → router: SSH blocked
 # 21.  network → any: no forwarding
 # 22.  management → external: forwardRules (HTTP/S allowed, SSH blocked)
-
-{ pkgs ? import <nixpkgs> { }
-, lib ? pkgs.lib
+{
+  pkgs ? import <nixpkgs> {},
+  lib ? pkgs.lib,
 }:
-
 pkgs.testers.nixosTest {
   name = "router6-firewall-zones";
 
   nodes = {
-    router = { config, pkgs, lib, ... }: {
-      imports = [ ../../modules/router6 ];
+    router = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      imports = [../../modules/router6];
 
       # Virtual network setup:
       # eth1 (vlan1) = WAN/external (203.0.113.0/24)
@@ -48,51 +52,89 @@ pkgs.testers.nixosTest {
       # eth4 (vlan4) = untrusted   (10.0.30.0/24)
       # eth5 (vlan5) = isolated    (10.0.40.0/24)
       # eth6 (vlan6) = network     (10.0.50.0/24)
-      virtualisation.vlans = [ 1 2 3 4 5 6 ];
+      virtualisation.vlans = [1 2 3 4 5 6];
 
       router6 = {
         enable = true;
         ulaPrefix = "fdc6:55f2:0a5e::/48";
 
         zones = {
-          external = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          external = {
+            icmpEcho = "disable";
+            accessTo = [];
+            inputRules = [];
+          };
           network = {
             icmpEcho = "enable";
             accessTo = [];
             inputRules = [
-              { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+              {
+                udp.dport = 123;
+                verdict = "accept";
+                comment = "NTP";
+              }
             ];
           };
           management = {
             icmpEcho = "enable";
-            accessTo = [ "management" "trusted" "untrusted" ];
+            accessTo = ["management" "trusted" "untrusted"];
             forwardRules.external = [
-              { udp.dport = 53; verdict = "accept"; comment = "DNS recursive queries"; }
-              { tcp.dport = 53; verdict = "accept"; comment = "DNS recursive queries (TCP)"; }
-              { tcp.dport = 80; verdict = "accept"; comment = "HTTP for package mirrors"; }
-              { tcp.dport = 443; verdict = "accept"; comment = "HTTPS for updates"; }
-              { udp.dport = 123; verdict = "accept"; comment = "NTP"; }
+              {
+                udp.dport = 53;
+                verdict = "accept";
+                comment = "DNS recursive queries";
+              }
+              {
+                tcp.dport = 53;
+                verdict = "accept";
+                comment = "DNS recursive queries (TCP)";
+              }
+              {
+                tcp.dport = 80;
+                verdict = "accept";
+                comment = "HTTP for package mirrors";
+              }
+              {
+                tcp.dport = 443;
+                verdict = "accept";
+                comment = "HTTPS for updates";
+              }
+              {
+                udp.dport = 123;
+                verdict = "accept";
+                comment = "NTP";
+              }
             ];
-            inputRules = [{ verdict = "accept"; }];
+            inputRules = [{verdict = "accept";}];
           };
           trusted = {
             icmpEcho = "enable";
-            accessTo = [ "management" "trusted" "untrusted" "external" ];
-            inputRules = [{ verdict = "accept"; }];
+            accessTo = ["management" "trusted" "untrusted" "external"];
+            inputRules = [{verdict = "accept";}];
           };
           untrusted = {
             icmpEcho = "enable";
-            accessTo = [ "external" ];
+            accessTo = ["external"];
             inputRules = [
-              { udp.dport = [ 53 67 547 ]; verdict = "accept"; }
-              { tcp.dport = 53; verdict = "accept"; }
+              {
+                udp.dport = [53 67 547];
+                verdict = "accept";
+              }
+              {
+                tcp.dport = 53;
+                verdict = "accept";
+              }
             ];
           };
-          isolated = { icmpEcho = "disable"; accessTo = []; inputRules = []; };
+          isolated = {
+            icmpEcho = "disable";
+            accessTo = [];
+            inputRules = [];
+          };
         };
 
         dns = {
-          upstream = [ "1.1.1.1" ];
+          upstream = ["1.1.1.1"];
           useDHCPFallback = false;
           localDomain = "test.local";
         };
@@ -102,7 +144,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth1";
             network = {
               type = "static";
-              addresses = [ "203.0.113.1/24" ];
+              addresses = ["203.0.113.1/24"];
               zone = "external";
               nat.enable = true;
             };
@@ -111,7 +153,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth2";
             network = {
               type = "static";
-              addresses = [ "10.0.10.1/24" ];
+              addresses = ["10.0.10.1/24"];
               zone = "management";
               dhcp.enable = true;
             };
@@ -120,7 +162,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth3";
             network = {
               type = "static";
-              addresses = [ "10.0.20.1/24" ];
+              addresses = ["10.0.20.1/24"];
               zone = "trusted";
               dhcp.enable = true;
             };
@@ -129,7 +171,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth4";
             network = {
               type = "static";
-              addresses = [ "10.0.30.1/24" ];
+              addresses = ["10.0.30.1/24"];
               zone = "untrusted";
               dhcp.enable = true;
             };
@@ -138,7 +180,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth5";
             network = {
               type = "static";
-              addresses = [ "10.0.40.1/24" ];
+              addresses = ["10.0.40.1/24"];
               zone = "isolated";
             };
           };
@@ -146,7 +188,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth6";
             network = {
               type = "static";
-              addresses = [ "10.0.50.1/24" ];
+              addresses = ["10.0.50.1/24"];
               zone = "network";
             };
           };
@@ -155,73 +197,133 @@ pkgs.testers.nixosTest {
     };
 
     # Management node
-    mgmt = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 2 ];
+    mgmt = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [2];
       networking = {
         useDHCP = false;
-        interfaces.eth1.ipv4.addresses = [{ address = "10.0.10.100"; prefixLength = 24; }];
+        interfaces.eth1.ipv4.addresses = [
+          {
+            address = "10.0.10.100";
+            prefixLength = 24;
+          }
+        ];
         defaultGateway = "10.0.10.1";
       };
-      environment.systemPackages = with pkgs; [ netcat-gnu ];
+      environment.systemPackages = with pkgs; [netcat-gnu];
     };
 
     # Trusted node
-    trusted = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 3 ];
+    trusted = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [3];
       networking = {
         useDHCP = false;
-        interfaces.eth1.ipv4.addresses = [{ address = "10.0.20.100"; prefixLength = 24; }];
+        interfaces.eth1.ipv4.addresses = [
+          {
+            address = "10.0.20.100";
+            prefixLength = 24;
+          }
+        ];
         defaultGateway = "10.0.20.1";
       };
-      environment.systemPackages = with pkgs; [ netcat-gnu ];
+      environment.systemPackages = with pkgs; [netcat-gnu];
     };
 
     # Guest/untrusted node
-    guest = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 4 ];
+    guest = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [4];
       networking = {
         useDHCP = false;
-        interfaces.eth1.ipv4.addresses = [{ address = "10.0.30.100"; prefixLength = 24; }];
+        interfaces.eth1.ipv4.addresses = [
+          {
+            address = "10.0.30.100";
+            prefixLength = 24;
+          }
+        ];
         defaultGateway = "10.0.30.1";
       };
-      environment.systemPackages = with pkgs; [ netcat-gnu ];
+      environment.systemPackages = with pkgs; [netcat-gnu];
     };
 
     # Isolated node
-    isolated = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 5 ];
+    isolated = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [5];
       networking = {
         useDHCP = false;
-        interfaces.eth1.ipv4.addresses = [{ address = "10.0.40.100"; prefixLength = 24; }];
+        interfaces.eth1.ipv4.addresses = [
+          {
+            address = "10.0.40.100";
+            prefixLength = 24;
+          }
+        ];
         defaultGateway = "10.0.40.1";
       };
-      environment.systemPackages = with pkgs; [ netcat-gnu ];
+      environment.systemPackages = with pkgs; [netcat-gnu];
     };
 
     # Network gear node (APs, switches)
-    netgear = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 6 ];
+    netgear = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [6];
       networking = {
         useDHCP = false;
-        interfaces.eth1.ipv4.addresses = [{ address = "10.0.50.100"; prefixLength = 24; }];
+        interfaces.eth1.ipv4.addresses = [
+          {
+            address = "10.0.50.100";
+            prefixLength = 24;
+          }
+        ];
         defaultGateway = "10.0.50.1";
       };
-      environment.systemPackages = with pkgs; [ netcat-gnu ];
+      environment.systemPackages = with pkgs; [netcat-gnu];
     };
 
     # External attacker node
-    attacker = { config, pkgs, lib, ... }: {
-      virtualisation.vlans = [ 1 ];
+    attacker = {
+      config,
+      pkgs,
+      lib,
+      ...
+    }: {
+      virtualisation.vlans = [1];
       networking = {
         useDHCP = false;
         enableIPv6 = false;
-        interfaces.eth1.ipv4.addresses = [{ address = "203.0.113.100"; prefixLength = 24; }];
+        interfaces.eth1.ipv4.addresses = [
+          {
+            address = "203.0.113.100";
+            prefixLength = 24;
+          }
+        ];
       };
       boot.kernel.sysctl = {
         "net.ipv6.conf.all.disable_ipv6" = 1;
         "net.ipv6.conf.default.disable_ipv6" = 1;
       };
-      environment.systemPackages = with pkgs; [ netcat-gnu ];
+      environment.systemPackages = with pkgs; [netcat-gnu];
     };
   };
 
