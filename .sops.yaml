@@ -13,67 +13,129 @@ keys:
   - &sv_calvard age1jnpyg8chayw6l9wfx209hvkddq9cult3qdyuf7trljs6t5vf3czseu8qlm
   - &sv_ymir age1anrdj6swtlq5ll4e369gz3lh6aj2sz6pj5zh25uhltjfk4z86azsfsxk9a
   - &sv_thebeyond age1xvkjw03zrcy38rxmlhawzqdzlm34cx98mc42v5caautaauj8dd5qddg9hm
+
+  # erebonia microVM guests
+  - &sv_roer PLACEHOLDER
+  - &sv_legram PLACEHOLDER
+  - &sv_saint-arkh PLACEHOLDER
+
+  # calvard microVM guests
+  - &sv_edith PLACEHOLDER
+  - &sv_basel PLACEHOLDER
+  - &sv_langport PLACEHOLDER
+  - &sv_tharbad PLACEHOLDER
+  - &sv_creil PLACEHOLDER
+
+  # Incus guests
+  - &sv_messeldam PLACEHOLDER
+
 creation_rules:
-  - path_regex: hosts/thebeyond/guests/phantasma/secrets/[^/]+\.yaml$
+  # thebeyond
+  - path_regex: hosts/thebeyond/microvm/guests/phantasma/secrets/[^/]+\.yaml$
     key_groups:
       - age:
         - *ad_denai
         - *sv_phantasma
-  - path_regex: hosts/remiferia/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_remiferia
-  - path_regex: hosts/remiferia/guests/ardent/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_ardent
-  - path_regex: hosts/remiferia/guests/denai/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_denai
-  - path_regex: hosts/erebonia/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_erebonia
-  - path_regex: hosts/erebonia/guests/ordis/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_ordis
-  - path_regex: hosts/erebonia/guests/ymir/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_ymir
-  - path_regex: hosts/azoth/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_azoth
-  - path_regex: hosts/calvard/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_calvard
-  - path_regex: hosts/calvard/guests/heimdallr/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_heimdallr
-  - path_regex: hosts/calvard/guests/trista/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-        - *ad_denai
-        - *sv_trista
   - path_regex: hosts/thebeyond/secrets/[^/]+\.yaml$
     key_groups:
       - age:
         - *ad_denai
         - *sv_thebeyond
+
+  # remiferia
+  - path_regex: hosts/remiferia/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_remiferia
+  - path_regex: hosts/remiferia/microvm/guests/ardent/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_ardent
+  - path_regex: hosts/remiferia/microvm/guests/denai/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_denai
+
+  # erebonia
+  - path_regex: hosts/erebonia/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_erebonia
+  - path_regex: hosts/erebonia/microvm/guests/ordis/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_ordis
+  - path_regex: hosts/erebonia/microvm/guests/ymir/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_ymir
+  - path_regex: hosts/erebonia/microvm/guests/roer/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_roer
+  - path_regex: hosts/erebonia/microvm/guests/legram/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_legram
+  - path_regex: hosts/erebonia/microvm/guests/saint-arkh/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_saint-arkh
+  - path_regex: hosts/erebonia/incus/guests/trista/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_trista
+
+  # calvard
+  - path_regex: hosts/calvard/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_calvard
+  - path_regex: hosts/calvard/microvm/guests/edith/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_edith
+  - path_regex: hosts/calvard/microvm/guests/basel/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_basel
+  - path_regex: hosts/calvard/microvm/guests/langport/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_langport
+  - path_regex: hosts/calvard/microvm/guests/tharbad/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_tharbad
+  - path_regex: hosts/calvard/incus/guests/messeldam/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_messeldam
+
+  # azoth
+  - path_regex: hosts/azoth/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+        - *ad_denai
+        - *sv_azoth
+
+  # OpenWrt
   - path_regex: hosts/openwrt/secrets/[^/]+\.yaml$
     key_groups:
       - age:

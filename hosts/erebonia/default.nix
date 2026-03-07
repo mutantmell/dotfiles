@@ -9,6 +9,7 @@ in {
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
   imports = [
     ./hardware-configuration.nix
+    (import ../../profiles/disko/vm-host.nix { disk = "/dev/sda"; })
     ./impermanence.nix
     ./microvm
     ./incus
