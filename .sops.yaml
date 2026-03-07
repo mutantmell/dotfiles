@@ -24,6 +24,7 @@ keys:
   - &sv_basel PLACEHOLDER
   - &sv_langport PLACEHOLDER
   - &sv_tharbad PLACEHOLDER
+  - &sv_oracion PLACEHOLDER
   - &sv_creil PLACEHOLDER
 
   # Incus guests
