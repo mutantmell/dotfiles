@@ -1,43 +1,43 @@
 { config, pkgs, lib, ... }:
 
 {
-  # Enable Incus instance management with auto-updates
-  incus-manager = {
+  common.incus = {
     enable = true;
-    flakePath = "/persist/dotfiles";
+    guestDir = ./guests;
+  };
 
-    # Storage configuration
-    storage = {
+  # Preseed via NixOS built-in — storage, networks, profiles
+  virtualisation.incus.preseed = {
+    storage_pools = [{
+      name = "default";
       driver = "zfs";
-      pool = "default";
-      source = "persist/incus";  # ZFS dataset for Incus storage
-    };
+      config.source = "persist/incus";
+    }];
 
-    # Network configuration
-    networks = {
-      # Use existing bridge br20 for VM network (VLAN 20 - trusted)
-      incusbr20 = {
+    networks = [
+      {
+        name = "incusbr20";
         type = "bridge";
-        bridge = "br20";
-        ipv4 = null;
-        ipv6 = null;
-        nat = false;
-      };
-
-      # Use existing bridge br100 for DMZ VMs (VLAN 100)
-      incusbr100 = {
+        config = {
+          "bridge.external_interfaces" = "br20";
+          "ipv4.address" = "none";
+          "ipv6.address" = "none";
+        };
+      }
+      {
+        name = "incusbr100";
         type = "bridge";
-        bridge = "br100";
-        ipv4 = null;
-        ipv6 = null;
-        nat = false;
-      };
-    };
+        config = {
+          "bridge.external_interfaces" = "br100";
+          "ipv4.address" = "none";
+          "ipv6.address" = "none";
+        };
+      }
+    ];
 
-    # Profiles
-    profiles = {
-      # Profile for development VMs (trusted VLAN)
-      dev = {
+    profiles = [
+      {
+        name = "dev";
         description = "Development VM profile";
         config = {
           "limits.cpu" = "4";
@@ -52,18 +52,7 @@
             size = "50GB";
           };
         };
-      };
-    };
-
-    # VM definitions
-    virtualMachines = {
-      # messeldam — Dev environment / task runner (VLAN 20, trusted)
-      messeldam = {
-        autoUpdate = true;
-        profile = "dev";
-        network = "incusbr20";
-        autoStart = true;
-      };
-    };
+      }
+    ];
   };
 }

@@ -1,43 +1,43 @@
 { config, pkgs, lib, ... }:
 
 {
-  # Enable Incus instance management with auto-updates
-  incus-manager = {
+  common.incus = {
     enable = true;
-    flakePath = "/persist/dotfiles";
+    guestDir = ./guests;
+  };
 
-    # Storage configuration
-    storage = {
+  # Preseed via NixOS built-in — storage, networks, profiles
+  virtualisation.incus.preseed = {
+    storage_pools = [{
+      name = "default";
       driver = "zfs";
-      pool = "default";
-      source = "persist/incus";  # ZFS dataset for Incus storage
-    };
+      config.source = "persist/incus";
+    }];
 
-    # Network configuration
-    networks = {
-      # Use existing bridge br20 for VM network (VLAN 20 - trusted)
-      incusbr20 = {
+    networks = [
+      {
+        name = "incusbr20";
         type = "bridge";
-        bridge = "br20";
-        ipv4 = null;
-        ipv6 = null;
-        nat = false;
-      };
-
-      # Use existing bridge br100 for DMZ VMs (VLAN 100)
-      incusbr100 = {
+        config = {
+          "bridge.external_interfaces" = "br20";
+          "ipv4.address" = "none";
+          "ipv6.address" = "none";
+        };
+      }
+      {
+        name = "incusbr100";
         type = "bridge";
-        bridge = "br100";
-        ipv4 = null;
-        ipv6 = null;
-        nat = false;
-      };
-    };
+        config = {
+          "bridge.external_interfaces" = "br100";
+          "ipv4.address" = "none";
+          "ipv6.address" = "none";
+        };
+      }
+    ];
 
-    # Profiles
-    profiles = {
-      # Profile for development VMs
-      dev = {
+    profiles = [
+      {
+        name = "dev";
         description = "Development VM profile";
         config = {
           "limits.cpu" = "4";
@@ -52,10 +52,9 @@
             size = "50GB";
           };
         };
-      };
-
-      # Profile for DMZ virtual machines
-      dmz-vm = {
+      }
+      {
+        name = "dmz-vm";
         description = "DMZ virtual machine profile";
         config = {
           "limits.cpu" = "4";
@@ -69,21 +68,7 @@
             size = "50GB";
           };
         };
-      };
-    };
-
-    # Virtual machine definitions
-    virtualMachines = {
-      # trista — Dev environment / task runner (VLAN 100, DMZ)
-      trista = {
-        autoUpdate = true;
-        profile = "dmz-vm";
-        network = "incusbr100";
-        autoStart = true;
-      };
-    };
+      }
+    ];
   };
-
-  # Add user to incus-admin group for instance management
-  # users.users.youruser.extraGroups = [ "incus-admin" ];
 }

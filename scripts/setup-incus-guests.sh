@@ -46,8 +46,8 @@ for guest in $(ls "$INCUS_GUEST_DIR"); do
     echo "  $guest: restarting sshd..."
     ssh "$TARGET" "incus exec ${guest} -- systemctl restart sshd"
 
-    echo "  $guest: triggering nixos-rebuild to activate sops secrets..."
-    ssh "$TARGET" "incus exec ${guest} -- nixos-rebuild switch 2>&1 | tail -1" || true
+    echo "  $guest: triggering update to activate sops secrets..."
+    ssh "$TARGET" "incus-update-instance ${guest}" || true
 
     echo "  $guest: done"
 done

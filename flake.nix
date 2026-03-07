@@ -27,7 +27,11 @@
       url = github:microvm-nix/microvm.nix;
       inputs.nixpkgs.follows = "nixpkgs-stable";
     };
-    impermanence.url = github:nix-community/impermanence;
+    impermanence = {
+      url = github:nix-community/impermanence;
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.home-manager.follows = "home-manager";
+    };
     disko = {
       url = github:nix-community/disko;
       inputs.nixpkgs.follows = "nixpkgs";
@@ -106,10 +110,11 @@
       packages = final: prev: {
         mmell = (prev.mmell or {}) // self.packages.${prev.stdenv.hostPlatform.system};
       };
+
       lib = final: prev: {
         mmell = (prev.mmell or {}) // {
           lib = self.lib.common // {
-            builders = { inherit (self.lib) mk-microvm; };
+            builders = { inherit (self.lib) mk-microvm mk-incus-vm mk-incus-container; };
             inherit (self.lib) diskoProfiles;
           };
         };
@@ -139,6 +144,7 @@
           self.nixosModules.common
           self.nixosModules."promtail-client"
           sops-nix.nixosModules.sops
+          impermanence.nixosModules.impermanence
         ] ++ args.modules;
       };
       mk-home-config = args @ { nixpkgs, system, ... }: let
@@ -162,6 +168,42 @@
           self.nixosModules."promtail-client"
         ];
       }];
+      mk-incus-vm = guestModule: nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          guestModule
+          sops-nix.nixosModules.sops
+          impermanence.nixosModules.impermanence
+          self.nixosModules.common
+          self.nixosModules."promtail-client"
+          ./modules/incus/guest-options.nix
+          "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
+          {
+            nixpkgs = {
+              overlays = builtins.attrValues self.overlays;
+              config.allowUnfree = true;
+            };
+          }
+        ];
+      };
+      mk-incus-container = guestModule: nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          guestModule
+          sops-nix.nixosModules.sops
+          impermanence.nixosModules.impermanence
+          self.nixosModules.common
+          self.nixosModules."promtail-client"
+          ./modules/incus/guest-options.nix
+          "${nixpkgs}/nixos/modules/virtualisation/lxc-container.nix"
+          {
+            nixpkgs = {
+              overlays = builtins.attrValues self.overlays;
+              config.allowUnfree = true;
+            };
+          }
+        ];
+      };
     };
 
     nixosConfigurations = {
@@ -171,8 +213,7 @@
         modules = [
           disko.nixosModules.disko
           self.nixosModules.router6
-          microvm-stable.nixosModules.host
-          impermanence.nixosModules.impermanence
+          microvm.nixosModules.host
           ./hosts/thebeyond
         ];
       };
@@ -185,7 +226,6 @@
           self.nixosModules.router6
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
-          impermanence.nixosModules.impermanence
           self.nixosModules.incus
           ./hosts/calvard
         ];
@@ -204,29 +244,13 @@
         system = "x86_64-linux";
         modules = [
           disko.nixosModules.disko
-          impermanence.nixosModules.impermanence
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
           self.nixosModules.incus
           ./hosts/erebonia
         ];
       };
-      messeldam = self.lib.mk-nixos {
-        inherit nixpkgs;
-        system = "x86_64-linux";
-        modules = [
-          "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
-          ./hosts/calvard/incus/guests/messeldam
-        ];
-      };
-      trista = self.lib.mk-nixos {
-        inherit nixpkgs;
-        system = "x86_64-linux";
-        modules = [
-          "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
-          ./hosts/erebonia/incus/guests/trista
-        ];
-      };
+
 #      azoth = self.lib.mk-nixos {
 #        inherit nixpkgs;
 #        system = "aarch64-linux";
