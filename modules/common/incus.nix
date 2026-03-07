@@ -26,14 +26,20 @@ in {
         mkGuestSystem = name: _type: let
           guestModule = import (cfg.guestDir + "/${name}");
 
-          # Build with the VM builder first to probe incus-guest.type.
-          # The VM builder includes all standard modules (sops, common, etc.)
-          # so the guest config can reference common.* options.
+          # Two-pass type probing: we need to read incus-guest.type from the
+          # evaluated guest config to decide which builder to use, but guest
+          # configs reference common.* options (e.g. common.openssh) that
+          # require the full module set — so we can't use a lightweight
+          # evaluation. Instead, we build with the VM builder first (which
+          # includes all standard modules) just to read the guest metadata.
+          # If the guest turns out to be a container, we rebuild with the
+          # container builder. Nix's laziness ensures that VM-specific build
+          # artifacts (qcow2 images, etc.) are never materialized for
+          # container guests — only the config.incus-guest attrset is forced.
           vmSystem = pkgs.mmell.lib.builders.mk-incus-vm guestModule;
           guestType = vmSystem.config.incus-guest.type;
           guestMeta = vmSystem.config.incus-guest;
 
-          # If the guest is actually a container, rebuild with the container builder
           builtSystem = if guestType == "vm"
             then vmSystem
             else pkgs.mmell.lib.builders.mk-incus-container guestModule;

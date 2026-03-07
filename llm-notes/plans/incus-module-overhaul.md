@@ -246,3 +246,51 @@ ssh "$TARGET" "incus-update-instance ${guest}" || true
 3. `nix build .#checks.x86_64-linux.incus-container --print-build-logs` — container test passes
 4. `nix build .#checks.x86_64-linux.incus-vm --print-build-logs` — VM test passes
 5. `nix flake check --print-build-logs` — all existing tests still pass
+
+---
+
+## Addendum: Implementation Notes
+
+*Added after implementation was complete.*
+
+### Deviations from Plan
+
+**Builders use `nixosSystem` instead of `mkMerge`.**
+The plan proposed `mk-incus-vm` and `mk-incus-container` as passive `mkMerge` mergers (like `mk-microvm`). This doesn't work because `nixosSystem` expects a list of modules, not a merged attrset — and incus guests need a fully-evaluated NixOS system (with `config.system.build.toplevel`, `config.system.build.qemuImage`, etc.) that the top-level module can reference at eval time to build images and update scripts. The microvm pattern works differently because `microvm.vms.<name>.config` accepts the merged attrset directly. The incus builders were implemented as full `nixosSystem` calls instead.
+
+**`qemuPackage` option dropped.**
+The plan included an `incus-manager.qemuPackage` option to work around upstream QEMU breakage. During implementation we discovered that `pkgs.incus.override { qemu_kvm = ... }` is not supported — incus doesn't expose that argument. The option was removed entirely.
+
+**VM test skips `incus exec`.**
+The plan specified both tests should verify `incus exec` succeeds. The VM test can't do this because nested virtualization in the NixOS test VM doesn't fully boot the guest OS (QEMU starts and incus reports RUNNING, but the incus-agent inside the guest never comes up). The VM test verifies image import → create → RUNNING status only.
+
+**Two-pass guest type probing.**
+The plan didn't specify how `common/incus.nix` should determine guest type. Since guest configs reference `common.*` options (e.g. `common.openssh`), they can't be evaluated with a bare `nixosSystem` — they need the full module set. The implementation builds with the VM builder first to probe `incus-guest.type`, then rebuilds with the container builder only if needed. Nix's lazy evaluation means the VM build artifacts are never materialized for container guests.
+
+### Additional Work: Impermanence Refactor
+
+During implementation, the accumulation of `options ? environment && options.environment ? persistence` guards across common modules became untenable. A mid-project refactor was done:
+
+- **`modules/common/impermanence.nix`** created — centralizes the `/persist` convention with `common.impermanence.{enable, persistDir}` options and baseline persistent paths (machine-id, SSH host keys, logs, etc.).
+- **`impermanence.nixosModules.impermanence`** added to all builders (`mk-nixos`, `mk-microvm`, `mk-incus-vm`, `mk-incus-container`) so the `environment.persistence` option schema is always available. This lets common modules use plain `mkIf` instead of `optionalAttrs` guards.
+- **Host impermanence configs simplified** — calvard, erebonia, and thebeyond now set `common.impermanence.enable = true` and only add host-specific extras (initrd SSH keys, ZFS rollback).
+- **`microvm.nix`** updated to use `impCfg.persistDir` instead of hardcoded `"/persist"`.
+
+### Files Modified (final)
+
+In addition to the files listed in the plan:
+
+| File | Action |
+|------|--------|
+| `modules/common/impermanence.nix` | **New** — common impermanence module |
+| `hosts/calvard/impermanence.nix` | **Simplified** — uses `common.impermanence` |
+| `hosts/erebonia/impermanence.nix` | **Simplified** — uses `common.impermanence` |
+| `hosts/thebeyond/impermanence.nix` | **Simplified** — uses `common.impermanence` |
+
+### Verification Results
+
+All verification steps pass:
+1. calvard toplevel builds ✅
+2. erebonia toplevel builds ✅
+3. incus-container test passes ✅
+4. incus-vm test passes ✅

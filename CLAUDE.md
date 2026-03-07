@@ -64,8 +64,10 @@ This is a NixOS flake-based infrastructure project managing a home network with 
 
 ### Flake Structure
 
-- `lib.mk-nixos` — Builds NixOS systems with overlays, sops-nix, and common module.
+- `lib.mk-nixos` — Builds NixOS systems with overlays, sops-nix, impermanence, and common module.
 - `lib.mk-microvm` — Builds microVM guests with sops-nix, impermanence, and common module.
+- `lib.mk-incus-vm` — Builds Incus VM guests with sops-nix, impermanence, common module, and `incus-virtual-machine.nix`.
+- `lib.mk-incus-container` — Builds Incus container guests with sops-nix, impermanence, common module, and `lxc-container.nix`.
 - Overlays expose custom packages as `pkgs.mmell.*` and library as `pkgs.mmell.lib.*`.
 - All modules in `modules/` are auto-discovered via `builtins.readDir`.
 
