@@ -40,7 +40,7 @@
       mask-opt = builtins.tail split-cidr;
     in
       {
-        ip = ip;
+        inherit ip;
       }
       // lib.attrsets.optionalAttrs (mask-opt != []) {
         mask = lib.toInt (builtins.head mask-opt);
@@ -72,7 +72,7 @@
 
     # Get first IPv4 address from a list of addresses
     firstIPv4 = addrs: let
-      v4 = lib.filter (a: isIPv4 a) addrs;
+      v4 = lib.filter isIPv4 addrs;
     in
       if v4 == []
       then null
@@ -80,7 +80,7 @@
 
     # Get first IPv6 address from a list of addresses
     firstIPv6 = addrs: let
-      v6 = lib.filter (a: isIPv6 a) addrs;
+      v6 = lib.filter isIPv6 addrs;
     in
       if v6 == []
       then null

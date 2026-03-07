@@ -25,7 +25,7 @@
   runTests = tests: let
     results = map (t: t.check) tests;
   in
-    builtins.all (x: x == true) results;
+    builtins.all (x: x) results;
 
   tests = [
     # ==================

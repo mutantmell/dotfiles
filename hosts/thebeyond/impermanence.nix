@@ -1,5 +1,5 @@
 {config, ...}: let
-  persistDir = config.common.impermanence.persistDir;
+  inherit (config.common.impermanence) persistDir;
 in {
   common.impermanence.enable = true;
 

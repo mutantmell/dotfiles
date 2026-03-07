@@ -190,7 +190,7 @@
     "meshAP has mesh interface" = meshConfig.wireless ? batmesh;
     "meshAP batmesh has encryption" = meshConfig.wireless.batmesh.encryption == "sae";
     "meshAP has he_bss_color" = meshConfig.wireless.radio1.he_bss_color == 42;
-    "meshAP has legacy_rates" = meshConfig.wireless.radio0.legacy_rates == true;
+    "meshAP has legacy_rates" = meshConfig.wireless.radio0.legacy_rates;
 
     "meshAP lan addresses use HOME VLAN" =
       assertEq "meshAP lan addresses"
@@ -208,7 +208,7 @@
       (owrtData.mkGateway owrtData.meshVlans.HOME.tag);
 
     "meshAP dropbear disables password auth" =
-      meshConfig.dropbear.main.PasswordAuth == false;
+      !meshConfig.dropbear.main.PasswordAuth;
 
     # Mesh AP with extra config
     "meshAP extra config merged" = meshExtraConfig.network ? custom;
@@ -262,7 +262,7 @@
     "router WAN proto is dhcp" = routerConfig.network.wan.proto == "dhcp";
     "router has br-lan bridge" = routerConfig.network ? br_lan;
     "router br-lan is bridge" = routerConfig.network.br_lan.type == "bridge";
-    "router br-lan has vlan_filtering" = routerConfig.network.br_lan.vlan_filtering == true;
+    "router br-lan has vlan_filtering" = routerConfig.network.br_lan.vlan_filtering;
 
     # Router bridge-VLAN entries
     "router has MGMT bridge-vlan" = routerConfig.network ? brvlan_mgmt;
@@ -291,7 +291,7 @@
     # Router firewall
     "router firewall has defaults" = routerConfig.firewall ? defaults;
     "router firewall has WAN zone" = routerConfig.firewall ? zone_wan;
-    "router firewall WAN masq" = routerConfig.firewall.zone_wan.masq == true;
+    "router firewall WAN masq" = routerConfig.firewall.zone_wan.masq;
     "router firewall has LAN zone" = routerConfig.firewall ? zone_lan;
     "router firewall LAN covers VLANs" =
       builtins.isList routerConfig.firewall.zone_lan.network;
@@ -349,10 +349,10 @@
     "router ap_2g_main ssid is a secret marker" = routerConfig.wireless.ap_2g_main.ssid ? _secret;
 
     # Radios must have disabled = false — fresh sysupgrade leaves radios off by default
-    "meshAP radio0 disabled=false" = meshConfig.wireless.radio0.disabled == false;
-    "meshAP radio1 disabled=false" = meshConfig.wireless.radio1.disabled == false;
-    "simpleAP radio0 disabled=false" = simpleAPConfig.wireless.radio0.disabled == false;
-    "router radio0 disabled=false" = routerConfig.wireless.radio0.disabled == false;
+    "meshAP radio0 disabled=false" = !meshConfig.wireless.radio0.disabled;
+    "meshAP radio1 disabled=false" = !meshConfig.wireless.radio1.disabled;
+    "simpleAP radio0 disabled=false" = !simpleAPConfig.wireless.radio0.disabled;
+    "router radio0 disabled=false" = !routerConfig.wireless.radio0.disabled;
 
     # Named sections (no _anonymous in generated config)
     "meshAP batmesh is named" = !(meshConfig.wireless.batmesh ? _anonymous);

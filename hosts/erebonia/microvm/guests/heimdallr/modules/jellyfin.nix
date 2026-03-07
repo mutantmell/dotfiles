@@ -134,7 +134,7 @@ in {
     {
       directory = "/var/lib/jellyfin";
       user = config.users.users.jellyfin.name;
-      group = config.users.users.jellyfin.group;
+      inherit (config.users.users.jellyfin) group;
     }
   ];
 }

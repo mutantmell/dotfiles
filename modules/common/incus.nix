@@ -51,9 +51,9 @@ in {
         in {
           type = guestType;
           system = builtSystem;
-          profile = guestMeta.profile;
-          network = guestMeta.network;
-          autoStart = guestMeta.autoStart;
+          inherit (guestMeta) profile;
+          inherit (guestMeta) network;
+          inherit (guestMeta) autoStart;
         };
       in {
         incus-manager.enable = true;
