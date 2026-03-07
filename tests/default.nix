@@ -1,6 +1,6 @@
 # Test runner for dotfiles
 #
-# Run all tests: nix flake check --print-build-logs
+# Run all tests: ./scripts/run-checks.sh (avoid `nix flake check` — OOM risk)
 # Run one: nix build .#checks.x86_64-linux.<name>
 # Run interactively: nix build .#checks.x86_64-linux.<name>.driverInteractive && ./result/bin/nixos-test-driver
 # Run unit tests: nix-instantiate --eval --strict tests/lib/<file>.nix

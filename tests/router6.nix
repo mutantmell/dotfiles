@@ -1,7 +1,7 @@
 # Permanent router6 tests
 #
 # These are stable tests for the router6 module that should always pass.
-# Run all: nix flake check
+# Run all: ./scripts/run-checks.sh
 # Run one: nix build .#checks.x86_64-linux.<name>
 
 { pkgs, lib }:
