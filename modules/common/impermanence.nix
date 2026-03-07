@@ -11,18 +11,21 @@ in {
       default = "/persist";
       description = "Top-level persistent directory for impermanence.";
     };
-  };
 
-  config = lib.mkIf cfg.enable {
-    environment.persistence.${cfg.persistDir} = {
-      hideMounts = true;
-      directories = [
+    directories = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
         "/etc/nixos"
         "/var/log"
         "/var/lib/nixos"
         "/var/lib/systemd/coredump"
       ];
-      files = [
+      description = "Baseline directories to persist.";
+    };
+
+    files = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
         "/etc/machine-id"
         "/etc/ssh/ssh_host_ed25519_key"
         "/etc/ssh/ssh_host_ed25519_key.pub"
@@ -30,6 +33,14 @@ in {
         "/etc/ssh/ssh_host_rsa_key.pub"
         "/root/.ssh/known_hosts"
       ];
+      description = "Baseline files to persist.";
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+    environment.persistence.${cfg.persistDir} = {
+      hideMounts = true;
+      inherit (cfg) directories files;
     };
 
     fileSystems.${cfg.persistDir}.neededForBoot = true;
