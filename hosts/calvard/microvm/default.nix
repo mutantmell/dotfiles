@@ -4,6 +4,9 @@ let
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost "calvard") host zone;
 in {
+  # Pin microvm UID for stable ownership in deploy scripts (kvm GID 302 is already stable)
+  users.users.microvm.uid = 300;
+
   microvm = rec {
     vms = builtins.mapAttrs (name: type: if type != "directory" then abort "invalid guest: ${name}" else {
       inherit pkgs;

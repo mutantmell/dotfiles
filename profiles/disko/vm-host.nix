@@ -1,6 +1,7 @@
 {
   disk ? "/dev/sda",
   tmpfs-size ? "2G",
+  key-file ? "/tmp/secret.key",
   ...
 }:
 {
@@ -41,7 +42,7 @@
     rootFsOptions = {
       encryption = "on";
       keyformat = "passphrase";
-      keylocation = "prompt";
+      keylocation = "file://${key-file}";
       compression = "zstd";
       mountpoint = "none";
     };

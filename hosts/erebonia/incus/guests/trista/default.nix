@@ -1,5 +1,9 @@
 { pkgs, config, lib, modulesPath, ... }:
 {
+  imports = [
+    ./sops.nix
+  ];
+
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   networking.hostName = "trista";

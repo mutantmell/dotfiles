@@ -181,6 +181,7 @@
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
+          disko.nixosModules.disko
           self.nixosModules.router6
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
@@ -202,6 +203,7 @@
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
+          disko.nixosModules.disko
           impermanence.nixosModules.impermanence
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
