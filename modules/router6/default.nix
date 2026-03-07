@@ -824,9 +824,6 @@ in {
       in
         explicit ++ (optional (autoV6 != null) autoV6);
 
-    # Interfaces that have dhcp6/RA enabled
-    dhcp6Interfaces = filter (i: i.network.dhcp6.enable or false) flattenTopology;
-
     # Convert IPv4 address string to 32-bit integer for stable Kea subnet IDs
     ipv4ToInt = ipStr: let
       octets = splitString "." ipStr;
@@ -901,6 +898,63 @@ in {
     keaSubnets =
       filter (x: x != null) (map mkKeaSubnet4
         (filter (i: i.network.dhcp.enable or false) flattenTopology));
+
+    # Build Kea subnet6 config for an interface
+    mkKeaSubnet6 = iface: let
+      effectiveAddrs = getEffectiveAddresses iface;
+      v6Addr = firstIPv6 effectiveAddrs;
+      parsed =
+        if v6Addr != null
+        then parseCIDR v6Addr
+        else null;
+      dhcp6Cfg = iface.network.dhcp6;
+    in
+      if parsed == null
+      then null
+      else let
+        # Extract network prefix: "fdc6:55f2:0a5e:a::1/64" -> "fdc6:55f2:0a5e:a::"
+        ipParts = lib.splitString "::" parsed.ip;
+        networkPrefix = "${head ipParts}::";
+        # Stable subnet ID from subnetId or VLAN tag, offset to avoid collision with v4 IDs
+        subnetIdNum =
+          if (iface.network.subnetId or null) != null
+          then iface.network.subnetId
+          else (iface.tag or 1);
+      in {
+        id = 100000 + subnetIdNum;
+        subnet = "${networkPrefix}/${toString parsed.prefix}";
+        interface = iface.name;
+        pools =
+          if dhcp6Cfg.mode == "stateful"
+          then [
+            {
+              # DHCPv6 pool: ::1000 through ::1fff (avoids ::1 gateway and SLAAC range)
+              pool = "${networkPrefix}1000-${networkPrefix}1fff";
+            }
+          ]
+          else []; # stateless mode: no address pool, only options
+        option-data =
+          [
+            {
+              name = "dns-servers";
+              data = parsed.ip;
+            }
+          ]
+          ++ optional (cfg.dns.localDomain != null) {
+            name = "domain-search";
+            data = cfg.dns.localDomain;
+          };
+      };
+
+    # Interfaces that need Kea DHCPv6 (stateful or stateless, not pure slaac)
+    dhcp6ServerInterfaces =
+      interfacesWhere (i:
+        (i.network.dhcp6.enable or false) && (i.network.dhcp6.mode or "slaac") != "slaac");
+
+    # Generate all Kea DHCPv6 subnets
+    keaSubnets6 =
+      filter (x: x != null) (map mkKeaSubnet6
+        (filter (i: (i.network.dhcp6.enable or false) && (i.network.dhcp6.mode or "slaac") != "slaac") flattenTopology));
 
     # ============================================================================
     # nftables Helpers
@@ -1181,11 +1235,15 @@ in {
             }
             // optionalAttrs (shouldSendRA && v6Addrs != []) {
               # IPv6 Router Advertisement configuration
-              ipv6SendRAConfig = {
-                # SLAAC mode: M=0 (no managed addresses), O=0 (no other config from DHCPv6)
-                # Clients will auto-configure addresses from the advertised prefix
-                Managed = false;
-                OtherInformation = false;
+              ipv6SendRAConfig = let
+                dhcp6Mode = network.dhcp6.mode or "slaac";
+              in {
+                # RA flags control whether clients use DHCPv6:
+                # slaac:     M=0, O=0 — SLAAC only, no DHCPv6
+                # stateless: M=0, O=1 — SLAAC for addresses, DHCPv6 for DNS/options
+                # stateful:  M=1, O=0 — DHCPv6 for addresses, SLAAC still runs for privacy
+                Managed = dhcp6Mode == "stateful";
+                OtherInformation = dhcp6Mode == "stateless";
                 RouterLifetimeSec = 1800;
                 # Advertise DNS server (the router's ULA address on this interface)
                 # Note: We use the ULA address instead of _link_local because kresd
@@ -1299,6 +1357,41 @@ in {
             loggers = [
               {
                 name = "kea-dhcp4";
+                output_options = [{output = "syslog";}];
+                severity = "INFO";
+              }
+            ];
+          };
+        };
+      })
+
+      # ===================
+      # Kea DHCP6 Server
+      # ===================
+      (mkIf (keaSubnets6 != []) {
+        services.kea.dhcp6 = {
+          enable = true;
+          settings = {
+            interfaces-config = {
+              interfaces = dhcp6ServerInterfaces;
+            };
+
+            lease-database = {
+              type = "memfile";
+              persist = true;
+              name = "/var/lib/kea/dhcp6.leases";
+            };
+
+            preferred-lifetime = 3600;
+            valid-lifetime = 7200;
+            renew-timer = 1800;
+            rebind-timer = 3600;
+
+            subnet6 = keaSubnets6;
+
+            loggers = [
+              {
+                name = "kea-dhcp6";
                 output_options = [{output = "syslog";}];
                 severity = "INFO";
               }
