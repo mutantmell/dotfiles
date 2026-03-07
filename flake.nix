@@ -437,18 +437,16 @@
       };
     };
 
-    # TODO: resolve the below mess. This is a hack that I don't think is necessary,
-    #       and prevents us from doing a simple integration of formatting into checks.
-    # Merge NixOS tests and deploy-rs checks
-    checks =
-      nixpkgs.lib.recursiveUpdate
-      (nixpkgs.lib.genAttrs ["x86_64-linux"] (system: let
-        pkgs = pkgsFor nixpkgs system;
-      in
-        import ./tests {
-          inherit pkgs;
-          lib = pkgs.lib;
-        }))
-      (builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib);
+    checks = forAllSystems ({
+      system,
+      pkgs,
+    }:
+      (import ./tests {
+        inherit pkgs;
+        lib = pkgs.lib;
+      })
+      // (nixpkgs.lib.optionalAttrs (deploy-rs.lib ? ${system})
+        (deploy-rs.lib.${system}.deployChecks self.deploy))
+      // {formatting = treefmtEval.${system}.config.build.check self;});
   };
 }
