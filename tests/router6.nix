@@ -15,6 +15,7 @@
   router6-device-vlans = import ./modules/router6-device-vlans.nix {inherit pkgs lib;};
   router6-bridge-vlan-ordering = import ./modules/router6-bridge-vlan-ordering.nix {inherit pkgs lib;};
   router6-wan-dhcp = import ./modules/router6-wan-dhcp.nix {inherit pkgs lib;};
+  router6-dhcpv6 = import ./modules/router6-dhcpv6.nix {inherit pkgs lib;};
   egress-filter = import ./modules/egress-filter.nix {inherit pkgs lib;};
 
   # Pure Nix evaluation tests
