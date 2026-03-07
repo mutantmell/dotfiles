@@ -11,6 +11,7 @@ in {
     ./hardware-configuration.nix
     (import ../../profiles/disko/vm-host.nix { disk = "/dev/sda"; })
     ./impermanence.nix
+    ./sops.nix
     ./microvm
     ./incus
   ];
