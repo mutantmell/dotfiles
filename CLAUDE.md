@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Run all checks (integration tests, unit tests, deploy checks)
-nix flake check --print-build-logs
+# Use run-checks.sh instead of `nix flake check` — the flake has ~66 NixOS
+# evaluations which OOM-kills `nix flake check` (single-process eval).
+./scripts/run-checks.sh              # sequential (safest)
+./scripts/run-checks.sh -j4          # up to 4 in parallel
+./scripts/run-checks.sh <name> ...   # run specific checks
 
 # Run a single check
 nix build .#checks.x86_64-linux.<name>
