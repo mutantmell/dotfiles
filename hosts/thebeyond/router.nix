@@ -384,7 +384,7 @@ in {
   # Persistence for router state
   # kea uses DynamicUser=true, so its state lives under /var/lib/private/kea
   # (systemd manages the /var/lib/kea -> /var/lib/private/kea symlink)
-  environment.persistence."/persist".directories = [
+  environment.persistence.${config.common.impermanence.persistDir}.directories = [
     "/var/lib/private/kea"
     "/var/lib/knot-resolver"
   ];

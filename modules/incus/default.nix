@@ -20,7 +20,7 @@ let
   cfg = config.incus-manager;
 
   inherit (lib) mkOption mkEnableOption types mkIf mkMerge
-    mapAttrsToList filterAttrs optionalString concatStringsSep;
+    mapAttrsToList optionalString concatStringsSep;
   inherit (builtins) attrNames;
 
   hasGuests = cfg.guests != {};
