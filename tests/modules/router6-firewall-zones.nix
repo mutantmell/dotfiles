@@ -153,7 +153,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth2";
             network = {
               type = "static";
-              addresses = ["10.0.10.1/24"];
+              addresses = ["10.0.10.1/24" "fdc6:55f2:0a5e:a::1/64"];
               zone = "management";
               dhcp.enable = true;
             };
@@ -162,7 +162,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth3";
             network = {
               type = "static";
-              addresses = ["10.0.20.1/24"];
+              addresses = ["10.0.20.1/24" "fdc6:55f2:0a5e:14::1/64"];
               zone = "trusted";
               dhcp.enable = true;
             };
@@ -180,7 +180,7 @@ pkgs.testers.nixosTest {
             hardwareName = "eth5";
             network = {
               type = "static";
-              addresses = ["10.0.40.1/24"];
+              addresses = ["10.0.40.1/24" "fdc6:55f2:0a5e:28::1/64"];
               zone = "isolated";
             };
           };
@@ -206,13 +206,25 @@ pkgs.testers.nixosTest {
       virtualisation.vlans = [2];
       networking = {
         useDHCP = false;
-        interfaces.eth1.ipv4.addresses = [
-          {
-            address = "10.0.10.100";
-            prefixLength = 24;
-          }
-        ];
+        interfaces.eth1 = {
+          ipv4.addresses = [
+            {
+              address = "10.0.10.100";
+              prefixLength = 24;
+            }
+          ];
+          ipv6.addresses = [
+            {
+              address = "fdc6:55f2:0a5e:a::100";
+              prefixLength = 64;
+            }
+          ];
+        };
         defaultGateway = "10.0.10.1";
+        defaultGateway6 = {
+          address = "fdc6:55f2:0a5e:a::1";
+          interface = "eth1";
+        };
       };
       environment.systemPackages = with pkgs; [netcat-gnu];
     };
@@ -227,13 +239,25 @@ pkgs.testers.nixosTest {
       virtualisation.vlans = [3];
       networking = {
         useDHCP = false;
-        interfaces.eth1.ipv4.addresses = [
-          {
-            address = "10.0.20.100";
-            prefixLength = 24;
-          }
-        ];
+        interfaces.eth1 = {
+          ipv4.addresses = [
+            {
+              address = "10.0.20.100";
+              prefixLength = 24;
+            }
+          ];
+          ipv6.addresses = [
+            {
+              address = "fdc6:55f2:0a5e:14::100";
+              prefixLength = 64;
+            }
+          ];
+        };
         defaultGateway = "10.0.20.1";
+        defaultGateway6 = {
+          address = "fdc6:55f2:0a5e:14::1";
+          interface = "eth1";
+        };
       };
       environment.systemPackages = with pkgs; [netcat-gnu];
     };
@@ -269,13 +293,25 @@ pkgs.testers.nixosTest {
       virtualisation.vlans = [5];
       networking = {
         useDHCP = false;
-        interfaces.eth1.ipv4.addresses = [
-          {
-            address = "10.0.40.100";
-            prefixLength = 24;
-          }
-        ];
+        interfaces.eth1 = {
+          ipv4.addresses = [
+            {
+              address = "10.0.40.100";
+              prefixLength = 24;
+            }
+          ];
+          ipv6.addresses = [
+            {
+              address = "fdc6:55f2:0a5e:28::100";
+              prefixLength = 64;
+            }
+          ];
+        };
         defaultGateway = "10.0.40.1";
+        defaultGateway6 = {
+          address = "fdc6:55f2:0a5e:28::1";
+          interface = "eth1";
+        };
       };
       environment.systemPackages = with pkgs; [netcat-gnu];
     };
@@ -492,13 +528,47 @@ pkgs.testers.nixosTest {
     print("PASS")
 
     # ======================================================================
+    # IPv6 TESTS
+    # ======================================================================
+
+    # Test 23: mgmt can ping6 router's management ULA
+    print("Test 23: mgmt -> router: IPv6 ping allowed")
+    mgmt.succeed("ping -6 -c 1 -W 3 fdc6:55f2:a5e:a::1")
+    print("PASS")
+
+    # Test 24: isolated cannot ping6 router's isolated ULA (icmpEcho = "disable")
+    print("Test 24: isolated -> router: IPv6 ping blocked")
+    isolated.fail("ping -6 -c 1 -W 2 fdc6:55f2:a5e:28::1")
+    print("PASS")
+
+    # Test 25: trusted can ping6 mgmt node (forward trusted→management)
+    print("Test 25: trusted -> mgmt: IPv6 forward allowed")
+    trusted.succeed("ping -6 -c 1 -W 3 fdc6:55f2:a5e:a::100")
+    print("PASS")
+
+    # Test 26: isolated cannot ping6 trusted node (forward blocked)
+    print("Test 26: isolated -> trusted: IPv6 forward blocked")
+    isolated.fail("ping -6 -c 1 -W 2 fdc6:55f2:a5e:14::100")
+    print("PASS")
+
+    # Test 27: mgmt can ping6 trusted node (forward management→trusted)
+    print("Test 27: mgmt -> trusted: IPv6 forward allowed")
+    mgmt.succeed("ping -6 -c 1 -W 3 fdc6:55f2:a5e:14::100")
+    print("PASS")
+
+    # Test 28: NDP rules present in nftables
+    print("Test 28: NDP rules present in nftables")
+    router.succeed("nft list ruleset | grep 'icmpv6 type'")
+    print("PASS")
+
+    # ======================================================================
     # Summary
     # ======================================================================
     print("")
     print("=" * 70)
     print("FIREWALL ZONE TESTS COMPLETE")
     print("=" * 70)
-    print("All 22 tests passed.")
+    print("All 28 tests passed.")
     print("=" * 70)
   '';
 }

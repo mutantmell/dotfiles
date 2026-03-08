@@ -16,9 +16,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 nix build .#checks.x86_64-linux.<name>
 # Available checks: router6-ipv6, router6-firewall, router6-firewall-zones,
 #   router6-bond-bridge, router6-device-vlans, router6-bridge-vlan-ordering,
-#   router6-wan-dhcp, router6-wan-ipv6-pd, router6-dhcpv6,
+#   router6-wan-dhcp, router6-wan-ipv6-pd, router6-dhcpv6, router6-dnat,
 #   egress-filter, nftables-dsl, router6-zone-system, router6-firewall-properties,
-#   router6-dhcp-config,
+#   router6-dhcp-config, router6-dnat-properties, router6-assertions,
+#   router6-wireguard-config, router6-kresd-config, router6-sysctl-properties,
 #   network-helpers, openwrt-config, incus-container, incus-vm,
 #   disko-router, disko-vm-host
 

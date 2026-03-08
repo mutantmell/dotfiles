@@ -95,6 +95,17 @@
           zone = "trusted";
           subnetId = 10;
           dhcp.enable = true;
+          dhcp.reservations = [
+            {
+              mac = "AA:BB:CC:DD:EE:FF";
+              ip = "10.0.10.200";
+              hostname = "reserved-host";
+            }
+            {
+              mac = "11:22:33:44:55:66";
+              ip = "10.0.10.201";
+            }
+          ];
           dhcp6 = {
             enable = true;
             dnsAddress = "fdc6:55f2:a5e:a::1";
@@ -290,6 +301,52 @@
     in
       assertEq "Kea static: subnet matches LAN CIDR"
       subnet.subnet "10.0.10.0/24")
+
+    # ====================================================================
+    # Kea DHCP4: Reservations
+    # ====================================================================
+
+    (let
+      subnet = builtins.head dhcpKeaSettings.subnet4;
+    in
+      assertEq "Kea: has 2 reservations"
+      (builtins.length subnet.reservations)
+      2)
+
+    (let
+      subnet = builtins.head dhcpKeaSettings.subnet4;
+      res0 = builtins.elemAt subnet.reservations 0;
+    in
+      assertEq "Kea: reservation 0 hw-address"
+      res0.hw-address "AA:BB:CC:DD:EE:FF")
+
+    (let
+      subnet = builtins.head dhcpKeaSettings.subnet4;
+      res0 = builtins.elemAt subnet.reservations 0;
+    in
+      assertEq "Kea: reservation 0 ip-address"
+      res0.ip-address "10.0.10.200")
+
+    (let
+      subnet = builtins.head dhcpKeaSettings.subnet4;
+      res0 = builtins.elemAt subnet.reservations 0;
+    in
+      assertEq "Kea: reservation 0 hostname"
+      res0.hostname "reserved-host")
+
+    (let
+      subnet = builtins.head dhcpKeaSettings.subnet4;
+      res1 = builtins.elemAt subnet.reservations 1;
+    in
+      assertEq "Kea: reservation 1 hw-address"
+      res1.hw-address "11:22:33:44:55:66")
+
+    (let
+      subnet = builtins.head dhcpKeaSettings.subnet4;
+      res1 = builtins.elemAt subnet.reservations 1;
+    in
+      assertTrue "Kea: reservation 1 no hostname"
+      (!(builtins.hasAttr "hostname" res1)))
   ];
 
   allPass = lib.all (x: x) tests;

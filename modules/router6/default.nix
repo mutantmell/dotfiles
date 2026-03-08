@@ -1814,11 +1814,12 @@ in {
             forwardDnatRules = concatStringsSep "\n              " (map (pf: let
               destParts = lib.splitString ":" pf.destination;
               destIP = head destParts;
+              destPort = elemAt destParts 1;
               protoMatch =
                 if pf.proto == "both"
                 then "meta l4proto { tcp, udp }"
                 else pf.proto;
-            in ''${protoMatch} dport ${toString pf.sourcePort} ip daddr ${destIP} accept'')
+            in ''${protoMatch} dport ${destPort} ip daddr ${destIP} accept'')
             cfg.firewall.portForwards);
 
             # Indentation helper
