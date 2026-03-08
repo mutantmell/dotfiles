@@ -97,7 +97,10 @@ pkgs.testers.nixosTest {
                   addresses = ["10.0.20.1/24"];
                   zone = "trusted";
                   dhcp.enable = true;
-                  dhcp6.enable = true;
+                  dhcp6 = {
+                    enable = true;
+                    dnsAddress = "fdc6:55f2:a5e:14::1";
+                  };
                 };
               };
             };
@@ -119,7 +122,10 @@ pkgs.testers.nixosTest {
               subnetId = 10; # Should generate fdc6:55f2:0a5e:a::1/64
               zone = "management";
               dhcp.enable = true;
-              dhcp6.enable = true;
+              dhcp6 = {
+                enable = true;
+                dnsAddress = "fdc6:55f2:a5e:a::1";
+              };
             };
           };
         };

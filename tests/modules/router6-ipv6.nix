@@ -77,7 +77,10 @@ pkgs.testers.nixosTest {
                   addresses = ["10.0.10.1/24"];
                   zone = "trusted";
                   dhcp.enable = true;
-                  dhcp6.enable = true;
+                  dhcp6 = {
+                    enable = true;
+                    dnsAddress = "fdc6:55f2:a5e:a::1";
+                  };
                 };
               };
             };
