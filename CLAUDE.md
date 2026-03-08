@@ -16,9 +16,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 nix build .#checks.x86_64-linux.<name>
 # Available checks: router6-ipv6, router6-firewall, router6-firewall-zones,
 #   router6-bond-bridge, router6-device-vlans, router6-bridge-vlan-ordering,
-#   egress-filter, router6-thebeyond, nftables-dsl, router6-firewall-snapshot,
-#   thebeyond-firewall-snapshot, router6-zone-system, network-helpers,
-#   incus-container, incus-vm, disko-router, disko-vm-host
+#   router6-wan-dhcp, router6-wan-ipv6-pd, router6-dhcpv6,
+#   egress-filter, nftables-dsl, router6-zone-system, router6-firewall-properties,
+#   router6-dhcp-config,
+#   network-helpers, openwrt-config, incus-container, incus-vm,
+#   disko-router, disko-vm-host
 
 # Run pure Nix eval tests directly
 nix-instantiate --eval --strict tests/lib/<file>.nix

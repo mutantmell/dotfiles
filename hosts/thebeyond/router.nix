@@ -25,6 +25,9 @@
   # Helper to define a per-VLAN bridge with bond0 + bat0 members.
   # Batman-adv only carries mesh-encapsulated frames on hard interfaces,
   # so each VLAN needs its own bridge joining wired + mesh paths.
+  # ULA base for computing per-VLAN DNS addresses
+  ulaBase = "fdc6:55f2:a5e";
+
   mkVlanBridge = {
     name,
     tag,
@@ -49,7 +52,13 @@
         inherit addresses zone;
         subnetId = tag;
         dhcp.enable = enableDhcp;
-        dhcp6.enable = enableDhcp6;
+        dhcp6 = {
+          enable = enableDhcp6;
+          dnsAddress =
+            if enableDhcp6
+            then "${ulaBase}:${lib.toLower (lib.toHexString tag)}::1"
+            else null;
+        };
       };
     };
   };
@@ -445,7 +454,10 @@ in {
             subnetId = 21;
             zone = "trusted";
             dhcp.enable = true;
-            dhcp6.enable = true;
+            dhcp6 = {
+              enable = true;
+              dnsAddress = "${ulaBase}:15::1";
+            };
           };
         };
 

@@ -149,6 +149,17 @@ let
                 default = "slaac";
                 description = "IPv6 address assignment mode";
               };
+              dnsAddress = mkOption {
+                type = types.nullOr types.str;
+                default = null;
+                description = ''
+                  IPv6 address to advertise as DNS server in Router Advertisements.
+                  Should be the router's ULA address on this interface (stable,
+                  always reachable, matches kresd listen address).
+                  Must be set when dhcp6.enable is true.
+                '';
+                example = "fdc6:55f2:0a5e:a::1";
+              };
             };
           };
           default = {};
@@ -184,6 +195,33 @@ let
           type = types.nullOr types.int;
           default = null;
           description = "Subnet ID for auto-generating IPv6 addresses from ULA prefix. For VLANs, defaults to VLAN tag.";
+        };
+
+        ipv6PrefixDelegation = mkOption {
+          description = "Request IPv6 prefix delegation on this WAN interface";
+          type = types.submodule {
+            options = {
+              enable = mkEnableOption "DHCPv6 Prefix Delegation client";
+              prefixLength = mkOption {
+                type = types.int;
+                default = 48;
+                description = "Prefix length to request from ISP (e.g. 48, 56, 60)";
+              };
+            };
+          };
+          default = {};
+        };
+
+        pdSubnetId = mkOption {
+          type = types.nullOr types.str;
+          default = null;
+          description = ''
+            Hex subnet ID for prefix delegation (e.g. "0xa" for VLAN 10).
+            When set, this interface receives a /64 from the delegated prefix pool.
+            The router gets <prefix>::1 on this subnet.
+            Requires a WAN interface with ipv6PrefixDelegation.enable = true.
+          '';
+          example = "0xa";
         };
       };
     });
@@ -279,7 +317,9 @@ let
   activeZones = filter (z: interfacesInZone z != []) (attrNames cfg.zones);
 
   # Interfaces that should accept IPv6 Router Advertisements (DHCP/WAN interfaces)
-  raInterfaces = interfacesWhere (i: i.network.type == "dhcp");
+  raInterfaces =
+    interfacesWhere (i:
+      i.network.type == "dhcp" || (i.network.ipv6PrefixDelegation.enable or false));
 
   # Interfaces whose zones provide DNS service (non-empty inputRules — kresd should listen)
   dnsInterfaces = interfacesWhere (i: let
@@ -1180,7 +1220,8 @@ in {
               then getEffectiveAddresses ifaceData
               else network.addresses or [];
             # Check if this interface should send Router Advertisements
-            shouldSendRA = (network.dhcp6.enable or false) && network.type == "static";
+            # Driven by explicit options, not by type
+            shouldSendRA = (network.dhcp6.enable or false) || (network.pdSubnetId or null) != null;
             # Get IPv6 addresses for RA prefix configuration
             v6Addrs = filter (a: lib.hasInfix ":" a) effectiveAddrs;
           in
@@ -1199,7 +1240,7 @@ in {
                     if network.type == "dhcp"
                     then "yes"
                     else "no";
-                  IPv6AcceptRA = network.type == "dhcp";
+                  IPv6AcceptRA = network.type == "dhcp" || (network.ipv6PrefixDelegation.enable or false);
                   LinkLocalAddressing =
                     if network.type == "disabled"
                     then "no"
@@ -1220,6 +1261,10 @@ in {
                   # Enable Router Advertisement on interfaces with dhcp6 enabled
                   IPv6SendRA = true;
                 }
+                // optionalAttrs ((network.pdSubnetId or null) != null) {
+                  # Receive delegated /64 from WAN PD pool
+                  DHCPPrefixDelegation = true;
+                }
                 // membershipConfig; # Merge membership settings (Bond=, BatmanAdvanced=, Bridge=)
 
               linkConfig =
@@ -1233,26 +1278,28 @@ in {
                   MTUBytes = toString network.mtu;
                 };
             }
-            // optionalAttrs (shouldSendRA && v6Addrs != []) {
+            // optionalAttrs shouldSendRA {
               # IPv6 Router Advertisement configuration
               ipv6SendRAConfig = let
                 dhcp6Mode = network.dhcp6.mode or "slaac";
-              in {
-                # RA flags control whether clients use DHCPv6:
-                # slaac:     M=0, O=0 — SLAAC only, no DHCPv6
-                # stateless: M=0, O=1 — SLAAC for addresses, DHCPv6 for DNS/options
-                # stateful:  M=1, O=0 — DHCPv6 for addresses, SLAAC still runs for privacy
-                Managed = dhcp6Mode == "stateful";
-                OtherInformation = dhcp6Mode == "stateless";
-                RouterLifetimeSec = 1800;
-                # Advertise DNS server (the router's ULA address on this interface)
-                # Note: We use the ULA address instead of _link_local because kresd
-                # listens on ULA addresses, not link-local addresses
-                EmitDNS = true;
-                DNS = (parseCIDR (head v6Addrs)).ip;
-              };
+              in
+                {
+                  # RA flags control whether clients use DHCPv6:
+                  # slaac:     M=0, O=0 — SLAAC only, no DHCPv6
+                  # stateless: M=0, O=1 — SLAAC for addresses, DHCPv6 for DNS/options
+                  # stateful:  M=1, O=0 — DHCPv6 for addresses, SLAAC still runs for privacy
+                  Managed = dhcp6Mode == "stateful";
+                  OtherInformation = dhcp6Mode == "stateless";
+                  RouterLifetimeSec = 1800;
+                }
+                // optionalAttrs ((network.dhcp6.dnsAddress or null) != null) {
+                  # Advertise explicitly configured DNS server address in RAs
+                  EmitDNS = true;
+                  DNS = network.dhcp6.dnsAddress;
+                };
 
-              # Advertise the IPv6 prefix for SLAAC
+              # Advertise static IPv6 prefixes for SLAAC (ULA)
+              # Delegated prefixes are announced automatically by DHCPPrefixDelegation
               ipv6Prefixes =
                 map (addr: let
                   parsed = parseCIDR addr;
@@ -1265,6 +1312,26 @@ in {
                   ValidLifetimeSec = 7200;
                 })
                 v6Addrs;
+            }
+            // optionalAttrs (network.ipv6PrefixDelegation.enable or false) {
+              # DHCPv6-PD client: request delegated prefix from ISP
+              dhcpV6Config = {
+                PrefixDelegationHint = "::/${toString network.ipv6PrefixDelegation.prefixLength}";
+                # Always send DHCPv6 solicits, even if ISP RA doesn't set M flag
+                WithoutRA = "solicit";
+                # Don't use ISP-provided DNS — we run our own resolver
+                UseDNS = false;
+                UseHostname = false;
+              };
+            }
+            // optionalAttrs ((network.pdSubnetId or null) != null) {
+              # Receive a /64 from the delegated prefix pool
+              dhcpPrefixDelegationConfig = {
+                SubnetId = network.pdSubnetId;
+                Token = "::1";
+                Announce = true;
+                Assign = true;
+              };
             }
             // optionalAttrs (vlans != {}) {
               # Add VLAN list if device has VLANs
@@ -1808,6 +1875,19 @@ in {
               then ""
               else "\n" + concatStringsSep "\n" rules;
 
+            # DHCPv6 client rule: allow incoming DHCPv6 responses (UDP port 546)
+            # DHCPv6 uses regular UDP sockets (unlike DHCPv4 which uses raw sockets),
+            # so it IS subject to nftables. Solicits go to multicast ff02::1:2,
+            # making conntrack unable to match the unicast response as "established".
+            dhcp6ClientIfaces =
+              interfacesWhere (i:
+                i.network.type == "dhcp" || (i.network.ipv6PrefixDelegation.enable or false));
+            dhcp6ClientRules = optionalString (dhcp6ClientIfaces != []) (concatStringsSep "\n" [
+              ""
+              "${ind}# Allow DHCPv6 client responses (bypasses conntrack — multicast Solicit)"
+              "${ind}iifname ${quoteList dhcp6ClientIfaces} udp dport 546 accept"
+            ]);
+
             # Wireguard port rules
             wgRules = optionalString (wgPorts != []) (concatStringsSep "\n" [
               ""
@@ -1895,6 +1975,7 @@ in {
                         chain input {
                           type filter hook input priority filter; policy drop;
             ${inputBaseRules}
+            ${dhcp6ClientRules}
             ${zoneInputRules}
             ${wgRules}
             ${extraInputStr}
@@ -1973,8 +2054,36 @@ in {
       # ===================
       {
         assertions =
+          # DHCPv6 server on WAN interface assertion
+          [
+            {
+              assertion =
+                !(lib.any (
+                    i:
+                      (i.network.dhcp6.enable or false) && i.network.type == "dhcp"
+                  )
+                  flattenTopology);
+              message = "router6: dhcp6.enable (RA server) cannot be set on a DHCP client interface — it would send RAs upstream to the ISP";
+            }
+          ]
+          # dhcp6.dnsAddress must be set when dhcp6.enable is true
+          ++ (map (i: {
+            assertion = (i.network.dhcp6.dnsAddress or null) != null;
+            message = "router6: interface '${i.name}' has dhcp6.enable = true but no dhcp6.dnsAddress set. Set it to the router's ULA address on this interface (e.g. the address kresd listens on).";
+          }) (filter (i: i.network.dhcp6.enable or false) flattenTopology))
+          # pdSubnetId requires at least one PD source
+          ++ (let
+            hasPdSource = lib.any (i: i.network.ipv6PrefixDelegation.enable or false) flattenTopology;
+            pdReceivers = filter (i: (i.network.pdSubnetId or null) != null) flattenTopology;
+          in
+            optionals (pdReceivers != []) [
+              {
+                assertion = hasPdSource;
+                message = "router6: interface(s) ${lib.concatMapStringsSep ", " (i: "'${i.name}'") pdReceivers} have pdSubnetId set but no interface has ipv6PrefixDelegation.enable = true";
+              }
+            ])
           # Dynamic DNS assertions
-          (optionals cfg.dyndns.enable [
+          ++ (optionals cfg.dyndns.enable [
             {
               assertion = cfg.dyndns.passwordFile != null;
               message = "router6.dyndns: passwordFile must be set when dyndns is enabled";

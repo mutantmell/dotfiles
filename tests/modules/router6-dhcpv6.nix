@@ -78,6 +78,7 @@ pkgs.testers.nixosTest {
               dhcp6 = {
                 enable = true;
                 mode = "stateful";
+                dnsAddress = "fdc6:55f2:a5e:14::1";
               };
             };
           };
@@ -94,6 +95,7 @@ pkgs.testers.nixosTest {
               dhcp6 = {
                 enable = true;
                 mode = "stateless";
+                dnsAddress = "fdc6:55f2:a5e:1e::1";
               };
             };
           };

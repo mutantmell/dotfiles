@@ -17,6 +17,7 @@ All changes in `modules/router6/default.nix`.
 **Location:** Lines 1179-1206 (the `ipv6SendRAConfig` block)
 
 Currently hardcoded:
+
 ```nix
 Managed = false;
 OtherInformation = false;
@@ -24,15 +25,15 @@ OtherInformation = false;
 
 Change to derive from `network.dhcp6.mode`:
 
-| Mode | Managed | OtherInformation | Effect |
-|------|---------|-------------------|--------|
-| `slaac` | false | false | SLAAC only, no DHCPv6 |
-| `stateless` | false | true | SLAAC for addresses, DHCPv6 for DNS/options |
-| `stateful` | true | false | DHCPv6 for addresses, SLAAC still runs for privacy addresses |
+| Mode        | Managed | OtherInformation | Effect                                                       |
+| ----------- | ------- | ---------------- | ------------------------------------------------------------ |
+| `slaac`     | false   | false            | SLAAC only, no DHCPv6                                        |
+| `stateless` | false   | true             | SLAAC for addresses, DHCPv6 for DNS/options                  |
+| `stateful`  | true    | false            | DHCPv6 for addresses, SLAAC still runs for privacy addresses |
 
 Pass `network.dhcp6.mode` (defaulting to `"slaac"`) into the config block and set flags accordingly.
 
-Note: In all three modes, RA prefixes are still advertised (SLAAC always available for privacy/egress addresses). The `Managed` flag tells clients whether to *also* use DHCPv6 for getting a stable address.
+Note: In all three modes, RA prefixes are still advertised (SLAAC always available for privacy/egress addresses). The `Managed` flag tells clients whether to _also_ use DHCPv6 for getting a stable address.
 
 ### 2. Add `mkKeaSubnet6` function
 
@@ -69,6 +70,7 @@ in
 ```
 
 Key design decisions:
+
 - **Pool range `::1000` to `::1fff`**: Avoids `::1` (gateway), low host IDs (static assignments), and the SLAAC range (which uses interface identifiers or random values in the upper bits). 4096 addresses.
 - **ID offset 100000**: IPv4 subnet IDs are derived from `ipv4ToInt` (large numbers like 167772160 for 10.0.0.0), so a small offset is fine — but using 100000+ ensures no overlap with any reasonable scheme.
 - **`interface` field**: Required for Kea DHCPv6 since it uses link-local multicast, unlike DHCPv4 which can use broadcast.
@@ -126,11 +128,13 @@ Only interfaces with `stateful` or `stateless` mode need Kea DHCPv6. Pure `slaac
 **New file:** `tests/modules/router6-dhcpv6.nix`
 
 Test topology:
+
 - Router with a VLAN using `dhcp6.mode = "stateful"`
 - Client configured to accept DHCPv6
 - Verify: Kea DHCPv6 service running, client gets DHCPv6 address in the `::1000-::1fff` range, client can ping router, client also gets SLAAC address (both addresses present)
 
 Also add a second VLAN with `dhcp6.mode = "stateless"` to verify:
+
 - Kea running but no address pool for that subnet
 - Client gets SLAAC address (not DHCPv6 address)
 - RA has `OtherInformation=true`

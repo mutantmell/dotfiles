@@ -15,13 +15,14 @@
   router6-device-vlans = import ./modules/router6-device-vlans.nix {inherit pkgs lib;};
   router6-bridge-vlan-ordering = import ./modules/router6-bridge-vlan-ordering.nix {inherit pkgs lib;};
   router6-wan-dhcp = import ./modules/router6-wan-dhcp.nix {inherit pkgs lib;};
+  router6-wan-ipv6-pd = import ./modules/router6-wan-ipv6-pd.nix {inherit pkgs lib;};
   router6-dhcpv6 = import ./modules/router6-dhcpv6.nix {inherit pkgs lib;};
   egress-filter = import ./modules/egress-filter.nix {inherit pkgs lib;};
 
   # Pure Nix evaluation tests
   nftables-dsl = import ./lib/nftables.nix {inherit pkgs lib;};
-  router6-firewall-snapshot = import ./lib/router6-firewall-snapshot.nix {inherit pkgs lib;};
   router6-zone-system = import ./lib/router6-zone-system.nix {inherit pkgs lib;};
+  router6-firewall-properties = import ./lib/router6-firewall-properties.nix {inherit pkgs lib;};
   router6-dhcp-config = import ./lib/router6-dhcp-config.nix {inherit pkgs lib;};
   network-helpers = import ./lib/network-helpers.nix {inherit pkgs lib;};
   openwrt-config = import ./lib/openwrt-config.nix {inherit pkgs lib;};
