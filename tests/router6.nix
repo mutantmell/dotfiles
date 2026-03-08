@@ -19,11 +19,18 @@
   router6-dhcpv6 = import ./modules/router6-dhcpv6.nix {inherit pkgs lib;};
   egress-filter = import ./modules/egress-filter.nix {inherit pkgs lib;};
 
+  router6-dnat = import ./modules/router6-dnat.nix {inherit pkgs lib;};
+
   # Pure Nix evaluation tests
   nftables-dsl = import ./lib/nftables.nix {inherit pkgs lib;};
   router6-zone-system = import ./lib/router6-zone-system.nix {inherit pkgs lib;};
   router6-firewall-properties = import ./lib/router6-firewall-properties.nix {inherit pkgs lib;};
   router6-dhcp-config = import ./lib/router6-dhcp-config.nix {inherit pkgs lib;};
+  router6-dnat-properties = import ./lib/router6-dnat-properties.nix {inherit pkgs lib;};
+  router6-assertions = import ./lib/router6-assertions.nix {inherit pkgs lib;};
+  router6-wireguard-config = import ./lib/router6-wireguard-config.nix {inherit pkgs lib;};
+  router6-kresd-config = import ./lib/router6-kresd-config.nix {inherit pkgs lib;};
+  router6-sysctl-properties = import ./lib/router6-sysctl-properties.nix {inherit pkgs lib;};
   network-helpers = import ./lib/network-helpers.nix {inherit pkgs lib;};
   openwrt-config = import ./lib/openwrt-config.nix {inherit pkgs lib;};
 }
