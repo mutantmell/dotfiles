@@ -3,6 +3,8 @@
 **Audit Date:** 2026-03-09
 **Auditor:** Claude Opus 4.6 (AI-assisted security review)
 **Scope:** router6 NixOS module, thebeyond host configuration, generated system image
+**Codebase Version:** `c6233654cd90e5e80d1e88b73bd9d3fde6f3b110`
+**Review Date:** 2026-03-09
 **Overall Status:** PASS with recommendations
 
 ---
@@ -15,8 +17,8 @@ This audit examines a NixOS-based router infrastructure consisting of a custom f
 
 **Key strengths:**
 - Default-deny firewall with stealth mode (silent drop, no reject responses)
-- Comprehensive build-time validation (35+ assertions catch misconfigurations before deployment)
-- Extensive test coverage (22+ checks including VM integration tests)
+- Comprehensive build-time validation (19 assertion templates, expanding to 35+ checks for a typical deployment)
+- Extensive test coverage (29 checks including VM integration tests)
 - DNS interception prevents IoT/smart device DNS bypass
 - Secrets management via sops-nix with age encryption
 - Impermanent root filesystem reduces persistent compromise surface
@@ -32,8 +34,8 @@ This audit examines a NixOS-based router infrastructure consisting of a custom f
 
 ## Module 1: Router6 DSL
 
-**File:** `modules/router6/default.nix` (2,223 lines)
-**Supporting libraries:** `lib/nftables.nix` (257 lines), `lib/common/default.nix` (125 lines)
+**File:** `modules/router6/default.nix` (2,222 lines)
+**Supporting libraries:** `lib/nftables.nix` (256 lines), `lib/common/default.nix` (124 lines)
 
 ### Security Assessment: STRONG
 
@@ -55,10 +57,10 @@ Zones are the primary abstraction for firewall policy. Each zone defines:
 - `forwardRules`: Per-destination-zone filtered forwarding
 - `inputRules`: Services accessible from this zone on the router itself
 
-The zone model enforces **mutual exclusivity** between `accessTo` and `forwardRules` per destination zone, preventing conflicting policies. Zone names are validated against the `types.enum` of defined zones, making typos a build-time error.
+The zone model enforces **mutual exclusivity** between `accessTo` and `forwardRules` per destination zone, preventing conflicting policies. Zone names in `accessTo` and `forwardRules` keys are validated against a `types.enum` derived from `builtins.attrNames cfg.zones`, making typos a build-time error.
 
 #### 3. Build-Time Assertions (Critical — IMPLEMENTED)
-35+ assertions validate configuration before deployment:
+19 assertion templates validate configuration before deployment, expanding dynamically based on topology (35+ individual assertions for a typical deployment like thebeyond):
 - DHCPv6 server cannot be on a DHCP client interface (prevents upstream RA leakage)
 - `inputRules` cannot contain `iifname` (auto-set from zone, prevents bypass)
 - `forwardRules` cannot contain `iifname`/`oifname` (auto-set, prevents bypass)
@@ -80,7 +82,9 @@ Stateful inspection is the first rule in both input and forward chains, ensuring
 
 #### 5. Essential ICMP Handling (Important — CORRECTLY IMPLEMENTED)
 The module correctly distinguishes between:
-- **Essential ICMP** (always allowed): destination-unreachable, packet-too-big, time-exceeded, parameter-problem, NDP messages. These are required for correct network operation (PMTUD, neighbor discovery).
+- **Essential ICMPv4** (always allowed): destination-unreachable, time-exceeded, parameter-problem. Note: IPv4 "fragmentation needed" (PMTUD) is a subtype of destination-unreachable, so it is covered.
+- **Essential ICMPv6** (always allowed): destination-unreachable, packet-too-big, time-exceeded, parameter-problem.
+- **NDP** (always allowed): router-solicit, router-advert, neighbor-solicit, neighbor-advert. Required for IPv6 neighbor discovery.
 - **Echo ICMP** (zone-controlled): echo-request/echo-reply are gated by the per-zone `icmpEcho` setting.
 
 This is the correct approach — blocking essential ICMP breaks PMTUD and IPv6 entirely, while echo can be selectively disabled for security.
@@ -144,28 +148,30 @@ VLAN tags are `types.int` without range validation (should be 1-4094). While out
 
 The router6 module has excellent test coverage across two categories:
 
-**Pure Nix evaluation tests (12 test files):**
-- `nftables.nix`: 65+ test cases for the DSL renderer
+**Pure Nix evaluation tests (13 test files):**
+- `nftables.nix`: 62 test cases for the DSL renderer
 - `router6-assertions.nix`: 8 failure scenarios for config validation
 - `router6-firewall-properties.nix`: DHCPv6 client rules, masquerade, NDP
 - `router6-zone-system.nix`: Forward rules, multi-iface zones, icmpEcho variants
 - `router6-dhcp-config.nix`: Subnet IDs, pools, reservations
-- `router6-dhcpv6.nix`: RA flags, pool allocation
 - `router6-dnat-properties.nix`: DNAT rule generation
 - `router6-kresd-config.nix`: DNS upstream/fallback/DNSSEC
 - `router6-sysctl-properties.nix`: Forwarding, rp_filter, RA acceptance
 - `router6-wireguard-config.nix`: Netdev/network/firewall generation
 - `router6-dyndns-config.nix`: Service/timer/script generation
 - `router6-pppoe-config.nix`: PPPoE type support
+- `network-helpers.nix`: Network library helper functions
+- `openwrt-config.nix`: OpenWrt configuration generation
 
-**VM integration tests (11 test files):**
-- `router6-firewall.nix`: Stealth mode validation (9 tests)
+**VM integration tests (12 test files):**
+- `router6-firewall.nix`: Stealth mode validation (8 tests)
 - `router6-firewall-zones.nix`: Multi-zone access control (28 tests)
 - `router6-ipv6.nix`: Full IPv6 stack (SLAAC, RA, kresd)
 - `router6-dhcpv6.nix`: Stateful/stateless DHCPv6
 - `router6-wan-dhcp.nix`: WAN DHCP client + NAT
 - `router6-wan-ipv6-pd.nix`: IPv6 prefix delegation end-to-end
 - `router6-bond-bridge.nix`: Link aggregation + bridging
+- `router6-bridge-vlan-ordering.nix`: Bridge VLAN ordering validation
 - `router6-device-vlans.nix`: VLAN stacking
 - `router6-dnat.nix`: Port forwarding end-to-end
 - `router6-extra-rules.nix`: Escape hatch rules
@@ -186,23 +192,25 @@ The router6 module has excellent test coverage across two categories:
 
 ### Security Assessment: STRONG
 
-The thebeyond host is a well-segmented router with 8 VLANs, 6 firewall zones, 2 WireGuard tunnels, DNS interception, and LUKS encryption.
+The thebeyond host is a well-segmented router with 8 VLANs, 7 firewall zones, 2 WireGuard tunnels, DNS interception, and LUKS encryption.
 
 ### Key Security Features
 
 #### 1. Network Segmentation (Critical — WELL DESIGNED)
 
-| VLAN | Name  | Zone        | Purpose              | Internet | Lateral Movement |
-|------|-------|-------------|----------------------|----------|------------------|
-| 10   | MGMT  | network     | APs, switches        | No       | No               |
-| 11   | INFRA | management  | NAS, VMs, DNS        | Filtered | Full internal    |
-| 20   | HOME  | trusted     | User devices         | Yes      | Full internal    |
-| 21   | -     | trusted     | Direct test port     | Yes      | Full internal    |
-| 30   | GUEST | untrusted   | Guest devices        | Yes      | No               |
-| 31   | ADU   | untrusted   | Separate dwelling    | Yes      | No               |
-| 40   | IOT   | untrusted   | Smart home devices   | Yes      | No               |
-| 41   | GAME  | untrusted   | Gaming devices       | Yes      | No               |
-| 100  | DMZ   | untrusted   | Exposed services     | Yes      | No               |
+| Interface | Name  | Zone        | Purpose              | Internet | Lateral Movement |
+|-----------|-------|-------------|----------------------|----------|------------------|
+| VLAN 10   | MGMT  | network     | APs, switches        | No       | No               |
+| VLAN 11   | INFRA | management  | NAS, VMs, DNS        | Filtered | Full internal    |
+| VLAN 20   | HOME  | trusted     | User devices         | Yes      | Full internal    |
+| opt2 (*)  | —     | trusted     | Direct test port     | Yes      | Full internal    |
+| VLAN 30   | GUEST | untrusted   | Guest devices        | Yes      | No               |
+| VLAN 31   | ADU   | untrusted   | Separate dwelling    | Yes      | No               |
+| VLAN 40   | IOT   | untrusted   | Smart home devices   | Yes      | No               |
+| VLAN 41   | GAME  | untrusted   | Gaming devices       | Yes      | No               |
+| VLAN 100  | DMZ   | untrusted   | Exposed services     | Yes      | No               |
+
+(*) opt2 is a physical port (not a VLAN), using subnetId 21 for address allocation.
 
 Zone policy analysis:
 - **external** (WAN): No ICMP echo, no input rules, no access to anything — fully isolated
@@ -218,11 +226,11 @@ This is a **well-thought-out zone hierarchy** that correctly implements the prin
 #### 2. DNS Interception (Critical — IMPLEMENTED)
 ```nft
 ip saddr != { phantasma, phantasma-legacy } ip daddr != { router, router-legacy, phantasma, phantasma-legacy }
-  udp dport 53 dnat to router:53
+  udp dport 53 dnat to router-legacy:53
 ```
-DNS interception catches devices (Google Home, Nest, etc.) that hardcode DNS servers (e.g., 8.8.8.8), redirecting all port-53 traffic to the router's resolver. Phantasma (the internal DNS server) is correctly excluded so its recursive queries work.
+DNS interception catches devices (Google Home, Nest, etc.) that hardcode DNS servers (e.g., 8.8.8.8), redirecting all port-53 traffic to the router's resolver. Phantasma (the internal DNS server) is correctly excluded from both source and destination matching so its recursive queries work. The router itself is excluded from destination matching to prevent redirect loops.
 
-Both IPv4 and IPv6 DNS interception are implemented, and both UDP and TCP are covered.
+Both IPv4 and IPv6 DNS interception are implemented, and both UDP and TCP are covered. The IPv4 DNAT target currently uses the legacy address (`host.ipv4Legacy`) during migration.
 
 #### 3. LUKS Disk Encryption (Critical — IMPLEMENTED)
 - Root partition encrypted with LUKS (`cryptroot`)
@@ -239,17 +247,19 @@ The root filesystem is ephemeral (tmpfs), with only explicitly declared state pe
 This significantly reduces the attack surface — even if an attacker gains root, their changes are lost on reboot.
 
 #### 5. Hardened SSH (Important — IMPLEMENTED)
-Evaluated SSH settings show:
+The `common.openssh` module (`modules/common/openssh.nix`) explicitly configures:
 - `PasswordAuthentication = false` — key-only authentication
 - `PermitRootLogin = "prohibit-password"` — root key-only
 - `KbdInteractiveAuthentication = false` — no keyboard-interactive
-- `X11Forwarding = false` — no X11 forwarding
-- Post-quantum key exchange: `mlkem768x25519-sha256`, `sntrup761x25519-sha512`
+
+The following are inherited from NixOS/OpenSSH defaults (not explicitly configured, but effective):
+- `X11Forwarding = false`
+- Post-quantum key exchange (via OpenSSH 9.x defaults): `sntrup761x25519-sha512`, etc.
 - Strong ciphers: `chacha20-poly1305`, `aes256-gcm`, `aes128-gcm`
 - Strong MACs: `hmac-sha2-512-etm`, `hmac-sha2-256-etm`, `umac-128-etm`
 - `StrictModes = true`
 
-This is an excellent SSH configuration with post-quantum cryptography support.
+The explicitly configured settings are correct and sufficient. The NixOS/OpenSSH defaults provide strong crypto baselines. Note that the crypto algorithms depend on the OpenSSH version shipped with the NixOS release and are not pinned by this configuration.
 
 #### 6. Secrets Management (Important — IMPLEMENTED)
 - sops-nix with age encryption
@@ -299,8 +309,10 @@ The node exporter is bound to all interfaces by default. Combined with blanket a
 ```nix
 allow ${net.networks.network.subnet4}
 allow ${net.networks.network.subnet4Legacy}
+allow ${net.networks.management.subnet4}
+allow ${net.networks.management.subnet4Legacy}
 ```
-The Chrony NTP server allows both the new `10.97.x.x` and legacy `10.0.x.x` subnets. This is presumably for migration compatibility but should be cleaned up post-migration.
+The Chrony NTP server allows both the network and management zones, each with both the new `10.97.x.x` and legacy `10.0.x.x` subnets (plus IPv6). This is for migration compatibility but the legacy subnet ACLs should be cleaned up post-migration.
 
 #### 4. kresd Listens on Network Zone Interfaces (LOW)
 kresd listens on brMGMT (network zone), but the network zone's inputRules only allow NTP (UDP 123). DNS traffic from the network zone will hit kresd's listener but be dropped by the firewall. This is not a vulnerability (the firewall is authoritative), but the kresd listener is unnecessary.
@@ -370,10 +382,10 @@ From the evaluated configuration:
 | `net.ipv6.conf.all.accept_ra` | `0` | Globally disabled — prevents rogue RAs |
 | `net.ipv6.conf.default.accept_ra` | `0` | Default disabled |
 | `net.ipv6.conf.wan.accept_ra` | `2` | WAN only — correct for DHCP/PD |
-| `kernel.kptr_restrict` | `1` | Hides kernel pointers — good |
-| `net.ipv6.conf.default.use_tempaddr` | `"2"` | IPv6 privacy addresses — good |
+| `kernel.kptr_restrict` | `1` | Hides kernel pointers (NixOS default) |
+| `net.ipv6.conf.default.use_tempaddr` | `"2"` | IPv6 privacy addresses (NixOS default) |
 
-All sysctl values are correct and well-configured.
+The first 7 sysctls are explicitly set by the router6 module. The last 2 (`kptr_restrict`, `use_tempaddr`) are NixOS defaults — beneficial but not explicitly configured by this project.
 
 #### 3. kresd DNS Configuration
 
@@ -408,8 +420,7 @@ udp dport 53 dnat to 10.0.11.1:53
 ```
 DNS interception redirects to `10.0.11.1` (legacy address) rather than `10.97.11.1`. This is presumably intentional during migration but should be updated post-migration.
 
-#### 3. DNAT SSH Port Forward Source Restriction (LOW)
-The SSH DNAT rule is correctly restricted to `iifname "wg-ba"`, meaning only traffic arriving via the WireGuard BA tunnel can trigger the port forward. This is good — SSH to ordis is not exposed on the WAN.
+**Note:** The SSH DNAT port forward is correctly restricted to `iifname "wg-ba"`, meaning only traffic arriving via the WireGuard BA tunnel can trigger the forward. SSH to ordis is not exposed on the WAN.
 
 ---
 
@@ -419,8 +430,8 @@ The router6 infrastructure represents a **high-quality, security-conscious netwo
 
 1. **Reproducibility**: The entire router configuration is deterministic and version-controlled
 2. **Auditability**: Configuration is declarative Nix, not imperative shell scripts
-3. **Build-time validation**: 35+ assertions catch misconfigurations before deployment
-4. **Test coverage**: 22+ automated checks validate security properties
+3. **Build-time validation**: 19 assertion templates expand to 35+ checks for a typical deployment
+4. **Test coverage**: 29 automated checks validate security properties
 5. **Immutable infrastructure**: Impermanent root filesystem limits persistence of compromise
 
 The zone-based firewall model with default-deny policies, combined with VLAN segmentation, provides strong network isolation. The DNS interception feature addresses a real-world security gap (IoT devices bypassing local DNS). The WireGuard VPN configuration with tight allowedIPs and zone isolation is well-designed.
@@ -430,10 +441,10 @@ The zone-based firewall model with default-deny policies, combined with VLAN seg
 | Category | Rating | Notes |
 |----------|--------|-------|
 | Firewall design | Excellent | Default-deny, zone-based, stealth mode |
-| Network segmentation | Excellent | 8 VLANs, 6 zones, proper isolation |
+| Network segmentation | Excellent | 8 VLANs, 7 zones, proper isolation |
 | IPv6 security | Very Good | Full dual-stack, correct NDP handling, ULA |
 | Secrets management | Very Good | sops-nix, age encryption, proper permissions |
-| SSH hardening | Excellent | Post-quantum KEx, key-only, modern ciphers |
+| SSH hardening | Very Good | Key-only auth explicit; crypto from NixOS/OpenSSH defaults |
 | DNS security | Very Good | DNSSEC, local domain blocking, DNS interception |
 | Test coverage | Very Good | Comprehensive but some gaps |
 | Egress filtering | Needs Improvement | Only on non-router hosts |
@@ -514,3 +525,20 @@ limit rate 5/minute log prefix "DROP-INPUT: " counter drop
 limit rate 5/minute log prefix "DROP-FORWARD: " counter drop
 ```
 This provides visibility for security monitoring and debugging without generating excessive log volume. Since promtail is already configured, these logs would automatically flow to Loki for analysis.
+
+---
+
+## Review Methodology
+
+This report was drafted against commit `c6233654cd90e5e80d1e88b73bd9d3fde6f3b110` and then independently reviewed by cross-referencing every factual claim against the codebase. The review process verified:
+
+- **Line counts and file inventories** — all file sizes, test file counts, and test case counts were validated against the source
+- **Firewall rule generation** — chain policies, connection tracking, essential ICMP types, MSS clamping, DHCPv6 client rules, and sysctl settings were verified against `modules/router6/default.nix`
+- **Zone and VLAN mappings** — every zone definition and interface assignment in `hosts/thebeyond/router.nix` was cross-referenced with the audit tables
+- **DNS interception rules** — both IPv4/IPv6 NAT rules were verified including exclusion lists, DNAT targets, and protocol coverage (UDP + TCP)
+- **Secrets and encryption** — LUKS configuration, ESP mount/unmount lifecycle, `/boot/secrets` permissions, and sops-nix secret ownership/modes were verified against source
+- **SSH hardening** — explicitly configured settings were distinguished from NixOS/OpenSSH inherited defaults
+- **Assertion templates** — every assertion group in the module was enumerated and the dynamic expansion behavior was characterized
+- **Service exposure** — Prometheus node exporter, Chrony NTP, and kresd listener configurations were verified
+
+Corrections from the review have been incorporated into this final version. No corrections altered the overall security assessment or the priority ordering of recommendations.
