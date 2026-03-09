@@ -170,8 +170,8 @@
     (assertTrue "B: DNAT with iifname"
       (contains ''iifname "wan" tcp dport 443 dnat to 10.0.10.50:443'' rulesetB))
 
-    (assertTrue "B: forward accept rule present (no iifname, uses dest port)"
-      (contains "tcp dport 443 ip daddr 10.0.10.50 accept" rulesetB))
+    (assertTrue "B: forward accept rule has iifname matching sourceInterface"
+      (contains ''iifname "wan" tcp dport 443 ip daddr 10.0.10.50 accept'' rulesetB))
 
     # Config C: proto = "both"
     (assertTrue "C: DNAT with meta l4proto"
