@@ -266,6 +266,10 @@ pkgs.testers.nixosTest {
     # Should have connection tracking for established connections
     router.succeed("nft list chain inet filter input | grep 'ct state established,related accept'")
 
+    # Should drop invalid connection tracking state
+    router.succeed("nft list chain inet filter input | grep 'ct state invalid drop'")
+    router.succeed("nft list chain inet filter forward | grep 'ct state invalid drop'")
+
     # Should accept loopback
     router.succeed("nft list chain inet filter input | grep 'iifname.*lo.*accept'")
 

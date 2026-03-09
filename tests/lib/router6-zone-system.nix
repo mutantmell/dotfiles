@@ -515,6 +515,9 @@
     (assertTrue "no baseRules: no connection tracking in input"
       (notContains "ct state established,related accept" noBaseRulesRuleset))
 
+    (assertTrue "no baseRules: no invalid drop"
+      (notContains "ct state invalid drop" noBaseRulesRuleset))
+
     (assertTrue "no baseRules: no loopback accept"
       (notContains ''iifname "lo" accept'' noBaseRulesRuleset))
 

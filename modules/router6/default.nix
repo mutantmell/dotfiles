@@ -499,7 +499,7 @@ in {
             type = types.attrsOf (types.submodule {
               options = {
                 tag = mkOption {
-                  type = types.int;
+                  type = types.ints.between 1 4094;
                   description = "VLAN ID (1-4094)";
                 };
                 network = mkOption {
@@ -1828,8 +1828,9 @@ in {
             # Base rules for input chain
             inputBaseRules = optionalString cfg.firewall.baseRules (concatStringsSep "\n" [
               ""
-              "${ind}# Accept established/related"
+              "${ind}# Accept established/related, drop invalid"
               "${ind}ct state established,related accept"
+              "${ind}ct state invalid drop"
               ""
               "${ind}# Accept loopback"
               "${ind}iifname \"lo\" accept"
@@ -1906,8 +1907,9 @@ in {
             # Base rules for forward chain
             forwardBaseRules = optionalString cfg.firewall.baseRules (concatStringsSep "\n" [
               ""
-              "${ind}# Accept established/related"
+              "${ind}# Accept established/related, drop invalid"
               "${ind}ct state established,related accept"
+              "${ind}ct state invalid drop"
               ""
               "${ind}# Clamp MSS to path MTU"
               "${ind}tcp flags syn tcp option maxseg size set rt mtu"

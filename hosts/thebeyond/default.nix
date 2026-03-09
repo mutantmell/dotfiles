@@ -87,6 +87,7 @@ in {
     enable = true;
     enabledCollectors = ["systemd"];
     port = 9100;
+    listenAddress = host.ipv4Legacy; # Bind to INFRA interface only (10.0.11.1)
   };
 
   system.stateVersion = "25.11";
