@@ -248,6 +248,9 @@
     (assertTrue "A: connection tracking base rules present"
       (contains "ct state established,related accept" rulesetA))
 
+    (assertTrue "A: invalid connection state dropped"
+      (contains "ct state invalid drop" rulesetA))
+
     (assertTrue "A: NDP base rules present"
       (contains "nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert" rulesetA))
 
