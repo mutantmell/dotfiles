@@ -5,7 +5,7 @@
 **Scope:** router6 NixOS module, thebeyond host configuration, generated system image
 **Codebase Version:** `c6233654cd90e5e80d1e88b73bd9d3fde6f3b110`
 **Review Date:** 2026-03-09
-**Overall Status:** PASS with recommendations
+**Overall Status:** No critical vulnerabilities identified; hardening recommendations provided
 
 ---
 
@@ -29,6 +29,41 @@ This audit examines a NixOS-based router infrastructure consisting of a custom f
 - No `ct state invalid drop` rule in the firewall
 - kresd listens on more interfaces than strictly necessary (network zone gets DNS despite inputRules only allowing NTP)
 - DHCP snooping/ARP inspection not implemented (common in enterprise, uncommon in home routers)
+
+---
+
+## Scope & Threat Model
+
+### Audit Type
+
+This audit is a **static configuration review**. The codebase (Nix source, generated nftables rulesets, systemd-networkd configurations, and service configs) was examined for security properties, correctness, and adherence to defense-in-depth principles. **No runtime testing, penetration testing, or traffic-level validation was performed** — the VM integration test suite (maintained by the project) provides runtime-level assurance separately.
+
+### In-Scope Threats
+
+The following threat actors and attack surfaces were considered:
+
+- **External network attackers** — adversaries on the WAN attempting to reach internal hosts or the router itself
+- **Compromised IoT/guest devices** — devices on untrusted VLANs (IoT, guest, DMZ) attempting lateral movement to other zones
+- **Malicious LAN peers** — devices on trusted or management VLANs attempting to exceed their authorized access
+- **DNS bypass** — devices hardcoding external DNS servers to circumvent local DNS policy
+- **Rogue infrastructure** — rogue DHCP/RA servers on LAN segments attempting to hijack traffic
+- **IP spoofing** — forged source addresses attempting to bypass zone-based access controls
+
+### Out of Scope
+
+The following were **not** evaluated in this audit:
+
+- **Physical access** — console access, hardware tampering, or physical interface exposure
+- **Supply chain integrity** — NixOS packages, upstream firmware, kernel, or toolchain integrity
+- **Application-level security** — security of services running on hosts behind the router (e.g., web applications, databases)
+- **Kernel and firmware vulnerabilities** — CVEs in the Linux kernel, network drivers, or hardware firmware
+- **Wireless security** — WiFi configuration, WPA3 implementation, or wireless-specific attacks (managed by separate OpenWrt devices)
+- **Denial of service resilience** — volumetric DDoS or resource exhaustion attacks beyond basic rate limiting observations
+- **Operational security** — secret rotation practices, access control to the Nix repository, deployment pipeline security
+
+### Limitations
+
+This review was performed against a single commit (`c623365`) and reflects the security posture at that point in time. The system is undergoing an active network migration (legacy `10.0.x.x` to `10.97.x.x` addressing), and some findings relate to migration-period configuration that is expected to be cleaned up post-migration. Findings are based on configuration analysis; actual runtime behavior depends on the NixOS version, kernel version, and package versions deployed.
 
 ---
 
@@ -201,9 +236,9 @@ The thebeyond host is a well-segmented router with 8 VLANs, 7 firewall zones, 2 
 | Interface | Name  | Zone        | Purpose              | Internet | Lateral Movement |
 |-----------|-------|-------------|----------------------|----------|------------------|
 | VLAN 10   | MGMT  | network     | APs, switches        | No       | No               |
-| VLAN 11   | INFRA | management  | NAS, VMs, DNS        | Filtered | Full internal    |
-| VLAN 20   | HOME  | trusted     | User devices         | Yes      | Full internal    |
-| opt2 (*)  | —     | trusted     | Direct test port     | Yes      | Full internal    |
+| VLAN 11   | INFRA | management  | NAS, VMs, DNS        | Filtered | Full internal†   |
+| VLAN 20   | HOME  | trusted     | User devices         | Yes      | Full internal†   |
+| opt2 (*)  | —     | trusted     | Direct test port     | Yes      | Full internal†   |
 | VLAN 30   | GUEST | untrusted   | Guest devices        | Yes      | No               |
 | VLAN 31   | ADU   | untrusted   | Separate dwelling    | Yes      | No               |
 | VLAN 40   | IOT   | untrusted   | Smart home devices   | Yes      | No               |
@@ -211,6 +246,7 @@ The thebeyond host is a well-segmented router with 8 VLANs, 7 firewall zones, 2 
 | VLAN 100  | DMZ   | untrusted   | Exposed services     | Yes      | No               |
 
 (*) opt2 is a physical port (not a VLAN), using subnetId 21 for address allocation.
+(†) "Full internal" = forward-chain access to management, trusted, and untrusted zones (i.e., can reach all other internal VLANs).
 
 Zone policy analysis:
 - **external** (WAN): No ICMP echo, no input rules, no access to anything — fully isolated
@@ -279,11 +315,11 @@ Both are correctly configured with:
 
 #### 8. Inter-Zone Forward Rules (Important — CORRECTLY SCOPED)
 The `extraForwardRules` implement precise cross-zone access for specific services:
-- DMZ → wg-ba: Full access (ordis is behind VPN)
-- wg-ba → ordis: IP-restricted (IPv4 + IPv6)
-- ordis → roer: HTTPS only (OIDC token exchange)
-- DMZ → legram: HTTPS only (ACME certificates)
-- DMZ → ymir: Port 3100 only (Loki log push)
+- DMZ (untrusted) → wg-ba (isolated): Full access (ordis is behind VPN)
+- wg-ba (isolated) → ordis (untrusted/DMZ): IP-restricted (IPv4 + IPv6)
+- ordis (untrusted/DMZ) → roer (management/INFRA): HTTPS only (OIDC token exchange)
+- DMZ (untrusted) → legram (management/INFRA): HTTPS only (ACME certificates)
+- DMZ (untrusted) → ymir (management/INFRA): Port 3100 only (Loki log push)
 
 Each rule specifies source interface, destination IP, and destination port — no overly broad rules.
 
@@ -412,6 +448,8 @@ The first 7 sysctls are explicitly set by the router6 module. The last 2 (`kptr_
 ### Security Concerns
 
 #### 1. No `ct state invalid drop` in Generated Ruleset (MEDIUM)
+*This is the same finding as Module 1, Security Concern #2, confirmed here at the generated output layer — the DSL-level gap propagates to the generated ruleset as expected.*
+
 The generated ruleset lacks an explicit `ct state invalid drop` rule. Invalid packets are packets that conntrack cannot associate with any known connection. While the default drop policy catches most cases, some invalid packets might match the `established,related` rule if conntrack state is confused (e.g., during TCP sequence number wrap-around or certain attack scenarios).
 
 #### 2. DNS Interception Targets Legacy Address (LOW)
@@ -458,7 +496,7 @@ The zone-based firewall model with default-deny policies, combined with VLAN seg
 
 1. **Add `ct state invalid drop`** to both input and forward chains in the router6 base rules. This is a standard firewall hardening measure that prevents conntrack state confusion attacks.
 
-2. **Add router output chain egress filtering.** The router itself should have egress restrictions to limit the blast radius of a compromised process. At minimum, restrict outbound to DNS (53), NTP (123), DHCP (67-68), HTTP/S (80, 443), SSH (22), WireGuard (38506, 59362), and ICMP.
+2. **Add router output chain egress filtering.** The router itself should have egress restrictions to limit the blast radius of a compromised process. At minimum, restrict outbound to DNS (53), NTP (123), DHCP (67-68), HTTP/S (80, 443), SSH (22), WireGuard (38506, 59362), and ICMP. **Caveat:** Egress filtering on a router carries operational risk — router processes may need to reach unanticipated destinations (package mirror rotation, OCSP/CRL endpoints, NTP pool changes, ACME challenge servers). Start with a **log-only mode** (accept + log unmatched traffic) to build an accurate allow-list before enforcing drops. Expect iterative tuning during the first few update cycles.
 
 ### Priority 2 (Should Consider)
 
@@ -519,12 +557,13 @@ There are no `log` rules anywhere in the generated firewall. Dropped packets pro
 
 The host does ship logs to Loki via promtail (`promtail-client.enable = true`), so the log pipeline infrastructure is already in place. Adding rate-limited logging on the default drop policies would feed into the existing monitoring stack with minimal additional effort.
 
-**Recommendation:** Add rate-limited drop logging to the input and forward chain default policies, e.g.:
+**Recommendation:** Add explicit rate-limited log-and-drop rules as the final rules in the input and forward chains, just before the implicit `policy drop` takes effect. These rules catch traffic that passed all prior accept rules but would otherwise be silently dropped by the policy:
 ```nft
+# Final rules in input/forward chains (before implicit policy drop):
 limit rate 5/minute log prefix "DROP-INPUT: " counter drop
-limit rate 5/minute log prefix "DROP-FORWARD: " counter drop
+counter drop   # catch remaining packets without logging (prevents log flood)
 ```
-This provides visibility for security monitoring and debugging without generating excessive log volume. Since promtail is already configured, these logs would automatically flow to Loki for analysis.
+The `limit rate` rule logs up to 5 dropped packets per minute (providing visibility), while the following explicit `counter drop` silently drops the rest. Since promtail is already configured, logged drops would automatically flow to Loki for analysis. Note that these explicit rules make the implicit `policy drop` unreachable — functionally equivalent but with added observability.
 
 ---
 
