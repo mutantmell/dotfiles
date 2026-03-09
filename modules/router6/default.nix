@@ -1819,7 +1819,11 @@ in {
                 if pf.proto == "both"
                 then "meta l4proto { tcp, udp }"
                 else pf.proto;
-            in ''${protoMatch} dport ${destPort} ip daddr ${destIP} accept'')
+              ifaceMatch =
+                if pf.sourceInterface != null
+                then ''iifname "${pf.sourceInterface}" ''
+                else "";
+            in ''${ifaceMatch}${protoMatch} dport ${destPort} ip daddr ${destIP} accept'')
             cfg.firewall.portForwards);
 
             # Indentation helper

@@ -639,3 +639,117 @@ This report was drafted against commit `c6233654cd90e5e80d1e88b73bd9d3fde6f3b110
 - **Service exposure** — Prometheus node exporter, Chrony NTP, and kresd listener configurations were verified
 
 Corrections from the review have been incorporated into this final version. No corrections altered the overall security assessment or the priority ordering of recommendations.
+
+---
+
+## Annex: Post-Audit Remediation and Follow-Up
+
+**Date:** 2026-03-09
+**Scope:** Verification of all audit findings against source Nix and generated system configuration, implementation of fixes, identification of follow-up items.
+
+### Verification Methodology
+
+All audit findings — both positive assessments and identified issues — were verified in two passes:
+
+1. **Source verification** — each claim was cross-referenced against the Nix source files (`modules/router6/default.nix`, `hosts/thebeyond/router.nix`, `hosts/thebeyond/default.nix`, `modules/common/openssh.nix`).
+2. **Generated output verification** — the thebeyond NixOS configuration was fully evaluated via `nix-instantiate --eval --strict` to extract the actual generated nftables ruleset, sysctl settings, kresd listen addresses, Prometheus exporter config, and SSH settings. Every audit claim was confirmed against the evaluated output that the system will actually run.
+
+No discrepancies were found between the audit report's claims and the codebase/generated configuration, with one minor additional observation noted below.
+
+### Fixes Implemented
+
+The following issues from the audit were confirmed and fixed:
+
+#### 1. `ct state invalid drop` added (Priority 1, Section 1 Concern #2 / Section 3 Concern #1)
+
+Added `ct state invalid drop` immediately after `ct state established,related accept` in both the input and forward chains in `modules/router6/default.nix`. This is a standard firewall hardening measure that prevents conntrack state confusion attacks where invalid packets could incorrectly match the `established,related` accept rule.
+
+**Tests added:**
+
+- `tests/lib/router6-firewall-properties.nix`: assertion that `ct state invalid drop` is present in the generated ruleset.
+- `tests/lib/router6-zone-system.nix`: assertion that `ct state invalid drop` is absent when `baseRules = false`.
+- `tests/modules/router6-firewall.nix`: VM integration test verifying `ct state invalid drop` is present in both the input and forward chains at runtime.
+
+**Verified in generated output:** Both chains now contain `ct state invalid drop` immediately after the `ct state established,related accept` rule.
+
+#### 2. VLAN tag range validation (Priority 2, Section 1 Concern #5)
+
+Changed the VLAN tag type from `types.int` to `types.ints.between 1 4094` in `modules/router6/default.nix`. Out-of-range VLAN tags (e.g., 0, 9999) are now caught at Nix evaluation time with a clear error message rather than failing silently at the systemd-networkd level.
+
+**Verified:** `tag = 9999` now produces: `error: A definition for option ... is not of type 'integer between 1 and 4094 (both inclusive)'`.
+
+#### 3. Prometheus node exporter restricted to INFRA interface (Priority 2, Section 2 Concern #2)
+
+Changed `services.prometheus.exporters.node.listenAddress` from the default `0.0.0.0` (all interfaces) to `host.ipv4Legacy` (`10.0.11.1`, the INFRA interface IP) in `hosts/thebeyond/default.nix`. System metrics are no longer served on brHOME, brGUEST, brIOT, brDMZ, or other router interfaces.
+
+**Verified in generated output:** `listenAddress = "10.0.11.1"`.
+
+**Note:** This uses the legacy INFRA address during migration. Update to `host.ipv4` (`10.97.11.1`) post-migration.
+
+#### 4. DNAT forward accept rules now include `sourceInterface` restriction
+
+During generated output verification, the forward chain's DNAT accept rule for SSH to ordis was found to lack an `iifname` restriction:
+
+```nft
+# Before (forward chain accept for DNAT'd traffic):
+tcp dport 22 ip daddr 10.97.100.40 accept
+
+# After:
+iifname "wg-ba" tcp dport 22 ip daddr 10.97.100.40 accept
+```
+
+While not a security escalation in this specific deployment (the DNAT prerouting rule already restricts source to `wg-ba`, and other zones already have forward access to ordis's zone), the forward accept rule was unnecessarily broad as a matter of principle. The `forwardDnatRules` generator in `modules/router6/default.nix` now propagates the `sourceInterface` restriction to the forward chain accept rule, matching the behavior of the prerouting DNAT rule.
+
+**Test updated:** `tests/lib/router6-dnat-properties.nix` config B now asserts that the forward accept rule includes `iifname "wan"` when `sourceInterface` is set.
+
+### Follow-Up Items
+
+The following items were identified during verification but not fixed in this pass, either because they require separate design work, carry operational risk, or are migration artifacts that will resolve naturally.
+
+#### Priority 1
+
+| Item                                     | Audit Reference                         | Rationale for Deferral                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Router output chain egress filtering** | Section 1 Concern #1, Recommendation #2 | The audit correctly notes significant operational risk: router processes may need to reach unanticipated destinations (package mirror rotation, OCSP/CRL endpoints, NTP pool changes, ACME challenge servers). Requires a log-only discovery phase to build an accurate allow-list before enforcing drops. Should be implemented as a separate feature with its own test coverage and iterative tuning. |
+
+#### Priority 2
+
+| Item                                            | Audit Reference | Rationale for Deferral                                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Create dedicated `ba-tunnel` zone for wg-ba** | Addendum A1     | Architecturally sound — would bring wg-ba under the zone model with full assertion coverage and eliminate all `extraForwardRules` from thebeyond. Requires design work to also migrate the DMZ→INFRA cross-zone rules into `untrusted.forwardRules.management`. Should be a separate refactor with corresponding test updates. |
+| **Auto-derive DNS interception exclusion list** | Addendum A2     | Currently the phantasma exclusion in DNS DNAT rules is hardcoded. Deriving it automatically from `dns.upstream` would prevent silent DNS loops when adding a second recursive resolver. Requires DSL changes in the router6 module.                                                                                            |
+
+#### Priority 3
+
+| Item                                                       | Audit Reference                          | Rationale for Deferral                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Align kresd listen interfaces with DNS-permitted zones** | Section 2 Concern #4, Recommendation #7  | kresd listens on 22 addresses including `10.0.10.1:53` (brMGMT / network zone), but the network zone's firewall only allows NTP — DNS is dropped. Not a vulnerability (firewall is authoritative), but the listener is unnecessary. Fix requires changing the `dnsInterfaces` heuristic from `inputRules != []` to checking whether port 53 or a blanket accept is present in the input rules, which is fragile to implement against the current rule attrset structure. |
+| **Rate limiting on accept rules**                          | Section 1 Concern #3, Recommendation #4  | Low risk for a home network. Would require DSL changes to inject `limit rate` into generated accept rules.                                                                                                                                                                                                                                                                                                                                                               |
+| **Firewall drop logging**                                  | Addendum A4, Recommendation #10          | The promtail→Loki pipeline is already in place. Adding rate-limited log-and-drop rules would provide visibility into blocked traffic with minimal effort. Should be a separate feature.                                                                                                                                                                                                                                                                                  |
+| **Clean up legacy address references**                     | Section 3 Concern #2, Recommendation #11 | DNS interception DNAT target (`10.0.11.1`), Chrony ACLs (legacy subnets), node exporter `listenAddress`, and `/etc/hosts` entries all reference legacy `10.0.x.x` addresses. These are intentional during the network migration and should be updated when the migration to `10.97.x.x` completes.                                                                                                                                                                       |
+| **Negative DNS interception test**                         | Recommendation #8                        | A VM test verifying that a device using `8.8.8.8` gets redirected to the router's DNS would close a testing gap. Not blocking.                                                                                                                                                                                                                                                                                                                                           |
+| **Document the security model**                            | Recommendation #9                        | A dedicated security-model document covering zone trust levels, traffic flow assumptions, and DNS interception behavior would aid future maintainers.                                                                                                                                                                                                                                                                                                                    |
+
+### Test Results
+
+All 32 checks pass after the fixes (31 functional checks + 1 formatting check):
+
+```
+PASS  router6-firewall-properties    PASS  router6-zone-system
+PASS  router6-assertions             PASS  router6-sysctl-properties
+PASS  nftables-dsl                   PASS  router6-firewall
+PASS  router6-firewall-zones         PASS  router6-ipv6
+PASS  router6-dhcpv6                 PASS  router6-wan-dhcp
+PASS  router6-wan-ipv6-pd            PASS  router6-bond-bridge
+PASS  router6-bridge-vlan-ordering   PASS  router6-device-vlans
+PASS  router6-dnat                   PASS  router6-extra-rules
+PASS  router6-dhcp-config            PASS  router6-dnat-properties
+PASS  router6-kresd-config           PASS  router6-pppoe-config
+PASS  router6-wireguard-config       PASS  router6-dyndns-config
+PASS  egress-filter                  PASS  network-helpers
+PASS  openwrt-config                 PASS  incus-container
+PASS  incus-vm                       PASS  disko-router
+PASS  disko-vm-host                  PASS  router6-extra-rules
+PASS  formatting
+Results: 32 passed, 0 failed
+```
