@@ -78,32 +78,42 @@
   configDisabled = baseConfig;
 
   # Config B: Interception enabled, upstream auto-excluded
-  configEnabled = baseConfig // {
-    dns = baseConfig.dns // {
-      interception.enable = true;
+  configEnabled =
+    baseConfig
+    // {
+      dns =
+        baseConfig.dns
+        // {
+          interception.enable = true;
+        };
     };
-  };
 
   # Config C: Interception with extra excludes + explicit target
-  configWithExcludes = baseConfig // {
-    dns = baseConfig.dns // {
-      interception = {
-        enable = true;
-        extraExcludeAddresses = ["10.0.11.99" "fdc6:55f2:0a5e:b::99"];
-        target = "10.0.10.1";
-        target6 = "fdc6:55f2:0a5e:a::1";
-      };
+  configWithExcludes =
+    baseConfig
+    // {
+      dns =
+        baseConfig.dns
+        // {
+          interception = {
+            enable = true;
+            extraExcludeAddresses = ["10.0.11.99" "fdc6:55f2:0a5e:b::99"];
+            target = "10.0.10.1";
+            target6 = "fdc6:55f2:0a5e:a::1";
+          };
+        };
     };
-  };
 
   # Config D: IPv6-only upstream
-  configV6Upstream = baseConfig // {
-    dns = {
-      upstream = ["fdc6:55f2:0a5e:b::2"];
-      useDHCPFallback = false;
-      interception.enable = true;
+  configV6Upstream =
+    baseConfig
+    // {
+      dns = {
+        upstream = ["fdc6:55f2:0a5e:b::2"];
+        useDHCPFallback = false;
+        interception.enable = true;
+      };
     };
-  };
 
   rulesetA = evalRuleset configDisabled;
   rulesetB = evalRuleset configEnabled;

@@ -368,7 +368,7 @@
 
     (assertTrue "A: no ICMP rate limit when not configured"
       (contains "echo-request, echo-reply } accept" rulesetA
-      && notContains "echo-request, echo-reply } limit" rulesetA))
+        && notContains "echo-request, echo-reply } limit" rulesetA))
 
     # ======================================================================
     # Config F: Drop logging
@@ -384,7 +384,7 @@
 
     (assertTrue "A: no drop logging when disabled"
       (notContains "DROP-INPUT" rulesetA
-      && notContains "DROP-FORWARD" rulesetA))
+        && notContains "DROP-FORWARD" rulesetA))
   ];
 
   allPass = lib.all (x: x) tests;

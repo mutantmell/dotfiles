@@ -245,18 +245,53 @@ in {
           }
         ];
         forwardRules.ba-tunnel = [
-          {verdict = "accept"; comment = "DMZ -> wg-ba tunnel";}
+          {
+            verdict = "accept";
+            comment = "DMZ -> wg-ba tunnel";
+          }
         ];
         forwardRules.management = [
           # ordis → roer (OIDC token exchange)
-          {ip.saddr = ordis.ipv4; ip.daddr = roer.ipv4; tcp.dport = 443; verdict = "accept"; comment = "ordis -> roer (OIDC)";}
-          {ip6.saddr = ordis.ipv6; ip6.daddr = roer.ipv6; tcp.dport = 443; verdict = "accept"; comment = "ordis -> roer (OIDC v6)";}
+          {
+            ip.saddr = ordis.ipv4;
+            ip.daddr = roer.ipv4;
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "ordis -> roer (OIDC)";
+          }
+          {
+            ip6.saddr = ordis.ipv6;
+            ip6.daddr = roer.ipv6;
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "ordis -> roer (OIDC v6)";
+          }
           # DMZ → legram (ACME certificate issuance)
-          {ip.daddr = legram.ipv4; tcp.dport = 443; verdict = "accept"; comment = "DMZ -> legram (ACME)";}
-          {ip6.daddr = legram.ipv6; tcp.dport = 443; verdict = "accept"; comment = "DMZ -> legram (ACME v6)";}
+          {
+            ip.daddr = legram.ipv4;
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "DMZ -> legram (ACME)";
+          }
+          {
+            ip6.daddr = legram.ipv6;
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "DMZ -> legram (ACME v6)";
+          }
           # DMZ → ymir (Loki log push)
-          {ip.daddr = ymir.ipv4; tcp.dport = 3100; verdict = "accept"; comment = "DMZ -> ymir (Loki)";}
-          {ip6.daddr = ymir.ipv6; tcp.dport = 3100; verdict = "accept"; comment = "DMZ -> ymir (Loki v6)";}
+          {
+            ip.daddr = ymir.ipv4;
+            tcp.dport = 3100;
+            verdict = "accept";
+            comment = "DMZ -> ymir (Loki)";
+          }
+          {
+            ip6.daddr = ymir.ipv6;
+            tcp.dport = 3100;
+            verdict = "accept";
+            comment = "DMZ -> ymir (Loki v6)";
+          }
         ];
       };
 
@@ -265,8 +300,16 @@ in {
         icmpEcho = "disable";
         accessTo = [];
         forwardRules.dmz = [
-          {ip.daddr = ordis.ipv4; verdict = "accept"; comment = "wg-ba -> ordis (v4)";}
-          {ip6.daddr = ordis.ipv6; verdict = "accept"; comment = "wg-ba -> ordis (v6)";}
+          {
+            ip.daddr = ordis.ipv4;
+            verdict = "accept";
+            comment = "wg-ba -> ordis (v4)";
+          }
+          {
+            ip6.daddr = ordis.ipv6;
+            verdict = "accept";
+            comment = "wg-ba -> ordis (v6)";
+          }
         ];
         inputRules = [];
       };
@@ -319,22 +362,62 @@ in {
       egressPolicy = "log";
       egressRules = [
         # DNS (kresd recursive queries)
-        {udp.dport = 53; verdict = "accept"; comment = "DNS recursive";}
-        {tcp.dport = 53; verdict = "accept"; comment = "DNS recursive (TCP)";}
+        {
+          udp.dport = 53;
+          verdict = "accept";
+          comment = "DNS recursive";
+        }
+        {
+          tcp.dport = 53;
+          verdict = "accept";
+          comment = "DNS recursive (TCP)";
+        }
         # NTP
-        {udp.dport = 123; verdict = "accept"; comment = "NTP";}
+        {
+          udp.dport = 123;
+          verdict = "accept";
+          comment = "NTP";
+        }
         # DHCP client
-        {udp.dport = 67; verdict = "accept"; comment = "DHCP client";}
-        {udp.dport = 68; verdict = "accept"; comment = "DHCP server response";}
+        {
+          udp.dport = 67;
+          verdict = "accept";
+          comment = "DHCP client";
+        }
+        {
+          udp.dport = 68;
+          verdict = "accept";
+          comment = "DHCP server response";
+        }
         # DHCPv6
-        {udp.dport = [546 547]; verdict = "accept"; comment = "DHCPv6";}
+        {
+          udp.dport = [546 547];
+          verdict = "accept";
+          comment = "DHCPv6";
+        }
         # HTTP/HTTPS (system updates)
-        {tcp.dport = 80; verdict = "accept"; comment = "HTTP";}
-        {tcp.dport = 443; verdict = "accept"; comment = "HTTPS";}
+        {
+          tcp.dport = 80;
+          verdict = "accept";
+          comment = "HTTP";
+        }
+        {
+          tcp.dport = 443;
+          verdict = "accept";
+          comment = "HTTPS";
+        }
         # SSH
-        {tcp.dport = 22; verdict = "accept"; comment = "SSH";}
+        {
+          tcp.dport = 22;
+          verdict = "accept";
+          comment = "SSH";
+        }
         # WireGuard
-        {udp.dport = [38506 59362]; verdict = "accept"; comment = "WireGuard";}
+        {
+          udp.dport = [38506 59362];
+          verdict = "accept";
+          comment = "WireGuard";
+        }
       ];
       # Port forward SSH from wg-ba to ordis
       portForwards = [
@@ -358,7 +441,6 @@ in {
           masquerade = true;
         }
       ];
-
     };
 
     topology =

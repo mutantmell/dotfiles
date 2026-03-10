@@ -326,15 +326,19 @@ let
     zone = cfg.zones.${zoneName};
     portMatchesDns = dp: dp == 53 || (lib.isList dp && elem 53 dp);
     ruleAllowsDns = rule:
-      if lib.isAttrs rule then
+      if lib.isAttrs rule
+      then
         # Blanket accept (no port/proto restriction) → DNS allowed
-        ((rule ? verdict) && rule.verdict == "accept"
-         && !(rule ? tcp) && !(rule ? udp))
+        ((rule ? verdict)
+          && rule.verdict == "accept"
+          && !(rule ? tcp)
+          && !(rule ? udp))
         # Or explicitly allows UDP/TCP port 53
         || ((rule ? udp) && portMatchesDns (rule.udp.dport or null))
         || ((rule ? tcp) && portMatchesDns (rule.tcp.dport or null))
-      else true;  # Raw strings: conservative, assume DNS allowed
-  in any ruleAllowsDns zone.inputRules;
+      else true; # Raw strings: conservative, assume DNS allowed
+  in
+    any ruleAllowsDns zone.inputRules;
 
   # Interfaces whose zones provide DNS service (kresd should listen)
   dnsInterfaces = interfacesWhere (i: let
@@ -1937,16 +1941,19 @@ in {
             dnsExcludeV6 = filter (a: lib.hasInfix ":" a) dnsExcludeAll;
 
             # Collect all router IPv4/IPv6 addresses (auto-excluded from DNAT destination)
-            allIfaceAddrs = lib.concatMap (i: getEffectiveAddresses i) flattenTopology;
+            allIfaceAddrs = lib.concatMap getEffectiveAddresses flattenTopology;
             routerIPs = map (a: (parseCIDR a).ip) allIfaceAddrs;
             routerV4s = filter (a: !(lib.hasInfix ":" a)) routerIPs;
             routerV6s = filter (a: lib.hasInfix ":" a) routerIPs;
 
             # DNS interception target (first IP of a DNS-serving interface)
-            dnsIfaceRecords = filter (i: let
-              z = i.network.zone or null;
-            in z != null && hasAttr z cfg.zones && zoneAllowsDns z) flattenTopology;
-            dnsIfaceAddrs = lib.concatMap (i: getEffectiveAddresses i) dnsIfaceRecords;
+            dnsIfaceAddrs =
+              lib.concatMap getEffectiveAddresses
+              (filter (i: let
+                z = i.network.zone or null;
+              in
+                z != null && hasAttr z cfg.zones && zoneAllowsDns z)
+              flattenTopology);
 
             dnsTargetV4 =
               if dnsIntercept.target != null
@@ -1958,34 +1965,53 @@ in {
               then dnsIntercept.target6
               else firstIPv6 (map (a: (parseCIDR a).ip) dnsIfaceAddrs);
 
-            dnsNotSrcV4 = lib.unique dnsExcludeV4;
-            dnsNotDstV4 = lib.unique (routerV4s ++ dnsExcludeV4);
-            dnsNotSrcV6 = lib.unique dnsExcludeV6;
-            dnsNotDstV6 = lib.unique (routerV6s ++ dnsExcludeV6);
+            dnsSrcExcludesV4 = lib.unique dnsExcludeV4;
+            dnsDstExcludesV4 = lib.unique (routerV4s ++ dnsExcludeV4);
+            dnsSrcExcludesV6 = lib.unique dnsExcludeV6;
+            dnsDstExcludesV6 = lib.unique (routerV6s ++ dnsExcludeV6);
 
             mkNftSet = addrs:
-              if length addrs == 1 then head addrs
+              if length addrs == 1
+              then head addrs
               else "{ ${concatStringsSep ", " addrs} }";
 
-            dnsInterceptV4Rules = optionalString (dnsIntercept.enable && dnsTargetV4 != null) (
-              let
-                srcExclude = optionalString (dnsNotSrcV4 != []) "ip saddr != ${mkNftSet dnsNotSrcV4} ";
-                dstExclude = optionalString (dnsNotDstV4 != []) "ip daddr != ${mkNftSet dnsNotDstV4} ";
-              in ''
+            mkDnsInterceptRules = {
+              af,
+              srcExcludes,
+              dstExcludes,
+              target,
+              comment,
+            }:
+              optionalString (dnsIntercept.enable && target != null) (
+                let
+                  srcExclude = optionalString (srcExcludes != []) "${af} saddr != ${mkNftSet srcExcludes} ";
+                  dstExclude = optionalString (dstExcludes != []) "${af} daddr != ${mkNftSet dstExcludes} ";
+                  dnatTarget =
+                    if af == "ip6"
+                    then "[${target}]:53"
+                    else "${target}:53";
+                in ''
 
-              # DNS interception - redirect bypass attempts to router's DNS
-              ${srcExclude}${dstExclude}udp dport 53 dnat to ${dnsTargetV4}:53
-              ${srcExclude}${dstExclude}tcp dport 53 dnat to ${dnsTargetV4}:53'');
+                  # ${comment}
+                  ${srcExclude}${dstExclude}udp dport 53 dnat to ${dnatTarget}
+                  ${srcExclude}${dstExclude}tcp dport 53 dnat to ${dnatTarget}''
+              );
 
-            dnsInterceptV6Rules = optionalString (dnsIntercept.enable && dnsTargetV6 != null) (
-              let
-                srcExclude = optionalString (dnsNotSrcV6 != []) "ip6 saddr != ${mkNftSet dnsNotSrcV6} ";
-                dstExclude = optionalString (dnsNotDstV6 != []) "ip6 daddr != ${mkNftSet dnsNotDstV6} ";
-              in ''
+            dnsInterceptV4Rules = mkDnsInterceptRules {
+              af = "ip";
+              srcExcludes = dnsSrcExcludesV4;
+              dstExcludes = dnsDstExcludesV4;
+              target = dnsTargetV4;
+              comment = "DNS interception - redirect bypass attempts to router's DNS";
+            };
 
-              # IPv6 DNS interception
-              ${srcExclude}${dstExclude}udp dport 53 dnat to [${dnsTargetV6}]:53
-              ${srcExclude}${dstExclude}tcp dport 53 dnat to [${dnsTargetV6}]:53'');
+            dnsInterceptV6Rules = mkDnsInterceptRules {
+              af = "ip6";
+              srcExcludes = dnsSrcExcludesV6;
+              dstExcludes = dnsDstExcludesV6;
+              target = dnsTargetV6;
+              comment = "IPv6 DNS interception";
+            };
 
             # Indentation helper
             ind = "              ";
@@ -2020,7 +2046,8 @@ in {
                     zone = cfg.zones.${zoneName};
                     ifaces = interfacesInZone zoneName;
                     ifaceMatch = "iifname ${quoteList ifaces}";
-                    icmpLimit = optionalString (cfg.firewall.icmpRateLimit != null)
+                    icmpLimit =
+                      optionalString (cfg.firewall.icmpRateLimit != null)
                       " limit rate ${cfg.firewall.icmpRateLimit}";
                     icmpV4 =
                       optionalString (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv4-only")
@@ -2142,46 +2169,23 @@ in {
             ]);
 
             # Drop logging (rate-limited log + explicit drop before implicit policy drop)
-            dropLogInput = optionalString cfg.firewall.logDropped (concatStringsSep "\n" [
-              ""
-              "${ind}# Log dropped input packets"
-              "${ind}limit rate ${cfg.firewall.logDroppedRateLimit} log prefix \"DROP-INPUT: \" counter drop"
-              "${ind}counter drop"
-            ]);
+            mkDropLog = chain:
+              optionalString cfg.firewall.logDropped (concatStringsSep "\n" [
+                ""
+                "${ind}# Log dropped ${lib.toLower chain} packets"
+                "${ind}limit rate ${cfg.firewall.logDroppedRateLimit} log prefix \"DROP-${chain}: \" counter drop"
+                "${ind}counter drop"
+              ]);
 
-            dropLogForward = optionalString cfg.firewall.logDropped (concatStringsSep "\n" [
-              ""
-              "${ind}# Log dropped forward packets"
-              "${ind}limit rate ${cfg.firewall.logDroppedRateLimit} log prefix \"DROP-FORWARD: \" counter drop"
-              "${ind}counter drop"
-            ]);
-          in ''
-                      table inet filter {
-                        chain input {
-                          type filter hook input priority filter; policy drop;
-            ${inputBaseRules}
-            ${dhcp6ClientRules}
-            ${zoneInputRules}
-            ${wgRules}
-            ${extraInputStr}
-            ${dropLogInput}
-                        }
-
-                        chain forward {
-                          type filter hook forward priority filter; policy drop;
-            ${forwardBaseRules}
-            ${zoneForwardAccessRules}
-            ${zoneForwardFilterRules}
-            ${forwardDnatStr}
-            ${extraForwardStr}
-            ${dropLogForward}
-                        }
-
-                        chain output {
-            ${if cfg.firewall.egressPolicy == "accept" then ''
-                          type filter hook output priority filter; policy accept;''
+            # Egress (output) chain rules
+            egressPolicy =
+              if cfg.firewall.egressPolicy == "drop"
+              then "drop"
+              else "accept";
+            egressChainRules =
+              if cfg.firewall.egressPolicy == "accept"
+              then ""
               else let
-                policy = if cfg.firewall.egressPolicy == "drop" then "drop" else "accept";
                 egressBaseRules = concatStringsSep "\n" [
                   "${ind}# Base egress rules"
                   "${ind}ct state established,related accept"
@@ -2199,12 +2203,37 @@ in {
                   "${ind}# Log unmatched egress traffic"
                   "${ind}limit rate ${cfg.firewall.logDroppedRateLimit} log prefix \"${cfg.firewall.egressLogPrefix}\" counter"
                 ]);
-              in ''
-                          type filter hook output priority filter; policy ${policy};
-            ${egressBaseRules}
-            ${egressUserRules}
-            ${egressLog}''
-            }
+              in
+                concatStringsSep "\n" [
+                  egressBaseRules
+                  egressUserRules
+                  egressLog
+                ];
+          in ''
+                      table inet filter {
+                        chain input {
+                          type filter hook input priority filter; policy drop;
+            ${inputBaseRules}
+            ${dhcp6ClientRules}
+            ${zoneInputRules}
+            ${wgRules}
+            ${extraInputStr}
+            ${mkDropLog "INPUT"}
+                        }
+
+                        chain forward {
+                          type filter hook forward priority filter; policy drop;
+            ${forwardBaseRules}
+            ${zoneForwardAccessRules}
+            ${zoneForwardFilterRules}
+            ${forwardDnatStr}
+            ${extraForwardStr}
+            ${mkDropLog "FORWARD"}
+                        }
+
+                        chain output {
+                          type filter hook output priority filter; policy ${egressPolicy};
+            ${egressChainRules}
                         }
                       }
 
