@@ -215,6 +215,86 @@
     };
   };
 
+  # Config E: ICMP rate limiting enabled + drop logging
+  # (reuse E for both ICMP rate limit and drop logging tests)
+  icmpRateLimited = {
+    ulaPrefix = "fdc6:55f2:0a5e::/48";
+    dns.upstream = ["1.1.1.1"];
+    dns.useDHCPFallback = false;
+    zones = {
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
+      trusted = {
+        icmpEcho = "enable";
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
+      };
+    };
+    firewall.icmpRateLimit = "30/second burst 60 packets";
+    topology = {
+      wan = {
+        hardwareName = "eth0";
+        network = {
+          type = "dhcp";
+          zone = "external";
+          nat.enable = true;
+        };
+      };
+      lan = {
+        hardwareName = "eth1";
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "trusted";
+          dhcp.enable = true;
+        };
+      };
+    };
+  };
+
+  # Config F: Drop logging enabled
+  dropLogging = {
+    ulaPrefix = "fdc6:55f2:0a5e::/48";
+    dns.upstream = ["1.1.1.1"];
+    dns.useDHCPFallback = false;
+    zones = {
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
+      trusted = {
+        icmpEcho = "enable";
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
+      };
+    };
+    firewall.logDropped = true;
+    firewall.logDroppedRateLimit = "10/minute";
+    topology = {
+      wan = {
+        hardwareName = "eth0";
+        network = {
+          type = "dhcp";
+          zone = "external";
+          nat.enable = true;
+        };
+      };
+      lan = {
+        hardwareName = "eth1";
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "trusted";
+          dhcp.enable = true;
+        };
+      };
+    };
+  };
+
   # ========================================================================
   # Tests
   # ========================================================================
@@ -224,6 +304,8 @@
     rulesetB = evalRuleset staticWan;
     rulesetC = evalRuleset dhcpWanNoPD;
     rulesetD = evalRuleset multiDhcp;
+    rulesetE = evalRuleset icmpRateLimited;
+    rulesetF = evalRuleset dropLogging;
   in [
     # ======================================================================
     # Config A: DHCP WAN with PD + static LAN with dhcp6
@@ -274,6 +356,35 @@
     # ======================================================================
     (assertTrue "D: DHCPv6 client rule uses set syntax for multiple interfaces"
       (contains ''iifname { "wan1", "wan2" } udp dport 546 accept'' rulesetD))
+
+    # ======================================================================
+    # Config E: ICMP rate limiting
+    # ======================================================================
+    (assertTrue "E: ICMP rate limit present in echo rules"
+      (contains "echo-request, echo-reply } limit rate 30/second burst 60 packets accept" rulesetE))
+
+    (assertTrue "E: ICMP rate limit applies to both v4 and v6"
+      (contains "icmpv6 type { echo-request, echo-reply } limit rate 30/second" rulesetE))
+
+    (assertTrue "A: no ICMP rate limit when not configured"
+      (contains "echo-request, echo-reply } accept" rulesetA
+      && notContains "echo-request, echo-reply } limit" rulesetA))
+
+    # ======================================================================
+    # Config F: Drop logging
+    # ======================================================================
+    (assertTrue "F: DROP-INPUT log prefix present"
+      (contains ''log prefix "DROP-INPUT: "'' rulesetF))
+
+    (assertTrue "F: DROP-FORWARD log prefix present"
+      (contains ''log prefix "DROP-FORWARD: "'' rulesetF))
+
+    (assertTrue "F: custom rate limit applied"
+      (contains "limit rate 10/minute" rulesetF))
+
+    (assertTrue "A: no drop logging when disabled"
+      (notContains "DROP-INPUT" rulesetA
+      && notContains "DROP-FORWARD" rulesetA))
   ];
 
   allPass = lib.all (x: x) tests;

@@ -21,6 +21,7 @@
 
   router6-dnat = import ./modules/router6-dnat.nix {inherit pkgs lib;};
   router6-extra-rules = import ./modules/router6-extra-rules.nix {inherit pkgs lib;};
+  router6-dns-interception-vm = import ./modules/router6-dns-interception.nix {inherit pkgs lib;};
 
   # Pure Nix evaluation tests
   nftables-dsl = import ./lib/nftables.nix {inherit pkgs lib;};
@@ -34,6 +35,8 @@
   router6-sysctl-properties = import ./lib/router6-sysctl-properties.nix {inherit pkgs lib;};
   router6-dyndns-config = import ./lib/router6-dyndns-config.nix {inherit pkgs lib;};
   router6-pppoe-config = import ./lib/router6-pppoe-config.nix {inherit pkgs lib;};
+  router6-egress-properties = import ./lib/router6-egress-properties.nix {inherit pkgs lib;};
+  router6-dns-interception = import ./lib/router6-dns-interception.nix {inherit pkgs lib;};
   network-helpers = import ./lib/network-helpers.nix {inherit pkgs lib;};
   openwrt-config = import ./lib/openwrt-config.nix {inherit pkgs lib;};
 }
