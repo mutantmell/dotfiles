@@ -704,35 +704,30 @@ While not a security escalation in this specific deployment (the DNAT prerouting
 
 ### Follow-Up Items
 
-The following items were identified during verification but not fixed in this pass, either because they require separate design work, carry operational risk, or are migration artifacts that will resolve naturally.
+The following items were identified during verification. Items marked **RESOLVED** have been implemented; remaining items are deferred.
 
-#### Priority 1
+#### Resolved
 
-| Item                                     | Audit Reference                         | Rationale for Deferral                                                                                                                                                                                                                                                                                                                                                                                  |
-| ---------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Router output chain egress filtering** | Section 1 Concern #1, Recommendation #2 | The audit correctly notes significant operational risk: router processes may need to reach unanticipated destinations (package mirror rotation, OCSP/CRL endpoints, NTP pool changes, ACME challenge servers). Requires a log-only discovery phase to build an accurate allow-list before enforcing drops. Should be implemented as a separate feature with its own test coverage and iterative tuning. |
+| Item | Audit Reference | Resolution |
+| ---- | --------------- | ---------- |
+| **Router output chain egress filtering** | Section 1 Concern #1, Recommendation #2 | RESOLVED — Added `firewall.egressPolicy` option (`accept`/`drop`/`log`). thebeyond deployed in `log` mode with explicit allow-list for DNS, NTP, DHCP, HTTP/S, SSH, WireGuard. Eval tests in `router6-egress-properties.nix`. |
+| **Create dedicated `ba-tunnel` zone for wg-ba** | Addendum A1 | RESOLVED — Split DMZ into its own zone with specific `forwardRules` to `ba-tunnel` and `management`. Added `ba-tunnel` zone for wg-ba (ordis-only access). All `extraForwardRules` eliminated from thebeyond. 9 zones total. |
+| **Auto-derive DNS interception exclusion list** | Addendum A2 | RESOLVED — Added `dns.interception` options. Exclusions auto-derived from `dns.upstream` + `extraExcludeAddresses`. Router IPs auto-excluded from DNAT destination. Both v4 and v6 supported. Eval tests in `router6-dns-interception.nix`, VM test in `router6-dns-interception-vm`. |
+| **Align kresd listen interfaces with DNS-permitted zones** | Section 2 Concern #4, Recommendation #7 | RESOLVED — `dnsInterfaces` heuristic now checks whether zone `inputRules` actually permit DNS (port 53 or blanket accept). NTP-only zones no longer get kresd listeners. Test in `router6-kresd-config.nix`. |
+| **Rate limiting on accept rules** | Section 1 Concern #3, Recommendation #4 | RESOLVED — Added `firewall.icmpRateLimit` option. thebeyond set to `30/second burst 60 packets`. DNS inputRules on untrusted zone rate-limited to `100/second`. Eval tests in `router6-firewall-properties.nix`. |
+| **Firewall drop logging** | Addendum A4, Recommendation #10 | RESOLVED — Added `firewall.logDropped`/`logDroppedRateLimit` options. Rate-limited `log prefix "DROP-INPUT: "` and `DROP-FORWARD: ` rules before implicit policy drop. Enabled on thebeyond. Eval tests in `router6-firewall-properties.nix`. |
+| **Negative DNS interception test** | Recommendation #8 | RESOLVED — VM integration test (`router6-dns-interception-vm`) verifies client DNS to external IP is intercepted, upstream exclusions work, and DNAT rules are present. |
+| **Document the security model** | Recommendation #9 | RESOLVED — Created `docs/security-model.md` covering zone trust model, default-deny firewall, DNS interception, egress filtering, network segmentation, ICMP rate limiting, and kresd listen scope. |
 
-#### Priority 2
+#### Deferred
 
-| Item                                            | Audit Reference | Rationale for Deferral                                                                                                                                                                                                                                                                                                         |
-| ----------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Create dedicated `ba-tunnel` zone for wg-ba** | Addendum A1     | Architecturally sound — would bring wg-ba under the zone model with full assertion coverage and eliminate all `extraForwardRules` from thebeyond. Requires design work to also migrate the DMZ→INFRA cross-zone rules into `untrusted.forwardRules.management`. Should be a separate refactor with corresponding test updates. |
-| **Auto-derive DNS interception exclusion list** | Addendum A2     | Currently the phantasma exclusion in DNS DNAT rules is hardcoded. Deriving it automatically from `dns.upstream` would prevent silent DNS loops when adding a second recursive resolver. Requires DSL changes in the router6 module.                                                                                            |
-
-#### Priority 3
-
-| Item                                                       | Audit Reference                          | Rationale for Deferral                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ---------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Align kresd listen interfaces with DNS-permitted zones** | Section 2 Concern #4, Recommendation #7  | kresd listens on 22 addresses including `10.0.10.1:53` (brMGMT / network zone), but the network zone's firewall only allows NTP — DNS is dropped. Not a vulnerability (firewall is authoritative), but the listener is unnecessary. Fix requires changing the `dnsInterfaces` heuristic from `inputRules != []` to checking whether port 53 or a blanket accept is present in the input rules, which is fragile to implement against the current rule attrset structure. |
-| **Rate limiting on accept rules**                          | Section 1 Concern #3, Recommendation #4  | Low risk for a home network. Would require DSL changes to inject `limit rate` into generated accept rules.                                                                                                                                                                                                                                                                                                                                                               |
-| **Firewall drop logging**                                  | Addendum A4, Recommendation #10          | The promtail→Loki pipeline is already in place. Adding rate-limited log-and-drop rules would provide visibility into blocked traffic with minimal effort. Should be a separate feature.                                                                                                                                                                                                                                                                                  |
-| **Clean up legacy address references**                     | Section 3 Concern #2, Recommendation #11 | DNS interception DNAT target (`10.0.11.1`), Chrony ACLs (legacy subnets), node exporter `listenAddress`, and `/etc/hosts` entries all reference legacy `10.0.x.x` addresses. These are intentional during the network migration and should be updated when the migration to `10.97.x.x` completes.                                                                                                                                                                       |
-| **Negative DNS interception test**                         | Recommendation #8                        | A VM test verifying that a device using `8.8.8.8` gets redirected to the router's DNS would close a testing gap. Not blocking.                                                                                                                                                                                                                                                                                                                                           |
-| **Document the security model**                            | Recommendation #9                        | A dedicated security-model document covering zone trust levels, traffic flow assumptions, and DNS interception behavior would aid future maintainers.                                                                                                                                                                                                                                                                                                                    |
+| Item | Audit Reference | Rationale for Deferral |
+| ---- | --------------- | ---------------------- |
+| **Clean up legacy address references** | Section 3 Concern #2, Recommendation #11 | DNS interception DNAT target (`10.0.11.1`), Chrony ACLs (legacy subnets), node exporter `listenAddress`, and `/etc/hosts` entries all reference legacy `10.0.x.x` addresses. These are intentional during the network migration and should be updated when the migration to `10.97.x.x` completes. |
 
 ### Test Results
 
-All 32 checks pass after the fixes (31 functional checks + 1 formatting check):
+All 35 checks pass after the security follow-up implementation (34 functional checks + 1 formatting check):
 
 ```
 PASS  router6-firewall-properties    PASS  router6-zone-system
@@ -749,7 +744,8 @@ PASS  router6-wireguard-config       PASS  router6-dyndns-config
 PASS  egress-filter                  PASS  network-helpers
 PASS  openwrt-config                 PASS  incus-container
 PASS  incus-vm                       PASS  disko-router
-PASS  disko-vm-host                  PASS  router6-extra-rules
+PASS  disko-vm-host                  PASS  router6-egress-properties
+PASS  router6-dns-interception       PASS  router6-dns-interception-vm
 PASS  formatting
-Results: 32 passed, 0 failed
+Results: 35 passed, 0 failed
 ```

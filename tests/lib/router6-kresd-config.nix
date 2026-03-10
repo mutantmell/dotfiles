@@ -140,6 +140,65 @@
       };
     };
 
+  # Config G: Zone with NTP-only inputRules (no DNS) should not get kresd listeners
+  configG = {
+    zones = {
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
+      trusted = {
+        icmpEcho = "enable";
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
+      };
+      network = {
+        icmpEcho = "enable";
+        accessTo = [];
+        inputRules = [
+          {
+            udp.dport = 123;
+            verdict = "accept";
+            comment = "NTP only";
+          }
+        ];
+      };
+    };
+    ulaPrefix = "fdc6:55f2:0a5e::/48";
+    dns = {
+      upstream = ["1.1.1.1"];
+      useDHCPFallback = false;
+    };
+    topology = {
+      wan = {
+        hardwareName = "eth0";
+        network = {
+          type = "dhcp";
+          zone = "external";
+          nat.enable = true;
+        };
+      };
+      lan = {
+        hardwareName = "eth1";
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24"];
+          zone = "trusted";
+          dhcp.enable = true;
+        };
+      };
+      mgmt = {
+        hardwareName = "eth2";
+        network = {
+          type = "static";
+          addresses = ["10.0.20.1/24"];
+          zone = "network";
+        };
+      };
+    };
+  };
+
   extraA = (evalConfig configA).services.kresd.extraConfig;
   extraB = (evalConfig configB).services.kresd.extraConfig;
   extraC = (evalConfig configC).services.kresd.extraConfig;
@@ -148,6 +207,7 @@
   extraF = (evalConfig configF).services.kresd.extraConfig;
 
   evalB = evalConfig configB;
+  evalG = evalConfig configG;
 
   tests = [
     # Config A: Simple upstream, no fallback
@@ -194,6 +254,21 @@
     # Config F: localDomain null
     (assertTrue "F: no policy.suffix DENY"
       (notContains "policy.suffix(policy.DENY" extraF))
+
+    # Config G: NTP-only zone should not get kresd listeners
+    (assertTrue "G: kresd does not listen on NTP-only zone interface"
+      (let
+        listenAddrs = evalG.services.kresd.listenPlain;
+        # mgmt interface has 10.0.20.1 — should NOT be in listen list
+      in
+        !lib.any (addr: lib.hasPrefix "10.0.20.1" addr) listenAddrs))
+
+    (assertTrue "G: kresd still listens on DNS-serving zone interface"
+      (let
+        listenAddrs = evalG.services.kresd.listenPlain;
+        # lan interface has 10.0.10.1 — should be in listen list
+      in
+        lib.any (addr: lib.hasPrefix "10.0.10.1" addr) listenAddrs))
   ];
 
   allPass = lib.all (x: x) tests;

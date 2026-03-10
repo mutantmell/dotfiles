@@ -118,7 +118,7 @@
     (mkVlanBridge {
       name = "DMZ";
       tag = 100;
-      zone = "untrusted";
+      zone = "dmz";
       addresses = ["10.0.100.1/24" "10.97.100.1/24"];
     })
   ];
@@ -213,21 +213,68 @@ in {
         inputRules = [
           {
             udp.dport = [53 67 547];
+            limit = "100/second";
             verdict = "accept";
             comment = "DNS + DHCP";
           }
           {
             tcp.dport = 53;
+            limit = "100/second";
             verdict = "accept";
             comment = "DNS over TCP";
           }
         ];
       };
 
+      dmz = {
+        # DMZ: internet + selective cross-zone access (management services, ba-tunnel)
+        icmpEcho = "enable";
+        accessTo = ["external"];
+        inputRules = [
+          {
+            udp.dport = [53 67 547];
+            limit = "100/second";
+            verdict = "accept";
+            comment = "DNS + DHCP";
+          }
+          {
+            tcp.dport = 53;
+            limit = "100/second";
+            verdict = "accept";
+            comment = "DNS over TCP";
+          }
+        ];
+        forwardRules.ba-tunnel = [
+          {verdict = "accept"; comment = "DMZ -> wg-ba tunnel";}
+        ];
+        forwardRules.management = [
+          # ordis → roer (OIDC token exchange)
+          {ip.saddr = ordis.ipv4; ip.daddr = roer.ipv4; tcp.dport = 443; verdict = "accept"; comment = "ordis -> roer (OIDC)";}
+          {ip6.saddr = ordis.ipv6; ip6.daddr = roer.ipv6; tcp.dport = 443; verdict = "accept"; comment = "ordis -> roer (OIDC v6)";}
+          # DMZ → legram (ACME certificate issuance)
+          {ip.daddr = legram.ipv4; tcp.dport = 443; verdict = "accept"; comment = "DMZ -> legram (ACME)";}
+          {ip6.daddr = legram.ipv6; tcp.dport = 443; verdict = "accept"; comment = "DMZ -> legram (ACME v6)";}
+          # DMZ → ymir (Loki log push)
+          {ip.daddr = ymir.ipv4; tcp.dport = 3100; verdict = "accept"; comment = "DMZ -> ymir (Loki)";}
+          {ip6.daddr = ymir.ipv6; tcp.dport = 3100; verdict = "accept"; comment = "DMZ -> ymir (Loki v6)";}
+        ];
+      };
+
+      ba-tunnel = {
+        # wg-ba: locked down, only ordis access
+        icmpEcho = "disable";
+        accessTo = [];
+        forwardRules.dmz = [
+          {ip.daddr = ordis.ipv4; verdict = "accept"; comment = "wg-ba -> ordis (v4)";}
+          {ip6.daddr = ordis.ipv6; verdict = "accept"; comment = "wg-ba -> ordis (v6)";}
+        ];
+        inputRules = [];
+      };
+
       vpn = {
         # Authenticated remote clients: access to infra + DMZ services, but not home LAN
         icmpEcho = "enable";
-        accessTo = ["management" "untrusted"];
+        accessTo = ["management" "untrusted" "dmz"];
         inputRules = [
           {
             verdict = "accept";
@@ -237,7 +284,7 @@ in {
       };
 
       isolated = {
-        # No forwarding, no router services
+        # No forwarding, no router services (available for future use)
         icmpEcho = "disable";
         accessTo = [];
         inputRules = [];
@@ -248,6 +295,12 @@ in {
       upstream = [phantasma.ipv4]; # phantasma microVM (primary - has local hostnames)
       useDHCPFallback = true; # fall back to ISP DNS when phantasma microVM is down
       localDomain = "internal";
+      interception = {
+        enable = true;
+        extraExcludeAddresses = [phantasma.ipv4Legacy phantasma.ipv6];
+        target = host.ipv4Legacy;
+        target6 = host.ipv6;
+      };
     };
 
     dyndns = {
@@ -260,78 +313,29 @@ in {
     };
 
     firewall = {
-      # Forward from DMZ to wg-ba
-      extraForwardRules = [
-        {
-          iifname = "brDMZ";
-          oifname = "wg-ba";
-          verdict = "accept";
-        }
-        {
-          iifname = "wg-ba";
-          ip.daddr = ordis.ipv4;
-          verdict = "accept";
-        }
-        {
-          iifname = "wg-ba";
-          ip6.daddr = ordis.ipv6;
-          verdict = "accept";
-        }
-        # ordis → roer (OIDC token exchange)
-        {
-          iifname = "brDMZ";
-          oifname = "brINFRA";
-          ip.saddr = ordis.ipv4;
-          ip.daddr = roer.ipv4;
-          tcp.dport = 443;
-          verdict = "accept";
-          comment = "ordis -> roer (OIDC)";
-        }
-        {
-          iifname = "brDMZ";
-          oifname = "brINFRA";
-          ip6.saddr = ordis.ipv6;
-          ip6.daddr = roer.ipv6;
-          tcp.dport = 443;
-          verdict = "accept";
-          comment = "ordis -> roer (OIDC v6)";
-        }
-        # vDMZ → legram (ACME certificate issuance)
-        {
-          iifname = "brDMZ";
-          oifname = "brINFRA";
-          ip.daddr = legram.ipv4;
-          tcp.dport = 443;
-          verdict = "accept";
-          comment = "vDMZ -> legram (ACME)";
-        }
-        {
-          iifname = "brDMZ";
-          oifname = "brINFRA";
-          ip6.daddr = legram.ipv6;
-          tcp.dport = 443;
-          verdict = "accept";
-          comment = "vDMZ -> legram (ACME v6)";
-        }
-        # vDMZ → ymir (Loki log push)
-        {
-          iifname = "brDMZ";
-          oifname = "brINFRA";
-          ip.daddr = ymir.ipv4;
-          tcp.dport = 3100;
-          verdict = "accept";
-          comment = "vDMZ -> ymir (Loki)";
-        }
-        {
-          iifname = "brDMZ";
-          oifname = "brINFRA";
-          ip6.daddr = ymir.ipv6;
-          tcp.dport = 3100;
-          verdict = "accept";
-          comment = "vDMZ -> ymir (Loki v6)";
-        }
-      ];
+      icmpRateLimit = "30/second burst 60 packets";
+      logDropped = true;
 
+      egressPolicy = "log";
+      egressRules = [
+        # DNS (kresd recursive queries)
+        {udp.dport = 53; verdict = "accept"; comment = "DNS recursive";}
+        {tcp.dport = 53; verdict = "accept"; comment = "DNS recursive (TCP)";}
+        # NTP
+        {udp.dport = 123; verdict = "accept"; comment = "NTP";}
+        # DHCP client
+        {udp.dport = 67; verdict = "accept"; comment = "DHCP client";}
+        {udp.dport = 68; verdict = "accept"; comment = "DHCP server response";}
+        # DHCPv6
+        {udp.dport = [546 547]; verdict = "accept"; comment = "DHCPv6";}
+        # HTTP/HTTPS (system updates)
+        {tcp.dport = 80; verdict = "accept"; comment = "HTTP";}
+        {tcp.dport = 443; verdict = "accept"; comment = "HTTPS";}
+        # SSH
+        {tcp.dport = 22; verdict = "accept"; comment = "SSH";}
+        # WireGuard
+        {udp.dport = [38506 59362]; verdict = "accept"; comment = "WireGuard";}
+      ];
       # Port forward SSH from wg-ba to ordis
       portForwards = [
         {
@@ -355,45 +359,6 @@ in {
         }
       ];
 
-      extraNatRules = [
-        # DNS interception - redirect bypass attempts to router's DNS
-        # This catches devices (e.g., Google/Nest) that ignore DHCP-provided DNS
-        # Excludes phantasma so Unbound can make recursive queries
-        # Includes both 10.97 and legacy 10.0 addresses during migration
-        {
-          ip.saddr = {not = [phantasma.ipv4 phantasma.ipv4Legacy];};
-          ip.daddr = {not = [host.ipv4 host.ipv4Legacy phantasma.ipv4 phantasma.ipv4Legacy];};
-          udp.dport = 53;
-          verdict = {dnat = "${host.ipv4Legacy}:53";};
-          comment = "Intercept DNS bypass (UDP)";
-        }
-        {
-          ip.saddr = {not = [phantasma.ipv4 phantasma.ipv4Legacy];};
-          ip.daddr = {not = [host.ipv4 host.ipv4Legacy phantasma.ipv4 phantasma.ipv4Legacy];};
-          tcp.dport = 53;
-          verdict = {dnat = "${host.ipv4Legacy}:53";};
-          comment = "Intercept DNS bypass (TCP)";
-        }
-      ];
-
-      # IPv6 DNS interception - same as IPv4 but for ULA addresses
-      # Excludes phantasma's IPv6 so Unbound can make recursive queries
-      extraNat6Rules = [
-        {
-          ip6.saddr = {not = phantasma.ipv6;};
-          ip6.daddr = {not = [host.ipv6 phantasma.ipv6];};
-          udp.dport = 53;
-          verdict = {dnat = "[${host.ipv6}]:53";};
-          comment = "Intercept IPv6 DNS bypass (UDP)";
-        }
-        {
-          ip6.saddr = {not = phantasma.ipv6;};
-          ip6.daddr = {not = [host.ipv6 phantasma.ipv6];};
-          tcp.dport = 53;
-          verdict = {dnat = "[${host.ipv6}]:53";};
-          comment = "Intercept IPv6 DNS bypass (TCP)";
-        }
-      ];
     };
 
     topology =
@@ -461,7 +426,7 @@ in {
           };
         };
 
-        # Wireguard - BA tunnel (isolated/lockdown)
+        # Wireguard - BA tunnel (locked down, ordis only)
         "wg-ba" = {
           kind = "wireguard";
           network = {
@@ -470,7 +435,7 @@ in {
               "10.100.0.1/24"
               "fdc6:55f2:0a5e:6400::1/64" # Manual IPv6 for WG
             ];
-            zone = "isolated";
+            zone = "ba-tunnel";
             required = false; # External connection, don't block boot
           };
           wireguard = {
