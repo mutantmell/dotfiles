@@ -77,26 +77,42 @@
   configAccept = baseConfig;
 
   # Config B: drop policy
-  configDrop = baseConfig // {
-    firewall = {
-      egressPolicy = "drop";
-      egressRules = [
-        {tcp.dport = 53; verdict = "accept"; comment = "DNS";}
-        {udp.dport = 123; verdict = "accept"; comment = "NTP";}
-      ];
+  configDrop =
+    baseConfig
+    // {
+      firewall = {
+        egressPolicy = "drop";
+        egressRules = [
+          {
+            tcp.dport = 53;
+            verdict = "accept";
+            comment = "DNS";
+          }
+          {
+            udp.dport = 123;
+            verdict = "accept";
+            comment = "NTP";
+          }
+        ];
+      };
     };
-  };
 
   # Config C: log policy
-  configLog = baseConfig // {
-    firewall = {
-      egressPolicy = "log";
-      egressLogPrefix = "TEST-EGRESS: ";
-      egressRules = [
-        {tcp.dport = 443; verdict = "accept"; comment = "HTTPS";}
-      ];
+  configLog =
+    baseConfig
+    // {
+      firewall = {
+        egressPolicy = "log";
+        egressLogPrefix = "TEST-EGRESS: ";
+        egressRules = [
+          {
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "HTTPS";
+          }
+        ];
+      };
     };
-  };
 
   rulesetAccept = evalRuleset configAccept;
   rulesetDrop = evalRuleset configDrop;
@@ -106,7 +122,7 @@
     # Accept mode: empty output chain
     (assertTrue "accept: policy accept"
       (contains "chain output" rulesetAccept
-      && contains "policy accept" rulesetAccept))
+        && contains "policy accept" rulesetAccept))
 
     (assertTrue "accept: no egress base rules"
       (notContains "Base egress rules" rulesetAccept))
@@ -114,15 +130,15 @@
     # Drop mode: policy drop with base rules
     (assertTrue "drop: policy drop"
       (contains "chain output" rulesetDrop
-      && contains "policy drop" rulesetDrop))
+        && contains "policy drop" rulesetDrop))
 
     (assertTrue "drop: has base egress rules"
       (contains "ct state established,related accept" rulesetDrop
-      && contains ''oifname "lo" accept'' rulesetDrop))
+        && contains ''oifname "lo" accept'' rulesetDrop))
 
     (assertTrue "drop: has user egress rules"
       (contains "tcp dport 53 accept" rulesetDrop
-      && contains "udp dport 123 accept" rulesetDrop))
+        && contains "udp dport 123 accept" rulesetDrop))
 
     (assertTrue "drop: no log prefix"
       (notContains "EGRESS-UNMATCHED" rulesetDrop))
@@ -130,7 +146,7 @@
     # Log mode: policy accept with base rules + log
     (assertTrue "log: policy accept"
       (contains "output" rulesetLog
-      && contains "policy accept" rulesetLog))
+        && contains "policy accept" rulesetLog))
 
     (assertTrue "log: has base egress rules"
       (contains "Base egress rules" rulesetLog))
