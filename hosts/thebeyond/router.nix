@@ -227,9 +227,26 @@ in {
       };
 
       dmz = {
-        # DMZ: internet + selective cross-zone access (management services, ba-tunnel)
+        # DMZ: restricted internet + selective cross-zone access (management services, ba-tunnel)
         icmpEcho = "enable";
-        accessTo = ["external"];
+        accessTo = [];
+        forwardRules.external = [
+          {
+            tcp.dport = 22;
+            verdict = "accept";
+            comment = "DMZ -> internet (SSH)";
+          }
+          {
+            tcp.dport = 80;
+            verdict = "accept";
+            comment = "DMZ -> internet (HTTP)";
+          }
+          {
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "DMZ -> internet (HTTPS)";
+          }
+        ];
         inputRules = [
           {
             udp.dport = [53 67 547];
@@ -347,7 +364,7 @@ in {
       interception = {
         enable = true;
         extraExcludeAddresses = [phantasma.ipv4Legacy phantasma.ipv6];
-        target = host.ipv4Legacy;
+        target = host.ipv4;
         target6 = host.ipv6;
       };
     };
@@ -411,12 +428,6 @@ in {
           tcp.dport = 443;
           verdict = "accept";
           comment = "HTTPS";
-        }
-        # SSH
-        {
-          tcp.dport = 22;
-          verdict = "accept";
-          comment = "SSH";
         }
         # WireGuard
         {
