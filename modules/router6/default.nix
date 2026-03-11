@@ -2009,9 +2009,11 @@ in {
 
             # Plain IP addresses (not CIDR) — use parseIPAddress so partitionAF works
             dnsExcludes = partitionAF (map parseIPAddress (
-              (if dnsIntercept.excludeAddresses != []
-               then dnsIntercept.excludeAddresses
-               else cfg.dns.upstream)
+              (
+                if dnsIntercept.excludeAddresses != []
+                then dnsIntercept.excludeAddresses
+                else cfg.dns.upstream
+              )
               ++ dnsIntercept.extraExcludeAddresses
             ));
 
@@ -2021,12 +2023,20 @@ in {
             dnsTargets = let
               dnsIfaceAddrs =
                 lib.concatMap getEffectiveAddresses
-                (filter (i: let z = i.network.zone or null;
-                  in z != null && hasAttr z cfg.zones && zoneAllowsDns z)
+                (filter (i: let
+                  z = i.network.zone or null;
+                in
+                  z != null && hasAttr z cfg.zones && zoneAllowsDns z)
                 flattenTopology);
             in {
-              v4 = if dnsIntercept.target != null then parseIPAddress dnsIntercept.target else firstIPv4 dnsIfaceAddrs;
-              v6 = if dnsIntercept.target6 != null then parseIPAddress dnsIntercept.target6 else firstIPv6 dnsIfaceAddrs;
+              v4 =
+                if dnsIntercept.target != null
+                then parseIPAddress dnsIntercept.target
+                else firstIPv4 dnsIfaceAddrs;
+              v6 =
+                if dnsIntercept.target6 != null
+                then parseIPAddress dnsIntercept.target6
+                else firstIPv6 dnsIfaceAddrs;
             };
 
             mkNftSet = addrs:
@@ -2036,14 +2046,19 @@ in {
 
             # Build interception rules for one address family.
             # All inputs are parsed address objects; .ip is extracted here at the nftables boundary.
-            mkDnsInterceptRules = { af, excludes, routers, target }:
+            mkDnsInterceptRules = {
+              af,
+              excludes,
+              routers,
+              target,
+            }:
               optionals (dnsIntercept.enable && target != null) (
                 let
                   srcExcludes = lib.unique (map (a: a.ip) excludes);
                   dstExcludes = lib.unique (map (a: a.ip) (routers ++ excludes));
                   afAttrs =
-                    optionalAttrs (srcExcludes != []) { saddr = { not = mkNftSet srcExcludes; }; }
-                    // optionalAttrs (dstExcludes != []) { daddr = { not = mkNftSet dstExcludes; }; };
+                    optionalAttrs (srcExcludes != []) {saddr = {not = mkNftSet srcExcludes;};}
+                    // optionalAttrs (dstExcludes != []) {daddr = {not = mkNftSet dstExcludes;};};
                   dnatTarget =
                     if af == "ip6"
                     then "[${target.ip}]:53"
@@ -2051,9 +2066,9 @@ in {
                   mkRule = proto: {
                     ${af} = afAttrs;
                     ${proto}.dport = 53;
-                    verdict = { dnat = dnatTarget; };
+                    verdict = {dnat = dnatTarget;};
                   };
-                in [ (mkRule "udp") (mkRule "tcp") ]
+                in [(mkRule "udp") (mkRule "tcp")]
               );
 
             dnsInterceptV4RulesList = mkDnsInterceptRules {

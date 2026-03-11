@@ -149,7 +149,7 @@
         && contains "policy accept" rulesetLog))
 
     (assertTrue "log: has base egress rules"
-      (contains "Base egress rules" rulesetLog))
+      (contains "ct state { established, related } accept" rulesetLog))
 
     (assertTrue "log: has user egress rules"
       (contains "tcp dport 443 accept" rulesetLog))

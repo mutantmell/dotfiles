@@ -126,20 +126,17 @@
       (notContains "DNS interception" rulesetA))
 
     # Enabled with auto-exclude
-    (assertTrue "enabled: has IPv4 DNS interception"
-      (contains "DNS interception" rulesetB))
+    (assertTrue "enabled: has IPv4 UDP DNS interception"
+      (contains "ip saddr != 10.0.11.2" rulesetB
+        && contains "udp dport 53 dnat to" rulesetB))
 
-    (assertTrue "enabled: upstream excluded from source"
-      (contains "ip saddr != 10.0.11.2" rulesetB))
-
-    (assertTrue "enabled: UDP interception"
-      (contains "udp dport 53 dnat to" rulesetB))
-
-    (assertTrue "enabled: TCP interception"
-      (contains "tcp dport 53 dnat to" rulesetB))
+    (assertTrue "enabled: has IPv4 TCP DNS interception"
+      (contains "ip saddr != 10.0.11.2" rulesetB
+        && contains "tcp dport 53 dnat to" rulesetB))
 
     (assertTrue "enabled: has IPv6 DNS interception"
-      (contains "IPv6 DNS interception" rulesetB))
+      (contains "ip6" rulesetB
+        && contains "dnat to [fdc6:55f2:0a5e:a::1]:53" rulesetB))
 
     # Extra excludes
     (assertTrue "excludes: extra v4 address excluded"
