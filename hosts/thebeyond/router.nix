@@ -246,8 +246,14 @@ in {
         ];
         forwardRules.ba-tunnel = [
           {
+            ip.saddr = ordis.ipv4;
             verdict = "accept";
-            comment = "DMZ -> wg-ba tunnel";
+            comment = "ordis -> wg-ba tunnel (v4)";
+          }
+          {
+            ip6.saddr = ordis.ipv6;
+            verdict = "accept";
+            comment = "ordis -> wg-ba tunnel (v6)";
           }
         ];
         forwardRules.management = [
@@ -359,7 +365,7 @@ in {
       icmpRateLimit = "30/second burst 60 packets";
       logDropped = true;
 
-      egressPolicy = "log";
+      egressPolicy = "drop";
       egressRules = [
         # DNS (kresd recursive queries)
         {
