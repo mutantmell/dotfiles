@@ -123,7 +123,7 @@
   tests = [
     # Disabled by default
     (assertTrue "disabled: no DNS interception rules"
-      (notContains "DNS interception" rulesetA))
+      (notContains "dport 53 dnat to" rulesetA))
 
     # Enabled with auto-exclude
     (assertTrue "enabled: has IPv4 UDP DNS interception"

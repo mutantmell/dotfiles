@@ -5,6 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```bash
+# Format all Nix files (alejandra via treefmt)
+nix fmt
+
 # Run all checks (integration tests, unit tests, deploy checks)
 # Use run-checks.sh instead of `nix flake check` — the flake has ~66 NixOS
 # evaluations which OOM-kills `nix flake check` (single-process eval).
