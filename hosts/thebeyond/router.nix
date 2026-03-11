@@ -443,6 +443,7 @@ in {
           sourcePort = 22;
           destination = "${ordis.ipv4}:22";
           sourceInterface = "wg-ba";
+          destinationInterface = "brDMZ";
         }
       ];
 

@@ -874,6 +874,11 @@ in {
                   default = null;
                   description = "Limit to specific interface (default: all external)";
                 };
+                destinationInterface = mkOption {
+                  type = types.nullOr types.str;
+                  default = null;
+                  description = "Restrict forward-accept rule to specific outbound interface";
+                };
               };
             });
             default = [];
@@ -1929,7 +1934,11 @@ in {
               cfg.topology);
 
             # Port forwarding helper — builds protocol + interface match
-            mkProtoMatch = { proto, iifname, dport }:
+            mkProtoMatch = {
+              proto,
+              iifname,
+              dport,
+            }:
               if proto == "both"
               then {
                 inherit iifname;
@@ -1942,26 +1951,38 @@ in {
               };
 
             # DNAT prerouting rules
-            dnatRulesList = map (pf:
-              (mkProtoMatch {
-                inherit (pf) proto;
-                iifname = pf.sourceInterface;
-                dport = pf.sourcePort;
-              }) // { verdict = { dnat = pf.destination; }; }
-            ) cfg.firewall.portForwards;
+            dnatRulesList =
+              map (
+                pf:
+                  (mkProtoMatch {
+                    inherit (pf) proto;
+                    iifname = pf.sourceInterface;
+                    dport = pf.sourcePort;
+                  })
+                  // {verdict = {dnat = pf.destination;};}
+              )
+              cfg.firewall.portForwards;
 
             # Port forward accept rules for forward chain
-            forwardDnatRulesList = map (pf: let
-              destParts = lib.splitString ":" pf.destination;
-              destIP = head destParts;
-              destPort = elemAt destParts 1;
-            in
-              (mkProtoMatch {
-                inherit (pf) proto;
-                iifname = pf.sourceInterface;
-                dport = destPort;
-              }) // { ip.daddr = destIP; verdict = "accept"; }
-            ) cfg.firewall.portForwards;
+            forwardDnatRulesList =
+              map (
+                pf: let
+                  destParts = lib.splitString ":" pf.destination;
+                  destIP = head destParts;
+                  destPort = elemAt destParts 1;
+                in
+                  (mkProtoMatch {
+                    inherit (pf) proto;
+                    iifname = pf.sourceInterface;
+                    dport = destPort;
+                  })
+                  // {
+                    ip.daddr = destIP;
+                    verdict = "accept";
+                  }
+                  // optionalAttrs (pf.destinationInterface != null) {oifname = pf.destinationInterface;}
+              )
+              cfg.firewall.portForwards;
 
             # DNS interception DNAT rules
             dnsIntercept = cfg.dns.interception;
@@ -2018,8 +2039,8 @@ in {
               optionals (dnsIntercept.enable && target != null) (
                 let
                   afAttrs =
-                    optionalAttrs (srcExcludes != []) { saddr = { not = mkNftSet srcExcludes; }; }
-                    // optionalAttrs (dstExcludes != []) { daddr = { not = mkNftSet dstExcludes; }; };
+                    optionalAttrs (srcExcludes != []) {saddr = {not = mkNftSet srcExcludes;};}
+                    // optionalAttrs (dstExcludes != []) {daddr = {not = mkNftSet dstExcludes;};};
                   dnatTarget =
                     if af == "ip6"
                     then "[${target}]:53"
@@ -2027,7 +2048,7 @@ in {
                   mkRule = proto: {
                     ${af} = afAttrs;
                     ${proto}.dport = 53;
-                    verdict = { dnat = dnatTarget; };
+                    verdict = {dnat = dnatTarget;};
                   };
                 in [
                   (mkRule "udp")
@@ -2055,22 +2076,40 @@ in {
             # Base rules for input chain
             inputBaseRules = optionals cfg.firewall.baseRules [
               "# Accept established/related, drop invalid"
-              { ct.state = ["established" "related"]; verdict = "accept"; }
-              { ct.state = "invalid"; verdict = "drop"; }
+              {
+                ct.state = ["established" "related"];
+                verdict = "accept";
+              }
+              {
+                ct.state = "invalid";
+                verdict = "drop";
+              }
               ""
               "# Accept loopback"
-              { iifname = "lo"; verdict = "accept"; }
+              {
+                iifname = "lo";
+                verdict = "accept";
+              }
               ""
               "# Accept essential ICMP/ICMPv6 from anywhere (required for network operation)"
               "# - destination-unreachable: connection handling"
               "# - packet-too-big (v6) / frag-needed (v4): Path MTU Discovery (critical)"
               "# - time-exceeded: traceroute, TTL expiry"
               "# - parameter-problem: malformed packet notification"
-              { icmp.type = ["destination-unreachable" "time-exceeded" "parameter-problem"]; verdict = "accept"; }
-              { icmpv6.type = ["destination-unreachable" "packet-too-big" "time-exceeded" "parameter-problem"]; verdict = "accept"; }
+              {
+                icmp.type = ["destination-unreachable" "time-exceeded" "parameter-problem"];
+                verdict = "accept";
+              }
+              {
+                icmpv6.type = ["destination-unreachable" "packet-too-big" "time-exceeded" "parameter-problem"];
+                verdict = "accept";
+              }
               ""
               "# Accept Neighbor Discovery (required for IPv6 to function - like ARP for IPv4)"
-              { icmpv6.type = ["nd-router-solicit" "nd-router-advert" "nd-neighbor-solicit" "nd-neighbor-advert"]; verdict = "accept"; }
+              {
+                icmpv6.type = ["nd-router-solicit" "nd-router-advert" "nd-neighbor-solicit" "nd-neighbor-advert"];
+                verdict = "accept";
+              }
             ];
 
             # Generate zone input rules (ICMP echo + inputRules)
@@ -2082,74 +2121,117 @@ in {
               interfacesWhere (i:
                 i.network.type == "dhcp" || (i.network.ipv6PrefixDelegation.enable or false));
 
-            zoneInputRules = lib.concatMap (
-              zoneName: let
-                zone = cfg.zones.${zoneName};
-                ifaces = interfacesInZone zoneName;
-                limitOrNull =
-                  if cfg.firewall.icmpRateLimit != null
-                  then cfg.firewall.icmpRateLimit
-                  else null;
-                icmpV4Rules = optionals (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv4-only") [
-                  { iifname = ifaces; icmp.type = ["echo-request" "echo-reply"]; limit = limitOrNull; verdict = "accept"; }
-                ];
-                icmpV6Rules = optionals (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv6-only") [
-                  { iifname = ifaces; icmpv6.type = ["echo-request" "echo-reply"]; limit = limitOrNull; verdict = "accept"; }
-                ];
-                inputLines = map (rule: rule // { iifname = ifaces; }) zone.inputRules;
-              in
-                if ifaces == []
-                then []
-                else icmpV4Rules ++ icmpV6Rules ++ inputLines
-            ) activeZones;
+            zoneInputRules =
+              lib.concatMap (
+                zoneName: let
+                  zone = cfg.zones.${zoneName};
+                  ifaces = interfacesInZone zoneName;
+                  limitOrNull =
+                    if cfg.firewall.icmpRateLimit != null
+                    then cfg.firewall.icmpRateLimit
+                    else null;
+                  icmpV4Rules = optionals (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv4-only") [
+                    {
+                      iifname = ifaces;
+                      icmp.type = ["echo-request" "echo-reply"];
+                      limit = limitOrNull;
+                      verdict = "accept";
+                    }
+                  ];
+                  icmpV6Rules = optionals (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv6-only") [
+                    {
+                      iifname = ifaces;
+                      icmpv6.type = ["echo-request" "echo-reply"];
+                      limit = limitOrNull;
+                      verdict = "accept";
+                    }
+                  ];
+                  inputLines = map (rule: rule // {iifname = ifaces;}) zone.inputRules;
+                in
+                  if ifaces == []
+                  then []
+                  else icmpV4Rules ++ icmpV6Rules ++ inputLines
+              )
+              activeZones;
 
             # DHCPv6 client responses (bypasses conntrack — multicast Solicit)
             dhcp6ClientRules = optionals (dhcp6ClientIfaces != []) [
-              { iifname = dhcp6ClientIfaces; udp.dport = 546; verdict = "accept"; }
+              {
+                iifname = dhcp6ClientIfaces;
+                udp.dport = 546;
+                verdict = "accept";
+              }
             ];
 
             # Wireguard port rules
             wgRules = optionals (wgPorts != []) [
-              { udp.dport = wgPorts; verdict = "accept"; }
+              {
+                udp.dport = wgPorts;
+                verdict = "accept";
+              }
             ];
 
             # Base rules for forward chain
             forwardBaseRules = optionals cfg.firewall.baseRules [
               "# Accept established/related, drop invalid"
-              { ct.state = ["established" "related"]; verdict = "accept"; }
-              { ct.state = "invalid"; verdict = "drop"; }
+              {
+                ct.state = ["established" "related"];
+                verdict = "accept";
+              }
+              {
+                ct.state = "invalid";
+                verdict = "drop";
+              }
               ""
               "# Clamp MSS to path MTU"
               "tcp flags syn tcp option maxseg size set rt mtu"
             ];
 
             # Generate zone forward rules (accessTo)
-            zoneForwardAccessRules = lib.concatMap (
-              zoneName: let
-                zone = cfg.zones.${zoneName};
-                srcIfaces = interfacesInZone zoneName;
-                dstIfaces = zonesInterfaces zone.accessTo;
-              in
-                if srcIfaces != [] && dstIfaces != []
-                then [{ iifname = srcIfaces; oifname = dstIfaces; verdict = "accept"; }]
-                else []
-            ) activeZones;
+            zoneForwardAccessRules =
+              lib.concatMap (
+                zoneName: let
+                  zone = cfg.zones.${zoneName};
+                  srcIfaces = interfacesInZone zoneName;
+                  dstIfaces = zonesInterfaces zone.accessTo;
+                in
+                  if srcIfaces != [] && dstIfaces != []
+                  then [
+                    {
+                      iifname = srcIfaces;
+                      oifname = dstIfaces;
+                      verdict = "accept";
+                    }
+                  ]
+                  else []
+              )
+              activeZones;
 
             # Generate zone forward filter rules (forwardRules)
-            zoneForwardFilterRules = lib.concatMap (
-              zoneName: let
-                zone = cfg.zones.${zoneName};
-                srcIfaces = interfacesInZone zoneName;
-              in
-                lib.concatLists (lib.mapAttrsToList (
-                  dstZone: rulesList: let
-                    dstIfaces = interfacesInZone dstZone;
-                  in
-                    if srcIfaces != [] && dstIfaces != [] && rulesList != []
-                    then map (rule: rule // { iifname = srcIfaces; oifname = dstIfaces; }) rulesList
-                    else []
-                ) zone.forwardRules)
-            ) activeZones;
+            zoneForwardFilterRules =
+              lib.concatMap (
+                zoneName: let
+                  zone = cfg.zones.${zoneName};
+                  srcIfaces = interfacesInZone zoneName;
+                in
+                  lib.concatLists (lib.mapAttrsToList (
+                      dstZone: rulesList: let
+                        dstIfaces = interfacesInZone dstZone;
+                      in
+                        if srcIfaces != [] && dstIfaces != [] && rulesList != []
+                        then
+                          map (rule:
+                            rule
+                            // {
+                              iifname = srcIfaces;
+                              oifname = dstIfaces;
+                            })
+                          rulesList
+                        else []
+                    )
+                    zone.forwardRules)
+              )
+              activeZones;
 
             # Port forward accept rules for forward chain
             forwardDnatAcceptRules = forwardDnatRulesList;
@@ -2157,8 +2239,16 @@ in {
             # Drop logging (rate-limited log + explicit drop before implicit policy drop)
             mkDropLog = chain:
               optionals cfg.firewall.logDropped [
-                { limit = cfg.firewall.logDroppedRateLimit; log = "DROP-${chain}: "; counter = true; verdict = "drop"; }
-                { counter = true; verdict = "drop"; }
+                {
+                  limit = cfg.firewall.logDroppedRateLimit;
+                  log = "DROP-${chain}: ";
+                  counter = true;
+                  verdict = "drop";
+                }
+                {
+                  counter = true;
+                  verdict = "drop";
+                }
               ];
 
             # Egress (output) chain rules
@@ -2172,20 +2262,35 @@ in {
               else let
                 # Base egress rules
                 egressBaseRules = [
-                  { ct.state = ["established" "related"]; verdict = "accept"; }
-                  { oifname = "lo"; verdict = "accept"; }
-                  { icmp.type = ["destination-unreachable" "time-exceeded" "parameter-problem" "echo-request" "echo-reply"]; verdict = "accept"; }
-                  { icmpv6.type = ["destination-unreachable" "packet-too-big" "time-exceeded" "parameter-problem" "echo-request" "echo-reply" "nd-router-solicit" "nd-router-advert" "nd-neighbor-solicit" "nd-neighbor-advert"]; verdict = "accept"; }
+                  {
+                    ct.state = ["established" "related"];
+                    verdict = "accept";
+                  }
+                  {
+                    oifname = "lo";
+                    verdict = "accept";
+                  }
+                  {
+                    icmp.type = ["destination-unreachable" "time-exceeded" "parameter-problem" "echo-request" "echo-reply"];
+                    verdict = "accept";
+                  }
+                  {
+                    icmpv6.type = ["destination-unreachable" "packet-too-big" "time-exceeded" "parameter-problem" "echo-request" "echo-reply" "nd-router-solicit" "nd-router-advert" "nd-neighbor-solicit" "nd-neighbor-advert"];
+                    verdict = "accept";
+                  }
                 ];
                 # User-defined egress rules
                 egressUserRules = cfg.firewall.egressRules;
                 # Log unmatched egress traffic
                 egressLog = optionals (cfg.firewall.egressPolicy == "log") [
-                  { limit = cfg.firewall.logDroppedRateLimit; log = cfg.firewall.egressLogPrefix; counter = true; }
+                  {
+                    limit = cfg.firewall.logDroppedRateLimit;
+                    log = cfg.firewall.egressLogPrefix;
+                    counter = true;
+                  }
                 ];
                 allEgressRules = concatSections [egressBaseRules egressUserRules egressLog];
-              in
-                "${ind}${nft.rulesToStringIndented ind allEgressRules}";
+              in "${ind}${nft.rulesToStringIndented ind allEgressRules}";
 
             # Combine all input chain rules
             allInputRules = concatSections [
@@ -2216,7 +2321,10 @@ in {
 
             # NAT postrouting rules (masquerade)
             masqueradeRules = optionals (natInterfaces != []) [
-              { oifname = natInterfaces; masquerade = true; }
+              {
+                oifname = natInterfaces;
+                masquerade = true;
+              }
             ];
             natPostroutingRules = concatSections [
               masqueradeRules
