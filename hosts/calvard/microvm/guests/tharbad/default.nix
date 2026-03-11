@@ -16,8 +16,9 @@ in {
     # re-enable grafana after sops secrets are better integrated
     # ./modules/grafana.nix
     ./modules/loki.nix
-    ./modules/alertmanager.nix
-    ./modules/ntfy.nix
+    # TODO: re-enable alertmanager + ntfy together (tier 3)
+    # ./modules/alertmanager.nix
+    # ./modules/ntfy.nix
   ];
 
   networking.hostName = hostname;

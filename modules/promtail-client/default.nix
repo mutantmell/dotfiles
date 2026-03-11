@@ -9,7 +9,7 @@ in {
     enable = lib.mkEnableOption "Promtail log shipping to Loki";
     lokiUrl = lib.mkOption {
       type = lib.types.str;
-      default = "http://ymir.internal:3100/loki/api/v1/push";
+      default = "http://tharbad.internal:3100/loki/api/v1/push";
       description = "Loki push API endpoint URL";
     };
   };

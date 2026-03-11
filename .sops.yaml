@@ -14,21 +14,23 @@ keys:
   - &sv_ymir age1anrdj6swtlq5ll4e369gz3lh6aj2sz6pj5zh25uhltjfk4z86azsfsxk9a
   - &sv_thebeyond age1xvkjw03zrcy38rxmlhawzqdzlm34cx98mc42v5caautaauj8dd5qddg9hm
 
+  # Note: age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc is a placeholder key, do not use live
+
   # erebonia microVM guests
-  - &sv_roer PLACEHOLDER
-  - &sv_legram PLACEHOLDER
-  - &sv_saint-arkh PLACEHOLDER
+  - &sv_roer age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_legram age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_saint-arkh age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
 
   # calvard microVM guests
-  - &sv_edith PLACEHOLDER
-  - &sv_basel PLACEHOLDER
-  - &sv_langport PLACEHOLDER
-  - &sv_tharbad PLACEHOLDER
-  - &sv_oracion PLACEHOLDER
-  - &sv_creil PLACEHOLDER
+  - &sv_edith age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_basel age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_langport age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_tharbad age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_oracion age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_creil age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
 
   # Incus guests
-  - &sv_messeldam PLACEHOLDER
+  - &sv_messeldam age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
 
 creation_rules:
   # thebeyond
