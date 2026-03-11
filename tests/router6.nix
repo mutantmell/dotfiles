@@ -22,6 +22,7 @@
   router6-dnat = import ./modules/router6-dnat.nix {inherit pkgs lib;};
   router6-extra-rules = import ./modules/router6-extra-rules.nix {inherit pkgs lib;};
   router6-dns-interception-vm = import ./modules/router6-dns-interception.nix {inherit pkgs lib;};
+  router6-lynis-audit = import ./modules/router6-lynis-audit.nix {inherit pkgs lib;};
 
   # Pure Nix evaluation tests
   nftables-dsl = import ./lib/nftables.nix {inherit pkgs lib;};
