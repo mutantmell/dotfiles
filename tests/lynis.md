@@ -109,37 +109,37 @@ Hardening index: **69** (thebeyond config, post-hardening)
 
 ### Accepted sysctl deviations
 
-| Sysctl | Lynis wants | Actual | Justification |
-|--------|-------------|--------|---------------|
-| `kernel.modules_disabled` | 1 | 0 | Setting to 1 is irreversible until reboot. Router needs runtime module loading (bonding, batman-adv, 8021q, bridge, wireguard, nf_conntrack). Can be addressed later with `security.lockKernelModules = true` after enumerating all required modules in `boot.kernelModules`. |
-| `kernel.unprivileged_bpf_disabled` | 1 | 2 | Value 2 provides identical protection (unprivileged BPF blocked) but is reversible by root. Since root can call `bpf()` directly regardless, irreversibility adds no security. |
-| `net.ipv4.conf.all.forwarding` | 0 | 1 | False positive. IP forwarding is the fundamental function of a router. Lynis assumes endpoint hardening. Security is provided by nftables zone-based firewall with default-drop policy. |
+| Sysctl                             | Lynis wants | Actual | Justification                                                                                                                                                                                                                                                                 |
+| ---------------------------------- | ----------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kernel.modules_disabled`          | 1           | 0      | Setting to 1 is irreversible until reboot. Router needs runtime module loading (bonding, batman-adv, 8021q, bridge, wireguard, nf_conntrack). Can be addressed later with `security.lockKernelModules = true` after enumerating all required modules in `boot.kernelModules`. |
+| `kernel.unprivileged_bpf_disabled` | 1           | 2      | Value 2 provides identical protection (unprivileged BPF blocked) but is reversible by root. Since root can call `bpf()` directly regardless, irreversibility adds no security.                                                                                                |
+| `net.ipv4.conf.all.forwarding`     | 0           | 1      | False positive. IP forwarding is the fundamental function of a router. Lynis assumes endpoint hardening. Security is provided by nftables zone-based firewall with default-drop policy.                                                                                       |
 
 ### Accepted warnings
 
-| Warning | Justification |
-|---------|---------------|
-| AUTH-9283: Account without password | NixOS defaults root to SSH-key-only auth (shadow field `!`). Consider adding a sops-managed `hashedPasswordFile` with `neededForUsers = true`. |
+| Warning                                        | Justification                                                                                                                                                                                                     |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| AUTH-9283: Account without password            | NixOS defaults root to SSH-key-only auth (shadow field `!`). Consider adding a sops-managed `hashedPasswordFile` with `neededForUsers = true`.                                                                    |
 | NETW-3015: Promiscuous interface (bond0, bat0) | VLAN sub-interfaces of bond0/bat0 are bridge members. The kernel propagates promiscuous mode from bridged VLAN children to parent devices. Required for bridge/VLAN operation; nftables is the security boundary. |
 
 ### Suggestions (informational, not actionable in CI)
 
-| Category | Suggestion |
-|----------|------------|
-| AUTH | Password hashing rounds, PAM strength testing, password age, locked accounts |
-| FILE | Separate partitions for /home, /tmp, /var |
-| USB | Disable USB storage drivers |
-| NETW | Uncommon protocols (dccp, sctp, rds, tipc) |
-| LOGG | Log rotation, remote syslog |
-| BANN | Legal banner in /etc/issue |
-| ACCT | Process accounting, sysstat, auditd |
-| TIME | NTP daemon (chrony is running but Lynis may not detect it) |
-| FINT | File integrity monitoring (AIDE, OSSEC, etc.) |
-| HRDN | Malware scanner (rkhunter, chkrootkit) |
-| BOOT | Harden systemd services (`systemd-analyze security`) |
-| KRNL | Sysctl tweaks (see accepted deviations above) |
-| PKGS | Package audit tool |
-| TOOL | Automation tools |
+| Category | Suggestion                                                                   |
+| -------- | ---------------------------------------------------------------------------- |
+| AUTH     | Password hashing rounds, PAM strength testing, password age, locked accounts |
+| FILE     | Separate partitions for /home, /tmp, /var                                    |
+| USB      | Disable USB storage drivers                                                  |
+| NETW     | Uncommon protocols (dccp, sctp, rds, tipc)                                   |
+| LOGG     | Log rotation, remote syslog                                                  |
+| BANN     | Legal banner in /etc/issue                                                   |
+| ACCT     | Process accounting, sysstat, auditd                                          |
+| TIME     | NTP daemon (chrony is running but Lynis may not detect it)                   |
+| FINT     | File integrity monitoring (AIDE, OSSEC, etc.)                                |
+| HRDN     | Malware scanner (rkhunter, chkrootkit)                                       |
+| BOOT     | Harden systemd services (`systemd-analyze security`)                         |
+| KRNL     | Sysctl tweaks (see accepted deviations above)                                |
+| PKGS     | Package audit tool                                                           |
+| TOOL     | Automation tools                                                             |
 
 ### Hardening applied from this audit
 
