@@ -904,30 +904,40 @@ in {
         ip = head parts;
         prefix = lib.toInt (lib.elemAt parts 1);
         octets = lib.splitString "." ip;
-        isV6 = lib.hasInfix ":" ip;
+        v6 = isV6 ip;
       in {
-        inherit ip prefix isV6;
+        inherit ip prefix;
+        isV6 = v6;
         # For IPv4, calculate network address and pool defaults
         networkAddr =
-          if isV6
+          if v6
           then null
           else let
             o = map lib.toInt octets;
           in "${toString (elemAt o 0)}.${toString (elemAt o 1)}.${toString (elemAt o 2)}.0";
         poolStart =
-          if isV6
+          if v6
           then null
           else "${elemAt octets 0}.${elemAt octets 1}.${elemAt octets 2}.100";
         poolEnd =
-          if isV6
+          if v6
           then null
           else "${elemAt octets 0}.${elemAt octets 1}.${elemAt octets 2}.200";
         gateway = ip; # Router is typically the gateway
       };
 
+    # Address family helpers
+    isV6 = a: lib.hasInfix ":" a;
+    isV4 = a: !(isV6 a);
+    partitionAF = addrs: {
+      all = addrs;
+      v4 = filter isV4 addrs;
+      v6 = filter isV6 addrs;
+    };
+
     # Get first IPv4 address from a list
     firstIPv4 = addrs: let
-      v4 = filter (a: !(lib.hasInfix ":" a)) addrs;
+      v4 = filter isV4 addrs;
     in
       if v4 == []
       then null
@@ -935,7 +945,7 @@ in {
 
     # Get first IPv6 address from a list
     firstIPv6 = addrs: let
-      v6 = filter (a: lib.hasInfix ":" a) addrs;
+      v6 = filter isV6 addrs;
     in
       if v6 == []
       then null
@@ -956,7 +966,7 @@ in {
       then []
       else let
         explicit = iface.network.addresses or [];
-        hasExplicitV6 = lib.any (a: lib.hasInfix ":" a) explicit;
+        hasExplicitV6 = lib.any isV6 explicit;
 
         # Get subnetId: from network.subnetId if not null, otherwise default to VLAN tag
         # Note: Can't use 'or' alone because it doesn't distinguish between null and missing
@@ -1363,7 +1373,7 @@ in {
             # Driven by explicit options, not by type
             shouldSendRA = (network.dhcp6.enable or false) || (network.pdSubnetId or null) != null;
             # Get IPv6 addresses for RA prefix configuration
-            v6Addrs = filter (a: lib.hasInfix ":" a) effectiveAddrs;
+            v6Addrs = filter isV6 effectiveAddrs;
           in
             {
               matchConfig.Name = name;
@@ -1625,11 +1635,10 @@ in {
                     if ifaceData != null
                     then getEffectiveAddresses ifaceData
                     else [];
-                  v4List = filter (a: !(lib.hasInfix ":" a)) addrs;
-                  v6List = filter (a: lib.hasInfix ":" a) addrs;
+                  split = partitionAF addrs;
                 in
-                  (map (a: "${(parseCIDR a).ip}:53") v4List)
-                  ++ (map (a: "[${(parseCIDR a).ip}]:53") v6List)
+                  (map (a: "${(parseCIDR a).ip}:53") split.v4)
+                  ++ (map (a: "[${(parseCIDR a).ip}]:53") split.v6)
               )
               dnsInterfaces));
 
@@ -1985,62 +1994,44 @@ in {
               cfg.firewall.portForwards;
 
             # DNS interception DNAT rules
+            # Redirects non-router DNS traffic to the router's kresd instance.
+            # Excludes: configured upstream/exclude addresses (source), all router IPs (destination).
             dnsIntercept = cfg.dns.interception;
-            dnsExcludeBase =
-              if dnsIntercept.excludeAddresses != []
-              then dnsIntercept.excludeAddresses
-              else cfg.dns.upstream;
-            dnsExcludeAll = dnsExcludeBase ++ dnsIntercept.extraExcludeAddresses;
-            dnsExcludeV4 = filter (a: !(lib.hasInfix ":" a)) dnsExcludeAll;
-            dnsExcludeV6 = filter (a: lib.hasInfix ":" a) dnsExcludeAll;
 
-            # Collect all router IPv4/IPv6 addresses (auto-excluded from DNAT destination)
-            allIfaceAddrs = lib.concatMap getEffectiveAddresses flattenTopology;
-            routerIPs = map (a: (parseCIDR a).ip) allIfaceAddrs;
-            routerV4s = filter (a: !(lib.hasInfix ":" a)) routerIPs;
-            routerV6s = filter (a: lib.hasInfix ":" a) routerIPs;
+            dnsExcludes = partitionAF (
+              (if dnsIntercept.excludeAddresses != []
+               then dnsIntercept.excludeAddresses
+               else cfg.dns.upstream)
+              ++ dnsIntercept.extraExcludeAddresses
+            );
 
-            # DNS interception target (first IP of a DNS-serving interface)
-            dnsIfaceAddrs =
-              lib.concatMap getEffectiveAddresses
-              (filter (i: let
-                z = i.network.zone or null;
-              in
-                z != null && hasAttr z cfg.zones && zoneAllowsDns z)
-              flattenTopology);
+            routerIPs = partitionAF (map (a: (parseCIDR a).ip) (lib.concatMap getEffectiveAddresses flattenTopology));
 
-            dnsTargetV4 =
-              if dnsIntercept.target != null
-              then dnsIntercept.target
-              else firstIPv4 (map (a: (parseCIDR a).ip) dnsIfaceAddrs);
-
-            dnsTargetV6 =
-              if dnsIntercept.target6 != null
-              then dnsIntercept.target6
-              else firstIPv6 (map (a: (parseCIDR a).ip) dnsIfaceAddrs);
-
-            dnsSrcExcludesV4 = lib.unique dnsExcludeV4;
-            dnsDstExcludesV4 = lib.unique (routerV4s ++ dnsExcludeV4);
-            dnsSrcExcludesV6 = lib.unique dnsExcludeV6;
-            dnsDstExcludesV6 = lib.unique (routerV6s ++ dnsExcludeV6);
+            dnsTargets = let
+              dnsIfaceIPs = map (a: (parseCIDR a).ip) (
+                lib.concatMap getEffectiveAddresses
+                (filter (i: let z = i.network.zone or null;
+                  in z != null && hasAttr z cfg.zones && zoneAllowsDns z)
+                flattenTopology));
+            in {
+              v4 = if dnsIntercept.target != null then dnsIntercept.target else firstIPv4 dnsIfaceIPs;
+              v6 = if dnsIntercept.target6 != null then dnsIntercept.target6 else firstIPv6 dnsIfaceIPs;
+            };
 
             mkNftSet = addrs:
               if length addrs == 1
               then head addrs
               else "{ ${concatStringsSep ", " addrs} }";
 
-            # DNS interception rules — redirect bypass attempts to router's DNS
-            mkDnsInterceptRulesList = {
-              af,
-              srcExcludes,
-              dstExcludes,
-              target,
-            }:
+            # Build interception rules for one address family
+            mkDnsInterceptRules = { af, excludes, routers, target }:
               optionals (dnsIntercept.enable && target != null) (
                 let
+                  srcExcludes = lib.unique excludes;
+                  dstExcludes = lib.unique (routers ++ excludes);
                   afAttrs =
-                    optionalAttrs (srcExcludes != []) {saddr = {not = mkNftSet srcExcludes;};}
-                    // optionalAttrs (dstExcludes != []) {daddr = {not = mkNftSet dstExcludes;};};
+                    optionalAttrs (srcExcludes != []) { saddr = { not = mkNftSet srcExcludes; }; }
+                    // optionalAttrs (dstExcludes != []) { daddr = { not = mkNftSet dstExcludes; }; };
                   dnatTarget =
                     if af == "ip6"
                     then "[${target}]:53"
@@ -2048,26 +2039,23 @@ in {
                   mkRule = proto: {
                     ${af} = afAttrs;
                     ${proto}.dport = 53;
-                    verdict = {dnat = dnatTarget;};
+                    verdict = { dnat = dnatTarget; };
                   };
-                in [
-                  (mkRule "udp")
-                  (mkRule "tcp")
-                ]
+                in [ (mkRule "udp") (mkRule "tcp") ]
               );
 
-            dnsInterceptV4RulesList = mkDnsInterceptRulesList {
+            dnsInterceptV4RulesList = mkDnsInterceptRules {
               af = "ip";
-              srcExcludes = dnsSrcExcludesV4;
-              dstExcludes = dnsDstExcludesV4;
-              target = dnsTargetV4;
+              excludes = dnsExcludes.v4;
+              routers = routerIPs.v4;
+              target = dnsTargets.v4;
             };
 
-            dnsInterceptV6RulesList = mkDnsInterceptRulesList {
+            dnsInterceptV6RulesList = mkDnsInterceptRules {
               af = "ip6";
-              srcExcludes = dnsSrcExcludesV6;
-              dstExcludes = dnsDstExcludesV6;
-              target = dnsTargetV6;
+              excludes = dnsExcludes.v6;
+              routers = routerIPs.v6;
+              target = dnsTargets.v6;
             };
 
             # Indentation helper
