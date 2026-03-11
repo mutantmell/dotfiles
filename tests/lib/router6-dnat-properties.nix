@@ -164,21 +164,21 @@
       (contains "tcp dport 8080 dnat to 10.0.10.50:80" rulesetA))
 
     (assertTrue "A: forward accept rule present (uses dest port after DNAT)"
-      (contains "tcp dport 80 ip daddr 10.0.10.50 accept" rulesetA))
+      (contains "ip daddr 10.0.10.50 tcp dport 80 accept" rulesetA))
 
     # Config B: sourceInterface = "wan"
     (assertTrue "B: DNAT with iifname"
       (contains ''iifname "wan" tcp dport 443 dnat to 10.0.10.50:443'' rulesetB))
 
     (assertTrue "B: forward accept rule has iifname matching sourceInterface"
-      (contains ''iifname "wan" tcp dport 443 ip daddr 10.0.10.50 accept'' rulesetB))
+      (contains ''iifname "wan" ip daddr 10.0.10.50 tcp dport 443 accept'' rulesetB))
 
     # Config C: proto = "both"
     (assertTrue "C: DNAT with meta l4proto"
-      (contains "meta l4proto { tcp, udp } dport 53 dnat to 10.0.10.5:53" rulesetC))
+      (contains "meta l4proto { tcp, udp } th dport 53 dnat to 10.0.10.5:53" rulesetC))
 
     (assertTrue "C: forward accept with meta l4proto"
-      (contains "meta l4proto { tcp, udp } dport 53 ip daddr 10.0.10.5 accept" rulesetC))
+      (contains "meta l4proto { tcp, udp } ip daddr 10.0.10.5 th dport 53 accept" rulesetC))
 
     # Config D: extraNatRules
     (assertTrue "D: extra NAT prerouting rule"
@@ -205,10 +205,10 @@
       (contains "tcp dport 8443 dnat to 10.0.10.50:443" rulesetF))
 
     (assertTrue "F: first forward accept (uses dest port 80)"
-      (contains "tcp dport 80 ip daddr 10.0.10.50 accept" rulesetF))
+      (contains "ip daddr 10.0.10.50 tcp dport 80 accept" rulesetF))
 
     (assertTrue "F: second forward accept (uses dest port 443)"
-      (contains "tcp dport 443 ip daddr 10.0.10.50 accept" rulesetF))
+      (contains "ip daddr 10.0.10.50 tcp dport 443 accept" rulesetF))
   ];
 
   allPass = lib.all (x: x) tests;

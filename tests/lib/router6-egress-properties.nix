@@ -133,7 +133,7 @@
         && contains "policy drop" rulesetDrop))
 
     (assertTrue "drop: has base egress rules"
-      (contains "ct state established,related accept" rulesetDrop
+      (contains "ct state { established, related } accept" rulesetDrop
         && contains ''oifname "lo" accept'' rulesetDrop))
 
     (assertTrue "drop: has user egress rules"

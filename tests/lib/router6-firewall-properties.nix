@@ -328,7 +328,7 @@
         notContains "masquerade" ip6Section))
 
     (assertTrue "A: connection tracking base rules present"
-      (contains "ct state established,related accept" rulesetA))
+      (contains "ct state { established, related } accept" rulesetA))
 
     (assertTrue "A: invalid connection state dropped"
       (contains "ct state invalid drop" rulesetA))
