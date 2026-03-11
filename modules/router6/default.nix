@@ -1123,13 +1123,36 @@ in {
       {
         boot.kernel.sysctl =
           {
+            # Routing
             "net.ipv4.conf.all.forwarding" = true;
             "net.ipv6.conf.all.forwarding" = true;
             "net.ipv4.conf.default.rp_filter" = 1;
             "net.ipv4.conf.all.rp_filter" = 1;
+
             # Accept RAs on external interface even when forwarding
             "net.ipv6.conf.all.accept_ra" = 0;
             "net.ipv6.conf.default.accept_ra" = 0;
+
+            # ICMP redirect hardening — router must not send or accept redirects
+            "net.ipv4.conf.all.send_redirects" = 0;
+            "net.ipv4.conf.default.send_redirects" = 0;
+            "net.ipv4.conf.all.accept_redirects" = 0;
+            "net.ipv4.conf.default.accept_redirects" = 0;
+            "net.ipv6.conf.all.accept_redirects" = 0;
+            "net.ipv6.conf.default.accept_redirects" = 0;
+
+            # Log martian packets (spoofed/impossible source addresses)
+            "net.ipv4.conf.all.log_martians" = 1;
+            "net.ipv4.conf.default.log_martians" = 1;
+
+            # Kernel hardening
+            "dev.tty.ldisc_autoload" = 0;
+            "fs.protected_fifos" = 2;
+            "fs.protected_regular" = 2;
+            "fs.suid_dumpable" = 0;
+            "kernel.kptr_restrict" = 2;
+            "kernel.sysrq" = 0;
+            "net.core.bpf_jit_harden" = 2;
           }
           // lib.listToAttrs (map (iface: {
               name = "net.ipv6.conf.${iface}.accept_ra";
