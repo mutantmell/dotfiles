@@ -894,48 +894,69 @@ in {
     # ============================================================================
     # Address Generation & Parsing
     # ============================================================================
-    # Parse CIDR address to get network info
-    parseCIDR = addr: let
-      parts = lib.splitString "/" addr;
+    # Parse a plain IP address string (no prefix length) into a structured object.
+    # Works on both IPv4 and IPv6. The result carries .isV6 and .ip so that
+    # isV4/isV6/partitionAF/firstIPv4/firstIPv6 work uniformly on both
+    # parseIPAddress and parseCIDR results.
+    parseIPAddress = ipStr: let
+      v6 = lib.hasInfix ":" ipStr;
+    in {
+      ip = ipStr;
+      isV6 = v6;
+      parts =
+        if v6
+        then lib.splitString ":" ipStr
+        else lib.splitString "." ipStr;
+      # For IPv6, the network prefix (part before ::) — used for RA and Kea subnet6
+      networkPrefix =
+        if v6
+        then "${head (lib.splitString "::" ipStr)}::"
+        else null;
+    };
+
+    # Parse a CIDR string ("ip/prefix") into a structured object.
+    # The .addr field holds the parseIPAddress result for the IP portion.
+    # Top-level .ip and .isV6 are shortcuts into .addr for convenience.
+    parseCIDR = cidrStr: let
+      parts = lib.splitString "/" cidrStr;
     in
       if length parts != 2
-      then throw "Invalid CIDR address '${addr}' - must be in format 'ip/prefix'"
+      then throw "Invalid CIDR address '${cidrStr}' - must be in format 'ip/prefix'"
       else let
-        ip = head parts;
+        addr = parseIPAddress (head parts);
         prefix = lib.toInt (lib.elemAt parts 1);
-        octets = lib.splitString "." ip;
-        v6 = isV6 ip;
       in {
-        inherit ip prefix;
-        isV6 = v6;
+        cidr = cidrStr;
+        inherit addr prefix;
+        inherit (addr) ip isV6 networkPrefix;
         # For IPv4, calculate network address and pool defaults
         networkAddr =
-          if v6
+          if addr.isV6
           then null
           else let
-            o = map lib.toInt octets;
+            o = map lib.toInt addr.parts;
           in "${toString (elemAt o 0)}.${toString (elemAt o 1)}.${toString (elemAt o 2)}.0";
         poolStart =
-          if v6
+          if addr.isV6
           then null
-          else "${elemAt octets 0}.${elemAt octets 1}.${elemAt octets 2}.100";
+          else "${elemAt addr.parts 0}.${elemAt addr.parts 1}.${elemAt addr.parts 2}.100";
         poolEnd =
-          if v6
+          if addr.isV6
           then null
-          else "${elemAt octets 0}.${elemAt octets 1}.${elemAt octets 2}.200";
-        gateway = ip; # Router is typically the gateway
+          else "${elemAt addr.parts 0}.${elemAt addr.parts 1}.${elemAt addr.parts 2}.200";
+        gateway = addr.ip; # Router is typically the gateway
       };
 
-    # Address family helpers
-    isV6 = a: lib.hasInfix ":" a;
-    isV4 = a: !(isV6 a);
+    # Address family helpers — operate on any parsed object (parseIPAddress or parseCIDR)
+    isV6 = a: a.isV6;
+    isV4 = a: !a.isV6;
     partitionAF = addrs: {
       all = addrs;
       v4 = filter isV4 addrs;
       v6 = filter isV6 addrs;
     };
 
-    # Get first IPv4 address from a list
+    # Get first IPv4 parsed object from a list
     firstIPv4 = addrs: let
       v4 = filter isV4 addrs;
     in
@@ -943,7 +964,7 @@ in {
       then null
       else head v4;
 
-    # Get first IPv6 address from a list
+    # Get first IPv6 parsed object from a list
     firstIPv6 = addrs: let
       v6 = filter isV6 addrs;
     in
@@ -961,12 +982,14 @@ in {
       else null;
 
     # Get effective addresses including auto-generated IPv6
+    # Returns list of parsed address objects (from parseCIDR)
     getEffectiveAddresses = iface:
       if iface == null
       then []
       else let
         explicit = iface.network.addresses or [];
-        hasExplicitV6 = lib.any isV6 explicit;
+        # Check raw strings for IPv6 before parsing (hasInfix on raw config strings)
+        hasExplicitV6 = lib.any (a: lib.hasInfix ":" a) explicit;
 
         # Get subnetId: from network.subnetId if not null, otherwise default to VLAN tag
         # Note: Can't use 'or' alone because it doesn't distinguish between null and missing
@@ -980,8 +1003,10 @@ in {
           if !hasExplicitV6 && (iface.network.dhcp6.enable or false) && subnetId != null
           then mkAutoIPv6 subnetId
           else null;
+
+        allAddrs = explicit ++ (optional (autoV6 != null) autoV6);
       in
-        explicit ++ (optional (autoV6 != null) autoV6);
+        map parseCIDR allAddrs;
 
     # Convert IPv4 address string to 32-bit integer for stable Kea subnet IDs
     ipv4ToInt = ipStr: let
@@ -998,11 +1023,7 @@ in {
 
     # Build Kea subnet4 config for an interface
     mkKeaSubnet4 = iface: let
-      addr = firstIPv4 iface.network.addresses;
-      parsed =
-        if addr != null
-        then parseCIDR addr
-        else null;
+      parsed = firstIPv4 (getEffectiveAddresses iface);
       dhcpCfg = iface.network.dhcp;
     in
       if parsed == null
@@ -1061,19 +1082,12 @@ in {
     # Build Kea subnet6 config for an interface
     mkKeaSubnet6 = iface: let
       effectiveAddrs = getEffectiveAddresses iface;
-      v6Addr = firstIPv6 effectiveAddrs;
-      parsed =
-        if v6Addr != null
-        then parseCIDR v6Addr
-        else null;
+      parsed = firstIPv6 effectiveAddrs;
       dhcp6Cfg = iface.network.dhcp6;
     in
       if parsed == null
       then null
       else let
-        # Extract network prefix: "fdc6:55f2:0a5e:a::1/64" -> "fdc6:55f2:0a5e:a::"
-        ipParts = lib.splitString "::" parsed.ip;
-        networkPrefix = "${head ipParts}::";
         # Stable subnet ID from subnetId or VLAN tag, offset to avoid collision with v4 IDs
         subnetIdNum =
           if (iface.network.subnetId or null) != null
@@ -1081,14 +1095,14 @@ in {
           else (iface.tag or 1);
       in {
         id = 100000 + subnetIdNum;
-        subnet = "${networkPrefix}/${toString parsed.prefix}";
+        subnet = "${parsed.networkPrefix}/${toString parsed.prefix}";
         interface = iface.name;
         pools =
           if dhcp6Cfg.mode == "stateful"
           then [
             {
               # DHCPv6 pool: ::1000 through ::1fff (avoids ::1 gateway and SLAAC range)
-              pool = "${networkPrefix}1000-${networkPrefix}1fff";
+              pool = "${parsed.networkPrefix}1000-${parsed.networkPrefix}1fff";
             }
           ]
           else []; # stateless mode: no address pool, only options
@@ -1364,11 +1378,11 @@ in {
                 else {}
               );
 
-            # Get effective addresses (including auto-generated IPv6)
+            # Get effective addresses as parsed objects (including auto-generated IPv6)
             effectiveAddrs =
               if ifaceData != null
               then getEffectiveAddresses ifaceData
-              else network.addresses or [];
+              else map parseCIDR (network.addresses or []);
             # Check if this interface should send Router Advertisements
             # Driven by explicit options, not by type
             shouldSendRA = (network.dhcp6.enable or false) || (network.pdSubnetId or null) != null;
@@ -1381,7 +1395,7 @@ in {
               # Static addresses (NixOS uses top-level 'address' list, not networkConfig.Address)
               address =
                 if network.type == "static"
-                then effectiveAddrs
+                then map (a: a.cidr) effectiveAddrs
                 else [];
 
               networkConfig =
@@ -1451,13 +1465,8 @@ in {
               # Advertise static IPv6 prefixes for SLAAC (ULA)
               # Delegated prefixes are announced automatically by DHCPPrefixDelegation
               ipv6Prefixes =
-                map (addr: let
-                  parsed = parseCIDR addr;
-                  # Extract the network prefix (e.g., fdc6:55f2:0a5e:a::1/64 -> fdc6:55f2:0a5e:a::/64)
-                  ipParts = lib.splitString "::" parsed.ip;
-                  networkPrefix = "${head ipParts}::/${toString parsed.prefix}";
-                in {
-                  Prefix = networkPrefix;
+                map (addr: {
+                  Prefix = "${addr.networkPrefix}/${toString addr.prefix}";
                   PreferredLifetimeSec = 3600;
                   ValidLifetimeSec = 7200;
                 })
@@ -1637,8 +1646,8 @@ in {
                     else [];
                   split = partitionAF addrs;
                 in
-                  (map (a: "${(parseCIDR a).ip}:53") split.v4)
-                  ++ (map (a: "[${(parseCIDR a).ip}]:53") split.v6)
+                  (map (a: "${a.ip}:53") split.v4)
+                  ++ (map (a: "[${a.ip}]:53") split.v6)
               )
               dnsInterfaces));
 
@@ -1998,24 +2007,26 @@ in {
             # Excludes: configured upstream/exclude addresses (source), all router IPs (destination).
             dnsIntercept = cfg.dns.interception;
 
-            dnsExcludes = partitionAF (
+            # Plain IP addresses (not CIDR) — use parseIPAddress so partitionAF works
+            dnsExcludes = partitionAF (map parseIPAddress (
               (if dnsIntercept.excludeAddresses != []
                then dnsIntercept.excludeAddresses
                else cfg.dns.upstream)
               ++ dnsIntercept.extraExcludeAddresses
-            );
+            ));
 
-            routerIPs = partitionAF (map (a: (parseCIDR a).ip) (lib.concatMap getEffectiveAddresses flattenTopology));
+            allRouterAddrs = lib.concatMap getEffectiveAddresses flattenTopology;
+            routerIPs = partitionAF allRouterAddrs;
 
             dnsTargets = let
-              dnsIfaceIPs = map (a: (parseCIDR a).ip) (
+              dnsIfaceAddrs =
                 lib.concatMap getEffectiveAddresses
                 (filter (i: let z = i.network.zone or null;
                   in z != null && hasAttr z cfg.zones && zoneAllowsDns z)
-                flattenTopology));
+                flattenTopology);
             in {
-              v4 = if dnsIntercept.target != null then dnsIntercept.target else firstIPv4 dnsIfaceIPs;
-              v6 = if dnsIntercept.target6 != null then dnsIntercept.target6 else firstIPv6 dnsIfaceIPs;
+              v4 = if dnsIntercept.target != null then parseIPAddress dnsIntercept.target else firstIPv4 dnsIfaceAddrs;
+              v6 = if dnsIntercept.target6 != null then parseIPAddress dnsIntercept.target6 else firstIPv6 dnsIfaceAddrs;
             };
 
             mkNftSet = addrs:
@@ -2023,19 +2034,20 @@ in {
               then head addrs
               else "{ ${concatStringsSep ", " addrs} }";
 
-            # Build interception rules for one address family
+            # Build interception rules for one address family.
+            # All inputs are parsed address objects; .ip is extracted here at the nftables boundary.
             mkDnsInterceptRules = { af, excludes, routers, target }:
               optionals (dnsIntercept.enable && target != null) (
                 let
-                  srcExcludes = lib.unique excludes;
-                  dstExcludes = lib.unique (routers ++ excludes);
+                  srcExcludes = lib.unique (map (a: a.ip) excludes);
+                  dstExcludes = lib.unique (map (a: a.ip) (routers ++ excludes));
                   afAttrs =
                     optionalAttrs (srcExcludes != []) { saddr = { not = mkNftSet srcExcludes; }; }
                     // optionalAttrs (dstExcludes != []) { daddr = { not = mkNftSet dstExcludes; }; };
                   dnatTarget =
                     if af == "ip6"
-                    then "[${target}]:53"
-                    else "${target}:53";
+                    then "[${target.ip}]:53"
+                    else "${target.ip}:53";
                   mkRule = proto: {
                     ${af} = afAttrs;
                     ${proto}.dport = 53;
