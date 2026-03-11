@@ -199,6 +199,48 @@
     };
   };
 
+  # Config H: Multi-address interface — kresd should listen on all addresses
+  configH = {
+    zones = {
+      external = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
+      trusted = {
+        icmpEcho = "enable";
+        accessTo = ["external"];
+        inputRules = [{verdict = "accept";}];
+      };
+    };
+    ulaPrefix = "fdc6:55f2:0a5e::/48";
+    dns = {
+      upstream = ["1.1.1.1"];
+      useDHCPFallback = false;
+    };
+    topology = {
+      wan = {
+        hardwareName = "eth0";
+        network = {
+          type = "dhcp";
+          zone = "external";
+          nat.enable = true;
+        };
+      };
+      lan = {
+        hardwareName = "eth1";
+        network = {
+          type = "static";
+          addresses = ["10.0.10.1/24" "10.97.10.1/24"];
+          zone = "trusted";
+          dhcp.enable = true;
+        };
+      };
+    };
+  };
+
+  evalH = evalConfig configH;
+
   extraA = (evalConfig configA).services.kresd.extraConfig;
   extraB = (evalConfig configB).services.kresd.extraConfig;
   extraC = (evalConfig configC).services.kresd.extraConfig;
@@ -269,6 +311,19 @@
         # lan interface has 10.0.10.1 — should be in listen list
       in
         lib.any (addr: lib.hasPrefix "10.0.10.1" addr) listenAddrs))
+
+    # Config H: Multi-address interface — kresd listens on all addresses
+    (assertTrue "H: kresd listens on first address (10.0.10.1)"
+      (let
+        listenAddrs = evalH.services.kresd.listenPlain;
+      in
+        lib.any (addr: lib.hasPrefix "10.0.10.1" addr) listenAddrs))
+
+    (assertTrue "H: kresd listens on second address (10.97.10.1)"
+      (let
+        listenAddrs = evalH.services.kresd.listenPlain;
+      in
+        lib.any (addr: lib.hasPrefix "10.97.10.1" addr) listenAddrs))
   ];
 
   allPass = lib.all (x: x) tests;

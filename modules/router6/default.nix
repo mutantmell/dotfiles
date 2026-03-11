@@ -1620,11 +1620,11 @@ in {
                     if ifaceData != null
                     then getEffectiveAddresses ifaceData
                     else [];
-                  v4 = firstIPv4 addrs;
-                  v6 = firstIPv6 addrs;
+                  v4List = filter (a: !(lib.hasInfix ":" a)) addrs;
+                  v6List = filter (a: lib.hasInfix ":" a) addrs;
                 in
-                  (optional (v4 != null) "${(parseCIDR v4).ip}:53")
-                  ++ (optional (v6 != null) "[${(parseCIDR v6).ip}]:53")
+                  (map (a: "${(parseCIDR a).ip}:53") v4List)
+                  ++ (map (a: "[${(parseCIDR a).ip}]:53") v6List)
               )
               dnsInterfaces));
 
