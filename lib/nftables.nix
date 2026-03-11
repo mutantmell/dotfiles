@@ -109,6 +109,8 @@
     tcp ? {},
     # UDP matching
     udp ? {},
+    # Transport header matching (protocol-agnostic, use with meta.l4proto)
+    th ? {},
     # ICMP matching
     icmp ? {},
     # ICMPv6 matching
@@ -172,6 +174,10 @@
       # Layer 4: UDP
       (renderSubRule "udp" "sport" udp)
       (renderSubRule "udp" "dport" udp)
+
+      # Layer 4: Transport header (protocol-agnostic dport/sport)
+      (renderSubRule "th" "sport" th)
+      (renderSubRule "th" "dport" th)
 
       # ICMP
       (renderSubRule "icmp" "type" icmp)
