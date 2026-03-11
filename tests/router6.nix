@@ -37,6 +37,7 @@
   router6-pppoe-config = import ./lib/router6-pppoe-config.nix {inherit pkgs lib;};
   router6-egress-properties = import ./lib/router6-egress-properties.nix {inherit pkgs lib;};
   router6-dns-interception = import ./lib/router6-dns-interception.nix {inherit pkgs lib;};
+  router6-address-parsing = import ./lib/router6-address-parsing.nix {inherit pkgs lib;};
   network-helpers = import ./lib/network-helpers.nix {inherit pkgs lib;};
   openwrt-config = import ./lib/openwrt-config.nix {inherit pkgs lib;};
 }
