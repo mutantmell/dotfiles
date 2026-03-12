@@ -15,7 +15,7 @@
       {
         name = "default";
         driver = "zfs";
-        config.source = "persist/incus";
+        config.source = "zroot/local/persist/incus";
       }
     ];
 
