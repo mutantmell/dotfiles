@@ -30,8 +30,9 @@ fi
 echo "Setting up Incus guests on $HOSTNAME ($TARGET)..."
 echo ""
 
-for guest in $(ls "$INCUS_GUEST_DIR"); do
-  [[ -d "$INCUS_GUEST_DIR/$guest" ]] || continue
+for guest_path in "$INCUS_GUEST_DIR"/*/; do
+  [[ -d $guest_path ]] || continue
+  guest="$(basename "$guest_path")"
 
   GUEST_KEY="$KEYS_DIR/${guest}-ssh_host_ed25519_key"
   if [[ ! -f $GUEST_KEY ]]; then
@@ -40,14 +41,18 @@ for guest in $(ls "$INCUS_GUEST_DIR"); do
   fi
 
   echo "  $guest: pushing SSH host key..."
-  ssh "$TARGET" "incus file push - ${guest}/etc/ssh/ssh_host_ed25519_key --uid=0 --gid=0 --mode=0600" <"$GUEST_KEY"
-  ssh "$TARGET" "incus file push - ${guest}/etc/ssh/ssh_host_ed25519_key.pub --uid=0 --gid=0 --mode=0644" <"$GUEST_KEY.pub"
+  # shellcheck disable=SC2029  # $guest is intentionally expanded client-side
+  ssh "$TARGET" "incus file push - $guest/etc/ssh/ssh_host_ed25519_key --uid=0 --gid=0 --mode=0600" <"$GUEST_KEY"
+  # shellcheck disable=SC2029
+  ssh "$TARGET" "incus file push - $guest/etc/ssh/ssh_host_ed25519_key.pub --uid=0 --gid=0 --mode=0644" <"$GUEST_KEY.pub"
 
   echo "  $guest: restarting sshd..."
-  ssh "$TARGET" "incus exec ${guest} -- systemctl restart sshd"
+  # shellcheck disable=SC2029
+  ssh "$TARGET" "incus exec $guest -- systemctl restart sshd"
 
   echo "  $guest: triggering update to activate sops secrets..."
-  ssh "$TARGET" "incus-update-instance ${guest}" || true
+  # shellcheck disable=SC2029
+  ssh "$TARGET" "incus-update-instance $guest" || true
 
   echo "  $guest: done"
 done
