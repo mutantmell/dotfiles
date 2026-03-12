@@ -8,7 +8,7 @@ keys:
   - &sv_azoth age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
   - &sv_trista age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
   - &sv_denai age19d3g52d9vn37n9z2ezrj37n6svk9vjxdm6tmnjchklh9muhdpqfs4xvea7
-  - &sv_calvard age1jnpyg8chayw6l9wfx209hvkddq9cult3qdyuf7trljs6t5vf3czseu8qlm
+  - &sv_calvard age1x6tk8zejwvd8c4nm5jxhh29fw5u5wrd93dhy9qm3hv0pryxad3aq6ykn7r
   - &sv_thebeyond age1xvkjw03zrcy38rxmlhawzqdzlm34cx98mc42v5caautaauj8dd5qddg9hm
 
   # Note: age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc is a placeholder key, do not use live
@@ -17,15 +17,15 @@ keys:
   - &sv_saint-arkh age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
 
   # calvard microVM guests
-  - &sv_messeldam age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
-  - &sv_basel age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
-  - &sv_langport age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
-  - &sv_tharbad age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
-  - &sv_oracion age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
-  - &sv_creil age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_messeldam age12ne0n0vt0zf2s7utsn2tfyl6tthc85wuyaqx8x3ua8rwpaelnvnqfnlejh
+  - &sv_basel age1pufrndmd7g8sm5590mmrkkqj4x958xnw8ehxu0zlrxktd3kxhy6qxzgkvg
+  - &sv_langport age13pysrruclacn7xxhgqhugu5y035z4ntv5ezpkfvrjmuyduy6fpwsj4grj8
+  - &sv_tharbad age1cqh7akewh0qn724jjht3nveg63nu5cdu7dsn0nqrut8auyxyrqus387vkx
+  - &sv_oracion age1r2f3qnzdlnu28kgg2zwzk44zm2qhjtq98x8l4vsrcdqtl845zsasp6shyj
+  - &sv_creil age1zjslnd63kf2k000ahqxqudwmlrluszdg45dczlrxk50zjcujrc9qvwrq7g
 
   # Incus guests
-  - &sv_edith age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_edith age17n3kvx02g4gwa35spalc3hxm7dlfrms23h53knmeqph6kxfy6c0qmmakn5
 
 creation_rules:
   # thebeyond
