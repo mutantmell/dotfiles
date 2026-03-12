@@ -13,11 +13,11 @@
       example = "dev";
     };
 
-    network = lib.mkOption {
+    bridge = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "Incus network to connect this instance to.";
-      example = "incusbr20";
+      description = "Host bridge to attach this instance to via nictype=bridged.";
+      example = "br20";
     };
 
     autoStart = lib.mkOption {

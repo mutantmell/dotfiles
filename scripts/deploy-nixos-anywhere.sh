@@ -280,6 +280,13 @@ if [[ -d $INCUS_GUEST_DIR ]]; then
       ssh-keygen -t ed25519 -f "$GUEST_SSH_KEY" -q -N ""
     fi
 
+    # Place SSH key in extra-files for static directory bind mount
+    mkdir -p "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh"
+    cp "$GUEST_SSH_KEY" "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key"
+    cp "$GUEST_SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key.pub"
+    chmod 600 "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key"
+    chmod 644 "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key.pub"
+
     # Derive age key and update .sops.yaml
     GUEST_AGE_KEY=$(ssh-to-age <"$GUEST_SSH_KEY.pub")
     GUEST_ANCHOR="&sv_${guest}"
@@ -448,16 +455,8 @@ elif [[ $PROFILE == "vm-host" ]]; then
   echo "  4. After boot, verify sops secrets:"
   echo "     ssh $TARGET 'systemctl status sops-nix && ls /run/secrets/'"
   if [[ ${#INCUS_GUESTS[@]} -gt 0 ]]; then
-    echo ""
-    echo "  Incus guest setup (run after host is fully booted):"
-    echo "    ./scripts/setup-incus-guests.sh $HOSTNAME $TARGET_HOST"
-    echo ""
-    echo "  Or manually for each Incus guest:"
-    for guest in "${INCUS_GUESTS[@]}"; do
-      echo "    ssh $TARGET 'incus file push - ${guest}/etc/ssh/ssh_host_ed25519_key --uid=0 --gid=0 --mode=0600' < .keys/${guest}-ssh_host_ed25519_key"
-      echo "    ssh $TARGET 'incus file push - ${guest}/etc/ssh/ssh_host_ed25519_key.pub --uid=0 --gid=0 --mode=0644' < .keys/${guest}-ssh_host_ed25519_key.pub"
-      echo "    ssh $TARGET 'incus exec ${guest} -- systemctl restart sshd'"
-    done
+    echo "  Incus guests (${INCUS_GUESTS[*]}) have SSH keys pre-placed in /persist/guests/*/static/"
+    echo "  They will boot with keys available via the /static bind mount — no post-boot setup needed."
   fi
 fi
 

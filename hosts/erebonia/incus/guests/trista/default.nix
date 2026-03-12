@@ -11,7 +11,7 @@
 
   incus-guest = {
     profile = "dmz-vm";
-    network = "incusbr100";
+    bridge = "br100";
   };
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
@@ -44,6 +44,21 @@
   common.openssh = {
     enable = true;
     keys = ["deploy" "erebonia"];
+  };
+
+  # SSH host keys from host-side static directory (bind-mounted by incus)
+  services.openssh.hostKeys = [
+    {
+      path = "/static/etc/ssh/ssh_host_ed25519_key";
+      type = "ed25519";
+    }
+  ];
+
+  # Mount host-side static directory via virtiofs (VMs only; containers get bind mounts)
+  fileSystems."/static" = {
+    device = "static";
+    fsType = "virtiofs";
+    neededForBoot = true;
   };
 
   environment.systemPackages = with pkgs; [

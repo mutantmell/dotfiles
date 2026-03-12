@@ -4,7 +4,7 @@
 # 1. Import a container image
 # 2. Create a container instance
 # 3. Start the container
-# 4. Execute commands inside the container
+# 4. Add a static disk device and verify file access inside the container
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
