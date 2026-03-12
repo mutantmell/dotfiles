@@ -54,6 +54,7 @@ in {
           inherit (guestMeta) profile;
           inherit (guestMeta) network;
           inherit (guestMeta) autoStart;
+          staticDir = "${impCfg.persistDir}/guests/${name}/static";
         };
       in {
         incus-manager.enable = true;
@@ -65,6 +66,13 @@ in {
               else mkGuestSystem name type
           )
           guestEntries;
+
+        # Ensure static directories exist for SSH keys before instances start
+        systemd.tmpfiles.rules = lib.concatMap (name: [
+          "d ${impCfg.persistDir}/guests/${name}/static 0755 root root -"
+          "d ${impCfg.persistDir}/guests/${name}/static/etc 0755 root root -"
+          "d ${impCfg.persistDir}/guests/${name}/static/etc/ssh 0700 root root -"
+        ]) (builtins.attrNames guestEntries);
       }
     )))
 
