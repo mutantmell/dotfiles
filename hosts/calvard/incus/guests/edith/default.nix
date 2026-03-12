@@ -16,7 +16,7 @@
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
 
-  networking.hostName = "messeldam";
+  networking.hostName = "edith";
   networking.useNetworkd = true;
   networking.useDHCP = false;
 

@@ -3,7 +3,7 @@
   config,
   ...
 }: let
-  hostname = "edith";
+  hostname = "messeldam";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
 in {

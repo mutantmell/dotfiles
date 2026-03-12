@@ -79,7 +79,7 @@ in {
       ${phantasma.ipv4Legacy} phantasma phantasma.internal.mutantmell.net phantasma.internal
       ${phantasma.ipv6} phantasma.internal.mutantmell.net phantasma.internal
     ''
-    + net.mkExtraHosts ["edith" "basel" "langport" "oracion" "trista"];
+    + net.mkExtraHosts ["messeldam" "basel" "langport" "oracion" "trista"];
 
   promtail-client.enable = true;
 

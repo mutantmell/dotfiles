@@ -10,7 +10,7 @@ Extend `scripts/deploy-nixos-anywhere.sh` to support deploying **erebonia** and 
 | --------- | ------- | ------------ | ----------------------------------------------------------------------------- |
 | thebeyond | router  | LUKS (disko) | phantasma (microVM)                                                           |
 | erebonia  | vm-host | ZFS (disko)  | roer, legram, ordis, heimdallr, ymir, saint-arkh (microVM) + trista (Incus)   |
-| calvard   | vm-host | ZFS (disko)  | edith, basel, tharbad, langport, oracion, creil (microVM) + messeldam (Incus) |
+| calvard   | vm-host | ZFS (disko)  | messeldam, basel, tharbad, langport, oracion, creil (microVM) + edith (Incus) |
 
 ### Explicit non-goals
 
@@ -382,7 +382,7 @@ fi
 
 ### 5c. Incus guest sops.nix setup
 
-Currently, Incus guests (messeldam, trista) have no sops.nix. To enable sops for them:
+Currently, Incus guests (edith, trista) have no sops.nix. To enable sops for them:
 
 1. Create `sops.nix` in each Incus guest config directory:
 
@@ -411,8 +411,8 @@ Currently, Incus guests (messeldam, trista) have no sops.nix. To enable sops for
 ### Current issues
 
 1. **Wrong path patterns:** `hosts/calvard/guests/heimdallr/` should be `hosts/calvard/microvm/guests/heimdallr/` (if heimdallr is a microVM guest on calvard) or may be stale from the rename.
-2. **Missing entries:** No creation rules for new calvard guests (edith, basel, tharbad, langport, oracion, creil).
-3. **Missing keys:** No `&sv_edith`, `&sv_basel`, etc. in the keys section.
+2. **Missing entries:** No creation rules for new calvard guests (messeldam, basel, tharbad, langport, oracion, creil).
+3. **Missing keys:** No `&sv_messeldam`, `&sv_basel`, etc. in the keys section.
 
 ### Fix
 
@@ -429,7 +429,7 @@ The deploy script will add missing keys and creation rules automatically. But th
 3. **Add ZFS impermanence** to calvard (erebonia already has it)
 4. **Update vm-host disko profile** — Add `key-file` parameter for passphrase file during formatting
 5. **Fix .sops.yaml paths** — Correct the path_regex patterns for existing guests
-6. **Add sops.nix to Incus guests** — messeldam, trista
+6. **Add sops.nix to Incus guests** — edith, trista
 7. **Create placeholder secrets** for Incus guests
 
 ### Phase B: Deploy script changes

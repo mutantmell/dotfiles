@@ -20,7 +20,7 @@
       hosts = {
         thebeyond = 1;
         phantasma = 2;
-        edith = 6; # Keycloak OIDC (calvard)
+        messeldam = 6; # Keycloak OIDC (calvard)
         basel = 7; # step-ca / PKI (calvard)
         remiferia = 20; # NAS — before VM hosts
         calvard = 30; # VM host
@@ -32,7 +32,7 @@
       hosts = {
         denai = 40;
         tharbad = 41; # Prometheus+Loki+Alertmanager+ntfy (calvard)
-        messeldam = 42; # Dev environment / task runner (calvard Incus container)
+        edith = 42; # Dev environment / task runner (calvard Incus container)
       };
     };
     untrusted = {

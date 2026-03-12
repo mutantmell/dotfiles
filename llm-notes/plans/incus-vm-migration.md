@@ -8,7 +8,7 @@ existing Incus setup. Supersedes the Kata containers approach; see prior researc
 
 ## Summary of Changes
 
-1. **Convert messeldam from LXC container to Incus VM** — the only instance still running
+1. **Convert edith from LXC container to Incus VM** — the only instance still running
    with a shared kernel. trista is already an Incus VM and needs no type change.
 
 2. **Fix the system update mechanism** — the current `incus exec nixos-rebuild switch`
@@ -23,18 +23,18 @@ existing Incus setup. Supersedes the Kata containers approach; see prior researc
 
 ## Current State
 
-| Instance  | Host     | Type            | Kernel isolation          |
-| --------- | -------- | --------------- | ------------------------- |
-| messeldam | calvard  | LXC container   | None (shared host kernel) |
-| trista    | erebonia | Incus VM (QEMU) | Yes                       |
+| Instance | Host     | Type            | Kernel isolation          |
+| -------- | -------- | --------------- | ------------------------- |
+| edith    | calvard  | LXC container   | None (shared host kernel) |
+| trista   | erebonia | Incus VM (QEMU) | Yes                       |
 
 After this migration both instances are Incus VMs.
 
 ---
 
-## Change 1: messeldam LXC → Incus VM
+## Change 1: edith LXC → Incus VM
 
-### messeldam/default.nix and trista/default.nix — add authorized keys
+### edith/default.nix and trista/default.nix — add authorized keys
 
 Both guest configs currently have `services.openssh` enabled with `PermitRootLogin =
 "prohibit-password"` but **no authorized keys configured**. This has been harmless because
@@ -44,7 +44,7 @@ the current `incus exec` update mechanism goes through the Incus socket, not SSH
 Replace the manual `services.openssh` block in each guest with `common.openssh`:
 
 ```nix
-# hosts/calvard/containers/messeldam/default.nix
+# hosts/calvard/containers/edith/default.nix
 common.openssh = {
   enable = true;
   keys = [ "deploy" "calvard" ];  # deploy key for manual ops; calvard host key for automated updates
@@ -66,14 +66,14 @@ overlays) rather than a bare `nixpkgs.lib.nixosSystem` call — see the flake.ni
 `nixos-rebuild --target-host` on calvard uses the root SSH client. Calvard's root has no
 user-level SSH key (`~/.ssh/id_*`) — its host key is only used explicitly in git config
 (`-i /etc/ssh/ssh_host_ed25519_key`). Without configuration, `nixos-rebuild --target-host
-root@messeldam` will fail to authenticate.
+root@edith` will fail to authenticate.
 
 Add an SSH client config in calvard's NixOS config:
 
 ```nix
 # hosts/calvard/default.nix
 programs.ssh.extraConfig = ''
-  Host messeldam
+  Host edith
     Hostname 10.97.20.42
     User root
     IdentityFile /etc/ssh/ssh_host_ed25519_key
@@ -97,7 +97,7 @@ programs.ssh.extraConfig = ''
 
 ### calvard/incus.nix
 
-Move messeldam from `containers` to `virtualMachines`, and update the `dev` profile:
+Move edith from `containers` to `virtualMachines`, and update the `dev` profile:
 
 ```nix
 profiles = {
@@ -122,12 +122,12 @@ profiles = {
 };
 
 # Remove from containers:
-# containers = { messeldam = { ... }; };
+# containers = { edith = { ... }; };
 
 # Add to virtualMachines:
 virtualMachines = {
-  messeldam = {
-    configurationFile = ./containers/messeldam;
+  edith = {
+    configurationFile = ./containers/edith;
     autoUpdate = true;
     profile = "dev";
     network = "incusbr20";
@@ -136,12 +136,12 @@ virtualMachines = {
 };
 ```
 
-### messeldam/default.nix — interface name
+### edith/default.nix — interface name
 
 Incus VMs present the network interface as `enp5s0` (virtio-net on a predictable PCI slot),
 which matches the current guest config. No change required.
 
-### flake.nix — add messeldam and trista as nixosConfiguration outputs
+### flake.nix — add edith and trista as nixosConfiguration outputs
 
 Both guests need to be named flake outputs. Use `lib.mk-nixos` directly — it is appropriate:
 
@@ -153,10 +153,10 @@ Both guests need to be named flake outputs. Use `lib.mk-nixos` directly — it i
 ```nix
 nixosConfigurations = {
   # ... existing hosts ...
-  messeldam = self.lib.mk-nixos {
+  edith = self.lib.mk-nixos {
     inherit nixpkgs;
     system = "x86_64-linux";
-    modules = [ ./hosts/calvard/containers/messeldam ];
+    modules = [ ./hosts/calvard/containers/edith ];
   };
   trista = self.lib.mk-nixos {
     inherit nixpkgs;
@@ -296,40 +296,40 @@ naturally. No named-volume scheme is needed.
 
 ### Pre-flight
 
-1. Confirm SSH access to messeldam from calvard as root:
+1. Confirm SSH access to edith from calvard as root:
    ```bash
-   incus exec messeldam -- ssh root@messeldam  # or test from calvard directly
+   incus exec edith -- ssh root@edith  # or test from calvard directly
    ```
 2. Confirm trista is similarly reachable for the update mechanism fix:
    ```bash
    ssh root@trista
    ```
-3. Back up messeldam data (the LXC rootfs will be deleted):
+3. Back up edith data (the LXC rootfs will be deleted):
    ```bash
-   incus exec messeldam -- tar -czf /tmp/data.tar.gz /home /root
-   incus file pull messeldam/tmp/data.tar.gz ./messeldam-backup.tar.gz
+   incus exec edith -- tar -czf /tmp/data.tar.gz /home /root
+   incus file pull edith/tmp/data.tar.gz ./edith-backup.tar.gz
    ```
 
 ### Phase 1: Remove the LXC container
 
 ```bash
 # On calvard
-incus stop messeldam
-incus delete messeldam
-incus image delete messeldam   # remove old LXC image alias
+incus stop edith
+incus delete edith
+incus image delete edith   # remove old LXC image alias
 ```
 
 ### Phase 2: Update flake and host configs
 
-1. Add `messeldam` and `trista` as `nixosConfigurations` outputs in `flake.nix` (using `mk-nixos`)
-2. Update `hosts/calvard/containers/messeldam/default.nix`:
+1. Add `edith` and `trista` as `nixosConfigurations` outputs in `flake.nix` (using `mk-nixos`)
+2. Update `hosts/calvard/containers/edith/default.nix`:
    - Replace `services.openssh` block with `common.openssh = { enable = true; keys = [ "deploy" "calvard" ]; }`
 3. Update `hosts/erebonia/containers/trista/default.nix`:
    - Replace `services.openssh` block with `common.openssh = { enable = true; keys = [ "deploy" "erebonia" ]; }`
-4. Update `hosts/calvard/default.nix`: add `programs.ssh.extraConfig` for messeldam
+4. Update `hosts/calvard/default.nix`: add `programs.ssh.extraConfig` for edith
 5. Update `hosts/erebonia/default.nix`: add `programs.ssh.extraConfig` for trista
 6. Update `hosts/calvard/incus.nix`:
-   - Move messeldam from `containers` to `virtualMachines`
+   - Move edith from `containers` to `virtualMachines`
    - Remove `security.nesting` from the `dev` profile
    - Add `incus-manager.flakePath`
 7. Update `modules/incus/default.nix`:
@@ -350,24 +350,24 @@ it, creates and starts the VM instance.
 ### Phase 4: Restore data
 
 ```bash
-incus file push ./messeldam-backup.tar.gz messeldam/tmp/
-incus exec messeldam -- tar -xzf /tmp/messeldam-data.tar.gz -C /
+incus file push ./edith-backup.tar.gz edith/tmp/
+incus exec edith -- tar -xzf /tmp/edith-data.tar.gz -C /
 ```
 
 ### Phase 5: Verify
 
 ```bash
-# messeldam now has its own kernel
-incus exec messeldam -- uname -r   # should differ from calvard's kernel
+# edith now has its own kernel
+incus exec edith -- uname -r   # should differ from calvard's kernel
 
 # Network reachability unchanged
 ping -c1 10.97.20.42
 
 # SSH
-ssh messeldam
+ssh edith
 
 # Confirm update mechanism works
-nixos-rebuild switch --flake .#messeldam --target-host root@messeldam
+nixos-rebuild switch --flake .#edith --target-host root@edith
 ```
 
 ---
