@@ -10,7 +10,7 @@ environments on calvard (primary) and retain the existing one on erebonia (backu
 Retire denai from remiferia independently.
 
 The ardent guest on remiferia is split into three: Forgejo git hosting moves to a new
-calvard guest (user-facing HTTP, close to langport and edith), CI/CD Actions runners
+calvard guest (user-facing HTTP, close to langport and messeldam), CI/CD Actions runners
 move to saint-arkh on erebonia (async, CPU-spiky), and ardent itself is narrowed to
 Attic binary cache only.
 
@@ -46,12 +46,12 @@ calvard currently has no guests.
 
 | New Name   | Old Name       | Host      | Hypervisor       | Service                              |
 | ---------- | -------------- | --------- | ---------------- | ------------------------------------ |
-| edith      | roer           | calvard   | microvm (QEMU)   | Keycloak OIDC                        |
+| messeldam  | roer           | calvard   | microvm (QEMU)   | Keycloak OIDC                        |
 | basel      | legram         | calvard   | microvm (QEMU)   | step-ca PKI / CA                     |
 | langport   | ordis          | calvard   | microvm (QEMU)   | Reverse proxy                        |
 | oracion    | heimdallr      | calvard   | microvm (QEMU)   | Jellyfin media                       |
 | tharbad    | ymir           | calvard   | microvm (QEMU)   | Monitoring                           |
-| messeldam  | (new)          | calvard   | Incus container  | Dev env (primary)                    |
+| edith      | (new)          | calvard   | Incus container  | Dev env (primary)                    |
 | creil      | ardent (split) | calvard   | microvm (QEMU)   | Forgejo git hosting                  |
 | trista     | trista         | erebonia  | Incus VM         | Dev env (backup)                     |
 | saint-arkh | ardent (split) | erebonia  | microvm (QEMU)   | Forgejo Actions CI/CD runners        |
@@ -62,8 +62,8 @@ calvard currently has no guests.
 
 Guest names serve as a mnemonic for which host they run on:
 
-- **Calvard city names** — calvard guests; edith, basel, langport, oracion, tharbad,
-  messeldam, creil are assigned; altair (Headscale) and longlai (subnet router) are
+- **Calvard city names** — calvard guests; messeldam, basel, langport, oracion, tharbad,
+  edith, creil are assigned; altair (Headscale) and longlai (subnet router) are
   reserved for future phases; nemeth is unallocated
 - **Erebonian city names** — erebonia guests; `trista` already follows this convention;
   `saint-arkh` is assigned to the CI/CD runner guest
@@ -71,7 +71,7 @@ Guest names serve as a mnemonic for which host they run on:
 
 ### Incus requirement
 
-`messeldam` (Incus container) and the future SSH bastion (Incus VM) on calvard must
+`edith` (Incus container) and the future SSH bastion (Incus VM) on calvard must
 **not** use `Microvm.nix`. They are managed via Incus declarative config, analogous to
 how `trista` is managed on erebonia today.
 
@@ -81,9 +81,9 @@ how `trista` is managed on erebonia today.
 
 - calvard must have bridge interfaces for all required VLANs:
   - vDMZ (VLAN 100) — for langport, oracion, and future DMZ guests
-  - vMGMT (VLAN 20) — for tharbad, messeldam
-  - vINFRA (VLAN 11) — for edith and basel (new requirement; erebonia already has this)
-- calvard must have Incus configured (container + VM support) for messeldam and the
+  - vMGMT (VLAN 20) — for tharbad, edith
+  - vINFRA (VLAN 11) — for messeldam and basel (new requirement; erebonia already has this)
+- calvard must have Incus configured (container + VM support) for edith and the
   future SSH bastion
 - Network registry (`lib/common/data/network.nix`) must be updated with new hostnames
   and IP allocations for all calvard guests before services go live
@@ -98,9 +98,9 @@ Each microVM migration follows the same pattern:
 2. Create `hosts/calvard/guests/<new-name>/` by copying from `hosts/erebonia/guests/<old-name>/`
 3. Update all internal references (hostnames, DNS, sops secret paths) in the new config
 4. Update any configs on other hosts that reference the old hostname (e.g. ordis→langport
-   references in phantasma's nginx, roer→edith references in legram's step-ca config)
+   references in phantasma's nginx, roer→messeldam references in legram's step-ca config)
 5. **MAC address / tap interface**: the tap interface ID and MAC change (e.g. `vm-11-roer`
-   → `vm-11-edith`); update any DHCP static reservations and MAC-based firewall rules
+   → `vm-11-messeldam`); update any DHCP static reservations and MAC-based firewall rules
 6. **Persistent volume paths**: volumes live at `/persist/guests/<old-name>/images/` on
    the source host; create equivalent paths on the target host before deploying
 7. **sops re-encryption**: each guest's secrets are encrypted to the guest's own SSH host
@@ -122,28 +122,28 @@ Each microVM migration follows the same pattern:
 
 ### Phase 2 — Migrate infrastructure tier (vINFRA)
 
-Migrate edith and basel first; other guests depend on them for OIDC and certificates.
+Migrate messeldam and basel first; other guests depend on them for OIDC and certificates.
 
-- [ ] Allocate IPs for edith and basel in network registry
-- [ ] Create `hosts/calvard/guests/edith/` from erebonia/roer; update hostname refs
+- [ ] Allocate IPs for messeldam and basel in network registry
+- [ ] Create `hosts/calvard/guests/messeldam/` from erebonia/roer; update hostname refs
   - **PostgreSQL data migration**: roer's `/persist` volume is ~100GB; copy
     `/persist/guests/roer/images/persist.img` to calvard (rsync or block copy) before
-    deploying, **or** perform a `pg_dump` on roer and `pg_restore` on edith after first boot
-  - Re-encrypt `secrets/secrets.yaml` with edith's host key (see migration pattern step 7)
+    deploying, **or** perform a `pg_dump` on roer and `pg_restore` on messeldam after first boot
+  - Re-encrypt `secrets/secrets.yaml` with messeldam's host key (see migration pattern step 7)
 - [ ] Create `hosts/calvard/guests/basel/` from erebonia/legram; update hostname refs
-  - Update step-ca OIDC provisioner to point at edith (was roer)
+  - Update step-ca OIDC provisioner to point at messeldam (was roer)
   - Update ACME endpoint DNS record: `basel.internal` (was `legram.internal`)
   - Re-encrypt secrets with basel's host key
-- [ ] Deploy edith and basel on calvard; verify Keycloak and step-ca healthy
-- [ ] Update phantasma DNS: `edith.internal`, `basel.internal`
-- [ ] Update all oauth2-proxy instances to authenticate against edith
+- [ ] Deploy messeldam and basel on calvard; verify Keycloak and step-ca healthy
+- [ ] Update phantasma DNS: `messeldam.internal`, `basel.internal`
+- [ ] Update all oauth2-proxy instances to authenticate against messeldam
 - [ ] Decommission roer and legram on erebonia
 
 ### Phase 3 — Migrate DMZ tier (vDMZ)
 
 - [ ] Allocate IPs for langport and oracion in network registry
 - [ ] Create `hosts/calvard/guests/langport/` from erebonia/ordis; update hostname refs
-  - Update nginx vhost for `auth.mutantmell.net` proxy target (edith, not roer)
+  - Update nginx vhost for `auth.mutantmell.net` proxy target (messeldam, not roer)
   - Update WireGuard config if peer addresses change
 - [ ] Create `hosts/calvard/guests/oracion/` from erebonia/heimdallr; update hostname refs
 - [ ] Deploy langport and oracion on calvard; verify nginx and Jellyfin healthy
@@ -159,12 +159,12 @@ Migrate edith and basel first; other guests depend on them for OIDC and certific
 - [ ] Update phantasma DNS: `tharbad.internal`
 - [ ] Decommission ymir on erebonia
 
-### Phase 5 — Add messeldam (primary dev env, Incus container)
+### Phase 5 — Add edith (primary dev env, Incus container)
 
-- [ ] Allocate IP for messeldam in network registry
-- [ ] Create `hosts/calvard/containers/messeldam/` (Incus declarative config, no Microvm.nix)
-- [ ] Deploy messeldam on calvard; verify dev environment functional
-- [ ] Update phantasma DNS: `messeldam.internal`
+- [ ] Allocate IP for edith in network registry
+- [ ] Create `hosts/calvard/containers/edith/` (Incus declarative config, no Microvm.nix)
+- [ ] Deploy edith on calvard; verify dev environment functional
+- [ ] Update phantasma DNS: `edith.internal`
 
 ### Phase 6 — Split ardent into three guests
 
@@ -175,7 +175,7 @@ resource limits, and firewall egress rules:
 | Guest            | Host      | Services                      | Rationale                                          |
 | ---------------- | --------- | ----------------------------- | -------------------------------------------------- |
 | ardent           | remiferia | Attic binary cache only       | Large blobs benefit from NAS co-location           |
-| TBD Calvard name | calvard   | Forgejo git hosting + web UI  | User-facing HTTP; close to langport and edith      |
+| TBD Calvard name | calvard   | Forgejo git hosting + web UI  | User-facing HTTP; close to langport and messeldam  |
 | saint-arkh       | erebonia  | Forgejo Actions CI/CD runners | Async, CPU-spiky; isolated from real-time services |
 
 Runners communicate with the Forgejo API over the network using a registration token —
@@ -279,6 +279,6 @@ These are tracked in `microvm-inventory.md` and their respective feature plans:
 | Tailscale subnet router | `headscale-integration-plan.md` Phase 2 | TBD (Calvard name)  |
 | Game servers            | `headscale-integration-plan.md` Phase 6 | TBD (Calvard names) |
 
-Remaining unallocated Calvard names: tharbad and messeldam are used above; remaining
+Remaining unallocated Calvard names: tharbad and edith are used above; remaining
 pool from `docs/hostnames.md`: none currently listed as spare — new names will need to
 be added to `docs/hostnames.md` before those guests are created.

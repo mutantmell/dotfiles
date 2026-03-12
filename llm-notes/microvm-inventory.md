@@ -12,12 +12,12 @@ implementation plans in `llm-notes/`.
 | monrain            | Config ready (deploy pending) | remiferia | vDMZ (100)  | 10.97.100.32 / 10.0.100.32 | cgit bare repository hosting               | microvm (QEMU)                       |
 | creil              | Config ready (deploy pending) | calvard   | vDMZ (100)  | 10.97.100.53 / 10.0.100.53 | Forgejo git hosting                        | microvm (QEMU)                       |
 | saint-arkh         | Config ready (deploy pending) | erebonia  | vDMZ (100)  | 10.97.100.61 / 10.0.100.61 | Forgejo Actions CI/CD runners              | microvm (QEMU)                       |
-| edith              | Config ready (deploy pending) | calvard   | vINFRA (11) | 10.97.11.6 / 10.0.11.6     | Keycloak OIDC identity provider            | microvm (QEMU)                       |
+| messeldam          | Config ready (deploy pending) | calvard   | vINFRA (11) | 10.97.11.6 / 10.0.11.6     | Keycloak OIDC identity provider            | microvm (QEMU)                       |
 | basel              | Config ready (deploy pending) | calvard   | vINFRA (11) | 10.97.11.7 / 10.0.11.7     | PKI / certificate authority                | microvm (QEMU)                       |
 | langport           | Config ready (deploy pending) | calvard   | vDMZ (100)  | 10.97.100.41 / 10.0.100.41 | Reverse proxy, oauth2-proxy, wg-ba gateway | microvm (QEMU)                       |
 | oracion            | Config ready (deploy pending) | calvard   | vDMZ (100)  | 10.97.100.52 / 10.0.100.52 | Jellyfin media server                      | microvm (QEMU)                       |
 | tharbad            | Config ready (deploy pending) | calvard   | vMGMT (20)  | 10.97.20.41 / 10.0.20.41   | Prometheus+Loki+Alertmanager+ntfy          | microvm (QEMU)                       |
-| messeldam          | Config ready (deploy pending) | calvard   | vMGMT (20)  | 10.97.20.42 / 10.0.20.42   | Dev environment / task runner (primary)    | Incus container                      |
+| edith              | Config ready (deploy pending) | calvard   | vMGMT (20)  | 10.97.20.42 / 10.0.20.42   | Dev environment / task runner (primary)    | Incus container                      |
 | trista             | Existing                      | erebonia  | vDMZ (100)  | 10.0.100.x                 | Dev environment / task runner (backup)     | Incus VM                             |
 | altair             | Planned                       | calvard   | vDMZ (100)  | TBD                        | Tailscale control plane (Headscale)        | microvm (QEMU)                       |
 | longlai            | Planned                       | calvard   | vDMZ (100)  | TBD                        | Tailscale subnet router                    | microvm (QEMU)                       |
@@ -114,7 +114,7 @@ keys include `deploy`, `home`, `remiferia`, `erebonia`, `calvard`.
 mounts to remiferia NAS.
 
 **Status:** Slated for removal, independently of the calvard migration. Its role is
-replaced by messeldam (Incus container on calvard, primary) and trista (Incus VM on
+replaced by edith (Incus container on calvard, primary) and trista (Incus VM on
 erebonia, backup).
 
 ---
@@ -192,7 +192,7 @@ Prometheus+Alertmanager+ntfy — see `plans/vm-guest-rebalance.md` Phase 6 for r
 
 ---
 
-### edith — Centralized Identity Provider
+### messeldam — Centralized Identity Provider
 
 _Renamed from `roer` (erebonia → calvard migration)._
 
@@ -206,7 +206,7 @@ _Renamed from `roer` (erebonia → calvard migration)._
 | Persistent storage | ~100GB (PostgreSQL database)         |
 | Deployed by        | Step 0 — calvard migration (Phase 2) |
 | Plan               | `plans/vm-guest-rebalance.md`        |
-| Config             | `hosts/calvard/guests/edith/`        |
+| Config             | `hosts/calvard/guests/messeldam/`    |
 
 **Services:** Keycloak (OIDC identity provider), PostgreSQL (user database), nginx
 (local reverse proxy, hostname-admin restriction).
@@ -214,7 +214,7 @@ _Renamed from `roer` (erebonia → calvard migration)._
 **DNS names:**
 
 - External: `auth.mutantmell.net` (proxied through langport for external users)
-- Internal: `edith.internal.mutantmell.net` / `edith.internal`
+- Internal: `messeldam.internal.mutantmell.net` / `messeldam.internal`
 - Admin console: internal hostname only (security hardening R1)
 
 **Notes:** Replaced Keycloak from the decommissioned gridr VM. Dedicated microvm isolates
@@ -250,9 +250,9 @@ for ACME endpoint on :443).
 - ACME endpoint: `https://basel.internal.mutantmell.net/acme/acme/directory`
 
 **Notes:** Replaced step-ca from the decommissioned gridr VM. Separate from Keycloak
-(edith) for CA key material isolation — compromise of one doesn't expose the other. OIDC
-provisioner validates tokens against edith for SSH certificate issuance. Critical data
-(CA root keys) must be backed up. Co-located on calvard with edith for intra-zone
+(messeldam) for CA key material isolation — compromise of one doesn't expose the other. OIDC
+provisioner validates tokens against messeldam for SSH certificate issuance. Critical data
+(CA root keys) must be backed up. Co-located on calvard with messeldam for intra-zone
 communication.
 
 ---
@@ -275,28 +275,28 @@ communication.
 - Internal: `trista.internal.mutantmell.net` / `trista.internal`
 
 **Notes:** Incus VM on erebonia. Trista is an Erebonian city (correct host). Serves as
-backup dev env; primary dev env is messeldam on calvard. Does **not** use Microvm.nix.
+backup dev env; primary dev env is edith on calvard. Does **not** use Microvm.nix.
 
 ---
 
-### messeldam — Dev Environment / Task Runner (primary)
+### edith — Dev Environment / Task Runner (primary)
 
-| Property           | Value                                 |
-| ------------------ | ------------------------------------- |
-| Host               | calvard                               |
-| Zone               | vMGMT (20)                            |
-| IP                 | TBD                                   |
-| Hypervisor         | Incus container                       |
-| vCPU / RAM         | TBD                                   |
-| Persistent storage | TBD                                   |
-| IP                 | 10.97.20.42 / 10.0.20.42              |
-| Config             | `hosts/calvard/containers/messeldam/` |
+| Property           | Value                             |
+| ------------------ | --------------------------------- |
+| Host               | calvard                           |
+| Zone               | vMGMT (20)                        |
+| IP                 | TBD                               |
+| Hypervisor         | Incus container                   |
+| vCPU / RAM         | TBD                               |
+| Persistent storage | TBD                               |
+| IP                 | 10.97.20.42 / 10.0.20.42          |
+| Config             | `hosts/calvard/containers/edith/` |
 
 **Services:** Development environment and task runner.
 
 **DNS names:**
 
-- Internal: `messeldam.internal.mutantmell.net` / `messeldam.internal`
+- Internal: `edith.internal.mutantmell.net` / `edith.internal`
 
 **Notes:** Incus container on calvard. Primary dev env replacing denai. Does **not** use
 Microvm.nix — managed via Incus declarative config.
@@ -329,11 +329,11 @@ _Assigned name: altair._
 - External: `vpn.mutantmell.net` (proxied through langport)
 - Internal: TBD (pending hostname assignment)
 
-**Cross-zone firewall:** Headscale VM (vDMZ) -> edith (vINFRA) on TCP 443 for OIDC
+**Cross-zone firewall:** Headscale VM (vDMZ) -> messeldam (vINFRA) on TCP 443 for OIDC
 validation.
 
 **Notes:** On vDMZ because embedded DERP/STUN must be reachable from external users.
-OIDC integration with edith (Keycloak) for friend authentication. Loss of SQLite DB
+OIDC integration with messeldam (Keycloak) for friend authentication. Loss of SQLite DB
 means all nodes must re-register.
 
 ---
@@ -392,15 +392,15 @@ which ports/IPs each friend group can reach.
 2. **Game server specifics.** Game selection, hosting model (microvm vs container), and
    resource allocation are all deferred.
 
-3. **calvard capacity.** calvard will host the bulk of guests: edith, basel, langport,
-   oracion, tharbad, messeldam, plus the planned Headscale, subnet router, SSH bastion,
+3. **calvard capacity.** calvard will host the bulk of guests: messeldam, basel, langport,
+   oracion, tharbad, edith, plus the planned Headscale, subnet router, SSH bastion,
    and game servers. Ensure calvard has sufficient RAM, CPU, and storage — particularly
-   for edith's ~100GB PostgreSQL requirement.
+   for messeldam's ~100GB PostgreSQL requirement.
 
 4. ~~**vINFRA bridge on calvard.**~~ Resolved — br11 bridge added to calvard/microvm.nix.
 
 5. **Incus VM vs container on calvard.** The SSH bastion requires an Incus VM (not just
-   a container). calvard will need to support both Incus container (messeldam) and Incus
+   a container). calvard will need to support both Incus container (edith) and Incus
    VM (SSH bastion) workloads.
 
 6. **denai removal.** denai is slated for removal from remiferia but can be decommissioned
@@ -415,7 +415,7 @@ which ports/IPs each friend group can reach.
 | thebeyond | Router          | phantasma                                                  | —                                    | cloud-hypervisor; resource-constrained                   |
 | remiferia | NAS + VM host   | ardent, monrain, denai\*                                   | —                                    | \*denai slated for removal independently                 |
 | erebonia  | VM host + Incus | trista                                                     | saint-arkh (Forgejo Actions runners) | Async CI/CD workloads; Forgejo service itself on calvard |
-| calvard   | VM host         | edith, basel, langport, oracion, tharbad, creil, messeldam | altair, longlai, game servers        | Primary VM host; vINFRA bridge added                     |
+| calvard   | VM host         | messeldam, basel, langport, oracion, tharbad, creil, edith | altair, longlai, game servers        | Primary VM host; vINFRA bridge added                     |
 
 ---
 
@@ -428,11 +428,11 @@ See `plans/vm-guest-rebalance.md` for the detailed calvard migration plan.
 
 | Step                      | MicroVM Changes                                                                                                                                                                                |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0. calvard migration      | **Migrate:** roer→edith, legram→basel, ordis→langport, heimdallr→oracion, ymir→tharbad (all erebonia→calvard). **New:** messeldam (Incus container, calvard). **Retire:** denai (independent). |
+| 0. calvard migration      | **Migrate:** roer→messeldam, legram→basel, ordis→langport, heimdallr→oracion, ymir→tharbad (all erebonia→calvard). **New:** edith (Incus container, calvard). **Retire:** denai (independent). |
 | 1. Zone Refactor          | None (pure firewall refactor)                                                                                                                                                                  |
 | 2. Secure MGMT VLAN Split | phantasma migrates from VLAN 10 to VLAN 11; egress filtering added to all vDMZ microvms                                                                                                        |
 | 3. Network Data Registry  | None (data migration)                                                                                                                                                                          |
-| 4. Keycloak OIDC          | edith (Keycloak) and basel (step-ca) already deployed on calvard. **Planned:** SSH bastion (Calvard name TBD, Incus VM on calvard). **Decommissioned:** gridr                                  |
+| 4. Keycloak OIDC          | messeldam (Keycloak) and basel (step-ca) already deployed on calvard. **Planned:** SSH bastion (Calvard name TBD, Incus VM on calvard). **Decommissioned:** gridr                              |
 | 5. IP Migration           | All microvms get dual addresses (10.0.x.x + 10.97.x.x)                                                                                                                                         |
 | 6. SSH Certificates       | None (configuration changes to existing hosts)                                                                                                                                                 |
 | 7. Headscale              | **Planned:** Headscale VM (Calvard name TBD), subnet router (Calvard name TBD), game servers (Calvard names TBD) — all on calvard                                                              |

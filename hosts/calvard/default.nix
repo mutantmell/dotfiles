@@ -104,7 +104,7 @@ in {
   };
 
   programs.ssh.extraConfig = ''
-    Host messeldam
+    Host edith
       Hostname 10.97.20.42
       User root
       IdentityFile /etc/ssh/ssh_host_ed25519_key

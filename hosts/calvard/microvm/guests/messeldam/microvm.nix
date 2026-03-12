@@ -11,7 +11,7 @@
       proto = "9p";
     }
     {
-      source = "/persist/guests/edith/static";
+      source = "/persist/guests/messeldam/static";
       mountPoint = "/static";
       tag = "static";
       proto = "virtiofs";
@@ -23,12 +23,12 @@
     {
       autoCreate = true;
       mountPoint = "/persist";
-      image = "/persist/guests/edith/images/persist.img";
+      image = "/persist/guests/messeldam/images/persist.img";
       size = 100 * 1024;
     }
     {
       autoCreate = true;
-      image = "/persist/guests/edith/images/store-overlay.img";
+      image = "/persist/guests/messeldam/images/store-overlay.img";
       mountPoint = config.microvm.writableStoreOverlay;
       size = 4 * 1024;
     }
@@ -41,7 +41,7 @@
   microvm.interfaces = [
     {
       type = "tap";
-      id = "vm-11-edith";
+      id = "vm-11-messeldam";
       mac = "5E:0B:11:06:00:01";
     }
   ];

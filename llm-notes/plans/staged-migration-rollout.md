@@ -68,8 +68,8 @@ will not change between now and rollout):
 10.0.11.4   legram.internal.mutantmell.net legram.internal
 10.97.11.5  ymir.internal.mutantmell.net ymir.internal
 10.0.11.5   ymir.internal.mutantmell.net ymir.internal
-10.97.11.6  edith.internal.mutantmell.net edith.internal
-10.0.11.6   edith.internal.mutantmell.net edith.internal
+10.97.11.6  messeldam.internal.mutantmell.net messeldam.internal
+10.0.11.6   messeldam.internal.mutantmell.net messeldam.internal
 10.97.11.7  basel.internal.mutantmell.net basel.internal
 10.0.11.7   basel.internal.mutantmell.net basel.internal
 
@@ -78,8 +78,8 @@ will not change between now and rollout):
 10.0.20.40  denai.internal.mutantmell.net denai.internal
 10.97.20.41 tharbad.internal.mutantmell.net tharbad.internal
 10.0.20.41  tharbad.internal.mutantmell.net tharbad.internal
-10.97.20.42 messeldam.internal.mutantmell.net messeldam.internal
-10.0.20.42  messeldam.internal.mutantmell.net messeldam.internal
+10.97.20.42 edith.internal.mutantmell.net edith.internal
+10.0.20.42  edith.internal.mutantmell.net edith.internal
 
 # --- VLAN 100 guests (dmz) ---
 10.97.100.31 ardent.internal.mutantmell.net ardent.internal
@@ -175,9 +175,9 @@ Erebonia deployment is blocked until this is done.
    - Check: `machinectl list` or `systemctl status microvm@*`
    - Verify guest networking (each guest should get its VLAN IP)
 
-6. **Set up Incus guest (messeldam):**
+6. **Set up Incus guest (edith):**
    - Run post-boot Incus SSH key push script
-   - Verify messeldam starts and gets IP 10.97.20.42
+   - Verify edith starts and gets IP 10.97.20.42
 
 7. **Note:** phantasma (Unbound DNS) is a thebeyond guest, not calvard.
    It won't be available until thebeyond hardware arrives. Internal DNS
@@ -383,7 +383,7 @@ After all three hosts are deployed and stable:
    - yggdrasil.local / jotunheimr.local DNS aliases
 
 4. **Decommission old erebonia guests** — Once calvard replacements are verified:
-   - roer -> edith (Keycloak)
+   - roer -> messeldam (Keycloak)
    - legram -> basel (step-ca)
    - ymir -> tharbad (monitoring)
    - ordis -> langport (reverse proxy)

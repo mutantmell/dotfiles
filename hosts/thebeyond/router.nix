@@ -18,7 +18,7 @@
   inherit (net.forHost "thebeyond") host;
   inherit (net.hosts) phantasma;
   inherit (net.hosts) langport;
-  inherit (net.hosts) edith;
+  inherit (net.hosts) messeldam;
   inherit (net.hosts) basel;
   inherit (net.hosts) tharbad;
 
@@ -274,20 +274,20 @@ in {
           }
         ];
         forwardRules.management = [
-          # langport → edith (OIDC token exchange)
+          # langport → messeldam (OIDC token exchange)
           {
             ip.saddr = langport.ipv4;
-            ip.daddr = edith.ipv4;
+            ip.daddr = messeldam.ipv4;
             tcp.dport = 443;
             verdict = "accept";
-            comment = "langport -> edith (OIDC)";
+            comment = "langport -> messeldam (OIDC)";
           }
           {
             ip6.saddr = langport.ipv6;
-            ip6.daddr = edith.ipv6;
+            ip6.daddr = messeldam.ipv6;
             tcp.dport = 443;
             verdict = "accept";
-            comment = "langport -> edith (OIDC v6)";
+            comment = "langport -> messeldam (OIDC v6)";
           }
           # DMZ → basel (ACME certificate issuance)
           {

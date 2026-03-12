@@ -45,12 +45,12 @@ in {
 
   systemd.network = {
     enable = true;
-    # vINFRA (VLAN 11) — edith, basel
+    # vINFRA (VLAN 11) — messeldam, basel
     netdevs."20-br11" = {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br11";
     };
-    # vMGMT (VLAN 20) — tharbad, messeldam
+    # vMGMT (VLAN 20) — tharbad, edith
     netdevs."20-br20" = {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br20";

@@ -17,7 +17,7 @@ keys:
   - &sv_saint-arkh age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
 
   # calvard microVM guests
-  - &sv_edith age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_messeldam age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
   - &sv_basel age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
   - &sv_langport age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
   - &sv_tharbad age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
@@ -25,7 +25,7 @@ keys:
   - &sv_creil age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
 
   # Incus guests
-  - &sv_messeldam age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_edith age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
 
 creation_rules:
   # thebeyond
@@ -80,11 +80,11 @@ creation_rules:
       - age:
           - *ad_denai
           - *sv_calvard
-  - path_regex: hosts/calvard/microvm/guests/edith/secrets/[^/]+\.yaml$
+  - path_regex: hosts/calvard/microvm/guests/messeldam/secrets/[^/]+\.yaml$
     key_groups:
       - age:
           - *ad_denai
-          - *sv_edith
+          - *sv_messeldam
   - path_regex: hosts/calvard/microvm/guests/basel/secrets/[^/]+\.yaml$
     key_groups:
       - age:
@@ -100,11 +100,11 @@ creation_rules:
       - age:
           - *ad_denai
           - *sv_tharbad
-  - path_regex: hosts/calvard/incus/guests/messeldam/secrets/[^/]+\.yaml$
+  - path_regex: hosts/calvard/incus/guests/edith/secrets/[^/]+\.yaml$
     key_groups:
       - age:
           - *ad_denai
-          - *sv_messeldam
+          - *sv_edith
 
   # azoth
   - path_regex: hosts/azoth/secrets/[^/]+\.yaml$

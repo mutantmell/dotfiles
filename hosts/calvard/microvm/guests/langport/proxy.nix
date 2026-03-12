@@ -63,7 +63,7 @@
         };
 
         locations."/auth" = {
-          proxyPass = "https://edith.internal/auth";
+          proxyPass = "https://messeldam.internal/auth";
           extraConfig = ''
             proxy_set_header X-Forwarded-For $remote_addr;
             proxy_set_header X-Forwarded-Proto $scheme;

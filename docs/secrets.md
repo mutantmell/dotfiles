@@ -83,7 +83,7 @@ Keys must be retrieved after the first deployment of each guest.
 
 | Host       | Config Path                         | Needs Key For                                                        |
 | ---------- | ----------------------------------- | -------------------------------------------------------------------- |
-| edith      | `hosts/calvard/guests/edith/`       | `keycloak_password_file`                                             |
+| messeldam  | `hosts/calvard/guests/messeldam/`   | `keycloak_password_file`                                             |
 | basel      | `hosts/calvard/guests/basel/`       | `intermediate_ca.key`, `intermediate-password-file`                  |
 | langport   | `hosts/calvard/guests/langport/`    | `wireguard_private_key`, `wg_ba_peer_*`, `oauth-2-proxy-keyfile`     |
 | tharbad    | `hosts/calvard/guests/tharbad/`     | `grafana-admin-password`, `alertmanager-ntfy-url`, `ntfy-auth-token` |
@@ -117,7 +117,7 @@ These paths have secrets files but no creation rule in `.sops.yaml`:
 
 | Path Pattern                                | Recipients Needed                                                 |
 | ------------------------------------------- | ----------------------------------------------------------------- |
-| `hosts/calvard/guests/edith/secrets/`       | `ad_denai`, `sv_edith` (TBD)                                      |
+| `hosts/calvard/guests/messeldam/secrets/`   | `ad_denai`, `sv_messeldam` (TBD)                                   |
 | `hosts/calvard/guests/basel/secrets/`       | `ad_denai`, `sv_basel` (TBD)                                      |
 | `hosts/calvard/guests/langport/secrets/`    | `ad_denai`, `sv_langport` (TBD)                                   |
 | `hosts/calvard/guests/tharbad/secrets/`     | `ad_denai`, `sv_tharbad` (TBD)                                    |
@@ -149,7 +149,7 @@ These paths have secrets files but no creation rule in `.sops.yaml`:
 
 `sops.nix`: `age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"]` ✓
 
-**Note:** The oauth2-proxy secret is commented out in `sops.nix` pending edith and
+**Note:** The oauth2-proxy secret is commented out in `sops.nix` pending messeldam and
 basel deployment (see the TODO comment). The secrets file currently holds a placeholder
 `test` value and must be updated once oauth2-proxy is re-enabled.
 
@@ -211,7 +211,7 @@ No secrets currently. No `sops.nix` file needed unless secrets are added later.
 
 ---
 
-### edith — Keycloak OIDC (calvard guest)
+### messeldam — Keycloak OIDC (calvard guest)
 
 | Secret                   | Purpose                 | Status                                |
 | ------------------------ | ----------------------- | ------------------------------------- |
@@ -219,12 +219,12 @@ No secrets currently. No `sops.nix` file needed unless secrets are added later.
 
 `sops.nix`: `age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"]` ✓
 
-**Action required:** After first boot of edith:
+**Action required:** After first boot of messeldam:
 
-1. Retrieve `ssh_host_ed25519_key.pub` from `/persist/guests/edith/static/etc/ssh/` on calvard.
+1. Retrieve `ssh_host_ed25519_key.pub` from `/persist/guests/messeldam/static/etc/ssh/` on calvard.
 2. Derive age key: `ssh-to-age < ssh_host_ed25519_key.pub`
-3. Add `sv_edith` alias and creation rule for `hosts/calvard/guests/edith/secrets/` to `.sops.yaml`.
-4. Choose an admin password and encrypt: `sops hosts/calvard/guests/edith/secrets/secrets.yaml`
+3. Add `sv_messeldam` alias and creation rule for `hosts/calvard/guests/messeldam/secrets/` to `.sops.yaml`.
+4. Choose an admin password and encrypt: `sops hosts/calvard/guests/messeldam/secrets/secrets.yaml`
 
 ---
 
@@ -239,7 +239,7 @@ No secrets currently. No `sops.nix` file needed unless secrets are added later.
 
 **Action required:** After first boot of basel:
 
-1. Retrieve age key from basels SSH host key (same procedure as edith).
+1. Retrieve age key from basels SSH host key (same procedure as messeldam).
 2. Add `sv_basel` to `.sops.yaml`.
 3. Generate the intermediate CA keypair (from step-ca init or your existing CA material).
 4. Encrypt: `sops hosts/calvard/guests/basel/secrets/secrets.yaml`
@@ -328,7 +328,7 @@ left in place for data-migration reference and removed once migration is complet
 | Host   | Path                            | Replacement | Notes                                                                                      |
 | ------ | ------------------------------- | ----------- | ------------------------------------------------------------------------------------------ |
 | ordis  | `hosts/erebonia/guests/ordis/`  | langport    | Contains real WireGuard + oauth2-proxy keys; copy to langport before decommissioning       |
-| roer   | `hosts/erebonia/guests/roer/`   | edith       | Placeholder only                                                                           |
+| roer   | `hosts/erebonia/guests/roer/`   | messeldam   | Placeholder only                                                                           |
 | legram | `hosts/erebonia/guests/legram/` | basel       | Placeholder only                                                                           |
 | ymir   | `hosts/erebonia/guests/ymir/`   | tharbad     | Has `grafana-admin-password`, `alertmanager-ntfy-url`, `ntfy-auth-token` — copy to tharbad |
 
@@ -342,18 +342,18 @@ After deploying each new calvard/erebonia guest, add an age key alias and creati
 
 ```yaml
 # Add to keys section:
-- &sv_edith      <age key from edith SSH host key>
+- &sv_messeldam  <age key from messeldam SSH host key>
 - &sv_basel      <age key from basel SSH host key>
 - &sv_langport   <age key from langport SSH host key>
 - &sv_tharbad    <age key from tharbad SSH host key>
 - &sv_saint_arkh <age key from saint-arkh SSH host key>
 
 # Add creation rules:
-- path_regex: hosts/calvard/guests/edith/secrets/[^/]+\.yaml$
+- path_regex: hosts/calvard/guests/messeldam/secrets/[^/]+\.yaml$
   key_groups:
     - age:
       - *ad_denai
-      - *sv_edith
+      - *sv_messeldam
 
 - path_regex: hosts/calvard/guests/basel/secrets/[^/]+\.yaml$
   key_groups:

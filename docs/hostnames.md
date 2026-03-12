@@ -13,12 +13,12 @@ VM HOSTS (Countries)
 │   └── leeves        (not allocated)
 │
 ├── calvard           (GP host)
-│   ├── edith         (microVM) — Keycloak OIDC identity provider
+│   ├── messeldam     (microVM) — Keycloak OIDC identity provider
 │   ├── basel         (microVM) — step-ca PKI / certificate authority
 │   ├── langport      (microVM) — Reverse proxy, nginx, oauth2-proxy
 │   ├── oracion       (microVM) — Jellyfin media server
 │   ├── tharbad       (microVM) — Prometheus, Loki, Alertmanager, ntfy
-│   ├── messeldam     (Incus container) — Dev environment / task runner (primary)
+│   ├── edith         (Incus container) — Dev environment / task runner (primary)
 │   ├── creil         (microVM) — Forgejo git hosting
 │   ├── altair        (microVM, planned) — Headscale control plane
 │   ├── longlai       (microVM, planned) — Tailscale subnet router

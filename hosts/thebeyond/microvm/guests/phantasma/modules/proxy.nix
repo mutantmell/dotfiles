@@ -4,12 +4,12 @@
   ...
 }:
 # OAuth-protected reverse proxy for Adguard Home web UI
-# Uses a local oauth2-proxy instance that authenticates directly against Keycloak (on edith)
+# Uses a local oauth2-proxy instance that authenticates directly against Keycloak (on messeldam)
 #
 # Flow:
 # 1. User accesses https://phantasma.local/adguard/
 # 2. Nginx makes auth_request to local oauth2-proxy
-# 3. If not authenticated, oauth2-proxy redirects to Keycloak (on edith)
+# 3. If not authenticated, oauth2-proxy redirects to Keycloak (on messeldam)
 # 4. After successful OAuth, user is redirected back
 # 5. Nginx proxies authenticated requests to local Adguard Home
 {

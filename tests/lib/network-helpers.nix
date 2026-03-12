@@ -19,11 +19,11 @@
 
   # --- mkExtraHosts tests ---
 
-  extraHostsBasic = net.mkExtraHosts ["edith" "basel"];
+  extraHostsBasic = net.mkExtraHosts ["messeldam" "basel"];
   # Primary (10.97) and legacy (10.0) IPv4 + IPv6 lines
-  extraHostsEdithCanonical = contains "10.97.11.6 edith.internal.mutantmell.net edith.internal" extraHostsBasic;
-  extraHostsEdithLegacy = contains "10.0.11.6 edith.internal.mutantmell.net edith.internal" extraHostsBasic;
-  extraHostsEdithV6Canonical = contains "fdc6:55f2:0a5e:b::6 edith.internal.mutantmell.net edith.internal" extraHostsBasic;
+  extraHostsMesseldamCanonical = contains "10.97.11.6 messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
+  extraHostsMesseldamLegacy = contains "10.0.11.6 messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
+  extraHostsMesseldamV6Canonical = contains "fdc6:55f2:0a5e:b::6 messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
   extraHostsBaselCanonical = contains "10.97.11.7 basel.internal.mutantmell.net basel.internal" extraHostsBasic;
   extraHostsBaselLegacy = contains "10.0.11.7 basel.internal.mutantmell.net basel.internal" extraHostsBasic;
   extraHostsBaselV6Canonical = contains "fdc6:55f2:0a5e:b::7 basel.internal.mutantmell.net basel.internal" extraHostsBasic;
@@ -120,9 +120,9 @@
 
   allTests = {
     # mkExtraHosts
-    "mkExtraHosts produces primary IPv4 for edith" = extraHostsEdithCanonical;
-    "mkExtraHosts produces legacy IPv4 for edith" = extraHostsEdithLegacy;
-    "mkExtraHosts produces IPv6 for edith" = extraHostsEdithV6Canonical;
+    "mkExtraHosts produces primary IPv4 for messeldam" = extraHostsMesseldamCanonical;
+    "mkExtraHosts produces legacy IPv4 for messeldam" = extraHostsMesseldamLegacy;
+    "mkExtraHosts produces IPv6 for messeldam" = extraHostsMesseldamV6Canonical;
     "mkExtraHosts produces primary IPv4 for basel" = extraHostsBaselCanonical;
     "mkExtraHosts produces legacy IPv4 for basel" = extraHostsBaselLegacy;
     "mkExtraHosts produces IPv6 for basel" = extraHostsBaselV6Canonical;

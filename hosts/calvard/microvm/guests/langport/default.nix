@@ -46,7 +46,7 @@ in {
       {Gateway = zone.gateway6;}
     ];
   };
-  networking.extraHosts = net.mkExtraHosts ["phantasma" "edith" "basel" "oracion"];
+  networking.extraHosts = net.mkExtraHosts ["phantasma" "messeldam" "basel" "oracion"];
 
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
 
@@ -65,10 +65,10 @@ in {
         port = 53;
       }
       {
-        host = "edith";
+        host = "messeldam";
         proto = "tcp";
         port = 443;
-        comment = "OIDC auth to edith";
+        comment = "OIDC auth to messeldam";
       }
       {
         host = "basel";

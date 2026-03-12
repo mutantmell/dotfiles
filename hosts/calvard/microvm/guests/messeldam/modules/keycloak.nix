@@ -11,7 +11,7 @@
       http-relative-path = "/auth";
       proxy-headers = "forwarded|xforwarded";
       http-enabled = true;
-      hostname-admin = "https://edith.internal.mutantmell.net";
+      hostname-admin = "https://messeldam.internal.mutantmell.net";
     };
     database.passwordFile = config.sops.secrets."keycloak_password_file".path;
     realmFiles = [./homelab-realm.json];
@@ -45,7 +45,7 @@
       };
     };
 
-    virtualHosts."edith.internal.mutantmell.net" = {
+    virtualHosts."messeldam.internal.mutantmell.net" = {
       forceSSL = true;
       useACMEHost = "auth.mutantmell.net";
 
@@ -78,7 +78,7 @@
     };
     acceptTerms = true;
     certs."auth.mutantmell.net" = {
-      extraDomainNames = ["edith.internal.mutantmell.net"];
+      extraDomainNames = ["messeldam.internal.mutantmell.net"];
     };
   };
 

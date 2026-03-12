@@ -73,7 +73,7 @@ Overlay (line 112): add to `builders`:
 builders = { inherit (self.lib) mk-microvm mk-incus-vm mk-incus-container; };
 ```
 
-Remove `messeldam` and `trista` from `nixosConfigurations` (lines 214-228).
+Remove `edith` and `trista` from `nixosConfigurations` (lines 214-228).
 
 **File**: `flake.nix`
 
@@ -186,12 +186,12 @@ Add `incus-guest` options (profile, network moved from host config):
     profile = "dev";
     network = "incusbr20";
   };
-  networking.hostName = "messeldam";
+  networking.hostName = "edith";
   # ... rest unchanged ...
 }
 ```
 
-**Files**: `hosts/calvard/incus/guests/messeldam/default.nix`, `hosts/erebonia/incus/guests/trista/default.nix`
+**Files**: `hosts/calvard/incus/guests/edith/default.nix`, `hosts/erebonia/incus/guests/trista/default.nix`
 
 ### Step 7: Add integration tests
 
@@ -234,20 +234,20 @@ ssh "$TARGET" "incus-update-instance ${guest}" || true
 
 ## Files Modified
 
-| File                                               | Action                                                                        |
-| -------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `modules/incus/default.nix`                        | **Rewrite** — top-level module: instance lifecycle, systemd services, helpers |
-| `modules/incus/guest-options.nix`                  | **New** — guest-side options (type, profile, network)                         |
-| `modules/common/incus.nix`                         | **New** — common module: auto-discovery, impermanence                         |
-| `flake.nix`                                        | **Edit** — add builders, overlay, remove messeldam/trista, add test checks    |
-| `hosts/calvard/incus/default.nix`                  | **Rewrite** — use `common.incus` + raw preseed                                |
-| `hosts/erebonia/incus/default.nix`                 | **Rewrite** — same                                                            |
-| `hosts/calvard/incus/guests/messeldam/default.nix` | **Edit** — add incus-guest options                                            |
-| `hosts/erebonia/incus/guests/trista/default.nix`   | **Edit** — add incus-guest options                                            |
-| `CLAUDE.md`                                        | **Edit** — document module architecture convention                            |
-| `scripts/setup-incus-guests.sh`                    | **Edit** — use helper script for updates                                      |
-| `tests/modules/incus-container.nix`                | **New** — container integration test                                          |
-| `tests/modules/incus-vm.nix`                       | **New** — VM integration test                                                 |
+| File                                             | Action                                                                        |
+| ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `modules/incus/default.nix`                      | **Rewrite** — top-level module: instance lifecycle, systemd services, helpers |
+| `modules/incus/guest-options.nix`                | **New** — guest-side options (type, profile, network)                         |
+| `modules/common/incus.nix`                       | **New** — common module: auto-discovery, impermanence                         |
+| `flake.nix`                                      | **Edit** — add builders, overlay, remove edith/trista, add test checks        |
+| `hosts/calvard/incus/default.nix`                | **Rewrite** — use `common.incus` + raw preseed                                |
+| `hosts/erebonia/incus/default.nix`               | **Rewrite** — same                                                            |
+| `hosts/calvard/incus/guests/edith/default.nix`   | **Edit** — add incus-guest options                                            |
+| `hosts/erebonia/incus/guests/trista/default.nix` | **Edit** — add incus-guest options                                            |
+| `CLAUDE.md`                                      | **Edit** — document module architecture convention                            |
+| `scripts/setup-incus-guests.sh`                  | **Edit** — use helper script for updates                                      |
+| `tests/modules/incus-container.nix`              | **New** — container integration test                                          |
+| `tests/modules/incus-vm.nix`                     | **New** — VM integration test                                                 |
 
 ## Verification
 
