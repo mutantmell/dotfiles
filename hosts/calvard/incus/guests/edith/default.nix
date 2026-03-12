@@ -41,11 +41,6 @@
     dns = ["10.97.20.1" "10.0.20.1" "fdc6:55f2:0a5e:14::1"];
   };
 
-  common.openssh = {
-    enable = true;
-    keys = ["deploy" "calvard"];
-  };
-
   environment.systemPackages = with pkgs; [
     home-manager
     git
@@ -69,7 +64,7 @@
   common.openssh = {
     enable = true;
     users = ["mutantmell" "root"];
-    keys = ["home"];
+    keys = ["home" "deploy" "calvard"];
     allowPassword = true;
   };
 
