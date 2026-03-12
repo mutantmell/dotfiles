@@ -151,12 +151,12 @@ in {
     keys = ["deploy" "home"];
   };
 
-  users.users.mjollnir = {
+  users.users.mutantmell = {
     isNormalUser = true;
     description = "samba client user";
-    group = "mjollnir";
+    group = "mutantmell";
   };
-  users.groups.mjollnir = {};
+  users.groups.mutantmell = {};
 
   home-manager.users.root = {
     home.stateVersion = "23.11";
