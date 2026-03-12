@@ -48,6 +48,7 @@ in
           type = "container";
           system = guestSystem;
           autoStart = true;
+          staticDir = "/var/lib/testguest-static";
         };
       };
 
@@ -80,6 +81,12 @@ in
     };
 
     testScript = ''
+      # Create static directory with a test file before incus starts
+      # Use /var/lib/ (not /tmp/) — container bind mounts reject "too revealing" paths like /tmp (mode 1777)
+      host.succeed("mkdir -p /var/lib/testguest-static/etc/ssh")
+      host.succeed("echo 'test-key-content' > /var/lib/testguest-static/etc/ssh/ssh_host_ed25519_key")
+      host.succeed("chmod 600 /var/lib/testguest-static/etc/ssh/ssh_host_ed25519_key")
+
       host.wait_for_unit("incus.service")
       host.wait_for_unit("incus-ensure-instances.service")
 
@@ -91,5 +98,11 @@ in
 
       # Verify we can execute commands inside the container
       host.succeed("incus exec testguest -- hostname | grep -q testguest")
+
+      # Verify the static disk device was added
+      host.succeed("incus config device list testguest | grep -q '^static$'")
+
+      # Verify the static directory is mounted and SSH key is readable inside the container
+      host.succeed("incus exec testguest -- cat /static/etc/ssh/ssh_host_ed25519_key | grep -q test-key-content")
     '';
   }

@@ -53,6 +53,7 @@ in
           type = "vm";
           system = guestSystem;
           autoStart = true;
+          staticDir = "/var/lib/testvm-static";
         };
       };
 
@@ -86,6 +87,10 @@ in
     };
 
     testScript = ''
+      # Create static directory with a test file before incus starts
+      host.succeed("mkdir -p /var/lib/testvm-static/etc/ssh")
+      host.succeed("echo 'test-key-content' > /var/lib/testvm-static/etc/ssh/ssh_host_ed25519_key")
+
       host.wait_for_unit("incus.service")
       host.wait_for_unit("incus-ensure-instances.service")
 
@@ -98,5 +103,8 @@ in
       # Wait for the VM to be running (nested VM may not fully boot the
       # guest OS, but QEMU starts and incus reports RUNNING)
       host.succeed("incus list --format=csv -c ns | grep -q 'testvm,RUNNING'")
+
+      # Verify the static disk device was added
+      host.succeed("incus config device list testvm | grep -q '^static$'")
     '';
   }

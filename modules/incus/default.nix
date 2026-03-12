@@ -89,6 +89,16 @@ let
       ''}
       fi
 
+      # Add static directory mount if configured
+      # Containers need shift=true for UID/GID mapping in unprivileged namespaces
+      ${optionalString (guestCfg.staticDir != null) ''
+        if ! ${pkgs.incus}/bin/incus config device list "$INSTANCE" | grep -q "^static$"; then
+          echo "Adding static disk device to $INSTANCE"
+          ${pkgs.incus}/bin/incus config device add "$INSTANCE" static disk \
+            source="${guestCfg.staticDir}" path=/static${optionalString (!isVM) " shift=true"}
+        fi
+      ''}
+
       # Start if autoStart and not running
       ${optionalString guestCfg.autoStart ''
         if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
@@ -177,6 +187,12 @@ in {
             type = types.bool;
             default = true;
             description = "Auto-start instance on host boot.";
+          };
+
+          staticDir = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = "Host-side directory to mount at /static in the guest (for SSH keys, etc).";
           };
         };
       });
