@@ -19,14 +19,14 @@
 
   # --- mkExtraHosts tests ---
 
-  extraHostsBasic = net.mkExtraHosts ["roer" "legram"];
+  extraHostsBasic = net.mkExtraHosts ["edith" "basel"];
   # Primary (10.97) and legacy (10.0) IPv4 + IPv6 lines
-  extraHostsRoerCanonical = contains "10.97.11.3 roer.internal.mutantmell.net roer.internal" extraHostsBasic;
-  extraHostsRoerLegacy = contains "10.0.11.3 roer.internal.mutantmell.net roer.internal" extraHostsBasic;
-  extraHostsRoerV6Canonical = contains "fdc6:55f2:0a5e:b::3 roer.internal.mutantmell.net roer.internal" extraHostsBasic;
-  extraHostsLegramCanonical = contains "10.97.11.4 legram.internal.mutantmell.net legram.internal" extraHostsBasic;
-  extraHostsLegramLegacy = contains "10.0.11.4 legram.internal.mutantmell.net legram.internal" extraHostsBasic;
-  extraHostsLegramV6Canonical = contains "fdc6:55f2:0a5e:b::4 legram.internal.mutantmell.net legram.internal" extraHostsBasic;
+  extraHostsEdithCanonical = contains "10.97.11.6 edith.internal.mutantmell.net edith.internal" extraHostsBasic;
+  extraHostsEdithLegacy = contains "10.0.11.6 edith.internal.mutantmell.net edith.internal" extraHostsBasic;
+  extraHostsEdithV6Canonical = contains "fdc6:55f2:0a5e:b::6 edith.internal.mutantmell.net edith.internal" extraHostsBasic;
+  extraHostsBaselCanonical = contains "10.97.11.7 basel.internal.mutantmell.net basel.internal" extraHostsBasic;
+  extraHostsBaselLegacy = contains "10.0.11.7 basel.internal.mutantmell.net basel.internal" extraHostsBasic;
+  extraHostsBaselV6Canonical = contains "fdc6:55f2:0a5e:b::7 basel.internal.mutantmell.net basel.internal" extraHostsBasic;
 
   # Mesh hosts have no IPv6 and no legacy — should produce only IPv4 line
   extraHostsMesh = net.mkExtraHosts ["azoth"];
@@ -36,21 +36,21 @@
 
   # --- mkUnboundLocalData tests ---
 
-  unboundBasic = net.mkUnboundLocalData ["phantasma" "ordis"];
+  unboundBasic = net.mkUnboundLocalData ["phantasma" "langport"];
   # Canonical entries (primary 10.97)
   unboundPlantasmaA = builtins.elem ''"phantasma.internal.mutantmell.net. A ${net.hosts.phantasma.ipv4}"'' unboundBasic;
   unboundPlantasmaALegacy = builtins.elem ''"phantasma.internal.mutantmell.net. A ${net.hosts.phantasma.ipv4Legacy}"'' unboundBasic;
   unboundPlantasmaAAAA = builtins.elem ''"phantasma.internal.mutantmell.net. AAAA ${net.hosts.phantasma.ipv6}"'' unboundBasic;
-  unboundOrdisA = builtins.elem ''"ordis.internal.mutantmell.net. A ${net.hosts.ordis.ipv4}"'' unboundBasic;
-  unboundOrdisALegacy = builtins.elem ''"ordis.internal.mutantmell.net. A ${net.hosts.ordis.ipv4Legacy}"'' unboundBasic;
-  unboundOrdisAAAA = builtins.elem ''"ordis.internal.mutantmell.net. AAAA ${net.hosts.ordis.ipv6}"'' unboundBasic;
+  unboundLangportA = builtins.elem ''"langport.internal.mutantmell.net. A ${net.hosts.langport.ipv4}"'' unboundBasic;
+  unboundLangportALegacy = builtins.elem ''"langport.internal.mutantmell.net. A ${net.hosts.langport.ipv4Legacy}"'' unboundBasic;
+  unboundLangportAAAA = builtins.elem ''"langport.internal.mutantmell.net. AAAA ${net.hosts.langport.ipv6}"'' unboundBasic;
   # Short alias entries
   unboundPlantasmaAShort = builtins.elem ''"phantasma.internal. A ${net.hosts.phantasma.ipv4}"'' unboundBasic;
   unboundPlantasmaAShortLegacy = builtins.elem ''"phantasma.internal. A ${net.hosts.phantasma.ipv4Legacy}"'' unboundBasic;
   unboundPlantasmaAAAAShort = builtins.elem ''"phantasma.internal. AAAA ${net.hosts.phantasma.ipv6}"'' unboundBasic;
-  unboundOrdisAShort = builtins.elem ''"ordis.internal. A ${net.hosts.ordis.ipv4}"'' unboundBasic;
-  unboundOrdisAShortLegacy = builtins.elem ''"ordis.internal. A ${net.hosts.ordis.ipv4Legacy}"'' unboundBasic;
-  unboundOrdisAAAAShort = builtins.elem ''"ordis.internal. AAAA ${net.hosts.ordis.ipv6}"'' unboundBasic;
+  unboundLangportAShort = builtins.elem ''"langport.internal. A ${net.hosts.langport.ipv4}"'' unboundBasic;
+  unboundLangportAShortLegacy = builtins.elem ''"langport.internal. A ${net.hosts.langport.ipv4Legacy}"'' unboundBasic;
+  unboundLangportAAAAShort = builtins.elem ''"langport.internal. AAAA ${net.hosts.langport.ipv6}"'' unboundBasic;
 
   # Mesh hosts: A record only, no AAAA, no legacy (both canonical and short)
   unboundMesh = net.mkUnboundLocalData ["azoth"];
@@ -83,15 +83,15 @@
   # Host rule produces v4 + v4Legacy + v6 for hosts with IPv6 and legacy
   hostRules = net.mkDualEgressRules dmzZone [
     {
-      host = "legram";
+      host = "basel";
       proto = "tcp";
       port = 443;
-      comment = "ACME certs from legram";
+      comment = "ACME certs from basel";
     }
   ];
-  hostV4 = builtins.elem ''ip daddr ${net.hosts.legram.ipv4} tcp dport 443 accept  comment "ACME certs from legram"'' hostRules;
-  hostV4Legacy = builtins.elem ''ip daddr ${net.hosts.legram.ipv4Legacy} tcp dport 443 accept  comment "ACME certs from legram"'' hostRules;
-  hostV6 = builtins.elem ''ip6 daddr ${net.hosts.legram.ipv6} tcp dport 443 accept  comment "ACME certs from legram"'' hostRules;
+  hostV4 = builtins.elem ''ip daddr ${net.hosts.basel.ipv4} tcp dport 443 accept  comment "ACME certs from basel"'' hostRules;
+  hostV4Legacy = builtins.elem ''ip daddr ${net.hosts.basel.ipv4Legacy} tcp dport 443 accept  comment "ACME certs from basel"'' hostRules;
+  hostV6 = builtins.elem ''ip6 daddr ${net.hosts.basel.ipv6} tcp dport 443 accept  comment "ACME certs from basel"'' hostRules;
   hostCount = assertEq "hostRules length" (builtins.length hostRules) 3;
 
   # Host rule for mesh host (no IPv6, no legacy) produces v4 only
@@ -108,24 +108,24 @@
   # Multi-port rule: v4 + v4Legacy + v6
   multiPortRules = net.mkDualEgressRules dmzZone [
     {
-      host = "heimdallr";
+      host = "oracion";
       proto = "tcp";
       port = [80 443];
     }
   ];
-  multiPortV4 = builtins.elem "ip daddr ${net.hosts.heimdallr.ipv4} tcp dport { 80, 443 } accept" multiPortRules;
-  multiPortV4Legacy = builtins.elem "ip daddr ${net.hosts.heimdallr.ipv4Legacy} tcp dport { 80, 443 } accept" multiPortRules;
-  multiPortV6 = builtins.elem "ip6 daddr ${net.hosts.heimdallr.ipv6} tcp dport { 80, 443 } accept" multiPortRules;
+  multiPortV4 = builtins.elem "ip daddr ${net.hosts.oracion.ipv4} tcp dport { 80, 443 } accept" multiPortRules;
+  multiPortV4Legacy = builtins.elem "ip daddr ${net.hosts.oracion.ipv4Legacy} tcp dport { 80, 443 } accept" multiPortRules;
+  multiPortV6 = builtins.elem "ip6 daddr ${net.hosts.oracion.ipv6} tcp dport { 80, 443 } accept" multiPortRules;
   multiPortCount = assertEq "multiPortRules length" (builtins.length multiPortRules) 3;
 
   allTests = {
     # mkExtraHosts
-    "mkExtraHosts produces primary IPv4 for roer" = extraHostsRoerCanonical;
-    "mkExtraHosts produces legacy IPv4 for roer" = extraHostsRoerLegacy;
-    "mkExtraHosts produces IPv6 for roer" = extraHostsRoerV6Canonical;
-    "mkExtraHosts produces primary IPv4 for legram" = extraHostsLegramCanonical;
-    "mkExtraHosts produces legacy IPv4 for legram" = extraHostsLegramLegacy;
-    "mkExtraHosts produces IPv6 for legram" = extraHostsLegramV6Canonical;
+    "mkExtraHosts produces primary IPv4 for edith" = extraHostsEdithCanonical;
+    "mkExtraHosts produces legacy IPv4 for edith" = extraHostsEdithLegacy;
+    "mkExtraHosts produces IPv6 for edith" = extraHostsEdithV6Canonical;
+    "mkExtraHosts produces primary IPv4 for basel" = extraHostsBaselCanonical;
+    "mkExtraHosts produces legacy IPv4 for basel" = extraHostsBaselLegacy;
+    "mkExtraHosts produces IPv6 for basel" = extraHostsBaselV6Canonical;
     "mkExtraHosts produces IPv4 for mesh host" = extraHostsMeshV4;
     "mkExtraHosts skips IPv6 for mesh host" = extraHostsMeshNoV6;
     "mkExtraHosts skips legacy for mesh host" = extraHostsMeshNoLegacy;
@@ -134,16 +134,16 @@
     "mkUnboundLocalData produces canonical A for phantasma" = unboundPlantasmaA;
     "mkUnboundLocalData produces canonical A legacy for phantasma" = unboundPlantasmaALegacy;
     "mkUnboundLocalData produces canonical AAAA for phantasma" = unboundPlantasmaAAAA;
-    "mkUnboundLocalData produces canonical A for ordis" = unboundOrdisA;
-    "mkUnboundLocalData produces canonical A legacy for ordis" = unboundOrdisALegacy;
-    "mkUnboundLocalData produces canonical AAAA for ordis" = unboundOrdisAAAA;
+    "mkUnboundLocalData produces canonical A for langport" = unboundLangportA;
+    "mkUnboundLocalData produces canonical A legacy for langport" = unboundLangportALegacy;
+    "mkUnboundLocalData produces canonical AAAA for langport" = unboundLangportAAAA;
     # mkUnboundLocalData — short alias entries
     "mkUnboundLocalData produces short A for phantasma" = unboundPlantasmaAShort;
     "mkUnboundLocalData produces short A legacy for phantasma" = unboundPlantasmaAShortLegacy;
     "mkUnboundLocalData produces short AAAA for phantasma" = unboundPlantasmaAAAAShort;
-    "mkUnboundLocalData produces short A for ordis" = unboundOrdisAShort;
-    "mkUnboundLocalData produces short A legacy for ordis" = unboundOrdisAShortLegacy;
-    "mkUnboundLocalData produces short AAAA for ordis" = unboundOrdisAAAAShort;
+    "mkUnboundLocalData produces short A for langport" = unboundLangportAShort;
+    "mkUnboundLocalData produces short A legacy for langport" = unboundLangportAShortLegacy;
+    "mkUnboundLocalData produces short AAAA for langport" = unboundLangportAAAAShort;
     # mkUnboundLocalData — mesh + counts
     "mkUnboundLocalData produces canonical A for mesh host" = unboundMeshA;
     "mkUnboundLocalData produces short A for mesh host" = unboundMeshAShort;

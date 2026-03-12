@@ -5,11 +5,11 @@ VM HOSTS (Countries)
 ├── erebonia          (GP host)
 │   ├── trista        (Incus VM) — Dev environment / task runner (backup)
 │   ├── saint-arkh    (microVM, planned) — Forgejo Actions CI/CD runners
-│   ├── heimdallr     (not allocated) — freed from roer→edith migration
-│   ├── ordis         (not allocated) — freed from ordis→langport migration
-│   ├── roer          (not allocated) — freed from roer→edith migration
-│   ├── legram        (not allocated) — freed from legram→basel migration
-│   ├── ymir          (not allocated) — freed from ymir→tharbad migration
+│   ├── heimdallr     (not allocated)
+│   ├── ordis         (not allocated)
+│   ├── roer          (not allocated)
+│   ├── legram        (not allocated)
+│   ├── ymir          (not allocated)
 │   └── leeves        (not allocated)
 │
 ├── calvard           (GP host)

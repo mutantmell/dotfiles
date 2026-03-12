@@ -12,7 +12,7 @@ in {
     ./microvm.nix
     ./sops.nix
     ./modules/dns.nix
-    # TODO: Re-enable after roer (Keycloak) + legram (step-ca) are deployed
+    # TODO: Re-enable after edith (Keycloak) + basel (step-ca) are deployed
     # ./modules/proxy.nix
   ];
 
@@ -51,7 +51,7 @@ in {
       ${zone.gateway4} yggdrasil.internal
       ${zone.gateway4Legacy} yggdrasil.internal
     ''
-    + net.mkExtraHosts ["roer" "legram" "ordis"];
+    + net.mkExtraHosts ["edith" "basel" "langport"];
 
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];

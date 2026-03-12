@@ -76,17 +76,12 @@ in {
           ++ net.mkUnboundLocalData [
             "thebeyond"
             "phantasma"
-            "roer"
-            "legram"
             "remiferia"
             "erebonia"
-            "ordis"
-            "heimdallr"
             "trista"
             "ardent"
             "azoth"
             "denai"
-            "ymir"
             "calvard"
             # calvard guests
             "edith"
@@ -103,13 +98,12 @@ in {
           ]
           ++ [
             # Split-horizon overrides — external names resolve to internal IPs
-            # TODO: switch roer→edith, ordis→langport after calvard migration cutover
-            ''"auth.mutantmell.net. A ${h.roer.ipv4}"''
-            ''"auth.mutantmell.net. A ${h.roer.ipv4Legacy}"''
-            ''"auth.mutantmell.net. AAAA ${h.roer.ipv6}"''
-            ''"mutantmell.net. A ${h.ordis.ipv4}"''
-            ''"mutantmell.net. A ${h.ordis.ipv4Legacy}"''
-            ''"mutantmell.net. AAAA ${h.ordis.ipv6}"''
+            ''"auth.mutantmell.net. A ${h.edith.ipv4}"''
+            ''"auth.mutantmell.net. A ${h.edith.ipv4Legacy}"''
+            ''"auth.mutantmell.net. AAAA ${h.edith.ipv6}"''
+            ''"mutantmell.net. A ${h.langport.ipv4}"''
+            ''"mutantmell.net. A ${h.langport.ipv4Legacy}"''
+            ''"mutantmell.net. AAAA ${h.langport.ipv6}"''
 
             # Ardent sub-service aliases
             ''"attic.ardent.internal.mutantmell.net. A ${h.ardent.ipv4}"''

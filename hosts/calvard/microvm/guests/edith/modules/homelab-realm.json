@@ -37,7 +37,7 @@
   "clients": [
     {
       "clientId": "oauth2-proxy",
-      "name": "External OAuth2 Proxy (ordis)",
+      "name": "External OAuth2 Proxy (langport)",
       "protocol": "openid-connect",
       "publicClient": false,
       "directAccessGrantsEnabled": false,

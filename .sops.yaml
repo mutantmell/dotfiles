@@ -1,7 +1,6 @@
 keys:
   - &ad_denai age1mmqej3arlv2wx96m2gh9fgvqpkwaeselzfu4rqfn54artx058vys7g3ehq
   - &sv_phantasma age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
-  - &sv_heimdallr age1exkagk0ztmnw7kvx3wwwqjgx3m2zxycgg46xmrt7pvqlngqgjyeqc4ajqh
 
   - &sv_ardent age1t8499a2tna8pzn448ylnpwach59l6m38s33pzdmy4vhy492nevpqq7l6tc
   - &sv_remiferia age1smvmkjl0csqh3wmx9744xqatghnrpnj0y8hmv88gy5llrpujmetqhu9l4g
@@ -9,16 +8,12 @@ keys:
   - &sv_azoth age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
   - &sv_trista age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
   - &sv_denai age19d3g52d9vn37n9z2ezrj37n6svk9vjxdm6tmnjchklh9muhdpqfs4xvea7
-  - &sv_ordis age1fekpnwvr7xzkfmwx0t3ar3h0e6sdl5jxskupy2hnzc4d08c9mv2qz3ksx7
   - &sv_calvard age1jnpyg8chayw6l9wfx209hvkddq9cult3qdyuf7trljs6t5vf3czseu8qlm
-  - &sv_ymir age1anrdj6swtlq5ll4e369gz3lh6aj2sz6pj5zh25uhltjfk4z86azsfsxk9a
   - &sv_thebeyond age1xvkjw03zrcy38rxmlhawzqdzlm34cx98mc42v5caautaauj8dd5qddg9hm
 
   # Note: age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc is a placeholder key, do not use live
 
   # erebonia microVM guests
-  - &sv_roer age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
-  - &sv_legram age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
   - &sv_saint-arkh age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
 
   # calvard microVM guests
@@ -68,26 +63,6 @@ creation_rules:
       - age:
           - *ad_denai
           - *sv_erebonia
-  - path_regex: hosts/erebonia/microvm/guests/ordis/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-          - *ad_denai
-          - *sv_ordis
-  - path_regex: hosts/erebonia/microvm/guests/ymir/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-          - *ad_denai
-          - *sv_ymir
-  - path_regex: hosts/erebonia/microvm/guests/roer/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-          - *ad_denai
-          - *sv_roer
-  - path_regex: hosts/erebonia/microvm/guests/legram/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-          - *ad_denai
-          - *sv_legram
   - path_regex: hosts/erebonia/microvm/guests/saint-arkh/secrets/[^/]+\.yaml$
     key_groups:
       - age:

@@ -39,7 +39,7 @@
     };
   };
 
-  # Local Promtail — ship ymir's own logs to localhost Loki
+  # Local Promtail — ship tharbad's own logs to localhost Loki
   promtail-client = {
     enable = true;
     lokiUrl = "http://127.0.0.1:3100/loki/api/v1/push";
