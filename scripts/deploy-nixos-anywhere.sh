@@ -46,7 +46,7 @@ KVM_GID=302 # Stable NixOS system GID for kvm group
 # Create temp directory for working copies of keys
 KEYFILE_DIR=$(mktemp -d)
 EXTRA_FILES_DIR=$(mktemp -d)
-trap "rm -rf $KEYFILE_DIR $EXTRA_FILES_DIR" EXIT
+trap 'rm -rf "$KEYFILE_DIR" "$EXTRA_FILES_DIR"' EXIT
 
 SSH_KEY="$KEYFILE_DIR/ssh_host_ed25519_key"
 INITRD_SSH_KEY="$KEYFILE_DIR/initrd_ssh_host_ed25519_key"
@@ -186,8 +186,9 @@ GUEST_DIR="$REPO_ROOT/hosts/$HOSTNAME/microvm/guests"
 if [[ -d $GUEST_DIR ]]; then
   echo ""
   echo "Setting up microVM guests..."
-  for guest in $(ls "$GUEST_DIR"); do
-    [[ -d "$GUEST_DIR/$guest" ]] || continue
+  for guest_path in "$GUEST_DIR"/*/; do
+    [[ -d $guest_path ]] || continue
+    guest="$(basename "$guest_path")"
     echo "  Guest: $guest"
 
     GUEST_SSH_KEY="$KEYFILE_DIR/${guest}-ssh_host_ed25519_key"
@@ -260,8 +261,9 @@ INCUS_GUESTS=()
 if [[ -d $INCUS_GUEST_DIR ]]; then
   echo ""
   echo "Setting up Incus guests..."
-  for guest in $(ls "$INCUS_GUEST_DIR"); do
-    [[ -d "$INCUS_GUEST_DIR/$guest" ]] || continue
+  for guest_path in "$INCUS_GUEST_DIR"/*/; do
+    [[ -d $guest_path ]] || continue
+    guest="$(basename "$guest_path")"
     echo "  Guest: $guest"
     INCUS_GUESTS+=("$guest")
 
