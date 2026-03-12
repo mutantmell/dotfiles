@@ -11,7 +11,7 @@
 
   incus-guest = {
     profile = "dev";
-    network = "incusbr20";
+    bridge = "br20";
   };
 
   nix.settings.experimental-features = ["nix-command" "flakes"];

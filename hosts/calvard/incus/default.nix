@@ -9,34 +9,13 @@
     guestDir = ./guests;
   };
 
-  # Preseed via NixOS built-in — storage, networks, profiles
+  # Preseed via NixOS built-in — storage pool and profiles
   virtualisation.incus.preseed = {
     storage_pools = [
       {
         name = "default";
         driver = "zfs";
         config.source = "zroot/local/persist/incus";
-      }
-    ];
-
-    networks = [
-      {
-        name = "incusbr20";
-        type = "bridge";
-        config = {
-          "bridge.external_interfaces" = "br20";
-          "ipv4.address" = "none";
-          "ipv6.address" = "none";
-        };
-      }
-      {
-        name = "incusbr100";
-        type = "bridge";
-        config = {
-          "bridge.external_interfaces" = "br100";
-          "ipv4.address" = "none";
-          "ipv6.address" = "none";
-        };
       }
     ];
 

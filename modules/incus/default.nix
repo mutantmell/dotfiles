@@ -83,9 +83,9 @@ let
       if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$INSTANCE$"; then
         echo "Creating instance: $INSTANCE"
         ${pkgs.incus}/bin/incus init "$IMAGE_ALIAS" "$INSTANCE"${vmFlag}${profileFlag}
-        ${optionalString (guestCfg.network != null) ''
+        ${optionalString (guestCfg.bridge != null) ''
         ${pkgs.incus}/bin/incus config device add "$INSTANCE" eth0 nic \
-          network="${guestCfg.network}" name=eth0 || true
+          nictype=bridged parent="${guestCfg.bridge}" name=eth0 || true
       ''}
       fi
 
@@ -177,10 +177,10 @@ in {
             description = "Incus profile to apply to this instance.";
           };
 
-          network = mkOption {
+          bridge = mkOption {
             type = types.nullOr types.str;
             default = null;
-            description = "Incus network to connect this instance to.";
+            description = "Host bridge to attach this instance to via nictype=bridged.";
           };
 
           autoStart = mkOption {

@@ -4,7 +4,7 @@
 # 1. Import a VM image
 # 2. Create a VM instance
 # 3. Start the VM (requires nested virtualization)
-# 4. Execute commands inside the VM
+# 4. Add a static disk device to the VM
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
