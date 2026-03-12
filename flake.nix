@@ -344,10 +344,10 @@
     };
 
     homeConfigurations = {
-      mjollnir = self.lib.mk-home-config {
+      mutantmell = self.lib.mk-home-config {
         inherit nixpkgs;
         system = "x86_64-linux";
-        user = "mjollnir";
+        user = "mutantmell";
         langs = ["agda" "rust"];
       };
     };

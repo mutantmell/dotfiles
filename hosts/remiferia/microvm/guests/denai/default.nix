@@ -52,14 +52,14 @@ in {
   };
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
 
-  users.users.mjollnir = {
+  users.users.mutantmell = {
     isNormalUser = true;
     extraGroups = ["wheel" "systemd-journal"];
     uid = 1000;
   };
   common.openssh = {
     enable = true;
-    users = ["mjollnir" "root"];
+    users = ["mutantmell" "root"];
     keys = ["home"];
     allowPassword = true;
   };
@@ -71,7 +71,7 @@ in {
   ];
 
   fileSystems."/mnt/drive" = let
-    user = config.users.extraUsers.mjollnir;
+    user = config.users.users.mutantmell;
     group = config.users.groups.users;
   in {
     device = "//remiferia.internal/drive";

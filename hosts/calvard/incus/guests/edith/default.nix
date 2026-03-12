@@ -61,5 +61,17 @@
 
   time.timeZone = "UTC";
 
+  users.users.mutantmell = {
+    isNormalUser = true;
+    extraGroups = ["wheel" "systemd-journal"];
+    uid = 1000;
+  };
+  common.openssh = {
+    enable = true;
+    users = ["mutantmell" "root"];
+    keys = ["home"];
+    allowPassword = true;
+  };
+
   system.stateVersion = "25.11";
 }
