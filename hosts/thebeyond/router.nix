@@ -17,10 +17,10 @@
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost "thebeyond") host;
   inherit (net.hosts) phantasma;
-  inherit (net.hosts) ordis;
-  inherit (net.hosts) roer;
-  inherit (net.hosts) legram;
-  inherit (net.hosts) ymir;
+  inherit (net.hosts) langport;
+  inherit (net.hosts) edith;
+  inherit (net.hosts) basel;
+  inherit (net.hosts) tharbad;
 
   # Helper to define a per-VLAN bridge with bond0 + bat0 members.
   # Batman-adv only carries mesh-encapsulated frames on hard interfaces,
@@ -263,75 +263,77 @@ in {
         ];
         forwardRules.ba-tunnel = [
           {
-            ip.saddr = ordis.ipv4;
+            ip.saddr = langport.ipv4;
             verdict = "accept";
-            comment = "ordis -> wg-ba tunnel (v4)";
+            comment = "langport -> wg-ba tunnel (v4)";
           }
           {
-            ip6.saddr = ordis.ipv6;
+            ip6.saddr = langport.ipv6;
             verdict = "accept";
-            comment = "ordis -> wg-ba tunnel (v6)";
+            comment = "langport -> wg-ba tunnel (v6)";
           }
         ];
         forwardRules.management = [
-          # ordis → roer (OIDC token exchange)
+          # langport → edith (OIDC token exchange)
           {
-            ip.saddr = ordis.ipv4;
-            ip.daddr = roer.ipv4;
+            ip.saddr = langport.ipv4;
+            ip.daddr = edith.ipv4;
             tcp.dport = 443;
             verdict = "accept";
-            comment = "ordis -> roer (OIDC)";
+            comment = "langport -> edith (OIDC)";
           }
           {
-            ip6.saddr = ordis.ipv6;
-            ip6.daddr = roer.ipv6;
+            ip6.saddr = langport.ipv6;
+            ip6.daddr = edith.ipv6;
             tcp.dport = 443;
             verdict = "accept";
-            comment = "ordis -> roer (OIDC v6)";
+            comment = "langport -> edith (OIDC v6)";
           }
-          # DMZ → legram (ACME certificate issuance)
+          # DMZ → basel (ACME certificate issuance)
           {
-            ip.daddr = legram.ipv4;
+            ip.daddr = basel.ipv4;
             tcp.dport = 443;
             verdict = "accept";
-            comment = "DMZ -> legram (ACME)";
+            comment = "DMZ -> basel (ACME)";
           }
           {
-            ip6.daddr = legram.ipv6;
+            ip6.daddr = basel.ipv6;
             tcp.dport = 443;
             verdict = "accept";
-            comment = "DMZ -> legram (ACME v6)";
+            comment = "DMZ -> basel (ACME v6)";
           }
-          # DMZ → ymir (Loki log push)
+        ];
+        forwardRules.trusted = [
+          # DMZ → tharbad (Loki log push)
           {
-            ip.daddr = ymir.ipv4;
+            ip.daddr = tharbad.ipv4;
             tcp.dport = 3100;
             verdict = "accept";
-            comment = "DMZ -> ymir (Loki)";
+            comment = "DMZ -> tharbad (Loki)";
           }
           {
-            ip6.daddr = ymir.ipv6;
+            ip6.daddr = tharbad.ipv6;
             tcp.dport = 3100;
             verdict = "accept";
-            comment = "DMZ -> ymir (Loki v6)";
+            comment = "DMZ -> tharbad (Loki v6)";
           }
         ];
       };
 
       ba-tunnel = {
-        # wg-ba: locked down, only ordis access
+        # wg-ba: locked down, only langport access
         icmpEcho = "disable";
         accessTo = [];
         forwardRules.dmz = [
           {
-            ip.daddr = ordis.ipv4;
+            ip.daddr = langport.ipv4;
             verdict = "accept";
-            comment = "wg-ba -> ordis (v4)";
+            comment = "wg-ba -> langport (v4)";
           }
           {
-            ip6.daddr = ordis.ipv6;
+            ip6.daddr = langport.ipv6;
             verdict = "accept";
-            comment = "wg-ba -> ordis (v6)";
+            comment = "wg-ba -> langport (v6)";
           }
         ];
         inputRules = [];
@@ -436,12 +438,12 @@ in {
           comment = "WireGuard";
         }
       ];
-      # Port forward SSH from wg-ba to ordis
+      # Port forward SSH from wg-ba to langport
       portForwards = [
         {
           proto = "tcp";
           sourcePort = 22;
-          destination = "${ordis.ipv4}:22";
+          destination = "${langport.ipv4}:22";
           sourceInterface = "wg-ba";
           destinationInterface = "brDMZ";
         }
@@ -455,7 +457,7 @@ in {
         }
         {
           iifname = "wg-ba";
-          ip.daddr = ordis.ipv4;
+          ip.daddr = langport.ipv4;
           masquerade = true;
         }
       ];
@@ -526,7 +528,7 @@ in {
           };
         };
 
-        # Wireguard - BA tunnel (locked down, ordis only)
+        # Wireguard - BA tunnel (locked down, langport only)
         "wg-ba" = {
           kind = "wireguard";
           network = {

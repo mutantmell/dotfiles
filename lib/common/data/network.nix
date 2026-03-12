@@ -20,9 +20,6 @@
       hosts = {
         thebeyond = 1;
         phantasma = 2;
-        roer = 3; # Keycloak OIDC (erebonia — being migrated to edith on calvard)
-        legram = 4; # step-ca / PKI (erebonia — being migrated to basel on calvard)
-        ymir = 5; # Metrics / monitoring (erebonia — being migrated to tharbad on calvard)
         edith = 6; # Keycloak OIDC (calvard)
         basel = 7; # step-ca / PKI (calvard)
         remiferia = 20; # NAS — before VM hosts
@@ -60,8 +57,6 @@
       vlanId = 100;
       hosts = {
         ardent = 31;
-        ordis = 40; # Reverse proxy (erebonia — being migrated to langport on calvard)
-        heimdallr = 50; # Jellyfin (erebonia — being migrated to oracion on calvard)
         trista = 51;
         langport = 41; # Reverse proxy (calvard)
         oracion = 52; # Jellyfin media server (calvard)
