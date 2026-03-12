@@ -18,7 +18,7 @@ if [[ -z $HOSTNAME || -z $TARGET ]]; then
 fi
 
 shift 2
-EXTRA_ARGS="$@"
+EXTRA_ARGS=("$@")
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -115,7 +115,7 @@ if [[ $PROFILE == "router" ]]; then
 elif [[ $PROFILE == "vm-host" ]]; then
   echo "Encryption: ZFS native (passphrase)"
 fi
-echo "Extra args: ${EXTRA_ARGS:-none}"
+echo "Extra args: ${EXTRA_ARGS[*]:-none}"
 echo "======================================"
 echo ""
 
@@ -170,7 +170,7 @@ else
 fi
 
 # Re-encrypt host secrets with the updated key
-SECRET_FILES=$(find "$REPO_ROOT/hosts/" -path "*${HOSTNAME}*/secrets/*.yaml" -not -path "*/microvm/*" -not -path "*/incus/*" 2>/dev/null || true)
+SECRET_FILES=$(find "$REPO_ROOT/hosts/$HOSTNAME/secrets/" -name '*.yaml' 2>/dev/null || true)
 if [[ -n $SECRET_FILES ]]; then
   echo "Re-encrypting secrets for $HOSTNAME..."
   echo "$SECRET_FILES" | while read -r f; do
@@ -231,13 +231,16 @@ if [[ -d $GUEST_DIR ]]; then
     fi
 
     # Re-encrypt guest secrets if they exist
-    GUEST_SECRET_FILES=$(find "$REPO_ROOT/hosts/" -path "*${guest}*/secrets/*.yaml" 2>/dev/null || true)
-    if [[ -n $GUEST_SECRET_FILES ]]; then
-      echo "    Re-encrypting secrets..."
-      echo "$GUEST_SECRET_FILES" | while read -r f; do
-        echo "      sops updatekeys: $f"
-        sops updatekeys --yes "$f"
-      done
+    GUEST_SECRET_DIR="$GUEST_DIR/$guest/secrets"
+    if [[ -d $GUEST_SECRET_DIR ]]; then
+      GUEST_SECRET_FILES=$(find "$GUEST_SECRET_DIR" -name '*.yaml' 2>/dev/null || true)
+      if [[ -n $GUEST_SECRET_FILES ]]; then
+        echo "    Re-encrypting secrets..."
+        echo "$GUEST_SECRET_FILES" | while read -r f; do
+          echo "      sops updatekeys: $f"
+          sops updatekeys --yes "$f"
+        done
+      fi
     fi
 
     # Backup keys
@@ -293,13 +296,16 @@ if [[ -d $INCUS_GUEST_DIR ]]; then
     fi
 
     # Re-encrypt guest secrets if they exist
-    GUEST_SECRET_FILES=$(find "$REPO_ROOT/hosts/" -path "*${guest}*/secrets/*.yaml" 2>/dev/null || true)
-    if [[ -n $GUEST_SECRET_FILES ]]; then
-      echo "    Re-encrypting secrets..."
-      echo "$GUEST_SECRET_FILES" | while read -r f; do
-        echo "      sops updatekeys: $f"
-        sops updatekeys --yes "$f"
-      done
+    GUEST_SECRET_DIR="$INCUS_GUEST_DIR/$guest/secrets"
+    if [[ -d $GUEST_SECRET_DIR ]]; then
+      GUEST_SECRET_FILES=$(find "$GUEST_SECRET_DIR" -name '*.yaml' 2>/dev/null || true)
+      if [[ -n $GUEST_SECRET_FILES ]]; then
+        echo "    Re-encrypting secrets..."
+        echo "$GUEST_SECRET_FILES" | while read -r f; do
+          echo "      sops updatekeys: $f"
+          sops updatekeys --yes "$f"
+        done
+      fi
     fi
 
     # Backup keys
@@ -368,7 +374,7 @@ nix run github:nix-community/nixos-anywhere -- \
   --flake "$REPO_ROOT#$HOSTNAME" \
   --target-host "$TARGET" \
   --disk-encryption-keys /tmp/secret.key "$KEYFILE" \
-  $EXTRA_ARGS
+  "${EXTRA_ARGS[@]}"
 
 if [[ $PROFILE == "router" ]]; then
   # Phase 2 (router): Set up /nix bind mount so the store writes to persistent storage
@@ -390,7 +396,7 @@ nix run github:nix-community/nixos-anywhere -- \
   --flake "$REPO_ROOT#$HOSTNAME" \
   --target-host "$TARGET" \
   --disk-encryption-keys /tmp/secret.key "$KEYFILE" \
-  $EXTRA_ARGS
+  "${EXTRA_ARGS[@]}"
 
 if [[ $PROFILE == "router" ]]; then
   # Phase 4 (router): Copy encryption keyfile to /boot on the target
@@ -401,7 +407,12 @@ if [[ $PROFILE == "router" ]]; then
 
 elif [[ $PROFILE == "vm-host" ]]; then
   # Phase 4 (vm-host): Fix ownership on guest directories
-  echo "Phase 4: Fixing guest directory ownership..."
+  if [[ -z $MICROVM_UID ]]; then
+    echo "ERROR: Could not determine microvm UID from Nix config."
+    echo "Falling back to default UID 300 (pinned in modules/common/microvm.nix)."
+    MICROVM_UID=300
+  fi
+  echo "Phase 4: Fixing guest directory ownership (microvm=$MICROVM_UID, kvm=$KVM_GID)..."
   ssh "$TARGET" bash -c "'
         for guest_dir in /mnt/persist/guests/*/; do
             [ -d \"\$guest_dir/static\" ] && chown -R root:root \"\$guest_dir/static\"
@@ -412,7 +423,7 @@ fi
 
 # Phase 5: Fetch generated hardware-config
 echo "Phase 5: Fetching hardware-configuration.nix..."
-ssh "$TARGET" 'nixos-generate-config --no-filesystems --show-hardware-config > /tmp/hw.nix 2>/dev/null'
+ssh "$TARGET" 'nixos-generate-config --no-filesystems --show-hardware-config > /tmp/hw.nix'
 scp "$TARGET:/tmp/hw.nix" "$REPO_ROOT/hosts/$HOSTNAME/hardware-configuration.nix"
 
 echo ""
