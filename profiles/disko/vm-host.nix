@@ -2,6 +2,7 @@
   disk ? "/dev/sda",
   tmpfs-size ? "2G",
   key-file ? "/tmp/secret.key",
+  incus-dataset ? "local/persist/incus",
   ...
 }: {
   disko.devices = {
@@ -47,21 +48,32 @@
       };
       options.ashift = "12";
 
-      datasets = {
-        "local" = {
-          type = "zfs_fs";
-          options.mountpoint = "none";
-        };
-        "local/nix" = {
-          type = "zfs_fs";
-          mountpoint = "/nix";
-        };
-        "local/persist" = {
-          type = "zfs_fs";
-          mountpoint = "/persist";
-          options."com.sun:auto-snapshot" = "true";
-        };
-      };
+      datasets =
+        {
+          "local" = {
+            type = "zfs_fs";
+            options.mountpoint = "none";
+          };
+          "local/nix" = {
+            type = "zfs_fs";
+            mountpoint = "/nix";
+          };
+          "local/persist" = {
+            type = "zfs_fs";
+            mountpoint = "/persist";
+            options."com.sun:auto-snapshot" = "true";
+          };
+        }
+        // (
+          if incus-dataset != null
+          then {
+            ${incus-dataset} = {
+              type = "zfs_fs";
+              options.mountpoint = "legacy";
+            };
+          }
+          else {}
+        );
     };
     nodev."/" = {
       fsType = "tmpfs";
