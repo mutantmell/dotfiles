@@ -206,6 +206,14 @@ in {
       virtualisation.incus.enable = true;
       networking.nftables.enable = true;
 
+      # Incus loads br_netfilter, which forces bridge traffic through nftables.
+      # Disable this so bridged VMs/containers can communicate without
+      # needing explicit nftables rules for L2 forwarded frames.
+      boot.kernel.sysctl = {
+        "net.bridge.bridge-nf-call-iptables" = 0;
+        "net.bridge.bridge-nf-call-ip6tables" = 0;
+      };
+
       users.groups.incus-admin = {};
     }
 
