@@ -49,6 +49,7 @@ EXTRA_FILES_DIR=$(mktemp -d)
 trap "rm -rf $KEYFILE_DIR $EXTRA_FILES_DIR" EXIT
 
 SSH_KEY="$KEYFILE_DIR/ssh_host_ed25519_key"
+INITRD_SSH_KEY="$KEYFILE_DIR/initrd_ssh_host_ed25519_key"
 KEYS_DIR="$REPO_ROOT/.keys"
 
 # --- Encryption key setup (profile-dependent) ---
@@ -85,6 +86,19 @@ if [[ -f "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" ]]; then
 else
   echo "Generating new SSH host key..."
   ssh-keygen -t ed25519 -f "$SSH_KEY" -q -N ""
+fi
+
+# --- Initrd SSH host key setup (vm-host only, for ZFS remote unlock) ---
+if [[ $PROFILE == "vm-host" ]]; then
+  if [[ -f "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key" ]]; then
+    echo "Using existing initrd SSH host key from .keys/$HOSTNAME-initrd_ssh_host_ed25519_key"
+    cp "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key" "$INITRD_SSH_KEY"
+    cp "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key.pub" "$INITRD_SSH_KEY.pub"
+    chmod 600 "$INITRD_SSH_KEY"
+  else
+    echo "Generating new initrd SSH host key (for ZFS remote unlock)..."
+    ssh-keygen -t ed25519 -f "$INITRD_SSH_KEY" -q -N ""
+  fi
 fi
 
 # --- Deployment summary ---
@@ -320,6 +334,12 @@ if [[ ! -f "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" ]]; then
   chmod 600 "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key"
   echo "Saved new SSH key to .keys/$HOSTNAME-ssh_host_ed25519_key"
 fi
+if [[ $PROFILE == "vm-host" && ! -f "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key" ]]; then
+  cp "$INITRD_SSH_KEY" "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key"
+  cp "$INITRD_SSH_KEY.pub" "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key.pub"
+  chmod 600 "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key"
+  echo "Saved new initrd SSH key to .keys/$HOSTNAME-initrd_ssh_host_ed25519_key"
+fi
 
 # Prepare extra-files directory with SSH host key for nixos-anywhere
 # All parent hosts use impermanence with SSH keys persisted at /persist/etc/ssh/
@@ -328,6 +348,14 @@ cp "$SSH_KEY" "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key"
 cp "$SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
 chmod 600 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key"
 chmod 644 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
+
+# Place initrd SSH key for vm-hosts (ZFS remote unlock via SSH in initrd)
+if [[ $PROFILE == "vm-host" ]]; then
+  cp "$INITRD_SSH_KEY" "$EXTRA_FILES_DIR/persist/etc/ssh/initrd_ssh_host_ed25519_key"
+  cp "$INITRD_SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/etc/ssh/initrd_ssh_host_ed25519_key.pub"
+  chmod 600 "$EXTRA_FILES_DIR/persist/etc/ssh/initrd_ssh_host_ed25519_key"
+  chmod 644 "$EXTRA_FILES_DIR/persist/etc/ssh/initrd_ssh_host_ed25519_key.pub"
+fi
 
 # ====================================================================
 # Deployment phases (profile-dependent)
@@ -429,4 +457,8 @@ elif [[ $PROFILE == "vm-host" ]]; then
 fi
 echo "  $HOSTNAME-ssh_host_ed25519_key      — SSH host private key"
 echo "  $HOSTNAME-ssh_host_ed25519_key.pub  — SSH host public key"
+if [[ $PROFILE == "vm-host" ]]; then
+  echo "  $HOSTNAME-initrd_ssh_host_ed25519_key      — Initrd SSH key (ZFS remote unlock)"
+  echo "  $HOSTNAME-initrd_ssh_host_ed25519_key.pub  — Initrd SSH public key"
+fi
 echo ""
