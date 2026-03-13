@@ -3,7 +3,8 @@
   lib,
   ...
 }: let
-  exe = lib.getExe config.services.forgejo.package;
+  cfg = config.services.forgejo;
+  exe = lib.getExe cfg.package;
 in {
   services.forgejo = {
     enable = true;
@@ -52,19 +53,25 @@ in {
       Type = "oneshot";
       User = "forgejo";
       Group = "forgejo";
-      WorkingDirectory = config.services.forgejo.stateDir;
+      WorkingDirectory = cfg.stateDir;
       RemainAfterExit = true;
     };
-    script = ''
+    environment = {
+      FORGEJO_WORK_DIR = cfg.stateDir;
+      FORGEJO_CUSTOM = cfg.customDir;
+    };
+    script = let
+      forgejo = "${exe} --config ${cfg.customDir}/conf/app.ini";
+    in ''
       PASSWORD=$(cat ${config.sops.secrets."forgejo-admin-password".path})
       # Create admin user if it doesn't exist; update password if it does
-      ${exe} admin user create \
+      ${forgejo} admin user create \
         --username admin \
         --email admin@creil.internal \
         --password "$PASSWORD" \
         --admin \
         --must-change-password=false 2>&1 || \
-      ${exe} admin user change-password \
+      ${forgejo} admin user change-password \
         --username admin \
         --password "$PASSWORD"
     '';
