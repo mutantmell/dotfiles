@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # nixos-anywhere deployment wrapper with encryption support
-# Supports both router (LUKS) and vm-host (ZFS) profiles.
+# Supports tmpfs (LUKS+XFS+tmpfs root), zfs (ZFS encrypted), and btrfs (LUKS+btrfs) profiles.
 # Usage: ./scripts/deploy-nixos-anywhere.sh <hostname> <target-ip> [extra-args]
 
 HOSTNAME="${1:-}"
@@ -23,7 +23,10 @@ EXTRA_ARGS=("$@")
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # --- Detect host profile from Nix config ---
-# Derives profile from the actual disko config: router uses LUKS, vm-host uses ZFS.
+# Derives profile from the actual disko config:
+#   tmpfs  = LUKS + XFS (or non-btrfs) with tmpfs root
+#   btrfs  = LUKS + btrfs subvolumes
+#   zfs    = ZFS encrypted (no LUKS)
 echo "Detecting deploy profile for $HOSTNAME..."
 FLAKE_REF="$REPO_ROOT#nixosConfigurations.$HOSTNAME.config.disko.devices.disk.main.content.partitions"
 HAS_LUKS=$(nix eval "$FLAKE_REF" --apply 'p: builtins.hasAttr "persist" p && p.persist.content.type == "luks"' 2>/dev/null) || {
@@ -32,9 +35,14 @@ HAS_LUKS=$(nix eval "$FLAKE_REF" --apply 'p: builtins.hasAttr "persist" p && p.p
   exit 1
 }
 if [[ $HAS_LUKS == "true" ]]; then
-  PROFILE="router"
+  HAS_BTRFS=$(nix eval "$FLAKE_REF" --apply 'p: p.persist.content.content.type == "btrfs"' 2>/dev/null) || HAS_BTRFS="false"
+  if [[ $HAS_BTRFS == "true" ]]; then
+    PROFILE="btrfs"
+  else
+    PROFILE="tmpfs"
+  fi
 else
-  PROFILE="vm-host"
+  PROFILE="zfs"
 fi
 echo "  Profile: $PROFILE"
 
@@ -53,7 +61,7 @@ INITRD_SSH_KEY="$KEYFILE_DIR/initrd_ssh_host_ed25519_key"
 KEYS_DIR="$REPO_ROOT/.keys"
 
 # --- Encryption key setup (profile-dependent) ---
-if [[ $PROFILE == "router" ]]; then
+if [[ $PROFILE == "tmpfs" || $PROFILE == "btrfs" ]]; then
   KEYFILE="$KEYFILE_DIR/disk.key"
   if [[ -f "$KEYS_DIR/$HOSTNAME-disk.key" ]]; then
     echo "Using existing LUKS keyfile from .keys/$HOSTNAME-disk.key"
@@ -64,7 +72,7 @@ if [[ $PROFILE == "router" ]]; then
     head -c 64 /dev/urandom | base64 -w0 >"$KEYFILE"
     chmod 600 "$KEYFILE"
   fi
-elif [[ $PROFILE == "vm-host" ]]; then
+elif [[ $PROFILE == "zfs" ]]; then
   KEYFILE="$KEYFILE_DIR/zfs.passphrase"
   if [[ -f "$KEYS_DIR/$HOSTNAME-zfs.passphrase" ]]; then
     echo "Using existing ZFS passphrase from .keys/$HOSTNAME-zfs.passphrase"
@@ -88,8 +96,8 @@ else
   ssh-keygen -t ed25519 -f "$SSH_KEY" -q -N ""
 fi
 
-# --- Initrd SSH host key setup (vm-host only, for ZFS remote unlock) ---
-if [[ $PROFILE == "vm-host" ]]; then
+# --- Initrd SSH host key setup (zfs profile only, for remote unlock) ---
+if [[ $PROFILE == "zfs" ]]; then
   if [[ -f "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key" ]]; then
     echo "Using existing initrd SSH host key from .keys/$HOSTNAME-initrd_ssh_host_ed25519_key"
     cp "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key" "$INITRD_SSH_KEY"
@@ -110,20 +118,20 @@ echo "Host:       $HOSTNAME"
 echo "Target:     $TARGET"
 echo "Profile:    $PROFILE"
 echo "Flake:      $REPO_ROOT#$HOSTNAME"
-if [[ $PROFILE == "router" ]]; then
+if [[ $PROFILE == "tmpfs" || $PROFILE == "btrfs" ]]; then
   echo "Encryption: LUKS with keyfile"
-elif [[ $PROFILE == "vm-host" ]]; then
+elif [[ $PROFILE == "zfs" ]]; then
   echo "Encryption: ZFS native (passphrase)"
 fi
 echo "Extra args: ${EXTRA_ARGS[*]:-none}"
 echo "======================================"
 echo ""
 
-# --- Destructive operation warning for vm-hosts ---
-if [[ $PROFILE == "vm-host" ]]; then
+# --- Destructive operation warning for zfs/btrfs profiles ---
+if [[ $PROFILE == "zfs" || $PROFILE == "btrfs" ]]; then
   echo "!!! WARNING: DESTRUCTIVE OPERATION !!!"
   echo "This will DESTROY ALL DATA on the target disk, including any existing"
-  echo "ZFS pools with microVM guest data."
+  echo "filesystems with microVM guest data."
   echo ""
   read -p "Type '$HOSTNAME' to confirm data destruction: " -r
   echo
@@ -330,13 +338,13 @@ fi
 
 # Save host keys to .keys/ for backup (gitignored)
 mkdir -p "$KEYS_DIR"
-if [[ $PROFILE == "router" ]]; then
+if [[ $PROFILE == "tmpfs" || $PROFILE == "btrfs" ]]; then
   if [[ ! -f "$KEYS_DIR/$HOSTNAME-disk.key" ]]; then
     cp "$KEYFILE" "$KEYS_DIR/$HOSTNAME-disk.key"
     chmod 600 "$KEYS_DIR/$HOSTNAME-disk.key"
     echo "Saved new disk key to .keys/$HOSTNAME-disk.key"
   fi
-elif [[ $PROFILE == "vm-host" ]]; then
+elif [[ $PROFILE == "zfs" ]]; then
   if [[ ! -f "$KEYS_DIR/$HOSTNAME-zfs.passphrase" ]]; then
     cp "$KEYFILE" "$KEYS_DIR/$HOSTNAME-zfs.passphrase"
     chmod 600 "$KEYS_DIR/$HOSTNAME-zfs.passphrase"
@@ -349,7 +357,7 @@ if [[ ! -f "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" ]]; then
   chmod 600 "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key"
   echo "Saved new SSH key to .keys/$HOSTNAME-ssh_host_ed25519_key"
 fi
-if [[ $PROFILE == "vm-host" && ! -f "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key" ]]; then
+if [[ $PROFILE == "zfs" && ! -f "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key" ]]; then
   cp "$INITRD_SSH_KEY" "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key"
   cp "$INITRD_SSH_KEY.pub" "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key.pub"
   chmod 600 "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key"
@@ -364,8 +372,8 @@ cp "$SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
 chmod 600 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key"
 chmod 644 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
 
-# Place initrd SSH key for vm-hosts (ZFS remote unlock via SSH in initrd)
-if [[ $PROFILE == "vm-host" ]]; then
+# Place initrd SSH key for zfs profile (ZFS remote unlock via SSH in initrd)
+if [[ $PROFILE == "zfs" ]]; then
   cp "$INITRD_SSH_KEY" "$EXTRA_FILES_DIR/persist/etc/ssh/initrd_ssh_host_ed25519_key"
   cp "$INITRD_SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/etc/ssh/initrd_ssh_host_ed25519_key.pub"
   chmod 600 "$EXTRA_FILES_DIR/persist/etc/ssh/initrd_ssh_host_ed25519_key"
@@ -385,13 +393,19 @@ nix run github:nix-community/nixos-anywhere -- \
   --disk-encryption-keys /tmp/secret.key "$KEYFILE" \
   "${EXTRA_ARGS[@]}"
 
-if [[ $PROFILE == "router" ]]; then
-  # Phase 2 (router): Set up /nix bind mount so the store writes to persistent storage
+if [[ $PROFILE == "tmpfs" ]]; then
+  # Phase 2 (tmpfs): Set up /nix bind mount so the store writes to persistent storage
   echo "Phase 2: Setting up /nix bind mount on persistent storage..."
   ssh "$TARGET" 'mkdir -p /mnt/persist/nix && mkdir -p /mnt/nix && mount --bind /mnt/persist/nix /mnt/nix'
 
-elif [[ $PROFILE == "vm-host" ]]; then
-  # Phase 2 (vm-host): Set ZFS keylocation to prompt for interactive unlock on boot
+elif [[ $PROFILE == "btrfs" ]]; then
+  # Phase 2 (btrfs): Create @blank snapshot for impermanence rollback
+  # btrfs subvolumes handle /nix natively (@nix mounted at /nix), so no bind mount needed
+  echo "Phase 2: Creating @blank snapshot for btrfs impermanence..."
+  ssh "$TARGET" 'mkdir -p /tmp/btrfs-root && mount /dev/mapper/cryptroot /tmp/btrfs-root -o subvolid=5 && btrfs subvolume snapshot -r /tmp/btrfs-root/@root /tmp/btrfs-root/@blank && umount /tmp/btrfs-root'
+
+elif [[ $PROFILE == "zfs" ]]; then
+  # Phase 2 (zfs): Set ZFS keylocation to prompt for interactive unlock on boot
   # ZFS datasets handle /nix natively (dataset local/nix mounted at /nix), so no bind mount needed
   echo "Phase 2: Setting ZFS keylocation to prompt..."
   ssh "$TARGET" 'zfs set keylocation=prompt zroot'
@@ -407,15 +421,35 @@ nix run github:nix-community/nixos-anywhere -- \
   --disk-encryption-keys /tmp/secret.key "$KEYFILE" \
   "${EXTRA_ARGS[@]}"
 
-if [[ $PROFILE == "router" ]]; then
-  # Phase 4 (router): Copy encryption keyfile to /boot on the target
+if [[ $PROFILE == "tmpfs" ]]; then
+  # Phase 4 (tmpfs): Copy encryption keyfile to /boot on the target
   echo "Phase 4: Copying encryption keyfile to target..."
   ssh "$TARGET" 'mkdir -p /mnt/boot/secrets && chmod 700 /mnt/boot/secrets'
   scp "$KEYFILE" "$TARGET:/mnt/boot/secrets/disk.key"
   ssh "$TARGET" 'chmod 600 /mnt/boot/secrets/disk.key'
 
-elif [[ $PROFILE == "vm-host" ]]; then
-  # Phase 4 (vm-host): Fix ownership on guest directories
+elif [[ $PROFILE == "btrfs" ]]; then
+  # Phase 4 (btrfs): Copy LUKS keyfile + fix guest directory ownership
+  echo "Phase 4: Copying encryption keyfile to target..."
+  ssh "$TARGET" 'mkdir -p /mnt/boot/secrets && chmod 700 /mnt/boot/secrets'
+  scp "$KEYFILE" "$TARGET:/mnt/boot/secrets/disk.key"
+  ssh "$TARGET" 'chmod 600 /mnt/boot/secrets/disk.key'
+
+  if [[ -z $MICROVM_UID ]]; then
+    echo "ERROR: Could not determine microvm UID from Nix config."
+    echo "Falling back to default UID 300 (pinned in modules/common/microvm.nix)."
+    MICROVM_UID=300
+  fi
+  echo "Phase 4: Fixing guest directory ownership (microvm=$MICROVM_UID, kvm=$KVM_GID)..."
+  ssh "$TARGET" bash -c "'
+        for guest_dir in /mnt/persist/guests/*/; do
+            [ -d \"\$guest_dir/static\" ] && chown -R root:root \"\$guest_dir/static\"
+            [ -d \"\$guest_dir/images\" ] && chown ${MICROVM_UID}:${KVM_GID} \"\$guest_dir/images\"
+        done
+    '"
+
+elif [[ $PROFILE == "zfs" ]]; then
+  # Phase 4 (zfs): Fix ownership on guest directories
   if [[ -z $MICROVM_UID ]]; then
     echo "ERROR: Could not determine microvm UID from Nix config."
     echo "Falling back to default UID 300 (pinned in modules/common/microvm.nix)."
@@ -444,11 +478,15 @@ echo "Next steps:"
 echo "  1. Review hosts/$HOSTNAME/hardware-configuration.nix"
 echo "  2. Commit .sops.yaml changes (age keys were updated)"
 
-if [[ $PROFILE == "router" ]]; then
+if [[ $PROFILE == "tmpfs" || $PROFILE == "btrfs" ]]; then
   echo "  3. Reboot and verify automatic LUKS unlock + sops secrets:"
   echo "     ssh $TARGET 'reboot'"
   echo "     ssh $TARGET 'systemctl status sops-nix && ls /run/secrets/'"
-elif [[ $PROFILE == "vm-host" ]]; then
+  if [[ $PROFILE == "btrfs" && ${#INCUS_GUESTS[@]} -gt 0 ]]; then
+    echo "  Incus guests (${INCUS_GUESTS[*]}) have SSH keys pre-placed in /persist/guests/*/static/"
+    echo "  They will boot with keys available via the /static bind mount — no post-boot setup needed."
+  fi
+elif [[ $PROFILE == "zfs" ]]; then
   echo "  3. Reboot — you'll need to SSH to port 2222 for ZFS unlock:"
   echo "     ssh $TARGET 'reboot'"
   echo "     ssh -p 2222 $TARGET_HOST  # then enter ZFS passphrase"
@@ -462,14 +500,14 @@ fi
 
 echo ""
 echo "Keys in $REPO_ROOT/.keys/ (gitignored):"
-if [[ $PROFILE == "router" ]]; then
+if [[ $PROFILE == "tmpfs" || $PROFILE == "btrfs" ]]; then
   echo "  $HOSTNAME-disk.key                  — LUKS encryption key"
-elif [[ $PROFILE == "vm-host" ]]; then
+elif [[ $PROFILE == "zfs" ]]; then
   echo "  $HOSTNAME-zfs.passphrase            — ZFS encryption passphrase"
 fi
 echo "  $HOSTNAME-ssh_host_ed25519_key      — SSH host private key"
 echo "  $HOSTNAME-ssh_host_ed25519_key.pub  — SSH host public key"
-if [[ $PROFILE == "vm-host" ]]; then
+if [[ $PROFILE == "zfs" ]]; then
   echo "  $HOSTNAME-initrd_ssh_host_ed25519_key      — Initrd SSH key (ZFS remote unlock)"
   echo "  $HOSTNAME-initrd_ssh_host_ed25519_key.pub  — Initrd SSH public key"
 fi

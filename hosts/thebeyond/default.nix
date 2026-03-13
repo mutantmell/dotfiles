@@ -10,7 +10,7 @@
 in {
   imports = [
     ./hardware-configuration.nix
-    (import ../../profiles/disko/router.nix {})
+    (import ../../profiles/disko/tmpfs.nix {})
     ./impermanence.nix
     ./sops.nix
     ./microvm

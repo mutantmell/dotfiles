@@ -176,8 +176,9 @@
       common = import ./lib/common {inherit (nixpkgs) lib;};
       openwrt = import ./lib/openwrt {inherit (nixpkgs) lib;};
       diskoProfiles = {
-        router = import ./profiles/disko/router.nix;
-        vm-host = import ./profiles/disko/vm-host.nix;
+        tmpfs = import ./profiles/disko/tmpfs.nix;
+        zfs = import ./profiles/disko/zfs.nix;
+        btrfs = import ./profiles/disko/btrfs.nix;
       };
       mk-nixos = args @ {
         nixpkgs,
