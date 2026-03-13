@@ -1,19 +1,18 @@
 {lib, ...}: {
-  microvm.hypervisor = "cloud-hypervisor";
-  microvm.vsock.cid = 3;
+  microvm.hypervisor = "qemu";
 
   microvm.shares = [
     {
       source = "/nix/store";
       mountPoint = "/nix/.ro-store";
       tag = "ro-store";
-      proto = "virtiofs";
+      proto = "9p";
     }
     {
       source = "/data/guests/ardent/static";
       mountPoint = "/static";
       tag = "static";
-      proto = "virtiofs";
+      proto = "9p";
     }
   ];
   fileSystems."/static".neededForBoot = lib.mkForce true;
@@ -28,7 +27,7 @@
   ];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
-  microvm.mem = 2048;
+  microvm.mem = 2049; # exact 2048 causes QEMU hang
 
   microvm.vcpu = 2;
   microvm.interfaces = [
