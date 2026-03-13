@@ -7,7 +7,8 @@
     ./incus
   ];
 
-  boot.loader.grub.enable = true;
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
 
   common.impermanence.enable = true;
   common.btrfs.enable = true;

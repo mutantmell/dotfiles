@@ -17,8 +17,8 @@ in {
     ./router.nix
   ];
 
-  # Boot loader configuration is handled by disko
-  boot.loader.grub.enable = true;
+  boot.loader.systemd-boot.enable = true;
+  boot.loader.efi.canTouchEfiVariables = true;
 
   # update microcode to try and fix virtualization issues
   hardware.cpu.intel.updateMicrocode = true;
