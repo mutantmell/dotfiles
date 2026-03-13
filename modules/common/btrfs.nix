@@ -45,42 +45,14 @@ in {
     (lib.mkIf cfg.keyfileUnlock.enable {
       boot.initrd.supportedFilesystems = ["vfat"];
 
-      # Mount the ESP in initrd so systemd-cryptsetup can access the LUKS keyfile.
-      # Uses a systemd mount unit (preOpenCommands not supported with systemd initrd).
-      boot.initrd.systemd.mounts = [
-        {
-          where = "/sysroot/boot";
-          what = "/dev/disk/by-partlabel/disk-main-ESP";
-          type = "vfat";
-          options = "ro";
-        }
-      ];
-
-      # The generator does NOT auto-derive mount deps from the keyfile path,
-      # so we must explicitly order cryptsetup after the ESP mount.
-      boot.initrd.systemd.services."systemd-cryptsetup@cryptroot" = {
-        overrideStrategy = "asDropinIfExists";
-        after = ["sysroot-boot.mount"];
-        requires = ["sysroot-boot.mount"];
-      };
-
-      # Unmount after cryptsetup so NixOS can mount /boot normally later
-      boot.initrd.systemd.services.unmount-esp-keyfile = {
-        description = "Unmount ESP after LUKS unlock";
-        after = ["cryptsetup.target"];
-        wantedBy = ["initrd.target"];
-        before = ["initrd-fs.target"];
-        unitConfig.DefaultDependencies = "no";
-        serviceConfig.Type = "oneshot";
-        script = ''
-          umount /sysroot/boot 2>/dev/null || true
-        '';
-      };
-
+      # Use crypttab's keyfile:device syntax so systemd-cryptsetup-generator
+      # automatically mounts the ESP, reads the keyfile, and unmounts it.
+      # No manual mount units, drop-ins, or unmount services needed.
       boot.initrd.luks.devices."cryptroot" = {
         device = "/dev/disk/by-partlabel/disk-main-persist";
         allowDiscards = true;
-        keyFile = "/sysroot/boot/secrets/disk.key";
+        keyFile = "/secrets/disk.key:/dev/disk/by-partlabel/disk-main-ESP";
+        keyFileTimeout = 10;
       };
 
       # Ensure /boot/secrets directory exists on the running system
