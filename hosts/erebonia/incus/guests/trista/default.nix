@@ -43,7 +43,7 @@
 
   common.openssh = {
     enable = true;
-    keys = ["deploy" "erebonia"];
+    keys = ["deploy" "erebonia" "edith"];
   };
 
   environment.systemPackages = with pkgs; [

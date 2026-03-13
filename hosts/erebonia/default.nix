@@ -200,7 +200,7 @@ in {
   common.openssh = {
     enable = true;
     users = ["root"];
-    keys = ["deploy" "home"];
+    keys = ["deploy" "home" "edith"];
   };
 
   programs.ssh.extraConfig = ''
