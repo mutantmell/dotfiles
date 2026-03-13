@@ -99,6 +99,11 @@ let
         fi
       ''}
 
+      # Configure auto-start so guest reboots don't leave the instance stopped
+      ${optionalString guestCfg.autoStart ''
+        ${pkgs.incus}/bin/incus config set "$INSTANCE" boot.autostart=true
+      ''}
+
       # Start if autoStart and not running
       ${optionalString guestCfg.autoStart ''
         if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
