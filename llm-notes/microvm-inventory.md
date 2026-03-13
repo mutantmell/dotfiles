@@ -5,23 +5,23 @@ implementation plans in `llm-notes/`.
 
 ## Summary Table
 
-| Name               | Status                        | Host      | Zone (VLAN) | IP Address                 | Purpose                                    | Hypervisor                           |
-| ------------------ | ----------------------------- | --------- | ----------- | -------------------------- | ------------------------------------------ | ------------------------------------ |
-| phantasma          | Existing                      | thebeyond | vINFRA (10) | 10.0.10.2                  | DNS, DHCP, Adguard Home, oauth2-proxy      | cloud-hypervisor                     |
-| ardent             | Existing                      | remiferia | vDMZ (100)  | 10.97.100.31 / 10.0.100.31 | Attic binary cache                         | microvm (QEMU)                       |
-| monrain            | Config ready (deploy pending) | remiferia | vDMZ (100)  | 10.97.100.32 / 10.0.100.32 | cgit bare repository hosting               | microvm (QEMU)                       |
-| creil              | Deployed                      | calvard   | vDMZ (100)  | 10.97.100.53 / 10.0.100.53 | Forgejo git hosting                        | cloud-hypervisor                     |
-| saint-arkh         | Config ready (deploy pending) | erebonia  | vDMZ (100)  | 10.97.100.61 / 10.0.100.61 | Forgejo Actions CI/CD runners              | microvm (QEMU)                       |
-| messeldam          | Deployed                      | calvard   | vINFRA (11) | 10.97.11.6 / 10.0.11.6     | Keycloak OIDC identity provider            | cloud-hypervisor                     |
-| basel              | Deployed                      | calvard   | vINFRA (11) | 10.97.11.7 / 10.0.11.7     | PKI / certificate authority                | cloud-hypervisor                     |
-| langport           | Deployed                      | calvard   | vDMZ (100)  | 10.97.100.41 / 10.0.100.41 | Reverse proxy, oauth2-proxy, wg-ba gateway | cloud-hypervisor                     |
-| oracion            | Deployed                      | calvard   | vDMZ (100)  | 10.97.100.52 / 10.0.100.52 | Jellyfin media server                      | cloud-hypervisor                     |
-| tharbad            | Deployed                      | calvard   | vMGMT (20)  | 10.97.20.41 / 10.0.20.41   | Prometheus+Loki+Alertmanager+ntfy          | cloud-hypervisor                     |
-| edith              | Deployed                      | calvard   | vMGMT (20)  | 10.97.20.42 / 10.0.20.42   | Dev environment / task runner (primary)    | Incus container                      |
-| trista             | Existing                      | erebonia  | vDMZ (100)  | 10.0.100.x                 | Dev environment / task runner (backup)     | Incus VM                             |
-| altair             | Planned                       | calvard   | vDMZ (100)  | TBD                        | Tailscale control plane (Headscale)        | microvm (QEMU)                       |
-| longlai            | Planned                       | calvard   | vDMZ (100)  | TBD                        | Tailscale subnet router                    | microvm (QEMU)                       |
-| Game servers (TBD) | Planned                       | calvard   | vDMZ (100)  | TBD                        | Game hosting (Minecraft, Factorio, etc.)   | TBD                                  |
+| Name               | Status                        | Host      | Zone (VLAN) | IP Address                 | Purpose                                    | Hypervisor       |
+| ------------------ | ----------------------------- | --------- | ----------- | -------------------------- | ------------------------------------------ | ---------------- |
+| phantasma          | Existing                      | thebeyond | vINFRA (10) | 10.0.10.2                  | DNS, DHCP, Adguard Home, oauth2-proxy      | cloud-hypervisor |
+| ardent             | Existing                      | remiferia | vDMZ (100)  | 10.97.100.31 / 10.0.100.31 | Attic binary cache                         | microvm (QEMU)   |
+| monrain            | Config ready (deploy pending) | remiferia | vDMZ (100)  | 10.97.100.32 / 10.0.100.32 | cgit bare repository hosting               | microvm (QEMU)   |
+| creil              | Deployed                      | calvard   | vDMZ (100)  | 10.97.100.53 / 10.0.100.53 | Forgejo git hosting                        | cloud-hypervisor |
+| saint-arkh         | Config ready (deploy pending) | erebonia  | vDMZ (100)  | 10.97.100.61 / 10.0.100.61 | Forgejo Actions CI/CD runners              | microvm (QEMU)   |
+| messeldam          | Deployed                      | calvard   | vINFRA (11) | 10.97.11.6 / 10.0.11.6     | Keycloak OIDC identity provider            | cloud-hypervisor |
+| basel              | Deployed                      | calvard   | vINFRA (11) | 10.97.11.7 / 10.0.11.7     | PKI / certificate authority                | cloud-hypervisor |
+| langport           | Deployed                      | calvard   | vDMZ (100)  | 10.97.100.41 / 10.0.100.41 | Reverse proxy, oauth2-proxy, wg-ba gateway | cloud-hypervisor |
+| oracion            | Deployed                      | calvard   | vDMZ (100)  | 10.97.100.52 / 10.0.100.52 | Jellyfin media server                      | cloud-hypervisor |
+| tharbad            | Deployed                      | calvard   | vMGMT (20)  | 10.97.20.41 / 10.0.20.41   | Prometheus+Loki+Alertmanager+ntfy          | cloud-hypervisor |
+| edith              | Deployed                      | calvard   | vMGMT (20)  | 10.97.20.42 / 10.0.20.42   | Dev environment / task runner (primary)    | Incus container  |
+| trista             | Existing                      | erebonia  | vDMZ (100)  | 10.0.100.x                 | Dev environment / task runner (backup)     | Incus VM         |
+| altair             | Planned                       | calvard   | vDMZ (100)  | TBD                        | Tailscale control plane (Headscale)        | microvm (QEMU)   |
+| longlai            | Planned                       | calvard   | vDMZ (100)  | TBD                        | Tailscale subnet router                    | microvm (QEMU)   |
+| Game servers (TBD) | Planned                       | calvard   | vDMZ (100)  | TBD                        | Game hosting (Minecraft, Factorio, etc.)   | TBD              |
 
 ---
 
@@ -51,16 +51,16 @@ VLAN Split (Step 2). DNS zones migrate from `.local` to `.internal.mutantmell.ne
 
 ### ardent — Binary Cache
 
-| Property           | Value                                                          |
-| ------------------ | -------------------------------------------------------------- |
-| Host               | remiferia                                                      |
-| Zone               | vDMZ (VLAN 100)                                                |
-| IP                 | 10.97.100.31 / 10.0.100.31                                     |
-| Hypervisor         | microvm (QEMU)                                                 |
-| vCPU / RAM         | 2 / 2049MB                                                      |
-| Persistent storage | 25GB                                                           |
-| MAC                | 5E:A5:4D:A3:A0:1A                                              |
-| Config             | `hosts/remiferia/guests/ardent/`                               |
+| Property           | Value                            |
+| ------------------ | -------------------------------- |
+| Host               | remiferia                        |
+| Zone               | vDMZ (VLAN 100)                  |
+| IP                 | 10.97.100.31 / 10.0.100.31       |
+| Hypervisor         | microvm (QEMU)                   |
+| vCPU / RAM         | 2 / 2049MB                       |
+| Persistent storage | 25GB                             |
+| MAC                | 5E:A5:4D:A3:A0:1A                |
+| Config             | `hosts/remiferia/guests/ardent/` |
 
 **Services:** Attic (Nix binary cache server). Forgejo split to creil (calvard), cgit
 split to monrain (remiferia), CI/CD runners split to saint-arkh (erebonia).
@@ -98,25 +98,21 @@ keys include `deploy`, `home`, `remiferia`, `erebonia`, `calvard`.
 
 ---
 
-### denai — Development Workstation (slated for removal)
+### denai — Development Workstation (REMOVED)
 
 | Property           | Value                                   |
 | ------------------ | --------------------------------------- |
-| Host               | remiferia                               |
+| Host               | remiferia (removed)                     |
 | Zone               | vMGMT (VLAN 20)                         |
-| IP                 | 10.0.20.40                              |
+| IP                 | 10.0.20.40 (unallocated)                |
 | Hypervisor         | microvm (QEMU)                          |
 | vCPU / RAM         | 2 / 3072MB                              |
 | Persistent storage | 175MB (100MB root + 75MB store overlay) |
 | MAC                | 5E:A4:B9:D2:F8:03                       |
-| Config             | `hosts/remiferia/guests/denai/`         |
 
-**Services:** Build/development environment with aarch64 cross-compilation support, SMB
-mounts to remiferia NAS.
-
-**Status:** Slated for removal, independently of the calvard migration. Its role is
-replaced by edith (Incus container on calvard, primary) and trista (Incus VM on
-erebonia, backup).
+**Status:** Removed. Replaced by edith (Incus container on calvard, primary) and trista
+(Incus VM on erebonia, backup). Config and network registry entry deleted. Hostname
+`denai` is unallocated and available for future use.
 
 ---
 
@@ -414,7 +410,7 @@ which ports/IPs each friend group can reach.
 | Host      | Role            | Current Guests                                             | Planned Guests                       | Notes                                                    |
 | --------- | --------------- | ---------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------- |
 | thebeyond | Router          | phantasma                                                  | —                                    | cloud-hypervisor; resource-constrained                   |
-| remiferia | NAS + VM host   | ardent, monrain, denai\*                                   | —                                    | \*denai slated for removal independently                 |
+| remiferia | NAS + VM host   | ardent, monrain                                            | —                                    | denai removed; replaced by edith on calvard              |
 | erebonia  | VM host + Incus | trista                                                     | saint-arkh (Forgejo Actions runners) | Async CI/CD workloads; Forgejo service itself on calvard |
 | calvard   | VM host + Incus | messeldam, basel, langport, oracion, tharbad, creil, edith | altair, longlai, game servers        | Primary VM host; cloud-hypervisor; all guests deployed   |
 
@@ -427,13 +423,13 @@ is a prerequisite that must complete before new calvard guests can be added.
 
 See `plans/vm-guest-rebalance.md` for the detailed calvard migration plan.
 
-| Step                      | MicroVM Changes                                                                                                                                                                                |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0. calvard migration      | **COMPLETE.** messeldam, basel, langport, oracion, tharbad, creil deployed on calvard (cloud-hypervisor). edith deployed (Incus container). denai still on remiferia (slated for removal).      |
-| 1. Zone Refactor          | None (pure firewall refactor)                                                                                                                                                                  |
-| 2. Secure MGMT VLAN Split | phantasma migrates from VLAN 10 to VLAN 11; egress filtering added to all vDMZ microvms                                                                                                        |
-| 3. Network Data Registry  | None (data migration)                                                                                                                                                                          |
-| 4. Keycloak OIDC          | messeldam (Keycloak) and basel (step-ca) already deployed on calvard. **Planned:** SSH bastion (Calvard name TBD, Incus VM on calvard). **Decommissioned:** gridr                              |
-| 5. IP Migration           | All microvms get dual addresses (10.0.x.x + 10.97.x.x)                                                                                                                                         |
-| 6. SSH Certificates       | None (configuration changes to existing hosts)                                                                                                                                                 |
-| 7. Headscale              | **Planned:** Headscale VM (Calvard name TBD), subnet router (Calvard name TBD), game servers (Calvard names TBD) — all on calvard                                                              |
+| Step                      | MicroVM Changes                                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0. calvard migration      | **COMPLETE.** messeldam, basel, langport, oracion, tharbad, creil deployed on calvard (cloud-hypervisor). edith deployed (Incus container). denai removed from remiferia. |
+| 1. Zone Refactor          | None (pure firewall refactor)                                                                                                                                             |
+| 2. Secure MGMT VLAN Split | phantasma migrates from VLAN 10 to VLAN 11; egress filtering added to all vDMZ microvms                                                                                   |
+| 3. Network Data Registry  | None (data migration)                                                                                                                                                     |
+| 4. Keycloak OIDC          | messeldam (Keycloak) and basel (step-ca) already deployed on calvard. **Planned:** SSH bastion (Calvard name TBD, Incus VM on calvard). **Decommissioned:** gridr         |
+| 5. IP Migration           | All microvms get dual addresses (10.0.x.x + 10.97.x.x)                                                                                                                    |
+| 6. SSH Certificates       | None (configuration changes to existing hosts)                                                                                                                            |
+| 7. Headscale              | **Planned:** Headscale VM (Calvard name TBD), subnet router (Calvard name TBD), game servers (Calvard names TBD) — all on calvard                                         |

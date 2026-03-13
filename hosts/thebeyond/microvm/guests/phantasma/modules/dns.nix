@@ -81,7 +81,6 @@ in {
             "trista"
             "ardent"
             "azoth"
-            "denai"
             "calvard"
             # calvard guests
             "messeldam"

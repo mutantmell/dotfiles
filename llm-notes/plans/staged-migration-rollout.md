@@ -68,8 +68,6 @@ will not change between now and rollout):
 10.0.11.7   basel.internal.mutantmell.net basel.internal
 
 # --- VLAN 20 guests (trusted) ---
-10.97.20.40 denai.internal.mutantmell.net denai.internal
-10.0.20.40  denai.internal.mutantmell.net denai.internal
 10.97.20.41 tharbad.internal.mutantmell.net tharbad.internal
 10.0.20.41  tharbad.internal.mutantmell.net tharbad.internal
 10.97.20.42 edith.internal.mutantmell.net edith.internal
@@ -156,7 +154,7 @@ and is currently the machine running claude-code.
 | ZFS pool fails to import           | Data inaccessible           | Pool name (`data`) matches config; test with `zpool status` first                     |
 | NFS exports break                  | Clients lose mounts         | New config exports on both 10.97 + 10.0 subnets (dual-stack)                          |
 | Samba breaks                       | Windows clients lose shares | Config preserves shares + JOTUNHEIMR alias                                            |
-| Calvard NFS mount stale            | Media mount fails           | calvard updated to use `remiferia.internal` (DNS name); rebuild calvard after DNS set  |
+| Calvard NFS mount stale            | Media mount fails           | calvard updated to use `remiferia.internal` (DNS name); rebuild calvard after DNS set |
 | Services fail to start             | NAS partially down          | Select previous generation in boot menu, or `nixos-rebuild boot --rollback && reboot` |
 
 ### Prerequisites
