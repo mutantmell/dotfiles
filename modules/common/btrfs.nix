@@ -56,6 +56,14 @@ in {
         }
       ];
 
+      # The generator does NOT auto-derive mount deps from the keyfile path,
+      # so we must explicitly order cryptsetup after the ESP mount.
+      boot.initrd.systemd.services."systemd-cryptsetup@cryptroot" = {
+        overrideStrategy = "asDropinIfExists";
+        after = ["sysroot-boot.mount"];
+        requires = ["sysroot-boot.mount"];
+      };
+
       # Unmount after cryptsetup so NixOS can mount /boot normally later
       boot.initrd.systemd.services.unmount-esp-keyfile = {
         description = "Unmount ESP after LUKS unlock";
