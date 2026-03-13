@@ -56,12 +56,6 @@ in {
         }
       ];
 
-      # Ensure the ESP mount is ready before cryptsetup tries to read the keyfile
-      boot.initrd.systemd.services."systemd-cryptsetup@cryptroot" = {
-        after = ["sysroot-boot.mount"];
-        requires = ["sysroot-boot.mount"];
-      };
-
       # Unmount after cryptsetup so NixOS can mount /boot normally later
       boot.initrd.systemd.services.unmount-esp-keyfile = {
         description = "Unmount ESP after LUKS unlock";
