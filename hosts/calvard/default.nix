@@ -25,7 +25,7 @@ in {
 
   boot.extraModprobeConfig = "options kvm_intel nested=1";
   # todo: add after creating an initrd host key
-  boot.initrd.availableKernelModules = ["e1000e" "8021q"];
+  boot.initrd.availableKernelModules = ["igc" "8021q"];
   boot.initrd.systemd.network = {
     netdevs."20-enp88s0.11" = {
       netdevConfig.Kind = "vlan";
