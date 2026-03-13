@@ -26,6 +26,14 @@
     enable = true;
   };
 
+  programs.claude-code = {
+    enable = true;
+  };
+
+  programs.jujutsu = {
+    enable = true;
+  };
+  
   programs.tmux = {
     enable = true;
     newSession = true;
