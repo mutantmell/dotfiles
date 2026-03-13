@@ -1,6 +1,9 @@
 {pkgs, ...}: {
   projectRootFile = "flake.nix";
-  settings.global.excludes = ["**/secrets/**"];
+  settings.global.excludes = [
+    "**/secrets/**"
+    "**/hardware-configuration.nix"
+  ];
   programs.alejandra.enable = true;
   programs.prettier.enable = true;
   programs.ruff.enable = true;
