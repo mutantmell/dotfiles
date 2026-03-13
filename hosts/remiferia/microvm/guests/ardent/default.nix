@@ -33,22 +33,20 @@ in {
       DNS = [zone.gateway4 zone.gateway6];
       IPv6AcceptRA = false;
       DHCP = "no";
-      MulticastDNS = true;
-      LLMNR = true;
+      MulticastDNS = false;
+      LLMNR = false;
     };
     routes = [
       {Gateway = zone.gateway4;}
       {Gateway = zone.gateway6;}
     ];
   };
-  services.resolved.enable = true;
-
   networking.extraHosts = net.mkExtraHosts ["basel"];
 
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
 
-  # Shared nginx + ACME for cgit, attic, and container vhosts
+  # Shared nginx + ACME for attic vhost
   networking.firewall.allowedTCPPorts = [80 443];
   services.nginx = {
     enable = true;
@@ -111,12 +109,6 @@ in {
         port = 3100;
         comment = "Loki log push";
       }
-    ]
-    ++ [
-      "ip daddr 224.0.0.251 udp dport 5353 accept" # mDNS IPv4
-      "ip6 daddr ff02::fb udp dport 5353 accept" # mDNS IPv6
-      "ip daddr 224.0.0.252 udp dport 5355 accept" # LLMNR IPv4
-      "ip6 daddr ff02::1:3 udp dport 5355 accept" # LLMNR IPv6
     ]
   );
 

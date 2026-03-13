@@ -11,6 +11,7 @@ in {
   imports = [
     ./microvm.nix
     ./modules/forgejo.nix
+    ./sops.nix
   ];
 
   networking.hostName = hostname;

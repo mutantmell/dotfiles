@@ -100,6 +100,11 @@ creation_rules:
       - age:
           - *ad_denai
           - *sv_tharbad
+  - path_regex: hosts/calvard/microvm/guests/creil/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+          - *ad_denai
+          - *sv_creil
   - path_regex: hosts/calvard/incus/guests/edith/secrets/[^/]+\.yaml$
     key_groups:
       - age:
