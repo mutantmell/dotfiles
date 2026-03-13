@@ -77,6 +77,7 @@
   ];
 
   boot.initrd.availableKernelModules = ["virtiofs"];
+  fileSystems."/boot".options = ["fmask=0077" "dmask=0077"];
 
   # The /static virtiofs mount is hotplugged by Incus after the incus-agent
   # starts (not available at boot). The agent mounts it automatically at the
