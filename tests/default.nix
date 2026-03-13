@@ -16,23 +16,33 @@
   incus-vm = import ./modules/incus-vm.nix {inherit pkgs lib;};
 
   # Disko profile validation
-  disko-router = let
-    profile = import ../profiles/disko/router.nix {};
+  disko-tmpfs = let
+    profile = import ../profiles/disko/tmpfs.nix {};
   in
-    pkgs.runCommand "disko-router-check" {
+    pkgs.runCommand "disko-tmpfs-check" {
       profileJson = builtins.toJSON profile;
     } ''
-      echo "Router disko profile validated successfully"
+      echo "tmpfs disko profile validated successfully"
       echo "$profileJson" > $out
     '';
 
-  disko-vm-host = let
-    profile = import ../profiles/disko/vm-host.nix {};
+  disko-zfs = let
+    profile = import ../profiles/disko/zfs.nix {};
   in
-    pkgs.runCommand "disko-vm-host-check" {
+    pkgs.runCommand "disko-zfs-check" {
       profileJson = builtins.toJSON profile;
     } ''
-      echo "VM host disko profile validated successfully"
+      echo "ZFS disko profile validated successfully"
+      echo "$profileJson" > $out
+    '';
+
+  disko-btrfs = let
+    profile = import ../profiles/disko/btrfs.nix {};
+  in
+    pkgs.runCommand "disko-btrfs-check" {
+      profileJson = builtins.toJSON profile;
+    } ''
+      echo "btrfs disko profile validated successfully"
       echo "$profileJson" > $out
     '';
 }

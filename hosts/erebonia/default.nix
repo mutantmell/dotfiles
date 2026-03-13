@@ -11,7 +11,7 @@ in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
-    (import ../../profiles/disko/vm-host.nix {disk = "/dev/sda";})
+    (import ../../profiles/disko/zfs.nix {disk = "/dev/sda";})
     ./impermanence.nix
     ./sops.nix
     ./microvm
