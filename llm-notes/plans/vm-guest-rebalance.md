@@ -25,20 +25,25 @@ Attic binary cache only.
 
 ---
 
-## Current State
+## Current State (post-calvard deployment)
 
-| Guest     | Host      | Name origin     | Hypervisor       | Service            |
-| --------- | --------- | --------------- | ---------------- | ------------------ |
-| roer      | erebonia  | Erebonian city  | microvm (QEMU)   | Keycloak OIDC      |
-| legram    | erebonia  | Erebonian city  | microvm (QEMU)   | step-ca PKI / CA   |
-| ordis     | erebonia  | Erebonian city  | microvm (QEMU)   | Reverse proxy      |
-| heimdallr | erebonia  | Erebonian city  | microvm (QEMU)   | Jellyfin media     |
-| ymir      | erebonia  | Erebonian city  | microvm (QEMU)   | Monitoring         |
-| trista    | erebonia  | Erebonian city  | Incus VM         | Dev env (backup)   |
-| ardent    | remiferia | Remiferian city | cloud-hypervisor | Binary cache + Git |
-| denai     | remiferia | Remiferian city | microvm (QEMU)   | Dev workstation    |
+The calvard migration (Phases 1–5) is complete. The old erebonia guests
+(roer, legram, ordis, heimdallr, ymir) have been replaced and removed
+from the network registry.
 
-calvard currently has no guests.
+| Guest     | Host      | Name origin     | Hypervisor       | Service                              | Status                |
+| --------- | --------- | --------------- | ---------------- | ------------------------------------ | --------------------- |
+| messeldam | calvard   | Calvard city    | cloud-hypervisor | Keycloak OIDC                        | Deployed              |
+| basel     | calvard   | Calvard city    | cloud-hypervisor | step-ca PKI / CA                     | Deployed              |
+| langport  | calvard   | Calvard city    | cloud-hypervisor | Reverse proxy                        | Deployed              |
+| oracion   | calvard   | Calvard city    | cloud-hypervisor | Jellyfin media                       | Deployed              |
+| tharbad   | calvard   | Calvard city    | cloud-hypervisor | Prometheus+Loki+Alertmanager+ntfy    | Deployed              |
+| creil     | calvard   | Calvard city    | cloud-hypervisor | Forgejo git hosting                  | Deployed              |
+| edith     | calvard   | Calvard city    | Incus container  | Dev env (primary)                    | Deployed              |
+| trista    | erebonia  | Erebonian city  | Incus VM         | Dev env (backup)                     | Existing              |
+| ardent    | remiferia | Remiferian city | microvm (QEMU)   | Attic binary cache                   | Existing              |
+| monrain   | remiferia | Remiferian city | microvm (QEMU)   | cgit bare repository hosting         | Config ready          |
+| denai     | remiferia | Remiferian city | microvm (QEMU)   | Dev workstation (slated for removal) | Existing              |
 
 ---
 
@@ -46,16 +51,16 @@ calvard currently has no guests.
 
 | New Name   | Old Name       | Host      | Hypervisor       | Service                              |
 | ---------- | -------------- | --------- | ---------------- | ------------------------------------ |
-| messeldam  | roer           | calvard   | microvm (QEMU)   | Keycloak OIDC                        |
-| basel      | legram         | calvard   | microvm (QEMU)   | step-ca PKI / CA                     |
-| langport   | ordis          | calvard   | microvm (QEMU)   | Reverse proxy                        |
-| oracion    | heimdallr      | calvard   | microvm (QEMU)   | Jellyfin media                       |
-| tharbad    | ymir           | calvard   | microvm (QEMU)   | Monitoring                           |
+| messeldam  | roer           | calvard   | cloud-hypervisor | Keycloak OIDC                        |
+| basel      | legram         | calvard   | cloud-hypervisor | step-ca PKI / CA                     |
+| langport   | ordis          | calvard   | cloud-hypervisor | Reverse proxy                        |
+| oracion    | heimdallr      | calvard   | cloud-hypervisor | Jellyfin media                       |
+| tharbad    | ymir           | calvard   | cloud-hypervisor | Monitoring                           |
 | edith      | (new)          | calvard   | Incus container  | Dev env (primary)                    |
-| creil      | ardent (split) | calvard   | microvm (QEMU)   | Forgejo git hosting                  |
+| creil      | ardent (split) | calvard   | cloud-hypervisor | Forgejo git hosting                  |
 | trista     | trista         | erebonia  | Incus VM         | Dev env (backup)                     |
 | saint-arkh | ardent (split) | erebonia  | microvm (QEMU)   | Forgejo Actions CI/CD runners        |
-| ardent     | ardent (split) | remiferia | cloud-hypervisor | Attic binary cache only              |
+| ardent     | ardent (split) | remiferia | microvm (QEMU)   | Attic binary cache only              |
 | denai      | denai          | remiferia | microvm (QEMU)   | Dev workstation (slated for removal) |
 
 ### Naming rationale
@@ -111,60 +116,40 @@ Each microVM migration follows the same pattern:
 9. Update phantasma's DNS to point the service's `.internal` name at the new IP
 10. Decommission the old guest (remove config, remove from network registry)
 
-### Phase 1 — calvard infrastructure
+### Phase 1 — calvard infrastructure — COMPLETE
 
-- [ ] Add vINFRA (VLAN 11) bridge to calvard's network config
-- [ ] Verify vDMZ and vMGMT bridges exist and are functional
-- [ ] Add calvard's `microvm.nix` guest declarations for phases 2–5 (tap interfaces,
+- [x] Add vINFRA (VLAN 11) bridge to calvard's network config
+- [x] Verify vDMZ and vMGMT bridges exist and are functional
+- [x] Add calvard's `microvm.nix` guest declarations (tap interfaces,
       volume paths under `/persist/guests/`)
-- [ ] Configure Incus on calvard (enable container + VM support)
-- [ ] Verify Incus networking bridges match VLAN assignments
+- [x] Configure Incus on calvard (enable container + VM support)
+- [x] Verify Incus networking bridges match VLAN assignments
 
-### Phase 2 — Migrate infrastructure tier (vINFRA)
+### Phase 2 — Migrate infrastructure tier (vINFRA) — COMPLETE
 
-Migrate messeldam and basel first; other guests depend on them for OIDC and certificates.
+- [x] Allocate IPs for messeldam and basel in network registry
+- [x] Create `hosts/calvard/guests/messeldam/` — Keycloak OIDC (cloud-hypervisor)
+- [x] Create `hosts/calvard/guests/basel/` — step-ca PKI / CA (cloud-hypervisor)
+- [x] Deploy messeldam and basel on calvard
+- [x] Old erebonia guests (roer, legram) removed from network registry
 
-- [ ] Allocate IPs for messeldam and basel in network registry
-- [ ] Create `hosts/calvard/guests/messeldam/` from erebonia/roer; update hostname refs
-  - **PostgreSQL data migration**: roer's `/persist` volume is ~100GB; copy
-    `/persist/guests/roer/images/persist.img` to calvard (rsync or block copy) before
-    deploying, **or** perform a `pg_dump` on roer and `pg_restore` on messeldam after first boot
-  - Re-encrypt `secrets/secrets.yaml` with messeldam's host key (see migration pattern step 7)
-- [ ] Create `hosts/calvard/guests/basel/` from erebonia/legram; update hostname refs
-  - Update step-ca OIDC provisioner to point at messeldam (was roer)
-  - Update ACME endpoint DNS record: `basel.internal` (was `legram.internal`)
-  - Re-encrypt secrets with basel's host key
-- [ ] Deploy messeldam and basel on calvard; verify Keycloak and step-ca healthy
-- [ ] Update phantasma DNS: `messeldam.internal`, `basel.internal`
-- [ ] Update all oauth2-proxy instances to authenticate against messeldam
-- [ ] Decommission roer and legram on erebonia
+### Phase 3 — Migrate DMZ tier (vDMZ) — COMPLETE
 
-### Phase 3 — Migrate DMZ tier (vDMZ)
+- [x] Create `hosts/calvard/guests/langport/` — reverse proxy (cloud-hypervisor)
+- [x] Create `hosts/calvard/guests/oracion/` — Jellyfin media (cloud-hypervisor)
+- [x] Deploy langport and oracion on calvard
+- [x] Old erebonia guests (ordis, heimdallr) removed from network registry
 
-- [ ] Allocate IPs for langport and oracion in network registry
-- [ ] Create `hosts/calvard/guests/langport/` from erebonia/ordis; update hostname refs
-  - Update nginx vhost for `auth.mutantmell.net` proxy target (messeldam, not roer)
-  - Update WireGuard config if peer addresses change
-- [ ] Create `hosts/calvard/guests/oracion/` from erebonia/heimdallr; update hostname refs
-- [ ] Deploy langport and oracion on calvard; verify nginx and Jellyfin healthy
-- [ ] Update phantasma DNS: `langport.internal`, `oracion.internal`
-- [ ] Update external DNS / wg-ba if langport's IP changes
-- [ ] Decommission ordis and heimdallr on erebonia
+### Phase 4 — Migrate management tier (vMGMT) — COMPLETE
 
-### Phase 4 — Migrate management tier (vMGMT)
+- [x] Create `hosts/calvard/guests/tharbad/` — monitoring (cloud-hypervisor)
+- [x] Deploy tharbad on calvard
+- [x] Old erebonia guest (ymir) removed from network registry
 
-- [ ] Allocate IP for tharbad in network registry
-- [ ] Create `hosts/calvard/guests/tharbad/` from erebonia/ymir; update hostname refs
-- [ ] Deploy tharbad on calvard; verify Monit healthy
-- [ ] Update phantasma DNS: `tharbad.internal`
-- [ ] Decommission ymir on erebonia
+### Phase 5 — Add edith (primary dev env, Incus container) — COMPLETE
 
-### Phase 5 — Add edith (primary dev env, Incus container)
-
-- [ ] Allocate IP for edith in network registry
-- [ ] Create `hosts/calvard/containers/edith/` (Incus declarative config, no Microvm.nix)
-- [ ] Deploy edith on calvard; verify dev environment functional
-- [ ] Update phantasma DNS: `edith.internal`
+- [x] Create `hosts/calvard/incus/edith/` (Incus declarative config, no Microvm.nix)
+- [x] Deploy edith on calvard
 
 ### Phase 6 — Split ardent into three guests
 
@@ -195,10 +180,12 @@ monrain runs nginx+ACME and terminates TLS itself.
 - [ ] Deploy and verify cgit accessible at monrain.internal
 - [ ] Migrate git repos from ardent (`rsync /var/lib/git`)
 
-#### ardent — narrow to Attic only, migrate to cloud-hypervisor
+#### ardent — narrow to Attic only
+
+Cloud-hypervisor migration was attempted but reverted due to issues on remiferia.
+ardent remains on QEMU with 9p shares.
 
 - [ ] Remove Forgejo + runner config from `hosts/remiferia/guests/ardent/`
-- [ ] Migrate ardent from QEMU to cloud-hypervisor (same pattern as phantasma on thebeyond)
 - [ ] Keep ardent running Attic only (large binary blobs benefit from NAS co-location)
 - [ ] Update phantasma DNS: remove `ardent.internal` Forgejo entry
 

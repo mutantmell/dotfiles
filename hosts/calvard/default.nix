@@ -29,9 +29,8 @@
   '';
 
   # NFS media share from remiferia (NAS)
-  # Using legacy address until remiferia is migrated to 10.97.11.20
   fileSystems."/mnt/media" = {
-    device = "10.0.10.32:/data/media";
+    device = "remiferia.internal:/data/media";
     fsType = "nfs";
     options = ["x-systemd.automount" "noauto" "_netdev" "nfsvers=4" "soft" "timeo=150"];
   };

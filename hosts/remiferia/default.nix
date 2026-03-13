@@ -24,7 +24,7 @@ in {
   services.zfs.trim.enable = true;
   services.smartd.enable = true;
 
-  services.ntp.enable = true;
+  services.timesyncd.enable = true;
   time.timeZone = "UTC";
 
   nix.settings.auto-optimise-store = true;
@@ -48,6 +48,7 @@ in {
   networking = {
     hostName = hostname;
     hostId = "9f034bc8";
+    useDHCP = false;
     useNetworkd = true;
     dhcpcd.enable = false;
   };
