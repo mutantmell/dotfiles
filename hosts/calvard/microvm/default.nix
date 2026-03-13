@@ -99,6 +99,8 @@ in {
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
       networkConfig.Address = [host.cidr4 host.cidr4Legacy host.cidr6];
+      networkConfig.DNS = [zone.gateway4 zone.gateway6];
+      networkConfig.Domains = ["internal"];
       networkConfig.MulticastDNS = true;
       routes = [
         {Gateway = zone.gateway4;}

@@ -95,6 +95,7 @@ in {
       networkConfig.MulticastDNS = true;
       networkConfig.LLMNR = true;
       networkConfig.DNS = [zone.gateway4 zone.gateway6];
+      networkConfig.Domains = ["internal"];
       routes = [
         {Gateway = zone.gateway4;}
         {Gateway = zone.gateway6;}
