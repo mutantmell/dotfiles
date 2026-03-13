@@ -66,13 +66,13 @@ in {
       PASSWORD=$(cat ${config.sops.secrets."forgejo-admin-password".path})
       # Create admin user if it doesn't exist; update password if it does
       ${forgejo} admin user create \
-        --username admin \
-        --email admin@creil.internal \
+        --username forgejo-admin \
+        --email forgejo-admin@creil.internal \
         --password "$PASSWORD" \
         --admin \
         --must-change-password=false 2>&1 || \
       ${forgejo} admin user change-password \
-        --username admin \
+        --username forgejo-admin \
         --password "$PASSWORD"
     '';
   };
