@@ -305,3 +305,10 @@ config import from the running devices is needed before any changes can be made.
 - [ ] Phase 5: Update NTP server to router IP
 - [ ] Phase 5: Add host firewall script to APs
 - [ ] Deploy to OpenWRT APs
+
+### Deferred: Blog/Homepage Containers
+
+Ardent previously hosted blog and homepage containers (OCI). These were retired
+during the service split (Forgejo → creil, cgit → monrain, CI runner → saint-arkh).
+When a website is ready to host again, provision a dedicated microVM for it rather
+than adding containers back to ardent.
