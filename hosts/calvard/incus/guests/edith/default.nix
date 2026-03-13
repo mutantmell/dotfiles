@@ -76,6 +76,8 @@
     }
   ];
 
+  boot.initrd.availableKernelModules = ["virtiofs"];
+
   # Mount host-side static directory via virtiofs (VMs only; containers get bind mounts)
   fileSystems."/static" = {
     device = "static";
