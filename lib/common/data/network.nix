@@ -30,7 +30,6 @@
     trusted = {
       vlanId = 20;
       hosts = {
-        denai = 40;
         tharbad = 41; # Prometheus+Loki+Alertmanager+ntfy (calvard)
         edith = 42; # Dev environment / task runner (calvard Incus container)
       };

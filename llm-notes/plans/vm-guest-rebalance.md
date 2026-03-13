@@ -31,37 +31,35 @@ The calvard migration (Phases 1–5) is complete. The old erebonia guests
 (roer, legram, ordis, heimdallr, ymir) have been replaced and removed
 from the network registry.
 
-| Guest     | Host      | Name origin     | Hypervisor       | Service                              | Status                |
-| --------- | --------- | --------------- | ---------------- | ------------------------------------ | --------------------- |
-| messeldam | calvard   | Calvard city    | cloud-hypervisor | Keycloak OIDC                        | Deployed              |
-| basel     | calvard   | Calvard city    | cloud-hypervisor | step-ca PKI / CA                     | Deployed              |
-| langport  | calvard   | Calvard city    | cloud-hypervisor | Reverse proxy                        | Deployed              |
-| oracion   | calvard   | Calvard city    | cloud-hypervisor | Jellyfin media                       | Deployed              |
-| tharbad   | calvard   | Calvard city    | cloud-hypervisor | Prometheus+Loki+Alertmanager+ntfy    | Deployed              |
-| creil     | calvard   | Calvard city    | cloud-hypervisor | Forgejo git hosting                  | Deployed              |
-| edith     | calvard   | Calvard city    | Incus container  | Dev env (primary)                    | Deployed              |
-| trista    | erebonia  | Erebonian city  | Incus VM         | Dev env (backup)                     | Existing              |
-| ardent    | remiferia | Remiferian city | microvm (QEMU)   | Attic binary cache                   | Existing              |
-| monrain   | remiferia | Remiferian city | microvm (QEMU)   | cgit bare repository hosting         | Config ready          |
-| denai     | remiferia | Remiferian city | microvm (QEMU)   | Dev workstation (slated for removal) | Existing              |
+| Guest     | Host      | Name origin     | Hypervisor       | Service                           | Status       |
+| --------- | --------- | --------------- | ---------------- | --------------------------------- | ------------ |
+| messeldam | calvard   | Calvard city    | cloud-hypervisor | Keycloak OIDC                     | Deployed     |
+| basel     | calvard   | Calvard city    | cloud-hypervisor | step-ca PKI / CA                  | Deployed     |
+| langport  | calvard   | Calvard city    | cloud-hypervisor | Reverse proxy                     | Deployed     |
+| oracion   | calvard   | Calvard city    | cloud-hypervisor | Jellyfin media                    | Deployed     |
+| tharbad   | calvard   | Calvard city    | cloud-hypervisor | Prometheus+Loki+Alertmanager+ntfy | Deployed     |
+| creil     | calvard   | Calvard city    | cloud-hypervisor | Forgejo git hosting               | Deployed     |
+| edith     | calvard   | Calvard city    | Incus container  | Dev env (primary)                 | Deployed     |
+| trista    | erebonia  | Erebonian city  | Incus VM         | Dev env (backup)                  | Existing     |
+| ardent    | remiferia | Remiferian city | microvm (QEMU)   | Attic binary cache                | Existing     |
+| monrain   | remiferia | Remiferian city | microvm (QEMU)   | cgit bare repository hosting      | Config ready |
 
 ---
 
 ## Target State
 
-| New Name   | Old Name       | Host      | Hypervisor       | Service                              |
-| ---------- | -------------- | --------- | ---------------- | ------------------------------------ |
-| messeldam  | roer           | calvard   | cloud-hypervisor | Keycloak OIDC                        |
-| basel      | legram         | calvard   | cloud-hypervisor | step-ca PKI / CA                     |
-| langport   | ordis          | calvard   | cloud-hypervisor | Reverse proxy                        |
-| oracion    | heimdallr      | calvard   | cloud-hypervisor | Jellyfin media                       |
-| tharbad    | ymir           | calvard   | cloud-hypervisor | Monitoring                           |
-| edith      | (new)          | calvard   | Incus container  | Dev env (primary)                    |
-| creil      | ardent (split) | calvard   | cloud-hypervisor | Forgejo git hosting                  |
-| trista     | trista         | erebonia  | Incus VM         | Dev env (backup)                     |
-| saint-arkh | ardent (split) | erebonia  | microvm (QEMU)   | Forgejo Actions CI/CD runners        |
-| ardent     | ardent (split) | remiferia | microvm (QEMU)   | Attic binary cache only              |
-| denai      | denai          | remiferia | microvm (QEMU)   | Dev workstation (slated for removal) |
+| New Name   | Old Name       | Host      | Hypervisor       | Service                       |
+| ---------- | -------------- | --------- | ---------------- | ----------------------------- |
+| messeldam  | roer           | calvard   | cloud-hypervisor | Keycloak OIDC                 |
+| basel      | legram         | calvard   | cloud-hypervisor | step-ca PKI / CA              |
+| langport   | ordis          | calvard   | cloud-hypervisor | Reverse proxy                 |
+| oracion    | heimdallr      | calvard   | cloud-hypervisor | Jellyfin media                |
+| tharbad    | ymir           | calvard   | cloud-hypervisor | Monitoring                    |
+| edith      | (new)          | calvard   | Incus container  | Dev env (primary)             |
+| creil      | ardent (split) | calvard   | cloud-hypervisor | Forgejo git hosting           |
+| trista     | trista         | erebonia  | Incus VM         | Dev env (backup)              |
+| saint-arkh | ardent (split) | erebonia  | microvm (QEMU)   | Forgejo Actions CI/CD runners |
+| ardent     | ardent (split) | remiferia | microvm (QEMU)   | Attic binary cache only       |
 
 ### Naming rationale
 
@@ -218,12 +216,12 @@ on the same host as alerting avoids losing visibility if erebonia is the host un
 investigation. The tight Loki → Alertmanager → ntfy pipeline also benefits from staying
 on one host. `leeves` remains unallocated in `docs/hostnames.md` for future use.
 
-### Phase 7 — Retire denai (independent, any time after Phase 5)
+### Phase 7 — Retire denai — COMPLETE
 
-- [ ] Migrate any workloads or data off denai
-- [ ] Remove `hosts/remiferia/guests/denai/`
-- [ ] Remove denai from network registry and phantasma DNS
-- [ ] Remove denai from remiferia's NixOS config
+- [x] Remove `hosts/remiferia/microvm/guests/denai/`
+- [x] Remove denai from network registry
+- [x] Remove denai store-overlay cleanup service from `hosts/remiferia/microvm/default.nix`
+- Hostname `denai` is unallocated and available for future use
 
 ---
 

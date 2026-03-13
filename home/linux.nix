@@ -33,7 +33,7 @@
   programs.jujutsu = {
     enable = true;
   };
-  
+
   programs.tmux = {
     enable = true;
     newSession = true;
