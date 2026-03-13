@@ -4,12 +4,15 @@
   lib,
   ...
 }: {
+  microvm.hypervisor = "cloud-hypervisor";
+  microvm.vsock.cid = 8;
+
   microvm.shares = [
     {
       source = "/nix/store";
       mountPoint = "/nix/.ro-store";
       tag = "ro-store";
-      proto = "9p";
+      proto = "virtiofs";
     }
     {
       source = "/persist/guests/tharbad/static";
@@ -30,7 +33,7 @@
   ];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
-  microvm.mem = 2049; # Not exactly 2048 — QEMU hangs at exactly 2GB
+  microvm.mem = 2048;
 
   microvm.vcpu = 2;
   microvm.interfaces = [

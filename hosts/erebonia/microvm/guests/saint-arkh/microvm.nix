@@ -1,14 +1,13 @@
-{
-  config,
-  lib,
-  ...
-}: {
+{lib, ...}: {
+  microvm.hypervisor = "cloud-hypervisor";
+  microvm.vsock.cid = 3;
+
   microvm.shares = [
     {
       source = "/nix/store";
       mountPoint = "/nix/.ro-store";
       tag = "ro-store";
-      proto = "9p";
+      proto = "virtiofs";
     }
     {
       source = "/persist/guests/saint-arkh/static";
@@ -26,14 +25,7 @@
       image = "/persist/guests/saint-arkh/images/persist.img";
       size = 25 * 1024;
     }
-    {
-      autoCreate = true;
-      image = "/persist/guests/saint-arkh/images/store-overlay.img";
-      mountPoint = config.microvm.writableStoreOverlay;
-      size = 4 * 1024;
-    }
   ];
-  microvm.writableStoreOverlay = "/nix/.rw-store";
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
   microvm.mem = 4096;

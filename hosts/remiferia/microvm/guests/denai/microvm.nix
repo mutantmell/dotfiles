@@ -1,8 +1,7 @@
-{
-  config,
-  lib,
-  ...
-}: {
+{lib, ...}: {
+  microvm.hypervisor = "cloud-hypervisor";
+  microvm.vsock.cid = 4;
+
   microvm.shares = [
     {
       source = "/nix/store";
@@ -26,14 +25,7 @@
       image = "/data/guests/denai/images/root.img"; # todo: adjust path when vm host changes
       size = 25 * 1024;
     }
-    {
-      autoCreate = true;
-      image = "/data/guests/denai/images/store-overlay.img"; # todo: adjust path when vm host changes
-      mountPoint = config.microvm.writableStoreOverlay;
-      size = 75 * 1024;
-    }
   ];
-  microvm.writableStoreOverlay = "/nix/.rw-store";
 
   microvm.mem = 1024 * 3;
 
