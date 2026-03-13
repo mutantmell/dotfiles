@@ -62,6 +62,16 @@ in {
       '';
     })
     (lib.mkIf cfg.impermanence.enable {
+      # Stub unit so systemd doesn't report the initrd rollback service as
+      # "not-found"/"failed" after switch-root (initrd service state carries
+      # over via /run, but the unit file only exists in the initrd).
+      systemd.services.rollback = {
+        description = "Rollback btrfs root subvolume to blank state (initrd stub)";
+        serviceConfig.Type = "oneshot";
+        serviceConfig.ExecStart = "/run/current-system/sw/bin/true";
+        serviceConfig.RemainAfterExit = true;
+      };
+
       boot.initrd.systemd.services.rollback = {
         description = "Rollback btrfs root subvolume to blank state";
         wantedBy = ["initrd.target"];
