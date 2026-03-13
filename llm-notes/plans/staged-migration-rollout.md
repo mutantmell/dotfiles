@@ -12,7 +12,7 @@ but has no internal DNS host entries.
 
 | Host           | Current IP                    | Config Target IP                          | Role    | Status                   |
 | -------------- | ----------------------------- | ----------------------------------------- | ------- | ------------------------ |
-| calvard        | unused (wiped)                | 10.97.11.30 + 10.0.11.30 (VLAN 11)        | VM host | Ready for nixos-anywhere |
+| calvard        | 10.97.11.30 (VLAN 11)         | 10.97.11.30 + 10.0.11.30 (VLAN 11)        | VM host | **Deployed**             |
 | remiferia      | 10.0.10.32 (VLAN 10 untagged) | 10.97.11.20 + 10.0.11.20 (VLAN 11 tagged) | NAS     | In-place update required |
 | erebonia       | unused (wiped)                | 10.97.11.31 + 10.0.11.31 (VLAN 11)        | VM host | Blocked on ZyXEL switch  |
 | interim router | manages VLANs 10/11/20/100    | N/A                                       | Gateway | No internal DNS          |
@@ -62,12 +62,6 @@ will not change between now and rollout):
 # --- VLAN 11 microVM guests (management) ---
 10.97.11.2  phantasma.internal.mutantmell.net phantasma.internal
 10.0.11.2   phantasma.internal.mutantmell.net phantasma.internal
-10.97.11.3  roer.internal.mutantmell.net roer.internal
-10.0.11.3   roer.internal.mutantmell.net roer.internal
-10.97.11.4  legram.internal.mutantmell.net legram.internal
-10.0.11.4   legram.internal.mutantmell.net legram.internal
-10.97.11.5  ymir.internal.mutantmell.net ymir.internal
-10.0.11.5   ymir.internal.mutantmell.net ymir.internal
 10.97.11.6  messeldam.internal.mutantmell.net messeldam.internal
 10.0.11.6   messeldam.internal.mutantmell.net messeldam.internal
 10.97.11.7  basel.internal.mutantmell.net basel.internal
@@ -86,12 +80,8 @@ will not change between now and rollout):
 10.0.100.31  ardent.internal.mutantmell.net ardent.internal
 10.97.100.32 monrain.internal.mutantmell.net monrain.internal
 10.0.100.32  monrain.internal.mutantmell.net monrain.internal
-10.97.100.40 ordis.internal.mutantmell.net ordis.internal
-10.0.100.40  ordis.internal.mutantmell.net ordis.internal
 10.97.100.41 langport.internal.mutantmell.net langport.internal
 10.0.100.41  langport.internal.mutantmell.net langport.internal
-10.97.100.50 heimdallr.internal.mutantmell.net heimdallr.internal
-10.0.100.50  heimdallr.internal.mutantmell.net heimdallr.internal
 10.97.100.51 trista.internal.mutantmell.net trista.internal
 10.0.100.51  trista.internal.mutantmell.net trista.internal
 10.97.100.52 oracion.internal.mutantmell.net oracion.internal
@@ -133,60 +123,16 @@ Erebonia deployment is blocked until this is done.
 
 ---
 
-## Phase 1: Deploy calvard (nixos-anywhere)
+## Phase 1: Deploy calvard (nixos-anywhere) — COMPLETE
 
-### Prerequisites
+Calvard has been deployed via nixos-anywhere with btrfs (not ZFS as originally
+planned). All microVM guests (basel, creil, langport, messeldam, oracion, tharbad)
+and the Incus container (edith) are running. Key differences from the original plan:
 
-- Switch port for calvard passes VLAN 11 tagged traffic
-- Interim router has DNS entry for calvard (or use IPs)
-- Boot calvard into NixOS installer / kexec image
-
-### Steps
-
-1. **Run the deploy script:**
-
-   ```bash
-   ./scripts/deploy-nixos-anywhere.sh calvard root@<calvard-installer-ip>
-   ```
-
-   This handles: disko partitioning, ZFS encryption, SSH key generation,
-   guest SSH keys, sops re-encryption, NixOS install.
-
-2. **Reboot and unlock ZFS** via SSH on port 2222:
-
-   ```bash
-   ssh -p 2222 root@10.0.11.30
-   # Enter ZFS passphrase when prompted
-   ```
-
-3. **Verify host is up:**
-   - SSH to `root@10.0.11.30` (or `calvard.internal` if DNS is configured)
-   - Check `systemctl status` for failed units
-   - Verify VLAN 11 connectivity: `ip addr show enp88s0.11`
-   - Verify bridges: `bridge link show`
-
-4. **Populate guest secrets:**
-   - Replace placeholder values in guest `secrets.yaml` files with real secrets
-   - Run `sops hosts/calvard/microvm/guests/<guest>/secrets/secrets.yaml` for each guest
-   - Services will start once secrets are populated
-
-5. **Start microVM guests:**
-   - MicroVMs should auto-start if configured
-   - Check: `machinectl list` or `systemctl status microvm@*`
-   - Verify guest networking (each guest should get its VLAN IP)
-
-6. **Set up Incus guest (edith):**
-   - Run post-boot Incus SSH key push script
-   - Verify edith starts and gets IP 10.97.20.42
-
-7. **Note:** phantasma (Unbound DNS) is a thebeyond guest, not calvard.
-   It won't be available until thebeyond hardware arrives. Internal DNS
-   must come from manual router `/etc/hosts` entries for the entire rollout.
-
-### Rollback
-
-Calvard is a fresh install on a wiped machine. If it fails, reboot into
-the installer and re-run the deploy script. No data at risk.
+- Filesystem changed from ZFS to btrfs with LUKS encryption (keyfile unlock via ESP)
+- Microvm hypervisor is cloud-hypervisor (not QEMU) with virtiofs shares
+- Guest data lives under `/persist/guests/` (btrfs subvolume with impermanence)
+- Remiferia's microvm guests were moved back to QEMU (cloud-hypervisor had issues on remiferia)
 
 ---
 
@@ -210,19 +156,19 @@ and is currently the machine running claude-code.
 | ZFS pool fails to import           | Data inaccessible           | Pool name (`data`) matches config; test with `zpool status` first                     |
 | NFS exports break                  | Clients lose mounts         | New config exports on both 10.97 + 10.0 subnets (dual-stack)                          |
 | Samba breaks                       | Windows clients lose shares | Config preserves shares + JOTUNHEIMR alias                                            |
-| Claude-code session dies           | Lose working session        | Move session to calvard first                                                         |
+| Calvard NFS mount stale            | Media mount fails           | calvard updated to use `remiferia.internal` (DNS name); rebuild calvard after DNS set  |
 | Services fail to start             | NAS partially down          | Select previous generation in boot menu, or `nixos-rebuild boot --rollback && reboot` |
 
 ### Prerequisites
 
-- [ ] calvard is deployed and stable (Phase 1 complete)
-- [ ] Move claude-code session off remiferia to calvard (or a laptop)
+- [x] calvard is deployed and stable (Phase 1 complete)
 - [ ] Switch port for remiferia configured for VLAN 11 tagged traffic
 - [ ] Physical or IPMI console access to remiferia (in case network breaks)
 - [ ] Verify `data` ZFS pool health: `zpool status data`
 - [ ] Take a ZFS snapshot of critical datasets: `zfs snapshot -r data@pre-migration`
-- [ ] DNS entry for remiferia on interim router (or phantasma running on calvard)
+- [ ] DNS entries on interim router for remiferia and its guests (tharbad.internal, basel.internal needed by microvm guests)
 - [ ] Copy the updated flake to remiferia (git pull or scp)
+- [ ] Rebuild calvard first (`nixos-rebuild switch --flake .#calvard`) — NFS mount updated from hardcoded IP to `remiferia.internal`
 
 ### Steps
 
@@ -382,12 +328,9 @@ After all three hosts are deployed and stable:
    - JOTUNHEIMR netbios alias on remiferia
    - yggdrasil.local / jotunheimr.local DNS aliases
 
-4. **Decommission old erebonia guests** — Once calvard replacements are verified:
-   - roer -> messeldam (Keycloak)
-   - legram -> basel (step-ca)
-   - ymir -> tharbad (monitoring)
-   - ordis -> langport (reverse proxy)
-   - heimdallr -> oracion (Jellyfin)
+4. **Decommission old erebonia guests** — Already complete. The old erebonia guests
+   (roer, legram, ymir, ordis, heimdallr) have been replaced by calvard guests
+   (messeldam, basel, tharbad, langport, oracion) and removed from the network registry.
 
 5. **Remove denai guest** from remiferia (already slated for removal)
 
