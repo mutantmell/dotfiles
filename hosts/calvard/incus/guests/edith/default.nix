@@ -78,11 +78,20 @@
 
   boot.initrd.availableKernelModules = ["virtiofs"];
 
-  # Mount host-side static directory via virtiofs (VMs only; containers get bind mounts)
+  # The /static virtiofs mount is hotplugged by Incus after the incus-agent
+  # starts (not available at boot). The agent mounts it automatically at the
+  # path configured in the Incus device config. We declare it here with nofail
+  # so NixOS doesn't block boot waiting for it, and ensure sshd waits for it.
   fileSystems."/static" = {
-    device = "static";
+    device = "incus_static";
     fsType = "virtiofs";
-    neededForBoot = true;
+    options = ["nofail" "x-systemd.after=incus-agent.service"];
+  };
+
+  # Delay sshd until /static is mounted (host keys live there)
+  systemd.services.sshd = {
+    after = ["static.mount"];
+    requires = ["static.mount"];
   };
 
   system.stateVersion = "25.11";
