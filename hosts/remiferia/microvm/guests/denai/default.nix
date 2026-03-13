@@ -60,7 +60,7 @@ in {
   common.openssh = {
     enable = true;
     users = ["mutantmell" "root"];
-    keys = ["home"];
+    keys = ["home" "edith"];
     allowPassword = true;
   };
   services.openssh.hostKeys = [

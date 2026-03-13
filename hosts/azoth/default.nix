@@ -96,7 +96,10 @@
 
   environment.systemPackages = with pkgs; [vim];
 
-  common.openssh.enable = true;
+  common.openssh = {
+    enable = true;
+    keys = ["deploy" "edith"];
+  };
 
   hardware.enableRedistributableFirmware = true;
   system.stateVersion = "25.11";

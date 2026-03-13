@@ -38,7 +38,10 @@ in {
   networking.extraHosts = net.mkExtraHosts ["basel"];
 
   time.timeZone = "UTC";
-  common.openssh.enable = true;
+  common.openssh = {
+    enable = true;
+    keys = ["deploy" "edith"];
+  };
   services.openssh.hostKeys = [
     {
       path = "/static/etc/ssh/ssh_host_ed25519_key";

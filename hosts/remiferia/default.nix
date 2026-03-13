@@ -150,7 +150,7 @@ in {
 
   common.openssh = {
     enable = true;
-    keys = ["deploy" "home"];
+    keys = ["deploy" "home" "edith"];
   };
 
   users.users.mutantmell = {
