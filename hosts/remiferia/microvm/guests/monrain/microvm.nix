@@ -1,19 +1,18 @@
 {lib, ...}: {
-  microvm.hypervisor = "cloud-hypervisor";
-  microvm.vsock.cid = 5;
+  microvm.hypervisor = "qemu";
 
   microvm.shares = [
     {
       source = "/nix/store";
       mountPoint = "/nix/.ro-store";
       tag = "ro-store";
-      proto = "virtiofs";
+      proto = "9p";
     }
     {
       source = "/data/guests/monrain/static";
       mountPoint = "/static";
       tag = "static";
-      proto = "virtiofs";
+      proto = "9p";
     }
   ];
   fileSystems."/static".neededForBoot = lib.mkForce true;
