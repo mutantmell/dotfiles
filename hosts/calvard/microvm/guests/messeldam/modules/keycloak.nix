@@ -20,49 +20,9 @@
   # Cap JVM heap to prevent Keycloak from consuming all available RAM
   systemd.services.keycloak.environment.JAVA_OPTS_APPEND = "-Xms256m -Xmx768m";
 
-  networking.firewall.allowedTCPPorts = [80 443];
-
-  services.nginx = {
-    enable = true;
-    recommendedTlsSettings = true;
-    recommendedProxySettings = true;
-
-    virtualHosts."auth.mutantmell.net" = {
-      forceSSL = true;
-      enableACME = true;
-
-      locations."/auth" = {
-        proxyPass = "http://127.0.0.1:9080";
-        extraConfig = ''
-          proxy_set_header X-Forwarded-For $proxy_protocol_addr;
-          proxy_set_header X-Forwarded-Proto $scheme;
-          proxy_set_header Host $host;
-
-          proxy_buffer_size   128k;
-          proxy_buffers   4 256k;
-          proxy_busy_buffers_size   256k;
-        '';
-      };
-    };
-
-    virtualHosts."messeldam.internal.mutantmell.net" = {
-      forceSSL = true;
-      useACMEHost = "auth.mutantmell.net";
-
-      locations."/auth" = {
-        proxyPass = "http://127.0.0.1:9080";
-        extraConfig = ''
-          proxy_set_header X-Forwarded-For $proxy_protocol_addr;
-          proxy_set_header X-Forwarded-Proto $scheme;
-          proxy_set_header Host $host;
-
-          proxy_buffer_size   128k;
-          proxy_buffers   4 256k;
-          proxy_busy_buffers_size   256k;
-        '';
-      };
-    };
-  };
+  # TODO: switch back to [80 443] when nginx + ACME are re-enabled
+  # networking.firewall.allowedTCPPorts = [80 443];
+  networking.firewall.allowedTCPPorts = [9080];
 
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
@@ -71,21 +31,64 @@
     };
   };
 
-  security.acme = {
-    defaults = {
-      server = "https://basel.internal/acme/acme/directory";
-      email = "malaguy@gmail.com";
-    };
-    acceptTerms = true;
-    certs."auth.mutantmell.net" = {
-      extraDomainNames = ["messeldam.internal.mutantmell.net"];
-    };
-  };
-
-  systemd.services = {
-    "keycloak".before = ["nginx.service"];
-    "keycloak".requiredBy = ["nginx.service"];
-  };
+  # TODO: re-enable nginx + ACME after thebeyond is deployed (http-01 callback requires DNS from phantasma)
+  # services.nginx = {
+  #   enable = true;
+  #   recommendedTlsSettings = true;
+  #   recommendedProxySettings = true;
+  #
+  #   virtualHosts."auth.mutantmell.net" = {
+  #     forceSSL = true;
+  #     enableACME = true;
+  #
+  #     locations."/auth" = {
+  #       proxyPass = "http://127.0.0.1:9080";
+  #       extraConfig = ''
+  #         proxy_set_header X-Forwarded-For $proxy_protocol_addr;
+  #         proxy_set_header X-Forwarded-Proto $scheme;
+  #         proxy_set_header Host $host;
+  #
+  #         proxy_buffer_size   128k;
+  #         proxy_buffers   4 256k;
+  #         proxy_busy_buffers_size   256k;
+  #       '';
+  #     };
+  #   };
+  #
+  #   virtualHosts."messeldam.internal.mutantmell.net" = {
+  #     forceSSL = true;
+  #     useACMEHost = "auth.mutantmell.net";
+  #
+  #     locations."/auth" = {
+  #       proxyPass = "http://127.0.0.1:9080";
+  #       extraConfig = ''
+  #         proxy_set_header X-Forwarded-For $proxy_protocol_addr;
+  #         proxy_set_header X-Forwarded-Proto $scheme;
+  #         proxy_set_header Host $host;
+  #
+  #         proxy_buffer_size   128k;
+  #         proxy_buffers   4 256k;
+  #         proxy_busy_buffers_size   256k;
+  #       '';
+  #     };
+  #   };
+  # };
+  #
+  # security.acme = {
+  #   defaults = {
+  #     server = "https://basel.internal/acme/acme/directory";
+  #     email = "malaguy@gmail.com";
+  #   };
+  #   acceptTerms = true;
+  #   certs."auth.mutantmell.net" = {
+  #     extraDomainNames = ["messeldam.internal.mutantmell.net"];
+  #   };
+  # };
+  #
+  # systemd.services = {
+  #   "keycloak".before = ["nginx.service"];
+  #   "keycloak".requiredBy = ["nginx.service"];
+  # };
 
   environment.persistence."/persist" = {
     directories = [
