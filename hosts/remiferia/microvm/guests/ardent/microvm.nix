@@ -12,7 +12,7 @@
       source = "/data/guests/ardent/static";
       mountPoint = "/static";
       tag = "static";
-      proto = "9p";
+      proto = "virtiofs";
     }
   ];
   fileSystems."/static".neededForBoot = lib.mkForce true;
