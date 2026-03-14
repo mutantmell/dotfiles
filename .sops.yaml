@@ -1,22 +1,25 @@
 keys:
   - &ad_denai age1mmqej3arlv2wx96m2gh9fgvqpkwaeselzfu4rqfn54artx058vys7g3ehq
-  - &sv_phantasma age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
-
-  - &sv_ardent age1t8499a2tna8pzn448ylnpwach59l6m38s33pzdmy4vhy492nevpqq7l6tc
-  - &sv_remiferia age18e698z5sf5twkc8vup4edc7nkaza2nquuzqja8lrv7r34mzx84js48jps0
-  - &sv_erebonia age1328qtjtudgc3zgg7su05ja20kckx50jehs0v3q3mw6k64j0dzefs752tu2
-  - &sv_azoth age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
-  - &sv_trista age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
-  - &sv_denai age19d3g52d9vn37n9z2ezrj37n6svk9vjxdm6tmnjchklh9muhdpqfs4xvea7
-  - &sv_calvard age1x6tk8zejwvd8c4nm5jxhh29fw5u5wrd93dhy9qm3hv0pryxad3aq6ykn7r
-  - &sv_thebeyond age1xvkjw03zrcy38rxmlhawzqdzlm34cx98mc42v5caautaauj8dd5qddg9hm
 
   # Note: age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc is a placeholder key, do not use live
 
-  # erebonia microVM guests
-  - &sv_saint-arkh age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  # thebeyond
+  - &sv_thebeyond age1xvkjw03zrcy38rxmlhawzqdzlm34cx98mc42v5caautaauj8dd5qddg9hm
+  - &sv_phantasma age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
 
-  # calvard microVM guests
+  # remiferia
+  - &sv_remiferia age18e698z5sf5twkc8vup4edc7nkaza2nquuzqja8lrv7r34mzx84js48jps0
+  - &sv_ardent age1dvk7gqyw4zwnnu6u3dwke94unlkw85kmlw6s5lfq59jw32s5zdks4c32ff
+  - &sv_monrain age16hu3zrv7ncxl4f3tcddeptcqj3azjrj44gamwtakgl9yp723092sgcakqk
+
+  # erebonia
+  - &sv_erebonia age1328qtjtudgc3zgg7su05ja20kckx50jehs0v3q3mw6k64j0dzefs752tu2
+  - &sv_saint-arkh age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &sv_trista age1v2vrn026vtgfkw8v2uez4ljhz44f8j27y5ueacphk8n2lr6q8cjs583tcm
+
+  # calvard
+  - &sv_calvard age1x6tk8zejwvd8c4nm5jxhh29fw5u5wrd93dhy9qm3hv0pryxad3aq6ykn7r
+  - &sv_edith age17n3kvx02g4gwa35spalc3hxm7dlfrms23h53knmeqph6kxfy6c0qmmakn5
   - &sv_messeldam age12ne0n0vt0zf2s7utsn2tfyl6tthc85wuyaqx8x3ua8rwpaelnvnqfnlejh
   - &sv_basel age1pufrndmd7g8sm5590mmrkkqj4x958xnw8ehxu0zlrxktd3kxhy6qxzgkvg
   - &sv_langport age13pysrruclacn7xxhgqhugu5y035z4ntv5ezpkfvrjmuyduy6fpwsj4grj8
@@ -24,8 +27,8 @@ keys:
   - &sv_oracion age1r2f3qnzdlnu28kgg2zwzk44zm2qhjtq98x8l4vsrcdqtl845zsasp6shyj
   - &sv_creil age1zjslnd63kf2k000ahqxqudwmlrluszdg45dczlrxk50zjcujrc9qvwrq7g
 
-  # Incus guests
-  - &sv_edith age17n3kvx02g4gwa35spalc3hxm7dlfrms23h53knmeqph6kxfy6c0qmmakn5
+  # other hosts
+  - &sv_azoth age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
 
 creation_rules:
   # thebeyond
@@ -51,11 +54,11 @@ creation_rules:
       - age:
           - *ad_denai
           - *sv_ardent
-  - path_regex: hosts/remiferia/microvm/guests/denai/secrets/[^/]+\.yaml$
+  - path_regex: hosts/remiferia/microvm/guests/monrain/secrets/[^/]+\.yaml$
     key_groups:
       - age:
           - *ad_denai
-          - *sv_denai
+          - *sv_monrain
 
   # erebonia
   - path_regex: hosts/erebonia/secrets/[^/]+\.yaml$
