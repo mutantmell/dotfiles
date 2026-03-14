@@ -9,7 +9,7 @@
       http-port = 9080;
       hostname = "https://auth.mutantmell.net";
       http-relative-path = "/auth";
-      proxy-headers = "forwarded|xforwarded";
+      proxy-headers = "xforwarded";
       http-enabled = true;
       hostname-admin = "https://messeldam.internal.mutantmell.net";
     };
