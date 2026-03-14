@@ -324,38 +324,43 @@
   hostsFile = mkHostsFileEntries (builtins.attrNames hosts);
 
   # mkDualEgressRules: Expand host-based egress rules into dual-stack nftables strings
-  # Each rule: { host OR gateway = true; proto = "tcp"|"udp"; port = int|string; comment? = string; }
+  # Each rule: { host OR gateway = true OR any = true; proto = "tcp"|"udp"; port = int|string; comment? = string; }
   # "gateway" uses the zone's gateway addresses instead of a host
+  # "any" emits a single rule with no destination restriction
   # Emits rules for both primary and legacy IPv4 addresses during migration
   mkDualEgressRules = zone: rules:
     lib.concatMap (
       rule: let
-        addrs =
-          if rule ? gateway && rule.gateway
-          then {
-            v4 = zone.gateway4;
-            v6 = zone.gateway6;
-            v4Legacy = zone.gateway4Legacy or null;
-          }
-          else if rule ? host
-          then {
-            v4 = hosts.${rule.host}.ipv4;
-            v6 = hosts.${rule.host}.ipv6 or null;
-            v4Legacy = hosts.${rule.host}.ipv4Legacy or null;
-          }
-          else abort "mkDualEgressRules: rule must have 'gateway' or 'host'";
         port =
           if builtins.isList rule.port
           then "{ ${lib.concatMapStringsSep ", " toString rule.port} }"
           else toString rule.port;
         comment = lib.optionalString (rule ? comment) "  comment \"${rule.comment}\"";
-        v4 = "ip daddr ${addrs.v4} ${rule.proto} dport ${port} accept${comment}";
-        v4Legacy = "ip daddr ${addrs.v4Legacy} ${rule.proto} dport ${port} accept${comment}";
-        v6 = "ip6 daddr ${addrs.v6} ${rule.proto} dport ${port} accept${comment}";
       in
-        [v4]
-        ++ lib.optional (addrs.v4Legacy != null) v4Legacy
-        ++ lib.optional (addrs.v6 != null) v6
+        if rule ? any && rule.any
+        then ["${rule.proto} dport ${port} accept${comment}"]
+        else let
+          addrs =
+            if rule ? gateway && rule.gateway
+            then {
+              v4 = zone.gateway4;
+              v6 = zone.gateway6;
+              v4Legacy = zone.gateway4Legacy or null;
+            }
+            else if rule ? host
+            then {
+              v4 = hosts.${rule.host}.ipv4;
+              v6 = hosts.${rule.host}.ipv6 or null;
+              v4Legacy = hosts.${rule.host}.ipv4Legacy or null;
+            }
+            else abort "mkDualEgressRules: rule must have 'gateway', 'host', or 'any'";
+          v4 = "ip daddr ${addrs.v4} ${rule.proto} dport ${port} accept${comment}";
+          v4Legacy = "ip daddr ${addrs.v4Legacy} ${rule.proto} dport ${port} accept${comment}";
+          v6 = "ip6 daddr ${addrs.v6} ${rule.proto} dport ${port} accept${comment}";
+        in
+          [v4]
+          ++ lib.optional (addrs.v4Legacy != null) v4Legacy
+          ++ lib.optional (addrs.v6 != null) v6
     )
     rules;
 in {
