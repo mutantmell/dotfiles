@@ -50,10 +50,10 @@ in {
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
 
+  # Port 22: SSH (openssh — also serves Forgejo git SSH via authorized_keys)
   # Port 80: ACME HTTP-01 challenge
   # Port 443: nginx HTTPS (creil.internal)
-  # Port 2222: Forgejo SSH (accessed directly on creil.internal)
-  networking.firewall.allowedTCPPorts = [80 443 2222];
+  networking.firewall.allowedTCPPorts = [22 80 443];
 
   security.acme = {
     defaults = {
@@ -94,6 +94,12 @@ in {
         proto = "tcp";
         port = [80 443];
         comment = "HTTP/HTTPS for git fetch (mirrors, push/pull)";
+      }
+      {
+        gateway = true;
+        proto = "tcp";
+        port = 22;
+        comment = "SSH for GitHub mirror sync";
       }
       {
         gateway = true;
