@@ -62,6 +62,67 @@
   unboundDualStackCount = assertEq "unboundBasic length" (builtins.length unboundBasic) 12;
   unboundMeshCount = assertEq "unboundMesh length" (builtins.length unboundMesh) 2;
 
+  # --- domainsForHost tests ---
+
+  domainsBasel = net.domainsForHost "basel";
+  domainsBaselStandard =
+    assertEq "domainsBasel has standard domains"
+    (builtins.elemAt domainsBasel 0) "basel.internal.mutantmell.net";
+  domainsBaselShort =
+    assertEq "domainsBasel has short domain"
+    (builtins.elemAt domainsBasel 1) "basel.internal";
+  domainsBaselCount = assertEq "domainsBasel count" (builtins.length domainsBasel) 2;
+
+  domainsMesseldam = net.domainsForHost "messeldam";
+  domainsMesseldamCount = assertEq "domainsMesseldam count" (builtins.length domainsMesseldam) 3;
+  domainsMesseldamAlias = builtins.elem "auth.mutantmell.net" domainsMesseldam;
+
+  domainsThebeyond = net.domainsForHost "thebeyond";
+  domainsThebeyondCount = assertEq "domainsThebeyond count" (builtins.length domainsThebeyond) 6;
+  domainsThebeyondYggdrasil = builtins.elem "yggdrasil.internal.mutantmell.net" domainsThebeyond;
+  domainsThebeyondInternal = builtins.elem "internal.mutantmell.net" domainsThebeyond;
+
+  domainsMesh = net.domainsForHost "azoth";
+  domainsMeshCount = assertEq "domainsMesh count" (builtins.length domainsMesh) 2;
+
+  # --- mkUnboundAliasData tests ---
+
+  aliasDataMesseldam = net.mkUnboundAliasData ["messeldam"];
+  aliasDataMesseldamA = builtins.elem ''"auth.mutantmell.net. A ${net.hosts.messeldam.ipv4}"'' aliasDataMesseldam;
+  aliasDataMesseldamALegacy = builtins.elem ''"auth.mutantmell.net. A ${net.hosts.messeldam.ipv4Legacy}"'' aliasDataMesseldam;
+  aliasDataMesseldamAAAA = builtins.elem ''"auth.mutantmell.net. AAAA ${net.hosts.messeldam.ipv6}"'' aliasDataMesseldam;
+  aliasDataMesseldamCount = assertEq "aliasDataMesseldam count" (builtins.length aliasDataMesseldam) 3;
+
+  aliasDataThebeyond = net.mkUnboundAliasData ["thebeyond"];
+  # 4 aliases × 3 records each (A + ALegacy + AAAA) = 12
+  aliasDataThebeyondCount = assertEq "aliasDataThebeyond count" (builtins.length aliasDataThebeyond) 12;
+  aliasDataThebeyondYggdrasil = builtins.elem ''"yggdrasil.internal.mutantmell.net. A ${net.hosts.thebeyond.ipv4}"'' aliasDataThebeyond;
+  aliasDataThebeyondInternal = builtins.elem ''"internal.mutantmell.net. A ${net.hosts.thebeyond.ipv4}"'' aliasDataThebeyond;
+
+  # Hosts with no aliases produce empty list
+  aliasDataBasel = net.mkUnboundAliasData ["basel"];
+  aliasDataBaselCount = assertEq "aliasDataBasel count" (builtins.length aliasDataBasel) 0;
+
+  # Mesh hosts with no aliases produce empty list
+  aliasDataMesh = net.mkUnboundAliasData ["azoth"];
+  aliasDataMeshCount = assertEq "aliasDataMesh count" (builtins.length aliasDataMesh) 0;
+
+  # --- mkHostsFileEntries tests ---
+
+  hostsFileBasic = net.mkHostsFileEntries ["messeldam"];
+  hostsFileMesseldamV4 = contains "10.97.11.6 messeldam.internal.mutantmell.net messeldam.internal auth.mutantmell.net" hostsFileBasic;
+  hostsFileMesseldamLegacy = contains "10.0.11.6 messeldam.internal.mutantmell.net messeldam.internal auth.mutantmell.net" hostsFileBasic;
+  hostsFileMesseldamV6 = contains "fdc6:55f2:0a5e:b::6 messeldam.internal.mutantmell.net messeldam.internal auth.mutantmell.net" hostsFileBasic;
+
+  hostsFileMesh = net.mkHostsFileEntries ["azoth"];
+  hostsFileMeshV4 = contains "10.1.20.50 azoth.internal.mutantmell.net azoth.internal" hostsFileMesh;
+  hostsFileMeshNoV6 = !(contains "fdc6" hostsFileMesh);
+
+  # --- mkExtraHosts includes aliases ---
+
+  extraHostsWithAliases = net.mkExtraHosts ["messeldam"];
+  extraHostsAliasIncluded = contains "auth.mutantmell.net" extraHostsWithAliases;
+
   # --- mkDualEgressRules tests ---
 
   mgmtZone = net.networks.management;
@@ -150,6 +211,38 @@
     "mkUnboundLocalData skips AAAA for mesh host" = unboundMeshNoAAAA;
     "mkUnboundLocalData dual-stack host produces 12 records" = unboundDualStackCount;
     "mkUnboundLocalData mesh host produces 2 records" = unboundMeshCount;
+
+    # domainsForHost
+    "domainsForHost returns standard canonical domain" = domainsBaselStandard;
+    "domainsForHost returns standard short domain" = domainsBaselShort;
+    "domainsForHost returns 2 domains for host without aliases" = domainsBaselCount;
+    "domainsForHost returns 3 domains for messeldam (1 alias)" = domainsMesseldamCount;
+    "domainsForHost includes auth.mutantmell.net for messeldam" = domainsMesseldamAlias;
+    "domainsForHost returns 6 domains for thebeyond (4 aliases)" = domainsThebeyondCount;
+    "domainsForHost includes yggdrasil alias for thebeyond" = domainsThebeyondYggdrasil;
+    "domainsForHost includes internal alias for thebeyond" = domainsThebeyondInternal;
+    "domainsForHost returns 2 domains for mesh host" = domainsMeshCount;
+
+    # mkUnboundAliasData
+    "mkUnboundAliasData produces A for messeldam alias" = aliasDataMesseldamA;
+    "mkUnboundAliasData produces A legacy for messeldam alias" = aliasDataMesseldamALegacy;
+    "mkUnboundAliasData produces AAAA for messeldam alias" = aliasDataMesseldamAAAA;
+    "mkUnboundAliasData produces 3 records for messeldam (1 alias)" = aliasDataMesseldamCount;
+    "mkUnboundAliasData produces 12 records for thebeyond (4 aliases)" = aliasDataThebeyondCount;
+    "mkUnboundAliasData includes yggdrasil A record" = aliasDataThebeyondYggdrasil;
+    "mkUnboundAliasData includes internal A record" = aliasDataThebeyondInternal;
+    "mkUnboundAliasData produces 0 records for host without aliases" = aliasDataBaselCount;
+    "mkUnboundAliasData produces 0 records for mesh host without aliases" = aliasDataMeshCount;
+
+    # mkHostsFileEntries
+    "mkHostsFileEntries produces v4 with aliases for messeldam" = hostsFileMesseldamV4;
+    "mkHostsFileEntries produces legacy v4 with aliases for messeldam" = hostsFileMesseldamLegacy;
+    "mkHostsFileEntries produces v6 with aliases for messeldam" = hostsFileMesseldamV6;
+    "mkHostsFileEntries produces v4 for mesh host" = hostsFileMeshV4;
+    "mkHostsFileEntries skips v6 for mesh host" = hostsFileMeshNoV6;
+
+    # mkExtraHosts includes aliases
+    "mkExtraHosts includes aliases in domain list" = extraHostsAliasIncluded;
 
     # mkDualEgressRules
     "mkDualEgressRules gateway produces v4" = gatewayV4;
