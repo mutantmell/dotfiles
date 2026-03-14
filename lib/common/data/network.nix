@@ -119,6 +119,33 @@
       azoth = mkMeshHost 20 50;
     };
 
+  # Additional domain names per host, beyond the auto-derived
+  # <name>.internal.mutantmell.net and <name>.internal.
+  # These are the canonical source — dns.nix and mkExtraHosts reference this.
+  hostAliases = {
+    thebeyond = [
+      "internal.mutantmell.net"
+      "internal"
+      "yggdrasil.internal.mutantmell.net"
+      "yggdrasil.internal"
+    ];
+    remiferia = [
+      "jotunheimr.internal.mutantmell.net"
+      "jotunheimr.internal"
+    ];
+    messeldam = ["auth.mutantmell.net"];
+    langport = ["mutantmell.net"];
+    ardent = [
+      "attic.ardent.internal.mutantmell.net"
+      "attic.ardent.internal"
+    ];
+  };
+
+  # All domains a host is reachable by (standard + aliases)
+  domainsForHost = name:
+    ["${name}.internal.mutantmell.net" "${name}.internal"]
+    ++ (hostAliases.${name} or []);
+
   # Human-readable summary table
   pad = n: s: let
     padLen = n - builtins.stringLength s;
@@ -179,15 +206,17 @@
   };
 
   # mkExtraHosts: Generate /etc/hosts entries for a list of hostnames
-  # Produces IPv4, legacy IPv4, and IPv6 lines with canonical and short names
+  # Produces IPv4, legacy IPv4, and IPv6 lines with canonical, short, and alias names
   mkExtraHosts = hostnames:
     lib.concatMapStringsSep "\n" (name: let
       h = hosts.${name};
+      domains = domainsForHost name;
+      domainStr = lib.concatStringsSep " " domains;
     in
       lib.concatStringsSep "\n" (lib.filter (s: s != "") [
-        (lib.optionalString (h ? ipv4) "${h.ipv4} ${name}.internal.mutantmell.net ${name}.internal")
-        (lib.optionalString (h ? ipv4Legacy) "${h.ipv4Legacy} ${name}.internal.mutantmell.net ${name}.internal")
-        (lib.optionalString (h ? ipv6) "${h.ipv6} ${name}.internal.mutantmell.net ${name}.internal")
+        (lib.optionalString (h ? ipv4) "${h.ipv4} ${domainStr}")
+        (lib.optionalString (h ? ipv4Legacy) "${h.ipv4Legacy} ${domainStr}")
+        (lib.optionalString (h ? ipv6) "${h.ipv6} ${domainStr}")
       ]))
     hostnames;
 
@@ -207,6 +236,92 @@
         (lib.optionalString (h ? ipv6) ''"${name}.internal. AAAA ${h.ipv6}"'')
       ])
     hostnames;
+
+  # mkUnboundAliasData: Generate Unbound local-data entries for host aliases
+  # Produces A + AAAA records for each alias domain in hostAliases
+  mkUnboundAliasData = hostnames:
+    lib.concatMap (name: let
+      h = hosts.${name};
+      aliases = hostAliases.${name} or [];
+    in
+      lib.concatMap (alias:
+        lib.filter (s: s != "") [
+          (lib.optionalString (h ? ipv4) ''"${alias}. A ${h.ipv4}"'')
+          (lib.optionalString (h ? ipv4Legacy) ''"${alias}. A ${h.ipv4Legacy}"'')
+          (lib.optionalString (h ? ipv6) ''"${alias}. AAAA ${h.ipv6}"'')
+        ])
+      aliases)
+    hostnames;
+
+  # --- hostinfo display helpers ---
+
+  # Human-readable hostinfo summary table
+  hostinfoPad = n: s: let
+    padLen = n - builtins.stringLength s;
+  in
+    if padLen <= 0
+    then s
+    else s + lib.fixedWidthString padLen " " "";
+
+  hostinfoHeader = "${hostinfoPad 18 "Host"}${hostinfoPad 18 "IPv4"}${hostinfoPad 45 "IPv6"}Domains";
+  hostinfoSeparator = builtins.concatStringsSep "" (builtins.genList (_: "-") (builtins.stringLength hostinfoHeader));
+
+  hostinfoRow = name: h: let
+    domains = domainsForHost name;
+  in "${hostinfoPad 18 name}${hostinfoPad 18 h.ipv4}${hostinfoPad 45 (h.ipv6 or "")}${lib.concatStringsSep ", " domains}";
+
+  hostinfoList = lib.mapAttrsToList lib.nameValuePair hosts;
+  hostinfoByZone = builtins.groupBy (e: e.value.zoneName) hostinfoList;
+
+  hostinfoRenderZone = zoneName: entries:
+    "# ${zoneName}\n"
+    + lib.concatMapStringsSep "\n" (e: hostinfoRow e.name e.value) entries;
+
+  hostinfoSummary =
+    lib.concatStringsSep "\n\n" (
+      [hostinfoHeader hostinfoSeparator]
+      ++ lib.mapAttrsToList hostinfoRenderZone hostinfoByZone
+    )
+    + "\n";
+
+  # Markdown table for hostinfo docs
+  hostinfoMarkdownRow = name: h: let
+    domains = domainsForHost name;
+  in "| ${name} | `${h.ipv4}` | ${
+    if h ? ipv6
+    then "`${h.ipv6}`"
+    else ""
+  } | ${lib.concatStringsSep ", " (map (d: "`${d}`") domains)} |";
+
+  hostinfoMarkdown =
+    ''
+      # Host Domain Registry
+
+      > **Auto-generated from `lib/common/data/network.nix`.** Do not edit manually.
+      > Regenerate with: `nix run .#hostinfo -- --generate-docs`
+
+      | Host | IPv4 | IPv6 | Domains |
+      |------|------|------|---------|
+    ''
+    + lib.concatStringsSep "\n" (lib.mapAttrsToList hostinfoMarkdownRow hosts)
+    + "\n";
+
+  # /etc/hosts format — one line per IP, with all domains for that host
+  mkHostsFileEntries = hostnames:
+    lib.concatMapStringsSep "\n" (name: let
+      h = hosts.${name};
+      domains = domainsForHost name;
+      domainStr = lib.concatStringsSep " " domains;
+    in
+      lib.concatStringsSep "\n" (lib.filter (s: s != "") [
+        (lib.optionalString (h ? ipv4) "${h.ipv4} ${domainStr}")
+        (lib.optionalString (h ? ipv4Legacy) "${h.ipv4Legacy} ${domainStr}")
+        (lib.optionalString (h ? ipv6) "${h.ipv6} ${domainStr}")
+      ]))
+    hostnames;
+
+  # Pre-computed /etc/hosts output for all registered hosts
+  hostsFile = mkHostsFileEntries (builtins.attrNames hosts);
 
   # mkDualEgressRules: Expand host-based egress rules into dual-stack nftables strings
   # Each rule: { host OR gateway = true; proto = "tcp"|"udp"; port = int|string; comment? = string; }
@@ -251,11 +366,18 @@ in {
     ulaPrefix
     mkHost
     hosts
+    hostAliases
+    domainsForHost
     summary
     markdown
     forHost
     mkExtraHosts
     mkUnboundLocalData
+    mkUnboundAliasData
     mkDualEgressRules
+    hostinfoSummary
+    hostinfoMarkdown
+    mkHostsFileEntries
+    hostsFile
     ;
 }
