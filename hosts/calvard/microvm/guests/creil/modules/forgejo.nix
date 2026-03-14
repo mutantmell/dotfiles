@@ -17,8 +17,7 @@ in {
         HTTP_PORT = 3000;
         HTTP_ADDR = "127.0.0.1";
         SSH_DOMAIN = "creil.internal";
-        SSH_PORT = 2222;
-        START_SSH_SERVER = true;
+        SSH_PORT = 22;
       };
       service = {
         DISABLE_REGISTRATION = true;
