@@ -21,11 +21,12 @@
   microvm.volumes = [
     {
       autoCreate = true;
-      mountPoint = "/";
-      image = "/persist/guests/langport/images/root.img";
+      mountPoint = "/persist";
+      image = "/persist/guests/langport/images/persist.img";
       size = 25 * 1024;
     }
   ];
+  fileSystems."/persist".neededForBoot = lib.mkForce true;
 
   microvm.mem = 1024;
 

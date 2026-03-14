@@ -95,6 +95,18 @@ in {
     ]
   );
 
+  environment.persistence."/persist" = {
+    hideMounts = true;
+    directories = [
+      "/var/log"
+      "/var/lib/nixos"
+      "/var/lib/systemd/coredump"
+    ];
+    files = [
+      "/etc/machine-id"
+    ];
+  };
+
   promtail-client.enable = true;
 
   system.stateVersion = "25.11";
