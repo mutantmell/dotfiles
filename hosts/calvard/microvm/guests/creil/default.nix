@@ -97,12 +97,6 @@ in {
       }
       {
         gateway = true;
-        proto = "tcp";
-        port = 22;
-        comment = "SSH for GitHub mirror sync";
-      }
-      {
-        gateway = true;
         proto = "udp";
         port = 123;
         comment = "NTP";
@@ -118,6 +112,12 @@ in {
         proto = "tcp";
         port = 3100;
         comment = "Loki log push";
+      }
+      {
+        any = true;
+        proto = "tcp";
+        port = 22;
+        comment = "SSH for GitHub mirror sync";
       }
     ]
   );
