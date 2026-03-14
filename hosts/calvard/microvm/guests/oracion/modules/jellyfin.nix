@@ -136,5 +136,10 @@ in {
       user = config.users.users.jellyfin.name;
       inherit (config.users.users.jellyfin) group;
     }
+    {
+      directory = "/var/cache/jellyfin";
+      user = config.users.users.jellyfin.name;
+      inherit (config.users.users.jellyfin) group;
+    }
   ];
 }

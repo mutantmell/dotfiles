@@ -132,7 +132,6 @@ in {
   services.resolved.enable = true;
 
   # Host-based input firewall
-  networking.nftables.enable = true;
   networking.firewall = {
     enable = true;
     extraInputRules = ''

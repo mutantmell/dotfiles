@@ -39,7 +39,6 @@ in {
       {
         networking.hostName = cfg.hostname;
         networking.useNetworkd = true;
-        networking.nftables.enable = true;
         # TODO: use systemd network interface, rather than networking dsl
         networking.interfaces.${cfg.interface} = {
           useDHCP = false;

@@ -1,6 +1,7 @@
 {
   imports = [
     ./btrfs.nix
+    ./firewall.nix
     ./impermanence.nix
     ./incus.nix
     ./microvm.nix
