@@ -11,7 +11,11 @@ in {
   imports = [
     ./microvm.nix
     ./sops.nix
-    ./proxy.nix
+    # TODO: re-enable after cloud host is deployed (Step 4 Phase 3)
+    # proxy.nix serves external domains (mutantmell.net, auth.mutantmell.net) but
+    # step-ca HTTP-01 can't validate public domains on an internal-only host.
+    # Needs cloud host with Let's Encrypt for external TLS termination.
+    # ./proxy.nix
   ];
 
   environment.systemPackages = [
