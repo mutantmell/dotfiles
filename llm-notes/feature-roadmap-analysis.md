@@ -168,16 +168,16 @@ Replaces `network.json` with Nix-based registry. Zone names use functional names
 **Scope:** Network helpers + host config migration
 
 Adds dual-stack helper functions (`mkExtraHosts`, `mkUnboundLocalData`,
-`mkDualEgressRules`) to the network data module, then migrates all host
+`mkEgressRules`) to the network data module, then migrates all host
 configurations to use them — fixing IPv6 gaps in extraHosts, DNS records,
 egress filters, forward rules, chrony, NFS exports, and step-ca policy.
 
 - [x] Add `mkExtraHosts` — dual-stack /etc/hosts generator
 - [x] Add `mkUnboundLocalData` — dual-stack DNS record generator (A + AAAA)
-- [x] Add `mkDualEgressRules` — dual-stack egress filter rule generator
+- [x] Add `mkEgressRules` — dual-stack egress filter rule generator (formerly `mkDualEgressRules`)
 - [x] Create `tests/lib/network-helpers.nix` — pure eval tests for all helpers
 - [x] Migrate microVM systemd.network configs: add IPv6 addresses, routes, DNS
-- [x] Migrate egress filters to `mkDualEgressRules` (ordis, heimdallr, roer, legram, ardent)
+- [x] Migrate egress filters to `mkEgressRules` (ordis, heimdallr, roer, legram, ardent)
 - [x] Migrate extraHosts to `mkExtraHosts` (thebeyond, phantasma, ordis, roer, heimdallr)
 - [x] Migrate Unbound DNS to `mkUnboundLocalData` (phantasma/dns.nix)
 - [x] Add IPv6 forward rules (thebeyond extraForwardRules)
@@ -225,17 +225,18 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [ ] Deploy cloud host with nginx + WireGuard + Let's Encrypt
 - [ ] Test end-to-end: internal + external auth flows + SSH bastion path
 
-### Step 5: IP Migration
+### Step 5: IP Migration — COMPLETE
 
 **Plan:** `secure-mgmt-vlan-plan.md` Phase 8
 
-Adds `10.97.x.x` dual addresses alongside `10.0.x.x`, preparing for eventual
-removal of the legacy range.
+Migrated all NixOS configurations from `10.0.0.0/16` to `10.97.0.0/16`. The
+interim router continues to serve both ranges for DHCP compatibility with
+non-NixOS clients, but all NixOS hosts and guests now use only `10.97.x.x`.
 
 - [x] Add dual addresses to all VLANs via network registry `legacyPrefix`
 - [x] Update network registry: `ipv4Prefix = "10.97"`, `legacyIpv4Prefix = "10.0"`
 - [x] Add `ipv4Legacy`/`cidr4Legacy`/`subnet4Legacy`/`gateway4Legacy` to all hosts and networks
-- [x] Update helpers (`mkExtraHosts`, `mkUnboundLocalData`, `mkDualEgressRules`) for dual records
+- [x] Update helpers (`mkExtraHosts`, `mkUnboundLocalData`, `mkEgressRules`) for dual records
 - [x] Add dual addresses to all router VLAN topology entries (10.0 first for DHCP compat)
 - [x] Add dual addresses to all infrastructure hosts (phantasma, remiferia, calvard, erebonia)
 - [x] Add dual addresses to all guest VMs (ordis, heimdallr, roer, legram, ardent, denai, ymir)
@@ -249,10 +250,16 @@ removal of the legacy range.
 - [x] Update network-helpers tests for new expected values (40/40 pass)
 - [x] Update thebeyond-firewall-snapshot golden file
 - [x] Verify: all 17 flake checks pass
-- [ ] Update DHCP pools to `10.97.x.x`
-- [ ] Update WireGuard client configs (add `10.97.0.0/16` to AllowedIPs)
-- [ ] Verify all services work on `10.97.x.x`
-- [ ] Remove `10.0.x.x` addresses (use MGMT VLAN plan appendix checklist)
+- [x] Update DHCP pools to `10.97.x.x`
+- [x] Update WireGuard client configs (add `10.97.0.0/16` to AllowedIPs)
+- [x] Verify all services work on `10.97.x.x`
+- [x] Remove `10.0.x.x` addresses — **DONE** (2026-03-15). Removed `legacyIpv4Prefix`,
+      `ipv4Legacy`/`cidr4Legacy`/`subnet4Legacy`/`gateway4Legacy` from network registry.
+      Removed dual addresses from all host configs, firewall rules, NFS exports, DNS records,
+      chrony allows, step-ca policy. Renamed `mkDualEgressRules` → `mkEgressRules`. Moved
+      mesh hosts into proper zone-based addressing. Updated OpenWrt data to use 10.97 as
+      primary gateway. Updated and passed all tests (network-helpers, openwrt-config,
+      nftables-dsl, egress-filter).
 
 ### Step 6: SSH Certificates
 

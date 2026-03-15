@@ -10,12 +10,16 @@ but has no internal DNS host entries.
 
 ## Current State
 
-| Host           | Current IP                    | Config Target IP                          | Role    | Status                   |
-| -------------- | ----------------------------- | ----------------------------------------- | ------- | ------------------------ |
-| calvard        | 10.97.11.30 (VLAN 11)         | 10.97.11.30 + 10.0.11.30 (VLAN 11)        | VM host | **Deployed**             |
-| remiferia      | 10.0.10.32 (VLAN 10 untagged) | 10.97.11.20 + 10.0.11.20 (VLAN 11 tagged) | NAS     | In-place update required |
-| erebonia       | unused (wiped)                | 10.97.11.31 + 10.0.11.31 (VLAN 11)        | VM host | Blocked on ZyXEL switch  |
-| interim router | manages VLANs 10/11/20/100    | N/A                                       | Gateway | No internal DNS          |
+| Host           | Current IP                 | Config Target IP      | Role    | Status                  |
+| -------------- | -------------------------- | --------------------- | ------- | ----------------------- |
+| calvard        | 10.97.11.30 (VLAN 11)      | 10.97.11.30 (VLAN 11) | VM host | **Deployed**            |
+| remiferia      | 10.97.11.20 (VLAN 11)      | 10.97.11.20 (VLAN 11) | NAS     | **Deployed**            |
+| erebonia       | unused (wiped)             | 10.97.11.31 (VLAN 11) | VM host | Blocked on ZyXEL switch |
+| interim router | manages VLANs 10/11/20/100 | N/A                   | Gateway | Serves 10.97 + legacy   |
+
+**Note:** Legacy 10.0.x.x addresses have been removed from all NixOS configurations
+(2026-03-15). The interim router still serves both ranges for DHCP compatibility with
+non-NixOS clients, but all NixOS hosts and guests now use only 10.97.x.x.
 
 ## Pre-deployment Blockers
 
@@ -45,57 +49,45 @@ Phantasma is a thebeyond guest, and thebeyond hardware is months away.
 **Recommendation:** Use (A) for the entire rollout. The full `/etc/hosts`
 block is provided below — paste it once and it covers all phases.
 
-**Full /etc/hosts block for the interim router** (generated from network registry,
-will not change between now and rollout):
+**Full /etc/hosts block for the interim router** (10.97 only — legacy 10.0
+addresses removed from all NixOS configs as of 2026-03-15):
 
 ```
 # --- Parent hosts (VLAN 11 management) ---
 10.97.11.1  thebeyond.internal.mutantmell.net thebeyond.internal
-10.0.11.1   thebeyond.internal.mutantmell.net thebeyond.internal
 10.97.11.20 remiferia.internal.mutantmell.net remiferia.internal
-10.0.11.20  remiferia.internal.mutantmell.net remiferia.internal
 10.97.11.30 calvard.internal.mutantmell.net calvard.internal
-10.0.11.30  calvard.internal.mutantmell.net calvard.internal
 10.97.11.31 erebonia.internal.mutantmell.net erebonia.internal
-10.0.11.31  erebonia.internal.mutantmell.net erebonia.internal
 
 # --- VLAN 11 microVM guests (management) ---
 10.97.11.2  phantasma.internal.mutantmell.net phantasma.internal
-10.0.11.2   phantasma.internal.mutantmell.net phantasma.internal
 10.97.11.6  messeldam.internal.mutantmell.net messeldam.internal
-10.0.11.6   messeldam.internal.mutantmell.net messeldam.internal
 10.97.11.7  basel.internal.mutantmell.net basel.internal
-10.0.11.7   basel.internal.mutantmell.net basel.internal
 
 # --- VLAN 20 guests (trusted) ---
 10.97.20.41 tharbad.internal.mutantmell.net tharbad.internal
-10.0.20.41  tharbad.internal.mutantmell.net tharbad.internal
 10.97.20.42 edith.internal.mutantmell.net edith.internal
-10.0.20.42  edith.internal.mutantmell.net edith.internal
+10.97.20.50 azoth.internal.mutantmell.net azoth.internal
 
 # --- VLAN 100 guests (dmz) ---
 10.97.100.31 ardent.internal.mutantmell.net ardent.internal
-10.0.100.31  ardent.internal.mutantmell.net ardent.internal
 10.97.100.32 monrain.internal.mutantmell.net monrain.internal
-10.0.100.32  monrain.internal.mutantmell.net monrain.internal
 10.97.100.41 langport.internal.mutantmell.net langport.internal
-10.0.100.41  langport.internal.mutantmell.net langport.internal
 10.97.100.51 trista.internal.mutantmell.net trista.internal
-10.0.100.51  trista.internal.mutantmell.net trista.internal
 10.97.100.52 oracion.internal.mutantmell.net oracion.internal
-10.0.100.52  oracion.internal.mutantmell.net oracion.internal
 10.97.100.53 creil.internal.mutantmell.net creil.internal
-10.0.100.53  creil.internal.mutantmell.net creil.internal
 10.97.100.61 saint-arkh.internal.mutantmell.net saint-arkh.internal
-10.0.100.61  saint-arkh.internal.mutantmell.net saint-arkh.internal
 
 # --- VLAN 10 (network devices) ---
 10.97.10.12 arseille.internal.mutantmell.net arseille.internal
-10.0.10.12  arseille.internal.mutantmell.net arseille.internal
+10.97.10.20 merkabah.internal.mutantmell.net merkabah.internal
+10.97.10.21 derfflinger.internal.mutantmell.net derfflinger.internal
+10.97.10.22 pantagruel.internal.mutantmell.net pantagruel.internal
+10.97.10.23 bobcat.internal.mutantmell.net bobcat.internal
+10.97.10.24 lusitania.internal.mutantmell.net lusitania.internal
 
 # --- VLAN 31 (adu) ---
 10.97.31.20 glorious.internal.mutantmell.net glorious.internal
-10.0.31.20  glorious.internal.mutantmell.net glorious.internal
 
 ```
 
@@ -134,145 +126,11 @@ and the Incus container (edith) are running. Key differences from the original p
 
 ---
 
-## Phase 2: Update remiferia (in-place nixos-rebuild)
+## Phase 2: Update remiferia (in-place nixos-rebuild) — COMPLETE
 
-This is the riskiest phase. Remiferia is the NAS with live ZFS data pools
-and is currently the machine running claude-code.
-
-### Why in-place (not nixos-anywhere)
-
-- nixos-anywhere would **destroy the ZFS data pools** (disko reformats disks)
-- remiferia uses traditional ext4 for the OS, with a separate `data` ZFS pool
-- `nixos-rebuild switch` updates the OS config without touching the data pool
-- The `boot.zfs.extraPools = [ "data" ]` config will import the existing pool
-
-### Risk analysis
-
-| Risk                               | Impact                      | Mitigation                                                                            |
-| ---------------------------------- | --------------------------- | ------------------------------------------------------------------------------------- |
-| Network change breaks connectivity | Lose SSH to NAS             | Pre-configure switch; have physical/IPMI access                                       |
-| ZFS pool fails to import           | Data inaccessible           | Pool name (`data`) matches config; test with `zpool status` first                     |
-| NFS exports break                  | Clients lose mounts         | New config exports on both 10.97 + 10.0 subnets (dual-stack)                          |
-| Samba breaks                       | Windows clients lose shares | Config preserves shares + JOTUNHEIMR alias                                            |
-| Calvard NFS mount stale            | Media mount fails           | calvard updated to use `remiferia.internal` (DNS name); rebuild calvard after DNS set |
-| Services fail to start             | NAS partially down          | Select previous generation in boot menu, or `nixos-rebuild boot --rollback && reboot` |
-
-### Prerequisites
-
-- [x] calvard is deployed and stable (Phase 1 complete)
-- [ ] Switch port for remiferia configured for VLAN 11 tagged traffic
-- [ ] Physical or IPMI console access to remiferia (in case network breaks)
-- [ ] Verify `data` ZFS pool health: `zpool status data`
-- [ ] Take a ZFS snapshot of critical datasets: `zfs snapshot -r data@pre-migration`
-- [ ] DNS entries on interim router for remiferia and its guests (tharbad.internal, basel.internal needed by microvm guests)
-- [ ] Copy the updated flake to remiferia (git pull or scp)
-- [ ] Rebuild calvard first (`nixos-rebuild switch --flake .#calvard`) — NFS mount updated from hardcoded IP to `remiferia.internal`
-
-### Steps
-
-1. **Pre-flight checks on remiferia (via current 10.0.10.32 connection):**
-
-   ```bash
-   # Verify ZFS pool health
-   zpool status data
-   # Snapshot everything
-   zfs snapshot -r data@pre-migration
-   # Verify current NFS exports are working
-   showmount -e localhost
-   # Note current mount clients
-   ss -tn state established '( dport = :2049 )'
-   ```
-
-2. **Prepare the switch:**
-   - Configure remiferia's switch port to pass VLAN 11 tagged traffic
-   - Keep VLAN 10 untagged on the same port (so current connectivity survives)
-   - Verify: remiferia should still be reachable at 10.0.10.32
-
-3. **Test the new config builds cleanly:**
-
-   ```bash
-   cd /path/to/dotfiles
-   nixos-rebuild build --flake .#remiferia
-   ```
-
-   This builds without applying. If it fails, fix config issues before proceeding.
-
-   **Note:** remiferia's current NixOS is very old. If `nixos-rebuild` fails
-   due to an outdated Nix version, enter a shell with a newer Nix first:
-
-   ```bash
-   nix shell nixpkgs#nix -c nixos-rebuild build --flake .#remiferia
-   ```
-
-   Alternatively, build the closure on calvard and copy it to remiferia
-   via `nix copy`.
-
-4. **Apply the update (point of no return for network config):**
-
-   ```bash
-   nixos-rebuild boot --flake .#remiferia
-   reboot
-   ```
-
-   Using `boot` instead of `switch` — given the volume of changes (network
-   migration, systemd-networkd, firewall, services), a clean boot into the
-   new config is safer than live-switching all services at once.
-
-   **What changes on reboot:**
-   - Network: VLAN 10 untagged -> VLAN 11 tagged on enp4s0
-   - IP: 10.0.10.32 -> 10.97.11.20 + 10.0.11.20
-   - SSH session on 10.0.10.32 will drop
-   - New SSH endpoint: 10.0.11.20 or 10.97.11.20
-
-5. **Reconnect and verify:**
-
-   ```bash
-   ssh root@10.0.11.20  # or 10.97.11.20
-   # Verify networking
-   ip addr show enp4s0.11
-   # Verify ZFS pool imported
-   zpool status data
-   # Verify NFS exports
-   showmount -e localhost
-   # Verify Samba
-   systemctl status smbd nmbd
-   # Verify prometheus exporters
-   curl -s http://localhost:9001/metrics | head
-   curl -s http://localhost:9002/metrics | head
-   ```
-
-6. **Verify NFS clients can mount:**
-   - From calvard: test NFS mount of remiferia exports
-   - Check both 10.97 and 10.0 addresses work in exports
-
-7. **Start microVM guests (ardent, monrain):**
-   - Check auto-start and guest networking
-   - Handle denai cleanup (slated for removal)
-
-8. **Clean up old VLAN 10 config on switch:**
-   - Once everything is verified working on VLAN 11
-   - Remove VLAN 10 untagged from remiferia's switch port
-
-### Rollback plan
-
-**If network breaks (can't SSH in):**
-
-- Access via physical console or IPMI
-- Select the previous generation from the systemd-boot menu, or
-  `nixos-rebuild boot --rollback && reboot`
-- This restores VLAN 10 untagged networking
-
-**If ZFS pool won't import:**
-
-- The pool name `data` hasn't changed; `extraPools = [ "data" ]` matches
-- Manual import: `zpool import data`
-- If pool is damaged (unlikely from config change): restore from snapshots
-
-**If NFS exports break but host is reachable:**
-
-- Check `exportfs -v` for active exports
-- Verify firewall allows NFS: `nft list ruleset | grep 2049`
-- The new config allows both 10.97 and 10.0 subnets, so old clients should work
+Remiferia was updated in-place via `nixos-rebuild`. ZFS data pools preserved.
+Network migrated from VLAN 10 untagged to VLAN 11 tagged. MicroVM guests
+(ardent, monrain) running. NFS exports and Samba operational.
 
 ---
 
@@ -315,10 +173,14 @@ Same as calvard — fresh install on wiped machine, re-run deploy script.
 
 After all three hosts are deployed and stable:
 
-1. **Remove legacy 10.0.x.x addresses** — Once all clients use 10.97:
-   - Remove `cidr4Legacy` / `subnet4Legacy` from network registry
-   - Remove dual-address configs from host network configs
-   - Remove legacy firewall rules
+1. ~~**Remove legacy 10.0.x.x addresses**~~ — **DONE** (2026-03-15).
+   Removed `legacyIpv4Prefix`, `ipv4Legacy`/`cidr4Legacy`/`subnet4Legacy`/`gateway4Legacy`
+   from network registry. Removed dual addresses from all host configs, firewall rules,
+   NFS exports, DNS records, chrony allows, step-ca policy. Renamed `mkDualEgressRules`
+   → `mkEgressRules`. Moved mesh hosts (merkabah, derfflinger, pantagruel, bobcat,
+   lusitania, azoth) from `mkMeshHost` into proper zone-based addressing. Updated OpenWrt
+   data to use 10.97 as primary gateway. Removed 10.0 and 10.1 prefixes from OpenWrt
+   `mkAddresses`/`mkGateway`. Updated tests (network-helpers, openwrt-config pass).
 
 2. **Remove VLAN 10 from switches** — No longer needed
 
@@ -347,12 +209,12 @@ After all three hosts are deployed and stable:
 
 ## Quick Reference: Key IPs
 
-| Host      | Current    | Target (10.97) | Target (10.0 legacy) | VLAN |
-| --------- | ---------- | -------------- | -------------------- | ---- |
-| calvard   | none       | 10.97.11.30    | 10.0.11.30           | 11   |
-| remiferia | 10.0.10.32 | 10.97.11.20    | 10.0.11.20           | 11   |
-| erebonia  | none       | 10.97.11.31    | 10.0.11.31           | 11   |
-| phantasma | none       | 10.97.11.2     | 10.0.11.2            | 11   |
+| Host      | IP          | VLAN | Status       |
+| --------- | ----------- | ---- | ------------ |
+| calvard   | 10.97.11.30 | 11   | **Deployed** |
+| remiferia | 10.97.11.20 | 11   | **Deployed** |
+| erebonia  | 10.97.11.31 | 11   | Blocked      |
+| phantasma | 10.97.11.2  | 11   | **Deployed** |
 
 ## Quick Reference: Deploy commands
 
