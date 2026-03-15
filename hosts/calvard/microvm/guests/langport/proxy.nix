@@ -20,7 +20,8 @@
       recommendedProxySettings = true;
       recommendedTlsSettings = true;
       appendHttpConfig = ''
-        proxy_headers_hash_max_size 1024;
+        proxy_headers_hash_max_size 2048;
+        proxy_headers_hash_bucket_size 128;
       '';
 
       # Rate limiting for auth endpoints (S11)
@@ -60,31 +61,40 @@
         };
       };
 
-      virtualHosts."auth.mutantmell.net" = {
+      virtualHosts."auth.mutantmell.net" = let
+        proxyConfig = ''
+          proxy_set_header X-Forwarded-For $remote_addr;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header Host $host;
+
+          proxy_buffer_size   128k;
+          proxy_buffers   4 256k;
+          proxy_busy_buffers_size   256k;
+
+          limit_req zone=auth_limit burst=20 nodelay;
+        '';
+      in {
         forceSSL = true;
         enableACME = true;
 
         # Block admin console access from external users (S5)
-        locations."/auth/admin" = {
-          return = "403";
-        };
-        locations."/auth/realms/master" = {
-          return = "403";
-        };
+        locations."/auth/admin".return = "403";
+        locations."/auth/realms/master".return = "403";
+        locations."/admin".return = "403";
+        locations."/realms/master".return = "403";
 
         locations."/auth" = {
           proxyPass = "https://messeldam.internal/auth";
-          extraConfig = ''
-            proxy_set_header X-Forwarded-For $remote_addr;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_set_header Host $host;
-
-            proxy_buffer_size   128k;
-            proxy_buffers   4 256k;
-            proxy_busy_buffers_size   256k;
-
-            limit_req zone=auth_limit burst=20 nodelay;
-          '';
+          extraConfig = proxyConfig;
+        };
+        # Modern Keycloak omits http-relative-path from OIDC issuer URLs
+        locations."/realms" = {
+          proxyPass = "https://messeldam.internal/auth/realms";
+          extraConfig = proxyConfig;
+        };
+        locations."/resources" = {
+          proxyPass = "https://messeldam.internal/auth/resources";
+          extraConfig = proxyConfig;
         };
       };
     };

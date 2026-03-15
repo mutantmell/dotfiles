@@ -34,39 +34,60 @@
     recommendedTlsSettings = true;
     recommendedProxySettings = true;
 
-    virtualHosts."auth.mutantmell.net" = {
+    virtualHosts."auth.mutantmell.net" = let
+      proxyConfig = ''
+        proxy_set_header X-Forwarded-For $proxy_protocol_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host $host;
+
+        proxy_buffer_size   128k;
+        proxy_buffers   4 256k;
+        proxy_busy_buffers_size   256k;
+      '';
+    in {
       forceSSL = true;
       enableACME = true;
 
       locations."/auth" = {
         proxyPass = "http://127.0.0.1:9080";
-        extraConfig = ''
-          proxy_set_header X-Forwarded-For $proxy_protocol_addr;
-          proxy_set_header X-Forwarded-Proto $scheme;
-          proxy_set_header Host $host;
-
-          proxy_buffer_size   128k;
-          proxy_buffers   4 256k;
-          proxy_busy_buffers_size   256k;
-        '';
+        extraConfig = proxyConfig;
+      };
+      # Modern Keycloak omits http-relative-path from OIDC issuer URLs
+      locations."/realms" = {
+        proxyPass = "http://127.0.0.1:9080/auth/realms";
+        extraConfig = proxyConfig;
+      };
+      locations."/resources" = {
+        proxyPass = "http://127.0.0.1:9080/auth/resources";
+        extraConfig = proxyConfig;
       };
     };
 
-    virtualHosts."messeldam.internal.mutantmell.net" = {
+    virtualHosts."messeldam.internal.mutantmell.net" = let
+      proxyConfig = ''
+        proxy_set_header X-Forwarded-For $proxy_protocol_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host $host;
+
+        proxy_buffer_size   128k;
+        proxy_buffers   4 256k;
+        proxy_busy_buffers_size   256k;
+      '';
+    in {
       forceSSL = true;
       useACMEHost = "auth.mutantmell.net";
 
       locations."/auth" = {
         proxyPass = "http://127.0.0.1:9080";
-        extraConfig = ''
-          proxy_set_header X-Forwarded-For $proxy_protocol_addr;
-          proxy_set_header X-Forwarded-Proto $scheme;
-          proxy_set_header Host $host;
-
-          proxy_buffer_size   128k;
-          proxy_buffers   4 256k;
-          proxy_busy_buffers_size   256k;
-        '';
+        extraConfig = proxyConfig;
+      };
+      locations."/realms" = {
+        proxyPass = "http://127.0.0.1:9080/auth/realms";
+        extraConfig = proxyConfig;
+      };
+      locations."/resources" = {
+        proxyPass = "http://127.0.0.1:9080/auth/resources";
+        extraConfig = proxyConfig;
       };
     };
   };
