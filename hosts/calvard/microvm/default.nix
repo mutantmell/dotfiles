@@ -11,6 +11,19 @@ in {
     guestDir = ./guests;
   };
 
+  # ACME-dependent guests must wait for basel (step-ca) to be ready
+  systemd.services = let
+    baselDep = {
+      after = ["microvm@basel.service"];
+      requires = ["microvm@basel.service"];
+    };
+  in {
+    "microvm@messeldam" = baselDep;
+    "microvm@langport" = baselDep;
+    "microvm@creil" = baselDep;
+    "microvm@oracion" = baselDep;
+  };
+
   environment.systemPackages = [
     (pkgs.writeShellApplication {
       name = "mk-volume-with-ssh-key";
