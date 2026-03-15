@@ -75,6 +75,12 @@ in {
         port = 53;
       }
       {
+        gateway = true;
+        proto = "tcp";
+        port = 80;
+        comment = "HTTP-01 ACME challenge validation";
+      }
+      {
         host = "tharbad";
         proto = "tcp";
         port = 3100;
