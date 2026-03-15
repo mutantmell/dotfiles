@@ -322,8 +322,8 @@ in {
           echo "  --rebuild        Force rebuild even if a cached image exists"
           echo ""
           echo "Example:"
-          echo "  nix run .#openwrt-deploy -- bobcat 10.0.10.10"
-          echo "  nix run .#openwrt-deploy -- bobcat 10.0.10.10 --ssh-key ~/.ssh/id_ed25519"
+          echo "  nix run .#openwrt-deploy -- bobcat 10.97.10.10"
+          echo "  nix run .#openwrt-deploy -- bobcat 10.97.10.10 --ssh-key ~/.ssh/id_ed25519"
           exit 1
         fi
 

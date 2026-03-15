@@ -529,9 +529,9 @@
       })
       vlans;
 
-    # Primary per-VLAN interfaces: 10.0 address only.
+    # Primary per-VLAN interfaces: 10.97 address only.
     # dnsmasq pools attach here — keeping a single address ensures only one
-    # DHCP pool is generated per VLAN (10.0.x.100–249).
+    # DHCP pool is generated per VLAN (10.97.x.100–249).
     primaryVlanInterfaces =
       lib.mapAttrs' (name: vlan: {
         name = lib.toLower name;
@@ -545,7 +545,7 @@
       })
       vlans;
 
-    # Extra alias interfaces per VLAN: 10.1 + 10.97 addresses.
+    # Extra alias interfaces per VLAN (currently none after migration).
     # No dhcp section is generated for these, so they carry no DHCP pool.
     extraVlanInterfaces =
       lib.mapAttrs' (name: vlan: {
@@ -624,7 +624,7 @@
   # Generate firewall configuration for a router
   mkRouterFirewallConfig = {vlans}: let
     vlanIfaceNames = map lib.toLower (builtins.attrNames vlans);
-    # Include the _x alias interfaces so 10.1/10.97 traffic is also in the LAN zone
+    # Include the _x alias interfaces so extra-prefix traffic is also in the LAN zone
     extraIfaceNames = map (n: "${n}_x") vlanIfaceNames;
     allLanNetworks = vlanIfaceNames ++ extraIfaceNames;
   in {

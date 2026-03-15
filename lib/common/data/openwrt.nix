@@ -15,24 +15,16 @@ in {
   # "target/subtarget". Managed in openwrt-hashes.json.
   inherit (pins) imageBuilderHashes;
 
-  # IP prefixes - each device gets one address per prefix for migration compatibility
-  ipPrefixes = ["10.0" "10.1" "10.97"];
+  # Generate list of CIDR addresses for a given VLAN and host ID
+  mkAddresses = vlanId: hostId: ["10.97.${toString vlanId}.${toString hostId}/24"];
 
-  # Generate list of CIDR addresses for a given VLAN and host ID across all prefixes
-  mkAddresses = vlanId: hostId:
-    map (p: "${p}.${toString vlanId}.${toString hostId}/24") ["10.0" "10.1" "10.97"];
+  # Gateway is on the 10.97 prefix
+  mkGateway = vlanId: "10.97.${toString vlanId}.1";
 
-  # Gateway is always on the primary prefix (10.0)
-  mkGateway = vlanId: "10.0.${toString vlanId}.1";
-
-  # Router gateway addresses — split so DHCP only binds to the primary (10.0) interface.
-  # dnsmasq derives pools from the UCI interface address, so keeping 10.1 and 10.97
-  # on a separate _x alias prevents them from getting their own DHCP pools.
-  mkPrimaryGatewayAddress = vlanId: "10.0.${toString vlanId}.1/24";
-  mkExtraGatewayAddresses = vlanId: [
-    "10.1.${toString vlanId}.1/24"
-    "10.97.${toString vlanId}.1/24"
-  ];
+  # Router gateway address for DHCP binding.
+  # dnsmasq derives pools from the UCI interface address.
+  mkPrimaryGatewayAddress = vlanId: "10.97.${toString vlanId}.1/24";
+  mkExtraGatewayAddresses = _vlanId: [];
 
   # Router VLANs — subset of network for temporary router deployment
   # trunkPorts carry all VLANs tagged; accessPorts get untagged traffic

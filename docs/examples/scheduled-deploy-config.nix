@@ -20,13 +20,13 @@
       # Router - deploy weekly on Sunday at 2 AM
       thebeyond = {
         schedule = "Sun 02:00";
-        flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/thebeyond-deploy.git";
+        flakeRef = "git+ssh://git@10.97.100.31/var/lib/git/thebeyond-deploy.git";
       };
 
       # Second router with different schedule and repo
       # calvard = {
       #   schedule = "Mon 03:00";
-      #   flakeRef = "git+ssh://git@10.0.100.31/var/lib/git/calvard-deploy.git";
+      #   flakeRef = "git+ssh://git@10.97.100.31/var/lib/git/calvard-deploy.git";
       # };
     };
   };
@@ -39,7 +39,7 @@
 # {
 #   inputs = {
 #     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-#     dotfiles.url = "git+ssh://git@10.0.100.31/var/lib/git/dotfiles.git";
+#     dotfiles.url = "git+ssh://git@10.97.100.31/var/lib/git/dotfiles.git";
 #     dotfiles.inputs.nixpkgs.follows = "nixpkgs";
 #   };
 #   outputs = inputs: {

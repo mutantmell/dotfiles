@@ -31,7 +31,7 @@ in {
     matchConfig.Type = "ether";
     matchConfig.MACAddress = "5E:A5:4D:A3:A0:1A";
     networkConfig = {
-      Address = [host.cidr4 host.cidr4Legacy host.cidr6];
+      Address = [host.cidr4 host.cidr6];
       Gateway = zone.gateway4;
       DNS = [zone.gateway4 zone.gateway6];
       IPv6AcceptRA = false;
@@ -83,7 +83,7 @@ in {
   # Egress filtering — default-drop with explicit allowlist
   networking.nftables.enable = true;
   networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter (
-    net.mkDualEgressRules zone [
+    net.mkEgressRules zone [
       {
         gateway = true;
         proto = "udp";
