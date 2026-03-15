@@ -62,11 +62,6 @@ in {
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
-      {
-        directory = "/var/lib/loki";
-        user = "loki";
-        group = "loki";
-      }
     ];
     files = [
       "/etc/machine-id"
