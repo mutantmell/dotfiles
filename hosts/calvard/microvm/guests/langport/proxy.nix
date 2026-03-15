@@ -19,6 +19,9 @@
       enable = true;
       recommendedProxySettings = true;
       recommendedTlsSettings = true;
+      appendHttpConfig = ''
+        proxy_headers_hash_max_size 1024;
+      '';
 
       # Rate limiting for auth endpoints (S11)
       commonHttpConfig = ''
@@ -92,7 +95,7 @@
         virtualHosts = {
           "mutantmell.net" = {};
         };
-        domain = ".mutantmell.net";
+        domain = "mutantmell.net";
       };
       keyFile = config.sops.secrets."oauth-2-proxy-keyfile".path;
       provider = "oidc";
