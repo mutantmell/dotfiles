@@ -152,6 +152,11 @@
   environment.persistence."/persist" = {
     directories = [
       {
+        directory = "/var/lib/acme";
+        user = "acme";
+        group = "acme";
+      }
+      {
         directory = "/var/lib/private/step-ca";
         user = "step-ca";
         group = "step-ca";
