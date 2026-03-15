@@ -6,7 +6,7 @@ Deploy the updated NixOS configurations in a safe, staged sequence.
 The interim router (not managed in this repo) provides VLAN 10/11/20/100
 but has no internal DNS host entries.
 
-**Sequence:** calvard -> remiferia (in-place) -> erebonia (blocked on switch config)
+**Sequence:** calvard -> remiferia (in-place) -> internal services (messeldam/langport) -> erebonia
 
 ## Current State
 

@@ -11,8 +11,7 @@ in {
   imports = [
     ./microvm.nix
     ./sops.nix
-    # TODO: re-enable after thebeyond is deployed (auth.mutantmell.net DNS depends on phantasma)
-    # ./proxy.nix
+    ./proxy.nix
   ];
 
   environment.systemPackages = [
