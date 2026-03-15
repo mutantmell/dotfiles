@@ -132,6 +132,11 @@ in {
 
   environment.persistence."/persist".directories = [
     {
+      directory = "/var/lib/acme";
+      user = "acme";
+      group = "acme";
+    }
+    {
       directory = "/var/lib/jellyfin";
       user = config.users.users.jellyfin.name;
       inherit (config.users.users.jellyfin) group;

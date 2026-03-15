@@ -90,6 +90,11 @@
   environment.persistence."/persist" = {
     directories = [
       {
+        directory = "/var/lib/acme";
+        user = "acme";
+        group = "acme";
+      }
+      {
         directory = "/var/lib/postgresql";
         user = "postgres";
         group = "postgres";

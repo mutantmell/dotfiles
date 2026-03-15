@@ -1,6 +1,13 @@
 {config, ...}: {
   config = {
     networking.firewall.allowedTCPPorts = [80 443];
+    environment.persistence."/persist".directories = [
+      {
+        directory = "/var/lib/acme";
+        user = "acme";
+        group = "acme";
+      }
+    ];
     security.acme = {
       defaults = {
         server = "https://basel.internal/acme/acme/directory";
