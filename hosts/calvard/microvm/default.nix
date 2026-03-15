@@ -11,17 +11,21 @@ in {
     guestDir = ./guests;
   };
 
-  # ACME-dependent guests must wait for basel (step-ca) to be ready
+  # Boot ordering: basel (step-ca) → messeldam (keycloak) → ACME/OIDC consumers
   systemd.services = let
-    baselDep = {
+    afterBasel = {
       after = ["microvm@basel.service"];
       requires = ["microvm@basel.service"];
     };
+    afterMesseldam = {
+      after = ["microvm@basel.service" "microvm@messeldam.service"];
+      requires = ["microvm@basel.service" "microvm@messeldam.service"];
+    };
   in {
-    "microvm@messeldam" = baselDep;
-    "microvm@langport" = baselDep;
-    "microvm@creil" = baselDep;
-    "microvm@oracion" = baselDep;
+    "microvm@messeldam" = afterBasel;
+    "microvm@creil" = afterBasel;
+    "microvm@oracion" = afterBasel;
+    "microvm@langport" = afterMesseldam;
   };
 
   environment.systemPackages = [

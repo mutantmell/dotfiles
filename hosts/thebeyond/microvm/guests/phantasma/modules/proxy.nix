@@ -91,6 +91,12 @@
     };
   };
 
+  # Give messeldam time to start before oauth2-proxy connects for OIDC discovery
+  systemd.services.oauth2-proxy.serviceConfig = {
+    RestartSec = 5;
+    StartLimitIntervalSec = 120;
+    StartLimitBurst = 10;
+  };
   services.oauth2-proxy = {
     enable = true;
     keyFile = config.sops.secrets."oauth2-proxy-internal-keyfile".path;
