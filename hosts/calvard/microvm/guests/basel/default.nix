@@ -75,7 +75,7 @@ in {
         port = 53;
       }
       {
-        gateway = true;
+        any = true;
         proto = "tcp";
         port = 80;
         comment = "HTTP-01 ACME challenge validation";
