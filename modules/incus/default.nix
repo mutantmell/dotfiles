@@ -237,7 +237,9 @@ in {
         };
       };
 
-      # Systemd service for updating instances (manual trigger)
+      # Systemd service for updating instances
+      # Runs automatically when any guest's NixOS config changes (via restartTriggers),
+      # and can also be triggered manually via incus-update-instances helper.
       systemd.services.incus-update-instances = {
         description = "Update Incus instances with pre-built closures";
         after = ["incus-ensure-instances.service"];
@@ -245,10 +247,15 @@ in {
 
         serviceConfig = {
           Type = "oneshot";
+          RemainAfterExit = true;
           ExecStart = updateAllScript;
         };
 
-        wantedBy = [];
+        wantedBy = ["multi-user.target"];
+        restartTriggers =
+          mapAttrsToList
+          (name: guestCfg: guestCfg.system.config.system.build.toplevel)
+          cfg.guests;
       };
 
       # Helper scripts
