@@ -61,17 +61,14 @@ in {
     };
     acceptTerms = true;
   };
-  environment.persistence."/persist".directories = [
-    {
-      directory = "/var/lib/acme";
-      user = "acme";
-      group = "acme";
-    }
-  ];
-
   environment.persistence."/persist" = {
     hideMounts = true;
     directories = [
+      {
+        directory = "/var/lib/acme";
+        user = "acme";
+        group = "acme";
+      }
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
