@@ -111,7 +111,7 @@
 
       extraConfig = {
         "provider-display-name" = "Keycloak";
-        "oidc-issuer-url" = "https://auth.mutantmell.net/auth/realms/homelab";
+        "oidc-issuer-url" = "https://auth.mutantmell.net/realms/homelab";
       };
     };
   };
