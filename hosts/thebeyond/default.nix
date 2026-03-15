@@ -71,12 +71,9 @@ in {
   networking.extraHosts =
     ''
       ${host.ipv4} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
-      ${host.ipv4Legacy} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
       ${host.ipv6} thebeyond.internal.mutantmell.net thebeyond.internal
       ${host.ipv4} yggdrasil.internal
-      ${host.ipv4Legacy} yggdrasil.internal
       ${phantasma.ipv4} phantasma phantasma.internal.mutantmell.net phantasma.internal
-      ${phantasma.ipv4Legacy} phantasma phantasma.internal.mutantmell.net phantasma.internal
       ${phantasma.ipv6} phantasma.internal.mutantmell.net phantasma.internal
     ''
     + net.mkExtraHosts ["messeldam" "basel" "langport" "oracion" "trista"];
@@ -87,7 +84,7 @@ in {
     enable = true;
     enabledCollectors = ["systemd"];
     port = 9100;
-    listenAddress = host.ipv4Legacy; # Bind to INFRA interface only (10.0.11.1)
+    listenAddress = host.ipv4; # Bind to INFRA interface only
   };
 
   system.stateVersion = "25.11";

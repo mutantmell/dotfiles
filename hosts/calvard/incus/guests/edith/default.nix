@@ -30,15 +30,14 @@
       IPv6AcceptRA = false;
     };
     address = [
-      "10.97.20.42/24" # Primary
-      "10.0.20.42/24" # Legacy (remove after migration)
+      "10.97.20.42/24"
       "fdc6:55f2:0a5e:14::2a/64"
     ];
     routes = [
       {Gateway = "10.97.20.1";}
       {Gateway = "fdc6:55f2:0a5e:14::1";}
     ];
-    dns = ["10.97.20.1" "10.0.20.1" "fdc6:55f2:0a5e:14::1"];
+    dns = ["10.97.20.1" "fdc6:55f2:0a5e:14::1"];
   };
 
   environment.systemPackages = with pkgs; [

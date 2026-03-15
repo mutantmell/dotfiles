@@ -68,7 +68,7 @@ let
           type = types.listOf types.str;
           default = [];
           description = "Static IPv4/IPv6 addresses in CIDR notation";
-          example = ["10.0.10.1/24" "fd00:10::1/64"];
+          example = ["10.97.10.1/24" "fd00:10::1/64"];
         };
 
         gateway = mkOption {

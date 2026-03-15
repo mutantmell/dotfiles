@@ -69,7 +69,7 @@
       name = "MGMT";
       tag = 10;
       zone = "network";
-      addresses = ["10.0.10.1/24" "10.97.10.1/24"];
+      addresses = ["10.97.10.1/24"];
       enableDhcp = false;
     })
     # Infrastructure - NAS, VM hosts, DNS
@@ -77,49 +77,49 @@
       name = "INFRA";
       tag = 11;
       zone = "management";
-      addresses = ["10.0.11.1/24" "10.97.11.1/24"];
+      addresses = ["10.97.11.1/24"];
     })
     # Home network - trusted devices
     (mkVlanBridge {
       name = "HOME";
       tag = 20;
       zone = "trusted";
-      addresses = ["10.0.20.1/24" "10.97.20.1/24"];
+      addresses = ["10.97.20.1/24"];
     })
     # Guest network - untrusted devices
     (mkVlanBridge {
       name = "GUEST";
       tag = 30;
       zone = "untrusted";
-      addresses = ["10.0.30.1/24" "10.97.30.1/24"];
+      addresses = ["10.97.30.1/24"];
     })
     # ADU network - separate dwelling unit
     (mkVlanBridge {
       name = "ADU";
       tag = 31;
       zone = "untrusted";
-      addresses = ["10.0.31.1/24" "10.97.31.1/24"];
+      addresses = ["10.97.31.1/24"];
     })
     # IoT network - smart home devices
     (mkVlanBridge {
       name = "IOT";
       tag = 40;
       zone = "untrusted";
-      addresses = ["10.0.40.1/24" "10.97.40.1/24"];
+      addresses = ["10.97.40.1/24"];
     })
     # Gaming network - consoles and gaming devices
     (mkVlanBridge {
       name = "GAME";
       tag = 41;
       zone = "untrusted";
-      addresses = ["10.0.41.1/24" "10.97.41.1/24"];
+      addresses = ["10.97.41.1/24"];
     })
     # DMZ network - exposed services
     (mkVlanBridge {
       name = "DMZ";
       tag = 100;
       zone = "dmz";
-      addresses = ["10.0.100.1/24" "10.97.100.1/24"];
+      addresses = ["10.97.100.1/24"];
     })
   ];
 
@@ -365,7 +365,7 @@ in {
       localDomain = "internal";
       interception = {
         enable = true;
-        extraExcludeAddresses = [phantasma.ipv4Legacy phantasma.ipv6];
+        extraExcludeAddresses = [phantasma.ipv6];
         target = host.ipv4;
         target6 = host.ipv6;
       };
@@ -517,7 +517,7 @@ in {
           mac = "00:e0:67:1b:70:37";
           network = {
             type = "static";
-            addresses = ["10.0.21.1/24"];
+            addresses = ["10.97.21.1/24"];
             subnetId = 21;
             zone = "trusted";
             dhcp.enable = true;
@@ -603,10 +603,8 @@ in {
     enable = true;
     extraConfig = ''
       allow ${net.networks.network.subnet4}
-      allow ${net.networks.network.subnet4Legacy}
       allow ${net.networks.network.subnet6}
       allow ${net.networks.management.subnet4}
-      allow ${net.networks.management.subnet4Legacy}
       allow ${net.networks.management.subnet6}
     '';
   };

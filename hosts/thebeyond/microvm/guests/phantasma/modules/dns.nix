@@ -27,12 +27,10 @@ in {
         allowed_clients = [
           "127.0.0.1"
           "::1"
-          h.thebeyond.ipv4 # thebeyond (router) — 10.97
-          h.thebeyond.ipv4Legacy # thebeyond (router) — 10.0 legacy
-          h.phantasma.ipv4 # Self — 10.97
-          h.phantasma.ipv4Legacy # Self — 10.0 legacy
-          h.thebeyond.ipv6 # thebeyond (router IPv6)
-          h.phantasma.ipv6 # Self IPv6
+          h.thebeyond.ipv4
+          h.phantasma.ipv4
+          h.thebeyond.ipv6
+          h.phantasma.ipv6
         ];
       };
       # Web interface binds to localhost only - accessed via nginx with OAuth
@@ -75,6 +73,13 @@ in {
             "ardent"
             "azoth"
             "calvard"
+            # network gear (OpenWrt)
+            "arseille"
+            "merkabah"
+            "derfflinger"
+            "pantagruel"
+            "bobcat"
+            "lusitania"
             # calvard guests
             "messeldam"
             "basel"

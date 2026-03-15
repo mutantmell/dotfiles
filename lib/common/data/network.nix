@@ -1,6 +1,5 @@
 {lib}: let
   ipv4Prefix = "10.97";
-  legacyIpv4Prefix = "10.0"; # Remove after migration to 10.97 is complete
   ulaPrefix = "fdc6:55f2:0a5e";
 
   vlanHex = vlanId: lib.toLower (lib.toHexString vlanId);
@@ -13,6 +12,11 @@
       vlanId = 10;
       hosts = {
         arseille = 12;
+        merkabah = 20;
+        derfflinger = 21;
+        pantagruel = 22;
+        bobcat = 23;
+        lusitania = 24;
       };
     };
     management = {
@@ -32,6 +36,7 @@
       hosts = {
         tharbad = 41; # Prometheus+Loki+Alertmanager+ntfy (calvard)
         edith = 42; # Dev environment / task runner (calvard Incus container)
+        azoth = 50; # Raspberry Pi (Home Assistant, MQTT)
       };
     };
     untrusted = {
@@ -74,9 +79,6 @@
       subnet6 = "${ulaPrefix}:${vlanHex net.vlanId}::/64";
       gateway4 = "${ipv4Prefix}.${toString net.vlanId}.1";
       gateway6 = "${ulaPrefix}:${vlanHex net.vlanId}::1";
-      # Legacy addresses — remove after 10.0 → 10.97 migration complete
-      subnet4Legacy = "${legacyIpv4Prefix}.${toString net.vlanId}.0/24";
-      gateway4Legacy = "${legacyIpv4Prefix}.${toString net.vlanId}.1";
     })
   rawNetworks;
 
@@ -89,35 +91,15 @@
     subnet6 = "${ulaPrefix}:${vlanHex vlanId}::/64";
     cidr4 = "${ipv4Prefix}.${toString vlanId}.${toString hostId}/24";
     cidr6 = "${ulaPrefix}:${vlanHex vlanId}::${hostHex hostId}/64";
-    # Legacy addresses — remove after 10.0 → 10.97 migration complete
-    ipv4Legacy = "${legacyIpv4Prefix}.${toString vlanId}.${toString hostId}";
-    cidr4Legacy = "${legacyIpv4Prefix}.${toString vlanId}.${toString hostId}/24";
-  };
-
-  # Mesh hosts use a separate prefix (10.1.x.x) and are not yet migrated
-  # to the zone-based addressing scheme.
-  mkMeshHost = vlanId: hostId: {
-    zoneName = "mesh";
-    inherit vlanId hostId;
-    ipv4 = "10.1.${toString vlanId}.${toString hostId}";
   };
 
   # Flatten networks into a single hosts attrset for direct lookup
   hosts =
-    (lib.concatMapAttrs (
-        zoneName: net:
-          lib.mapAttrs (_: hostId: mkHost zoneName net.vlanId hostId) net.hosts
-      )
-      networks)
-    // {
-      # Mesh hosts (10.1.x.x — separate prefix, not yet migrated)
-      merkabah = mkMeshHost 10 20;
-      derfflinger = mkMeshHost 10 21;
-      pantagruel = mkMeshHost 10 22;
-      bobcat = mkMeshHost 10 23;
-      lusitania = mkMeshHost 10 24;
-      azoth = mkMeshHost 20 50;
-    };
+    lib.concatMapAttrs (
+      zoneName: net:
+        lib.mapAttrs (_: hostId: mkHost zoneName net.vlanId hostId) net.hosts
+    )
+    networks;
 
   # Additional domain names per host, beyond the auto-derived
   # <name>.internal.mutantmell.net and <name>.internal.
@@ -154,10 +136,10 @@
     then s
     else s + lib.fixedWidthString padLen " " "";
 
-  header = "${pad 18 "Host"}${pad 18 "Zone"}${pad 18 "IPv4"}${pad 18 "IPv4 (legacy)"}IPv6";
+  header = "${pad 18 "Host"}${pad 18 "Zone"}${pad 18 "IPv4"}IPv6";
   separator = builtins.concatStringsSep "" (builtins.genList (_: "-") (builtins.stringLength header));
 
-  row = name: h: "${pad 18 name}${pad 18 h.zoneName}${pad 18 h.ipv4}${pad 18 (h.ipv4Legacy or "")}${h.ipv6 or ""}";
+  row = name: h: "${pad 18 name}${pad 18 h.zoneName}${pad 18 h.ipv4}${h.ipv6 or ""}";
 
   hostList = lib.mapAttrsToList lib.nameValuePair hosts;
   hostsByZone = builtins.groupBy (e: e.value.zoneName) hostList;
@@ -174,10 +156,6 @@
 
   # Markdown table for docs
   markdownRow = name: h: "| ${name} | ${h.zoneName} | `${h.ipv4}` | ${
-    if h ? ipv4Legacy
-    then "`${h.ipv4Legacy}`"
-    else ""
-  } | ${
     if h ? ipv6
     then "`${h.ipv6}`"
     else ""
@@ -190,8 +168,8 @@
       > **Auto-generated from `lib/common/data/network.nix`.** Do not edit manually.
       > Regenerate with: `nix run .#netinfo -- --generate-docs`
 
-      | Host | Zone | IPv4 | IPv4 (legacy) | IPv6 |
-      |------|------|------|---------------|------|
+      | Host | Zone | IPv4 | IPv6 |
+      |------|------|------|------|
     ''
     + lib.concatStringsSep "\n" (lib.mapAttrsToList markdownRow hosts)
     + "\n";
@@ -206,7 +184,7 @@
   };
 
   # mkExtraHosts: Generate /etc/hosts entries for a list of hostnames
-  # Produces IPv4, legacy IPv4, and IPv6 lines with canonical, short, and alias names
+  # Produces IPv4 and IPv6 lines with canonical, short, and alias names
   mkExtraHosts = hostnames:
     lib.concatMapStringsSep "\n" (name: let
       h = hosts.${name};
@@ -215,23 +193,19 @@
     in
       lib.concatStringsSep "\n" (lib.filter (s: s != "") [
         (lib.optionalString (h ? ipv4) "${h.ipv4} ${domainStr}")
-        (lib.optionalString (h ? ipv4Legacy) "${h.ipv4Legacy} ${domainStr}")
         (lib.optionalString (h ? ipv6) "${h.ipv6} ${domainStr}")
       ]))
     hostnames;
 
   # mkUnboundLocalData: Generate Unbound local-data entries (A + AAAA)
   # Produces canonical (.internal.mutantmell.net) and short alias (.internal) records
-  # Emits both primary and legacy A records during migration
   mkUnboundLocalData = hostnames:
     lib.concatMap (name: let
       h = hosts.${name};
     in
       lib.filter (s: s != "") [
         (lib.optionalString (h ? ipv4) ''"${name}.internal.mutantmell.net. A ${h.ipv4}"'')
-        (lib.optionalString (h ? ipv4Legacy) ''"${name}.internal.mutantmell.net. A ${h.ipv4Legacy}"'')
         (lib.optionalString (h ? ipv4) ''"${name}.internal. A ${h.ipv4}"'')
-        (lib.optionalString (h ? ipv4Legacy) ''"${name}.internal. A ${h.ipv4Legacy}"'')
         (lib.optionalString (h ? ipv6) ''"${name}.internal.mutantmell.net. AAAA ${h.ipv6}"'')
         (lib.optionalString (h ? ipv6) ''"${name}.internal. AAAA ${h.ipv6}"'')
       ])
@@ -247,7 +221,6 @@
       lib.concatMap (alias:
         lib.filter (s: s != "") [
           (lib.optionalString (h ? ipv4) ''"${alias}. A ${h.ipv4}"'')
-          (lib.optionalString (h ? ipv4Legacy) ''"${alias}. A ${h.ipv4Legacy}"'')
           (lib.optionalString (h ? ipv6) ''"${alias}. AAAA ${h.ipv6}"'')
         ])
       aliases)
@@ -315,7 +288,6 @@
     in
       lib.concatStringsSep "\n" (lib.filter (s: s != "") [
         (lib.optionalString (h ? ipv4) "${h.ipv4} ${domainStr}")
-        (lib.optionalString (h ? ipv4Legacy) "${h.ipv4Legacy} ${domainStr}")
         (lib.optionalString (h ? ipv6) "${h.ipv6} ${domainStr}")
       ]))
     hostnames;
@@ -323,12 +295,11 @@
   # Pre-computed /etc/hosts output for all registered hosts
   hostsFile = mkHostsFileEntries (builtins.attrNames hosts);
 
-  # mkDualEgressRules: Expand host-based egress rules into dual-stack nftables strings
+  # mkEgressRules: Expand host-based egress rules into dual-stack nftables strings
   # Each rule: { host OR gateway = true OR any = true; proto = "tcp"|"udp"; port = int|string; comment? = string; }
   # "gateway" uses the zone's gateway addresses instead of a host
   # "any" emits a single rule with no destination restriction
-  # Emits rules for both primary and legacy IPv4 addresses during migration
-  mkDualEgressRules = zone: rules:
+  mkEgressRules = zone: rules:
     lib.concatMap (
       rule: let
         port =
@@ -345,21 +316,17 @@
             then {
               v4 = zone.gateway4;
               v6 = zone.gateway6;
-              v4Legacy = zone.gateway4Legacy or null;
             }
             else if rule ? host
             then {
               v4 = hosts.${rule.host}.ipv4;
               v6 = hosts.${rule.host}.ipv6 or null;
-              v4Legacy = hosts.${rule.host}.ipv4Legacy or null;
             }
-            else abort "mkDualEgressRules: rule must have 'gateway', 'host', or 'any'";
+            else abort "mkEgressRules: rule must have 'gateway', 'host', or 'any'";
           v4 = "ip daddr ${addrs.v4} ${rule.proto} dport ${port} accept${comment}";
-          v4Legacy = "ip daddr ${addrs.v4Legacy} ${rule.proto} dport ${port} accept${comment}";
           v6 = "ip6 daddr ${addrs.v6} ${rule.proto} dport ${port} accept${comment}";
         in
           [v4]
-          ++ lib.optional (addrs.v4Legacy != null) v4Legacy
           ++ lib.optional (addrs.v6 != null) v6
     )
     rules;
@@ -367,7 +334,6 @@ in {
   inherit
     networks
     ipv4Prefix
-    legacyIpv4Prefix
     ulaPrefix
     mkHost
     hosts
@@ -379,7 +345,7 @@ in {
     mkExtraHosts
     mkUnboundLocalData
     mkUnboundAliasData
-    mkDualEgressRules
+    mkEgressRules
     hostinfoSummary
     hostinfoMarkdown
     mkHostsFileEntries

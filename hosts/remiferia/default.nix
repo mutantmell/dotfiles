@@ -92,7 +92,7 @@ in {
       matchConfig.Name = "enp4s0.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [host.cidr4 host.cidr4Legacy host.cidr6];
+      networkConfig.Address = [host.cidr4 host.cidr6];
       networkConfig.MulticastDNS = true;
       networkConfig.LLMNR = true;
       networkConfig.DNS = [zone.gateway4 zone.gateway6];
@@ -135,8 +135,8 @@ in {
   networking.firewall = {
     enable = true;
     extraInputRules = ''
-      # SSH from router + vHOME, drop all else (both 10.97 + 10.0 legacy)
-      ip saddr { ${zone.gateway4}, ${zone.gateway4Legacy}, ${net.networks.trusted.subnet4}, ${net.networks.trusted.subnet4Legacy} } tcp dport 22 accept
+      # SSH from router + vHOME, drop all else
+      ip saddr { ${zone.gateway4}, ${net.networks.trusted.subnet4} } tcp dport 22 accept
       ip6 saddr { ${zone.gateway6}, ${net.networks.trusted.subnet6} } tcp dport 22 accept
       tcp dport 22 drop
     '';
