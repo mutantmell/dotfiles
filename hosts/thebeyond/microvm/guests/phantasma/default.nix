@@ -55,7 +55,7 @@ in {
     + net.mkExtraHosts ["messeldam" "basel" "langport"];
 
   time.timeZone = "UTC";
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
   environment.persistence."/persist" = {
     hideMounts = true;

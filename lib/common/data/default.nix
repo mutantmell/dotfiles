@@ -3,6 +3,12 @@
   keys = builtins.fromJSON (
     builtins.readFile ./keys.json
   );
-  certs.root = ./certs/root_ca.crt;
-  certs.intermediate = ./certs/intermediate_ca.crt;
+  sshCA = let
+    path = ./ssh-ca.json;
+  in
+    if builtins.pathExists path
+    then builtins.fromJSON (builtins.readFile path)
+    else null;
+  pki.root = ./pki/root_ca.crt;
+  pki.intermediate = ./pki/intermediate_ca.crt;
 }

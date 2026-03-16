@@ -12,11 +12,23 @@ The goal is to eliminate TOFU for host verification and enable short-lived SSH u
 
 **Script:** `nix run .#ssh-ca-bootstrap`
 
-Generates user + host CA ed25519 key pairs, places public keys in `lib/common/data/certs/`, private keys in `.keys/`, creates `host-certs/` directory, and prints the sops commands to encrypt private keys into basel's secrets.
+Generates user + host CA ed25519 key pairs, writes public keys into `lib/common/data/ssh-ca.json`, and copies private keys to `.keys/` (gitignored).
+
+All SSH CA data lives in a single JSON file (`ssh-ca.json`), following the existing `keys.json` pattern:
+
+```json
+{
+  "userCA": "ssh-ed25519 AAAA...",
+  "hostCA": "ssh-ed25519 AAAA...",
+  "hostCerts": {}
+}
+```
+
+Currently, CA private keys live only in `.keys/` and are used locally by `ssh-cert-sign`. They are not deployed to any host. When step-ca integration is implemented (Step 3), the private keys will be encrypted as sops secrets on basel, where sops-nix decrypts them to `/run/secrets/` (tmpfs, memory-only). At that point the local `.keys/` copies can be removed.
 
 Manual follow-up after running the script:
-- Run the printed sops commands to encrypt private keys into `hosts/calvard/microvm/guests/basel/secrets/secrets.yaml`
-- Commit the public keys
+
+- Commit `ssh-ca.json`
 
 ---
 
@@ -24,15 +36,18 @@ Manual follow-up after running the script:
 
 **File:** `lib/common/data/default.nix`
 
-Add SSH CA public key references and host cert auto-discovery (add these entries once the key files from Step 1 exist):
+Add SSH CA data from JSON with a `pathExists` guard:
 
 ```nix
-certs.sshUserCA = ./certs/ssh_user_ca.pub;
-certs.sshHostCA = ./certs/ssh_host_ca.pub;
-certs.hostCerts = builtins.mapAttrs
-  (name: _: ./certs/host-certs/${name})
-  (builtins.readDir ./certs/host-certs);
+sshCA = let
+  path = ./ssh-ca.json;
+in
+  if builtins.pathExists path
+  then builtins.fromJSON (builtins.readFile path)
+  else null;
 ```
+
+The guard means everything works before SSH CA is bootstrapped — `sshCA` is `null` until the JSON file exists. No separate files or `builtins.readDir` needed.
 
 ---
 
@@ -41,6 +56,7 @@ certs.hostCerts = builtins.mapAttrs
 ### 3a. Add secrets — `hosts/calvard/microvm/guests/basel/sops.nix`
 
 Add to the `secrets` attrset:
+
 ```nix
 "ssh_user_ca_key" = step-ca;
 "ssh_host_ca_key" = step-ca;
@@ -49,6 +65,7 @@ Add to the `secrets` attrset:
 ### 3b. Configure SSH CA — `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`
 
 Add SSH key references to `settings`:
+
 ```nix
 authority = {
   provisioners = [ /* existing ACME */ ];
@@ -60,6 +77,7 @@ authority = {
 ```
 
 Add SSH user principal policy alongside existing `ssh.host`:
+
 ```nix
 policy = {
   x509 = allowLocal;
@@ -75,6 +93,7 @@ policy = {
 ### 3c. Add egress rule — `hosts/calvard/microvm/guests/basel/default.nix`
 
 Basel needs to reach messeldam for OIDC token validation:
+
 ```nix
 {
   host = "messeldam";
@@ -87,6 +106,7 @@ Basel needs to reach messeldam for OIDC token validation:
 ### 3d. Expose step-ca SSH endpoints via nginx
 
 Currently nginx only proxies `/acme`. Add a location for the SSH-related API paths. The simplest approach is to proxy all step-ca API paths:
+
 ```nix
 locations."/" = {
   proxyPass = "https://127.0.0.1:9443/";
@@ -117,6 +137,7 @@ Change the `step-ca` client from `"publicClient": false` to `"publicClient": tru
 ### 4c. Add OIDC provisioner — `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`
 
 Add to `authority.provisioners`:
+
 ```nix
 {
   type = "OIDC";
@@ -140,6 +161,7 @@ Add to `authority.provisioners`:
 **File:** `hosts/calvard/microvm/guests/basel/modules/templates/oidc.tpl` (new)
 
 Maps Keycloak `groups` claim to SSH certificate principals:
+
 ```json
 {
   "type": {{ toJson .Type }},
@@ -150,6 +172,7 @@ Maps Keycloak `groups` claim to SSH certificate principals:
 ```
 
 Deploy via `environment.etc` in step-ca.nix:
+
 ```nix
 environment.etc."step-ca/templates/ssh/oidc.tpl" = {
   source = ./templates/oidc.tpl;
@@ -182,36 +205,40 @@ nix run .#ssh-cert-sign -- --list
 # Sign a single host:
 nix run .#ssh-cert-sign -- calvard /etc/ssh/ssh_host_ed25519_key.pub
 
-# Interactive sign-all (prompts for each host's pubkey path):
+# Backfill host public keys from live hosts into keys.json:
+nix run .#ssh-cert-sign -- --backfill calvard
+nix run .#ssh-cert-sign -- --backfill --guests-dir /data/guests remiferia
+
+# Sign all hosts with registered public keys (non-interactive):
 nix run .#ssh-cert-sign -- --all
 ```
 
 ### Host key locations
 
-| Host type | Key location |
-|-----------|-------------|
-| MicroVM guests | `/static/etc/ssh/ssh_host_ed25519_key.pub` (on parent host's microVM volume) |
-| Parent hosts (calvard, remiferia, erebonia) | `/etc/ssh/ssh_host_ed25519_key.pub` |
-| thebeyond | `/etc/ssh/ssh_host_ed25519_key.pub` |
+| Host type                                   | Key location                                                                 |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| MicroVM guests                              | `/static/etc/ssh/ssh_host_ed25519_key.pub` (on parent host's microVM volume) |
+| Parent hosts (calvard, remiferia, erebonia) | `/etc/ssh/ssh_host_ed25519_key.pub`                                          |
+| thebeyond                                   | `/etc/ssh/ssh_host_ed25519_key.pub`                                          |
 
 ### Host principals (derived from `domainsForHost`)
 
-| Host | Principals |
-|------|-----------|
-| basel | `basel.internal.mutantmell.net`, `basel.internal` |
-| messeldam | `messeldam.internal.mutantmell.net`, `messeldam.internal`, `auth.mutantmell.net` |
-| langport | `langport.internal.mutantmell.net`, `langport.internal`, `mutantmell.net` |
-| creil | `creil.internal.mutantmell.net`, `creil.internal` |
-| oracion | `oracion.internal.mutantmell.net`, `oracion.internal` |
-| phantasma | `phantasma.internal.mutantmell.net`, `phantasma.internal` |
-| monrain | `monrain.internal.mutantmell.net`, `monrain.internal` |
-| ardent | `ardent.internal.mutantmell.net`, `ardent.internal`, `attic.ardent.internal.mutantmell.net`, `attic.ardent.internal` |
-| calvard | `calvard.internal.mutantmell.net`, `calvard.internal` |
+| Host      | Principals                                                                                                                |
+| --------- | ------------------------------------------------------------------------------------------------------------------------- |
+| basel     | `basel.internal.mutantmell.net`, `basel.internal`                                                                         |
+| messeldam | `messeldam.internal.mutantmell.net`, `messeldam.internal`, `auth.mutantmell.net`                                          |
+| langport  | `langport.internal.mutantmell.net`, `langport.internal`, `mutantmell.net`                                                 |
+| creil     | `creil.internal.mutantmell.net`, `creil.internal`                                                                         |
+| oracion   | `oracion.internal.mutantmell.net`, `oracion.internal`                                                                     |
+| phantasma | `phantasma.internal.mutantmell.net`, `phantasma.internal`                                                                 |
+| monrain   | `monrain.internal.mutantmell.net`, `monrain.internal`                                                                     |
+| ardent    | `ardent.internal.mutantmell.net`, `ardent.internal`, `attic.ardent.internal.mutantmell.net`, `attic.ardent.internal`      |
+| calvard   | `calvard.internal.mutantmell.net`, `calvard.internal`                                                                     |
 | thebeyond | `thebeyond.internal.mutantmell.net`, `thebeyond.internal`, `internal.mutantmell.net`, `yggdrasil.internal.mutantmell.net` |
-| remiferia | `remiferia.internal.mutantmell.net`, `remiferia.internal`, `jotunheimr.internal.mutantmell.net` |
-| erebonia | `erebonia.internal.mutantmell.net`, `erebonia.internal` |
+| remiferia | `remiferia.internal.mutantmell.net`, `remiferia.internal`, `jotunheimr.internal.mutantmell.net`                           |
+| erebonia  | `erebonia.internal.mutantmell.net`, `erebonia.internal`                                                                   |
 
-Signed `*-cert.pub` files are placed in `lib/common/data/certs/host-certs/` by the script.
+The signing script writes each certificate string into `ssh-ca.json` via `jq`. The `--list` subcommand also shows signed/unsigned status for each host.
 
 ---
 
@@ -219,18 +246,18 @@ Signed `*-cert.pub` files are placed in `lib/common/data/certs/host-certs/` by t
 
 **File:** `modules/common/openssh.nix`
 
-Add three new options with defaults that minimize per-host config:
+Add three new options with defaults that auto-discover from `ssh-ca.json` via the data loader:
 
 ```nix
 hostCertificate = lib.mkOption {
-  type = lib.types.nullOr lib.types.path;
-  default = /* auto-discovered from hostname via certs.hostCerts */;
-  description = "Path to the host's SSH certificate file. Auto-discovered by hostname if available.";
+  type = lib.types.nullOr lib.types.str;
+  default = /* auto-discovered from hostname in sshCA.hostCerts */;
+  description = "SSH host certificate string. Auto-discovered by hostname if available.";
 };
 
 trustedUserCA = lib.mkOption {
   type = lib.types.bool;
-  default = /* true when certs.sshUserCA exists, false otherwise */;
+  default = /* true when sshCA.userCA exists */;
   description = "Trust the project SSH user CA for certificate authentication";
 };
 
@@ -241,12 +268,13 @@ principals = lib.mkOption {
 };
 ```
 
-Config section adds `extraConfig` directives and `environment.etc` entries for:
+Config section adds `extraConfig` directives and `environment.etc` entries using `text` (not `source`, since data comes from JSON strings):
+
 - `HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub` (when cert exists)
 - `TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub` (when CA key exists)
 - `AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u` (when principals set)
 
-All defaults gracefully degrade when cert infrastructure isn't deployed yet. Existing `authorizedKeys` logic stays as break-glass fallback.
+All defaults gracefully degrade when `ssh-ca.json` doesn't exist yet (`sshCA` is `null`). Existing `authorizedKeys` logic stays as break-glass fallback.
 
 ---
 
@@ -255,6 +283,7 @@ All defaults gracefully degrade when cert infrastructure isn't deployed yet. Exi
 With smart defaults, **most hosts need no changes**. The module auto-discovers host certs by hostname and defaults to trusting the user CA.
 
 Only hosts needing CI/CD deploy access require an override:
+
 ```nix
 common.openssh.principals = { root = ["admin" "deploy"]; };
 ```
@@ -266,6 +295,7 @@ common.openssh.principals = { root = ["admin" "deploy"]; };
 ### Trust host CA in known_hosts
 
 Add to `~/.ssh/known_hosts`:
+
 ```
 @cert-authority *.internal,*.internal.mutantmell.net ssh-ed25519 AAAA...<SSH_HOST_CA_PUBLIC_KEY>...
 ```
@@ -273,6 +303,7 @@ Add to `~/.ssh/known_hosts`:
 ### SSH config
 
 Add to `~/.ssh/config`:
+
 ```
 Host *.internal *.internal.mutantmell.net
   User root
@@ -311,35 +342,35 @@ ssh root@calvard.internal
 ### `nix run .#ssh-ca-bootstrap` — one-time CA setup
 
 1. Generates user + host CA ed25519 key pairs
-2. Places public keys in `lib/common/data/certs/`
+2. Creates `lib/common/data/ssh-ca.json` with CA public keys and empty `hostCerts`
 3. Places private keys in `.keys/`
-4. Creates `lib/common/data/certs/host-certs/` directory
-5. Prints sops commands for encrypting private keys into basel's secrets
+4. Prints sops commands for encrypting private keys into basel's secrets
+
+Runtime deps: `git`, `openssh`, `jq`
 
 ### `nix run .#ssh-cert-sign` — host certificate signing
 
-- `-- <hostname> <pubkey-path>` — sign one host
-- `-- --all` — interactive sign-all (prompts for pubkey paths)
-- `-- --list` — show all hosts and their principals
+- `-- <hostname> <pubkey-path>` — sign one host, update `ssh-ca.json`
+- `-- --all` — sign all hosts with registered public keys (non-interactive, reads from `keys.json` registry)
+- `-- --list` — show all hosts with principals, signed/unsigned status, and pubkey registration status
+- `-- --backfill [--guests-dir <path>] <parent-host>` — fetch host public keys via SSH and register in `keys.json`
 
-Derives principals from `domainsForHost` in the network registry. No hardcoded mapping. Runtime deps: `git`, `step-cli`, `jq`.
+Derives principals from `domainsForHost` in the network registry. Signs certs with `step ssh certificate`, then writes the cert string into `ssh-ca.json` via `jq`. Host public keys are stored in `keys.json` under `hostKeys`, populated by `--backfill` or automatically during `deploy-nixos-anywhere.sh`. Runtime deps: `git`, `step-cli`, `jq`, `nix`.
 
 ---
 
 ## Critical Files
 
-| File | Change |
-|------|--------|
-| `lib/common/data/default.nix` | Add sshUserCA, sshHostCA, hostCerts |
-| `lib/common/data/certs/ssh_user_ca.pub` | New — user CA public key |
-| `lib/common/data/certs/ssh_host_ca.pub` | New — host CA public key |
-| `lib/common/data/certs/host-certs/*.pub` | New — signed host certs |
-| `hosts/calvard/microvm/guests/basel/sops.nix` | Add SSH CA private key secrets |
-| `hosts/calvard/microvm/guests/basel/modules/step-ca.nix` | SSH CA config, OIDC provisioner, template |
-| `hosts/calvard/microvm/guests/basel/modules/templates/oidc.tpl` | New — group-to-principal mapping |
-| `hosts/calvard/microvm/guests/basel/default.nix` | Egress rule to messeldam:443 |
-| `hosts/calvard/microvm/guests/messeldam/modules/homelab-realm.json` | step-ca client -> publicClient |
-| `modules/common/openssh.nix` | Add hostCertificate, trustedUserCA, principals options with smart defaults |
-| `apps/ssh-ca-bootstrap.nix` | New — CA key generation script |
-| `apps/ssh-cert-sign.nix` | New — host cert signing script |
-| `apps/default.nix` | Register both new apps |
+| File                                                                | Change                                                                     |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `lib/common/data/ssh-ca.json`                                       | New — all SSH CA public keys and host certs (created/updated by scripts)   |
+| `lib/common/data/default.nix`                                       | Add `sshCA` from JSON with `pathExists` guard                              |
+| `hosts/calvard/microvm/guests/basel/sops.nix`                       | Add SSH CA private key secrets                                             |
+| `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`            | SSH CA config, OIDC provisioner, template                                  |
+| `hosts/calvard/microvm/guests/basel/modules/templates/oidc.tpl`     | New — group-to-principal mapping                                           |
+| `hosts/calvard/microvm/guests/basel/default.nix`                    | Egress rule to messeldam:443                                               |
+| `hosts/calvard/microvm/guests/messeldam/modules/homelab-realm.json` | step-ca client -> publicClient                                             |
+| `modules/common/openssh.nix`                                        | Add hostCertificate, trustedUserCA, principals options with smart defaults |
+| `apps/ssh-ca-bootstrap.nix`                                         | New — CA key generation, writes JSON                                       |
+| `apps/ssh-cert-sign.nix`                                            | New — host cert signing, updates JSON                                      |
+| `apps/default.nix`                                                  | Register both new apps                                                     |

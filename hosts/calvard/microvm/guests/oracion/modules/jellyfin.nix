@@ -114,7 +114,7 @@ in {
 
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
-      source = pkgs.mmell.lib.data.certs.intermediate;
+      source = pkgs.mmell.lib.data.pki.intermediate;
       mode = "0444";
     };
   };

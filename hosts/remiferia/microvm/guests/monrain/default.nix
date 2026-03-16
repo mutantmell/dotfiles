@@ -46,7 +46,7 @@ in {
   networking.extraHosts = net.mkExtraHosts ["basel" "tharbad"];
 
   time.timeZone = "UTC";
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
   networking.firewall.allowedTCPPorts = [80 443];
   services.nginx = {

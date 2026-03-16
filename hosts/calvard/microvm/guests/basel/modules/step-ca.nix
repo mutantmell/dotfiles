@@ -7,15 +7,15 @@
 
   environment.etc = {
     "step-ca/data/intermediate_ca.crt" = {
-      source = pkgs.mmell.lib.data.certs.intermediate;
+      source = pkgs.mmell.lib.data.pki.intermediate;
       mode = "0444";
     };
     "step-ca/data/root_ca.crt" = {
-      source = pkgs.mmell.lib.data.certs.root;
+      source = pkgs.mmell.lib.data.pki.root;
       mode = "0444";
     };
   };
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
   services.step-ca = {
     enable = true;

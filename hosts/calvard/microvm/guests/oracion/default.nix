@@ -50,7 +50,7 @@ in {
       type = "ed25519";
     }
   ];
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
   environment.persistence."/persist" = {
     hideMounts = true;

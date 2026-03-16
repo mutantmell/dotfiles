@@ -21,10 +21,10 @@
 
   extraHostsBasic = net.mkExtraHosts ["messeldam" "basel"];
   # Primary (10.97) IPv4 + IPv6 lines
-  extraHostsMesseldamCanonical = contains "10.97.11.6 messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
-  extraHostsMesseldamV6Canonical = contains "fdc6:55f2:0a5e:b::6 messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
-  extraHostsBaselCanonical = contains "10.97.11.7 basel.internal.mutantmell.net basel.internal" extraHostsBasic;
-  extraHostsBaselV6Canonical = contains "fdc6:55f2:0a5e:b::7 basel.internal.mutantmell.net basel.internal" extraHostsBasic;
+  extraHostsMesseldamCanonical = contains "10.97.11.6 messeldam messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
+  extraHostsMesseldamV6Canonical = contains "fdc6:55f2:0a5e:b::6 messeldam messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
+  extraHostsBaselCanonical = contains "10.97.11.7 basel basel.internal.mutantmell.net basel.internal" extraHostsBasic;
+  extraHostsBaselV6Canonical = contains "fdc6:55f2:0a5e:b::7 basel basel.internal.mutantmell.net basel.internal" extraHostsBasic;
   extraHostsNoLegacy = !(contains "10.0." extraHostsBasic);
 
   # --- mkUnboundLocalData tests ---
@@ -48,25 +48,28 @@
   # --- domainsForHost tests ---
 
   domainsBasel = net.domainsForHost "basel";
+  domainsBaselBare =
+    assertEq "domainsBasel has bare hostname"
+    (builtins.elemAt domainsBasel 0) "basel";
   domainsBaselStandard =
     assertEq "domainsBasel has standard domains"
-    (builtins.elemAt domainsBasel 0) "basel.internal.mutantmell.net";
+    (builtins.elemAt domainsBasel 1) "basel.internal.mutantmell.net";
   domainsBaselShort =
     assertEq "domainsBasel has short domain"
-    (builtins.elemAt domainsBasel 1) "basel.internal";
-  domainsBaselCount = assertEq "domainsBasel count" (builtins.length domainsBasel) 2;
+    (builtins.elemAt domainsBasel 2) "basel.internal";
+  domainsBaselCount = assertEq "domainsBasel count" (builtins.length domainsBasel) 3;
 
   domainsMesseldam = net.domainsForHost "messeldam";
-  domainsMesseldamCount = assertEq "domainsMesseldam count" (builtins.length domainsMesseldam) 3;
+  domainsMesseldamCount = assertEq "domainsMesseldam count" (builtins.length domainsMesseldam) 4;
   domainsMesseldamAlias = builtins.elem "auth.mutantmell.net" domainsMesseldam;
 
   domainsThebeyond = net.domainsForHost "thebeyond";
-  domainsThebeyondCount = assertEq "domainsThebeyond count" (builtins.length domainsThebeyond) 6;
+  domainsThebeyondCount = assertEq "domainsThebeyond count" (builtins.length domainsThebeyond) 7;
   domainsThebeyondYggdrasil = builtins.elem "yggdrasil.internal.mutantmell.net" domainsThebeyond;
   domainsThebeyondInternal = builtins.elem "internal.mutantmell.net" domainsThebeyond;
 
   domainsAzoth = net.domainsForHost "azoth";
-  domainsAzothCount = assertEq "domainsAzoth count" (builtins.length domainsAzoth) 2;
+  domainsAzothCount = assertEq "domainsAzoth count" (builtins.length domainsAzoth) 3;
 
   # --- mkUnboundAliasData tests ---
 
@@ -89,8 +92,8 @@
   # --- mkHostsFileEntries tests ---
 
   hostsFileBasic = net.mkHostsFileEntries ["messeldam"];
-  hostsFileMesseldamV4 = contains "10.97.11.6 messeldam.internal.mutantmell.net messeldam.internal auth.mutantmell.net" hostsFileBasic;
-  hostsFileMesseldamV6 = contains "fdc6:55f2:0a5e:b::6 messeldam.internal.mutantmell.net messeldam.internal auth.mutantmell.net" hostsFileBasic;
+  hostsFileMesseldamV4 = contains "10.97.11.6 messeldam messeldam.internal.mutantmell.net messeldam.internal auth.mutantmell.net" hostsFileBasic;
+  hostsFileMesseldamV6 = contains "fdc6:55f2:0a5e:b::6 messeldam messeldam.internal.mutantmell.net messeldam.internal auth.mutantmell.net" hostsFileBasic;
   hostsFileNoLegacy = !(contains "10.0." hostsFileBasic);
 
   # --- mkExtraHosts includes aliases ---
@@ -174,15 +177,16 @@
     "mkUnboundLocalData dual-stack host produces 8 records" = unboundDualStackCount;
 
     # domainsForHost
+    "domainsForHost returns bare hostname first" = domainsBaselBare;
     "domainsForHost returns standard canonical domain" = domainsBaselStandard;
     "domainsForHost returns standard short domain" = domainsBaselShort;
-    "domainsForHost returns 2 domains for host without aliases" = domainsBaselCount;
-    "domainsForHost returns 3 domains for messeldam (1 alias)" = domainsMesseldamCount;
+    "domainsForHost returns 3 domains for host without aliases" = domainsBaselCount;
+    "domainsForHost returns 4 domains for messeldam (1 alias)" = domainsMesseldamCount;
     "domainsForHost includes auth.mutantmell.net for messeldam" = domainsMesseldamAlias;
-    "domainsForHost returns 6 domains for thebeyond (4 aliases)" = domainsThebeyondCount;
+    "domainsForHost returns 7 domains for thebeyond (4 aliases)" = domainsThebeyondCount;
     "domainsForHost includes yggdrasil alias for thebeyond" = domainsThebeyondYggdrasil;
     "domainsForHost includes internal alias for thebeyond" = domainsThebeyondInternal;
-    "domainsForHost returns 2 domains for azoth" = domainsAzothCount;
+    "domainsForHost returns 3 domains for azoth" = domainsAzothCount;
 
     # mkUnboundAliasData
     "mkUnboundAliasData produces A for messeldam alias" = aliasDataMesseldamA;

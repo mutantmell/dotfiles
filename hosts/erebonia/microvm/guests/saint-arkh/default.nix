@@ -48,7 +48,7 @@ in {
   networking.extraHosts = net.mkExtraHosts ["creil" "tharbad"];
 
   time.timeZone = "UTC";
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
   environment.persistence."/persist" = {
     hideMounts = true;
