@@ -112,6 +112,13 @@ let
           ${pkgs.incus}/bin/incus start "$INSTANCE"
         fi
       ''}
+
+      # Wait for the instance agent to be ready so downstream services
+      # (e.g. incus-update-instances) can use incus exec immediately
+      ${optionalString guestCfg.autoStart ''
+        echo "Waiting for agent in $INSTANCE..."
+        ${pkgs.incus}/bin/incus wait "$INSTANCE" agent
+      ''}
     '';
 
   # Per-instance update script: push pre-built closure via incus exec + switch-to-configuration
