@@ -8,7 +8,8 @@
 #
 # Manages the lifecycle of Incus containers and virtual machines declaratively.
 # Instances are created from pre-built NixOS system closures and updated via
-# `nix copy` + `switch-to-configuration` over SSH.
+# `incus exec` with differential `nix-store --export/--import` + `switch-to-configuration`.
+# This avoids SSH key management and works even when guest networking is broken.
 #
 # Image safety: mkVMImage and mkContainerImage produce nix store derivations
 # containing only the NixOS system closure (binaries, derivations, symlinks).
@@ -113,28 +114,40 @@ let
       ''}
     '';
 
-  # Per-instance update script: push pre-built closure via nix copy + switch-to-configuration
+  # Per-instance update script: push pre-built closure via incus exec + switch-to-configuration
+  # Uses incus exec instead of SSH to avoid key management issues and work even
+  # when guest networking is broken. Differential transfer: only missing store
+  # paths are exported.
   mkInstanceUpdateScript = name: guestCfg: let
     inherit (guestCfg.system.config.system.build) toplevel;
+    incus = "${pkgs.incus}/bin/incus";
+    nix-store = "${pkgs.nix}/bin/nix-store";
   in
     pkgs.writeShellScript "incus-update-${name}" ''
       set -e
-      export PATH="${pkgs.openssh}/bin:$PATH"
       INSTANCE="${name}"
 
-      if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
+      if ! ${incus} list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
         echo "Instance $INSTANCE is not running, skipping update"
         exit 0
       fi
 
       echo "Updating instance: $INSTANCE"
 
-      # Copy the closure to the instance via SSH
-      ${pkgs.nix}/bin/nix copy --to "ssh://root@$INSTANCE" ${toplevel} --no-check-sigs
+      # Find store paths missing from the guest (differential transfer)
+      ALL_PATHS=$(${nix-store} -qR ${toplevel})
+      MISSING=$(echo "$ALL_PATHS" | ${incus} exec "$INSTANCE" -- \
+        xargs nix-store --check-validity --print-invalid 2>/dev/null) || true
+
+      if [ -n "$MISSING" ]; then
+        echo "Copying $(echo "$MISSING" | wc -w) store paths to $INSTANCE..."
+        ${nix-store} --export $MISSING | ${incus} exec "$INSTANCE" -- nix-store --import
+      else
+        echo "All store paths already present in $INSTANCE"
+      fi
 
       # Activate the new configuration
-      ${pkgs.openssh}/bin/ssh -o StrictHostKeyChecking=no root@"$INSTANCE" \
-        "${toplevel}/bin/switch-to-configuration switch"
+      ${incus} exec "$INSTANCE" -- ${toplevel}/bin/switch-to-configuration switch
 
       echo "Instance $INSTANCE updated successfully"
     '';
