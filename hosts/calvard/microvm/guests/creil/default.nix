@@ -48,7 +48,7 @@ in {
   networking.extraHosts = net.mkExtraHosts ["basel" "tharbad"];
 
   time.timeZone = "UTC";
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
   # Port 22: SSH (openssh — also serves Forgejo git SSH via authorized_keys)
   # Port 80: ACME HTTP-01 challenge

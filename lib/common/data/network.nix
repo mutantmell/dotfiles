@@ -123,10 +123,13 @@
     ];
   };
 
-  # All domains a host is reachable by (standard + aliases)
+  # All domains a host is reachable by (bare hostname + FQDNs + aliases)
   domainsForHost = name:
-    ["${name}.internal.mutantmell.net" "${name}.internal"]
+    [name "${name}.internal.mutantmell.net" "${name}.internal"]
     ++ (hostAliases.${name} or []);
+
+  # All hosts mapped to their domains (for batch lookups)
+  allHostDomains = lib.mapAttrs (name: _: domainsForHost name) hosts;
 
   # Human-readable summary table
   pad = n: s: let
@@ -339,6 +342,7 @@ in {
     hosts
     hostAliases
     domainsForHost
+    allHostDomains
     summary
     markdown
     forHost

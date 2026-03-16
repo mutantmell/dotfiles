@@ -55,7 +55,7 @@ in {
   };
   networking.extraHosts = net.mkExtraHosts ["phantasma" "messeldam" "basel" "oracion"];
 
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
   # Egress filtering — default-drop with explicit allowlist
   networking.nftables.enable = true;

@@ -22,6 +22,14 @@ EXTRA_ARGS=("$@")
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# --- Dependency checks ---
+for cmd in jq ssh-keygen ssh-to-age sops nix; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "Required command not found: $cmd"
+    exit 1
+  fi
+done
+
 # --- Detect host profile from Nix config ---
 # Derives profile from the actual disko config:
 #   tmpfs  = LUKS + XFS (or non-btrfs) with tmpfs root
@@ -60,6 +68,20 @@ SSH_KEY="$KEYFILE_DIR/ssh_host_ed25519_key"
 INITRD_SSH_KEY="$KEYFILE_DIR/initrd_ssh_host_ed25519_key"
 KEYS_DIR="$REPO_ROOT/.keys"
 
+# Update keys.json host key registry
+update_host_key_registry() {
+  local name="$1"
+  local pubkey_file="$2"
+  local pubkey
+  pubkey=$(cat "$pubkey_file")
+  local json_file="$REPO_ROOT/lib/common/data/keys.json"
+
+  jq --arg name "$name" --arg key "$pubkey" \
+    '.hostKeys[$name] = $key' "$json_file" >"$json_file.tmp" &&
+    mv "$json_file.tmp" "$json_file"
+  echo "  Updated keys.json: hostKeys.$name"
+}
+
 # --- Encryption key setup (profile-dependent) ---
 if [[ $PROFILE == "tmpfs" || $PROFILE == "btrfs" ]]; then
   KEYFILE="$KEYFILE_DIR/disk.key"
@@ -95,6 +117,7 @@ else
   echo "Generating new SSH host key..."
   ssh-keygen -t ed25519 -f "$SSH_KEY" -q -N ""
 fi
+update_host_key_registry "$HOSTNAME" "$SSH_KEY.pub"
 
 # --- Initrd SSH host key setup (zfs profile only, for remote unlock) ---
 if [[ $PROFILE == "zfs" ]]; then
@@ -211,6 +234,7 @@ if [[ -d $GUEST_DIR ]]; then
       echo "    Generating new SSH key..."
       ssh-keygen -t ed25519 -f "$GUEST_SSH_KEY" -q -N ""
     fi
+    update_host_key_registry "$guest" "$GUEST_SSH_KEY.pub"
 
     # Place SSH key in extra-files for virtiofs share
     mkdir -p "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh"
@@ -287,6 +311,7 @@ if [[ -d $INCUS_GUEST_DIR ]]; then
       echo "    Generating new SSH key..."
       ssh-keygen -t ed25519 -f "$GUEST_SSH_KEY" -q -N ""
     fi
+    update_host_key_registry "$guest" "$GUEST_SSH_KEY.pub"
 
     # Place SSH key in extra-files for static directory bind mount
     mkdir -p "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh"

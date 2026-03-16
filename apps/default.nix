@@ -27,6 +27,10 @@ in {
   # Host domain registry lookup
   hostinfo = import ./hostinfo.nix {inherit pkgs;};
 
+  # SSH CA management
+  ssh-ca-bootstrap = import ./ssh-ca-bootstrap.nix {inherit pkgs;};
+  ssh-cert-sign = import ./ssh-cert-sign.nix {inherit pkgs;};
+
   # OpenWrt device management
   inherit
     (openwrt)

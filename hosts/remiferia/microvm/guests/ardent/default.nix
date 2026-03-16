@@ -47,7 +47,7 @@ in {
   networking.extraHosts = net.mkExtraHosts ["basel"];
 
   time.timeZone = "UTC";
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.certs.root)];
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
   # Shared nginx + ACME for attic vhost
   networking.firewall.allowedTCPPorts = [80 443];
@@ -57,7 +57,7 @@ in {
     recommendedProxySettings = true;
   };
   environment.etc."step-ca/data/intermediate_ca.crt" = {
-    source = pkgs.mmell.lib.data.certs.intermediate;
+    source = pkgs.mmell.lib.data.pki.intermediate;
     mode = "0444";
   };
   security.acme = {
