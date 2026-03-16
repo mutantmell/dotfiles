@@ -119,6 +119,7 @@ let
   in
     pkgs.writeShellScript "incus-update-${name}" ''
       set -e
+      export PATH="${pkgs.openssh}/bin:$PATH"
       INSTANCE="${name}"
 
       if ! ${pkgs.incus}/bin/incus list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
