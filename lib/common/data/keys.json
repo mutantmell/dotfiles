@@ -4,7 +4,7 @@
     "home": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com",
     "remiferia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFc95ROxFt8eNrMdQrg01UXMYeJpKfWcIF7mSwWTD4+O malaguy@gmail.com",
     "erebonia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJqOeAuTSDE4SAzqZGxAieyxL/4LIhwdkI3jt8aUNEBc root@muspelheim",
-    "calvard": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl4UkXB94b0e/4YrPXIT4J4l73/mCwh724Yr1VFy7dk root@vanaheim",
+    "calvard": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPPrAJtcSgkYA6Lju5AOjYU+xBJipuczEJafpZs1yUSQ root@jotunheimr",
     "edith": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgpU3TfPTQS/+qf9wETOLFanwfQAh7xHsy6ZHCpyJYT malaguy@gmail.com"
   },
   "hostKeys": {}
