@@ -132,7 +132,7 @@ let
       ${pkgs.nix}/bin/nix copy --to "ssh://root@$INSTANCE" ${toplevel} --no-check-sigs
 
       # Activate the new configuration
-      ssh -o StrictHostKeyChecking=no root@"$INSTANCE" \
+      ${pkgs.openssh}/bin/ssh -o StrictHostKeyChecking=no root@"$INSTANCE" \
         "${toplevel}/bin/switch-to-configuration switch"
 
       echo "Instance $INSTANCE updated successfully"
