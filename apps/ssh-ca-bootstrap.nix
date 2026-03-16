@@ -20,39 +20,36 @@
       exit 1
     fi
 
-    WORK_DIR=$(mktemp -d)
-    trap 'rm -rf "$WORK_DIR"' EXIT
+    KEYS_DIR="$FLAKE_ROOT/.keys"
+    mkdir -p "$KEYS_DIR"
 
-    # Generate key pairs
-    ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "$WORK_DIR/ssh_user_ca_key" -C "ssh-user-ca@mutantmell.net" -N ""
-    ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "$WORK_DIR/ssh_host_ca_key" -C "ssh-host-ca@mutantmell.net" -N ""
+    # Generate key pairs in .keys directory
+    ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "$KEYS_DIR/ssh_user_ca_key" -C "ssh-user-ca@mutantmell.net" -N ""
+    ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "$KEYS_DIR/ssh_host_ca_key" -C "ssh-host-ca@mutantmell.net" -N ""
 
     # Write public keys to pki directory
     mkdir -p "$PKI_DIR"
-    cp "$WORK_DIR/ssh_user_ca_key.pub" "$PKI_DIR/ssh_user_ca.pub"
-    cp "$WORK_DIR/ssh_host_ca_key.pub" "$PKI_DIR/ssh_host_ca.pub"
+    cp "$KEYS_DIR/ssh_user_ca_key.pub" "$PKI_DIR/ssh_user_ca.pub"
+    cp "$KEYS_DIR/ssh_host_ca_key.pub" "$PKI_DIR/ssh_host_ca.pub"
 
     echo ""
     echo "SSH CA bootstrapped:"
     echo "  Public keys written to:"
     echo "    $PKI_DIR/ssh_user_ca.pub"
     echo "    $PKI_DIR/ssh_host_ca.pub"
+    echo "  Private keys saved to:"
+    echo "    $KEYS_DIR/ssh_user_ca_key"
+    echo "    $KEYS_DIR/ssh_host_ca_key"
     echo ""
     echo "Next steps:"
     echo ""
     echo "  1. Encrypt private keys into basel's sops secrets:"
-    echo ""
-    echo "     sops set $SOPS_SECRETS \\"
-    echo "       '[\"ssh_user_ca_key\"]' \"'$(cat "$WORK_DIR/ssh_user_ca_key")'\""
-    echo ""
-    echo "     sops set $SOPS_SECRETS \\"
-    echo "       '[\"ssh_host_ca_key\"]' \"'$(cat "$WORK_DIR/ssh_host_ca_key")'\""
+    echo "     sops keys: '[\"ssh_user_ca_key\"]' and '[\"ssh_host_ca_key\"]'"
+    echo "     sops file: $SOPS_SECRETS"
+    echo "     private key files: $KEYS_DIR/ssh_user_ca_key, $KEYS_DIR/ssh_host_ca_key"
     echo ""
     echo "  2. Commit the public keys:"
     echo "     git add lib/common/data/pki/ssh_user_ca.pub lib/common/data/pki/ssh_host_ca.pub"
-    echo ""
-    echo "  The private keys exist only in the temp directory above and will be"
-    echo "  deleted when this script exits. Make sure to run the sops commands first."
   '';
 in {
   type = "app";

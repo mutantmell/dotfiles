@@ -7,7 +7,6 @@
 }: let
   cfg = config.common.openssh;
   inherit (pkgs.mmell.lib.data) pki;
-  hasSshUserCA = pki.sshUserCA != null;
 in {
   options.common.openssh = {
     enable = lib.mkEnableOption "Common OpenSSH Configuration";
@@ -27,8 +26,7 @@ in {
     };
     trustedUserCA = lib.mkOption {
       type = lib.types.bool;
-      default = hasSshUserCA;
-      defaultText = lib.literalExpression "true when lib/common/data/pki/ssh_user_ca.pub exists";
+      default = true;
       description = "Trust the project SSH user CA for certificate authentication.";
     };
     principals = lib.mkOption {
@@ -53,13 +51,6 @@ in {
         "AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u"
       );
     };
-
-    assertions = [
-      {
-        assertion = cfg.trustedUserCA -> hasSshUserCA;
-        message = "common.openssh.trustedUserCA is true but lib/common/data/pki/ssh_user_ca.pub does not exist";
-      }
-    ];
 
     environment.etc =
       lib.optionalAttrs cfg.trustedUserCA {
