@@ -77,17 +77,16 @@ in {
         wantedBy = ["initrd.target"];
         after = ["cryptsetup.target"];
         before = ["sysroot.mount"];
-        path = [pkgs.coreutils pkgs.btrfs-progs pkgs.util-linux];
         unitConfig.DefaultDependencies = "no";
         serviceConfig.Type = "oneshot";
         script = ''
-          mkdir -p /mnt
-          mount ${cfg.impermanence.device} /mnt -o subvolid=5
+          ${pkgs.coreutils}/bin/mkdir -p /mnt
+          ${pkgs.util-linux}/bin/mount ${cfg.impermanence.device} /mnt -o subvolid=5
           if [ -d /mnt/${cfg.impermanence.subvolume} ]; then
-            btrfs subvolume delete /mnt/${cfg.impermanence.subvolume}
+            ${pkgs.btrfs-progs}/bin/btrfs subvolume delete /mnt/${cfg.impermanence.subvolume}
           fi
-          btrfs subvolume snapshot /mnt/${cfg.impermanence.blankSnapshot} /mnt/${cfg.impermanence.subvolume}
-          umount /mnt
+          ${pkgs.btrfs-progs}/bin/btrfs subvolume snapshot /mnt/${cfg.impermanence.blankSnapshot} /mnt/${cfg.impermanence.subvolume}
+          ${pkgs.util-linux}/bin/umount /mnt
         '';
       };
     })
