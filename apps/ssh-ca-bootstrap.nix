@@ -2,25 +2,21 @@
 #
 # Usage:
 #   nix run .#ssh-ca-bootstrap
-#   nix run .#ssh-ca-bootstrap -- --force   # overwrite existing CA keys
+#   nix run .#ssh-ca-bootstrap -- --force   # overwrite existing keys
 #
-# Future goals:
-#   - Encrypt CA private keys as sops secrets on basel (the PKI host).
-#     sops-nix decrypts to /run/secrets/ (tmpfs), so keys are only
-#     materialized in memory. Once stored there, remove from .keys/.
-#   - When step-ca is deployed on basel, it can use the sops-managed
-#     keys directly for automated certificate issuance.
+# Generates SSH CA key pairs, writes public keys to lib/common/data/pki/,
+# and prints sops commands to encrypt private keys into basel's secrets.
 {pkgs}: let
   script = pkgs.writeShellScript "ssh-ca-bootstrap" ''
     set -euo pipefail
     FLAKE_ROOT="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
-    JSON_FILE="$FLAKE_ROOT/lib/common/data/ssh-ca.json"
-    KEYS_DIR="$FLAKE_ROOT/.keys"
+    PKI_DIR="$FLAKE_ROOT/lib/common/data/pki"
+    SOPS_SECRETS="$FLAKE_ROOT/hosts/calvard/microvm/guests/basel/secrets/secrets.yaml"
 
     # Guard: don't overwrite existing keys unless --force
-    if [ -f "$JSON_FILE" ] && [ "''${1:-}" != "--force" ]; then
-      echo "SSH CA data already exists at $JSON_FILE."
-      echo "Use --force to regenerate (invalidates all existing host certs)."
+    if [ -f "$PKI_DIR/ssh_user_ca.pub" ] && [ "''${1:-}" != "--force" ]; then
+      echo "SSH CA public keys already exist in $PKI_DIR."
+      echo "Use --force to regenerate (invalidates all existing host/user certs)."
       exit 1
     fi
 
@@ -31,36 +27,32 @@
     ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "$WORK_DIR/ssh_user_ca_key" -C "ssh-user-ca@mutantmell.net" -N ""
     ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f "$WORK_DIR/ssh_host_ca_key" -C "ssh-host-ca@mutantmell.net" -N ""
 
-    # Read public keys
-    USER_CA_PUB=$(cat "$WORK_DIR/ssh_user_ca_key.pub")
-    HOST_CA_PUB=$(cat "$WORK_DIR/ssh_host_ca_key.pub")
-
-    # Create JSON file with CA public keys
-    ${pkgs.jq}/bin/jq -n \
-      --arg userCA "$USER_CA_PUB" \
-      --arg hostCA "$HOST_CA_PUB" \
-      '{ userCA: $userCA, hostCA: $hostCA, hostCerts: {} }' \
-      > "$JSON_FILE"
-
-    # Place private keys alongside age keys
-    mkdir -p "$KEYS_DIR"
-    cp "$WORK_DIR/ssh_user_ca_key" "$KEYS_DIR/"
-    cp "$WORK_DIR/ssh_host_ca_key" "$KEYS_DIR/"
-    chmod 600 "$KEYS_DIR/ssh_user_ca_key" "$KEYS_DIR/ssh_host_ca_key"
+    # Write public keys to pki directory
+    mkdir -p "$PKI_DIR"
+    cp "$WORK_DIR/ssh_user_ca_key.pub" "$PKI_DIR/ssh_user_ca.pub"
+    cp "$WORK_DIR/ssh_host_ca_key.pub" "$PKI_DIR/ssh_host_ca.pub"
 
     echo ""
     echo "SSH CA bootstrapped:"
-    echo "  Data:    $JSON_FILE"
-    echo "  Private: $KEYS_DIR/ssh_user_ca_key"
-    echo "  Private: $KEYS_DIR/ssh_host_ca_key"
-    echo ""
-    echo "Private keys live in .keys/ (gitignored). Keep a backup — these are"
-    echo "the root of trust for SSH certificate auth. They are used locally by"
-    echo "ssh-cert-sign and do not need to be deployed to any host."
+    echo "  Public keys written to:"
+    echo "    $PKI_DIR/ssh_user_ca.pub"
+    echo "    $PKI_DIR/ssh_host_ca.pub"
     echo ""
     echo "Next steps:"
-    echo "  1. Run: nix run .#ssh-cert-sign -- --all"
-    echo "  2. Commit ssh-ca.json"
+    echo ""
+    echo "  1. Encrypt private keys into basel's sops secrets:"
+    echo ""
+    echo "     sops set $SOPS_SECRETS \\"
+    echo "       '[\"ssh_user_ca_key\"]' \"'$(cat "$WORK_DIR/ssh_user_ca_key")'\""
+    echo ""
+    echo "     sops set $SOPS_SECRETS \\"
+    echo "       '[\"ssh_host_ca_key\"]' \"'$(cat "$WORK_DIR/ssh_host_ca_key")'\""
+    echo ""
+    echo "  2. Commit the public keys:"
+    echo "     git add lib/common/data/pki/ssh_user_ca.pub lib/common/data/pki/ssh_host_ca.pub"
+    echo ""
+    echo "  The private keys exist only in the temp directory above and will be"
+    echo "  deleted when this script exits. Make sure to run the sops commands first."
   '';
 in {
   type = "app";
