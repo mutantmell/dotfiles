@@ -77,7 +77,7 @@ in {
         wantedBy = ["initrd.target"];
         after = ["cryptsetup.target"];
         before = ["sysroot.mount"];
-        path = [pkgs.btrfs-progs pkgs.util-linux];
+        path = [pkgs.coreutils pkgs.btrfs-progs pkgs.util-linux];
         unitConfig.DefaultDependencies = "no";
         serviceConfig.Type = "oneshot";
         script = ''
