@@ -248,7 +248,7 @@ in {
       systemd.services.incus-ensure-instances = {
         description = "Ensure Incus instances exist and are started";
         after = ["incus.service" "incus-preseed.service"];
-        wants = ["incus.service"];
+        requires = ["incus.service"];
         wantedBy = ["multi-user.target"];
 
         serviceConfig = {
@@ -263,8 +263,8 @@ in {
       # and can also be triggered manually via incus-update-instances helper.
       systemd.services.incus-update-instances = {
         description = "Update Incus instances with pre-built closures";
-        after = ["incus-ensure-instances.service"];
-        requires = ["incus.service"];
+        after = ["incus.service" "incus-ensure-instances.service"];
+        requires = ["incus.service" "incus-ensure-instances.service"];
 
         serviceConfig = {
           Type = "oneshot";
