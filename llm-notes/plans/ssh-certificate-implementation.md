@@ -10,9 +10,11 @@ The goal is to enable short-lived SSH user certificates authenticated via Keyclo
 
 Already implemented:
 
-- `modules/common/openssh.nix` — `trustedUserCA` and `principals` options with smart defaults, auto-enabled when `lib/common/data/pki/ssh_user_ca.pub` exists
-- `lib/common/data/default.nix` — `pki.sshUserCA` and `pki.sshHostCA` with `pathExists` guards
-- `apps/ssh-ca-bootstrap.nix` — generates CA key pairs, writes public keys to `pki/`, prints sops commands
+- **Step 1 complete** — CA key pairs generated, public keys committed to `lib/common/data/pki/`
+- **Step 5 groundwork complete** — `trustedUserCA` defaults to `true`, principals configured. Safe to deploy before step-ca is issuing certificates: `TrustedUserCAKeys` and `AuthorizedPrincipalsFile` are inert until certificates are actually presented. Static SSH key auth is unaffected.
+- `modules/common/openssh.nix` — `trustedUserCA` (default `true`) and `principals` options
+- `lib/common/data/default.nix` — `pki.sshUserCA` and `pki.sshHostCA` (direct paths, keys always present)
+- `apps/ssh-ca-bootstrap.nix` — generates CA key pairs, writes public keys to `pki/`, saves private keys to `.keys/`, prints sops key names and paths
 - `apps/ssh-key-registry.nix` — `--backfill` fetches host public keys via SSH into `keys.json`, `--list` shows registration status
 - `scripts/deploy-nixos-anywhere.sh` — automatically registers host public keys in `keys.json` during deployment
 - `lib/common/data/keys.json` — `hostKeys` section for host public key registry
@@ -27,11 +29,14 @@ nix run .#ssh-ca-bootstrap
 
 Generates user + host CA ed25519 key pairs, writes public keys to `lib/common/data/pki/ssh_user_ca.pub` and `ssh_host_ca.pub`.
 
-The script prints sops commands to encrypt the private keys into basel's secrets. **Run the sops commands before the script exits** — the private keys exist only in a temp directory that is cleaned up on exit.
+The script saves private keys to `.keys/` (gitignored) and prints the sops key names and file path needed to encrypt them into basel's secrets.
 
 Manual follow-up:
 
+- Encrypt private keys into basel's sops secrets (key names and paths printed by the script)
 - Commit the public keys: `git add lib/common/data/pki/ssh_user_ca.pub lib/common/data/pki/ssh_host_ca.pub`
+
+**Status: Complete.**
 
 ---
 
@@ -273,7 +278,8 @@ The exact signing mechanism (script, step-ca API calls, or host auto-renewal) ca
 
 1. Generates user + host CA ed25519 key pairs
 2. Writes public keys to `lib/common/data/pki/`
-3. Prints sops commands for encrypting private keys into basel's secrets
+3. Saves private keys to `.keys/` (gitignored)
+4. Prints sops key names and paths for encrypting private keys into basel's secrets
 
 Runtime deps: `git`, `openssh`
 
@@ -288,19 +294,19 @@ Discovers guests from the local repo structure (`hosts/<parent>/microvm/guests/`
 
 ## Critical Files
 
-| File                                                                | Change                                                       |
-| ------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `lib/common/data/pki/ssh_user_ca.pub`                               | New — SSH user CA public key (created by bootstrap)          |
-| `lib/common/data/pki/ssh_host_ca.pub`                               | New — SSH host CA public key (created by bootstrap)          |
-| `lib/common/data/default.nix`                                       | `pki.sshUserCA` and `pki.sshHostCA` with `pathExists` guards |
-| `lib/common/data/keys.json`                                         | `hostKeys` section for host public key registry              |
-| `hosts/calvard/microvm/guests/basel/sops.nix`                       | Add SSH CA private key secrets                               |
-| `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`            | SSH CA config, OIDC provisioner, template                    |
-| `hosts/calvard/microvm/guests/basel/modules/templates/oidc.tpl`     | New — group-to-principal mapping                             |
-| `hosts/calvard/microvm/guests/basel/default.nix`                    | Egress rule to messeldam:443                                 |
-| `hosts/calvard/microvm/guests/messeldam/modules/homelab-realm.json` | step-ca client -> publicClient                               |
-| `modules/common/openssh.nix`                                        | `trustedUserCA` and `principals` options with smart defaults |
-| `apps/ssh-ca-bootstrap.nix`                                         | CA key generation, writes public keys to pki/                |
-| `apps/ssh-key-registry.nix`                                         | Host public key backfill and listing                         |
-| `apps/default.nix`                                                  | Register both apps                                           |
-| `scripts/deploy-nixos-anywhere.sh`                                  | Auto-register host public keys during deployment             |
+| File                                                                | Change                                                         |
+| ------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `lib/common/data/pki/ssh_user_ca.pub`                               | New — SSH user CA public key (created by bootstrap)            |
+| `lib/common/data/pki/ssh_host_ca.pub`                               | New — SSH host CA public key (created by bootstrap)            |
+| `lib/common/data/default.nix`                                       | `pki.sshUserCA` and `pki.sshHostCA` (direct paths)             |
+| `lib/common/data/keys.json`                                         | `hostKeys` section for host public key registry                |
+| `hosts/calvard/microvm/guests/basel/sops.nix`                       | Add SSH CA private key secrets                                 |
+| `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`            | SSH CA config, OIDC provisioner, template                      |
+| `hosts/calvard/microvm/guests/basel/modules/templates/oidc.tpl`     | New — group-to-principal mapping                               |
+| `hosts/calvard/microvm/guests/basel/default.nix`                    | Egress rule to messeldam:443                                   |
+| `hosts/calvard/microvm/guests/messeldam/modules/homelab-realm.json` | step-ca client -> publicClient                                 |
+| `modules/common/openssh.nix`                                        | `trustedUserCA` (default `true`) and `principals` options      |
+| `apps/ssh-ca-bootstrap.nix`                                         | CA key generation, public keys to pki/, private keys to .keys/ |
+| `apps/ssh-key-registry.nix`                                         | Host public key backfill and listing                           |
+| `apps/default.nix`                                                  | Register both apps                                             |
+| `scripts/deploy-nixos-anywhere.sh`                                  | Auto-register host public keys during deployment               |

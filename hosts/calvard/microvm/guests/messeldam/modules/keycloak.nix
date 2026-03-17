@@ -103,9 +103,19 @@
     };
   };
 
-  systemd.services = {
-    "keycloak".before = ["nginx.service"];
-    "keycloak".requiredBy = ["nginx.service"];
+  systemd.services.keycloak = {
+    before = ["nginx.service"];
+    requiredBy = ["nginx.service"];
+    serviceConfig = {
+      EnvironmentFile = config.sops.templates."keycloak-admin-env".path;
+      ExecStartPre = "kc.sh bootstrap-admin user --username admin --password:env KC_BOOTSTRAP_ADMIN_PASSWORD --no-prompt";
+    };
+  };
+
+  sops.templates."keycloak-admin-env" = {
+    content = ''
+      KC_BOOTSTRAP_ADMIN_PASSWORD=${config.sops.placeholder."keycloak_admin_password"}
+    '';
   };
 
   environment.persistence."/persist" = {
