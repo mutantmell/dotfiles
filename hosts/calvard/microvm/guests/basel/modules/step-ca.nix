@@ -62,11 +62,11 @@
           };
         };
       };
+      ssh = {
+        hostKey = config.sops.secrets."ssh_host_ca_key".path;
+        userKey = config.sops.secrets."ssh_user_ca_key".path;
+      };
       authority = {
-        ssh = {
-          hostKey = config.sops.secrets."ssh_host_ca_key".path;
-          userKey = config.sops.secrets."ssh_user_ca_key".path;
-        };
         provisioners = [
           {
             type = "ACME";
