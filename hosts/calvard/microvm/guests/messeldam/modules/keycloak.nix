@@ -108,7 +108,7 @@
     requiredBy = ["nginx.service"];
     serviceConfig = {
       EnvironmentFile = config.sops.templates."keycloak-admin-env".path;
-      ExecStartPre = "kc.sh bootstrap-admin user --username admin --password:env KC_BOOTSTRAP_ADMIN_PASSWORD --no-prompt";
+      ExecStartPre = "${config.services.keycloak.package}/bin/kc.sh bootstrap-admin user --username admin --password:env KC_BOOTSTRAP_ADMIN_PASSWORD --no-prompt";
     };
   };
 

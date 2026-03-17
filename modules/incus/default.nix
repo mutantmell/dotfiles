@@ -129,6 +129,10 @@ let
     inherit (guestCfg.system.config.system.build) toplevel;
     incus = "${pkgs.incus}/bin/incus";
     nix-store = "${pkgs.nix}/bin/nix-store";
+    # Guest-side paths — NixOS puts binaries in /run/current-system/sw/bin/,
+    # not in /usr/bin or /bin, so incus exec's default PATH won't find them.
+    guest-nix-store = "/run/current-system/sw/bin/nix-store";
+    guest-xargs = "/run/current-system/sw/bin/xargs";
   in
     pkgs.writeShellScript "incus-update-${name}" ''
       set -e
@@ -139,16 +143,23 @@ let
         exit 0
       fi
 
+      # Skip if already at the target configuration
+      CURRENT=$(${incus} exec "$INSTANCE" -- /run/current-system/sw/bin/readlink /run/current-system 2>/dev/null) || true
+      if [ "$CURRENT" = "${toplevel}" ]; then
+        echo "Instance $INSTANCE already at target configuration, skipping"
+        exit 0
+      fi
+
       echo "Updating instance: $INSTANCE"
 
       # Find store paths missing from the guest (differential transfer)
       ALL_PATHS=$(${nix-store} -qR ${toplevel})
       MISSING=$(echo "$ALL_PATHS" | ${incus} exec "$INSTANCE" -- \
-        xargs nix-store --check-validity --print-invalid 2>/dev/null) || true
+        ${guest-xargs} ${guest-nix-store} --check-validity --print-invalid 2>/dev/null) || true
 
       if [ -n "$MISSING" ]; then
         echo "Copying $(echo "$MISSING" | wc -w) store paths to $INSTANCE..."
-        ${nix-store} --export $MISSING | ${incus} exec "$INSTANCE" -- nix-store --import
+        ${nix-store} --export $MISSING | ${incus} exec "$INSTANCE" -- ${guest-nix-store} --import
       else
         echo "All store paths already present in $INSTANCE"
       fi
