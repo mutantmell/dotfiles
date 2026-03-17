@@ -8,10 +8,8 @@
     settings = {
       http-port = 9080;
       hostname = "https://auth.mutantmell.net";
-      http-relative-path = "/auth";
       proxy-headers = "xforwarded";
       http-enabled = true;
-      hostname-admin = "https://messeldam.internal.mutantmell.net";
     };
     database.passwordFile = config.sops.secrets."keycloak_password_file".path;
     realmFiles = [./homelab-realm.json];
@@ -48,49 +46,8 @@
       forceSSL = true;
       enableACME = true;
 
-      locations."/auth" = {
+      locations."/" = {
         proxyPass = "http://127.0.0.1:9080";
-        extraConfig = proxyConfig;
-      };
-      # Modern Keycloak omits http-relative-path from OIDC issuer URLs
-      locations."/realms" = {
-        proxyPass = "http://127.0.0.1:9080/auth/realms";
-        extraConfig = proxyConfig;
-      };
-      locations."/resources" = {
-        proxyPass = "http://127.0.0.1:9080/auth/resources";
-        extraConfig = proxyConfig;
-      };
-    };
-
-    virtualHosts."messeldam.internal.mutantmell.net" = let
-      proxyConfig = ''
-        proxy_set_header X-Forwarded-For $proxy_protocol_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Host $host;
-
-        proxy_buffer_size   128k;
-        proxy_buffers   4 256k;
-        proxy_busy_buffers_size   256k;
-      '';
-    in {
-      forceSSL = true;
-      useACMEHost = "auth.mutantmell.net";
-
-      locations."/auth" = {
-        proxyPass = "http://127.0.0.1:9080";
-        extraConfig = proxyConfig;
-      };
-      locations."/admin" = {
-        proxyPass = "http://127.0.0.1:9080/auth/admin";
-        extraConfig = proxyConfig;
-      };
-      locations."/realms" = {
-        proxyPass = "http://127.0.0.1:9080/auth/realms";
-        extraConfig = proxyConfig;
-      };
-      locations."/resources" = {
-        proxyPass = "http://127.0.0.1:9080/auth/resources";
         extraConfig = proxyConfig;
       };
     };
@@ -102,9 +59,7 @@
       email = "malaguy@gmail.com";
     };
     acceptTerms = true;
-    certs."auth.mutantmell.net" = {
-      extraDomainNames = ["messeldam.internal.mutantmell.net"];
-    };
+    certs."auth.mutantmell.net" = {};
   };
 
   systemd.services.keycloak = {

@@ -78,22 +78,11 @@
         enableACME = true;
 
         # Block admin console access from external users (S5)
-        locations."/auth/admin".return = "403";
-        locations."/auth/realms/master".return = "403";
         locations."/admin".return = "403";
         locations."/realms/master".return = "403";
 
-        locations."/auth" = {
-          proxyPass = "https://messeldam.internal/auth";
-          extraConfig = proxyConfig;
-        };
-        # Modern Keycloak omits http-relative-path from OIDC issuer URLs
-        locations."/realms" = {
-          proxyPass = "https://messeldam.internal/auth/realms";
-          extraConfig = proxyConfig;
-        };
-        locations."/resources" = {
-          proxyPass = "https://messeldam.internal/auth/resources";
+        locations."/" = {
+          proxyPass = "https://messeldam.internal";
           extraConfig = proxyConfig;
         };
       };
