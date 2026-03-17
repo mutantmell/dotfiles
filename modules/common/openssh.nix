@@ -44,24 +44,21 @@ in {
         PermitRootLogin = "prohibit-password";
         KbdInteractiveAuthentication = false;
       };
-      extraConfig = lib.concatStringsSep "\n" (
-        lib.optional cfg.trustedUserCA
-        "TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub"
-        ++ lib.optional (cfg.principals != {})
-        "AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u"
-      );
+      extraConfig =
+        lib.mkIf cfg.trustedUserCA
+        "TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub";
     };
 
-    environment.etc =
-      lib.optionalAttrs cfg.trustedUserCA {
-        "ssh/ssh_user_ca.pub".source = pki.sshUserCA;
-      }
-      // lib.mapAttrs' (
-        user: principals:
-          lib.nameValuePair "ssh/auth_principals/${user}" {
-            text = lib.concatStringsSep "\n" principals + "\n";
-            mode = "0444";
-          }
+    environment.etc = lib.optionalAttrs cfg.trustedUserCA {
+      "ssh/ssh_user_ca.pub".source = pki.sshUserCA;
+    };
+
+    # Use NixOS-native authorizedPrincipals (writes to /etc/ssh/authorized_principals.d/%u)
+    users.users =
+      lib.mapAttrs (
+        user: principals: {
+          openssh.authorizedPrincipals = principals;
+        }
       )
       cfg.principals;
 
