@@ -81,6 +81,12 @@ in {
         comment = "HTTP-01 ACME challenge validation";
       }
       {
+        host = "messeldam";
+        proto = "tcp";
+        port = 443;
+        comment = "OIDC token validation (Keycloak)";
+      }
+      {
         host = "tharbad";
         proto = "tcp";
         port = 3100;

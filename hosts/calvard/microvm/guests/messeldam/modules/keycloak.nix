@@ -46,6 +46,10 @@
       forceSSL = true;
       enableACME = true;
 
+      # TODO: Restrict /admin to trusted networks only.
+      # Langport (DMZ) can reach messeldam directly, so messeldam needs its
+      # own L7 filtering — langport's nginx blocks alone are insufficient
+      # if langport is compromised.
       locations."/" = {
         proxyPass = "http://127.0.0.1:9080";
         extraConfig = proxyConfig;

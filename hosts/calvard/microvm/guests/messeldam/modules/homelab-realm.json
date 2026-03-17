@@ -65,7 +65,7 @@
       "clientId": "step-ca",
       "name": "step-ca SSH Certificate OIDC Provisioner",
       "protocol": "openid-connect",
-      "publicClient": false,
+      "publicClient": true,
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false,
@@ -85,7 +85,7 @@
     }
   ],
   "groups": [
-    { "name": "admins" },
+    { "name": "admin" },
     { "name": "media-users" },
     { "name": "deploy" }
   ]

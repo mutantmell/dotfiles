@@ -11,6 +11,8 @@
     in {
       "intermediate_ca.key" = step-ca;
       "intermediate-password-file" = step-ca;
+      "ssh_user_ca_key" = step-ca;
+      "ssh_host_ca_key" = step-ca;
     };
   };
 }

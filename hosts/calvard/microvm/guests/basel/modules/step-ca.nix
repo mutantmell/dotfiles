@@ -14,6 +14,10 @@
       source = pkgs.mmell.lib.data.pki.root;
       mode = "0444";
     };
+    "step-ca/templates/ssh/oidc.tpl" = {
+      source = ./templates/oidc.tpl;
+      mode = "0444";
+    };
   };
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
@@ -47,12 +51,36 @@
       in {
         x509 = allowLocal;
         ssh.host = allowLocal;
+        ssh.user = {
+          allow = {
+            principals = ["admin" "deploy"];
+          };
+        };
       };
       authority = {
+        ssh = {
+          hostKey = config.sops.secrets."ssh_host_ca_key".path;
+          userKey = config.sops.secrets."ssh_user_ca_key".path;
+        };
         provisioners = [
           {
             type = "ACME";
             name = "acme";
+          }
+          {
+            type = "OIDC";
+            name = "keycloak";
+            clientID = "step-ca";
+            configurationEndpoint = "https://auth.mutantmell.net/realms/homelab/.well-known/openid-configuration";
+            listenAddress = "127.0.0.1:10000";
+            claims = {
+              enableSSHCA = true;
+            };
+            options = {
+              ssh = {
+                templateFile = "/etc/step-ca/templates/ssh/oidc.tpl";
+              };
+            };
           }
         ];
       };
@@ -68,8 +96,8 @@
       forceSSL = true;
       enableACME = true;
 
-      locations."/acme" = {
-        proxyPass = "https://127.0.0.1:9443/acme";
+      locations."/" = {
+        proxyPass = "https://127.0.0.1:9443/";
         extraConfig = ''
           proxy_ssl_certificate /etc/nginx/nginx.cert;
           proxy_ssl_certificate_key /etc/nginx/nginx.key;
