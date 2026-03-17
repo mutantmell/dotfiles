@@ -11,11 +11,14 @@ in {
     guestDir = ./guests;
   };
 
-  # Boot ordering: basel (step-ca) must start before ACME-dependent guests
+  # Boot ordering: start ACME-dependent guests after basel (step-ca).
+  # Uses Wants (not Requires) so guests still start if basel is down —
+  # they'll run with persisted certs in a degraded state rather than
+  # refusing to start entirely.
   systemd.services = let
     afterBasel = {
       after = ["microvm@basel.service"];
-      requires = ["microvm@basel.service"];
+      wants = ["microvm@basel.service"];
     };
   in {
     "microvm@messeldam" = afterBasel;
