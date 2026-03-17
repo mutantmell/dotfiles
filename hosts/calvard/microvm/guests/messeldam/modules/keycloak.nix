@@ -81,6 +81,10 @@
         proxyPass = "http://127.0.0.1:9080";
         extraConfig = proxyConfig;
       };
+      locations."/admin" = {
+        proxyPass = "http://127.0.0.1:9080/auth/admin";
+        extraConfig = proxyConfig;
+      };
       locations."/realms" = {
         proxyPass = "http://127.0.0.1:9080/auth/realms";
         extraConfig = proxyConfig;
