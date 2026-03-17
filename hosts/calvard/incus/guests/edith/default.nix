@@ -65,6 +65,10 @@
     users = ["mutantmell" "root"];
     keys = ["home" "deploy" "calvard"];
     allowPassword = true;
+    principals = {
+      root = ["admin"];
+      mutantmell = ["admin"];
+    };
   };
 
   system.stateVersion = "25.11";
