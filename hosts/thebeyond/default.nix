@@ -72,7 +72,6 @@ in {
     ''
       ${host.ipv4} thebeyond thebeyond.internal.mutantmell.net thebeyond.internal
       ${host.ipv6} thebeyond.internal.mutantmell.net thebeyond.internal
-      ${host.ipv4} yggdrasil.internal
       ${phantasma.ipv4} phantasma phantasma.internal.mutantmell.net phantasma.internal
       ${phantasma.ipv6} phantasma.internal.mutantmell.net phantasma.internal
     ''

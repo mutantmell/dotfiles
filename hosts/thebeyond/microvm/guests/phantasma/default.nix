@@ -50,7 +50,6 @@ in {
     ''
       ${zone.gateway4} thebeyond.internal.mutantmell.net thebeyond.internal
       ${zone.gateway6} thebeyond.internal.mutantmell.net thebeyond.internal
-      ${zone.gateway4} yggdrasil.internal
     ''
     + net.mkExtraHosts ["messeldam" "basel" "langport"];
 

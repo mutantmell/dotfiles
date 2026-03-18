@@ -84,7 +84,6 @@ in {
       "map to guest" = "Bad User";
       "server string" = "REMIFERIA";
       "netbios name" = "REMIFERIA";
-      "netbios aliases" = "JOTUNHEIMR"; # Backward-compat alias during migration
       "load printers" = "no";
       "printcap name" = "/dev/null";
     };
