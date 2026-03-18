@@ -132,9 +132,9 @@
           all_hosts=$(echo "$ALL_HOST_KEYS" | ${pkgs.jq}/bin/jq -r 'keys[]')
           for h in $all_hosts; do
             if sign_host "$h"; then
-              ((succeeded++))
+              succeeded=$((succeeded + 1))
             else
-              ((failed++))
+              failed=$((failed + 1))
             fi
           done
           echo ""
