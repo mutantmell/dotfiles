@@ -311,13 +311,13 @@ The WSL IP is NAT'd behind Windows, so local rebuild is more practical.
 
 ## Files Modified
 
-| File | Action |
-| --- | --- |
-| `flake.nix` | Add `nixos-wsl` input, add nixosConfiguration |
-| `hosts/<name>/default.nix` | New — WSL host config |
-| `modules/common/ssh-cert-client.nix` | New — shared SSH cert client module |
-| `modules/common/default.nix` | Add `./ssh-cert-client.nix` to imports |
-| `lib/common/data/keys.json` | Add WSL SSH public key |
+| File                                 | Action                                        |
+| ------------------------------------ | --------------------------------------------- |
+| `flake.nix`                          | Add `nixos-wsl` input, add nixosConfiguration |
+| `hosts/<name>/default.nix`           | New — WSL host config                         |
+| `modules/common/ssh-cert-client.nix` | New — shared SSH cert client module           |
+| `modules/common/default.nix`         | Add `./ssh-cert-client.nix` to imports        |
+| `lib/common/data/keys.json`          | Add WSL SSH public key                        |
 
 ## Verification
 

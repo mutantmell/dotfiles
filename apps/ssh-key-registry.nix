@@ -76,11 +76,13 @@
 
         echo "Backfilling host keys from $PARENT_HOST..."
 
+        SSH_TARGET="$PARENT_HOST.internal"
+
         # Fetch the parent host's own public key (only if it's in the network registry)
         parent_in_registry=$(echo "$ALL_DOMAINS" | ${pkgs.jq}/bin/jq -r --arg h "$PARENT_HOST" 'has($h)')
         if [ "$parent_in_registry" = "true" ]; then
-          echo "  Fetching host key from $PARENT_HOST:/etc/ssh/ssh_host_ed25519_key.pub..."
-          parent_pubkey=$(ssh "$PARENT_HOST" cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null) || {
+          echo "  Fetching host key from $SSH_TARGET:/etc/ssh/ssh_host_ed25519_key.pub..."
+          parent_pubkey=$(ssh root@"$SSH_TARGET" cat /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null) || {
             echo "  WARNING: Could not fetch host key from $PARENT_HOST"
             parent_pubkey=""
           }
@@ -116,7 +118,7 @@
           echo "  Fetching keys for guests: ''${guest_names[*]}"
           for guest in "''${guest_names[@]}"; do
             guest_key_path="$GUESTS_DIR/$guest/static/etc/ssh/ssh_host_ed25519_key.pub"
-            guest_pubkey=$(ssh "$PARENT_HOST" "cat '$guest_key_path' 2>/dev/null") || {
+            guest_pubkey=$(ssh root@"$SSH_TARGET" "cat '$guest_key_path' 2>/dev/null") || {
               echo "  $guest: no key at $guest_key_path, skipping"
               continue
             }
