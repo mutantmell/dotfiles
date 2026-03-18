@@ -1,14 +1,8 @@
-{pkgs, ...}: let
-  hostname = "erebonia";
-  net = pkgs.mmell.lib.data.network;
-  inherit (net.forHost hostname) host zone;
-  nas = net.hosts.remiferia;
-in {
+{pkgs, ...}: {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
     (import ../../profiles/disko/btrfs.nix {disk = "/dev/sda";})
-    ./impermanence.nix
     ./sops.nix
     ./microvm
     ./incus
@@ -41,109 +35,12 @@ in {
   security.polkit.enable = true;
 
   networking = {
-    hostName = hostname;
+    hostName = "erebonia";
     useNetworkd = true;
     dhcpcd.enable = false;
   };
 
-  systemd.network = {
-    enable = true;
-    netdevs."20-br11" = {
-      netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br11";
-    };
-    netdevs."20-br20" = {
-      netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br20";
-    };
-    netdevs."20-br100" = {
-      netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br100";
-    };
-    netdevs."20-eno1.11" = {
-      netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.11";
-      vlanConfig.Id = 11;
-    };
-    netdevs."20-eno1.20" = {
-      netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.20";
-      vlanConfig.Id = 20;
-    };
-    netdevs."20-eno1.100" = {
-      netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.100";
-      vlanConfig.Id = 100;
-    };
-    networks."20-eno1" = {
-      matchConfig.Name = "eno1";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      vlan = [
-        "eno1.11"
-        "eno1.20"
-        "eno1.100"
-      ];
-    };
-    networks."20-vm11-bridge" = {
-      matchConfig.Name = ["eno1.11" "vm-11-*"];
-      networkConfig.Bridge = "br11";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-    };
-    networks."20-br11" = {
-      matchConfig.Name = "br11";
-      networkConfig.DHCP = "no";
-      networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [host.cidr4 host.cidr6];
-      networkConfig.DNS = [zone.gateway4 zone.gateway6];
-      networkConfig.Domains = ["internal"];
-      networkConfig.MulticastDNS = true;
-      routes = [
-        {Gateway = zone.gateway4;}
-        {Gateway = zone.gateway6;}
-      ];
-    };
-    networks."20-vm20-bridge" = {
-      matchConfig.Name = ["eno1.20" "vm-20-*"];
-      networkConfig.Bridge = "br20";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-    };
-    networks."20-vm100-bridge" = {
-      matchConfig.Name = ["eno1.100" "vm-100-*"];
-      networkConfig.Bridge = "br100";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-    };
-    networks."20-br20" = {
-      matchConfig.Name = "br20";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-    };
-    networks."20-br100" = {
-      matchConfig.Name = "br100";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-    };
-  };
-  services.resolved.enable = true;
-
-  # Host-based input firewall: restrict SSH to router + vHOME
-  networking.firewall = {
-    enable = true;
-    allowedTCPPorts = [9100];
-    extraInputRules = ''
-      ip saddr { ${zone.gateway4}, ${net.networks.trusted.subnet4} } tcp dport 22 accept
-      ip6 saddr { ${zone.gateway6}, ${net.networks.trusted.subnet6} } tcp dport 22 accept
-      tcp dport 22 drop
-    '';
-  };
+  networking.firewall.allowedTCPPorts = [9100];
 
   promtail-client.enable = true;
 
@@ -155,14 +52,14 @@ in {
 
   i18n.defaultLocale = "en_US.UTF-8";
 
+  # NFS share from remiferia (NAS)
   fileSystems."/mnt/data" = {
-    device = "${nas.ipv4}:/data/data";
+    device = "remiferia.internal:/data/data";
     fsType = "nfs";
+    options = ["x-systemd.automount" "noauto" "_netdev" "nfsvers=4" "soft" "timeo=150"];
   };
-  fileSystems."/mnt/media" = {
-    device = "${nas.ipv4}:/data/media/";
-    fsType = "nfs";
-  };
+
+  users.mutableUsers = false;
 
   common.openssh = {
     enable = true;
