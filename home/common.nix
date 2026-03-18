@@ -10,12 +10,21 @@
 
   home.packages = with pkgs; [
     nixfmt
+    dig
+    bitwarden-cli
+    age
     (aspellWithDicts (ds: [
       ds.en
       ds.en-computers
       ds.en-science
     ]))
   ];
+
+  services.emacs = {
+    enable = true;
+    socketActivation.enable = true;
+    defaultEditor = true;
+  };
 
   programs.emacs = {
     enable = true;
@@ -41,5 +50,34 @@
   programs.direnv = {
     enable = true;
     nix-direnv.enable = true;
+  };
+
+  programs.bash = {
+    enable = true;
+  };
+
+  programs.claude-code = {
+    enable = true;
+  };
+
+  programs.jujutsu = {
+    enable = true;
+  };
+
+  programs.tmux = {
+    enable = true;
+    newSession = true;
+    plugins = let
+      inherit (pkgs) tmuxPlugins;
+    in [
+      tmuxPlugins.continuum
+    ];
+  };
+
+  programs.htop = {
+    enable = true;
+    settings = {
+      treeView = true;
+    };
   };
 }
