@@ -535,20 +535,16 @@ modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
 
 ## Implementation Phases
 
-### Phase 1 — Core Metrics (PARTIALLY COMPLETE)
-
-Tharbad already has Prometheus running with expanded scrape targets, and the
-module split (prometheus.nix, grafana.nix, loki.nix) is done. RAM and persist
-volume already upgraded to 2048 MB / 30 GB.
+### Phase 1 — Core Metrics (COMPLETE, pending deploy + verify)
 
 - [x] Split monit.nix into `modules/prometheus.nix` + `modules/grafana.nix`
 - [x] Expand Prometheus scrape targets to cover parent hosts
 - [x] Bump RAM to 2048 MB, persist volume to 30 GB
-- [ ] Move `tharbad` from `trusted` to `management` in network registry (host ID 5)
-- [ ] Update `microvm.nix`: tap `vm-11-tharbad`, new MAC
-- [ ] Add sops.nix + secrets for Grafana admin password
-- [ ] Enable Grafana (uncomment `./modules/grafana.nix` in default.nix)
-- [ ] Add egress filtering
+- [x] Move `tharbad` from `trusted` to `management` in network registry (host ID 5)
+- [x] Update `microvm.nix`: tap `vm-11-tharbad`
+- [x] Add sops.nix + secrets for Grafana admin password + secret key
+- [x] Write + enable `modules/grafana.nix` (nginx TLS via basel ACME, provisioned datasources)
+- [x] Add egress filtering (default-drop, scrape targets + DNS/NTP + ACME)
 - [ ] Verify: all targets up, Grafana accessible at tharbad.internal
 
 ### Phase 2 — Log Aggregation (COMPLETE)
@@ -561,17 +557,13 @@ volume already upgraded to 2048 MB / 30 GB.
 - [x] Add per-host egress rules for Loki push
 - [ ] Verify logs flowing from all hosts after deployment
 
-### Phase 3 — Alerting & Notifications (CODE COMPLETE, NOT ENABLED)
+### Phase 3 — Alerting & Notifications (COMPLETE, pending deploy + verify)
 
-Modules written but disabled in default.nix pending sops secrets.
-
-- [x] Write `modules/ntfy.nix` — ntfy on tharbad, port 2586
-- [x] Write `modules/alertmanager.nix` — Alertmanager with ntfy webhook receivers
+- [x] Write + enable `modules/ntfy.nix` — ntfy on tharbad, port 2586
+- [x] Write + enable `modules/alertmanager.nix` — Alertmanager with ntfy webhook receivers
 - [x] Write Phase 1 alert rules — HostDown, DiskSpaceLow, HighMemoryUsage,
       ZFSPoolDegraded, SystemdUnitFailed
-- [x] Write Alertmanager + Loki datasources for Grafana
-- [ ] Create sops secrets (alertmanager-ntfy-url, ntfy-auth-token, grafana-admin-password)
-- [ ] Enable alertmanager.nix + ntfy.nix in default.nix
+- [x] Provision Alertmanager + Loki datasources in Grafana
 - [ ] Install ntfy app on phone, subscribe to topics
 - [ ] Test alert pipeline: trigger test alert → Alertmanager → ntfy → phone
 
