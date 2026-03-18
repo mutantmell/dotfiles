@@ -1,54 +1,56 @@
 {
+  user,
+  langs ? [],
+  is-darwin ? false,
+  is-wsl ? false,
+  is-graphical ? false,
+  home ? null,
+  extraPackages ? [],
+  extraModules ? [],
+}: {
   config,
   pkgs,
   lib,
-  home-conf,
   ...
-}: let
-  option-null = x:
-    if x != null
-    then [x]
-    else [];
-in {
+}: {
   programs.home-manager.enable = true;
 
   home = {
-    username = home-conf.user;
+    username = user;
     homeDirectory =
-      home-conf.home or (
-        if pkgs.stdenv.isDarwin
-        then "/Users/${home-conf.user}"
-        else "/home/${home-conf.user}"
-      );
+      if home != null
+      then home
+      else if is-darwin
+      then "/Users/${user}"
+      else "/home/${user}";
     stateVersion = "25.11";
-    packages =
-      (
-        home-conf.extraPackages or (pkgs: [])
-      )
-      pkgs;
+    packages = extraPackages;
   };
 
-  imports = let
-    extra-modules = home-conf.extraModules or [];
-  in
+  imports =
     [
       ./common.nix
     ]
     ++ (
-      builtins.map (lang: ./lang + "/${lang}.nix") (home-conf.langs or [])
+      builtins.map (lang: ./lang + "/${lang}.nix") langs
     )
     ++ (
       let
-        path = ./user + "/${home-conf.user}.nix";
+        path = ./user + "/${user}.nix";
       in
         lib.optional (builtins.pathExists path) path
     )
     ++ (
-      lib.optional (home-conf.is-graphical or false) ./graphical.nix
+      lib.optional is-darwin ./darwin.nix
     )
     ++ (
-      if builtins.isFunction extra-modules
-      then extra-modules pkgs
-      else extra-modules
-    );
+      lib.optional (!is-darwin) ./linux.nix
+    )
+    ++ (
+      lib.optional is-wsl ./wsl.nix
+    )
+    ++ (
+      lib.optional is-graphical ./graphical.nix
+    )
+    ++ extraModules;
 }
