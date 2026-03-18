@@ -7,5 +7,17 @@
     "calvard": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPPrAJtcSgkYA6Lju5AOjYU+xBJipuczEJafpZs1yUSQ root@jotunheimr",
     "edith": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgpU3TfPTQS/+qf9wETOLFanwfQAh7xHsy6ZHCpyJYT malaguy@gmail.com"
   },
-  "hostKeys": {}
+  "hostKeys": {
+    "calvard": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPPrAJtcSgkYA6Lju5AOjYU+xBJipuczEJafpZs1yUSQ root@jotunheimr",
+    "basel": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFPA2KDcbQrw1Dd6r3Z/731gcU7cPcC2XBo2tHsyQh0r root@jotunheimr",
+    "creil": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB+FZmIg4CoEhqZqfQFFMQC6meobljPtTy6dqB0WGUZe root@jotunheimr",
+    "langport": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIWr2sZ1h2wMu6O3fQ6ea4JYrBkLmDnOwc0L911xG6hA root@jotunheimr",
+    "messeldam": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFUCcxzNEaPwGYkvJUHHdVEWJmDNEjoWFeJJgusWc4Rj root@jotunheimr",
+    "oracion": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEaaLPQZ6atsE+apt01ISzAurrq64DL5uXRlvCHMnXD9 root@jotunheimr",
+    "tharbad": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGziMhPVj+lMRwsRWQk4fZRKiq81YTFRx696qHkb2Fq3 root@jotunheimr",
+    "edith": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAmgLa9DbGbXUziKw/apJ8DyBPl7cwgchHDfVlXrVvir root@jotunheimr",
+    "remiferia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA0D0YNUhSioMyjXQHZkIPlAklgdeUO162CNgeHJKaJQ root@jotunheimr",
+    "ardent": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF/MT68HBfJY9TBvgZV697v/T30F9X9AjfcZ1N9qmq25 root@remiferia",
+    "monrain": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMZHPlfg8G/1WnO2h7RYow/DZ5brdJ46neDg3It/3XRQ root@remiferia"
+  }
 }
