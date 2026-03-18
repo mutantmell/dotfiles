@@ -154,28 +154,21 @@ After all three hosts are deployed and stable:
    data to use 10.97 as primary gateway. Removed 10.0 and 10.1 prefixes from OpenWrt
    `mkAddresses`/`mkGateway`. Updated tests (network-helpers, openwrt-config pass).
 
-2. **Remove VLAN 10 from switches** — No longer needed
+2. ~~**Remove VLAN 10 from switches**~~ — Incorrect. VLAN 10 is the network/management
+   zone for switches and OpenWrt APs; it remains in use.
 
-3. **Remove backward-compat aliases:**
-   - JOTUNHEIMR netbios alias on remiferia
-   - yggdrasil.local / jotunheimr.local DNS aliases
+3. ~~**Remove backward-compat aliases**~~ — **DONE** (2026-03-18).
+   Removed JOTUNHEIMR netbios alias from remiferia, yggdrasil/jotunheimr
+   DNS aliases from network registry, thebeyond, and phantasma configs.
+   Updated tests.
 
 4. **Decommission old erebonia guests** — Already complete. The old erebonia guests
    (roer, legram, ymir, ordis, heimdallr) have been replaced by calvard guests
    (messeldam, basel, tharbad, langport, oracion) and removed from the network registry.
 
-5. **Remove denai guest** from remiferia (already slated for removal)
+5. ~~**Remove denai guest**~~ — **DONE** (2026-03-18).
 
-6. **Remove remiferia pre-migration ZFS snapshot:**
-   ```bash
-   # Dry-run first — verify this only lists snapshots, not datasets
-   zfs destroy -r -n -v data@pre-migration
-   # Then destroy for real
-   zfs destroy -r data@pre-migration
-   ```
-   This removes only the snapshot (not the underlying data). Must be done
-   before pruning datasets, otherwise the snapshot holds references to
-   deleted blocks and disk space won't be reclaimed.
+6. ~~**Remove remiferia pre-migration ZFS snapshot**~~ — **DONE** (2026-03-18).
 
 ---
 

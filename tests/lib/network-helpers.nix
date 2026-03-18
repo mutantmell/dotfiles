@@ -64,8 +64,7 @@
   domainsMesseldamAlias = builtins.elem "auth.mutantmell.net" domainsMesseldam;
 
   domainsThebeyond = net.domainsForHost "thebeyond";
-  domainsThebeyondCount = assertEq "domainsThebeyond count" (builtins.length domainsThebeyond) 7;
-  domainsThebeyondYggdrasil = builtins.elem "yggdrasil.internal.mutantmell.net" domainsThebeyond;
+  domainsThebeyondCount = assertEq "domainsThebeyond count" (builtins.length domainsThebeyond) 5;
   domainsThebeyondInternal = builtins.elem "internal.mutantmell.net" domainsThebeyond;
 
   domainsAzoth = net.domainsForHost "azoth";
@@ -80,9 +79,8 @@
   aliasDataMesseldamCount = assertEq "aliasDataMesseldam count" (builtins.length aliasDataMesseldam) 2;
 
   aliasDataThebeyond = net.mkUnboundAliasData ["thebeyond"];
-  # 4 aliases × 2 records each (A + AAAA) = 8
-  aliasDataThebeyondCount = assertEq "aliasDataThebeyond count" (builtins.length aliasDataThebeyond) 8;
-  aliasDataThebeyondYggdrasil = builtins.elem ''"yggdrasil.internal.mutantmell.net. A ${net.hosts.thebeyond.ipv4}"'' aliasDataThebeyond;
+  # 2 aliases × 2 records each (A + AAAA) = 4
+  aliasDataThebeyondCount = assertEq "aliasDataThebeyond count" (builtins.length aliasDataThebeyond) 4;
   aliasDataThebeyondInternal = builtins.elem ''"internal.mutantmell.net. A ${net.hosts.thebeyond.ipv4}"'' aliasDataThebeyond;
 
   # Hosts with no aliases produce empty list
@@ -183,8 +181,7 @@
     "domainsForHost returns 3 domains for host without aliases" = domainsBaselCount;
     "domainsForHost returns 4 domains for messeldam (1 alias)" = domainsMesseldamCount;
     "domainsForHost includes auth.mutantmell.net for messeldam" = domainsMesseldamAlias;
-    "domainsForHost returns 7 domains for thebeyond (4 aliases)" = domainsThebeyondCount;
-    "domainsForHost includes yggdrasil alias for thebeyond" = domainsThebeyondYggdrasil;
+    "domainsForHost returns 5 domains for thebeyond (2 aliases)" = domainsThebeyondCount;
     "domainsForHost includes internal alias for thebeyond" = domainsThebeyondInternal;
     "domainsForHost returns 3 domains for azoth" = domainsAzothCount;
 
@@ -192,8 +189,7 @@
     "mkUnboundAliasData produces A for messeldam alias" = aliasDataMesseldamA;
     "mkUnboundAliasData produces AAAA for messeldam alias" = aliasDataMesseldamAAAA;
     "mkUnboundAliasData produces 2 records for messeldam (1 alias)" = aliasDataMesseldamCount;
-    "mkUnboundAliasData produces 8 records for thebeyond (4 aliases)" = aliasDataThebeyondCount;
-    "mkUnboundAliasData includes yggdrasil A record" = aliasDataThebeyondYggdrasil;
+    "mkUnboundAliasData produces 4 records for thebeyond (2 aliases)" = aliasDataThebeyondCount;
     "mkUnboundAliasData includes internal A record" = aliasDataThebeyondInternal;
     "mkUnboundAliasData produces 0 records for host without aliases" = aliasDataBaselCount;
 

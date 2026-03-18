@@ -108,12 +108,6 @@
     thebeyond = [
       "internal.mutantmell.net"
       "internal"
-      "yggdrasil.internal.mutantmell.net"
-      "yggdrasil.internal"
-    ];
-    remiferia = [
-      "jotunheimr.internal.mutantmell.net"
-      "jotunheimr.internal"
     ];
     messeldam = ["auth.mutantmell.net"];
     langport = ["mutantmell.net"];
