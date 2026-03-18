@@ -18,6 +18,9 @@
     "edith": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAmgLa9DbGbXUziKw/apJ8DyBPl7cwgchHDfVlXrVvir root@jotunheimr",
     "remiferia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA0D0YNUhSioMyjXQHZkIPlAklgdeUO162CNgeHJKaJQ root@jotunheimr",
     "ardent": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF/MT68HBfJY9TBvgZV697v/T30F9X9AjfcZ1N9qmq25 root@remiferia",
-    "monrain": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMZHPlfg8G/1WnO2h7RYow/DZ5brdJ46neDg3It/3XRQ root@remiferia"
+    "monrain": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMZHPlfg8G/1WnO2h7RYow/DZ5brdJ46neDg3It/3XRQ root@remiferia",
+    "erebonia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICw8uO5pGbGYHbDv+0l/dj1dZrmVgfJFZmlvM1EmOKF6 root@remiferia",
+    "saint-arkh": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDF77Oll4oxrE4kwnjJhBt3Q8MseggLoaPuSAEWw3Li6 root@remiferia",
+    "trista": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBlvcscRzMVs7Lu12NC52kZuiql0Sv6dAU1sKo8Mt9B3 root@remiferia"
   }
 }
