@@ -105,11 +105,9 @@ reconfigured to tag VLAN 11 traffic before the NAS update.
 remiferia's port. If not, configure it via the switch management interface
 before starting Phase 2.
 
-### Blocker 3: erebonia switch (ZyXEL GS1900-10HP)
+### ~~Blocker 3: erebonia switch (ZyXEL GS1900-10HP)~~ — RESOLVED
 
-Erebonia is on a different switch that doesn't yet handle VLAN 11.
-This switch needs to be imported into the repository and configured.
-Erebonia deployment is blocked until this is done.
+ZyXEL switch has been configured for VLAN 11 on erebonia's port.
 
 ---
 
@@ -134,19 +132,16 @@ Network migrated from VLAN 10 untagged to VLAN 11 tagged. MicroVM guests
 
 ---
 
-## Phase 3: Deploy erebonia (nixos-anywhere) — BLOCKED
-
-### Blocker
-
-ZyXEL GS1900-10HP switch must be imported into the repository and configured
-to pass VLAN 11 tagged traffic to erebonia's port.
+## Phase 3: Deploy erebonia (nixos-anywhere) — READY
 
 ### Prerequisites
 
-- [ ] ZyXEL switch config added to repository
-- [ ] VLAN 11 configured on erebonia's switch port
-- [ ] DNS entries for erebonia (via phantasma or manual)
-- [ ] erebonia `sops.nix` created (currently missing)
+- [x] ZyXEL switch configured for VLAN 11
+- [x] erebonia `sops.nix` exists (references `./secrets/secrets.yaml`)
+- [x] erebonia switched from ZFS to btrfs profile (ZFS had issues with cloud-hypervisor)
+- [ ] erebonia `hosts/erebonia/secrets/secrets.yaml` created (sops-encrypted, can be empty)
+- [ ] DNS entries for erebonia (via phantasma or manual `/etc/hosts` on interim router)
+- [ ] Boot erebonia from NixOS installer ISO
 
 ### Steps
 
@@ -160,7 +155,7 @@ Erebonia-specific post-deploy:
 
 - NFS mounts from remiferia (`/mnt/data`, `/mnt/media`) should auto-mount
 - Verify NFS connectivity to remiferia at new IP
-- Start microVM guests (roer, legram, ymir, heimdallr, ordis, saint-arkh)
+- Start microVM guest (saint-arkh)
 - Set up Incus guest (trista)
 
 ### Rollback

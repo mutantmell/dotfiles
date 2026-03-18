@@ -177,7 +177,6 @@
       openwrt = import ./lib/openwrt {inherit (nixpkgs) lib;};
       diskoProfiles = {
         tmpfs = import ./profiles/disko/tmpfs.nix;
-        zfs = import ./profiles/disko/zfs.nix;
         btrfs = import ./profiles/disko/btrfs.nix;
       };
       mk-nixos = args @ {

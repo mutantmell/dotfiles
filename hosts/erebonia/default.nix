@@ -1,8 +1,4 @@
-{
-  config,
-  pkgs,
-  ...
-}: let
+{pkgs, ...}: let
   hostname = "erebonia";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
@@ -11,7 +7,7 @@ in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
-    (import ../../profiles/disko/zfs.nix {disk = "/dev/sda";})
+    (import ../../profiles/disko/btrfs.nix {disk = "/dev/sda";})
     ./impermanence.nix
     ./sops.nix
     ./microvm
@@ -21,39 +17,12 @@ in {
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  common.zfs.enable = true;
-  common.zfs.remoteUnlock.enable = true;
-  common.zfs.remoteUnlock.hostkey = /persist/etc/ssh/initrd_ssh_host_ed25519_key;
+  common.impermanence.enable = true;
+  common.btrfs.enable = true;
+  common.btrfs.keyfileUnlock.enable = true;
+  common.btrfs.impermanence.enable = true;
 
   boot.extraModprobeConfig = "options kvm_intel nested=1";
-  boot.initrd.availableKernelModules = ["e1000e" "8021q"];
-  boot.initrd.systemd.network = {
-    netdevs."20-eno1.11" = {
-      netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.11";
-      vlanConfig.Id = 11;
-    };
-    networks."20-eno1" = {
-      matchConfig.Name = "eno1";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      vlan = [
-        "eno1.11"
-      ];
-    };
-    networks."20-eno1.11" = {
-      matchConfig.Name = "eno1.11";
-      networkConfig.DHCP = "no";
-      networkConfig.IPv6AcceptRA = false;
-      networkConfig.Address = [host.cidr4 host.cidr6];
-      networkConfig.MulticastDNS = true;
-      networkConfig.DNS = [zone.gateway4 zone.gateway6];
-      routes = [
-        {Gateway = zone.gateway4;}
-        {Gateway = zone.gateway6;}
-      ];
-    };
-  };
 
   nix.settings.auto-optimise-store = true;
   nix.gc = {
@@ -73,9 +42,7 @@ in {
 
   networking = {
     hostName = hostname;
-    hostId = "518f0054";
     useNetworkd = true;
-    useDHCP = false;
     dhcpcd.enable = false;
   };
 
