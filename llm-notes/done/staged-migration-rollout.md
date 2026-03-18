@@ -14,7 +14,7 @@ but has no internal DNS host entries.
 | -------------- | -------------------------- | --------------------- | ------- | ----------------------- |
 | calvard        | 10.97.11.30 (VLAN 11)      | 10.97.11.30 (VLAN 11) | VM host | **Deployed**            |
 | remiferia      | 10.97.11.20 (VLAN 11)      | 10.97.11.20 (VLAN 11) | NAS     | **Deployed**            |
-| erebonia       | unused (wiped)             | 10.97.11.31 (VLAN 11) | VM host | Blocked on ZyXEL switch |
+| erebonia       | 10.97.11.31 (VLAN 11)      | 10.97.11.31 (VLAN 11) | VM host | **Deployed**            |
 | interim router | manages VLANs 10/11/20/100 | N/A                   | Gateway | Serves 10.97 + legacy   |
 
 **Note:** Legacy 10.0.x.x addresses have been removed from all NixOS configurations
@@ -132,35 +132,12 @@ Network migrated from VLAN 10 untagged to VLAN 11 tagged. MicroVM guests
 
 ---
 
-## Phase 3: Deploy erebonia (nixos-anywhere) — READY
+## Phase 3: Deploy erebonia (nixos-anywhere) — COMPLETE
 
-### Prerequisites
-
-- [x] ZyXEL switch configured for VLAN 11
-- [x] erebonia `sops.nix` exists (references `./secrets/secrets.yaml`)
-- [x] erebonia switched from ZFS to btrfs profile (ZFS had issues with cloud-hypervisor)
-- [ ] erebonia `hosts/erebonia/secrets/secrets.yaml` created (sops-encrypted, can be empty)
-- [ ] DNS entries for erebonia (via phantasma or manual `/etc/hosts` on interim router)
-- [ ] Boot erebonia from NixOS installer ISO
-
-### Steps
-
-Same pattern as Phase 1 (calvard), using:
-
-```bash
-./scripts/deploy-nixos-anywhere.sh erebonia root@<erebonia-installer-ip>
-```
-
-Erebonia-specific post-deploy:
-
-- NFS mounts from remiferia (`/mnt/data`, `/mnt/media`) should auto-mount
-- Verify NFS connectivity to remiferia at new IP
-- Start microVM guest (saint-arkh)
-- Set up Incus guest (trista)
-
-### Rollback
-
-Same as calvard — fresh install on wiped machine, re-run deploy script.
+Erebonia deployed via nixos-anywhere (2026-03-18) with btrfs + LUKS encryption,
+matching calvard's profile. Switched from ZFS to btrfs (ZFS had issues with
+cloud-hypervisor). MicroVM guest (saint-arkh) and Incus guest (trista) both
+running with no failed units. NFS `/mnt/data` mount configured with automount.
 
 ---
 
@@ -208,7 +185,7 @@ After all three hosts are deployed and stable:
 | --------- | ----------- | ---- | ------------ |
 | calvard   | 10.97.11.30 | 11   | **Deployed** |
 | remiferia | 10.97.11.20 | 11   | **Deployed** |
-| erebonia  | 10.97.11.31 | 11   | Blocked      |
+| erebonia  | 10.97.11.31 | 11   | **Deployed** |
 | phantasma | 10.97.11.2  | 11   | **Deployed** |
 
 ## Quick Reference: Deploy commands
