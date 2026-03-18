@@ -46,14 +46,17 @@
       echo "$pubkey" > "$tmpdir/$hostname.pub"
 
       echo "  $hostname: signing..."
-      ${pkgs.openssh}/bin/ssh-keygen \
+      if ! ${pkgs.openssh}/bin/ssh-keygen \
         -s "$CA_KEY" \
         -I "$hostname" \
         -h \
         -n "$principals" \
-        -V "+5y" \
+        -V "+731d" \
         -z "$(date +%s)" \
-        "$tmpdir/$hostname.pub"
+        "$tmpdir/$hostname.pub"; then
+        echo "  $hostname: ERROR: ssh-keygen failed"
+        return 1
+      fi
 
       # Move certificate to final location
       mkdir -p "$CERTS_DIR"
