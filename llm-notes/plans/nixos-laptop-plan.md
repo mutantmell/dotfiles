@@ -316,41 +316,16 @@ shared common module:
 
 **File:** `modules/common/ssh-cert-client.nix`
 
-```nix
-{ config, lib, pkgs, ... }:
-let
-  cfg = config.common.ssh-cert-client;
-  data = pkgs.mmell.lib.data;
-in {
-  options.common.ssh-cert-client = {
-    enable = lib.mkEnableOption "SSH certificate client configuration";
-  };
+See the WSL plan (`nixos-wsl-plan.md`, Step 4) for the full module definition. The key
+features:
 
-  config = lib.mkIf cfg.enable {
-    # step-cli for obtaining certificates
-    environment.systemPackages = [ pkgs.step-cli ];
-
-    # Trust the internal root CA for TLS (so step-cli, curl, etc.
-    # can reach https://basel.internal without --insecure)
-    security.pki.certificateFiles = [ data.pki.root ];
-
-    # SSH client: present certificates, trust host CA
-    programs.ssh = {
-      extraConfig = ''
-        Host *.internal *.internal.mutantmell.net
-          User root
-          IdentityFile ~/.ssh/id_ed25519
-          CertificateFile ~/.ssh/id_ed25519-cert.pub
-      '';
-      knownHosts."internal-ca" = {
-        hostNames = [ "*.internal" "*.internal.mutantmell.net" ];
-        publicKeyFile = data.pki.sshHostCA;
-        certAuthority = true;
-      };
-    };
-  };
-}
-```
+- step-cli with system-wide defaults (CA URL, fingerprint, default provisioner)
+- TLS trust for the internal root CA
+- SSH client config (certificate presentation + host CA trust)
+- `STEPPATH=/etc/step-cli` so step-cli uses the NixOS-managed config
+- `provisioner = "keycloak"` default eliminates provisioner selection prompt
+- `knownHosts."host-ca"` with all three domain patterns (`*.internal`,
+  `*.internal.mutantmell.net`, `*.mutantmell.net`)
 
 Both the WSL host and the laptop set `common.ssh-cert-client.enable = true`.
 
@@ -362,11 +337,8 @@ auto-discovery. `./ssh-cert-client.nix` must be added to the imports in that fil
 The day-to-day SSH workflow on the laptop:
 
 ```bash
-# One-time: bootstrap step-cli trust store
-step ca bootstrap --ca-url https://basel.internal --fingerprint <ROOT_CA_FINGERPRINT>
-
 # Per-session: obtain a short-lived SSH certificate (opens browser to Keycloak)
-step ssh login admin --provisioner keycloak
+step ssh login admin
 # -> Authenticates via Keycloak OIDC (password + MFA)
 # -> step-ca signs a 12h SSH certificate
 # -> Written to ~/.ssh/id_ed25519-cert.pub
@@ -376,7 +348,9 @@ ssh root@calvard.internal
 ssh root@edith.internal
 ```
 
-The certificate is valid for 12 hours. After expiry, run `step ssh login` again.
+No manual `step ca bootstrap` needed — the NixOS config provides all defaults.
+
+The certificate is valid for 12 hours. After expiry, run `step ssh login admin` again.
 
 ### 5c. DNS resolution for `.internal` names
 
@@ -644,17 +618,13 @@ Add the laptop's SSH public key to `lib/common/data/keys.json`:
 
 Add the laptop's WG public key to the router's `wg-vpn` peer list.
 
-### Bootstrap step-cli
-
-```bash
-step ca bootstrap --ca-url https://basel.internal --fingerprint <ROOT_CA_FINGERPRINT>
-```
-
 ### Test full workflow
+
+No `step ca bootstrap` needed — the `ssh-cert-client` module provides all defaults.
 
 ```bash
 # Obtain SSH certificate
-step ssh login admin --provisioner keycloak
+step ssh login admin
 
 # Verify certificate-based SSH
 ssh root@calvard.internal

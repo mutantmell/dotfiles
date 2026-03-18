@@ -146,6 +146,7 @@ and host CA trust.
 let
   cfg = config.common.ssh-cert-client;
   data = pkgs.mmell.lib.data;
+  rootCaFingerprint = builtins.hashFile "sha256" data.pki.root;
 in {
   options.common.ssh-cert-client = {
     enable = lib.mkEnableOption "SSH certificate client configuration";
@@ -158,6 +159,19 @@ in {
     # Trust the internal root CA for TLS (so step-cli, curl, etc.
     # can reach https://basel.internal without --insecure)
     security.pki.certificateFiles = [ data.pki.root ];
+
+    # step-cli defaults: CA URL, fingerprint, and default provisioner
+    # This replaces the manual `step ca bootstrap` step and ensures
+    # `step ssh login admin` uses keycloak without prompting.
+    environment.etc."step-cli/defaults.json".text = builtins.toJSON {
+      ca-url = "https://basel.internal";
+      fingerprint = rootCaFingerprint;
+      root = "/etc/ssl/certs/ca-certificates.crt";
+      provisioner = "keycloak";
+    };
+
+    # Point step-cli at the system-wide defaults
+    environment.variables.STEPPATH = "/etc/step-cli";
 
     # SSH client: present certificates, trust host CA
     programs.ssh = {
@@ -182,6 +196,17 @@ hosts. The entries will merge — NixOS deduplicates `programs.ssh.knownHosts` b
 name. The `ssh-cert-client` module uses the same `"host-ca"` key so they don't conflict
 if both are enabled on the same host.
 
+The `STEPPATH` environment variable points step-cli at `/etc/step-cli/` where the
+system-wide defaults live. This eliminates the manual `step ca bootstrap` step entirely.
+The `provisioner = "keycloak"` default means `step ssh login admin` won't prompt for
+provisioner selection.
+
+Note: The `rootCaFingerprint` computation uses `builtins.hashFile` on the root CA
+certificate. This needs to be verified against what step-ca expects — step-ca may
+use a different fingerprint format (e.g., fingerprint of the DER-encoded certificate
+vs the PEM file). If it doesn't match, the fingerprint can be hardcoded or computed
+differently. Test with `step certificate fingerprint lib/common/data/pki/root_ca.crt`.
+
 ### Register in `modules/common/default.nix`
 
 Add `./ssh-cert-client.nix` to the imports list.
@@ -189,15 +214,14 @@ Add `./ssh-cert-client.nix` to the imports list.
 ### Login workflow
 
 ```bash
-# One-time: bootstrap step-cli trust
-step ca bootstrap --ca-url https://basel.internal --fingerprint <ROOT_CA_FINGERPRINT>
-
 # Per-session: obtain SSH certificate (opens browser for Keycloak login)
-step ssh login admin --provisioner keycloak
+step ssh login admin
 
 # SSH uses the certificate automatically
 ssh root@calvard.internal
 ```
+
+No manual `step ca bootstrap` needed — the NixOS config provides all defaults.
 
 ---
 
