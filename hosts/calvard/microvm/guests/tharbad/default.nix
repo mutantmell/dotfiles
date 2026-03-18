@@ -63,9 +63,6 @@ in {
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
     ];
-    files = [
-      "/etc/machine-id"
-    ];
   };
 
   system.stateVersion = "25.11";

@@ -58,9 +58,6 @@ in {
       "/var/lib/systemd/coredump"
       "/var/lib/containers"
     ];
-    files = [
-      "/etc/machine-id"
-    ];
   };
 
   # Egress filtering — default-drop with explicit allowlist

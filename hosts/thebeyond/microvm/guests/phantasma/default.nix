@@ -65,9 +65,6 @@ in {
       "/var/lib/systemd/coredump"
       "/var/lib/private/AdGuardHome" # Adguard Home state
     ];
-    files = [
-      "/etc/machine-id"
-    ];
   };
 
   promtail-client.enable = true;
