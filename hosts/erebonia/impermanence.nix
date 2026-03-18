@@ -1,17 +1,9 @@
-{config, ...}: let
-  inherit (config.common.impermanence) persistDir;
-in {
-  common.impermanence.enable = true;
-
-  environment.persistence.${persistDir} = {
-    files = [
-      "/etc/ssh/initrd_ssh_host_ed25519_key"
-      "/etc/ssh/initrd_ssh_host_ed25519_key.pub"
-    ];
-  };
-
-  common.zfs.impermanence = {
-    enable = true;
-    dataset = "zroot/local/root";
-  };
+_: {
+  # Impermanence and btrfs settings are configured in default.nix via:
+  #   common.impermanence.enable = true
+  #   common.btrfs.enable = true
+  #   common.btrfs.keyfileUnlock.enable = true
+  #   common.btrfs.impermanence.enable = true
+  #
+  # Additional host-specific persistence can be added here if needed.
 }

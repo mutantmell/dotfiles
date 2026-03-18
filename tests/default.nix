@@ -26,16 +26,6 @@
       echo "$profileJson" > $out
     '';
 
-  disko-zfs = let
-    profile = import ../profiles/disko/zfs.nix {};
-  in
-    pkgs.runCommand "disko-zfs-check" {
-      profileJson = builtins.toJSON profile;
-    } ''
-      echo "ZFS disko profile validated successfully"
-      echo "$profileJson" > $out
-    '';
-
   disko-btrfs = let
     profile = import ../profiles/disko/btrfs.nix {};
   in

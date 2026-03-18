@@ -1,9 +1,4 @@
-{
-  config,
-  pkgs,
-  lib,
-  ...
-}: {
+_: {
   common.incus = {
     enable = true;
     guestDir = ./guests;
@@ -14,8 +9,8 @@
     storage_pools = [
       {
         name = "default";
-        driver = "zfs";
-        config.source = "zroot/local/persist/incus";
+        driver = "btrfs";
+        config.source = "/persist/incus";
       }
     ];
 
