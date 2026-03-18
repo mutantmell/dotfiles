@@ -1,51 +1,56 @@
 # Metrics, Logging & Alerting Plan
 
 Strategy for centralized monitoring, log aggregation, and alerting across the
-homelab. Migrates the existing `ymir` monitoring VM from VLAN 20 (trusted) to
-VLAN 11 (management) and expands it with log aggregation, alerting, and
-notifications.
+homelab. The monitoring VM (now **tharbad** on calvard) needs to migrate from
+VLAN 20 (trusted) to VLAN 11 (management) and have its disabled services
+(Grafana, Alertmanager, ntfy) enabled.
 
 ---
 
 ## Current State
 
-**ymir** (on erebonia, VLAN 20 — trusted zone) currently runs:
+**tharbad** (on calvard, VLAN 20 — trusted zone) currently runs:
 
-- Prometheus (port 9001) — scrapes itself + remiferia exporters
-- Grafana (via nginx) — visualization
-- Loki/Promtail — **disabled** (configured but commented out)
-- 2 vCPU, 1 GB RAM, 10 GB persist volume
+- Prometheus (port 9090) — scrapes parent hosts + remiferia exporters
+- Loki (port 3100) — receiving logs from fleet-wide promtail-client
+- Grafana — **disabled** (module exists, pending sops secrets)
+- Alertmanager — **disabled** (module exists, pending sops secrets)
+- ntfy — **disabled** (module exists, pending sops secrets)
+- 2 vCPU, 2 GB RAM, 30 GB persist volume
+
+> **History:** Originally `ymir` on erebonia. Renamed to `tharbad` and moved to
+> calvard during the vm-guest-rebalance migration.
 
 **remiferia** exports:
 
 - node_exporter (9001), zfs_exporter (9002), smartctl_exporter (9003)
 
-**Problems with the current setup:**
+**promtail-client** module deployed fleet-wide, shipping to `tharbad.internal:3100`.
 
-1. ymir is on VLAN 20 (trusted/home) — infrastructure monitoring belongs on
+**Remaining problems:**
+
+1. tharbad is on VLAN 20 (trusted/home) — infrastructure monitoring belongs on
    VLAN 11 (management)
-2. Only scraping 2 hosts (ymir itself + remiferia)
-3. No log aggregation (Loki disabled)
-4. No alerting at all
-5. No egress filtering
+2. Grafana, Alertmanager, ntfy disabled pending sops secrets
+3. No egress filtering
 
 ---
 
 ## Architecture Overview
 
-Migrate ymir to **management zone** (VLAN 11) and expand its services. The
-management zone already has `accessTo = [ "management" "trusted" "untrusted" ]`
-in the router6 config, so ymir can reach exporters in those zones without extra
-firewall rules. erebonia already has a VLAN 11 bridge (`br11`), so the parent
+Migrate tharbad to **management zone** (VLAN 11) and enable remaining services.
+The management zone already has `accessTo = [ "management" "trusted" "untrusted" ]`
+in the router6 config, so tharbad can reach exporters in those zones without extra
+firewall rules. calvard already has a VLAN 11 bridge (`br11`), so the parent
 host needs no changes beyond the tap interface name.
 
 ### Stack Selection
 
 | Component       | Choice                 | Rationale                                                                                               |
 | --------------- | ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| Metrics         | **Prometheus**         | Already running on ymir, NixOS module is mature, pull-based model works well for homelab                |
-| Visualization   | **Grafana**            | Already running on ymir, rich dashboard ecosystem                                                       |
-| Log aggregation | **Loki**               | Already configured (disabled) on ymir, designed for Prometheus+Grafana stack, low resource usage vs ELK |
+| Metrics         | **Prometheus**         | Already running on tharbad, NixOS module is mature, pull-based model works well for homelab                |
+| Visualization   | **Grafana**            | Already running on tharbad, rich dashboard ecosystem                                                       |
+| Log aggregation | **Loki**               | Already configured (disabled) on tharbad, designed for Prometheus+Grafana stack, low resource usage vs ELK |
 | Log shipping    | **Promtail**           | Native Loki companion; can scrape systemd journal on each host                                          |
 | Alerting        | **Alertmanager**       | Native Prometheus integration, supports multiple notification channels                                  |
 | Notifications   | **ntfy** (self-hosted) | See Notification System section below                                                                   |
@@ -99,33 +104,27 @@ what Prometheus compaction provides. Keep it simple.
 
 ---
 
-## ymir Migration Spec
+## tharbad VLAN Migration Spec
 
 ### What Changes
 
-| Property         | Before                    | After                       |
-| ---------------- | ------------------------- | --------------------------- |
-| Zone             | trusted (VLAN 20)         | management (VLAN 11)        |
-| Network registry | `trusted.hosts.ymir = 41` | `management.hosts.ymir = 5` |
-| IPv4             | `10.97.20.41`             | `10.97.11.5`                |
-| IPv6             | `fdc6:55f2:0a5e:14::29`   | `fdc6:55f2:0a5e:b::5`       |
-| Legacy IPv4      | `10.0.20.41`              | `10.0.11.5`                 |
-| Tap interface    | `vm-20-ymir`              | `vm-11-ymir`                |
-| MAC              | `5E:A2:E4:CB:05:DA`       | New MAC (VLAN 11 encoded)   |
-| RAM              | 1024 MB                   | 2048 MB                     |
-| Persist volume   | 10 GB                     | 30 GB                       |
-| Grafana domain   | `ymir.internal`           | `ymir.internal` (unchanged) |
+| Property         | Before (current)                | After                              |
+| ---------------- | ------------------------------- | ---------------------------------- |
+| Zone             | trusted (VLAN 20)               | management (VLAN 11)               |
+| Network registry | `trusted.hosts.tharbad = 41`    | `management.hosts.tharbad = 5`     |
+| IPv4             | `10.97.20.41`                   | `10.97.11.5`                       |
+| IPv6             | `fdc6:55f2:0a5e:14::29`         | `fdc6:55f2:0a5e:b::5`              |
+| Tap interface    | `vm-20-tharbad`                 | `vm-11-tharbad`                    |
+| MAC              | `5E:A2:E4:CB:05:DA`             | New MAC (VLAN 11 encoded)          |
 
 ### What Stays the Same
 
-- Hostname: `ymir`
-- Parent host: erebonia
-- vCPU: 2
-- Existing Prometheus config (scrape targets, port 9001)
-- Existing Grafana config (nginx proxy, datasources)
-- Hypervisor: microvm (QEMU), 9p for nix store
-- All existing Grafana dashboards and Prometheus history (persist volume is
-  recreated on the new VLAN — see migration note below)
+- Hostname: `tharbad`
+- Parent host: calvard
+- vCPU: 2, RAM: 2048 MB, persist volume: 30 GB (already upgraded)
+- Existing Prometheus config (scrape targets, port 9090)
+- Hypervisor: cloud-hypervisor microvm
+- Loki + promtail-client fleet deployment
 
 ### Resources
 
@@ -166,13 +165,13 @@ environment.persistence."/persist" = {
 
 ### Egress Filtering
 
-Strict egress filter — ymir should only talk to known targets:
+Strict egress filter — tharbad should only talk to known targets:
 
 ```nix
 # Allowed egress:
 # - Gateway: DNS (53), NTP (123)
 # - All scrape targets (prometheus exporter ports)
-# - legram: ACME cert issuance (443)
+# - basel: ACME cert issuance (443)
 # No general internet access needed
 ```
 
@@ -183,7 +182,7 @@ Strict egress filter — ymir should only talk to known targets:
 | `grafana-admin-password` | Grafana initial admin                             |
 | `ntfy-auth-token`        | ntfy access control                               |
 | `alertmanager-ntfy-url`  | Alertmanager webhook config (includes topic auth) |
-| `grafana-oidc-secret`    | Grafana → Keycloak OIDC (if roer is deployed)     |
+| `grafana-oidc-secret`    | Grafana → Keycloak OIDC (future)                  |
 
 ---
 
@@ -197,36 +196,37 @@ Retention: 90d
 Scrape interval: 15s (default), 60s (slow targets)
 ```
 
-**Scrape targets — Phase 1 (management zone hosts):**
+**Currently scraping (deployed in prometheus.nix):**
 
 | Job                | Target             | Port | Exporter          |
 | ------------------ | ------------------ | ---- | ----------------- |
 | ymir_node          | localhost          | 9100 | node_exporter     |
-| remiferia_node     | remiferia.internal | 9001 | node_exporter     |
-| remiferia_zfs      | remiferia.internal | 9002 | zfs_exporter      |
-| remiferia_smartctl | remiferia.internal | 9003 | smartctl_exporter |
 | thebeyond_node     | thebeyond.internal | 9100 | node_exporter     |
 | erebonia_node      | erebonia.internal  | 9100 | node_exporter     |
 | calvard_node       | calvard.internal   | 9100 | node_exporter     |
+| remiferia_node     | remiferia.internal | 9001 | node_exporter     |
+| remiferia_zfs      | remiferia.internal | 9002 | zfs_exporter      |
+| remiferia_smartctl | remiferia.internal | 9003 | smartctl_exporter |
 
-**Scrape targets — Phase 2 (cross-zone, microVM guests):**
+**Future scrape targets (microVM guests):**
 
 | Job            | Target             | Port | Exporter      |
 | -------------- | ------------------ | ---- | ------------- |
 | phantasma_node | phantasma.internal | 9100 | node_exporter |
-| ordis_node     | ordis.internal     | 9100 | node_exporter |
-| heimdallr_node | heimdallr.internal | 9100 | node_exporter |
-| roer_node      | roer.internal      | 9100 | node_exporter |
-| legram_node    | legram.internal    | 9100 | node_exporter |
+| langport_node  | langport.internal  | 9100 | node_exporter |
+| messeldam_node | messeldam.internal | 9100 | node_exporter |
+| basel_node     | basel.internal     | 9100 | node_exporter |
 | ardent_node    | ardent.internal    | 9100 | node_exporter |
+| creil_node     | creil.internal     | 9100 | node_exporter |
+| oracion_node   | oracion.internal   | 9100 | node_exporter |
 
-**Scrape targets — Phase 3 (service-specific exporters):**
+**Future scrape targets (service-specific exporters):**
 
 | Job      | Target                  | Exporter          |
 | -------- | ----------------------- | ----------------- |
 | unbound  | phantasma.internal:9167 | unbound_exporter  |
 | kea_dhcp | thebeyond.internal:9547 | kea_exporter      |
-| nginx    | ordis.internal:9113     | nginx_exporter    |
+| nginx    | langport.internal:9113  | nginx_exporter    |
 | nftables | thebeyond.internal:9630 | nftables_exporter |
 
 ### 2. Loki
@@ -237,13 +237,13 @@ Retention: 30d
 Storage: filesystem (boltdb-shipper + chunks on /var/lib/loki)
 ```
 
-Receives logs from Promtail agents running on each host. Local Promtail on
-ymir scrapes its own systemd journal.
+Receives logs from Promtail agents running on each host (via `promtail-client`
+module). Local Promtail on tharbad scrapes its own systemd journal.
 
 ### 3. Promtail (deployed to each host)
 
 Promtail runs as a lightweight agent on every NixOS host and microVM, shipping
-systemd journal logs to Loki on ymir.
+systemd journal logs to Loki on tharbad.
 
 **Deployment approach**: Add a shared NixOS module
 (`modules/promtail-client/default.nix` or similar) that each host imports:
@@ -254,7 +254,7 @@ services.promtail = {
   enable = true;
   configuration = {
     server.http_listen_port = 3031;
-    clients = [{ url = "http://ymir.internal:3100/loki/api/v1/push"; }];
+    clients = [{ url = "http://tharbad.internal:3100/loki/api/v1/push"; }];
     scrape_configs = [{
       job_name = "journal";
       journal = {
@@ -333,7 +333,7 @@ Port: 2586 (internal, localhost only for alertmanager)
 
 ```
 Port: 3000 (proxied via nginx on 80/443)
-Domain: ymir.internal
+Domain: tharbad.internal
 ```
 
 **Datasources (provisioned):**
@@ -438,7 +438,7 @@ Domain: ymir.internal
 
 ### Network Registry Migration
 
-Move `ymir` from `trusted` to `management` in `lib/common/data/network.nix`:
+Move `tharbad` from `trusted` to `management` in `lib/common/data/network.nix`:
 
 ```nix
 # Remove from trusted:
@@ -446,7 +446,7 @@ trusted = {
   vlanId = 20;
   hosts = {
     denai = 40;
-    # ymir removed
+    # tharbad removed
   };
 };
 
@@ -458,7 +458,7 @@ management = {
     phantasma  = 2;
     roer       = 3;
     legram     = 4;
-    ymir       = 5;    # Metrics/monitoring (migrated from trusted)
+    tharbad    = 5;    # Metrics/monitoring (migrated from trusted)
     remiferia  = 20;
     calvard    = 30;
     erebonia   = 31;
@@ -478,116 +478,102 @@ networking.firewall.allowedTCPPorts = [
 ];
 ```
 
-For hosts in the management zone, ymir can already reach them (management zone
-has `accessTo = [ "management" ... ]`). For DMZ hosts (ordis, heimdallr,
-ardent), the management zone already has `accessTo` that covers `trusted` and
+For hosts in the management zone, tharbad can already reach them (management zone
+has `accessTo = [ "management" ... ]`). For DMZ hosts (langport, ardent, etc.),
+the management zone already has `accessTo` that covers `trusted` and
 `untrusted` but **not** DMZ, so cross-zone forward rules are needed:
 
 ```nix
 # In thebeyond extraForwardRules:
-# ymir (management) → DMZ exporter ports
+# tharbad (management) → DMZ exporter ports
 { iifname = "vINFRA.br0"; oifname = "vDMZ.br0";
-  ip.saddr = ymir.ipv4; tcp.dport = 9100;
-  verdict = "accept"; comment = "ymir -> DMZ (node_exporter)"; }
+  ip.saddr = tharbad.ipv4; tcp.dport = 9100;
+  verdict = "accept"; comment = "tharbad -> DMZ (node_exporter)"; }
 ```
 
 ### Promtail → Loki Connectivity
 
-Hosts in all zones need to reach ymir:3100 (Loki push endpoint). Management
-zone hosts can already reach ymir (intra-zone). For other zones:
+Hosts in all zones need to reach tharbad:3100 (Loki push endpoint). Management
+zone hosts can already reach tharbad (intra-zone). For other zones:
 
 - **trusted zone** → management: already allowed (`accessTo` includes
   `management`)
 - **DMZ zone** → management: needs cross-zone forward rule for Loki port
+  (**already implemented** — forward rules + per-host egress rules in place)
 
 ```nix
-# DMZ hosts → ymir for log shipping
+# DMZ hosts → tharbad for log shipping (ALREADY IN PLACE)
 { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
-  ip.daddr = ymir.ipv4; tcp.dport = 3100;
-  verdict = "accept"; comment = "DMZ -> ymir (Loki)"; }
+  ip.daddr = tharbad.ipv4; tcp.dport = 3100;
+  verdict = "accept"; comment = "DMZ -> tharbad (Loki)"; }
 ```
 
 ---
 
 ## File Structure
 
-Evolves the existing `hosts/erebonia/guests/ymir/` directory:
+Current file structure at `hosts/calvard/microvm/guests/tharbad/`:
 
 ```
-hosts/erebonia/guests/ymir/
-├── default.nix          # Updated networking (VLAN 11), expanded persistence
-├── microvm.nix          # Updated tap interface, MAC, resources
-├── monit.nix            # Refactored → split into modules/ (or kept and expanded)
-├── sops.nix             # NEW — secrets for grafana, ntfy, alertmanager
+hosts/calvard/microvm/guests/tharbad/
+├── default.nix          # Networking, imports, persistence
+├── microvm.nix          # Tap interface, MAC, resources
+├── sops.nix             # TODO — secrets for grafana, ntfy, alertmanager
 ├── secrets/
-│   └── secrets.yaml     # NEW — encrypted secrets
+│   └── secrets.yaml     # TODO — encrypted secrets
 └── modules/
-    ├── prometheus.nix   # Prometheus + scrape configs + alert rules (from monit.nix)
-    ├── grafana.nix      # Grafana + nginx reverse proxy + datasources (from monit.nix)
-    ├── loki.nix         # Loki + local promtail (enable existing disabled config)
-    ├── alertmanager.nix # NEW — Alertmanager + routing config
-    └── ntfy.nix         # NEW — ntfy notification server
+    ├── prometheus.nix   # Prometheus + scrape configs + alert rules ✓
+    ├── grafana.nix      # Grafana + nginx reverse proxy + datasources (DISABLED)
+    ├── loki.nix         # Loki + local promtail ✓
+    ├── alertmanager.nix # Alertmanager + routing config (DISABLED)
+    └── ntfy.nix         # ntfy notification server (DISABLED)
 
-modules/promtail-client/default.nix  # NEW — shared module for all hosts
+modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
 ```
 
 ---
 
 ## Implementation Phases
 
-### Phase 1 — VLAN Migration + Core Metrics
+### Phase 1 — Core Metrics (PARTIALLY COMPLETE)
 
-1. Move `ymir` from `trusted` to `management` in network registry (host ID 5)
-2. Update `microvm.nix`: tap `vm-11-ymir`, new MAC, bump RAM to 2048 MB,
-   persist volume to 30 GB
-3. Update `default.nix`: new IP/CIDR from `net.forHost "ymir"`, gateway from
-   management zone
-4. Split `monit.nix` into `modules/prometheus.nix` + `modules/grafana.nix`
-5. Deploy node_exporter on all parent hosts (thebeyond, erebonia, calvard)
-6. Expand Prometheus scrape targets to cover all parent hosts
-7. Add firewall rules for exporter scraping (cross-zone for DMZ targets)
-8. Add sops.nix + secrets for Grafana admin password
-9. Verify: all targets up, Grafana accessible at ymir.internal
+Tharbad already has Prometheus running with expanded scrape targets, and the
+module split (prometheus.nix, grafana.nix, loki.nix) is done. RAM and persist
+volume already upgraded to 2048 MB / 30 GB.
 
-**Migration note:** The persist volume path changes from
-`/persist/guests/ymir/images/persist.img` on the old VLAN 20 tap to the same
-path but with a fresh image (new IP, new volume size). Prometheus history and
-Grafana dashboards from the old volume can be migrated by copying the persist
-image before reprovisioning, or started fresh.
+- [x] Split monit.nix into `modules/prometheus.nix` + `modules/grafana.nix`
+- [x] Expand Prometheus scrape targets to cover parent hosts
+- [x] Bump RAM to 2048 MB, persist volume to 30 GB
+- [ ] Move `tharbad` from `trusted` to `management` in network registry (host ID 5)
+- [ ] Update `microvm.nix`: tap `vm-11-tharbad`, new MAC
+- [ ] Add sops.nix + secrets for Grafana admin password
+- [ ] Enable Grafana (uncomment `./modules/grafana.nix` in default.nix)
+- [ ] Add egress filtering
+- [ ] Verify: all targets up, Grafana accessible at tharbad.internal
 
 ### Phase 2 — Log Aggregation (COMPLETE)
 
-1. ~~Enable Loki on ymir~~ — `modules/loki.nix`: TSDB + v13 schema,
-   filesystem storage in `/var/lib/loki/`, port 3100
-2. ~~Enable local Promtail on ymir~~ — via `promtail-client` module pointing
-   to `http://127.0.0.1:3100`
-3. ~~Create `modules/promtail-client/default.nix` shared module~~ — auto-
-   discovered by flake, added to both `mk-nixos` and `mk-microvm` builders
-4. ~~Deploy Promtail to all parent hosts + microVMs~~ — enabled on thebeyond,
-   erebonia, calvard, remiferia, phantasma, roer, legram, ordis, heimdallr,
-   ardent, denai (ymir uses local Promtail via loki.nix)
-5. ~~Add cross-zone firewall rules for DMZ → ymir Loki port~~ — IPv4 + IPv6
-   forward rules on thebeyond, egress rules on roer, legram, ordis,
-   heimdallr, ardent
-6. ~~Add Loki persistence directory~~ — already pre-created in Phase 1
-7. ~~Configure Grafana Loki datasource~~ — provisioned alongside Prometheus
-8. TODO: Verify logs flowing from all hosts after deployment
+- [x] Enable Loki on tharbad — `modules/loki.nix`: TSDB + v13 schema, port 3100
+- [x] Enable local Promtail on tharbad via loki.nix
+- [x] Create `modules/promtail-client/default.nix` shared module — fleet-wide
+- [x] Deploy Promtail to all parent hosts + microVMs
+- [x] Add cross-zone firewall rules for DMZ → tharbad Loki port (IPv4 + IPv6)
+- [x] Add per-host egress rules for Loki push
+- [ ] Verify logs flowing from all hosts after deployment
 
-### Phase 3 — Alerting & Notifications (COMPLETE)
+### Phase 3 — Alerting & Notifications (CODE COMPLETE, NOT ENABLED)
 
-1. ~~Add `modules/ntfy.nix`~~ — ntfy on ymir, port 2586, persistence
-2. ~~Add `modules/alertmanager.nix`~~ — Alertmanager with ntfy webhook
-   receivers (infra-critical, security, cicd, services), Prometheus
-   alertmanagers config, Phase 1 alert rules
-3. ~~Add Phase 1 alert rules~~ — HostDown, DiskSpaceLow, HighMemoryUsage,
-   ZFSPoolDegraded, SystemdUnitFailed
-4. ~~Add Alertmanager datasource to Grafana~~ — provisioned alongside
-   Prometheus and Loki
-5. ~~Declare future secrets in sops.nix~~ — alertmanager-ntfy-url,
-   ntfy-auth-token (not used yet)
-6. TODO: Install ntfy app on phone, subscribe to topics
-7. TODO: Test alert pipeline: trigger test alert → Alertmanager → ntfy → phone
-8. TODO: Verify alerts fire and deliver within expected timeframes
+Modules written but disabled in default.nix pending sops secrets.
+
+- [x] Write `modules/ntfy.nix` — ntfy on tharbad, port 2586
+- [x] Write `modules/alertmanager.nix` — Alertmanager with ntfy webhook receivers
+- [x] Write Phase 1 alert rules — HostDown, DiskSpaceLow, HighMemoryUsage,
+  ZFSPoolDegraded, SystemdUnitFailed
+- [x] Write Alertmanager + Loki datasources for Grafana
+- [ ] Create sops secrets (alertmanager-ntfy-url, ntfy-auth-token, grafana-admin-password)
+- [ ] Enable alertmanager.nix + ntfy.nix in default.nix
+- [ ] Install ntfy app on phone, subscribe to topics
+- [ ] Test alert pipeline: trigger test alert → Alertmanager → ntfy → phone
 
 ### Phase 4 — Expanded Monitoring
 
@@ -596,7 +582,7 @@ image before reprovisioning, or started fresh.
 3. Add Phase 3 alert rules (service health)
 4. Build custom Grafana dashboards (firewall overview, DNS stats)
 5. Configure CI/CD webhook integration (Forgejo → ntfy)
-6. Configure Grafana OIDC auth via roer/Keycloak (if available)
+6. Configure Grafana OIDC auth via Keycloak (messeldam)
 
 ---
 
@@ -606,20 +592,20 @@ image before reprovisioning, or started fresh.
 
 We considered adding mutual TLS to the Promtail→Loki connection so that only
 hosts presenting a valid client certificate can push logs. The infrastructure
-exists (legram runs step-ca, several hosts already use ACME), but the
+exists (basel runs step-ca, several hosts already use ACME), but the
 operational cost outweighs the benefit for this deployment:
 
 - **Every host running Promtail would need an ACME-issued client cert.**
-  Management-zone hosts can already reach legram (intra-zone), but the cert
-  renewal lifecycle adds a hard dependency: if legram is down, certs expire and
+  Management-zone hosts can already reach basel (intra-zone), but the cert
+  renewal lifecycle adds a hard dependency: if basel is down, certs expire and
   log shipping stops across the fleet.
 - **Certificate renewal plumbing** — Promtail and Loki need systemd restart
   triggers after ACME renewal. NixOS's `security.acme` handles renewal but
   wiring the restart dependencies for every host is boilerplate.
 - **Loki needs a serving cert too** (for `https://`), plus its own ACME setup.
-  Local Promtail on ymir would need special handling (loopback TLS or a second
+  Local Promtail on tharbad would need special handling (loopback TLS or a second
   plaintext listener).
-- **The threat model doesn't justify it.** The DMZ→ymir:3100 forward rules are
+- **The threat model doesn't justify it.** The DMZ→tharbad:3100 forward rules are
   narrow (specific destination + port), and the 5 DMZ hosts with egress filters
   are the only ones that can even attempt the connection. A compromised DMZ host
   can write garbage logs but can't read other hosts' logs or pivot further
@@ -639,7 +625,7 @@ is needed.
    ~15-20 GB estimated disk usage. Tune down if needed.
 
 3. **Grafana auth**: Local admin only (sops-managed password). Add Keycloak
-   OIDC later when roer is stable.
+   OIDC later via Keycloak (messeldam).
 
-4. **Data migration**: Start fresh. Current ymir has minimal history (only 2
-   scrape targets). Clean persist volume on the new VLAN.
+4. **Data migration**: Start fresh on VLAN migration. Prometheus history on the
+   current VLAN 20 persist volume can be copied or discarded.
