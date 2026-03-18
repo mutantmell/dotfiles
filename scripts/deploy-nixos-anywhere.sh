@@ -389,6 +389,85 @@ if [[ $PROFILE == "zfs" && ! -f "$KEYS_DIR/$HOSTNAME-initrd_ssh_host_ed25519_key
   echo "Saved new initrd SSH key to .keys/$HOSTNAME-initrd_ssh_host_ed25519_key"
 fi
 
+# --- SSH host certificate signing ---
+CA_KEY="$KEYS_DIR/ssh_host_ca_key"
+CERTS_DIR="$REPO_ROOT/lib/common/data/host-certs"
+UNSIGNED_HOSTS=()
+ALL_HOST_DOMAINS=""
+
+sign_host_cert() {
+  local name="$1"
+  local pubkey_file="$2"
+
+  # Fetch domains once and cache
+  if [[ -z $ALL_HOST_DOMAINS ]]; then
+    ALL_HOST_DOMAINS=$(nix eval "$REPO_ROOT#lib.common.data.network.allHostDomains" --json)
+  fi
+
+  local principals
+  principals=$(echo "$ALL_HOST_DOMAINS" | jq -r --arg h "$name" '.[$h] // [] | join(",")')
+  if [[ -z $principals ]]; then
+    echo "  $name: not in network registry, skipping certificate"
+    UNSIGNED_HOSTS+=("$name")
+    return
+  fi
+
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  cp "$pubkey_file" "$tmpdir/$name.pub"
+  if ssh-keygen -s "$CA_KEY" -I "$name" -h -n "$principals" -V "+731d" -z "$(date +%s)" "$tmpdir/$name.pub" 2>/dev/null; then
+    mkdir -p "$CERTS_DIR"
+    mv "$tmpdir/$name-cert.pub" "$CERTS_DIR/$name-cert.pub"
+    echo "  Signed host certificate: $name"
+  else
+    echo "  $name: ssh-keygen signing failed"
+    UNSIGNED_HOSTS+=("$name")
+  fi
+  rm -rf "$tmpdir"
+}
+
+if [[ -f $CA_KEY ]]; then
+  echo ""
+  echo "Signing SSH host certificates..."
+  sign_host_cert "$HOSTNAME" "$SSH_KEY.pub"
+  # Sign guest certificates
+  if [[ -d $GUEST_DIR ]]; then
+    for guest_path in "$GUEST_DIR"/*/; do
+      [[ -d $guest_path ]] || continue
+      guest="$(basename "$guest_path")"
+      sign_host_cert "$guest" "$KEYFILE_DIR/${guest}-ssh_host_ed25519_key.pub"
+    done
+  fi
+  if [[ -d $INCUS_GUEST_DIR ]]; then
+    for guest_path in "$INCUS_GUEST_DIR"/*/; do
+      [[ -d $guest_path ]] || continue
+      guest="$(basename "$guest_path")"
+      sign_host_cert "$guest" "$KEYFILE_DIR/${guest}-ssh_host_ed25519_key.pub"
+    done
+  fi
+else
+  echo ""
+  echo "WARNING: SSH host CA key not found at $CA_KEY"
+  echo "Skipping automatic host certificate signing."
+  echo ""
+  echo "To sign host certificates manually after deployment, run:"
+  echo "  nix run .#ssh-host-cert-sign -- --sign $HOSTNAME"
+  # Collect all hosts that would need signing
+  UNSIGNED_HOSTS+=("$HOSTNAME")
+  if [[ -d $GUEST_DIR ]]; then
+    for guest_path in "$GUEST_DIR"/*/; do
+      [[ -d $guest_path ]] || continue
+      UNSIGNED_HOSTS+=("$(basename "$guest_path")")
+    done
+  fi
+  if [[ -d $INCUS_GUEST_DIR ]]; then
+    for guest_path in "$INCUS_GUEST_DIR"/*/; do
+      [[ -d $guest_path ]] || continue
+      UNSIGNED_HOSTS+=("$(basename "$guest_path")")
+    done
+  fi
+fi
+
 # Prepare extra-files directory with SSH host key for nixos-anywhere
 # All parent hosts use impermanence with SSH keys persisted at /persist/etc/ssh/
 mkdir -p "$EXTRA_FILES_DIR/persist/etc/ssh"
@@ -535,5 +614,19 @@ echo "  $HOSTNAME-ssh_host_ed25519_key.pub  — SSH host public key"
 if [[ $PROFILE == "zfs" ]]; then
   echo "  $HOSTNAME-initrd_ssh_host_ed25519_key      — Initrd SSH key (ZFS remote unlock)"
   echo "  $HOSTNAME-initrd_ssh_host_ed25519_key.pub  — Initrd SSH public key"
+fi
+
+if [[ ${#UNSIGNED_HOSTS[@]} -gt 0 ]]; then
+  echo ""
+  echo "Unsigned SSH host certificates:"
+  echo "  The following hosts need host certificates signed manually:"
+  for h in "${UNSIGNED_HOSTS[@]}"; do
+    echo "    nix run .#ssh-host-cert-sign -- --sign $h"
+  done
+  echo ""
+  echo "  Or sign all at once:"
+  echo "    nix run .#ssh-host-cert-sign -- --sign-all"
+  echo ""
+  echo "  Then commit the certificates and rebuild the host(s)."
 fi
 echo ""

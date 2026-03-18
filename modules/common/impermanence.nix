@@ -46,12 +46,27 @@ in {
 
     # Copy persisted machine-id into place before systemd starts (which would
     # create a new one), avoiding the race with impermanence bind mounts.
-    boot.initrd.postMountCommands = lib.mkBefore ''
+    boot.initrd.systemd.services.restore-machine-id = lib.mkIf config.boot.initrd.systemd.enable {
+      description = "Restore persisted machine-id";
+      wantedBy = ["initrd.target"];
+      after = ["sysroot.mount"];
+      before = ["initrd-parse-etc.service"];
+      unitConfig.DefaultDependencies = false;
+      serviceConfig.Type = "oneshot";
+      script = ''
+        if [ -f /sysroot${cfg.persistDir}/etc/machine-id ]; then
+          mkdir -p /sysroot/etc
+          cp /sysroot${cfg.persistDir}/etc/machine-id /sysroot/etc/machine-id
+        fi
+      '';
+    };
+    # TODO: Remove once all hosts use systemd stage 1 initrd (thebeyond uses scripted initrd with tmpfs profile)
+    boot.initrd.postMountCommands = lib.mkIf (!config.boot.initrd.systemd.enable) (lib.mkBefore ''
       if [ -f /mnt-root${cfg.persistDir}/etc/machine-id ]; then
         mkdir -p /mnt-root/etc
         cp /mnt-root${cfg.persistDir}/etc/machine-id /mnt-root/etc/machine-id
       fi
-    '';
+    '');
 
     # On first boot, save the generated machine-id to persist for future boots.
     system.activationScripts.persist-machine-id = lib.stringAfter ["etc"] ''
