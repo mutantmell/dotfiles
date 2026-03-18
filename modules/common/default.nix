@@ -7,5 +7,6 @@
     ./microvm.nix
     ./networking.nix
     ./openssh.nix
+    ./ssh-cert-client.nix
   ];
 }

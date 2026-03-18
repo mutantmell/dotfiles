@@ -36,6 +36,10 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nixos-wsl = {
+      url = "github:nix-community/NixOS-WSL/main";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     deploy-rs = {
       url = "github:serokell/deploy-rs";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -55,6 +59,7 @@
     disko,
     home-manager-stable,
     microvm-stable,
+    nixos-wsl,
     deploy-rs,
     treefmt-nix,
   }: let
@@ -205,27 +210,7 @@
             ]
             ++ args.modules;
         };
-      mk-home-config = args @ {
-        nixpkgs,
-        system,
-        ...
-      }: let
-        pkgs = pkgsFor nixpkgs system;
-      in
-        home-manager.lib.homeManagerConfiguration {
-          inherit pkgs;
-          extraSpecialArgs = {home-conf = builtins.removeAttrs args ["nixpkgs" "system"];};
-          modules =
-            [
-              ./home
-            ]
-            ++ (
-              pkgs.lib.optional pkgs.stdenv.isDarwin ./home/darwin.nix
-            )
-            ++ (
-              pkgs.lib.optional pkgs.stdenv.isLinux ./home/linux.nix
-            );
-        };
+
       mk-microvm = args:
         nixpkgs.lib.mkMerge [
           args
@@ -332,6 +317,16 @@
       #          ./hosts/azoth
       #        ];
       #      };
+      kernviter = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          nixos-wsl.nixosModules.default
+          home-manager.nixosModules.home-manager
+          ./hosts/kernviter
+        ];
+      };
+
       #      arcus = self.lib.mk-nixos {
       #        inherit nixpkgs;
       #        system = "x86_64-linux";
@@ -344,11 +339,14 @@
     };
 
     homeConfigurations = {
-      mutantmell = self.lib.mk-home-config {
-        inherit nixpkgs;
-        system = "x86_64-linux";
-        user = "mutantmell";
-        langs = ["agda" "rust"];
+      mutantmell = home-manager.lib.homeManagerConfiguration {
+        pkgs = pkgsFor nixpkgs "x86_64-linux";
+        modules = [
+          (import ./home {
+            user = "mutantmell";
+            langs = ["agda" "rust"];
+          })
+        ];
       };
     };
 
