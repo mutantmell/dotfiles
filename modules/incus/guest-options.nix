@@ -31,6 +31,22 @@ in {
       default = true;
       description = "Whether to auto-start this instance on host boot.";
     };
+
+    limits = {
+      cpu = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "CPU limit for this instance (e.g. \"4\"). Applied via incus config set.";
+        example = "4";
+      };
+
+      memory = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Memory limit for this instance (e.g. \"8GB\"). Applied via incus config set.";
+        example = "8GB";
+      };
+    };
   };
 
   config = lib.mkIf (cfg.type == "vm") {

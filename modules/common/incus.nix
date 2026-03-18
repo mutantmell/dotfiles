@@ -54,6 +54,7 @@ in {
           inherit (guestMeta) profile;
           inherit (guestMeta) bridge;
           inherit (guestMeta) autoStart;
+          inherit (guestMeta) limits;
           staticDir = "${impCfg.persistDir}/guests/${name}/static";
         };
       in {

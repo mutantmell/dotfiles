@@ -12,6 +12,7 @@
   incus-guest = {
     profile = "dev";
     bridge = "br20";
+    limits.memory = "8GB";
   };
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
