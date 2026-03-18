@@ -47,6 +47,7 @@ nixos-hardware.nixosModules.lenovo-thinkpad-x1-7th-gen
 ```
 
 This provides:
+
 - Parent ThinkPad/Lenovo common config (trackpad, ACPI, etc.)
 - SSD optimizations (TRIM, scheduler)
 - `services.throttled` for thermal management (Intel throttling fix)
@@ -128,6 +129,7 @@ This provides:
 ### `hosts/<name>/hardware-configuration.nix`
 
 Generated at install time via `nixos-generate-config`. Will contain:
+
 - Kernel modules for the X1 Carbon (Intel GPU `i915`, WiFi `iwlwifi`, NVMe, etc.)
 - Filesystem declarations (LUKS + ext4/btrfs)
 - EFI system partition
@@ -428,6 +430,7 @@ friends' devices on guest). The whole point of the zone model is blast-radius
 containment.
 
 Options:
+
 1. **New zone and VLAN (e.g., `lab` / vLAB)** — a dedicated zone for dev
    environments where untrusted code runs (edith, trista, future dev envs). The
    spec document explicitly calls out "minimal permissions, no access to secrets"
@@ -457,6 +460,7 @@ needed. The current `vpn` zone definition (`accessTo = ["management"
 `vpn` zone is eliminated.
 
 The lab zone policy:
+
 - `accessTo = ["management" "dmz"]` — reach basel/messeldam for SSH certs,
   creil for Forgejo, oracion for media. (Drop `"untrusted"` — no reason for
   dev envs to reach IoT/guest devices.)
@@ -692,26 +696,26 @@ Works out of the box. No special config needed.
 
 edith needs a few additions to support the thin client workflow:
 
-| Change | File |
-| ------ | ---- |
+| Change                                        | File                                           |
+| --------------------------------------------- | ---------------------------------------------- |
 | Add `services.eternal-terminal.enable = true` | `hosts/calvard/incus/guests/edith/default.nix` |
-| Add `pkgs.zed-editor` to system packages | `hosts/calvard/incus/guests/edith/default.nix` |
+| Add `pkgs.zed-editor` to system packages      | `hosts/calvard/incus/guests/edith/default.nix` |
 
 ---
 
 ## Files Modified
 
-| File                                         | Action                                          |
-| -------------------------------------------- | ----------------------------------------------- |
-| `flake.nix`                                  | Add nixosConfiguration for the laptop           |
-| `hosts/<name>/default.nix`                   | New — laptop host config                        |
-| `hosts/<name>/wireguard.nix`                 | New — WireGuard VPN config                      |
-| `hosts/<name>/hardware-configuration.nix`    | New — generated at install time                 |
-| `modules/common/ssh-cert-client.nix`         | New — shared SSH cert client module             |
-| `modules/common/default.nix`                 | Add `./ssh-cert-client.nix` to imports          |
-| `lib/common/data/keys.json`                  | Add laptop SSH public key                       |
-| `home/graphical.nix`                         | Expand with sway desktop packages               |
-| `hosts/calvard/incus/guests/edith/default.nix` | Add ET server + Zed editor                    |
+| File                                           | Action                                 |
+| ---------------------------------------------- | -------------------------------------- |
+| `flake.nix`                                    | Add nixosConfiguration for the laptop  |
+| `hosts/<name>/default.nix`                     | New — laptop host config               |
+| `hosts/<name>/wireguard.nix`                   | New — WireGuard VPN config             |
+| `hosts/<name>/hardware-configuration.nix`      | New — generated at install time        |
+| `modules/common/ssh-cert-client.nix`           | New — shared SSH cert client module    |
+| `modules/common/default.nix`                   | Add `./ssh-cert-client.nix` to imports |
+| `lib/common/data/keys.json`                    | Add laptop SSH public key              |
+| `home/graphical.nix`                           | Expand with sway desktop packages      |
+| `hosts/calvard/incus/guests/edith/default.nix` | Add ET server + Zed editor             |
 
 ## Verification
 

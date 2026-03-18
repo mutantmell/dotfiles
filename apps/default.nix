@@ -30,6 +30,7 @@ in {
   # SSH CA management
   ssh-ca-bootstrap = import ./ssh-ca-bootstrap.nix {inherit pkgs;};
   ssh-key-registry = import ./ssh-key-registry.nix {inherit pkgs;};
+  ssh-host-cert-sign = import ./ssh-host-cert-sign.nix {inherit pkgs;};
 
   # OpenWrt device management
   inherit
