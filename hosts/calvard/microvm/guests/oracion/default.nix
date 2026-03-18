@@ -59,9 +59,6 @@ in {
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
     ];
-    files = [
-      "/etc/machine-id"
-    ];
   };
 
   # Egress filtering — default-drop with explicit allowlist
