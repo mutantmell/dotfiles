@@ -92,6 +92,29 @@
     };
   };
 
+  # Retry OIDC provisioner initialization after boot.
+  # step-ca and keycloak (messeldam) have a circular dependency:
+  # step-ca needs keycloak for OIDC init, keycloak needs step-ca for ACME certs.
+  # step-ca gracefully degrades (serves ACME with OIDC disabled), so keycloak
+  # can get its certs. This service checks that keycloak is reachable, then
+  # restarts step-ca to re-initialize the OIDC provisioner.
+  systemd.services.step-ca-oidc-retry = {
+    description = "Retry step-ca OIDC provisioner initialization";
+    after = ["step-ca.service"];
+    requires = ["step-ca.service"];
+    wantedBy = ["multi-user.target"];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      Restart = "on-failure";
+      RestartSec = 10;
+      RestartMaxDelaySec = 300;
+      RestartSteps = 5;
+      ExecStart = "${pkgs.curl}/bin/curl -sf --max-time 5 https://auth.mutantmell.net/realms/homelab/.well-known/openid-configuration -o /dev/null";
+      ExecStartPost = "${pkgs.systemd}/bin/systemctl restart step-ca";
+    };
+  };
+
   environment.persistence."/persist" = {
     directories = [
       {
