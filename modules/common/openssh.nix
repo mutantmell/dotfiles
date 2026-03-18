@@ -29,6 +29,11 @@ in {
       default = true;
       description = "Trust the project SSH user CA for certificate authentication.";
     };
+    hostCertificate = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Present the SSH host certificate if one exists for this host.";
+    };
     principals = lib.mkOption {
       type = lib.types.attrsOf (lib.types.listOf lib.types.str);
       default = {root = ["admin"];};
@@ -36,38 +41,61 @@ in {
     };
   };
 
-  config = lib.mkIf cfg.enable {
-    services.openssh = {
-      enable = true;
-      settings = {
-        PasswordAuthentication = cfg.allowPassword;
-        PermitRootLogin = "prohibit-password";
-        KbdInteractiveAuthentication = false;
+  config = let
+    hostname = config.networking.hostName;
+    hostCerts = pkgs.mmell.lib.data.hostCerts or {};
+    hasCert = cfg.hostCertificate && hostCerts ? ${hostname};
+  in
+    lib.mkIf cfg.enable {
+      services.openssh = {
+        enable = true;
+        settings = {
+          PasswordAuthentication = cfg.allowPassword;
+          PermitRootLogin = "prohibit-password";
+          KbdInteractiveAuthentication = false;
+        };
+        extraConfig = lib.mkMerge [
+          (lib.mkIf cfg.trustedUserCA
+            "TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub")
+          (lib.mkIf hasCert
+            "HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub")
+        ];
       };
-      extraConfig =
-        lib.mkIf cfg.trustedUserCA
-        "TrustedUserCAKeys /etc/ssh/ssh_user_ca.pub";
-    };
 
-    environment.etc = lib.optionalAttrs cfg.trustedUserCA {
-      "ssh/ssh_user_ca.pub".source = pki.sshUserCA;
-    };
+      environment.etc = lib.mkMerge [
+        (lib.optionalAttrs cfg.trustedUserCA {
+          "ssh/ssh_user_ca.pub".source = pki.sshUserCA;
+        })
+        (lib.optionalAttrs hasCert {
+          "ssh/ssh_host_ed25519_key-cert.pub" = {
+            source = hostCerts.${hostname};
+            mode = "0444";
+          };
+        })
+      ];
 
-    # Use NixOS-native authorizedPrincipals (writes to /etc/ssh/authorized_principals.d/%u)
-    users.users =
-      lib.mapAttrs (
-        user: principals: {
-          openssh.authorizedPrincipals = principals;
-        }
-      )
-      cfg.principals;
+      # Trust the host CA so SSH between hosts doesn't require TOFU
+      programs.ssh.knownHosts."host-ca" = {
+        hostNames = ["*.internal" "*.internal.mutantmell.net" "*.mutantmell.net"];
+        publicKeyFile = pki.sshHostCA;
+        certAuthority = true;
+      };
 
-    users.extraUsers = builtins.listToAttrs (builtins.map (
-        user:
-          lib.attrsets.nameValuePair user {
-            openssh.authorizedKeys.keys = builtins.map (key: pkgs.mmell.lib.data.keys.ssh.${key}) cfg.keys;
+      # Use NixOS-native authorizedPrincipals (writes to /etc/ssh/authorized_principals.d/%u)
+      users.users =
+        lib.mapAttrs (
+          user: principals: {
+            openssh.authorizedPrincipals = principals;
           }
-      )
-      cfg.users);
-  };
+        )
+        cfg.principals;
+
+      users.extraUsers = builtins.listToAttrs (builtins.map (
+          user:
+            lib.attrsets.nameValuePair user {
+              openssh.authorizedKeys.keys = builtins.map (key: pkgs.mmell.lib.data.keys.ssh.${key}) cfg.keys;
+            }
+        )
+        cfg.users);
+    };
 }

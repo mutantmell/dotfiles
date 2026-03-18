@@ -73,9 +73,10 @@ Pass it through the `outputs` function parameters.
 
 ## Step 2: Create host configuration
 
-**Directory:** `hosts/device-wsl/` (or a Trails-themed name)
+**Directory:** `hosts/<name>/` — use a Trails "legendary weapons" name per `docs/hostnames.md`
+(desktops use that convention: kernviter, blutgang, bolverk).
 
-### `hosts/device-wsl/default.nix`
+### `hosts/<name>/default.nix`
 
 ```nix
 { config, pkgs, lib, ... }: {
@@ -84,7 +85,7 @@ Pass it through the `outputs` function parameters.
     defaultUser = "mutantmell";
   };
 
-  networking.hostName = "device-wsl";
+  networking.hostName = "<name>";
 
   nix.settings = {
     experimental-features = [ "nix-command" "flakes" ];
@@ -97,24 +98,16 @@ Pass it through the `outputs` function parameters.
     uid = 1000;
   };
 
-  # SSH certificate client configuration (see Step 4)
+  # SSH certificate client (shared module with laptop)
+  common.ssh-cert-client.enable = true;
+
   # No sshd needed — this is a client-only machine
+  # common.openssh is NOT enabled (no inbound SSH)
 
   time.timeZone = "UTC";
   system.stateVersion = "25.11";
 }
 ```
-
-### Naming decision
-
-The existing naming convention uses Trails location names tied to host roles. WSL is a
-special case — it's a development environment on a Windows host, not a standalone machine.
-Options:
-
-- Use a Trails name (consistent with other hosts)
-- Use a descriptive name like `wsl-desktop` (clear purpose)
-
-Decision deferred to implementation time.
 
 ---
 
@@ -123,13 +116,13 @@ Decision deferred to implementation time.
 **File:** `flake.nix`
 
 ```nix
-device-wsl = self.lib.mk-nixos {
+<name> = self.lib.mk-nixos {
   inherit nixpkgs;
   system = "x86_64-linux";
   modules = [
     nixos-wsl.nixosModules.default
     home-manager.nixosModules.home-manager
-    ./hosts/device-wsl
+    ./hosts/<name>
   ];
 };
 ```
@@ -140,69 +133,60 @@ interfere. `promtail-client` could optionally be enabled to ship WSL logs to Lok
 
 ---
 
-## Step 4: SSH certificate client setup
+## Step 4: SSH certificate client module
 
-This is the key integration point. The workstation needs to:
+The SSH certificate client config is shared between this WSL host and the laptop (see
+`nixos-laptop-plan.md`). Both need the same setup: step-cli, TLS trust, SSH client config,
+and host CA trust.
 
-1. **Obtain short-lived SSH certificates** from step-ca via Keycloak OIDC
-2. **Trust the host CA** so it can verify server identity without TOFU
-3. **Present certificates** when connecting to homelab hosts
-
-### 4a. Install step-cli
-
-Add `step-cli` to the system or home-manager packages:
+### Create `modules/common/ssh-cert-client.nix`
 
 ```nix
-environment.systemPackages = [ pkgs.step-cli ];
-```
-
-### 4b. Trust the internal CA for TLS
-
-step-ca's HTTPS endpoint uses a certificate signed by the internal root CA. The `step ca
-bootstrap` command handles this, but it's a manual one-time step. Alternatively, add the
-root CA to the system trust store declaratively:
-
-```nix
-security.pki.certificateFiles = [
-  ../../lib/common/data/pki/root_ca.crt
-];
-```
-
-This lets `step-cli` (and `curl`, etc.) trust `https://basel.internal` without `--insecure`.
-
-### 4c. SSH client configuration
-
-Configure SSH to present certificates and trust the host CA. This can be done via
-home-manager's `programs.ssh` or via NixOS's `programs.ssh`:
-
-```nix
-programs.ssh.extraConfig = ''
-  Host *.internal *.internal.mutantmell.net
-    User root
-    IdentityFile ~/.ssh/id_ed25519
-    CertificateFile ~/.ssh/id_ed25519-cert.pub
-'';
-```
-
-### 4d. Trust the host CA in known_hosts
-
-Add the host CA public key so SSH verifies server identity via certificate:
-
-```nix
-programs.ssh.knownHosts = {
-  "internal-ca" = {
-    hostNames = [ "*.internal" "*.internal.mutantmell.net" ];
-    publicKeyFile = ../../lib/common/data/pki/ssh_host_ca.pub;
-    certAuthority = true;
+{ config, lib, pkgs, ... }:
+let
+  cfg = config.common.ssh-cert-client;
+  data = pkgs.mmell.lib.data;
+in {
+  options.common.ssh-cert-client = {
+    enable = lib.mkEnableOption "SSH certificate client configuration";
   };
-};
+
+  config = lib.mkIf cfg.enable {
+    # step-cli for obtaining certificates
+    environment.systemPackages = [ pkgs.step-cli ];
+
+    # Trust the internal root CA for TLS (so step-cli, curl, etc.
+    # can reach https://basel.internal without --insecure)
+    security.pki.certificateFiles = [ data.pki.root ];
+
+    # SSH client: present certificates, trust host CA
+    programs.ssh = {
+      extraConfig = ''
+        Host *.internal *.internal.mutantmell.net
+          User root
+          IdentityFile ~/.ssh/id_ed25519
+          CertificateFile ~/.ssh/id_ed25519-cert.pub
+      '';
+      knownHosts."host-ca" = {
+        hostNames = [ "*.internal" "*.internal.mutantmell.net" "*.mutantmell.net" ];
+        publicKeyFile = data.pki.sshHostCA;
+        certAuthority = true;
+      };
+    };
+  };
+}
 ```
 
-This eliminates TOFU prompts for all `*.internal` hosts (once host certificates are signed).
+Note: `modules/common/openssh.nix` also adds the `host-ca` knownHosts entry for server
+hosts. The entries will merge — NixOS deduplicates `programs.ssh.knownHosts` by attribute
+name. The `ssh-cert-client` module uses the same `"host-ca"` key so they don't conflict
+if both are enabled on the same host.
 
-### 4e. Login workflow
+### Register in `modules/common/default.nix`
 
-After deployment, the user runs:
+Add `./ssh-cert-client.nix` to the imports list.
+
+### Login workflow
 
 ```bash
 # One-time: bootstrap step-cli trust
@@ -225,28 +209,6 @@ Wire home-manager into the NixOS config for the `mutantmell` user:
 home-manager = {
   useGlobalPkgs = true;
   useUserPackages = true;
-  users.mutantmell = import ../../home {
-    # Reuse existing home-manager config
-  };
-};
-```
-
-Alternatively, use the standalone `homeConfigurations` output with `home-manager switch`.
-The NixOS module approach is simpler for a single-user WSL instance.
-
-**Decision point:** The existing `home/default.nix` expects a `home-conf` extraSpecialArgs
-with `user`, `langs`, etc. The NixOS home-manager module passes different args. Options:
-
-1. Use the standalone `homeConfigurations` approach (run `home-manager switch` separately)
-2. Adapt the NixOS module integration to pass `home-conf` via `extraSpecialArgs`
-3. Refactor `home/default.nix` to work in both contexts
-
-Option 2 is the least disruptive:
-
-```nix
-home-manager = {
-  useGlobalPkgs = true;
-  useUserPackages = true;
   extraSpecialArgs = {
     home-conf = {
       user = "mutantmell";
@@ -256,6 +218,10 @@ home-manager = {
   users.mutantmell = import ../../home;
 };
 ```
+
+The NixOS module approach is simpler than standalone `homeConfigurations` for a
+single-user WSL instance. `home-conf` is passed via `extraSpecialArgs` to match
+what `home/default.nix` expects.
 
 ---
 
@@ -267,7 +233,7 @@ authorize it if needed:
 ```json
 {
   "ssh": {
-    "device-wsl": "ssh-ed25519 AAAA..."
+    "<name>": "ssh-ed25519 AAAA..."
   }
 }
 ```
@@ -289,8 +255,11 @@ WSL typically inherits Windows DNS. For `.internal` names to resolve, either:
 Option 3 is the most NixOS-native:
 
 ```nix
+wsl.wslConf.network.generateResolvConf = false;
+
 services.resolved = {
   enable = true;
+  fallbackDns = [ "1.1.1.1" "8.8.8.8" ];
   extraConfig = ''
     [Resolve]
     DNS=10.97.11.21
@@ -299,7 +268,10 @@ services.resolved = {
 };
 ```
 
-Note: WSL2's `/etc/resolv.conf` management may conflict. Set `wsl.wslConf.network.generateResolvConf = false` if using systemd-resolved.
+Note: Setting `generateResolvConf = false` disables WSL's auto-generated `/etc/resolv.conf`,
+which means systemd-resolved handles all DNS. The `fallbackDns` setting ensures non-`.internal`
+domains still resolve if phantasma is unreachable. Without this, losing connectivity to
+phantasma would break all DNS resolution including public domains.
 
 ### Git configuration
 
@@ -324,13 +296,13 @@ WSL doesn't use `deploy-nixos-anywhere.sh` — it's deployed from within WSL its
 
 ```bash
 # Inside WSL, from the dotfiles repo:
-sudo nixos-rebuild switch --flake .#device-wsl
+sudo nixos-rebuild switch --flake .#<name>
 ```
 
 Or from another machine:
 
 ```bash
-nixos-rebuild switch --flake .#device-wsl --target-host mutantmell@<wsl-ip>
+nixos-rebuild switch --flake .#<name> --target-host mutantmell@<wsl-ip>
 ```
 
 The WSL IP is NAT'd behind Windows, so local rebuild is more practical.
@@ -339,15 +311,17 @@ The WSL IP is NAT'd behind Windows, so local rebuild is more practical.
 
 ## Files Modified
 
-| File                              | Action                                      |
-| --------------------------------- | ------------------------------------------- |
-| `flake.nix`                       | Add `nixos-wsl` input, add nixosConfiguration |
-| `hosts/device-wsl/default.nix`    | New — WSL host config                       |
-| `lib/common/data/keys.json`       | Add WSL SSH public key                      |
+| File | Action |
+| --- | --- |
+| `flake.nix` | Add `nixos-wsl` input, add nixosConfiguration |
+| `hosts/<name>/default.nix` | New — WSL host config |
+| `modules/common/ssh-cert-client.nix` | New — shared SSH cert client module |
+| `modules/common/default.nix` | Add `./ssh-cert-client.nix` to imports |
+| `lib/common/data/keys.json` | Add WSL SSH public key |
 
 ## Verification
 
-1. `nix build .#nixosConfigurations.device-wsl.config.system.build.toplevel` — builds
-2. `sudo nixos-rebuild switch --flake .#device-wsl` — deploys inside WSL
+1. `nix build .#nixosConfigurations.<name>.config.system.build.toplevel` — builds
+2. `sudo nixos-rebuild switch --flake .#<name>` — deploys inside WSL
 3. `step ssh login admin --provisioner keycloak` — obtains SSH certificate
 4. `ssh root@calvard.internal` — connects with certificate (no password, no TOFU)
