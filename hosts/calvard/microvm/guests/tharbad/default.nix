@@ -12,13 +12,12 @@ in {
 
   imports = [
     ./microvm.nix
-    # TODO: import ./sops.nix after creating secrets/secrets.yaml
+    ./sops.nix
     ./modules/prometheus.nix
     ./modules/loki.nix
-    # TODO: enable after sops secrets are set up
-    # ./modules/grafana.nix
-    # ./modules/alertmanager.nix
-    # ./modules/ntfy.nix
+    ./modules/alertmanager.nix
+    ./modules/ntfy.nix
+    ./modules/grafana.nix
   ];
 
   networking.hostName = hostname;
@@ -53,7 +52,7 @@ in {
     ];
   };
 
-  networking.extraHosts = net.mkExtraHosts ["thebeyond" "calvard" "erebonia" "remiferia"];
+  networking.extraHosts = net.mkExtraHosts ["thebeyond" "calvard" "erebonia" "remiferia" "basel"];
 
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
@@ -102,6 +101,13 @@ in {
         proto = "tcp";
         port = [9001 9002 9003];
         comment = "node/zfs/smartctl exporters";
+      }
+      # ACME certs from basel (for Grafana TLS)
+      {
+        host = "basel";
+        proto = "tcp";
+        port = 443;
+        comment = "ACME certs from basel";
       }
     ]
   );
