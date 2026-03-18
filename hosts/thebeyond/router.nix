@@ -18,6 +18,7 @@
   inherit (net.forHost "thebeyond") host;
   inherit (net.hosts) phantasma;
   inherit (net.hosts) langport;
+  inherit (net.hosts) trista;
   inherit (net.hosts) messeldam;
   inherit (net.hosts) basel;
   inherit (net.hosts) tharbad;
@@ -438,12 +439,12 @@ in {
           comment = "WireGuard";
         }
       ];
-      # Port forward SSH from wg-ba to langport
+      # Port forward SSH from wg-ba to trista (SSH bastion)
       portForwards = [
         {
           proto = "tcp";
           sourcePort = 22;
-          destination = "${langport.ipv4}:22";
+          destination = "${trista.ipv4}:22";
           sourceInterface = "wg-ba";
           destinationInterface = "brDMZ";
         }

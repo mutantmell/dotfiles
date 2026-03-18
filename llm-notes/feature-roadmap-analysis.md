@@ -207,22 +207,24 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 
 - [x] Create `homelab` realm
 - [x] Register clients: `oauth2-proxy`, `step-ca`, `cicd-deploy`
-- [ ] Verify client scope restrictions — minimal permissions per client (R4)
+- [x] Verify client scope restrictions — minimal permissions per client (R4). Audited: all clients get openid/profile/email/groups, which is the minimal useful set. Added `allowed-group = "admin"` to phantasma oauth2-proxy.
 - [x] Create groups: `admins`, `media-users`, `deploy`
 - [x] Add `groups` protocol mapper
-- [ ] Configure conditional MFA for admins
-- [x] Update ordis + phantasma oauth2-proxy configs to `homelab` realm
-- [ ] Retire `external` realm
+- [x] Configure conditional MFA for admins (Keycloak runtime config, no dotfiles changes needed)
+- [x] Update langport + phantasma oauth2-proxy configs to `homelab` realm
+- [x] Retire `external` realm — N/A, gridr was decommissioned; messeldam built fresh with only `homelab`
 
 **Phase 3: DNS, external access, hardening**
 
 - [x] Implement split-horizon DNS (`mutantmell.net` hierarchy)
-- [x] Add ordis nginx rate limiting for `/auth/` and `/oauth2/` (S11)
-- [ ] Provision SSH bastion VM on vDMZ (Incus VM — new capability)
-- [ ] Tighten wg-ba firewall rules (per-service instead of blanket)
-- [ ] Remove SSH daemon from ordis
-- [ ] Configure egress filtering on ordis and bastion (R3)
-- [ ] Deploy cloud host with nginx + WireGuard + Let's Encrypt
+- [x] Add langport nginx rate limiting for `/auth/` and `/oauth2/` (S11)
+- [x] Tighten wg-ba firewall rules (per-service instead of blanket) — already per-service: SSH→langport:22, HTTPS bidirectional
+- [ ] _(deferred)_ Deploy cloud host with nginx + WireGuard + Let's Encrypt
+- [ ] Enable langport external proxy (proxy.nix disabled pending cloud host for HTTP-01 domain validation)
+- [ ] Enable phantasma internal oauth2-proxy (blocked on thebeyond hardware — phantasma runs on thebeyond)
+- [x] External SSH entry point — wg-ba port forward pointed to trista (erebonia Incus VM). Trista is a lab/dev VM (future vLAB zone), not a dedicated bastion.
+- [ ] _(deferred)_ Remove SSH daemon from langport — egress filtering already prevents lateral movement, low priority
+- [x] Configure egress filtering (R3) — langport has egress rules; trista's egress policy deferred to vLAB zone design (laptop plan)
 - [ ] Test end-to-end: internal + external auth flows + SSH bastion path
 
 ### Step 5: IP Migration — COMPLETE
@@ -261,21 +263,22 @@ non-NixOS clients, but all NixOS hosts and guests now use only `10.97.x.x`.
       primary gateway. Updated and passed all tests (network-helpers, openwrt-config,
       nftables-dsl, egress-filter).
 
-### Step 6: SSH Certificates
+### Step 6: SSH Certificates — COMPLETE
 
 **Plan:** `ssh-certificates-sso-plan.md` (all phases)
 
-Deploys SSH certificate auth via step-ca's OIDC provisioner. Uses canonical names
-from Step 4 (`*.mutantmell.net`, `homelab` realm).
+Deployed SSH certificate auth via step-ca's OIDC provisioner. User certificates
+via `step ssh login` → Keycloak → cert, and host certificates eliminating TOFU,
+are both operational.
 
-- [ ] Add OIDC provisioner to step-ca config
-- [ ] Configure group → principal mapping (admins → admin, deploy → deploy)
-- [ ] Test interactive flow: `step ssh login` → Keycloak → cert
-- [ ] Test CI/CD flow: client_credentials → token → cert
-- [ ] Deploy host certificates to all NixOS hosts
-- [ ] Configure `TrustedUserCAKeys` on all hosts
-- [ ] Remove static SSH keys (keep as fallback initially)
-- [ ] Remove vMGMT MAC allowlist (replaced by cert-based auth)
+- [x] Add OIDC provisioner to step-ca config
+- [x] Configure group → principal mapping (admins → admin, deploy → deploy)
+- [x] Test interactive flow: `step ssh login` → Keycloak → cert
+- [x] Test CI/CD flow: client_credentials → token → cert
+- [x] Deploy host certificates to all NixOS hosts
+- [x] Configure `TrustedUserCAKeys` on all hosts
+- [x] Remove static SSH keys (keep as fallback initially)
+- [x] Remove vMGMT MAC allowlist (replaced by cert-based auth)
 
 ### Step 7: Headscale
 
