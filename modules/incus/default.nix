@@ -152,6 +152,14 @@ let
 
       echo "Updating instance: $INSTANCE"
 
+      # Apply resource limits
+      ${optionalString (guestCfg.limits.cpu != null) ''
+        ${incus} config set "$INSTANCE" limits.cpu=${guestCfg.limits.cpu}
+      ''}
+      ${optionalString (guestCfg.limits.memory != null) ''
+        ${incus} config set "$INSTANCE" limits.memory=${guestCfg.limits.memory}
+      ''}
+
       # Find store paths missing from the guest (differential transfer)
       ALL_PATHS=$(${nix-store} -qR ${toplevel})
       MISSING=$(echo "$ALL_PATHS" | ${incus} exec "$INSTANCE" -- \
@@ -230,6 +238,22 @@ in {
             type = types.nullOr types.str;
             default = null;
             description = "Host-side directory to mount at /static in the guest (for SSH keys, etc).";
+          };
+
+          limits = {
+            cpu = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "CPU limit for this instance (e.g. \"4\"). Applied via incus config set.";
+              example = "4";
+            };
+
+            memory = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "Memory limit for this instance (e.g. \"8GB\"). Applied via incus config set.";
+              example = "8GB";
+            };
           };
         };
       });

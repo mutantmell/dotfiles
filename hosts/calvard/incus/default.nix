@@ -20,7 +20,7 @@
         description = "Development VM profile";
         config = {
           "limits.cpu" = "4";
-          "limits.memory" = "4GB";
+          "limits.memory" = "8GB";
           "security.privileged" = "false";
         };
         devices = {
