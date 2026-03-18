@@ -303,8 +303,6 @@ in {
             verdict = "accept";
             comment = "DMZ -> basel (ACME v6)";
           }
-        ];
-        forwardRules.trusted = [
           # DMZ → tharbad (Loki log push)
           {
             ip.daddr = tharbad.ipv4;

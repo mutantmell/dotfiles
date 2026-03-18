@@ -46,14 +46,14 @@ host needs no changes beyond the tap interface name.
 
 ### Stack Selection
 
-| Component       | Choice                 | Rationale                                                                                               |
-| --------------- | ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| Component       | Choice                 | Rationale                                                                                                  |
+| --------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Metrics         | **Prometheus**         | Already running on tharbad, NixOS module is mature, pull-based model works well for homelab                |
 | Visualization   | **Grafana**            | Already running on tharbad, rich dashboard ecosystem                                                       |
 | Log aggregation | **Loki**               | Already configured (disabled) on tharbad, designed for Prometheus+Grafana stack, low resource usage vs ELK |
-| Log shipping    | **Promtail**           | Native Loki companion; can scrape systemd journal on each host                                          |
-| Alerting        | **Alertmanager**       | Native Prometheus integration, supports multiple notification channels                                  |
-| Notifications   | **ntfy** (self-hosted) | See Notification System section below                                                                   |
+| Log shipping    | **Promtail**           | Native Loki companion; can scrape systemd journal on each host                                             |
+| Alerting        | **Alertmanager**       | Native Prometheus integration, supports multiple notification channels                                     |
+| Notifications   | **ntfy** (self-hosted) | See Notification System section below                                                                      |
 
 ### Why not VictoriaMetrics / Mimir / Thanos?
 
@@ -108,14 +108,14 @@ what Prometheus compaction provides. Keep it simple.
 
 ### What Changes
 
-| Property         | Before (current)                | After                              |
-| ---------------- | ------------------------------- | ---------------------------------- |
-| Zone             | trusted (VLAN 20)               | management (VLAN 11)               |
-| Network registry | `trusted.hosts.tharbad = 41`    | `management.hosts.tharbad = 5`     |
-| IPv4             | `10.97.20.41`                   | `10.97.11.5`                       |
-| IPv6             | `fdc6:55f2:0a5e:14::29`         | `fdc6:55f2:0a5e:b::5`              |
-| Tap interface    | `vm-20-tharbad`                 | `vm-11-tharbad`                    |
-| MAC              | `5E:A2:E4:CB:05:DA`             | New MAC (VLAN 11 encoded)          |
+| Property         | Before (current)             | After                          |
+| ---------------- | ---------------------------- | ------------------------------ |
+| Zone             | trusted (VLAN 20)            | management (VLAN 11)           |
+| Network registry | `trusted.hosts.tharbad = 41` | `management.hosts.tharbad = 5` |
+| IPv4             | `10.97.20.41`                | `10.97.11.5`                   |
+| IPv6             | `fdc6:55f2:0a5e:14::29`      | `fdc6:55f2:0a5e:b::5`          |
+| Tap interface    | `vm-20-tharbad`              | `vm-11-tharbad`                |
+| MAC              | `5E:A2:E4:CB:05:DA`          | New MAC (VLAN 11 encoded)      |
 
 ### What Stays the Same
 
@@ -568,7 +568,7 @@ Modules written but disabled in default.nix pending sops secrets.
 - [x] Write `modules/ntfy.nix` — ntfy on tharbad, port 2586
 - [x] Write `modules/alertmanager.nix` — Alertmanager with ntfy webhook receivers
 - [x] Write Phase 1 alert rules — HostDown, DiskSpaceLow, HighMemoryUsage,
-  ZFSPoolDegraded, SystemdUnitFailed
+      ZFSPoolDegraded, SystemdUnitFailed
 - [x] Write Alertmanager + Loki datasources for Grafana
 - [ ] Create sops secrets (alertmanager-ntfy-url, ntfy-auth-token, grafana-admin-password)
 - [ ] Enable alertmanager.nix + ntfy.nix in default.nix

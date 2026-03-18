@@ -5,7 +5,8 @@
   ...
 }: let
   hostname = "tharbad";
-  inherit (pkgs.mmell.lib.data.network.forHost hostname) host zone;
+  net = pkgs.mmell.lib.data.network;
+  inherit (net.forHost hostname) host zone;
 in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
 
@@ -13,10 +14,9 @@ in {
     ./microvm.nix
     # TODO: import ./sops.nix after creating secrets/secrets.yaml
     ./modules/prometheus.nix
-    # re-enable grafana after sops secrets are better integrated
-    # ./modules/grafana.nix
     ./modules/loki.nix
-    # TODO: re-enable alertmanager + ntfy together (tier 3)
+    # TODO: enable after sops secrets are set up
+    # ./modules/grafana.nix
     # ./modules/alertmanager.nix
     # ./modules/ntfy.nix
   ];
@@ -53,8 +53,58 @@ in {
     ];
   };
 
+  networking.extraHosts = net.mkExtraHosts ["thebeyond" "calvard" "erebonia" "remiferia"];
+
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
+
+  # Egress filtering — default-drop with explicit allowlist
+  networking.nftables.enable = true;
+  networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter (
+    net.mkEgressRules zone [
+      {
+        gateway = true;
+        proto = "udp";
+        port = 53;
+      }
+      {
+        gateway = true;
+        proto = "tcp";
+        port = 53;
+      }
+      {
+        gateway = true;
+        proto = "udp";
+        port = 123;
+        comment = "NTP";
+      }
+      # Prometheus scrape targets
+      {
+        host = "thebeyond";
+        proto = "tcp";
+        port = 9100;
+        comment = "node_exporter scrape";
+      }
+      {
+        host = "calvard";
+        proto = "tcp";
+        port = 9100;
+        comment = "node_exporter scrape";
+      }
+      {
+        host = "erebonia";
+        proto = "tcp";
+        port = 9100;
+        comment = "node_exporter scrape";
+      }
+      {
+        host = "remiferia";
+        proto = "tcp";
+        port = [9001 9002 9003];
+        comment = "node/zfs/smartctl exporters";
+      }
+    ]
+  );
 
   environment.persistence."/persist" = {
     hideMounts = true;

@@ -39,7 +39,7 @@
   microvm.interfaces = [
     {
       type = "tap";
-      id = "vm-20-tharbad";
+      id = "vm-11-tharbad";
       mac = "5E:A2:E4:CB:05:DA";
     }
   ];
