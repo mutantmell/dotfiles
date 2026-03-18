@@ -12,7 +12,7 @@ in {
     ./microvm.nix
     ./sops.nix
     ./modules/dns.nix
-    # TODO: Re-enable after messeldam (Keycloak) + basel (step-ca) are deployed
+    # TODO: Re-enable after thebeyond hardware is deployed (phantasma runs on thebeyond)
     # ./modules/proxy.nix
   ];
 

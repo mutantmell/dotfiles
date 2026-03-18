@@ -10,12 +10,12 @@ but has no internal DNS host entries.
 
 ## Current State
 
-| Host           | Current IP                 | Config Target IP      | Role    | Status                  |
-| -------------- | -------------------------- | --------------------- | ------- | ----------------------- |
-| calvard        | 10.97.11.30 (VLAN 11)      | 10.97.11.30 (VLAN 11) | VM host | **Deployed**            |
-| remiferia      | 10.97.11.20 (VLAN 11)      | 10.97.11.20 (VLAN 11) | NAS     | **Deployed**            |
-| erebonia       | 10.97.11.31 (VLAN 11)      | 10.97.11.31 (VLAN 11) | VM host | **Deployed**            |
-| interim router | manages VLANs 10/11/20/100 | N/A                   | Gateway | Serves 10.97 + legacy   |
+| Host           | Current IP                 | Config Target IP      | Role    | Status                |
+| -------------- | -------------------------- | --------------------- | ------- | --------------------- |
+| calvard        | 10.97.11.30 (VLAN 11)      | 10.97.11.30 (VLAN 11) | VM host | **Deployed**          |
+| remiferia      | 10.97.11.20 (VLAN 11)      | 10.97.11.20 (VLAN 11) | NAS     | **Deployed**          |
+| erebonia       | 10.97.11.31 (VLAN 11)      | 10.97.11.31 (VLAN 11) | VM host | **Deployed**          |
+| interim router | manages VLANs 10/11/20/100 | N/A                   | Gateway | Serves 10.97 + legacy |
 
 **Note:** Legacy 10.0.x.x addresses have been removed from all NixOS configurations
 (2026-03-15). The interim router still serves both ranges for DHCP compatibility with
