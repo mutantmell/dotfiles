@@ -26,6 +26,7 @@
         phantasma = 2;
         messeldam = 6; # Keycloak OIDC (calvard)
         basel = 7; # step-ca / PKI (calvard)
+        tharbad = 5; # Prometheus+Loki+Alertmanager+ntfy (calvard)
         remiferia = 20; # NAS — before VM hosts
         calvard = 30; # VM host
         erebonia = 31; # VM host
@@ -34,7 +35,6 @@
     trusted = {
       vlanId = 20;
       hosts = {
-        tharbad = 41; # Prometheus+Loki+Alertmanager+ntfy (calvard)
         edith = 42; # Dev environment / task runner (calvard Incus container)
         azoth = 50; # Raspberry Pi (Home Assistant, MQTT)
       };
