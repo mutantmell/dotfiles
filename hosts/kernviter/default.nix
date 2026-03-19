@@ -35,17 +35,6 @@
   # SSH certificate client for connecting to homelab hosts
   common.ssh-cert-client.enable = true;
 
-  # DNS: resolve .internal names via phantasma
-  wsl.wslConf.network.generateResolvConf = false;
-  services.resolved = {
-    enable = true;
-    settings.Resolve = {
-      DNS = ["10.97.11.2"];
-      FallbackDNS = ["1.1.1.1" "8.8.8.8"];
-      Domains = ["~internal" "~internal.mutantmell.net"];
-    };
-  };
-
   # WSL2 sits behind Windows host firewall and NAT — no need for nftables,
   # and the WSL kernel lacks the nft_fib module the default ruleset requires.
   common.firewall.enable = false;
