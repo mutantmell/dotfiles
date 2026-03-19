@@ -4,7 +4,11 @@
   lib,
   ...
 }: {
-  services.emacs.socketActivation.enable = true;
+  services.emacs = {
+    enable = true;
+    defaultEditor = true;
+    socketActivation.enable = true;
+  };
 
   programs.git.settings = {
     credential.helper = "${

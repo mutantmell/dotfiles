@@ -20,11 +20,6 @@
     ]))
   ];
 
-  services.emacs = {
-    enable = true;
-    defaultEditor = true;
-  };
-
   programs.emacs = {
     enable = true;
     extraPackages = epkgs:
