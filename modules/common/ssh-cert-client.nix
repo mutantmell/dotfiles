@@ -19,7 +19,7 @@ in {
     security.pki.certificateFiles = [pki.root];
 
     # step-cli defaults: CA URL, fingerprint, and default provisioner
-    environment.etc."step-cli/defaults.json".text = builtins.toJSON {
+    environment.etc."step-cli/config/defaults.json".text = builtins.toJSON {
       ca-url = "https://basel.internal";
       fingerprint = rootCaFingerprint;
       root = "/etc/ssl/certs/ca-certificates.crt";
