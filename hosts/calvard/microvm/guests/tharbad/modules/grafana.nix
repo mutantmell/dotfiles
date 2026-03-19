@@ -15,6 +15,19 @@
         admin_password = "$__file{${config.sops.secrets."grafana-admin-password".path}}";
         secret_key = "$__file{${config.sops.secrets."grafana-secret-key".path}}";
       };
+      "auth.generic_oauth" = {
+        enabled = true;
+        name = "Keycloak";
+        client_id = "grafana";
+        client_secret = "$__file{${config.sops.secrets."grafana-oidc-client-secret".path}}";
+        auth_url = "https://auth.mutantmell.net/realms/homelab/protocol/openid-connect/auth";
+        token_url = "https://auth.mutantmell.net/realms/homelab/protocol/openid-connect/token";
+        api_url = "https://auth.mutantmell.net/realms/homelab/protocol/openid-connect/userinfo";
+        scopes = "openid profile email groups";
+        role_attribute_path = "contains(groups, 'admin') && 'Admin' || 'Viewer'";
+        allow_assign_grafana_admin = true;
+        auto_login = true;
+      };
     };
     provision = {
       enable = true;

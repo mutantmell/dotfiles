@@ -215,6 +215,19 @@
       "defaultClientScopes": ["openid", "profile", "email", "groups"]
     },
     {
+      "clientId": "grafana",
+      "name": "Grafana (tharbad)",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["https://tharbad.internal/login/generic_oauth"],
+      "webOrigins": ["https://tharbad.internal"],
+      "defaultClientScopes": ["openid", "profile", "email", "groups"]
+    },
+    {
       "clientId": "cicd-deploy",
       "name": "CI/CD Deploy Service Account",
       "protocol": "openid-connect",

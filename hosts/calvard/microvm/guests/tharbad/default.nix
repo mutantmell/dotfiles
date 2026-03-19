@@ -52,7 +52,7 @@ in {
     ];
   };
 
-  networking.extraHosts = net.mkExtraHosts ["thebeyond" "calvard" "erebonia" "remiferia" "basel"];
+  networking.extraHosts = net.mkExtraHosts ["thebeyond" "calvard" "erebonia" "remiferia" "basel" "messeldam"];
 
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
@@ -108,6 +108,13 @@ in {
         proto = "tcp";
         port = 443;
         comment = "ACME certs from basel";
+      }
+      # Grafana OIDC token exchange with Keycloak
+      {
+        host = "messeldam";
+        proto = "tcp";
+        port = 443;
+        comment = "Keycloak OIDC";
       }
     ]
   );
