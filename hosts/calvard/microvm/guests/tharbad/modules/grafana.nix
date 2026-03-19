@@ -64,6 +64,11 @@
 
   environment.persistence."/persist".directories = [
     {
+      directory = "/var/lib/acme";
+      user = "acme";
+      group = "acme";
+    }
+    {
       directory = "/var/lib/grafana";
       user = "grafana";
       inherit (config.users.users.grafana) group;

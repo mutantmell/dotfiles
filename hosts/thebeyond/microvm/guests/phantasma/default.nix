@@ -62,6 +62,11 @@ in {
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
+      {
+        directory = "/var/lib/acme";
+        user = "acme";
+        group = "acme";
+      }
       "/var/lib/private/AdGuardHome" # Adguard Home state
     ];
   };
