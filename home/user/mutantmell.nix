@@ -8,4 +8,8 @@
     name = "mutantmell";
     email = "malaguy@gmail.com";
   };
+
+  programs.ssh.matchBlocks."edith.internal" = {
+    user = "mutantmell";
+  };
 }
