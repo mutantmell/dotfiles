@@ -1,3 +1,5 @@
 _: {
-  # WSL-specific home-manager configuration
+  home.sessionVariables.EDITOR = "emacs";
+
+  services.ssh-agent.enable = true;
 }
