@@ -22,7 +22,6 @@
 
   services.emacs = {
     enable = true;
-    socketActivation.enable = true;
     defaultEditor = true;
   };
 

@@ -44,7 +44,7 @@
       lib.optional is-darwin ./darwin.nix
     )
     ++ (
-      lib.optional (!is-darwin) ./linux.nix
+      lib.optional (!is-darwin && !is-wsl) ./linux.nix
     )
     ++ (
       lib.optional is-wsl ./wsl.nix
