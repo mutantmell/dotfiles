@@ -86,17 +86,15 @@ in {
       RestartSteps = 5;
     };
     script = ''
-      mkdir -p ${certDir}
-      chown root:nginx ${certDir}
-      chmod 750 ${certDir}
       ${pkgs.step-cli}/bin/step ca certificate \
         ${certDomain} ${certFile} ${keyFile} \
         --ca-url ${caUrl} \
         --root ${caRoot} \
         --provisioner acme \
         --force
+      chmod 644 ${certFile}
       chmod 640 ${keyFile}
-      chown root:nginx ${keyFile}
+      chown root:nginx ${certFile} ${keyFile}
     '';
   };
 
@@ -142,6 +140,13 @@ in {
       KC_BOOTSTRAP_ADMIN_PASSWORD=${config.sops.placeholder."keycloak_admin_password"}
     '';
   };
+
+  # Ensure cert directories exist with correct ownership before services start.
+  # tmpfiles runs early in boot, so nginx can traverse the path on first attempt.
+  systemd.tmpfiles.rules = [
+    "d /var/lib/step-tls 0750 root nginx -"
+    "d ${certDir} 0750 root nginx -"
+  ];
 
   environment.persistence."/persist" = {
     directories = [
