@@ -101,7 +101,7 @@
   systemd.services.step-ca-oidc-retry = {
     description = "Retry step-ca OIDC provisioner initialization";
     after = ["step-ca.service"];
-    requires = ["step-ca.service"];
+    wants = ["step-ca.service"];
     wantedBy = ["multi-user.target"];
     serviceConfig = {
       Type = "oneshot";
@@ -110,9 +110,27 @@
       RestartSec = 10;
       RestartMaxDelaySec = 300;
       RestartSteps = 5;
-      ExecStart = "${pkgs.curl}/bin/curl -sf --max-time 5 https://auth.mutantmell.net/realms/homelab/.well-known/openid-configuration -o /dev/null";
-      ExecStartPost = "${pkgs.systemd}/bin/systemctl restart step-ca";
     };
+    # Only restart step-ca if OIDC isn't already working.
+    # step-ca exposes provisioners at /provisioners — if keycloak appears,
+    # OIDC initialized successfully and no restart is needed.
+    script = ''
+      # Wait for keycloak to be reachable
+      ${pkgs.curl}/bin/curl -sf --max-time 5 \
+        https://auth.mutantmell.net/realms/homelab/.well-known/openid-configuration \
+        -o /dev/null
+
+      # Check if step-ca already has the OIDC provisioner loaded
+      if ${pkgs.curl}/bin/curl -sf --max-time 5 \
+        https://localhost:443/provisioners 2>/dev/null \
+        | ${pkgs.gnugrep}/bin/grep -q '"keycloak"'; then
+        echo "OIDC provisioner already initialized, skipping restart"
+        exit 0
+      fi
+
+      echo "OIDC provisioner not loaded, restarting step-ca"
+      ${pkgs.systemd}/bin/systemctl restart step-ca
+    '';
   };
 
   environment.persistence."/persist" = {
