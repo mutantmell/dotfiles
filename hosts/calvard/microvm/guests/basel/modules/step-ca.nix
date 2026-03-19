@@ -28,7 +28,7 @@
 
   services.step-ca = {
     enable = true;
-    address = "::";
+    address = "[::]";
     port = 443;
     openFirewall = true;
     intermediatePasswordFile = config.sops.secrets."intermediate-password-file".path;
