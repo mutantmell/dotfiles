@@ -120,10 +120,13 @@
         https://auth.mutantmell.net/realms/homelab/.well-known/openid-configuration \
         -o /dev/null
 
-      # Check if step-ca already has the OIDC provisioner loaded
+      # Check if step-ca already has the OIDC provisioner initialized.
+      # The /provisioners endpoint includes a "state" field when a provisioner
+      # failed to initialize — only skip restart if keycloak has no such field.
       if ${pkgs.curl}/bin/curl -sf --max-time 5 \
         https://localhost:443/provisioners 2>/dev/null \
-        | ${pkgs.gnugrep}/bin/grep -q '"keycloak"'; then
+        | ${pkgs.jq}/bin/jq -e '.provisioners[] | select(.name == "keycloak") | has("state") | not' \
+        >/dev/null 2>&1; then
         echo "OIDC provisioner already initialized, skipping restart"
         exit 0
       fi
