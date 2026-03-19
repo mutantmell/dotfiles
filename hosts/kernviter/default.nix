@@ -39,11 +39,15 @@
   # and the WSL kernel lacks the nft_fib module the default ruleset requires.
   common.firewall.enable = false;
 
-  programs.git = {
-    enable = true;
-    config = {
-      user.name = "mutantmell";
-      user.email = "malaguy@gmail.com";
+  home-manager.users.root = {
+    home.stateVersion = "25.11";
+    programs.git = {
+      enable = true;
+      settings = {
+        user.name = "mutantmell";
+        user.email = "malaguy@gmail.com";
+        core.sshCommand = "ssh -i /etc/ssh/ssh_host_ed25519_key";
+      };
     };
   };
 
