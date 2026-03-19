@@ -11,6 +11,10 @@
         mode = "0400";
         owner = config.users.users.grafana.name;
       };
+      "grafana-oidc-client-secret" = {
+        mode = "0400";
+        owner = config.users.users.grafana.name;
+      };
       # TODO: add to secrets.yaml when ntfy auth is configured
       # "alertmanager-ntfy-url" = {};
       # "ntfy-auth-token" = {};
