@@ -71,6 +71,10 @@
           {
             type = "ACME";
             name = "acme";
+            claims = {
+              defaultTLSCertDuration = "1080h";
+              maxTLSCertDuration = "2160h";
+            };
           }
           {
             type = "OIDC";

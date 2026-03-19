@@ -87,12 +87,13 @@ in {
     };
     script = ''
       mkdir -p ${certDir}
+      chown root:nginx ${certDir}
+      chmod 750 ${certDir}
       ${pkgs.step-cli}/bin/step ca certificate \
         ${certDomain} ${certFile} ${keyFile} \
         --ca-url ${caUrl} \
         --root ${caRoot} \
         --provisioner acme \
-        --not-after 1080h \
         --force
       chmod 640 ${keyFile}
       chown root:nginx ${keyFile}
@@ -147,6 +148,7 @@ in {
       {
         directory = "/var/lib/step-tls";
         mode = "0750";
+        group = "nginx";
       }
       {
         directory = "/var/lib/postgresql";
