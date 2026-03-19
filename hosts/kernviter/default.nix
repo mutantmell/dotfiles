@@ -48,7 +48,7 @@
 
   # WSL2 sits behind Windows host firewall and NAT — no need for nftables,
   # and the WSL kernel lacks the nft_fib module the default ruleset requires.
-  networking.firewall.enable = false;
+  common.firewall.enable = false;
 
   time.timeZone = "UTC";
   system.stateVersion = "25.11";
