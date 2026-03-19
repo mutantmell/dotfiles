@@ -1,13 +1,21 @@
 {
   config,
   pkgs,
+  lib,
   ...
-}: {
+}: let
+  certDomain = "auth.mutantmell.net";
+  certDir = "/var/lib/step-tls/${certDomain}";
+  certFile = "${certDir}/cert.pem";
+  keyFile = "${certDir}/key.pem";
+  caUrl = "https://basel.internal";
+  caRoot = "/etc/ssl/certs/ca-certificates.crt";
+in {
   services.keycloak = {
     enable = true;
     settings = {
       http-port = 9080;
-      hostname = "https://auth.mutantmell.net";
+      hostname = "https://${certDomain}";
       proxy-headers = "xforwarded";
       http-enabled = true;
     };
@@ -27,12 +35,15 @@
     };
   };
 
+  # Trust the internal root CA
+  security.pki.certificateFiles = [pkgs.mmell.lib.data.pki.root];
+
   services.nginx = {
     enable = true;
     recommendedTlsSettings = true;
     recommendedProxySettings = true;
 
-    virtualHosts."auth.mutantmell.net" = let
+    virtualHosts.${certDomain} = let
       proxyConfig = ''
         proxy_set_header X-Forwarded-For $proxy_protocol_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -44,7 +55,8 @@
       '';
     in {
       forceSSL = true;
-      enableACME = true;
+      sslCertificate = certFile;
+      sslCertificateKey = keyFile;
 
       # TODO: Restrict /admin to trusted networks only.
       # Langport (DMZ) can reach messeldam directly, so messeldam needs its
@@ -57,13 +69,63 @@
     };
   };
 
-  security.acme = {
-    defaults = {
-      server = "https://basel.internal/acme/acme/directory";
-      email = "malaguy@gmail.com";
+  # Bootstrap: issue the initial TLS certificate if it doesn't exist yet.
+  # On first boot, step-ca must be reachable. On subsequent boots, the cert
+  # is already on disk and nginx starts immediately.
+  systemd.services.step-tls-bootstrap = {
+    description = "Bootstrap TLS certificate from step-ca";
+    wantedBy = ["nginx.service"];
+    before = ["nginx.service"];
+    unitConfig.ConditionPathExists = "!${certFile}";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      Restart = "on-failure";
+      RestartSec = 10;
+      RestartMaxDelaySec = 300;
+      RestartSteps = 5;
     };
-    acceptTerms = true;
-    certs."auth.mutantmell.net" = {};
+    script = ''
+      mkdir -p ${certDir}
+      ${pkgs.step-cli}/bin/step ca certificate \
+        ${certDomain} ${certFile} ${keyFile} \
+        --ca-url ${caUrl} \
+        --root ${caRoot} \
+        --provisioner acme \
+        --not-after 1080h \
+        --force
+      chmod 640 ${keyFile}
+      chown root:nginx ${keyFile}
+    '';
+  };
+
+  # Renewal timer: renew the cert when less than 15 days remain.
+  # step ca renew exits 0 and does nothing if the cert isn't due for renewal.
+  systemd.services.step-tls-renew = {
+    description = "Renew TLS certificate from step-ca";
+    unitConfig.ConditionPathExists = certFile;
+    serviceConfig = {
+      Type = "oneshot";
+    };
+    script = ''
+      ${pkgs.step-cli}/bin/step ca renew \
+        ${certFile} ${keyFile} \
+        --ca-url ${caUrl} \
+        --root ${caRoot} \
+        --expires-in 360h \
+        --force \
+        && ${pkgs.systemd}/bin/systemctl reload nginx
+    '';
+  };
+
+  systemd.timers.step-tls-renew = {
+    description = "Daily TLS certificate renewal check";
+    wantedBy = ["timers.target"];
+    timerConfig = {
+      OnCalendar = "daily";
+      RandomizedDelaySec = "1h";
+      Persistent = true;
+    };
   };
 
   systemd.services.keycloak = {
@@ -83,9 +145,8 @@
   environment.persistence."/persist" = {
     directories = [
       {
-        directory = "/var/lib/acme";
-        user = "acme";
-        group = "acme";
+        directory = "/var/lib/step-tls";
+        mode = "0750";
       }
       {
         directory = "/var/lib/postgresql";
