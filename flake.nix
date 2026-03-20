@@ -327,6 +327,16 @@
         ];
       };
 
+      angbar = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          nixos-hardware.nixosModules.lenovo-thinkpad-x1-7th-gen
+          home-manager.nixosModules.home-manager
+          ./hosts/angbar
+        ];
+      };
+
       #      arcus = self.lib.mk-nixos {
       #        inherit nixpkgs;
       #        system = "x86_64-linux";
@@ -339,12 +349,24 @@
     };
 
     homeConfigurations = {
-      mutantmell = home-manager.lib.homeManagerConfiguration {
+      # Standalone home-manager profiles, keyed by user@hostname.
+      # Resolved automatically by: home-manager switch --flake .
+      "mutantmell@edith" = home-manager.lib.homeManagerConfiguration {
         pkgs = pkgsFor nixpkgs "x86_64-linux";
         modules = [
           (import ./home {
             user = "mutantmell";
             langs = ["agda" "rust"];
+          })
+        ];
+      };
+      "mutantmell@angbar" = home-manager.lib.homeManagerConfiguration {
+        pkgs = pkgsFor nixpkgs "x86_64-linux";
+        modules = [
+          (import ./home {
+            user = "mutantmell";
+            langs = ["agda" "rust"];
+            is-graphical = true;
           })
         ];
       };

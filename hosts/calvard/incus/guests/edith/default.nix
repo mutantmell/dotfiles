@@ -72,5 +72,11 @@
     };
   };
 
+  # Session-resilient SSH alternative (survives sleep, WiFi drops)
+  services.eternal-terminal = {
+    enable = true;
+    port = 2022;
+  };
+
   system.stateVersion = "25.11";
 }
