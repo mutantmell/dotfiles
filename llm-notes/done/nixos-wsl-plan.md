@@ -65,9 +65,9 @@ Host name: **kernviter**
 | Step 3: Flake output | COMPLETE |
 | Step 4: SSH cert client module | COMPLETE |
 | Step 5: Home-manager integration | COMPLETE |
-| Step 6: SSH key registration | Outstanding — key not in keys.json |
+| Step 6: SSH key registration | COMPLETE — not needed; git uses Forgejo user auth, SSH to hosts uses certificates |
 | Step 7a: DNS resolution | COMPLETE — Windows uses OpenWrt router DNS, `.internal` resolves natively |
-| Step 7b: Git URL rewriting | Outstanding — not configured |
+| Step 7b: Git URL rewriting | COMPLETE — not needed; already cloning over SSH with host key via `core.sshCommand` |
 
 ---
 
