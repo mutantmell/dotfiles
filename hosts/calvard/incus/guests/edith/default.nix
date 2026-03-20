@@ -12,10 +12,16 @@
   incus-guest = {
     profile = "dev";
     bridge = "br21";
-    limits.memory = "8GB";
+    limits.memory = "16GB";
   };
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
+
+  zramSwap = {
+    enable = true;
+    algorithm = "zstd";
+    memoryPercent = 50;
+  };
 
   networking.hostName = "edith";
   networking.useNetworkd = true;

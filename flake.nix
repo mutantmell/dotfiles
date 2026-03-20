@@ -472,6 +472,21 @@
       })
       // (nixpkgs.lib.optionalAttrs (deploy-rs.lib ? ${system})
         (deploy-rs.lib.${system}.deployChecks self.deploy))
-      // {formatting = treefmtEval.${system}.config.build.check self;});
+      // {formatting = treefmtEval.${system}.config.build.check self;}
+      # Host config eval checks — catch broken configs before deploy
+      // (let
+        mkHostCheck = name:
+          pkgs.runCommand "host-eval-${name}" {
+            inherit (self.nixosConfigurations.${name}.config.system.build.toplevel) drvPath;
+          } ''
+            echo "Host ${name} evaluated successfully: $drvPath"
+            echo "$drvPath" > $out
+          '';
+      in {
+        host-eval-thebeyond = mkHostCheck "thebeyond";
+        host-eval-calvard = mkHostCheck "calvard";
+        host-eval-erebonia = mkHostCheck "erebonia";
+        host-eval-remiferia = mkHostCheck "remiferia";
+      }));
   };
 }
