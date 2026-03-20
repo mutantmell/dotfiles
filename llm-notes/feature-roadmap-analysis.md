@@ -319,7 +319,7 @@ config import from the running devices is needed before any changes can be made.
 - [ ] Phase 5: Add host firewall script to APs
 - [ ] Deploy to OpenWRT APs
 
-### NixOS-WSL (kernviter) — Nearly Complete
+### NixOS-WSL (kernviter) — COMPLETE
 
 **Plan:** `plans/nixos-wsl-plan.md`
 
@@ -331,9 +331,8 @@ infrastructure services (SSH certs, DNS, git).
 - [x] Add flake output (`nixosConfigurations.kernviter`)
 - [x] Create shared `modules/common/ssh-cert-client.nix` module
 - [x] Home-manager integration with WSL-specific config (`home/wsl.nix`)
-- [ ] Register SSH public key in `keys.json`
 - [x] DNS resolution for `.internal` domains (Windows uses OpenWrt router DNS)
-- [ ] Git URL rewriting for Forgejo (creil)
+- [x] Git access via Forgejo user auth + host key (`core.sshCommand`)
 
 ### NixOS Laptop — Planning
 
