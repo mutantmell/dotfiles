@@ -45,10 +45,21 @@
       langs = ["rust"];
       is-graphical = true;
     };
+    users.root = {
+      home.stateVersion = "25.11";
+      programs.git = {
+        enable = true;
+        settings = {
+          user.name = "mutantmell";
+          user.email = "malaguy@gmail.com";
+        };
+      };
+    };
   };
 
-  # SSH certificate client
+  # SSH
   common.ssh-cert-client.enable = true;
+  programs.ssh.startAgent = true;
 
   # Desktop
   programs.sway.enable = true;
