@@ -59,7 +59,6 @@
 
   # SSH
   common.ssh-cert-client.enable = true;
-  programs.ssh.startAgent = true;
 
   # Desktop
   programs.sway.enable = true;
