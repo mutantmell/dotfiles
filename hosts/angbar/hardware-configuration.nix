@@ -1,4 +1,5 @@
 # Placeholder — replace with output of nixos-generate-config at install time.
+# Filesystem declarations are handled by disko.nix.
 {
   config,
   lib,
@@ -12,14 +13,4 @@
 
   boot.initrd.availableKernelModules = ["xhci_pci" "nvme" "usb_storage" "sd_mod"];
   boot.kernelModules = ["kvm-intel"];
-
-  fileSystems."/" = {
-    device = "/dev/disk/by-label/nixos";
-    fsType = "xfs";
-  };
-
-  fileSystems."/boot" = {
-    device = "/dev/disk/by-label/boot";
-    fsType = "vfat";
-  };
 }

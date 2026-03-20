@@ -601,17 +601,17 @@ edith needs a few additions to support the thin client workflow:
 
 ## Files Modified
 
-| File                                           | Action                                | Status                      |
-| ---------------------------------------------- | ------------------------------------- | --------------------------- |
-| `modules/common/ssh-cert-client.nix`           | Shared SSH cert client module         | DONE                        |
-| `modules/common/default.nix`                   | `./ssh-cert-client.nix` in imports    | DONE                        |
-| `flake.nix`                                    | Add nixosConfiguration + homeConfig   | DONE                        |
-| `hosts/angbar/default.nix`                     | New — laptop host config              | DONE                        |
-| `hosts/angbar/hardware-configuration.nix`      | Stub — replaced at install time       | DONE (stub)                 |
-| `home/graphical.nix`                           | Expand with sway desktop packages     | DONE                        |
-| `hosts/calvard/incus/guests/edith/default.nix` | Add ET server                         | DONE                        |
-| `hosts/angbar/wireguard.nix`                   | New — WireGuard VPN config            | BLOCKED (thebeyond hardware)|
-| `lib/common/data/keys.json`                    | Add laptop SSH public key             | POST-INSTALL                |
+| File                                           | Action                              | Status                       |
+| ---------------------------------------------- | ----------------------------------- | ---------------------------- |
+| `modules/common/ssh-cert-client.nix`           | Shared SSH cert client module       | DONE                         |
+| `modules/common/default.nix`                   | `./ssh-cert-client.nix` in imports  | DONE                         |
+| `flake.nix`                                    | Add nixosConfiguration + homeConfig | DONE                         |
+| `hosts/angbar/default.nix`                     | New — laptop host config            | DONE                         |
+| `hosts/angbar/hardware-configuration.nix`      | Stub — replaced at install time     | DONE (stub)                  |
+| `home/graphical.nix`                           | Expand with sway desktop packages   | DONE                         |
+| `hosts/calvard/incus/guests/edith/default.nix` | Add ET server                       | DONE                         |
+| `hosts/angbar/wireguard.nix`                   | New — WireGuard VPN config          | BLOCKED (thebeyond hardware) |
+| `lib/common/data/keys.json`                    | Add laptop SSH public key           | POST-INSTALL                 |
 
 ## Verification
 
