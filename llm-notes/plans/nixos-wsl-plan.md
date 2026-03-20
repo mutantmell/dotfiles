@@ -54,6 +54,23 @@ After the initial bootstrap, all subsequent config is managed via the flake.
 
 ---
 
+## Implementation Status
+
+Host name: **kernviter**
+
+| Step | Status |
+|------|--------|
+| Step 1: Flake input | COMPLETE |
+| Step 2: Host configuration | COMPLETE |
+| Step 3: Flake output | COMPLETE |
+| Step 4: SSH cert client module | COMPLETE |
+| Step 5: Home-manager integration | COMPLETE |
+| Step 6: SSH key registration | Outstanding — key not in keys.json |
+| Step 7a: DNS resolution | COMPLETE — Windows uses OpenWrt router DNS, `.internal` resolves natively |
+| Step 7b: Git URL rewriting | Outstanding — not configured |
+
+---
+
 ## Step 1: Add NixOS-WSL flake input
 
 **File:** `flake.nix`

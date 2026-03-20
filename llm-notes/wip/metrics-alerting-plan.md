@@ -9,17 +9,18 @@ VLAN 20 (trusted) to VLAN 11 (management) and have its disabled services
 
 ## Current State
 
-**tharbad** (on calvard, VLAN 20 — trusted zone) currently runs:
+**tharbad** (on calvard, VLAN 11 — management zone) currently runs:
 
 - Prometheus (port 9090) — scrapes parent hosts + remiferia exporters
 - Loki (port 3100) — receiving logs from fleet-wide promtail-client
-- Grafana — **disabled** (module exists, pending sops secrets)
+- Grafana (port 3000) — **deployed**, not fully configured (dashboards, OIDC)
 - Alertmanager — **disabled** (module exists, pending sops secrets)
 - ntfy — **disabled** (module exists, pending sops secrets)
 - 2 vCPU, 2 GB RAM, 30 GB persist volume
 
 > **History:** Originally `ymir` on erebonia. Renamed to `tharbad` and moved to
-> calvard during the vm-guest-rebalance migration.
+> calvard during the vm-guest-rebalance migration. Migrated from VLAN 20 to
+> VLAN 11 (management zone) — completed 2026-03.
 
 **remiferia** exports:
 
@@ -27,22 +28,20 @@ VLAN 20 (trusted) to VLAN 11 (management) and have its disabled services
 
 **promtail-client** module deployed fleet-wide, shipping to `tharbad.internal:3100`.
 
-**Remaining problems:**
+**Remaining work:**
 
-1. tharbad is on VLAN 20 (trusted/home) — infrastructure monitoring belongs on
-   VLAN 11 (management)
-2. Grafana, Alertmanager, ntfy disabled pending sops secrets
-3. No egress filtering
+1. Grafana dashboards and configuration not fully set up
+2. Alertmanager, ntfy disabled pending sops secrets
+3. Phase 4 service-specific exporters not yet deployed
 
 ---
 
 ## Architecture Overview
 
-Migrate tharbad to **management zone** (VLAN 11) and enable remaining services.
-The management zone already has `accessTo = [ "management" "trusted" "untrusted" ]`
-in the router6 config, so tharbad can reach exporters in those zones without extra
-firewall rules. calvard already has a VLAN 11 bridge (`br11`), so the parent
-host needs no changes beyond the tap interface name.
+tharbad has been migrated to **management zone** (VLAN 11). Remaining work is
+enabling Alertmanager/ntfy and completing Grafana configuration. The management
+zone has `accessTo = [ "management" "trusted" "untrusted" ]` in the router6
+config, so tharbad can reach exporters in those zones without extra firewall rules.
 
 ### Stack Selection
 
@@ -535,7 +534,7 @@ modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
 
 ## Implementation Phases
 
-### Phase 1 — Core Metrics (COMPLETE, pending deploy + verify)
+### Phase 1 — Core Metrics (COMPLETE)
 
 - [x] Split monit.nix into `modules/prometheus.nix` + `modules/grafana.nix`
 - [x] Expand Prometheus scrape targets to cover parent hosts
@@ -545,7 +544,8 @@ modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
 - [x] Add sops.nix + secrets for Grafana admin password + secret key
 - [x] Write + enable `modules/grafana.nix` (nginx TLS via basel ACME, provisioned datasources)
 - [x] Add egress filtering (default-drop, scrape targets + DNS/NTP + ACME)
-- [ ] Verify: all targets up, Grafana accessible at tharbad.internal
+- [x] Deploy and verify tharbad on VLAN 11 (management zone)
+- [ ] Finish Grafana configuration (dashboards, full datasource verification)
 
 ### Phase 2 — Log Aggregation (COMPLETE)
 
