@@ -108,6 +108,7 @@ in {
   };
 
   promtail-client.enable = true;
+  node-exporter-client.enable = true;
 
   system.stateVersion = "25.11";
 }

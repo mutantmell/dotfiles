@@ -207,17 +207,21 @@ Scrape interval: 15s (default), 60s (slow targets)
 | remiferia_zfs      | remiferia.internal | 9002 | zfs_exporter      |
 | remiferia_smartctl | remiferia.internal | 9003 | smartctl_exporter |
 
-**Future scrape targets (microVM guests):**
+**Guest scrape targets (configured, pending deploy):**
 
-| Job            | Target             | Port | Exporter      |
-| -------------- | ------------------ | ---- | ------------- |
-| phantasma_node | phantasma.internal | 9100 | node_exporter |
-| langport_node  | langport.internal  | 9100 | node_exporter |
-| messeldam_node | messeldam.internal | 9100 | node_exporter |
-| basel_node     | basel.internal     | 9100 | node_exporter |
-| ardent_node    | ardent.internal    | 9100 | node_exporter |
-| creil_node     | creil.internal     | 9100 | node_exporter |
-| oracion_node   | oracion.internal   | 9100 | node_exporter |
+| Job             | Target              | Port | Exporter      |
+| --------------- | ------------------- | ---- | ------------- |
+| phantasma_node  | phantasma.internal  | 9100 | node_exporter |
+| basel_node      | basel.internal      | 9100 | node_exporter |
+| messeldam_node  | messeldam.internal  | 9100 | node_exporter |
+| langport_node   | langport.internal   | 9100 | node_exporter |
+| creil_node      | creil.internal      | 9100 | node_exporter |
+| oracion_node    | oracion.internal    | 9100 | node_exporter |
+| ardent_node     | ardent.internal     | 9100 | node_exporter |
+| monrain_node    | monrain.internal    | 9100 | node_exporter |
+| saint-arkh_node | saint-arkh.internal | 9100 | node_exporter |
+| trista_node     | trista.internal     | 9100 | node_exporter |
+| edith_node      | edith.internal      | 9100 | node_exporter |
 
 **Future scrape targets (service-specific exporters):**
 
@@ -569,12 +573,19 @@ modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
 
 ### Phase 4 — Expanded Monitoring
 
-1. Deploy service-specific exporters (unbound, kea, nginx, nftables)
-2. Add Phase 2 alert rules (security alerts from Loki queries)
-3. Add Phase 3 alert rules (service health)
-4. Build custom Grafana dashboards (firewall overview, DNS stats)
-5. Configure CI/CD webhook integration (Forgejo → ntfy)
-6. Configure Grafana OIDC auth via Keycloak (messeldam)
+- [x] Create `modules/node-exporter-client/default.nix` shared module
+- [x] Wire `node-exporter-client` into all flake builder functions
+- [x] Enable node_exporter on all microVM + Incus guests (11 hosts)
+- [x] Add scrape targets to prometheus.nix for all guests
+- [x] Add egress rules on tharbad for all new scrape targets
+- [x] Add management → DMZ/lab forward rules on router for Prometheus scraping
+- [x] Rename stale `ymir_node` scrape job to `tharbad_node`
+- [ ] Deploy service-specific exporters (unbound, kea, nginx, nftables)
+- [ ] Add Phase 2 alert rules (security alerts from Loki queries)
+- [ ] Add Phase 3 alert rules (service health)
+- [ ] Build custom Grafana dashboards (firewall overview, DNS stats)
+- [ ] Configure CI/CD webhook integration (Forgejo → ntfy)
+- [ ] Configure Grafana OIDC auth via Keycloak (messeldam)
 
 ---
 

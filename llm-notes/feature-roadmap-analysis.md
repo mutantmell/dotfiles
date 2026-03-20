@@ -290,6 +290,10 @@ are both operational.
 Deploys Headscale on vDMZ as self-hosted Tailscale control plane with subnet
 router for friend access to game servers. Uses canonical names from Step 4.
 
+**Blocked:** Cloud host is deferred indefinitely. Without it, DERP relay and
+STUN are unreachable from external users, and langport's external proxy
+(`vpn.mutantmell.net`) can't do HTTP-01 domain validation.
+
 - [ ] Phase 1: Provision headscale microvm on calvard (vDMZ)
 - [ ] Phase 1: Add headscale → Keycloak cross-zone firewall rule
 - [ ] Phase 1: Configure egress filtering on headscale (R3)
@@ -362,6 +366,8 @@ promtail-client operational. Grafana deployed but not fully configured.
 - [x] VLAN migration (trusted → management)
 - [x] Prometheus + Loki operational
 - [x] Grafana deployed
+- [x] Phase 4: node_exporter deployed to all microVM + Incus guests (11 hosts)
+- [x] Phase 4: Cross-zone forward rules for Prometheus scraping (management → DMZ/lab)
 - [ ] Grafana dashboards and full configuration
 - [ ] Alertmanager + ntfy enablement (pending sops secrets)
 - [ ] Phase 4: Service-specific exporters, alert rules, dashboards

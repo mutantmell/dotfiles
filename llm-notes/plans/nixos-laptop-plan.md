@@ -593,7 +593,7 @@ Works out of the box. No special config needed.
 | Change                                        | File                                           | Status |
 | --------------------------------------------- | ---------------------------------------------- | ------ |
 | Add `services.eternal-terminal.enable = true` | `hosts/calvard/incus/guests/edith/default.nix` | DONE   |
-| Add `networking.firewall.allowedTCPPorts`      | `hosts/calvard/incus/guests/edith/default.nix` | DONE   |
+| Add `networking.firewall.allowedTCPPorts`     | `hosts/calvard/incus/guests/edith/default.nix` | DONE   |
 | Zed editor — not needed on edith              | N/A (Zed auto-installs server binary via SSH)  | N/A    |
 
 ---

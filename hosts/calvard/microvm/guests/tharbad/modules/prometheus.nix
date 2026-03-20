@@ -1,4 +1,32 @@
-{config, ...}: {
+{config, ...}: let
+  # Generate a node_exporter scrape config from a hostname
+  mkNodeScrape = name: port: {
+    job_name = "${name}_node";
+    static_configs = [{targets = ["${name}.internal:${toString port}"];}];
+  };
+
+  # Standard node_exporter targets (port 9100)
+  nodeTargets = [
+    # Parent hosts
+    "thebeyond"
+    "calvard"
+    "erebonia"
+    # Management zone guests
+    "phantasma"
+    "basel"
+    "messeldam"
+    # DMZ zone guests
+    "langport"
+    "creil"
+    "oracion"
+    "ardent"
+    "monrain"
+    "saint-arkh"
+    "trista"
+    # Lab zone guests
+    "edith"
+  ];
+in {
   networking.firewall.allowedTCPPorts = [
     config.services.prometheus.port
   ];
@@ -11,64 +39,31 @@
       enabledCollectors = ["systemd"];
       port = 9100;
     };
-    scrapeConfigs = [
-      {
-        job_name = "ymir_node";
-        static_configs = [
-          {
-            targets = ["127.0.0.1:${toString config.services.prometheus.exporters.node.port}"];
-          }
-        ];
-      }
-      {
-        job_name = "thebeyond_node";
-        static_configs = [
-          {
-            targets = ["thebeyond.internal:9100"];
-          }
-        ];
-      }
-      {
-        job_name = "erebonia_node";
-        static_configs = [
-          {
-            targets = ["erebonia.internal:9100"];
-          }
-        ];
-      }
-      {
-        job_name = "calvard_node";
-        static_configs = [
-          {
-            targets = ["calvard.internal:9100"];
-          }
-        ];
-      }
-      {
-        job_name = "remiferia_node";
-        static_configs = [
-          {
-            targets = ["remiferia.internal:9001"];
-          }
-        ];
-      }
-      {
-        job_name = "remiferia_zfs";
-        static_configs = [
-          {
-            targets = ["remiferia.internal:9002"];
-          }
-        ];
-      }
-      {
-        job_name = "remiferia_smartctl";
-        static_configs = [
-          {
-            targets = ["remiferia.internal:9003"];
-          }
-        ];
-      }
-    ];
+    scrapeConfigs =
+      [
+        # Self-scrape (localhost, not via DNS)
+        {
+          job_name = "tharbad_node";
+          static_configs = [
+            {
+              targets = ["127.0.0.1:${toString config.services.prometheus.exporters.node.port}"];
+            }
+          ];
+        }
+      ]
+      ++ (map (name: mkNodeScrape name 9100) nodeTargets)
+      ++ [
+        # Remiferia: non-standard ports for multiple exporters
+        (mkNodeScrape "remiferia" 9001)
+        {
+          job_name = "remiferia_zfs";
+          static_configs = [{targets = ["remiferia.internal:9002"];}];
+        }
+        {
+          job_name = "remiferia_smartctl";
+          static_configs = [{targets = ["remiferia.internal:9003"];}];
+        }
+      ];
   };
 
   environment.persistence."/persist".directories = [

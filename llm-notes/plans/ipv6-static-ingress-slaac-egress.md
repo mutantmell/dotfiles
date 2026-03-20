@@ -43,7 +43,7 @@ deterministically from the network registry), there's no benefit — the registr
 is already the source of truth, and hosts consume it at build time via
 `host.cidr6`.
 
-DHCPv6 reservations *would* be valuable for **GUA addresses from prefix
+DHCPv6 reservations _would_ be valuable for **GUA addresses from prefix
 delegation** — the ISP-delegated prefix isn't known at build time, so it can't be
 statically configured. That's a separate future concern (see "Follow-up" section).
 
@@ -151,10 +151,12 @@ for each VLAN.
 **New file:** `tests/modules/router6-ipv6-privacy.nix`
 
 Test topology:
+
 - Router with one VLAN using `dhcp6.enable = true` (default `slaac` mode)
 - Client with a static ULA address + `IPv6AcceptRA = true` + `IPv6PrivacyExtensions = "yes"`
 
 Verify:
+
 1. Client has the static ULA address (stable ingress)
 2. Client has at least one SLAAC temporary address (privacy egress)
 3. Client has at least two non-link-local IPv6 addresses on the interface
@@ -168,17 +170,20 @@ Wire into `tests/router6.nix`.
 Host configs — enable RA acceptance + privacy extensions:
 
 VM hosts (need `accept_ra = 2` — they forward traffic to guests):
+
 - `hosts/remiferia/default.nix`
 - `hosts/calvard/microvm/default.nix`
 - `hosts/erebonia/microvm/default.nix`
 
 MicroVM guests:
+
 - `hosts/thebeyond/microvm/guests/phantasma/default.nix`
 - `hosts/calvard/microvm/guests/messeldam/default.nix`
 - `hosts/calvard/microvm/guests/langport/default.nix`
 - `hosts/erebonia/microvm/guests/saint-arkh/default.nix`
 
 Incus guests:
+
 - `hosts/calvard/incus/guests/edith/default.nix`
 - `hosts/calvard/incus/guests/oracion/default.nix`
 - `hosts/erebonia/incus/guests/trista/default.nix`
@@ -194,6 +199,7 @@ When prefix delegation is deployed, see the separate plan:
 `plans/ipv6-gua-stable-ingress.md`.
 
 That plan:
+
 - Adds stable GUA addresses to all hosts via SLAAC `Token` mechanism
 - Shifts ULA host IDs from `::XX` to `::a0XX` to match GUA (scan resistance
   for GUA, consistency for both)

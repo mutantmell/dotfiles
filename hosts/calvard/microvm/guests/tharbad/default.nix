@@ -52,7 +52,23 @@ in {
     ];
   };
 
-  networking.extraHosts = net.mkExtraHosts ["thebeyond" "calvard" "erebonia" "remiferia" "basel" "messeldam"];
+  networking.extraHosts = net.mkExtraHosts [
+    "thebeyond"
+    "calvard"
+    "erebonia"
+    "remiferia"
+    "phantasma"
+    "basel"
+    "messeldam"
+    "langport"
+    "creil"
+    "oracion"
+    "ardent"
+    "monrain"
+    "saint-arkh"
+    "trista"
+    "edith"
+  ];
 
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
@@ -77,25 +93,31 @@ in {
         port = 123;
         comment = "NTP";
       }
-      # Prometheus scrape targets
-      {
-        host = "thebeyond";
+      # Prometheus scrape targets — node_exporter (port 9100)
+    ]
+    ++ (map (name: {
+        host = name;
         proto = "tcp";
         port = 9100;
         comment = "node_exporter scrape";
-      }
-      {
-        host = "calvard";
-        proto = "tcp";
-        port = 9100;
-        comment = "node_exporter scrape";
-      }
-      {
-        host = "erebonia";
-        proto = "tcp";
-        port = 9100;
-        comment = "node_exporter scrape";
-      }
+      }) [
+        "thebeyond"
+        "calvard"
+        "erebonia"
+        "phantasma"
+        "basel"
+        "messeldam"
+        "langport"
+        "creil"
+        "oracion"
+        "ardent"
+        "monrain"
+        "saint-arkh"
+        "trista"
+        "edith"
+      ])
+    ++ [
+      # Remiferia: non-standard exporter ports
       {
         host = "remiferia";
         proto = "tcp";
