@@ -334,14 +334,21 @@ infrastructure services (SSH certs, DNS, git).
 - [x] DNS resolution for `.internal` domains (Windows uses OpenWrt router DNS)
 - [x] Git access via Forgejo user auth + host key (`core.sshCommand`)
 
-### NixOS Laptop — Planning
+### vLAB Zone — Ready to Implement
+
+**Plan:** `wip/vlab-zone-plan.md`
+
+New semi-trusted `lab` zone (VLAN 21) for dev environments. Moves edith
+(calvard) and trista (erebonia) out of trusted/dmz, merges wg-vpn into
+the lab zone. Asymmetric access: trusted→lab allowed, lab→trusted blocked.
+Requires OpenWrt switch + router updates. Unblocks the laptop VPN workflow.
+
+### NixOS Laptop — Blocked on vLAB Zone
 
 **Plan:** `plans/nixos-laptop-plan.md`
 
-X1 Carbon 7th Gen NixOS installation. Blocked on lab zone architecture
-decision — laptop VPN client needs access to edith (Incus dev env on
-trusted zone), requires either a new vLAB zone (preferred) or targeted
-forward rules.
+X1 Carbon 7th Gen NixOS installation. Blocked on vLAB zone — laptop
+VPN client needs access to edith, which requires the zone migration.
 
 ### Metrics, Logging & Alerting — Phase 1-3 Deployed
 
