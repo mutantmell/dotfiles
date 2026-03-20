@@ -77,6 +77,7 @@
     enable = true;
     port = 2022;
   };
+  networking.firewall.allowedTCPPorts = [2022];
 
   system.stateVersion = "25.11";
 }

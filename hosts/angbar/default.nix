@@ -99,6 +99,7 @@
 
   # Session-resilient connection to edith
   environment.systemPackages = [pkgs.eternal-terminal];
+  environment.variables.ET_NO_TELEMETRY = "1";
 
   system.stateVersion = "25.11";
 }
