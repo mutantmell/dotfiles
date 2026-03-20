@@ -366,21 +366,21 @@ promtail-client operational. Grafana deployed but not fully configured.
 - [ ] Alertmanager + ntfy enablement (pending sops secrets)
 - [ ] Phase 4: Service-specific exporters, alert rules, dashboards
 
-### DHCPv6 Kea Integration — Ready to Implement
+### DHCPv6 Kea Integration — Done
 
-**Plan:** `wip/dhcpv6-kea-integration.md`
+**Plan:** `done/dhcpv6-kea-integration.md`
 
-Wire the router6 module's unused `dhcp6.mode` option to RA flags and add
-Kea DHCPv6 server support. Small scope (3 files), no blockers. Prerequisite
-for WAN IPv6 Prefix Delegation.
+Wired `dhcp6.mode` to RA flags (Managed/OtherInformation), added Kea DHCPv6
+server support (mkKeaSubnet6, stateful/stateless modes). Implemented in commit
+a8620a8.
 
-### WAN IPv6 Prefix Delegation — Ready to Implement
+### WAN IPv6 Prefix Delegation — Done
 
-**Plan:** `wip/wan-ipv6-prefix-delegation.md`
+**Plan:** `done/wan-ipv6-prefix-delegation.md`
 
-Add WAN DHCPv6-PD client support and LAN prefix delegation to the router6
-module. Requires a Phase 1 refactor to decouple RA behavior from the `type`
-field before adding PD support in Phase 2.
+Added DHCPv6-PD client on WAN, LAN prefix delegation via pdSubnetId, refactored
+RA logic to be option-driven. No NAT66 (opinionated). Implemented in commit
+0f45457.
 
 ### Deferred: Blog/Homepage Containers
 
