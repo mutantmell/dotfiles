@@ -66,7 +66,7 @@
 
   programs.ssh.extraConfig = ''
     Host edith
-      Hostname 10.97.20.42
+      Hostname 10.97.21.42
       User root
       IdentityFile /etc/ssh/ssh_host_ed25519_key
       IdentitiesOnly yes

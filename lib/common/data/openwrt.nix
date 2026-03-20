@@ -35,6 +35,7 @@ in {
       tag = 20;
       accessPorts = ["lan1"];
     };
+    LAB = {tag = 21;};
     DMZ = {tag = 100;};
   };
 
@@ -57,6 +58,7 @@ in {
       tag = 20;
       accessPorts = ["lan5" "lan6"];
     };
+    LAB = {tag = 21;};
     GUEST = {tag = 30;};
     ADU = {tag = 31;};
     IOT = {tag = 40;};

@@ -218,7 +218,7 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 
 - [x] Implement split-horizon DNS (`mutantmell.net` hierarchy)
 - [x] Add langport nginx rate limiting for `/auth/` and `/oauth2/` (S11)
-- [x] Tighten wg-ba firewall rules (per-service instead of blanket) — already per-service: SSH→langport:22, HTTPS bidirectional
+- [x] Tighten wg-ba firewall rules — mesh peer locked to trista SSH only
 - [x] External SSH entry point — wg-ba port forward pointed to trista (erebonia Incus VM). Trista is a lab/dev VM (future vLAB zone), not a dedicated bastion.
 - [x] Configure egress filtering (R3) — langport has egress rules; trista's egress policy deferred to vLAB zone design (laptop plan)
 
@@ -334,21 +334,22 @@ infrastructure services (SSH certs, DNS, git).
 - [x] DNS resolution for `.internal` domains (Windows uses OpenWrt router DNS)
 - [x] Git access via Forgejo user auth + host key (`core.sshCommand`)
 
-### vLAB Zone — Ready to Implement
+### vLAB Zone — Implementation Complete (pending deploy + verify)
 
 **Plan:** `wip/vlab-zone-plan.md`
 
 New semi-trusted `lab` zone (VLAN 21) for dev environments. Moves edith
-(calvard) and trista (erebonia) out of trusted/dmz, merges wg-vpn into
-the lab zone. Asymmetric access: trusted→lab allowed, lab→trusted blocked.
-Requires OpenWrt switch + router updates. Unblocks the laptop VPN workflow.
+(calvard) from trusted to lab, merges wg-vpn into the lab zone. Trista
+stays on DMZ (serves wg-ba mesh peer). Asymmetric access: trusted→lab
+allowed, lab→trusted blocked. OpenWrt devices already updated. ba-tunnel
+cleaned up to trista SSH only. Unblocks the laptop VPN workflow.
 
-### NixOS Laptop — Blocked on vLAB Zone
+### NixOS Laptop — Ready to Implement
 
 **Plan:** `plans/nixos-laptop-plan.md`
 
-X1 Carbon 7th Gen NixOS installation. Blocked on vLAB zone — laptop
-VPN client needs access to edith, which requires the zone migration.
+X1 Carbon 7th Gen NixOS installation. vLAB zone blocker resolved — laptop
+VPN client can now access edith through the lab zone.
 
 ### Metrics, Logging & Alerting — Phase 1-3 Deployed
 

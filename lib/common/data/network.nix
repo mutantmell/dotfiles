@@ -35,8 +35,13 @@
     trusted = {
       vlanId = 20;
       hosts = {
-        edith = 42; # Dev environment / task runner (calvard Incus container)
         azoth = 50; # Raspberry Pi (Home Assistant, MQTT)
+      };
+    };
+    lab = {
+      vlanId = 21;
+      hosts = {
+        edith = 42; # Dev environment / task runner (calvard Incus container)
       };
     };
     untrusted = {
@@ -61,7 +66,7 @@
       vlanId = 100;
       hosts = {
         ardent = 31;
-        trista = 51;
+        trista = 51; # SSH bastion (erebonia Incus VM)
         langport = 41; # Reverse proxy (calvard)
         oracion = 52; # Jellyfin media server (calvard)
         creil = 53; # Forgejo git hosting (calvard)

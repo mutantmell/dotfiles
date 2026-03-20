@@ -115,6 +115,13 @@
       zone = "untrusted";
       addresses = ["10.97.41.1/24"];
     })
+    # Lab network - semi-trusted dev environments (edith, trista, wg-vpn)
+    (mkVlanBridge {
+      name = "LAB";
+      tag = 21;
+      zone = "lab";
+      addresses = ["10.97.21.1/24"];
+    })
     # DMZ network - exposed services
     (mkVlanBridge {
       name = "DMZ";
@@ -198,7 +205,7 @@ in {
       trusted = {
         # User devices: full router access, can reach all internal + internet
         icmpEcho = "enable";
-        accessTo = ["management" "trusted" "untrusted" "external"];
+        accessTo = ["management" "trusted" "lab" "untrusted" "external"];
         inputRules = [
           {
             verdict = "accept";
@@ -262,18 +269,6 @@ in {
             comment = "DNS over TCP";
           }
         ];
-        forwardRules.ba-tunnel = [
-          {
-            ip.saddr = langport.ipv4;
-            verdict = "accept";
-            comment = "langport -> wg-ba tunnel (v4)";
-          }
-          {
-            ip6.saddr = langport.ipv6;
-            verdict = "accept";
-            comment = "langport -> wg-ba tunnel (v6)";
-          }
-        ];
         forwardRules.management = [
           # langport → messeldam (OIDC token exchange)
           {
@@ -320,28 +315,33 @@ in {
       };
 
       ba-tunnel = {
-        # wg-ba: locked down, only langport access
+        # wg-ba: mesh peer tunnel, locked down to trista SSH bastion only
         icmpEcho = "disable";
         accessTo = [];
         forwardRules.dmz = [
           {
-            ip.daddr = langport.ipv4;
+            ip.daddr = trista.ipv4;
+            tcp.dport = 22;
             verdict = "accept";
-            comment = "wg-ba -> langport (v4)";
+            comment = "wg-ba -> trista SSH (v4)";
           }
           {
-            ip6.daddr = langport.ipv6;
+            ip6.daddr = trista.ipv6;
+            tcp.dport = 22;
             verdict = "accept";
-            comment = "wg-ba -> langport (v6)";
+            comment = "wg-ba -> trista SSH (v6)";
           }
         ];
         inputRules = [];
       };
 
-      vpn = {
-        # Authenticated remote clients: access to infra + DMZ services, but not home LAN
+      lab = {
+        # Semi-trusted: dev environments + VPN clients. Can reach infra services
+        # and DMZ but NOT trusted (asymmetric containment for personal devices).
+        # Self-referential access needed for wg-vpn (10.100.10.0/24) → lab hosts
+        # (10.97.21.0/24) since they cross interfaces and hit the forward chain.
         icmpEcho = "enable";
-        accessTo = ["management" "untrusted" "dmz"];
+        accessTo = ["management" "lab" "dmz" "external"];
         inputRules = [
           {
             verdict = "accept";
@@ -454,11 +454,6 @@ in {
           oifname = "wg-ba";
           masquerade = true;
         }
-        {
-          iifname = "wg-ba";
-          ip.daddr = langport.ipv4;
-          masquerade = true;
-        }
       ];
     };
 
@@ -511,23 +506,7 @@ in {
           vlans = allBat0Vlans;
         };
 
-        # Direct trusted port — bypasses bond/batman/bridge stack for quick DHCP testing
-        opt2 = {
-          mac = "00:e0:67:1b:70:37";
-          network = {
-            type = "static";
-            addresses = ["10.97.21.1/24"];
-            subnetId = 21;
-            zone = "trusted";
-            dhcp.enable = true;
-            dhcp6 = {
-              enable = true;
-              dnsAddress = "${ulaBase}:15::1";
-            };
-          };
-        };
-
-        # Wireguard - BA tunnel (locked down, langport only)
+        # Wireguard - BA tunnel (mesh peer, trista SSH only)
         "wg-ba" = {
           kind = "wireguard";
           network = {
@@ -562,7 +541,7 @@ in {
               "10.100.10.1/24"
               "fdc6:55f2:0a5e:640a::1/64" # Manual IPv6 for WG
             ];
-            zone = "vpn";
+            zone = "lab";
             required = false; # External connection, don't block boot
           };
           wireguard = {
