@@ -125,7 +125,7 @@ lab = {
   # Dev environments running untrusted code: reach infra services and DMZ,
   # internet for packages/updates, but no access to personal devices (trusted)
   icmpEcho = "enable";
-  accessTo = ["management" "dmz" "external"];
+  accessTo = ["management" "lab" "dmz" "external"];
   inputRules = [
     {
       verdict = "accept";
@@ -137,7 +137,10 @@ lab = {
 
 **Access policy rationale:**
 - `management` — reach basel (SSH certs), messeldam (Keycloak OIDC), phantasma
-  (DNS), creil (Forgejo is on DMZ but management has other services)
+  (DNS), and serves as jump-box path for pushing fixes to infrastructure
+- `lab` — self-referential: required for routed intra-zone traffic (wg-vpn
+  subnet 10.100.10.0/24 → edith on 10.97.21.0/24 crosses interfaces, hits
+  the forward chain, and needs an explicit lab→lab allow rule)
 - `dmz` — reach creil (Forgejo), oracion (media), langport (reverse proxy)
 - `external` — internet for package downloads, git, etc.
 - **NOT** `trusted` — asymmetric containment; a misconfigured or compromised
@@ -172,14 +175,29 @@ trusted = {
 };
 ```
 
-### 2e. Review extraForwardRules
+### 2e. Update extraForwardRules and DNAT
 
-Check existing `extraForwardRules` for any rules referencing edith or trista
-by their old IPs/zones. Update or remove as needed — zone-based `accessTo`
-should handle most cases, reducing the need for per-host forward rules.
+**ba-tunnel → trista:** The `ba-tunnel` zone has `forwardRules.dmz` targeting
+trista for SSH bastion access. With trista moving to lab, this is both an IP
+change *and* a zone target change:
 
-Also check the SSH port forward from wg-ba to trista — trista's IP changes,
-so any DNAT rules referencing `10.97.100.51` need updating.
+```nix
+# Change from:
+forwardRules.dmz = [
+  { ip.daddr = trista_old.ipv4; tcp.dport = 22; ... }
+];
+# To:
+forwardRules.lab = [
+  { ip.daddr = trista.ipv4; tcp.dport = 22; ... }
+];
+```
+
+**DNAT rules:** Any DNAT referencing trista's old IP (`10.97.100.51`) needs
+updating to `10.97.21.51`.
+
+**Other forward rules:** Check for any rules referencing edith's old IP
+(`10.97.20.42`) or old zone interfaces (`brHOME`/`brDMZ` in the context of
+these hosts). Zone-based `accessTo` should replace most per-host rules.
 
 ---
 
