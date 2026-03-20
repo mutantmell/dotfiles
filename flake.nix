@@ -332,6 +332,7 @@
         system = "x86_64-linux";
         modules = [
           nixos-hardware.nixosModules.lenovo-thinkpad-x1-7th-gen
+          disko.nixosModules.disko
           home-manager.nixosModules.home-manager
           ./hosts/angbar
         ];
