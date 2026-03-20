@@ -205,6 +205,7 @@
               }
               self.nixosModules.common
               self.nixosModules."promtail-client"
+              self.nixosModules."node-exporter-client"
               sops-nix.nixosModules.sops
               impermanence.nixosModules.impermanence
             ]
@@ -220,6 +221,7 @@
               impermanence.nixosModules.impermanence
               self.nixosModules.common
               self.nixosModules."promtail-client"
+              self.nixosModules."node-exporter-client"
             ];
           }
         ];
@@ -232,6 +234,7 @@
             impermanence.nixosModules.impermanence
             self.nixosModules.common
             self.nixosModules."promtail-client"
+            self.nixosModules."node-exporter-client"
             ./modules/incus/guest-options.nix
             "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
             {
@@ -251,6 +254,7 @@
             impermanence.nixosModules.impermanence
             self.nixosModules.common
             self.nixosModules."promtail-client"
+            self.nixosModules."node-exporter-client"
             ./modules/incus/guest-options.nix
             "${nixpkgs}/nixos/modules/virtualisation/lxc-container.nix"
             {

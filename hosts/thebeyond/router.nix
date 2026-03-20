@@ -167,6 +167,35 @@ in {
         # Infrastructure: full router access, filtered internet egress
         icmpEcho = "enable";
         accessTo = ["management" "trusted" "untrusted"];
+        # tharbad → DMZ/lab for Prometheus scraping
+        forwardRules.dmz = [
+          {
+            ip.saddr = tharbad.ipv4;
+            tcp.dport = 9100;
+            verdict = "accept";
+            comment = "tharbad -> DMZ (node_exporter)";
+          }
+          {
+            ip6.saddr = tharbad.ipv6;
+            tcp.dport = 9100;
+            verdict = "accept";
+            comment = "tharbad -> DMZ (node_exporter v6)";
+          }
+        ];
+        forwardRules.lab = [
+          {
+            ip.saddr = tharbad.ipv4;
+            tcp.dport = 9100;
+            verdict = "accept";
+            comment = "tharbad -> lab (node_exporter)";
+          }
+          {
+            ip6.saddr = tharbad.ipv6;
+            tcp.dport = 9100;
+            verdict = "accept";
+            comment = "tharbad -> lab (node_exporter v6)";
+          }
+        ];
         forwardRules.external = [
           {
             udp.dport = 53;

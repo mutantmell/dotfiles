@@ -79,5 +79,7 @@
   };
   networking.firewall.allowedTCPPorts = [2022];
 
+  node-exporter-client.enable = true;
+
   system.stateVersion = "25.11";
 }

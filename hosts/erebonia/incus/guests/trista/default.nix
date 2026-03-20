@@ -60,5 +60,7 @@
 
   time.timeZone = "UTC";
 
+  node-exporter-client.enable = true;
+
   system.stateVersion = "25.11";
 }
