@@ -289,9 +289,9 @@ pkgs.testers.nixosTest {
     router.wait_until_succeeds("ping -6 -c 1 -W 5 2001:db8::1", timeout=60)
     print("PASS")
 
-    # Test 2: Router has GUA address on LAN1 from delegated prefix
-    print("Test 2: Router has delegated prefix on LAN1")
-    router.wait_until_succeeds("ip -6 addr show lan1 | grep '2001:db8:1'", timeout=60)
+    # Test 2: Router has GUA address on LAN1 from delegated prefix with Token ::1
+    print("Test 2: Router has delegated prefix on LAN1 with ::1 token")
+    router.wait_until_succeeds("ip -6 addr show lan1 | grep '2001:db8:1.*::1/64'", timeout=60)
     print("PASS")
 
     # Test 3: Router has ULA address on LAN1
@@ -299,9 +299,9 @@ pkgs.testers.nixosTest {
     router.succeed("ip -6 addr show lan1 | grep 'fdc6:55f2'")
     print("PASS")
 
-    # Test 4: Router has GUA address on LAN2 from delegated prefix
-    print("Test 4: Router has delegated prefix on LAN2")
-    router.wait_until_succeeds("ip -6 addr show lan2 | grep '2001:db8:1'", timeout=30)
+    # Test 4: Router has GUA address on LAN2 from delegated prefix with Token ::1
+    print("Test 4: Router has delegated prefix on LAN2 with ::1 token")
+    router.wait_until_succeeds("ip -6 addr show lan2 | grep '2001:db8:1.*::1/64'", timeout=30)
     print("PASS")
 
     # ======================================================================

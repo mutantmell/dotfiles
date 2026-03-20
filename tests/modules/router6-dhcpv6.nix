@@ -189,9 +189,9 @@ pkgs.testers.nixosTest {
         "ip -6 addr show eth1 | grep 'fdc6:55f2:a5e:14:'", timeout=60
     )
 
-    # Test 5: Client gets DHCPv6 address from DHCPv6 (::1000 range, /128 prefix)
+    # Test 5: Client gets DHCPv6 address in the ::1000-::1fff pool range (/128 prefix)
     client_stateful.wait_until_succeeds(
-        "ip -6 addr show eth1 | grep 'fdc6:55f2:a5e:14::1.*\/128'", timeout=60
+        "ip -6 addr show eth1 | grep -E 'fdc6:55f2:a5e:14::1[0-9a-f]{3}/128'", timeout=60
     )
 
     # Test 6: Client can ping router over IPv6
@@ -205,7 +205,10 @@ pkgs.testers.nixosTest {
         "ip -6 addr show eth1 | grep 'fdc6:55f2:a5e:1e:'", timeout=60
     )
 
-    # Test 8: Client can ping router over IPv6
+    # Test 8: Stateless client does NOT have a DHCPv6 address (no /128 lease)
+    client_stateless.fail("ip -6 addr show eth1 | grep '/128'")
+
+    # Test 9: Client can ping router over IPv6
     client_stateless.succeed("ping -6 -c 3 fdc6:55f2:a5e:1e::1")
   '';
 }
