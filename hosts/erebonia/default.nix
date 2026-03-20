@@ -87,5 +87,31 @@
     };
   };
 
+  # Weekly auto-upgrade: update flake.lock, commit+push, then nixos-rebuild switch.
+  system.autoUpgrade = {
+    enable = true;
+    flake = "/etc/nixos";
+    dates = "Sun *-*-* 04:00:00";
+    allowReboot = true;
+  };
+
+  # Update flake.lock before nixos-upgrade runs, and push the result.
+  systemd.services.nixos-upgrade-flake-update = {
+    description = "Update flake.lock for auto-upgrade";
+    serviceConfig = {
+      Type = "oneshot";
+      WorkingDirectory = "/etc/nixos";
+    };
+    path = [pkgs.git pkgs.nix pkgs.openssh];
+    script = ''
+      nix flake update --commit-lock-file
+      git push
+    '';
+  };
+  systemd.services.nixos-upgrade = {
+    wants = ["nixos-upgrade-flake-update.service"];
+    after = ["nixos-upgrade-flake-update.service"];
+  };
+
   system.stateVersion = "25.11";
 }
