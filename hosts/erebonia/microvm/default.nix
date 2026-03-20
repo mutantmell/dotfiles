@@ -50,9 +50,9 @@ in {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br11";
     };
-    netdevs."20-br20" = {
+    netdevs."20-br21" = {
       netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br20";
+      netdevConfig.Name = "br21";
     };
     netdevs."20-br100" = {
       netdevConfig.Kind = "bridge";
@@ -63,10 +63,10 @@ in {
       netdevConfig.Name = "eno1.11";
       vlanConfig.Id = 11;
     };
-    netdevs."20-eno1.20" = {
+    netdevs."20-eno1.21" = {
       netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.20";
-      vlanConfig.Id = 20;
+      netdevConfig.Name = "eno1.21";
+      vlanConfig.Id = 21;
     };
     netdevs."20-eno1.100" = {
       netdevConfig.Kind = "vlan";
@@ -79,7 +79,7 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       vlan = [
         "eno1.11"
-        "eno1.20"
+        "eno1.21"
         "eno1.100"
       ];
     };
@@ -103,9 +103,9 @@ in {
         {Gateway = zone.gateway6;}
       ];
     };
-    networks."20-vm20-bridge" = {
-      matchConfig.Name = ["eno1.20" "vm-20-*"];
-      networkConfig.Bridge = "br20";
+    networks."20-vm21-bridge" = {
+      matchConfig.Name = ["eno1.21" "vm-21-*"];
+      networkConfig.Bridge = "br21";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
@@ -117,8 +117,8 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-    networks."20-br20" = {
-      matchConfig.Name = "br20";
+    networks."20-br21" = {
+      matchConfig.Name = "br21";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";

@@ -11,7 +11,7 @@
 
   incus-guest = {
     profile = "dev";
-    bridge = "br20";
+    bridge = "br21";
     limits.memory = "8GB";
   };
 
@@ -21,7 +21,7 @@
   networking.useNetworkd = true;
   networking.useDHCP = false;
 
-  # Static network configuration (VLAN 20 / trusted, hostId 42)
+  # Static network configuration (VLAN 21 / lab, hostId 42)
   systemd.network.enable = true;
   services.resolved.enable = true;
   systemd.network.networks."50-enp5s0" = {
@@ -31,14 +31,14 @@
       IPv6AcceptRA = false;
     };
     address = [
-      "10.97.20.42/24"
-      "fdc6:55f2:0a5e:14::2a/64"
+      "10.97.21.42/24"
+      "fdc6:55f2:0a5e:15::2a/64"
     ];
     routes = [
-      {Gateway = "10.97.20.1";}
-      {Gateway = "fdc6:55f2:0a5e:14::1";}
+      {Gateway = "10.97.21.1";}
+      {Gateway = "fdc6:55f2:0a5e:15::1";}
     ];
-    dns = ["10.97.20.1" "fdc6:55f2:0a5e:14::1"];
+    dns = ["10.97.21.1" "fdc6:55f2:0a5e:15::1"];
   };
 
   environment.systemPackages = with pkgs; [

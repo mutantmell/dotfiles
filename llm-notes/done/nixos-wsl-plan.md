@@ -58,16 +58,16 @@ After the initial bootstrap, all subsequent config is managed via the flake.
 
 Host name: **kernviter**
 
-| Step | Status |
-|------|--------|
-| Step 1: Flake input | COMPLETE |
-| Step 2: Host configuration | COMPLETE |
-| Step 3: Flake output | COMPLETE |
-| Step 4: SSH cert client module | COMPLETE |
-| Step 5: Home-manager integration | COMPLETE |
-| Step 6: SSH key registration | COMPLETE — not needed; git uses Forgejo user auth, SSH to hosts uses certificates |
-| Step 7a: DNS resolution | COMPLETE — Windows uses OpenWrt router DNS, `.internal` resolves natively |
-| Step 7b: Git URL rewriting | COMPLETE — not needed; already cloning over SSH with host key via `core.sshCommand` |
+| Step                             | Status                                                                              |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| Step 1: Flake input              | COMPLETE                                                                            |
+| Step 2: Host configuration       | COMPLETE                                                                            |
+| Step 3: Flake output             | COMPLETE                                                                            |
+| Step 4: SSH cert client module   | COMPLETE                                                                            |
+| Step 5: Home-manager integration | COMPLETE                                                                            |
+| Step 6: SSH key registration     | COMPLETE — not needed; git uses Forgejo user auth, SSH to hosts uses certificates   |
+| Step 7a: DNS resolution          | COMPLETE — Windows uses OpenWrt router DNS, `.internal` resolves natively           |
+| Step 7b: Git URL rewriting       | COMPLETE — not needed; already cloning over SSH with host key via `core.sshCommand` |
 
 ---
 

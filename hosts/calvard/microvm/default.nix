@@ -66,10 +66,10 @@ in {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br11";
     };
-    # vHOME (VLAN 20) — edith
-    netdevs."20-br20" = {
+    # vLAB (VLAN 21) — edith
+    netdevs."20-br21" = {
       netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br20";
+      netdevConfig.Name = "br21";
     };
     # vDMZ (VLAN 100) — langport, oracion
     netdevs."20-br100" = {
@@ -81,10 +81,10 @@ in {
       netdevConfig.Name = "enp88s0.11";
       vlanConfig.Id = 11;
     };
-    netdevs."20-enp88s0.20" = {
+    netdevs."20-enp88s0.21" = {
       netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "enp88s0.20";
-      vlanConfig.Id = 20;
+      netdevConfig.Name = "enp88s0.21";
+      vlanConfig.Id = 21;
     };
     netdevs."20-enp88s0.100" = {
       netdevConfig.Kind = "vlan";
@@ -97,7 +97,7 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       vlan = [
         "enp88s0.11"
-        "enp88s0.20"
+        "enp88s0.21"
         "enp88s0.100"
       ];
     };
@@ -123,9 +123,9 @@ in {
         {Gateway = zone.gateway6;}
       ];
     };
-    networks."20-vm20-bridge" = {
-      matchConfig.Name = ["enp88s0.20" "vm-20-*"];
-      networkConfig.Bridge = "br20";
+    networks."20-vm21-bridge" = {
+      matchConfig.Name = ["enp88s0.21"];
+      networkConfig.Bridge = "br21";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
@@ -137,8 +137,8 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-    networks."20-br20" = {
-      matchConfig.Name = "br20";
+    networks."20-br21" = {
+      matchConfig.Name = "br21";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
