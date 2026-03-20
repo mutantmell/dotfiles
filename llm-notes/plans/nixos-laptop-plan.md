@@ -56,9 +56,9 @@ This provides:
 
 ## Step 2: Create host configuration
 
-**Directory:** `hosts/<name>/` — needs a Trails-themed name.
+**Directory:** `hosts/angbar/` — needs a Trails-themed name.
 
-### `hosts/<name>/default.nix`
+### `hosts/angbar/default.nix`
 
 ```nix
 { config, pkgs, lib, ... }: {
@@ -66,7 +66,7 @@ This provides:
     ./hardware-configuration.nix
   ];
 
-  networking.hostName = "<name>";
+  networking.hostName = "angbar";
 
   # Boot
   boot.loader.systemd-boot.enable = true;
@@ -126,7 +126,7 @@ This provides:
 }
 ```
 
-### `hosts/<name>/hardware-configuration.nix`
+### `hosts/angbar/hardware-configuration.nix`
 
 Generated at install time via `nixos-generate-config`. Will contain:
 
@@ -307,30 +307,12 @@ The `home-conf.is-graphical = true` flag imports this module.
 
 ---
 
-## Step 5: SSH certificate client setup
+## Step 5: SSH certificate client setup — DONE
 
-### 5a. Shared SSH cert client module
+### 5a. Shared SSH cert client module — ALREADY EXISTS
 
-Since both WSL and the laptop need the same SSH certificate client config, create a
-shared common module:
-
-**File:** `modules/common/ssh-cert-client.nix`
-
-See the WSL plan (`nixos-wsl-plan.md`, Step 4) for the full module definition. The key
-features:
-
-- step-cli with system-wide defaults (CA URL, fingerprint, default provisioner)
-- TLS trust for the internal root CA
-- SSH client config (certificate presentation + host CA trust)
-- `STEPPATH=/etc/step-cli` so step-cli uses the NixOS-managed config
-- `provisioner = "keycloak"` default eliminates provisioner selection prompt
-- `knownHosts."host-ca"` with all three domain patterns (`*.internal`,
-  `*.internal.mutantmell.net`, `*.mutantmell.net`)
-
-Both the WSL host and the laptop set `common.ssh-cert-client.enable = true`.
-
-**Important:** `modules/common/default.nix` uses an explicit imports list, not
-auto-discovery. `./ssh-cert-client.nix` must be added to the imports in that file.
+`modules/common/ssh-cert-client.nix` was created as part of the NixOS-WSL work.
+The laptop just needs `common.ssh-cert-client.enable = true` in its host config.
 
 ### 5b. SSH certificate workflow
 
@@ -362,13 +344,14 @@ routed through the tunnel to phantasma.
 
 ---
 
-## Step 6: WireGuard VPN
+## Step 6: WireGuard VPN — BLOCKED (thebeyond hardware)
 
 Static WireGuard tunnel to the homelab for remote access. Connects to the `wg-vpn`
-interface on the router.
+interface on thebeyond (NixOS router). **Blocked until thebeyond has hardware and is
+deployed** — the router owns the WireGuard endpoint and peer config.
 
 ```nix
-# hosts/<name>/wireguard.nix
+# hosts/angbar/wireguard.nix
 { config, ... }: {
   networking.wg-quick.interfaces.wg-vpn = {
     privateKeyFile = "/etc/wireguard/private.key";  # generated manually, not in nix store
@@ -393,74 +376,17 @@ field in `wg-quick` configures systemd-resolved to route queries through the tun
 store (no sops-nix on this machine). The public key should be registered in the
 router's WireGuard peer config.
 
-### Zone access: vpn → edith
+### Zone access: RESOLVED
 
-The `vpn` zone currently has `accessTo = ["management" "untrusted" "dmz"]`. edith is
-on VLAN 20 (brHOME), zone `trusted`. **The vpn zone cannot reach edith.**
+The `wg-vpn` interface has been merged into the `lab` zone (VLAN 21) as part of the
+vLAB zone implementation. edith is now on the lab zone too, so VPN → edith is
+intra-zone traffic — no cross-zone rules needed.
 
-The vpn zone is intentionally restricted — it should not grant access to the full
-home LAN (`trusted`), which contains personal devices (wife's laptop, work laptop,
-friends' devices on guest). The whole point of the zone model is blast-radius
-containment.
+- On home WiFi: laptop is in `trusted` zone, which has `accessTo` including `lab`
+- Over VPN: laptop is in `lab` zone (via wg-vpn), edith is also `lab` — same zone
+- Lab zone policy: `accessTo = ["management" "lab" "dmz" "external"]`
 
-Options:
-
-1. **New zone and VLAN (e.g., `lab` / vLAB)** — a dedicated zone for dev
-   environments where untrusted code runs (edith, trista, future dev envs). The
-   spec document explicitly calls out "minimal permissions, no access to secrets"
-   for dev containers — this is a fundamentally different trust level from both
-   infrastructure (step-ca, Keycloak) and personal devices (laptops, phones).
-   The vpn zone would add `"lab"` to its `accessTo`. Trusted zone would
-   also get access (so the laptop works on home WiFi too). The lab zone
-   itself would have restricted access — internet egress for packages/updates,
-   but no lateral movement to management or trusted.
-   Requires: new VLAN tag, `mkVlanBridge` entry, zone definition, switch config,
-   network registry entries, move edith + trista to the new VLAN/bridge.
-2. **Move edith to management (VLAN 11)** — simpler, reuses existing infra. But
-   edith runs untrusted code (AI workloads, experimental packages) and
-   vINFRA hosts step-ca and Keycloak. A compromised edith with lateral access
-   to the CA is a bad outcome.
-3. **Add a targeted forward rule** — `vpn → trusted` scoped to edith's IP only.
-   Keeps edith on vHOME but pokes a hole in zone boundaries. Sets a precedent
-   for per-host exceptions.
-
-**Recommendation: Option 1, with wg-vpn merged into the lab zone.**
-
-The VPN client (your laptop running arbitrary code) and the dev environments
-(running arbitrary code) share the same trust level. Placing `wg-vpn` in the
-lab zone means vpn → edith is intra-zone traffic — no cross-zone rules
-needed. The current `vpn` zone definition (`accessTo = ["management"
-"untrusted" "dmz"]`) becomes the lab zone's policy, and the separate
-`vpn` zone is eliminated.
-
-The lab zone policy:
-
-- `accessTo = ["management" "dmz"]` — reach basel/messeldam for SSH certs,
-  creil for Forgejo, oracion for media. (Drop `"untrusted"` — no reason for
-  dev envs to reach IoT/guest devices.)
-- Internet egress for packages/updates
-- Reachable from `trusted` (so the laptop works on home WiFi)
-- No access to `trusted` (blast-radius containment for personal devices)
-
-Future Headscale VPN (friends accessing game servers) is separate — it runs
-on vDMZ with its own ACL policy and doesn't use `wg-vpn`.
-
-Hosts affected: edith, trista, and `wg-vpn` interface move to the new zone.
-Requires: new VLAN tag, `mkVlanBridge` entry, zone definition, switch config,
-network registry updates, Incus bridge changes.
-
-**Downside:** When on the home WiFi, the desktop (trusted/vHOME) and edith
-(lab/vLAB) are on different VLANs, so traffic between them must
-round-trip through the router instead of being switched directly. The
-router is reached via 6GHz mesh backhaul (not wired), so each cross-VLAN
-hop traverses the mesh twice (desktop → mesh → router → mesh → calvard).
-Dedicated 6GHz backhaul keeps latency low in practice, but it's a real
-increase compared to the current setup where edith on vHOME allows direct
-L2 switching through the local AP/switch without touching the router.
-
-This needs to be resolved before the thin client workflow works over VPN.
-When on the home WiFi (laptop is in `trusted` zone), edith is reachable
-regardless, since `trusted` has `accessTo` to all internal zones.
+See `done/vlab-zone-plan.md` for the full implementation details.
 
 ---
 
@@ -554,14 +480,14 @@ gammastep, waypipe, Zed, and nano.
 **File:** `flake.nix`
 
 ```nix
-<name> = self.lib.mk-nixos {
+angbar = self.lib.mk-nixos {
   inherit nixpkgs;
   system = "x86_64-linux";
   modules = [
     nixos-hardware.nixosModules.lenovo-thinkpad-x1-7th-gen
     disko.nixosModules.disko  # only if using disko
     home-manager.nixosModules.home-manager
-    ./hosts/<name>
+    ./hosts/angbar
   ];
 };
 ```
@@ -577,7 +503,7 @@ gammastep, waypipe, Zed, and nano.
 2. Partition and format the NVMe drive (LUKS + ext4)
 3. Mount at `/mnt`, `nixos-generate-config --root /mnt`
 4. Copy `hardware-configuration.nix` into the repo
-5. `nixos-install --flake /path/to/dotfiles#<name>`
+5. `nixos-install --flake /path/to/dotfiles#angbar`
 6. Reboot
 
 ### Option B: nixos-anywhere (if disko profile is used)
@@ -585,7 +511,7 @@ gammastep, waypipe, Zed, and nano.
 ```bash
 # From another machine on the network, with the laptop booted into the installer:
 nix run github:nix-community/nixos-anywhere -- \
-  --flake .#<name> \
+  --flake .#angbar \
   root@<installer-ip>
 ```
 
@@ -609,7 +535,7 @@ Add the laptop's SSH public key to `lib/common/data/keys.json`:
 ```json
 {
   "ssh": {
-    "<name>": "ssh-ed25519 AAAA..."
+    "angbar": "ssh-ed25519 AAAA..."
   }
 }
 ```
@@ -675,21 +601,21 @@ edith needs a few additions to support the thin client workflow:
 
 ## Files Modified
 
-| File                                           | Action                                 |
-| ---------------------------------------------- | -------------------------------------- |
-| `flake.nix`                                    | Add nixosConfiguration for the laptop  |
-| `hosts/<name>/default.nix`                     | New — laptop host config               |
-| `hosts/<name>/wireguard.nix`                   | New — WireGuard VPN config             |
-| `hosts/<name>/hardware-configuration.nix`      | New — generated at install time        |
-| `modules/common/ssh-cert-client.nix`           | New — shared SSH cert client module    |
-| `modules/common/default.nix`                   | Add `./ssh-cert-client.nix` to imports |
-| `lib/common/data/keys.json`                    | Add laptop SSH public key              |
-| `home/graphical.nix`                           | Expand with sway desktop packages      |
-| `hosts/calvard/incus/guests/edith/default.nix` | Add ET server + Zed editor             |
+| File                                           | Action                                | Status                      |
+| ---------------------------------------------- | ------------------------------------- | --------------------------- |
+| `modules/common/ssh-cert-client.nix`           | Shared SSH cert client module         | DONE                        |
+| `modules/common/default.nix`                   | `./ssh-cert-client.nix` in imports    | DONE                        |
+| `flake.nix`                                    | Add nixosConfiguration + homeConfig   | DONE                        |
+| `hosts/angbar/default.nix`                     | New — laptop host config              | DONE                        |
+| `hosts/angbar/hardware-configuration.nix`      | Stub — replaced at install time       | DONE (stub)                 |
+| `home/graphical.nix`                           | Expand with sway desktop packages     | DONE                        |
+| `hosts/calvard/incus/guests/edith/default.nix` | Add ET server                         | DONE                        |
+| `hosts/angbar/wireguard.nix`                   | New — WireGuard VPN config            | BLOCKED (thebeyond hardware)|
+| `lib/common/data/keys.json`                    | Add laptop SSH public key             | POST-INSTALL                |
 
 ## Verification
 
-1. `nix build .#nixosConfigurations.<name>.config.system.build.toplevel` — builds
+1. `nix build .#nixosConfigurations.angbar.config.system.build.toplevel` — builds
 2. NixOS boots on the ThinkPad with working sway, WiFi, trackpad
 3. `step ssh login admin --provisioner keycloak` — obtains SSH certificate
 4. `ssh root@edith.internal` — connects with certificate (no password, no TOFU)

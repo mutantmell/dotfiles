@@ -65,10 +65,9 @@ ACCESS POINTS (Named vehicles)
 ├── pantagruel        (AP 5)
 └── glorious          (AP 6)
 
-DESKTOPS (Legendary weapons)
-├── kernviter
-├── blutgang
-└── bolverk
+PERSONAL COMPUTERS (Legendary weapons)
+├── kernviter         (NixOS-WSL Desktop)
+└── angbar            (NixOS Laptop — ThinkPad X1 Carbon 7th Gen)
 
 UTILITY HOSTS (Artifacts)
 ├── azoth
