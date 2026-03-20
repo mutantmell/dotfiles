@@ -76,69 +76,71 @@ in {
   # Egress filtering — default-drop with explicit allowlist
   networking.nftables.enable = true;
   networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter (
-    net.mkEgressRules zone [
-      {
-        gateway = true;
-        proto = "udp";
-        port = 53;
-      }
-      {
-        gateway = true;
-        proto = "tcp";
-        port = 53;
-      }
-      {
-        gateway = true;
-        proto = "udp";
-        port = 123;
-        comment = "NTP";
-      }
+    net.mkEgressRules zone (
+      [
+        {
+          gateway = true;
+          proto = "udp";
+          port = 53;
+        }
+        {
+          gateway = true;
+          proto = "tcp";
+          port = 53;
+        }
+        {
+          gateway = true;
+          proto = "udp";
+          port = 123;
+          comment = "NTP";
+        }
+      ]
       # Prometheus scrape targets — node_exporter (port 9100)
-    ]
-    ++ (map (name: {
-        host = name;
-        proto = "tcp";
-        port = 9100;
-        comment = "node_exporter scrape";
-      }) [
-        "thebeyond"
-        "calvard"
-        "erebonia"
-        "phantasma"
-        "basel"
-        "messeldam"
-        "langport"
-        "creil"
-        "oracion"
-        "ardent"
-        "monrain"
-        "saint-arkh"
-        "trista"
-        "edith"
-      ])
-    ++ [
-      # Remiferia: non-standard exporter ports
-      {
-        host = "remiferia";
-        proto = "tcp";
-        port = [9001 9002 9003];
-        comment = "node/zfs/smartctl exporters";
-      }
-      # ACME certs from basel (for Grafana TLS)
-      {
-        host = "basel";
-        proto = "tcp";
-        port = 443;
-        comment = "ACME certs from basel";
-      }
-      # Grafana OIDC token exchange with Keycloak
-      {
-        host = "messeldam";
-        proto = "tcp";
-        port = 443;
-        comment = "Keycloak OIDC";
-      }
-    ]
+      ++ (map (name: {
+          host = name;
+          proto = "tcp";
+          port = 9100;
+          comment = "node_exporter scrape";
+        }) [
+          "thebeyond"
+          "calvard"
+          "erebonia"
+          "phantasma"
+          "basel"
+          "messeldam"
+          "langport"
+          "creil"
+          "oracion"
+          "ardent"
+          "monrain"
+          "saint-arkh"
+          "trista"
+          "edith"
+        ])
+      ++ [
+        # Remiferia: non-standard exporter ports
+        {
+          host = "remiferia";
+          proto = "tcp";
+          port = [9001 9002 9003];
+          comment = "node/zfs/smartctl exporters";
+        }
+        # ACME certs from basel (for Grafana TLS)
+        {
+          host = "basel";
+          proto = "tcp";
+          port = 443;
+          comment = "ACME certs from basel";
+        }
+        # Grafana OIDC token exchange with Keycloak
+        {
+          host = "messeldam";
+          proto = "tcp";
+          port = 443;
+          comment = "Keycloak OIDC";
+        }
+      ]
+    )
   );
 
   environment.persistence."/persist" = {
