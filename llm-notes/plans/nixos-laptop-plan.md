@@ -590,35 +590,39 @@ Works out of the box. No special config needed.
 
 ## Changes to edith (remote dev env)
 
-edith needs a few additions to support the thin client workflow:
-
-| Change                                        | File                                           |
-| --------------------------------------------- | ---------------------------------------------- |
-| Add `services.eternal-terminal.enable = true` | `hosts/calvard/incus/guests/edith/default.nix` |
-| Add `pkgs.zed-editor` to system packages      | `hosts/calvard/incus/guests/edith/default.nix` |
+| Change                                        | File                                           | Status |
+| --------------------------------------------- | ---------------------------------------------- | ------ |
+| Add `services.eternal-terminal.enable = true` | `hosts/calvard/incus/guests/edith/default.nix` | DONE   |
+| Add `networking.firewall.allowedTCPPorts`      | `hosts/calvard/incus/guests/edith/default.nix` | DONE   |
+| Zed editor — not needed on edith              | N/A (Zed auto-installs server binary via SSH)  | N/A    |
 
 ---
 
 ## Files Modified
 
-| File                                           | Action                              | Status                       |
-| ---------------------------------------------- | ----------------------------------- | ---------------------------- |
-| `modules/common/ssh-cert-client.nix`           | Shared SSH cert client module       | DONE                         |
-| `modules/common/default.nix`                   | `./ssh-cert-client.nix` in imports  | DONE                         |
-| `flake.nix`                                    | Add nixosConfiguration + homeConfig | DONE                         |
-| `hosts/angbar/default.nix`                     | New — laptop host config            | DONE                         |
-| `hosts/angbar/hardware-configuration.nix`      | Stub — replaced at install time     | DONE (stub)                  |
-| `home/graphical.nix`                           | Expand with sway desktop packages   | DONE                         |
-| `hosts/calvard/incus/guests/edith/default.nix` | Add ET server                       | DONE                         |
-| `hosts/angbar/wireguard.nix`                   | New — WireGuard VPN config          | BLOCKED (thebeyond hardware) |
-| `lib/common/data/keys.json`                    | Add laptop SSH public key           | POST-INSTALL                 |
+| File                                           | Action                                   | Status                       |
+| ---------------------------------------------- | ---------------------------------------- | ---------------------------- |
+| `modules/common/ssh-cert-client.nix`           | Shared SSH cert client module            | DONE                         |
+| `modules/common/default.nix`                   | `./ssh-cert-client.nix` in imports       | DONE                         |
+| `flake.nix`                                    | Add nixosConfiguration + homeConfig      | DONE                         |
+| `hosts/angbar/default.nix`                     | Laptop host config                       | DONE                         |
+| `hosts/angbar/hardware-configuration.nix`      | Generated, disko handles filesystems     | DONE                         |
+| `hosts/angbar/disko.nix`                       | LUKS + XFS disk layout                   | DONE                         |
+| `home/graphical.nix`                           | Sway, foot, media keys, swaylock, etc.   | DONE                         |
+| `home/linux.nix`                               | Added ssh-agent service                  | DONE                         |
+| `home/user/mutantmell.nix`                     | SSH matchBlock for edith (user override) | DONE                         |
+| `modules/common/ssh-cert-client.nix`           | Removed hardcoded `User root`            | DONE                         |
+| `hosts/calvard/incus/guests/edith/default.nix` | ET server + firewall port 2022           | DONE                         |
+| `hosts/angbar/wireguard.nix`                   | WireGuard VPN config                     | BLOCKED (thebeyond hardware) |
+| `lib/common/data/keys.json`                    | Add laptop SSH public key                | TODO (not urgent)            |
 
 ## Verification
 
-1. `nix build .#nixosConfigurations.angbar.config.system.build.toplevel` — builds
-2. NixOS boots on the ThinkPad with working sway, WiFi, trackpad
-3. `step ssh login admin --provisioner keycloak` — obtains SSH certificate
-4. `ssh root@edith.internal` — connects with certificate (no password, no TOFU)
-5. `et edith.internal` — session-resilient connection works
-6. Power management: battery life reasonable, S3 suspend/resume works
-7. WireGuard: `wg-quick up wg-vpn` connects, `.internal` names resolve remotely
+1. ~~`nix build .#nixosConfigurations.angbar.config.system.build.toplevel` — builds~~ PASS
+2. ~~NixOS boots on the ThinkPad with working sway, WiFi, trackpad~~ PASS
+3. ~~`step ssh login admin` — obtains SSH certificate~~ PASS
+4. ~~`ssh mutantmell@edith.internal` — connects with certificate~~ PASS
+5. ~~`et mutantmell@edith.internal` — session-resilient connection works~~ PASS (after firewall fix)
+6. ~~Power management: deep sleep active, TLP running~~ PASS
+7. ~~Lid close/open: swaylock activates, sway recovers~~ PASS
+8. WireGuard: blocked on thebeyond hardware

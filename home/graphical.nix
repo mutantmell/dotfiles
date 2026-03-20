@@ -108,6 +108,43 @@
     longitude = -74.0;
   };
 
+  programs.i3status = {
+    enable = true;
+    general = {
+      colors = true;
+      interval = 5;
+    };
+    modules = {
+      "battery 0" = {
+        position = 1;
+        settings = {
+          format = "%status %percentage %remaining";
+          path = "/sys/class/power_supply/BAT0/uevent";
+        };
+      };
+      "wireless _first_" = {
+        position = 2;
+        settings = {
+          format_up = "W: %essid %quality";
+          format_down = "W: down";
+        };
+      };
+      "volume master" = {
+        position = 3;
+        settings = {
+          format = "Vol: %volume";
+          format_muted = "Vol: muted";
+        };
+      };
+      "tztime local" = {
+        position = 4;
+        settings = {
+          format = "%Y-%m-%d %H:%M";
+        };
+      };
+    };
+  };
+
   home.packages = with pkgs; [
     waypipe
     wl-clipboard

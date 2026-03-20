@@ -344,12 +344,13 @@ stays on DMZ (serves wg-ba mesh peer). Asymmetric access: trusted→lab
 allowed, lab→trusted blocked. OpenWrt devices already updated. ba-tunnel
 cleaned up to trista SSH only. Unblocks the laptop VPN workflow.
 
-### NixOS Laptop — Ready to Implement
+### NixOS Laptop — Installed and Operational
 
 **Plan:** `plans/nixos-laptop-plan.md`
 
-X1 Carbon 7th Gen NixOS installation. vLAB zone blocker resolved — laptop
-VPN client can now access edith through the lab zone.
+X1 Carbon 7th Gen (angbar) installed with NixOS, LUKS+XFS via disko, sway
+desktop, SSH cert auth, ET to edith. Standalone home-manager profile
+(`mutantmell@angbar`). WireGuard VPN blocked on thebeyond hardware.
 
 ### Metrics, Logging & Alerting — Phase 1-3 Deployed
 
