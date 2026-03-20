@@ -115,29 +115,46 @@
       interval = 5;
     };
     modules = {
-      "battery 0" = {
+      "wireless _first_" = {
         position = 1;
         settings = {
-          format = "%status %percentage %remaining";
-          path = "/sys/class/power_supply/BAT0/uevent";
-        };
-      };
-      "wireless _first_" = {
-        position = 2;
-        settings = {
-          format_up = "W: %essid %quality";
+          format_up = "W: (%quality at %essid) %ip";
           format_down = "W: down";
         };
       };
-      "volume master" = {
+      "battery 0" = {
+        position = 2;
+        settings = {
+          format = "%status %percentage %remaining";
+        };
+      };
+      "disk /" = {
         position = 3;
+        settings = {
+          format = "%avail";
+        };
+      };
+      "load" = {
+        position = 4;
+        settings = {
+          format = "%1min";
+        };
+      };
+      "memory" = {
+        position = 5;
+        settings = {
+          format = "%used / %total";
+        };
+      };
+      "volume master" = {
+        position = 6;
         settings = {
           format = "Vol: %volume";
           format_muted = "Vol: muted";
         };
       };
       "tztime local" = {
-        position = 4;
+        position = 7;
         settings = {
           format = "%Y-%m-%d %H:%M";
         };
