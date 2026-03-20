@@ -17,6 +17,12 @@
 
   boot.extraModprobeConfig = "options kvm_intel nested=1";
 
+  zramSwap = {
+    enable = true;
+    algorithm = "zstd";
+    memoryPercent = 25;
+  };
+
   nix.settings.auto-optimise-store = true;
   nix.gc = {
     automatic = true;
