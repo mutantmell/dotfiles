@@ -90,6 +90,15 @@ let
       ''}
       fi
 
+      # Reconcile bridge parent if it has drifted (e.g. VLAN migration)
+      ${optionalString (guestCfg.bridge != null) ''
+        CURRENT_BRIDGE=$(${pkgs.incus}/bin/incus config device get "$INSTANCE" eth0 parent 2>/dev/null || true)
+        if [ "$CURRENT_BRIDGE" != "${guestCfg.bridge}" ]; then
+          echo "Updating $INSTANCE eth0 bridge: $CURRENT_BRIDGE -> ${guestCfg.bridge}"
+          ${pkgs.incus}/bin/incus config device set "$INSTANCE" eth0 parent "${guestCfg.bridge}"
+        fi
+      ''}
+
       # Add static directory mount if configured
       # Containers need shift=true for UID/GID mapping in unprivileged namespaces
       ${optionalString (guestCfg.staticDir != null) ''
