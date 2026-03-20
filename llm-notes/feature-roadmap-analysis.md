@@ -147,8 +147,8 @@ to Step 8.
 - [x] Phase 3: Update NFS mounts to use vINFRA addresses
 - [x] Phase 4.1-4.3: Add host-level input firewalls (remiferia, calvard, erebonia)
 - [x] Phase 4.4: Add egress filtering module for vDMZ hosts (nftables output chain)
-- [ ] Phase 6: Coordinated deployment (VM guests → VM hosts → NAS → Router)
-- [ ] Verify: all hosts reachable, DNS working, NFS mounts operational
+- [x] Phase 6: Coordinated deployment (VM guests → VM hosts → NAS → Router)
+- [x] Verify: all hosts reachable, DNS working, NFS mounts operational
 
 ### Step 3: Network Data Registry
 
@@ -219,13 +219,16 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [x] Implement split-horizon DNS (`mutantmell.net` hierarchy)
 - [x] Add langport nginx rate limiting for `/auth/` and `/oauth2/` (S11)
 - [x] Tighten wg-ba firewall rules (per-service instead of blanket) — already per-service: SSH→langport:22, HTTPS bidirectional
-- [ ] _(deferred)_ Deploy cloud host with nginx + WireGuard + Let's Encrypt
-- [ ] Enable langport external proxy (proxy.nix disabled pending cloud host for HTTP-01 domain validation)
-- [ ] Enable phantasma internal oauth2-proxy (blocked on thebeyond hardware — phantasma runs on thebeyond)
 - [x] External SSH entry point — wg-ba port forward pointed to trista (erebonia Incus VM). Trista is a lab/dev VM (future vLAB zone), not a dedicated bastion.
-- [ ] _(deferred)_ Remove SSH daemon from langport — egress filtering already prevents lateral movement, low priority
 - [x] Configure egress filtering (R3) — langport has egress rules; trista's egress policy deferred to vLAB zone design (laptop plan)
-- [ ] Test end-to-end: internal + external auth flows + SSH bastion path
+
+Remaining items blocked or deferred:
+
+- [ ] _(deferred)_ Deploy cloud host with nginx + WireGuard + Let's Encrypt
+- [ ] _(blocked: cloud host)_ Enable langport external proxy (proxy.nix disabled pending HTTP-01 domain validation)
+- [ ] _(blocked: thebeyond hardware)_ Enable phantasma internal oauth2-proxy
+- [ ] _(deferred)_ Remove SSH daemon from langport — egress filtering already prevents lateral movement, low priority
+- [ ] _(blocked: above items)_ Test end-to-end: internal + external auth flows + SSH bastion path
 
 ### Step 5: IP Migration — COMPLETE
 
@@ -315,6 +318,61 @@ config import from the running devices is needed before any changes can be made.
 - [ ] Phase 5: Update NTP server to router IP
 - [ ] Phase 5: Add host firewall script to APs
 - [ ] Deploy to OpenWRT APs
+
+### NixOS-WSL (kernviter) — Nearly Complete
+
+**Plan:** `plans/nixos-wsl-plan.md`
+
+NixOS-WSL workstation on Windows desktop. Client-only host consuming
+infrastructure services (SSH certs, DNS, git).
+
+- [x] Add `nixos-wsl` flake input
+- [x] Create host configuration (`hosts/kernviter/`)
+- [x] Add flake output (`nixosConfigurations.kernviter`)
+- [x] Create shared `modules/common/ssh-cert-client.nix` module
+- [x] Home-manager integration with WSL-specific config (`home/wsl.nix`)
+- [ ] Register SSH public key in `keys.json`
+- [x] DNS resolution for `.internal` domains (Windows uses OpenWrt router DNS)
+- [ ] Git URL rewriting for Forgejo (creil)
+
+### NixOS Laptop — Planning
+
+**Plan:** `plans/nixos-laptop-plan.md`
+
+X1 Carbon 7th Gen NixOS installation. Blocked on lab zone architecture
+decision — laptop VPN client needs access to edith (Incus dev env on
+trusted zone), requires either a new vLAB zone (preferred) or targeted
+forward rules.
+
+### Metrics, Logging & Alerting — Phase 1-3 Deployed
+
+**Plan:** `wip/metrics-alerting-plan.md`
+
+tharbad migrated to VLAN 11 (management zone). Prometheus, Loki, and
+promtail-client operational. Grafana deployed but not fully configured.
+
+- [x] VLAN migration (trusted → management)
+- [x] Prometheus + Loki operational
+- [x] Grafana deployed
+- [ ] Grafana dashboards and full configuration
+- [ ] Alertmanager + ntfy enablement (pending sops secrets)
+- [ ] Phase 4: Service-specific exporters, alert rules, dashboards
+
+### DHCPv6 Kea Integration — Ready to Implement
+
+**Plan:** `wip/dhcpv6-kea-integration.md`
+
+Wire the router6 module's unused `dhcp6.mode` option to RA flags and add
+Kea DHCPv6 server support. Small scope (3 files), no blockers. Prerequisite
+for WAN IPv6 Prefix Delegation.
+
+### WAN IPv6 Prefix Delegation — Ready to Implement
+
+**Plan:** `wip/wan-ipv6-prefix-delegation.md`
+
+Add WAN DHCPv6-PD client support and LAN prefix delegation to the router6
+module. Requires a Phase 1 refactor to decouple RA behavior from the `type`
+field before adding PD support in Phase 2.
 
 ### Deferred: Blog/Homepage Containers
 
