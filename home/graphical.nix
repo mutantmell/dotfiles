@@ -85,12 +85,11 @@
 
   services.swayidle = {
     enable = true;
-    events = [
-      {
-        event = "before-sleep";
+    events = {
+      before-sleep = {
         command = "${pkgs.swaylock}/bin/swaylock -f";
-      }
-    ];
+      };
+    };
   };
 
   services.gammastep = {
