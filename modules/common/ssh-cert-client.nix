@@ -32,7 +32,6 @@ in {
     programs.ssh = {
       extraConfig = ''
         Host *.internal *.internal.mutantmell.net
-          User root
           IdentityFile ~/.ssh/id_ed25519
           CertificateFile ~/.ssh/id_ed25519-cert.pub
       '';
