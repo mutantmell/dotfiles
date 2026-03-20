@@ -57,6 +57,10 @@
 
   # Desktop
   programs.sway.enable = true;
+  xdg.portal = {
+    enable = true;
+    wlr.enable = true;
+  };
   services.greetd = {
     enable = true;
     settings.default_session = {
