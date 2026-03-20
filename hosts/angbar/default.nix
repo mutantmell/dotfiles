@@ -36,15 +36,10 @@
     uid = 1000;
   };
 
-  # Home-manager
+  # Home-manager (mutantmell profile managed standalone via homeConfigurations."mutantmell@angbar")
   home-manager = {
     useGlobalPkgs = true;
     useUserPackages = true;
-    users.mutantmell = import ../../home {
-      user = "mutantmell";
-      langs = ["rust"];
-      is-graphical = true;
-    };
     users.root = {
       home.stateVersion = "25.11";
       programs.git = {
@@ -97,7 +92,7 @@
   fonts.packages = [pkgs.jetbrains-mono];
 
   # Session-resilient connection to edith
-  environment.systemPackages = [pkgs.eternal-terminal];
+  environment.systemPackages = [pkgs.eternal-terminal pkgs.home-manager];
   environment.variables.ET_NO_TELEMETRY = "1";
 
   system.stateVersion = "25.11";
