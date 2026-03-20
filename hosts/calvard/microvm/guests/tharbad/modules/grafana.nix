@@ -35,17 +35,20 @@
         {
           name = "Prometheus";
           type = "prometheus";
+          uid = "prometheus";
           url = "http://localhost:9090";
           isDefault = true;
         }
         {
           name = "Loki";
           type = "loki";
+          uid = "loki";
           url = "http://localhost:3100";
         }
         {
           name = "Alertmanager";
           type = "alertmanager";
+          uid = "alertmanager";
           url = "http://localhost:9093";
           jsonData.implementation = "prometheus";
         }
