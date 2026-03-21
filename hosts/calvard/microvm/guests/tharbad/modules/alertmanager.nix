@@ -109,10 +109,6 @@
   ];
 
   environment.persistence."/persist".directories = [
-    {
-      directory = "/var/lib/alertmanager";
-      user = "alertmanager";
-      group = "alertmanager";
-    }
+    "/var/lib/private/alertmanager"
   ];
 }

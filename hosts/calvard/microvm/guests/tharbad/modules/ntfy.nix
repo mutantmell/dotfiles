@@ -1,4 +1,4 @@
-{config, ...}: {
+_: {
   networking.firewall.allowedTCPPorts = [2586];
 
   services.ntfy-sh = {
@@ -10,10 +10,6 @@
   };
 
   environment.persistence."/persist".directories = [
-    {
-      directory = "/var/lib/ntfy-sh";
-      user = "ntfy-sh";
-      group = "ntfy-sh";
-    }
+    "/var/lib/private/ntfy-sh"
   ];
 }

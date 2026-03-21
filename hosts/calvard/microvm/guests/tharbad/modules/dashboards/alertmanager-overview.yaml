@@ -1,0 +1,219 @@
+kind: Dashboard
+metadata:
+  name: alertmanager-overview
+  project: monitoring
+spec:
+  display:
+    name: Alertmanager Overview
+  panels:
+    active_alerts:
+      kind: Panel
+      spec:
+        display:
+          name: Active Alerts
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last
+            format:
+              unit: decimal
+            thresholds:
+              mode: absolute
+              defaultColor: green
+              steps:
+                - value: 1
+                  color: orange
+                - value: 3
+                  color: red
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: alertmanager_alerts{state="active"}
+                  seriesNameFormat: "Active"
+    suppressed_alerts:
+      kind: Panel
+      spec:
+        display:
+          name: Suppressed Alerts
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last
+            format:
+              unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: alertmanager_alerts{state="suppressed"}
+                  seriesNameFormat: "Suppressed"
+    alerts_over_time:
+      kind: Panel
+      spec:
+        display:
+          name: Alerts Over Time
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: alertmanager_alerts{state="active"}
+                  seriesNameFormat: "Active"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: alertmanager_alerts{state="suppressed"}
+                  seriesNameFormat: "Suppressed"
+    notification_rate:
+      kind: Panel
+      spec:
+        display:
+          name: Notifications Sent / sec
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: rate(alertmanager_notifications_total[$__rate_interval])
+                  seriesNameFormat: "{{integration}}"
+    notification_failures:
+      kind: Panel
+      spec:
+        display:
+          name: Notification Failures / sec
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+            thresholds:
+              mode: absolute
+              defaultColor: green
+              steps:
+                - value: 0.01
+                  color: red
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: rate(alertmanager_notifications_failed_total[$__rate_interval])
+                  seriesNameFormat: "{{integration}}"
+    notification_latency:
+      kind: Panel
+      spec:
+        display:
+          name: Notification Latency (p99)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+            yAxis:
+              format:
+                unit: seconds
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: histogram_quantile(0.99, rate(alertmanager_notification_latency_seconds_bucket[$__rate_interval]))
+                  seriesNameFormat: "p99"
+  layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Alerts
+        items:
+          - x: 0
+            "y": 0
+            width: 4
+            height: 8
+            content:
+              $ref: "#/spec/panels/active_alerts"
+          - x: 4
+            "y": 0
+            width: 4
+            height: 8
+            content:
+              $ref: "#/spec/panels/suppressed_alerts"
+          - x: 8
+            "y": 0
+            width: 16
+            height: 8
+            content:
+              $ref: "#/spec/panels/alerts_over_time"
+    - kind: Grid
+      spec:
+        display:
+          title: Notifications
+        items:
+          - x: 0
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/notification_rate"
+          - x: 8
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/notification_failures"
+          - x: 16
+            "y": 0
+            width: 8
+            height: 8
+            content:
+              $ref: "#/spec/panels/notification_latency"
+  duration: 1h
