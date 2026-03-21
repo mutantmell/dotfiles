@@ -31,19 +31,19 @@
       receivers = [
         {
           name = "ntfy-critical";
-          webhook_configs = [{url = "http://localhost:2586/infra-critical?tpl=yes";}];
+          webhook_configs = [{url = "http://localhost:2586/infra-critical?template=alertmanager";}];
         }
         {
           name = "ntfy-security";
-          webhook_configs = [{url = "http://localhost:2586/security?tpl=yes";}];
+          webhook_configs = [{url = "http://localhost:2586/security?template=alertmanager";}];
         }
         {
           name = "ntfy-cicd";
-          webhook_configs = [{url = "http://localhost:2586/cicd?tpl=yes";}];
+          webhook_configs = [{url = "http://localhost:2586/cicd?template=alertmanager";}];
         }
         {
           name = "ntfy-default";
-          webhook_configs = [{url = "http://localhost:2586/services?tpl=yes";}];
+          webhook_configs = [{url = "http://localhost:2586/services?template=alertmanager";}];
         }
       ];
     };
