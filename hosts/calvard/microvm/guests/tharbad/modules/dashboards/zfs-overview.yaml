@@ -224,24 +224,44 @@ spec:
                     name: prometheus
                   query: smartctl_device_temperature{job="$smartctl_job"}
                   seriesNameFormat: "{{device}} ({{model_name}})"
-    disk_health:
+    disk_status:
       kind: Panel
       spec:
         display:
-          name: SMART Health
+          name: Disk Status
         plugin:
-          kind: StatChart
+          kind: Table
           spec:
-            calculation: last
-            format:
-              unit: decimal
-            sparkline: {}
-            thresholds:
-              mode: absolute
-              defaultColor: red
-              steps:
-                - value: 1
-                  color: green
+            density: compact
+            columnSettings:
+              - name: device
+                header: Device
+              - name: Healthy
+                header: Healthy
+                cellSettings:
+                  - condition:
+                      kind: Value
+                      spec:
+                        value: "1"
+                    backgroundColor: "#22c55e"
+                  - condition:
+                      kind: Value
+                      spec:
+                        value: "0"
+                    backgroundColor: "#ef4444"
+              - name: Power-On Hours
+                header: Power-On Hours
+              - name: Media Errors
+                header: Media Errors
+                cellSettings:
+                  - condition:
+                      kind: Range
+                      spec:
+                        min: 1
+                    backgroundColor: "#ef4444"
+            transforms:
+              - kind: MergeSeries
+                spec: {}
         queries:
           - kind: TimeSeriesQuery
             spec:
@@ -252,20 +272,7 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: smartctl_device_smart_status{job="$smartctl_job"}
-                  seriesNameFormat: "{{device}}"
-    disk_power_on:
-      kind: Panel
-      spec:
-        display:
-          name: Power-On Hours
-        plugin:
-          kind: StatChart
-          spec:
-            calculation: last
-            format:
-              unit: decimal
-            sparkline: {}
-        queries:
+                  seriesNameFormat: Healthy
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -275,20 +282,7 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: smartctl_device_power_on_seconds{job="$smartctl_job"} / 3600
-                  seriesNameFormat: "{{device}}"
-    disk_errors:
-      kind: Panel
-      spec:
-        display:
-          name: Disk Errors Over Time
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              position: bottom
-              mode: table
-              values: [last]
-        queries:
+                  seriesNameFormat: Power-On Hours
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -298,17 +292,7 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: smartctl_device_media_errors{job="$smartctl_job"}
-                  seriesNameFormat: "{{device}} media errors"
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: prometheus
-                  query: smartctl_device_error_log_count{job="$smartctl_job"}
-                  seriesNameFormat: "{{device}} error log"
+                  seriesNameFormat: Media Errors
   layouts:
     - kind: Grid
       spec:
@@ -352,26 +336,14 @@ spec:
         items:
           - x: 0
             "y": 0
-            width: 6
-            height: 16
+            width: 12
+            height: 12
             content:
-              $ref: "#/spec/panels/disk_health"
-          - x: 6
-            "y": 0
-            width: 6
-            height: 16
-            content:
-              $ref: "#/spec/panels/disk_power_on"
+              $ref: "#/spec/panels/disk_status"
           - x: 12
             "y": 0
             width: 12
-            height: 16
+            height: 12
             content:
               $ref: "#/spec/panels/disk_temperature"
-          - x: 0
-            "y": 16
-            width: 24
-            height: 8
-            content:
-              $ref: "#/spec/panels/disk_errors"
   duration: 6h
