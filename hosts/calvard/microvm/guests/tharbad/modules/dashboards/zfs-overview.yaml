@@ -235,6 +235,7 @@ spec:
             calculation: last
             format:
               unit: decimal
+            sparkline: {}
             thresholds:
               mode: absolute
               defaultColor: red
@@ -263,6 +264,7 @@ spec:
             calculation: last
             format:
               unit: decimal
+            sparkline: {}
         queries:
           - kind: TimeSeriesQuery
             spec:
@@ -351,23 +353,23 @@ spec:
           - x: 0
             "y": 0
             width: 6
-            height: 8
+            height: 16
             content:
               $ref: "#/spec/panels/disk_health"
           - x: 6
             "y": 0
             width: 6
-            height: 8
+            height: 16
             content:
               $ref: "#/spec/panels/disk_power_on"
           - x: 12
             "y": 0
             width: 12
-            height: 8
+            height: 16
             content:
               $ref: "#/spec/panels/disk_temperature"
           - x: 0
-            "y": 8
+            "y": 16
             width: 24
             height: 8
             content:
