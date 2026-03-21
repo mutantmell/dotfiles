@@ -41,11 +41,26 @@
     };
   };
 
+  adminBinding = yaml "global-admin-binding.yaml" {
+    kind = "GlobalRoleBinding";
+    metadata.name = "oidc-admins";
+    spec = {
+      role = "admin";
+      subjects = [
+        {
+          kind = "User";
+          name = "malaguy";
+        }
+      ];
+    };
+  };
+
   provisioningDir = pkgs.runCommand "perses-provisioning" {} ''
     mkdir -p $out
     cp ${project} $out/project.yaml
     cp ${promDatasource} $out/global-prometheus.yaml
     cp ${lokiDatasource} $out/global-loki.yaml
+    cp ${adminBinding} $out/global-admin-binding.yaml
     cp ${./dashboards}/*.yaml $out/
   '';
 in {
@@ -76,6 +91,7 @@ in {
         extension = "yaml";
       };
       provisioning.folders = ["${provisioningDir}"];
+      frontend.explorer.enable = true;
     };
   };
 
