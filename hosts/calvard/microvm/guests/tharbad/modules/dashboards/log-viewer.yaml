@@ -20,7 +20,7 @@ spec:
             datasource:
               kind: PrometheusDatasource
               name: prometheus
-            labelName: instance
+            labelName: nodename
             matchers:
               - node_uname_info
     - kind: TextVariable
