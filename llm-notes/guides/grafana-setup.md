@@ -1,204 +1,124 @@
-# Grafana Setup Guide
+# Perses Setup Guide
 
-Step-by-step instructions for configuring Grafana on tharbad. Assumes
-Grafana is already deployed and reachable at `https://tharbad.internal/`.
+Step-by-step instructions for the Perses monitoring dashboard on tharbad.
+Assumes Perses is deployed and reachable at `https://tharbad.internal/`.
+
+Perses replaces the previous Grafana deployment. It is a lighter-weight
+CNCF dashboarding tool with native Prometheus and Loki support and a
+dashboards-as-code model that fits our Nix-managed infrastructure.
 
 ---
 
-## 1. First Login
+## 1. Verify the Service
 
 Open `https://tharbad.internal/` in a browser on the home network.
 
-Grafana is configured with Keycloak OIDC (`auto_login = true`), so it
-should redirect you to Keycloak automatically. Log in with your Keycloak
-`homelab` realm credentials. If your Keycloak user is in the `admin`
-group, you'll get the Grafana Admin role.
+Perses is configured with Keycloak OIDC, so it should redirect you to
+Keycloak automatically. Log in with your Keycloak `homelab` realm
+credentials.
 
-**If Keycloak is down or OIDC isn't working**, you can bypass it by
-navigating to `https://tharbad.internal/login?disableAutoLogin` and
-using the local admin account (username: `admin`, password: from
-sops secret `grafana-admin-password`).
+If the page doesn't load, SSH into tharbad and check:
+
+```bash
+systemctl status perses
+journalctl -u perses --no-pager -n 50
+```
 
 ---
 
 ## 2. Verify Datasources
 
-Three datasources are provisioned automatically via Nix. Verify they're
-connected:
+Two global datasources are provisioned automatically via Nix:
 
-1. Go to **Connections > Data sources** (left sidebar, gear icon)
-2. You should see: **Prometheus**, **Loki**, **Alertmanager**
-3. Click each one and hit **Test** at the bottom
-   - Prometheus → "Successfully queried the Prometheus API"
-   - Loki → "Data source successfully connected"
-   - Alertmanager → "OK"
+1. Navigate to the **gear icon** (Admin) in the left sidebar
+2. Under **Global datasources** you should see:
+   - **prometheus** (Prometheus, default)
+   - **loki** (Loki)
 
-If any fail, check that the corresponding service is running on tharbad
-(`systemctl status prometheus`, `systemctl status loki`, `systemctl
-status alertmanager`).
-
----
-
-## 3. Quick Sanity Check with Explore
-
-Before importing dashboards, verify data is actually flowing.
-
-### Prometheus metrics
-
-1. Go to **Explore** (compass icon in the left sidebar)
-2. Make sure **Prometheus** is selected as the datasource (top dropdown)
-3. Switch to **Code** mode (toggle at top-right of the query editor)
-4. Type `up` and click **Run query**
-5. You should see one row per scrape target, with value `1` (up) or `0` (down)
-
-If you see results, Prometheus is scraping successfully.
-
-### Loki logs
-
-1. Still in **Explore**, switch the datasource dropdown to **Loki**
-2. Switch to **Builder** mode
-3. Under **Label filters**, select `host` and pick any host name
-4. Click **Run query**
-5. You should see journal log lines from that host
-
-If you see logs, Promtail → Loki is working.
-
----
-
-## 4. Import Community Dashboards
-
-Grafana has a large library of pre-built dashboards. You import them by
-their numeric ID from grafana.com.
-
-### Node Exporter Full (Dashboard #1860)
-
-This is the standard dashboard for `node_exporter` metrics — CPU, memory,
-disk, network, etc. It's the single most useful dashboard for infrastructure
-monitoring.
-
-1. Go to **Dashboards** (left sidebar) → **New** → **Import**
-2. In the **"Import via grafana.com"** field, enter: `1860`
-3. Click **Load**
-4. On the next screen:
-   - **Name**: leave as "Node Exporter Full" (or customize)
-   - **Folder**: "General" is fine, or create a folder like "Infrastructure"
-   - **Prometheus**: select your **Prometheus** datasource from the dropdown
-5. Click **Import**
-
-You should immediately see panels populating with CPU, memory, disk I/O,
-network traffic, etc. Use the **Host** dropdown at the top to switch between
-scraped targets.
-
-**Note:** The `instance` labels in Prometheus will look like
-`thebeyond.internal:9100` or `remiferia.internal:9001`. The dashboard's
-host filter uses these labels.
-
-### Other useful community dashboards
-
-| Dashboard          | ID    | What it shows                                               | Requires                          |
-| ------------------ | ----- | ----------------------------------------------------------- | --------------------------------- |
-| Node Exporter Full | 1860  | CPU, memory, disk, network per host                         | node_exporter (already deployed)  |
-| Prometheus Stats   | 2     | Prometheus self-monitoring (ingestion rate, memory, chunks) | Prometheus (already running)      |
-| Loki & Promtail    | 10880 | Log volume, Promtail throughput                             | Loki + Promtail (already running) |
-| Alertmanager       | 9578  | Alert state, notification history                           | Alertmanager (already running)    |
-
-Import process is the same for all — enter the ID, load, select the
-matching datasource, import.
-
-**To import any dashboard:** Go to
-`https://grafana.com/grafana/dashboards/` and browse. Each dashboard page
-shows the ID number and which datasource/exporter it expects.
-
----
-
-## 5. Explore Logs in Loki
-
-Loki is Grafana's log backend. It works differently from Prometheus —
-instead of metrics, you query log lines using **LogQL**.
-
-### Using the visual builder
-
-1. Go to **Explore**, select **Loki** datasource
-2. Use **Builder** mode (easier to start with)
-3. Pick labels to filter:
-   - `host` — which machine the logs came from
-   - `unit` — which systemd unit (e.g., `sshd.service`, `nginx.service`)
-4. Click **Run query**
-
-### Common LogQL queries (Code mode)
-
-```logql
-# All logs from a specific host
-{host="langport"}
-
-# All logs from a specific systemd unit across all hosts
-{unit="sshd.service"}
-
-# Filter log lines containing a string
-{host="langport"} |= "error"
-
-# Case-insensitive search
-{host="langport"} |~ "(?i)error"
-
-# Exclude noise
-{host="thebeyond"} != "CRON"
-
-# Combine filters
-{host="remiferia", unit="zfs-zed.service"} |= "scrub"
-
-# Count log lines per host over time (for graphing)
-sum by (host) (rate({unit="sshd.service"}[5m]))
-```
-
-### Tips
-
-- Loki queries **must** start with a label selector in `{}` — you can't
-  just search all logs with a text filter.
-- The **Live tail** button (top right in Explore) streams logs in real time.
-- Log volume is shown as a histogram above the log lines — useful for
-  spotting spikes.
-
----
-
-## 6. Verify Alertmanager Integration
-
-### Check alert rules are loaded
-
-1. Go to **Alerting** (bell icon in left sidebar) → **Alert rules**
-2. You should see the rules defined in `prometheus.nix`:
-   - HostDown, DiskSpaceLow, HighMemoryUsage, ZFSPoolDegraded, SystemdUnitFailed
-3. Each rule shows its current state: **Normal** (green), **Pending**
-   (yellow), or **Firing** (red)
-
-If you don't see any rules here, check **Alerting > Contact points** and
-confirm the Alertmanager datasource is listed.
-
-**Note:** These are Prometheus-evaluated alert rules (defined in
-`services.prometheus.rules`), not Grafana-managed alert rules. Grafana
-reads them from Alertmanager's API. You may need to look under the
-Alertmanager-sourced rules rather than Grafana-managed rules.
-
-### Check Alertmanager status directly
-
-SSH into tharbad and run:
+If either is missing, check that the provisioning directory was loaded:
 
 ```bash
-# See current alerts (should be empty if everything is healthy)
+ls -la /nix/store/*perses-provisioning*/
+journalctl -u perses --no-pager | grep -i provision
+```
+
+---
+
+## 3. Verify the Monitoring Project
+
+A `monitoring` project is provisioned automatically. It contains the
+dashboards defined in `modules/dashboards/`. The project definition and
+datasources are generated from Nix attrsets in `perses.nix`.
+
+1. Click **Projects** in the left sidebar
+2. You should see the **Monitoring** project
+3. Click into it — you should see these dashboards:
+   - **Node Overview** — CPU, memory, disk, network per host
+   - **Prometheus Overview** — target health, scrape performance, resource usage
+   - **Alertmanager Overview** — active alerts, notification success/failure rate, latency
+   - **Log Viewer** — Loki log browser with host and text filter
+
+---
+
+## 4. Quick Sanity Check
+
+### Check metrics are flowing
+
+1. Open the **Node Overview** dashboard
+2. Use the **Instance** dropdown at the top to select a host
+   (instances appear as `<hostname>.internal:9100`)
+3. You should see CPU, memory, disk I/O, and network panels populate
+
+If panels show "No data", check Prometheus is scraping:
+
+```bash
+curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health}'
+```
+
+### Check logs are flowing
+
+1. Open the **Log Viewer** dashboard
+2. Select a host from the **Host** dropdown
+3. You should see log lines from that host in the LogsTable panel
+4. Use the **Filter** text field for `|=` line matching (e.g. "error")
+
+If no logs appear, verify Loki is receiving data:
+
+```bash
+curl -s 'http://localhost:3100/loki/api/v1/labels' | jq .
+```
+
+---
+
+## 5. Verify Alertmanager Integration
+
+### Check alert rules in Prometheus
+
+```bash
+# From tharbad — list loaded alert rules
+curl -s http://localhost:9090/api/v1/rules | jq '.data.groups[].rules[] | {name: .name, state: .state}'
+```
+
+You should see: HostDown, DiskSpaceLow, HighMemoryUsage, ZFSPoolDegraded,
+SystemdUnitFailed.
+
+### Check Alertmanager API directly
+
+```bash
+# Current alerts (should be empty if everything is healthy)
 curl -s http://localhost:9093/api/v2/alerts | jq .
 
-# See configured receivers
+# Configured receivers
 curl -s http://localhost:9093/api/v2/receivers | jq .
 ```
 
 ---
 
-## 7. Test the Alert Pipeline
+## 6. Test the Alert Pipeline
 
 This verifies the full chain: Prometheus → Alertmanager → ntfy.
 
-### Option A: Fire a test alert via Alertmanager API
-
-SSH into tharbad and run:
+### Fire a test alert
 
 ```bash
 curl -X POST http://localhost:9093/api/v2/alerts \
@@ -215,32 +135,26 @@ curl -X POST http://localhost:9093/api/v2/alerts \
   }]'
 ```
 
-This injects a test alert directly into Alertmanager. It should:
+This should route to `ntfy-critical` and send a webhook to
+`http://localhost:2586/infra-critical`.
 
-1. Route to `ntfy-critical` (because `severity: critical`)
-2. Send a webhook to `http://localhost:2586/infra-critical`
-3. Show up in the ntfy topic
-
-### Option B: Check ntfy received it
+### Verify ntfy received it
 
 ```bash
-# Check ntfy received the alert (last 10 messages on the topic)
 curl -s 'http://localhost:2586/infra-critical/json?poll=1&since=1h' | jq .
 ```
 
-If you've installed the ntfy app on your phone and subscribed to the
-topic `infra-critical` at `http://tharbad.internal:2586`, you should
-get a push notification.
-
 ### Subscribe on your phone
 
-1. Install the **ntfy** app ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) / [iOS](https://apps.apple.com/app/ntfy/id1625396347))
+1. Install the **ntfy** app
+   ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) /
+   [iOS](https://apps.apple.com/app/ntfy/id1625396347))
 2. Add a subscription:
-   - **Server URL**: `http://tharbad.internal:2586` (only works on home network or VPN)
-   - **Topic**: `infra-critical` (or `services`, `security`, etc.)
-3. Fire the test alert above — you should get a notification
+   - **Server URL**: `http://tharbad.internal:2586` (home network or VPN only)
+   - **Topic**: `infra-critical`
+3. Fire the test alert above — you should get a push notification
 
-**Suggested topics to subscribe to:**
+**Topics to subscribe to:**
 
 | Topic            | What you'll get                             |
 | ---------------- | ------------------------------------------- |
@@ -250,26 +164,136 @@ get a push notification.
 
 ---
 
-## 8. Housekeeping
+## 7. Adding Custom Dashboards
 
-### Folder organization
+Perses dashboards are YAML files following a validated schema. They can
+be created in two ways:
 
-As you add dashboards, consider organizing them into folders:
+### Option A: Via the UI
 
-- **Infrastructure** — Node Exporter Full, Prometheus Stats
-- **Logs** — Loki/Promtail dashboards
-- **Alerts** — Alertmanager overview
+1. Open the **Monitoring** project
+2. Click **+ Create** → **Dashboard**
+3. Use the visual editor to add panels, queries, and variables
+4. Changes are saved to `/var/lib/perses/data/` (persisted on tharbad)
 
-Create folders via **Dashboards** → **New** → **New folder**.
+### Option B: Provisioned via Nix (recommended)
 
-### Saving dashboard changes
+For dashboards you want to survive VM rebuilds and be version-controlled,
+add a YAML file to `modules/dashboards/`. The provisioning directory is
+assembled from these dashboard files plus Nix-generated datasource and
+project definitions.
 
-Community dashboards are imported into Grafana's database (persisted at
-`/var/lib/grafana` on tharbad). If you customize a dashboard, those
-changes persist across restarts but **not** across VM rebuilds unless
-the persist volume is preserved.
+**Example: a Loki log volume dashboard**
 
-For dashboards you customize heavily, you can export them as JSON
-(**Dashboard settings** → **JSON Model** → copy) and provision them
-via Nix in `grafana.nix` using `provision.dashboards`. This is optional —
-only worth doing once you have dashboards you've invested time into.
+Create a YAML file in `modules/dashboards/`:
+
+```yaml
+kind: Dashboard
+metadata:
+  name: loki-log-volume
+  project: monitoring
+spec:
+  display:
+    name: Loki / Log Volume
+  variables:
+    - kind: ListVariable
+      spec:
+        display:
+          name: host
+          hidden: false
+        allowAllValue: true
+        allowMultiple: false
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: prometheus
+            labelName: host
+            matchers:
+              - promtail_build_info
+        name: host
+  panels:
+    "0_0":
+      kind: Panel
+      spec:
+        display:
+          name: Log Lines per Host (rate)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: sum by (host) (rate(promtail_custom_entries_total{host=~"$host"}[5m]))
+                  seriesNameFormat: "{{host}}"
+  layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Log Volume
+        items:
+          - x: 0
+            "y": 0
+            width: 24
+            height: 10
+            content:
+              $ref: "#/spec/panels/0_0"
+  duration: 1h
+```
+
+### Community dashboards
+
+The [perses/community-dashboards](https://github.com/perses/community-dashboards)
+repo has reference dashboards for node-exporter, Prometheus, Alertmanager,
+etcd, Thanos, Kubernetes, Istio, OpenTelemetry Collector, and Tempo.
+These are written in Go using the Perses SDK and compiled to YAML —
+useful as a reference for query patterns and panel layout, but our
+dashboards are written directly as YAML tailored to our setup.
+
+---
+
+## 8. Architecture Notes
+
+### How it differs from Grafana
+
+- **No plugin ecosystem** — Perses ships with built-in panel types
+  (TimeSeriesChart, GaugeChart, StatChart, LogsTable, BarChart) and
+  datasource types (Prometheus, Loki, Tempo). No marketplace needed.
+- **No `${DS_PROMETHEUS}` indirection** — datasources are referenced
+  directly by name in dashboard YAML. No import-time variable mapping.
+- **Dashboards-as-code first** — YAML with a validated schema, designed
+  for version control and provisioning. The UI is an editor, not the
+  source of truth.
+- **Keycloak OIDC authentication** — same identity provider as other
+  homelab services. Client secret managed via sops-nix.
+
+### Resource footprint
+
+Perses is a single Go binary. Expect ~50-100 MB RSS vs Grafana's
+~300-500 MB. The file-based database (YAML files in `/var/lib/perses/data/`)
+eliminates the need for SQLite/Postgres.
+
+### Persistence
+
+Dashboard state lives in two places:
+
+1. **Provisioned dashboards** — in the Nix store, rebuilt on deploy.
+   These are the source of truth for community and custom dashboards
+   managed as code.
+2. **UI-created dashboards** — in `/var/lib/perses/data/` (persisted
+   via impermanence). These survive reboots but not VM rebuilds unless
+   the persist volume is preserved.
+
+For dashboards you invest time into via the UI, export them as YAML
+and add them to the provisioning derivation to make them permanent.

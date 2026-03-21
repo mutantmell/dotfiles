@@ -17,7 +17,7 @@ in {
     ./modules/loki.nix
     ./modules/alertmanager.nix
     ./modules/ntfy.nix
-    ./modules/grafana.nix
+    ./modules/perses.nix
   ];
 
   networking.hostName = hostname;
@@ -125,14 +125,14 @@ in {
           port = [9001 9002 9003];
           comment = "node/zfs/smartctl exporters";
         }
-        # ACME certs from basel (for Grafana TLS)
+        # ACME certs from basel (for Perses TLS)
         {
           host = "basel";
           proto = "tcp";
           port = 443;
           comment = "ACME certs from basel";
         }
-        # Grafana OIDC token exchange with Keycloak
+        # Perses OIDC token exchange with Keycloak
         {
           host = "messeldam";
           proto = "tcp";
