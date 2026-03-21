@@ -15,6 +15,7 @@ in {
       behind-proxy = true;
       # auth-file defaults to /var/lib/ntfy-sh/user.db via the NixOS module
       auth-default-access = "deny-all";
+      enable-login = true;
     };
   };
 
