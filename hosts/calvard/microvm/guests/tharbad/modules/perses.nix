@@ -41,6 +41,17 @@
     };
   };
 
+  adminRole = yaml "global-admin-role.yaml" {
+    kind = "GlobalRole";
+    metadata.name = "admin";
+    spec.permissions = [
+      {
+        actions = ["*"];
+        scopes = ["*"];
+      }
+    ];
+  };
+
   adminBinding = yaml "global-admin-binding.yaml" {
     kind = "GlobalRoleBinding";
     metadata.name = "oidc-admins";
@@ -60,6 +71,7 @@
     cp ${project} $out/project.yaml
     cp ${promDatasource} $out/global-prometheus.yaml
     cp ${lokiDatasource} $out/global-loki.yaml
+    cp ${adminRole} $out/global-admin-role.yaml
     cp ${adminBinding} $out/global-admin-binding.yaml
     cp ${./dashboards}/*.yaml $out/
   '';
