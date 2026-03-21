@@ -236,7 +236,8 @@ spec:
             columnSettings:
               - name: device
                 header: Device
-              - name: Healthy
+                enableSorting: true
+              - name: "value #1"
                 header: Healthy
                 cellSettings:
                   - condition:
@@ -249,9 +250,9 @@ spec:
                       spec:
                         value: "0"
                     backgroundColor: "#ef4444"
-              - name: Power-On Hours
+              - name: "value #2"
                 header: Power-On Hours
-              - name: Media Errors
+              - name: "value #3"
                 header: Media Errors
                 cellSettings:
                   - condition:
@@ -259,9 +260,19 @@ spec:
                       spec:
                         min: 1
                     backgroundColor: "#ef4444"
+              - name: __name__
+                hide: true
+              - name: instance
+                hide: true
+              - name: job
+                hide: true
+              - name: timestamp
+                hide: true
             transforms:
-              - kind: MergeSeries
-                spec: {}
+              - kind: JoinByColumnValue
+                spec:
+                  columns:
+                    - device
         queries:
           - kind: TimeSeriesQuery
             spec:
