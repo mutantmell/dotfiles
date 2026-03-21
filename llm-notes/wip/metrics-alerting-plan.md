@@ -1,9 +1,7 @@
 # Metrics, Logging & Alerting Plan
 
 Strategy for centralized monitoring, log aggregation, and alerting across the
-homelab. The monitoring VM (now **tharbad** on calvard) needs to migrate from
-VLAN 20 (trusted) to VLAN 11 (management) and have its disabled services
-(Grafana, Alertmanager, ntfy) enabled.
+homelab.
 
 ---
 
@@ -11,11 +9,11 @@ VLAN 20 (trusted) to VLAN 11 (management) and have its disabled services
 
 **tharbad** (on calvard, VLAN 11 — management zone) currently runs:
 
-- Prometheus (port 9090) — scrapes parent hosts + remiferia exporters
+- Prometheus (port 9090) — scrapes parent hosts + all guest node_exporters
 - Loki (port 3100) — receiving logs from fleet-wide promtail-client
-- Grafana (port 3000) — **deployed**, not fully configured (dashboards, OIDC)
-- Alertmanager — **disabled** (module exists, pending sops secrets)
-- ntfy — **disabled** (module exists, pending sops secrets)
+- Perses — dashboard visualization (replacing Grafana)
+- Alertmanager — **enabled**, routing alerts to ntfy
+- ntfy — **enabled**, self-hosted notification server
 - 2 vCPU, 2 GB RAM, 30 GB persist volume
 
 > **History:** Originally `ymir` on erebonia. Renamed to `tharbad` and moved to
@@ -30,16 +28,18 @@ VLAN 20 (trusted) to VLAN 11 (management) and have its disabled services
 
 **Remaining work:**
 
-1. Grafana dashboards and configuration not fully set up
-2. Alertmanager, ntfy disabled pending sops secrets
-3. Phase 4 service-specific exporters not yet deployed
+1. Review Perses dashboards, identify gaps
+2. ntfy phone integration — blocked on thebeyond deploy + wg-vpn (hardware ETA April/May 2026)
+3. Phase 4 service-specific exporters — blocked on thebeyond hardware
+4. CI/CD webhook integration (Forgejo → ntfy)
 
 ---
 
 ## Architecture Overview
 
-tharbad has been migrated to **management zone** (VLAN 11). Remaining work is
-enabling Alertmanager/ntfy and completing Grafana configuration. The management
+tharbad has been migrated to **management zone** (VLAN 11). Alertmanager and
+ntfy are now enabled and running. Remaining work is Perses dashboard review
+and ntfy phone integration (blocked on thebeyond/wg-vpn). The management
 zone has `accessTo = [ "management" "trusted" "untrusted" ]` in the router6
 config, so tharbad can reach exporters in those zones without extra firewall rules.
 
@@ -48,8 +48,8 @@ config, so tharbad can reach exporters in those zones without extra firewall rul
 | Component       | Choice                 | Rationale                                                                                                  |
 | --------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Metrics         | **Prometheus**         | Already running on tharbad, NixOS module is mature, pull-based model works well for homelab                |
-| Visualization   | **Grafana**            | Already running on tharbad, rich dashboard ecosystem                                                       |
-| Log aggregation | **Loki**               | Already configured (disabled) on tharbad, designed for Prometheus+Grafana stack, low resource usage vs ELK |
+| Visualization   | **Perses**             | Prometheus-native; dashboards-as-code (declarative/GitOps-first), replaces Grafana                         |
+| Log aggregation | **Loki**               | Already running on tharbad, designed for Prometheus stack, low resource usage vs ELK                       |
 | Log shipping    | **Promtail**           | Native Loki companion; can scrape systemd journal on each host                                             |
 | Alerting        | **Alertmanager**       | Native Prometheus integration, supports multiple notification channels                                     |
 | Notifications   | **ntfy** (self-hosted) | See Notification System section below                                                                      |
@@ -145,9 +145,9 @@ environment.persistence."/persist" = {
     # Prometheus TSDB
     { directory = "/var/lib/prometheus2";
       user = "prometheus"; group = "prometheus"; }
-    # Grafana dashboards & datasources
-    { directory = "/var/lib/grafana";
-      user = "grafana"; group = "grafana"; }
+    # Perses dashboards & config
+    { directory = "/var/lib/perses";
+      user = "perses"; group = "perses"; }
     # Loki chunks & index
     { directory = "/var/lib/loki";
       user = "loki"; group = "loki"; }
@@ -178,10 +178,9 @@ Strict egress filter — tharbad should only talk to known targets:
 
 | Secret                   | Used by                                           |
 | ------------------------ | ------------------------------------------------- |
-| `grafana-admin-password` | Grafana initial admin                             |
 | `ntfy-auth-token`        | ntfy access control                               |
 | `alertmanager-ntfy-url`  | Alertmanager webhook config (includes topic auth) |
-| `grafana-oidc-secret`    | Grafana → Keycloak OIDC (future)                  |
+| `perses-oidc-secret`     | Perses → Keycloak OIDC                             |
 
 ---
 
@@ -242,6 +241,12 @@ Storage: filesystem (boltdb-shipper + chunks on /var/lib/loki)
 
 Receives logs from Promtail agents running on each host (via `promtail-client`
 module). Local Promtail on tharbad scrapes its own systemd journal.
+
+> **Future: S3 backend via Garage.** Loki's storage is currently constrained by
+> tharbad's 30GB persist volume. Migrating chunk storage to a Garage S3 endpoint
+> (see CI/CD plan Phase 5) would decouple retention from tharbad's disk and allow
+> longer retention with managed GC. Loki's TSDB+chunks architecture is designed
+> for object storage.
 
 ### 3. Promtail (deployed to each host)
 
@@ -332,26 +337,23 @@ Port: 2586 (internal, localhost only for alertmanager)
 - Write token for CI/CD webhooks (Forgejo on ardent)
 - Admin token for topic management
 
-### 6. Grafana
+### 6. Perses
 
 ```
-Port: 3000 (proxied via nginx on 80/443)
-Domain: tharbad.internal
+Domain: perses.internal (tharbad)
 ```
 
-**Datasources (provisioned):**
+**Datasources:**
 
 - Prometheus → `http://localhost:9090`
-- Loki → `http://localhost:3100`
-- Alertmanager → `http://localhost:9093`
 
-**Dashboards (provisioned as JSON):**
+**Dashboards (to review/build):**
 
-- Node Exporter Full (community dashboard #1860)
-- ZFS overview (custom or community)
-- Loki log explorer
+- Node overview
+- ZFS overview
+- Firewall/network overview
+- DNS stats
 - Alertmanager overview
-- Network/firewall overview (custom)
 
 ---
 
@@ -394,8 +396,8 @@ Domain: tharbad.internal
 
 ### Phase 2 — Security Alerts
 
-Loki-based alerts are evaluated by Loki's built-in ruler (not Grafana — we
-migrated dashboards to Perses). The ruler sends firing alerts to Alertmanager.
+Loki-based alerts are evaluated by Loki's built-in ruler. The ruler sends
+firing alerts to Alertmanager.
 
 ```yaml
 # SSH authentication failures (from Loki ruler — LogQL queries)
@@ -525,17 +527,17 @@ Current file structure at `hosts/calvard/microvm/guests/tharbad/`:
 hosts/calvard/microvm/guests/tharbad/
 ├── default.nix          # Networking, imports, persistence
 ├── microvm.nix          # Tap interface, MAC, resources
-├── sops.nix             # TODO — secrets for grafana, ntfy, alertmanager
+├── sops.nix             # Secrets for ntfy, alertmanager
 ├── secrets/
-│   └── secrets.yaml     # TODO — encrypted secrets
+│   └── secrets.yaml     # Encrypted secrets
 └── modules/
     ├── prometheus.nix   # Prometheus + scrape configs + alert rules ✓
-    ├── grafana.nix      # Grafana + nginx reverse proxy + datasources (DISABLED)
     ├── loki.nix         # Loki + local promtail ✓
-    ├── alertmanager.nix # Alertmanager + routing config (DISABLED)
-    └── ntfy.nix         # ntfy notification server (DISABLED)
+    ├── alertmanager.nix # Alertmanager + routing config ✓
+    └── ntfy.nix         # ntfy notification server ✓
 
-modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
+modules/promtail-client/default.nix      # Shared module, deployed fleet-wide ✓
+modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide ✓
 ```
 
 ---
@@ -549,11 +551,10 @@ modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
 - [x] Bump RAM to 2048 MB, persist volume to 30 GB
 - [x] Move `tharbad` from `trusted` to `management` in network registry (host ID 5)
 - [x] Update `microvm.nix`: tap `vm-11-tharbad`
-- [x] Add sops.nix + secrets for Grafana admin password + secret key
-- [x] Write + enable `modules/grafana.nix` (nginx TLS via basel ACME, provisioned datasources)
+- [x] Add sops.nix + secrets
 - [x] Add egress filtering (default-drop, scrape targets + DNS/NTP + ACME)
 - [x] Deploy and verify tharbad on VLAN 11 (management zone)
-- [ ] Finish Grafana configuration (dashboards, full datasource verification)
+- [x] Migrated from Grafana to Perses for dashboard visualization
 
 ### Phase 2 — Log Aggregation (COMPLETE)
 
@@ -565,15 +566,15 @@ modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
 - [x] Add per-host egress rules for Loki push
 - [ ] Verify logs flowing from all hosts after deployment
 
-### Phase 3 — Alerting & Notifications (COMPLETE, pending deploy + verify)
+### Phase 3 — Alerting & Notifications (DEPLOYED)
 
 - [x] Write + enable `modules/ntfy.nix` — ntfy on tharbad, port 2586
 - [x] Write + enable `modules/alertmanager.nix` — Alertmanager with ntfy webhook receivers
 - [x] Write Phase 1 alert rules — HostDown, DiskSpaceLow, HighMemoryUsage,
       ZFSPoolDegraded, SystemdUnitFailed
-- [x] Provision Alertmanager + Loki datasources in Grafana
-- [ ] Install ntfy app on phone, subscribe to topics
-- [ ] Test alert pipeline: trigger test alert → Alertmanager → ntfy → phone
+- [x] Alertmanager + ntfy deployed and running
+- [ ] Install ntfy app on phone, subscribe to topics — blocked on thebeyond deploy + wg-vpn (hardware ETA April/May 2026)
+- [ ] Test end-to-end alert pipeline once phone integration is possible
 
 ### Phase 4 — Expanded Monitoring
 
@@ -588,9 +589,10 @@ modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
 - [x] Add Phase 2 alert rules (Loki ruler: SSHBruteForce, SSHBruteForceExtreme, SudoFailure)
 - [ ] Add remaining Phase 2 alerts (FirewallDropsSpike, CertExpiringSoon) — blocked on exporters
 - [x] Add Phase 3 alert rules (Prometheus: SlowScrape, PrometheusRuleEvalFailure, LokiRequestErrors, LokiIngestionLag; also HighCPUUsage, HostRebooted in infrastructure group; Loki ruler: FleetLogGap)
-- [ ] Build Perses dashboards (firewall overview, DNS stats) — replaced Grafana dashboards
+- [ ] Review existing Perses dashboards, identify coverage gaps (dashboards are declarative/code-managed — changes go through the repo and CI)
+- [ ] Build additional Perses dashboards (firewall overview, DNS stats)
 - [ ] Configure CI/CD webhook integration (Forgejo → ntfy)
-- [ ] Configure Perses OIDC auth via Keycloak (messeldam) — replaced Grafana OIDC
+- [x] Configure Perses OIDC auth via Keycloak (messeldam)
 
 ---
 
@@ -632,8 +634,7 @@ is needed.
 2. **Retention**: 90 days for Prometheus metrics, 30 days for Loki logs.
    ~15-20 GB estimated disk usage. Tune down if needed.
 
-3. **Grafana auth**: Local admin only (sops-managed password). Add Keycloak
-   OIDC later via Keycloak (messeldam).
+3. **Perses auth**: OIDC via Keycloak (messeldam) — configured and working.
 
 4. **Data migration**: Start fresh on VLAN migration. Prometheus history on the
    current VLAN 20 persist volume can be copied or discarded.
