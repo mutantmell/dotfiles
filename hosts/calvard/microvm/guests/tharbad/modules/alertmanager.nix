@@ -60,7 +60,7 @@
     }
   ];
 
-  # Phase 1 alert rules
+  # Alert rules
   services.prometheus.rules = [
     (builtins.toJSON {
       groups = [
@@ -76,7 +76,7 @@
             }
             {
               alert = "DiskSpaceLow";
-              expr = "(node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.10";
+              expr = ''(node_filesystem_avail_bytes{fstype=~"ext4|btrfs|xfs|zfs"} / node_filesystem_size_bytes{fstype=~"ext4|btrfs|xfs|zfs"}) < 0.10'';
               "for" = "5m";
               labels.severity = "critical";
               annotations.summary = "{{ $labels.instance }} disk {{ $labels.mountpoint }} is over 90% full";
@@ -101,6 +101,53 @@
               "for" = "5m";
               labels.severity = "warning";
               annotations.summary = "{{ $labels.instance }} systemd unit {{ $labels.name }} has failed";
+            }
+            {
+              alert = "HighCPUUsage";
+              expr = ''100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90'';
+              "for" = "10m";
+              labels.severity = "warning";
+              annotations.summary = "{{ $labels.instance }} CPU usage above 90% for 10 minutes";
+            }
+            {
+              alert = "HostRebooted";
+              expr = "(time() - node_boot_time_seconds) < 300";
+              "for" = "0m";
+              labels.severity = "warning";
+              annotations.summary = "{{ $labels.instance }} rebooted less than 5 minutes ago";
+            }
+          ];
+        }
+        {
+          name = "service-health";
+          rules = [
+            {
+              alert = "SlowScrape";
+              expr = "scrape_duration_seconds > 10";
+              "for" = "5m";
+              labels.severity = "warning";
+              annotations.summary = "{{ $labels.instance }} ({{ $labels.job }}) scrape taking {{ $value }}s";
+            }
+            {
+              alert = "PrometheusRuleEvalFailure";
+              expr = "rate(prometheus_rule_evaluation_failures_total[5m]) > 0";
+              "for" = "5m";
+              labels.severity = "warning";
+              annotations.summary = "Prometheus rule evaluation failures detected";
+            }
+            {
+              alert = "LokiRequestErrors";
+              expr = ''rate(loki_request_duration_seconds_count{status_code=~"5.."}[5m]) > 0'';
+              "for" = "5m";
+              labels.severity = "warning";
+              annotations.summary = "Loki returning server errors";
+            }
+            {
+              alert = "LokiIngestionLag";
+              expr = "loki_ingester_chunk_age_seconds_sum / loki_ingester_chunk_age_seconds_count > 900";
+              "for" = "10m";
+              labels.severity = "warning";
+              annotations.summary = "Loki chunk age averaging above 15 minutes — ingestion may be lagging";
             }
           ];
         }

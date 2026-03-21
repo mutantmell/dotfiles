@@ -43,6 +43,14 @@ in {
                 source_labels = ["__journal__systemd_unit"];
                 target_label = "unit";
               }
+              {
+                source_labels = ["__journal__comm"];
+                target_label = "comm";
+              }
+              {
+                source_labels = ["__journal_priority"];
+                target_label = "priority";
+              }
             ];
           }
         ];
