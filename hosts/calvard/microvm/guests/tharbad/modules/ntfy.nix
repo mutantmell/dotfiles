@@ -13,28 +13,29 @@ in {
       listen-http = ":2586";
       base-url = "https://ntfy.internal";
       behind-proxy = true;
-      auth-file = authFile;
+      # auth-file defaults to /var/lib/ntfy-sh/user.db via the NixOS module
       auth-default-access = "deny-all";
     };
   };
 
   # Create admin user and grant anonymous write to alert topics.
   # Runs as root (+) to read sops secrets; chowns the auth DB afterward.
+  # The ntfy CLI reads /etc/ntfy/server.yml (placed by the NixOS module)
+  # to find the auth-file path automatically.
   systemd.services.ntfy-sh.serviceConfig.ExecStartPre = let
     setupScript = pkgs.writeShellScript "ntfy-setup" ''
-      # Create admin user if not exists
-      ${ntfy} user add \
-        --auth-file="${authFile}" --role=admin \
-        --password="$(cat ${config.sops.secrets."ntfy-admin-password".path})" \
-        admin 2>/dev/null || true
+      # Create admin user if not exists (NTFY_PASSWORD for non-interactive use)
+      NTFY_PASSWORD="$(cat ${config.sops.secrets."ntfy-admin-password".path})" \
+        ${ntfy} user add --ignore-exists --role=admin admin
 
       # Grant anonymous write to alert topics so alertmanager can post without auth
       ${builtins.concatStringsSep "\n" (map (topic: ''
-          ${ntfy} access --auth-file="${authFile}" everyone '${topic}' write-only
+          ${ntfy} access everyone '${topic}' write-only
         '')
         alertTopics)}
 
-      # Ensure ntfy-sh service can read the auth database
+      # Ensure ntfy-sh service can read the auth database (ExecStartPre with +
+      # runs as root, but the service uses DynamicUser)
       chown ntfy-sh:ntfy-sh "${authFile}"
     '';
   in ["+${setupScript}"];
