@@ -7,7 +7,7 @@
       auth_enabled = false;
 
       server = {
-        http_listen_port = 3100;
+        http_listen_port = 3101;
         http_listen_address = "127.0.0.1";
       };
 
