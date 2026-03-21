@@ -120,6 +120,12 @@
       "attic.ardent.internal.mutantmell.net"
       "attic.ardent.internal"
     ];
+    tharbad = [
+      "ntfy.internal.mutantmell.net"
+      "ntfy.internal"
+      "perses.internal.mutantmell.net"
+      "perses.internal"
+    ];
   };
 
   # All domains a host is reachable by (bare hostname + FQDNs + aliases)
