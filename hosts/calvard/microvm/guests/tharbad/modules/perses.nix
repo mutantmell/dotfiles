@@ -60,21 +60,44 @@
       subjects = [
         {
           kind = "User";
-          name = "malaguy";
+          name = "malaguy"; # email-prefix (perses #3851 workaround)
+        }
+        {
+          kind = "User";
+          name = "mutantmell"; # preferred_username (after #3851 is fixed)
         }
       ];
     };
   };
 
-  provisioningDir = pkgs.runCommand "perses-provisioning" {} ''
-    mkdir -p $out
-    cp ${project} $out/project.yaml
-    cp ${promDatasource} $out/global-prometheus.yaml
-    cp ${lokiDatasource} $out/global-loki.yaml
-    cp ${adminRole} $out/global-admin-role.yaml
-    cp ${adminBinding} $out/global-admin-binding.yaml
-    cp ${./dashboards}/*.yaml $out/
-  '';
+  provisioningDir = pkgs.symlinkJoin {
+    name = "perses-provisioning";
+    paths = [
+      (pkgs.linkFarm "perses-generated" [
+        {
+          name = "project.yaml";
+          path = project;
+        }
+        {
+          name = "global-prometheus.yaml";
+          path = promDatasource;
+        }
+        {
+          name = "global-loki.yaml";
+          path = lokiDatasource;
+        }
+        {
+          name = "global-admin-role.yaml";
+          path = adminRole;
+        }
+        {
+          name = "global-admin-binding.yaml";
+          path = adminBinding;
+        }
+      ])
+      ./dashboards
+    ];
+  };
 in {
   networking.firewall.allowedTCPPorts = [80 443];
 
