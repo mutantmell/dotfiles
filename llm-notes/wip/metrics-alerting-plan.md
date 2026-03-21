@@ -394,11 +394,15 @@ Domain: tharbad.internal
 
 ### Phase 2 — Security Alerts
 
+Loki-based alerts are evaluated by Loki's built-in ruler (not Grafana — we
+migrated dashboards to Perses). The ruler sends firing alerts to Alertmanager.
+
 ```yaml
-# SSH authentication failures (from Loki log queries)
-# Implemented as Grafana alerting rules against Loki datasource:
-# - SSH brute force: >10 failed auth attempts in 5 min from same source
-# - Successful SSH from unexpected IP range
+# SSH authentication failures (from Loki ruler — LogQL queries)
+# Implemented in loki.nix securityRules:
+# - SSHBruteForce: >10 failed auth in 5min (warning)
+# - SSHBruteForceExtreme: >50 failed auth in 5min (critical)
+# - SudoFailure: any failed sudo auth in 10min (warning)
 
 # Firewall drops spike
 - alert: FirewallDropsSpike
@@ -580,12 +584,13 @@ modules/promtail-client/default.nix  # Shared module, deployed fleet-wide ✓
 - [x] Add egress rules on tharbad for all new scrape targets
 - [x] Add management → DMZ/lab forward rules on router for Prometheus scraping
 - [x] Rename stale `ymir_node` scrape job to `tharbad_node`
-- [ ] Deploy service-specific exporters (unbound, kea, nginx, nftables)
-- [ ] Add Phase 2 alert rules (security alerts from Loki queries)
-- [ ] Add Phase 3 alert rules (service health)
-- [ ] Build custom Grafana dashboards (firewall overview, DNS stats)
+- [ ] Deploy service-specific exporters (unbound, kea, nginx, nftables) — blocked on thebeyond hardware
+- [x] Add Phase 2 alert rules (Loki ruler: SSHBruteForce, SSHBruteForceExtreme, SudoFailure)
+- [ ] Add remaining Phase 2 alerts (FirewallDropsSpike, CertExpiringSoon) — blocked on exporters
+- [x] Add Phase 3 alert rules (Prometheus: SlowScrape, PrometheusRuleEvalFailure, LokiRequestErrors, LokiIngestionLag; also HighCPUUsage, HostRebooted in infrastructure group; Loki ruler: FleetLogGap)
+- [ ] Build Perses dashboards (firewall overview, DNS stats) — replaced Grafana dashboards
 - [ ] Configure CI/CD webhook integration (Forgejo → ntfy)
-- [ ] Configure Grafana OIDC auth via Keycloak (messeldam)
+- [ ] Configure Perses OIDC auth via Keycloak (messeldam) — replaced Grafana OIDC
 
 ---
 
