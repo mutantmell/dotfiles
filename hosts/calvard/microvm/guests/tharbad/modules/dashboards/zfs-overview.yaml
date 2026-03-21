@@ -237,10 +237,10 @@ spec:
               unit: decimal
             thresholds:
               mode: absolute
-              defaultColor: green
+              defaultColor: red
               steps:
                 - value: 1
-                  color: red
+                  color: green
         queries:
           - kind: TimeSeriesQuery
             spec:
@@ -250,8 +250,8 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: smartctl_device_smart_status{job="$smartctl_job"} != 1
-                  seriesNameFormat: "{{device}} unhealthy"
+                  query: smartctl_device_smart_status{job="$smartctl_job"}
+                  seriesNameFormat: "{{device}}"
     disk_power_on:
       kind: Panel
       spec:
