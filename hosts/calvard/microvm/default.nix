@@ -11,20 +11,26 @@ in {
     guestDir = ./guests;
   };
 
-  # Boot ordering: start ACME-dependent guests after basel (step-ca).
-  # Uses Wants (not Requires) so guests still start if basel is down —
-  # they'll run with persisted certs in a degraded state rather than
-  # refusing to start entirely.
+  # Boot ordering: start ACME-dependent guests after basel (step-ca),
+  # and OIDC-dependent guests after messeldam (Keycloak).
+  # Uses Wants (not Requires) so guests still start if a dependency is
+  # down — they'll retry or run degraded rather than refusing to start.
   systemd.services = let
+    inherit (pkgs.lib) mkMerge;
     afterBasel = {
       after = ["microvm@basel.service"];
       wants = ["microvm@basel.service"];
     };
+    afterMesseldam = {
+      after = ["microvm@messeldam.service"];
+      wants = ["microvm@messeldam.service"];
+    };
   in {
     "microvm@messeldam" = afterBasel;
-    "microvm@langport" = afterBasel;
     "microvm@creil" = afterBasel;
     "microvm@oracion" = afterBasel;
+    "microvm@langport" = mkMerge [afterBasel afterMesseldam];
+    "microvm@tharbad" = mkMerge [afterBasel afterMesseldam];
   };
 
   environment.systemPackages = [
