@@ -41,26 +41,13 @@
     };
   };
 
-  provisioningDir = pkgs.symlinkJoin {
-    name = "perses-provisioning";
-    paths = [
-      (pkgs.linkFarm "perses-generated" [
-        {
-          name = "project.yaml";
-          path = project;
-        }
-        {
-          name = "global-prometheus.yaml";
-          path = promDatasource;
-        }
-        {
-          name = "global-loki.yaml";
-          path = lokiDatasource;
-        }
-      ])
-      ./dashboards
-    ];
-  };
+  provisioningDir = pkgs.runCommand "perses-provisioning" {} ''
+    mkdir -p $out
+    cp ${project} $out/project.yaml
+    cp ${promDatasource} $out/global-prometheus.yaml
+    cp ${lokiDatasource} $out/global-loki.yaml
+    cp ${./dashboards}/*.yaml $out/
+  '';
 in {
   networking.firewall.allowedTCPPorts = [80 443];
 
