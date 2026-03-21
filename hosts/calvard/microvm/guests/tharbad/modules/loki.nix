@@ -6,7 +6,10 @@
     configuration = {
       auth_enabled = false;
 
-      server.http_listen_port = 3100;
+      server = {
+        http_listen_port = 3100;
+        http_listen_address = "127.0.0.1";
+      };
 
       common = {
         path_prefix = "/var/lib/loki";
@@ -39,10 +42,28 @@
     };
   };
 
+  # Reverse proxy: expose only the push API on port 3100 to the network.
+  # Loki itself is bound to 127.0.0.1, so /metrics and query endpoints
+  # are only reachable locally (by Prometheus and Perses).
+  services.nginx.virtualHosts."loki" = {
+    listen = [
+      {
+        addr = "0.0.0.0";
+        port = 3100;
+      }
+    ];
+    locations."/loki/api/v1/push" = {
+      proxyPass = "http://127.0.0.1:${toString config.services.loki.configuration.server.http_listen_port}";
+    };
+    locations."/" = {
+      return = "404";
+    };
+  };
+
   # Local Promtail — ship tharbad's own logs to localhost Loki
   promtail-client = {
     enable = true;
-    lokiUrl = "http://127.0.0.1:3100/loki/api/v1/push";
+    lokiUrl = "http://127.0.0.1:${toString config.services.loki.configuration.server.http_listen_port}/loki/api/v1/push";
   };
 
   environment.persistence."/persist".directories = [

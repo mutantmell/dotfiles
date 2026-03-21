@@ -8,9 +8,9 @@ spec:
   variables:
     - kind: ListVariable
       spec:
-        name: instance
+        name: zfs_job
         display:
-          name: Instance
+          name: ZFS Host
           hidden: false
         allowAllValue: false
         allowMultiple: false
@@ -20,9 +20,26 @@ spec:
             datasource:
               kind: PrometheusDatasource
               name: prometheus
-            labelName: instance
+            labelName: job
             matchers:
               - zfs_pool_health
+    - kind: ListVariable
+      spec:
+        name: smartctl_job
+        display:
+          name: SMART Host
+          hidden: false
+        allowAllValue: false
+        allowMultiple: false
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: prometheus
+            labelName: job
+            matchers:
+              - smartctl_device_smart_status
   panels:
     pool_health:
       kind: Panel
@@ -50,7 +67,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: zfs_pool_health{instance="$instance"}
+                  query: zfs_pool_health{job="$zfs_job"}
                   seriesNameFormat: "{{pool}}"
     pool_size:
       kind: Panel
@@ -82,8 +99,8 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: >-
-                    zfs_pool_allocated_bytes{instance="$instance"}
-                    / zfs_pool_size_bytes{instance="$instance"}
+                    zfs_pool_allocated_bytes{job="$zfs_job"}
+                    / zfs_pool_size_bytes{job="$zfs_job"}
                   seriesNameFormat: "{{pool}}"
     pool_usage:
       kind: Panel
@@ -110,7 +127,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: zfs_pool_allocated_bytes{instance="$instance"}
+                  query: zfs_pool_allocated_bytes{job="$zfs_job"}
                   seriesNameFormat: "{{pool}} used"
           - kind: TimeSeriesQuery
             spec:
@@ -120,7 +137,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: zfs_pool_free_bytes{instance="$instance"}
+                  query: zfs_pool_free_bytes{job="$zfs_job"}
                   seriesNameFormat: "{{pool}} free"
     pool_fragmentation:
       kind: Panel
@@ -146,7 +163,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: zfs_pool_fragmentation_percent{instance="$instance"}
+                  query: zfs_pool_fragmentation_ratio{job="$zfs_job"}
                   seriesNameFormat: "{{pool}}"
     dataset_usage:
       kind: Panel
@@ -173,7 +190,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: zfs_dataset_used_bytes{instance="$instance", type="filesystem"}
+                  query: zfs_dataset_used_bytes{job="$zfs_job", type="filesystem"}
                   seriesNameFormat: "{{name}}"
     disk_temperature:
       kind: Panel
@@ -205,7 +222,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: smartctl_device_temperature{instance=~"$instance.*"}
+                  query: smartctl_device_temperature{job="$smartctl_job"}
                   seriesNameFormat: "{{device}} ({{model_name}})"
     disk_health:
       kind: Panel
@@ -233,7 +250,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: smartctl_device_smart_status{instance=~"$instance.*"} != 1
+                  query: smartctl_device_smart_status{job="$smartctl_job"} != 1
                   seriesNameFormat: "{{device}} unhealthy"
     disk_power_on:
       kind: Panel
@@ -255,7 +272,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: smartctl_device_power_on_seconds{instance=~"$instance.*"} / 3600
+                  query: smartctl_device_power_on_seconds{job="$smartctl_job"} / 3600
                   seriesNameFormat: "{{device}}"
     disk_errors:
       kind: Panel
@@ -278,7 +295,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: smartctl_device_media_errors{instance=~"$instance.*"}
+                  query: smartctl_device_media_errors{job="$smartctl_job"}
                   seriesNameFormat: "{{device}} media errors"
           - kind: TimeSeriesQuery
             spec:
@@ -288,7 +305,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: smartctl_device_error_log_count{instance=~"$instance.*"}
+                  query: smartctl_device_error_log_count{job="$smartctl_job"}
                   seriesNameFormat: "{{device}} error log"
   layouts:
     - kind: Grid
