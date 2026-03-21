@@ -101,6 +101,19 @@
 in {
   networking.firewall.allowedTCPPorts = [80 443];
 
+  # Perses fatally exits if it can't reach the OIDC provider (Keycloak on
+  # messeldam) at startup. Give it time to retry during boot while Keycloak
+  # is still coming up.
+  systemd.services.perses = {
+    serviceConfig = {
+      RestartSec = "5s";
+    };
+    unitConfig = {
+      StartLimitIntervalSec = 300;
+      StartLimitBurst = 20;
+    };
+  };
+
   services.perses = {
     enable = true;
     listenAddress = "127.0.0.1";
