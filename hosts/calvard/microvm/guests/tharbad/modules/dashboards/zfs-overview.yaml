@@ -1,0 +1,358 @@
+kind: Dashboard
+metadata:
+  name: zfs-overview
+  project: monitoring
+spec:
+  display:
+    name: ZFS Overview
+  variables:
+    - kind: ListVariable
+      spec:
+        name: instance
+        display:
+          name: Instance
+          hidden: false
+        allowAllValue: false
+        allowMultiple: false
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: prometheus
+            labelName: instance
+            matchers:
+              - zfs_pool_health
+  panels:
+    pool_health:
+      kind: Panel
+      spec:
+        display:
+          name: Pool Health
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last
+            format:
+              unit: decimal
+            thresholds:
+              mode: absolute
+              defaultColor: green
+              steps:
+                - value: 1
+                  color: red
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: zfs_pool_health{instance="$instance"}
+                  seriesNameFormat: "{{pool}}"
+    pool_size:
+      kind: Panel
+      spec:
+        display:
+          name: Pool Size
+        plugin:
+          kind: GaugeChart
+          spec:
+            calculation: last
+            format:
+              unit: percent-decimal
+            thresholds:
+              mode: absolute
+              defaultColor: green
+              steps:
+                - value: 0.8
+                  color: orange
+                - value: 0.9
+                  color: red
+            max: 1
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: >-
+                    zfs_pool_allocated_bytes{instance="$instance"}
+                    / zfs_pool_size_bytes{instance="$instance"}
+                  seriesNameFormat: "{{pool}}"
+    pool_usage:
+      kind: Panel
+      spec:
+        display:
+          name: Pool Usage Over Time
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+            yAxis:
+              format:
+                unit: bytes
+                shortValues: true
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: zfs_pool_allocated_bytes{instance="$instance"}
+                  seriesNameFormat: "{{pool}} used"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: zfs_pool_free_bytes{instance="$instance"}
+                  seriesNameFormat: "{{pool}} free"
+    pool_fragmentation:
+      kind: Panel
+      spec:
+        display:
+          name: Pool Fragmentation
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+            yAxis:
+              format:
+                unit: percent
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: zfs_pool_fragmentation_percent{instance="$instance"}
+                  seriesNameFormat: "{{pool}}"
+    dataset_usage:
+      kind: Panel
+      spec:
+        display:
+          name: Dataset Usage
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+            yAxis:
+              format:
+                unit: bytes
+                shortValues: true
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: zfs_dataset_used_bytes{instance="$instance", type="filesystem"}
+                  seriesNameFormat: "{{name}}"
+    disk_temperature:
+      kind: Panel
+      spec:
+        display:
+          name: Disk Temperature
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+            yAxis:
+              format:
+                unit: celsius
+            thresholds:
+              steps:
+                - value: 45
+                  color: orange
+                - value: 55
+                  color: red
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: smartctl_device_temperature{instance=~"$instance.*"}
+                  seriesNameFormat: "{{device}} ({{model_name}})"
+    disk_health:
+      kind: Panel
+      spec:
+        display:
+          name: SMART Health
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last
+            format:
+              unit: decimal
+            thresholds:
+              mode: absolute
+              defaultColor: green
+              steps:
+                - value: 1
+                  color: red
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: smartctl_device_smart_status{instance=~"$instance.*"} != 1
+                  seriesNameFormat: "{{device}} unhealthy"
+    disk_power_on:
+      kind: Panel
+      spec:
+        display:
+          name: Power-On Hours
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last
+            format:
+              unit: decimal
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: smartctl_device_power_on_seconds{instance=~"$instance.*"} / 3600
+                  seriesNameFormat: "{{device}}"
+    disk_errors:
+      kind: Panel
+      spec:
+        display:
+          name: Disk Errors Over Time
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: smartctl_device_media_errors{instance=~"$instance.*"}
+                  seriesNameFormat: "{{device}} media errors"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: smartctl_device_error_log_count{instance=~"$instance.*"}
+                  seriesNameFormat: "{{device}} error log"
+  layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: ZFS Pools
+        items:
+          - x: 0
+            "y": 0
+            width: 6
+            height: 8
+            content:
+              $ref: "#/spec/panels/pool_health"
+          - x: 6
+            "y": 0
+            width: 6
+            height: 8
+            content:
+              $ref: "#/spec/panels/pool_size"
+          - x: 12
+            "y": 0
+            width: 12
+            height: 8
+            content:
+              $ref: "#/spec/panels/pool_usage"
+          - x: 0
+            "y": 8
+            width: 12
+            height: 8
+            content:
+              $ref: "#/spec/panels/pool_fragmentation"
+          - x: 12
+            "y": 8
+            width: 12
+            height: 8
+            content:
+              $ref: "#/spec/panels/dataset_usage"
+    - kind: Grid
+      spec:
+        display:
+          title: Disk Health (SMART)
+        items:
+          - x: 0
+            "y": 0
+            width: 6
+            height: 8
+            content:
+              $ref: "#/spec/panels/disk_health"
+          - x: 6
+            "y": 0
+            width: 6
+            height: 8
+            content:
+              $ref: "#/spec/panels/disk_power_on"
+          - x: 12
+            "y": 0
+            width: 12
+            height: 8
+            content:
+              $ref: "#/spec/panels/disk_temperature"
+          - x: 0
+            "y": 8
+            width: 24
+            height: 8
+            content:
+              $ref: "#/spec/panels/disk_errors"
+  duration: 6h

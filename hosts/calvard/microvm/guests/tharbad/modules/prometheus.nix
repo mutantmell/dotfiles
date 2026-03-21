@@ -71,6 +71,21 @@ in {
             }
           ];
         }
+        # Self-scrape: loki
+        {
+          job_name = "loki";
+          static_configs = [
+            {
+              targets = ["127.0.0.1:${toString config.services.loki.configuration.server.http_listen_port}"];
+            }
+          ];
+          relabel_configs = [
+            {
+              target_label = "instance";
+              replacement = "tharbad.internal:${toString config.services.loki.configuration.server.http_listen_port}";
+            }
+          ];
+        }
       ]
       ++ (map (name: mkNodeScrape name 9100) nodeTargets)
       ++ [
