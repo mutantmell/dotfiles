@@ -49,11 +49,8 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: >-
-                    1 - sum without (mode) (
-                      rate(node_cpu_seconds_total{instance="$instance", mode=~"idle|iowait|steal"}[$__rate_interval])
-                    ) / ignoring (cpu) group_left ()
-                    count without (cpu, mode) (
-                      node_cpu_seconds_total{instance="$instance", mode="idle"}
+                    1 - avg without (cpu) (
+                      rate(node_cpu_seconds_total{instance="$instance", mode="idle"}[$__rate_interval])
                     )
                   seriesNameFormat: "CPU Usage"
     load_averages:
