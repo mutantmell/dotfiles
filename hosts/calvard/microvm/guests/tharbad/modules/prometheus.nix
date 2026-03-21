@@ -41,12 +41,33 @@ in {
     };
     scrapeConfigs =
       [
-        # Self-scrape (localhost, not via DNS)
+        # Self-scrape: node_exporter
         {
           job_name = "tharbad_node";
           static_configs = [
             {
               targets = ["127.0.0.1:${toString config.services.prometheus.exporters.node.port}"];
+            }
+          ];
+          relabel_configs = [
+            {
+              target_label = "instance";
+              replacement = "tharbad.internal:${toString config.services.prometheus.exporters.node.port}";
+            }
+          ];
+        }
+        # Self-scrape: prometheus
+        {
+          job_name = "prometheus";
+          static_configs = [
+            {
+              targets = ["127.0.0.1:${toString config.services.prometheus.port}"];
+            }
+          ];
+          relabel_configs = [
+            {
+              target_label = "instance";
+              replacement = "tharbad.internal:${toString config.services.prometheus.port}";
             }
           ];
         }

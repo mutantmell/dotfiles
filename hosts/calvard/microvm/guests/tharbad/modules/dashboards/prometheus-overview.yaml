@@ -126,7 +126,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: rate(prometheus_tsdb_head_samples_appended_total[5m])
+                  query: rate(prometheus_tsdb_head_samples_appended_total[$__rate_interval])
                   seriesNameFormat: "Samples/sec"
     head_series:
       kind: Panel
