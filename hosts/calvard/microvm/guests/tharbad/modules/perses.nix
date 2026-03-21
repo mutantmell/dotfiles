@@ -71,12 +71,13 @@ in {
     settings = {
       security = {
         enable_auth = true;
+        encryption_key._secret = config.sops.secrets."perses-encryption-key".path;
         authentication.providers.oidc = [
           {
             slug_id = "keycloak";
             name = "Keycloak";
             client_id = "perses";
-            client_secret_file._secret = config.sops.secrets."perses-oidc-client-secret".path;
+            client_secret._secret = config.sops.secrets."perses-oidc-client-secret".path;
             issuer = "https://auth.mutantmell.net/realms/homelab";
             redirect_uri = "https://tharbad.internal/api/auth/providers/oidc/keycloak/callback";
             scopes = ["openid" "profile" "email" "groups"];
