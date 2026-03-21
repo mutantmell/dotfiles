@@ -5,9 +5,7 @@ _: {
     secrets = {
       "perses-oidc-client-secret" = {};
       "perses-encryption-key" = {};
-      # TODO: add to secrets.yaml when ntfy auth is configured
-      # "alertmanager-ntfy-url" = {};
-      # "ntfy-auth-token" = {};
+      "ntfy-admin-password" = {};
     };
   };
 }

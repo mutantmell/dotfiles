@@ -129,7 +129,7 @@ in {
             client_id = "perses";
             client_secret._secret = config.sops.secrets."perses-oidc-client-secret".path;
             issuer = "https://auth.mutantmell.net/realms/homelab";
-            redirect_uri = "https://tharbad.internal/api/auth/providers/oidc/keycloak/callback";
+            redirect_uri = "https://perses.internal/api/auth/providers/oidc/keycloak/callback";
             scopes = ["openid" "profile" "email" "groups"];
           }
         ];
@@ -147,7 +147,7 @@ in {
     enable = true;
     recommendedTlsSettings = true;
     recommendedProxySettings = true;
-    virtualHosts."tharbad.internal" = {
+    virtualHosts."perses.internal" = {
       forceSSL = true;
       enableACME = true;
       locations."/" = {
