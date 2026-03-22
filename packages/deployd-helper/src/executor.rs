@@ -1,10 +1,9 @@
 use std::fs;
-use std::path::Path;
 use std::process::Command;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 
 use crate::config::Config;
-use crate::protocol::{ContainerDefinition, HelperCommand, HelperResponse, PortProtocol};
+use crate::protocol::{ContainerDefinition, HelperCommand, HelperResponse};
 use crate::quadlet::generate_quadlet;
 use crate::audit;
 use crate::validation;
@@ -22,7 +21,7 @@ impl Executor {
         let result = self.execute_inner(command);
         let outcome = if result.success { "ok" } else { "error" };
         audit::log_command(
-            Path::new(&self.config.audit_log_path),
+            std::path::Path::new(&self.config.audit_log_path),
             peer_uid,
             command,
             outcome,
@@ -35,18 +34,6 @@ impl Executor {
         match command {
             HelperCommand::Deploy(def) => self.deploy(def),
             HelperCommand::Teardown { name } => self.teardown(name),
-            HelperCommand::AddFirewallPort { port, protocol } => {
-                self.add_firewall_port(*port, *protocol)
-            }
-            HelperCommand::RemoveFirewallPort { port, protocol } => {
-                self.remove_firewall_port(*port, *protocol)
-            }
-            HelperCommand::AddCaddyRoute {
-                name,
-                hostname,
-                upstream_port,
-            } => self.add_caddy_route(name, hostname, *upstream_port),
-            HelperCommand::RemoveCaddyRoute { name } => self.remove_caddy_route(name),
             HelperCommand::Status => HelperResponse::ok("deployd-helper is running"),
         }
     }
@@ -86,6 +73,18 @@ impl Executor {
             return HelperResponse::err(format!("failed to start {}: {}", service_name, e));
         }
 
+        // Add Caddy route if ingress is configured
+        if let Some(ref ingress) = def.ingress {
+            if let Err(e) = self.add_caddy_route(&def.name, &ingress.hostname, ingress.upstream_port) {
+                // Roll back: stop container, remove quadlet, daemon-reload
+                error!(name = %def.name, error = %e, "Caddy route failed, rolling back deploy");
+                let _ = self.systemctl(&["stop", &service_name]);
+                let _ = fs::remove_file(&quadlet_path);
+                let _ = self.systemctl(&["daemon-reload"]);
+                return HelperResponse::err(format!("failed to add Caddy route: {}", e));
+            }
+        }
+
         info!(name = %def.name, "container deployed successfully");
         HelperResponse::ok(format!("container '{}' deployed", def.name))
     }
@@ -112,54 +111,13 @@ impl Executor {
             return HelperResponse::err(format!("daemon-reload failed: {}", e));
         }
 
+        // Remove Caddy route (best-effort — container may not have had ingress)
+        if let Err(e) = self.remove_caddy_route(name) {
+            warn!(name = %name, error = %e, "Caddy route removal failed (may not exist)");
+        }
+
         info!(name = %name, "container torn down");
         HelperResponse::ok(format!("container '{}' torn down", name))
-    }
-
-    fn add_firewall_port(&self, port: u16, protocol: PortProtocol) -> HelperResponse {
-        if let Err(e) = validation::validate_port_range(port, &self.config) {
-            return HelperResponse::err(e);
-        }
-
-        let proto = protocol.to_string();
-        let result = self.nft(&[
-            "add",
-            "element",
-            "inet",
-            &self.config.nftables_table,
-            "allowed_ports",
-            &format!("{{ {} }}", port),
-        ]);
-        match result {
-            Ok(_) => {
-                info!(port, protocol = %proto, "added firewall port");
-                HelperResponse::ok(format!("added port {}/{}", port, proto))
-            }
-            Err(e) => HelperResponse::err(format!("failed to add firewall port: {}", e)),
-        }
-    }
-
-    fn remove_firewall_port(&self, port: u16, protocol: PortProtocol) -> HelperResponse {
-        if let Err(e) = validation::validate_port_range(port, &self.config) {
-            return HelperResponse::err(e);
-        }
-
-        let proto = protocol.to_string();
-        let result = self.nft(&[
-            "delete",
-            "element",
-            "inet",
-            &self.config.nftables_table,
-            "allowed_ports",
-            &format!("{{ {} }}", port),
-        ]);
-        match result {
-            Ok(_) => {
-                info!(port, protocol = %proto, "removed firewall port");
-                HelperResponse::ok(format!("removed port {}/{}", port, proto))
-            }
-            Err(e) => HelperResponse::err(format!("failed to remove firewall port: {}", e)),
-        }
     }
 
     fn add_caddy_route(
@@ -167,17 +125,7 @@ impl Executor {
         name: &str,
         hostname: &str,
         upstream_port: u16,
-    ) -> HelperResponse {
-        if let Err(e) = validation::validate_name(name) {
-            return HelperResponse::err(e);
-        }
-        if let Err(e) = validation::validate_hostname(hostname, &self.config.hostname_allowlist) {
-            return HelperResponse::err(e);
-        }
-        if let Err(e) = validation::validate_port_range(upstream_port, &self.config) {
-            return HelperResponse::err(e);
-        }
-
+    ) -> Result<(), String> {
         let route = serde_json::json!({
             "@id": format!("deployd-{}", name),
             "match": [{"host": [hostname]}],
@@ -193,32 +141,24 @@ impl Executor {
             self.config.caddy_admin_url, self.config.caddy_server_name
         );
 
-        match ureq::post(&url)
+        ureq::post(&url)
             .set("Content-Type", "application/json")
             .send_string(&route.to_string())
-        {
-            Ok(_) => {
-                info!(name, hostname, upstream_port, "added Caddy route");
-                HelperResponse::ok(format!("added Caddy route for {}", hostname))
-            }
-            Err(e) => HelperResponse::err(format!("failed to add Caddy route: {}", e)),
-        }
+            .map_err(|e| format!("Caddy API error: {}", e))?;
+
+        info!(name, hostname, upstream_port, "added Caddy route");
+        Ok(())
     }
 
-    fn remove_caddy_route(&self, name: &str) -> HelperResponse {
-        if let Err(e) = validation::validate_name(name) {
-            return HelperResponse::err(e);
-        }
-
+    fn remove_caddy_route(&self, name: &str) -> Result<(), String> {
         let url = format!("{}/id/deployd-{}", self.config.caddy_admin_url, name);
 
-        match ureq::delete(&url).call() {
-            Ok(_) => {
-                info!(name, "removed Caddy route");
-                HelperResponse::ok(format!("removed Caddy route for {}", name))
-            }
-            Err(e) => HelperResponse::err(format!("failed to remove Caddy route: {}", e)),
-        }
+        ureq::delete(&url)
+            .call()
+            .map_err(|e| format!("Caddy API error: {}", e))?;
+
+        info!(name, "removed Caddy route");
+        Ok(())
     }
 
     fn systemctl(&self, args: &[&str]) -> Result<(), String> {
@@ -236,20 +176,6 @@ impl Executor {
                 args.join(" "),
                 stderr.trim()
             ))
-        }
-    }
-
-    fn nft(&self, args: &[&str]) -> Result<(), String> {
-        let output = Command::new(&self.config.nft_path)
-            .args(args)
-            .output()
-            .map_err(|e| format!("failed to run nft: {}", e))?;
-
-        if output.status.success() {
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(format!("nft {} failed: {}", args.join(" "), stderr.trim()))
         }
     }
 }

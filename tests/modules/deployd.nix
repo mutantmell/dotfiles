@@ -1,8 +1,8 @@
 # Integration test for the deployd module.
 #
-# Validates that the deployd-helper service, bridge network, and nftables
-# table are correctly configured. Does not test Kata (unavailable in VM tests)
-# or Caddy route management (requires network).
+# Validates that the deployd-helper service, bridge network, and static
+# nftables isolation are correctly configured. Does not test Kata
+# (unavailable in VM tests) or Caddy route management (requires network).
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
@@ -47,7 +47,7 @@ in
       # Test tools
       environment.systemPackages = [
         pkgs.nftables
-        pkgs.python3  # for socket protocol tests
+        pkgs.python3 # for socket protocol tests
       ];
 
       # Test VM needs more resources
@@ -68,9 +68,9 @@ in
       host.succeed("ip -4 addr show dev br-deploy | grep '10.100.0.1'")
       host.succeed("networkctl status br-deploy | grep -q 'State.*routable\|configured'")
 
-      # nftables table is loaded
+      # Static nftables isolation table is loaded with forward chain drop rule
       host.succeed("nft list table inet container-deploy")
-      host.succeed("nft list set inet container-deploy allowed_ports")
+      host.succeed("nft list chain inet container-deploy forward | grep 'drop'")
 
       # Socket file exists
       host.succeed("test -S /run/deployd/deployd.sock")
@@ -84,11 +84,6 @@ in
 
       # Podman is available
       host.succeed("podman --version")
-
-      # Firewall set manipulation works (add then remove)
-      host.succeed("nft add element inet container-deploy allowed_ports { 8080 }")
-      host.succeed("nft list set inet container-deploy allowed_ports | grep 8080")
-      host.succeed("nft delete element inet container-deploy allowed_ports { 8080 }")
 
       # Socket protocol: valid Status command returns success
       host.succeed(

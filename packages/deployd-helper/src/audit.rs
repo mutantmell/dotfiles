@@ -28,18 +28,6 @@ pub fn log_command(
     let (cmd_name, params) = match command {
         HelperCommand::Deploy(def) => ("Deploy", serde_json::json!({"name": def.name, "image": def.image})),
         HelperCommand::Teardown { name } => ("Teardown", serde_json::json!({"name": name})),
-        HelperCommand::AddFirewallPort { port, protocol } => {
-            ("AddFirewallPort", serde_json::json!({"port": port, "protocol": protocol.to_string()}))
-        }
-        HelperCommand::RemoveFirewallPort { port, protocol } => {
-            ("RemoveFirewallPort", serde_json::json!({"port": port, "protocol": protocol.to_string()}))
-        }
-        HelperCommand::AddCaddyRoute { name, hostname, upstream_port } => {
-            ("AddCaddyRoute", serde_json::json!({"name": name, "hostname": hostname, "upstream_port": upstream_port}))
-        }
-        HelperCommand::RemoveCaddyRoute { name } => {
-            ("RemoveCaddyRoute", serde_json::json!({"name": name}))
-        }
         HelperCommand::Status => ("Status", serde_json::json!({})),
     };
 

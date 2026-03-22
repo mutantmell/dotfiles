@@ -16,22 +16,6 @@ pub enum HelperCommand {
     Teardown {
         name: String,
     },
-    AddFirewallPort {
-        port: u16,
-        protocol: PortProtocol,
-    },
-    RemoveFirewallPort {
-        port: u16,
-        protocol: PortProtocol,
-    },
-    AddCaddyRoute {
-        name: String,
-        hostname: String,
-        upstream_port: u16,
-    },
-    RemoveCaddyRoute {
-        name: String,
-    },
     Status,
 }
 
@@ -48,10 +32,6 @@ pub struct ContainerDefinition {
     #[serde(default)]
     pub persistent: bool,
     pub ingress: Option<IngressConfig>,
-    /// Reserved for iSCSI block storage add-on (Phase D4).
-    /// Volume ID previously allocated via the deployd API.
-    #[serde(default)]
-    pub block_volume: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +71,7 @@ pub struct VolumeMount {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngressConfig {
     pub hostname: String,
+    pub upstream_port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

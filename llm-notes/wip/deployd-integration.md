@@ -40,6 +40,7 @@ The original design used a dynamic nftables `allowed_ports` set — deployd-help
 ### Phase D0: Prototype Validation — NOT STARTED
 
 Manual validation on erebonia:
+
 1. [ ] Kata Containers with Podman — verify VM boundary
 2. [ ] Kata with quadlet file — verify systemd integration
 3. [ ] br-deploy bridge with Kata — verify published ports, egress, netavark/nftables
@@ -48,80 +49,85 @@ Manual validation on erebonia:
 
 **Output:** Go/no-go on the architecture. Kata fallback to rootless Podman if steps 1-3 fail.
 
-### Phase D1: deployd-helper Module + Binary — IN PROGRESS
+### Phase D1: deployd-helper Module + Binary — COMPLETE
 
-Core implementation complete. Remaining work: remove nftables set manipulation and CAP_NET_ADMIN per the static bridge isolation decision.
+All files created, tests passing, code reviewed and hardened.
 
-#### D1b: Static Bridge Isolation (TODO)
+#### D1b: Static Bridge Isolation — COMPLETE
 
-Remove dynamic nftables port management from deployd-helper and replace with static Caddy-only isolation.
+Removed dynamic nftables port management and standalone Caddy route commands from deployd-helper. Replaced with static Caddy-only bridge isolation. Integrated Caddy route lifecycle into Deploy/Teardown commands.
 
-**Binary changes:**
-- [ ] Remove `AddFirewallPort` and `RemoveFirewallPort` variants from `HelperCommand` enum (`protocol.rs`)
-- [ ] Remove `add_firewall_port()`, `remove_firewall_port()`, and `nft()` from `Executor` (`executor.rs`)
-- [ ] Remove `validate_port_range()` calls that were only used by firewall port commands (keep for Deploy/AddCaddyRoute)
-- [ ] Remove `nft_path` and `nftables_table` from `Config` (`config.rs`)
-- [ ] Remove nft-related unit tests
+**Binary changes (completed):**
 
-**Module changes (`modules/deployd/default.nix`):**
-- [ ] Replace dynamic `allowed_ports` nftables table with static Caddy-only isolation rule (allow inbound to br-deploy only from Caddy's process/UID or loopback, drop all else)
-- [ ] Remove `CAP_NET_ADMIN` from `AmbientCapabilities` and `CapabilityBoundingSet`
-- [ ] Remove `AF_NETLINK` from `RestrictAddressFamilies` (only needed for nft)
-- [ ] Remove `DEPLOYD_NFT_PATH` and `DEPLOYD_NFTABLES_TABLE` environment variables
+- [x] Removed `AddFirewallPort`, `RemoveFirewallPort`, `AddCaddyRoute`, `RemoveCaddyRoute` from `HelperCommand` enum
+- [x] Removed all nft-related code (`nft()` helper, firewall port handlers, config fields)
+- [x] Removed standalone Caddy route handlers — route management integrated into `deploy()` and `teardown()`
+- [x] Added `upstream_port: u16` to `IngressConfig` for explicit proxy target
+- [x] Deploy creates Caddy route if `ingress` is set (with rollback on failure)
+- [x] Teardown removes Caddy route best-effort (tolerates missing routes)
+- [x] Removed `block_volume: Option<String>` placeholder from `ContainerDefinition`
+- [x] Made `validate_port_range()` and `validate_hostname()` private (no standalone callers)
 
-**Test changes (`tests/modules/deployd.nix`):**
-- [ ] Remove nftables set manipulation tests (`nft add element`, `nft list set`, `nft delete element`)
-- [ ] Add test verifying static isolation: traffic from non-Caddy source to br-deploy is dropped
-- [ ] Keep socket protocol, audit log, bridge, and directory tests
+**Module changes (completed):**
+
+- [x] Replaced dynamic `allowed_ports` nftables set with static forward-chain isolation (drop all unsolicited inbound to bridge)
+- [x] Removed all capabilities (no `CAP_NET_ADMIN`, no `CAP_DAC_OVERRIDE` — zero extended capabilities)
+- [x] Removed `AF_NETLINK` from `RestrictAddressFamilies`
+- [x] Removed `DEPLOYD_NFT_PATH` and `DEPLOYD_NFTABLES_TABLE` environment variables
+- [x] Removed `stateDir` option (unused placeholder)
+
+**Test changes (completed):**
+
+- [x] Replaced nftables set manipulation tests with static isolation verification (forward chain drop rule)
+- [x] Kept socket protocol, audit log, bridge, and directory tests
 
 #### Files Created
 
-| File | Purpose |
-|------|---------|
-| `packages/deployd-helper/Cargo.toml` | Rust project definition |
-| `packages/deployd-helper/Cargo.lock` | Pinned dependencies |
-| `packages/deployd-helper/default.nix` | Nix package (`rustPlatform.buildRustPackage`) |
-| `packages/deployd-helper/src/main.rs` | Unix socket listener, SO_PEERCRED, capability token auth, bounded message reads |
-| `packages/deployd-helper/src/protocol.rs` | `HelperCommand` enum (Deploy, Teardown, AddCaddyRoute, RemoveCaddyRoute, Status) |
-| `packages/deployd-helper/src/config.rs` | Configuration from environment variables |
-| `packages/deployd-helper/src/executor.rs` | Command execution: quadlet write, systemctl, Caddy admin API |
+| File                                        | Purpose                                                                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/deployd-helper/Cargo.toml`        | Rust project definition                                                                                                                     |
+| `packages/deployd-helper/Cargo.lock`        | Pinned dependencies                                                                                                                         |
+| `packages/deployd-helper/default.nix`       | Nix package (`rustPlatform.buildRustPackage`)                                                                                               |
+| `packages/deployd-helper/src/main.rs`       | Unix socket listener, SO_PEERCRED, capability token auth, bounded message reads                                                             |
+| `packages/deployd-helper/src/protocol.rs`   | `HelperCommand` enum (Deploy, Teardown, AddCaddyRoute, RemoveCaddyRoute, Status)                                                            |
+| `packages/deployd-helper/src/config.rs`     | Configuration from environment variables                                                                                                    |
+| `packages/deployd-helper/src/executor.rs`   | Command execution: quadlet write, systemctl, Caddy admin API                                                                                |
 | `packages/deployd-helper/src/validation.rs` | Input validation: registry allowlist, port ranges, hostname suffixes, name format, digest pinning, volume path safety, env var sanitization |
-| `packages/deployd-helper/src/quadlet.rs` | Podman quadlet file generation |
-| `packages/deployd-helper/src/audit.rs` | Append-only structured JSON audit logging |
-| `modules/deployd/default.nix` | Extractable NixOS module |
-| `modules/common/deployd.nix` | Project-specific wiring (impermanence, registry allowlist) |
-| `tests/modules/deployd.nix` | VM integration test |
+| `packages/deployd-helper/src/quadlet.rs`    | Podman quadlet file generation                                                                                                              |
+| `packages/deployd-helper/src/audit.rs`      | Append-only structured JSON audit logging                                                                                                   |
+| `modules/deployd/default.nix`               | Extractable NixOS module                                                                                                                    |
+| `modules/common/deployd.nix`                | Project-specific wiring (impermanence, registry allowlist)                                                                                  |
+| `tests/modules/deployd.nix`                 | VM integration test                                                                                                                         |
 
 #### Files Modified
 
-| File | Change |
-|------|--------|
-| `modules/common/default.nix` | Added `./deployd.nix` import |
-| `tests/default.nix` | Added deployd test |
-| `flake.nix` | Added `deployd-helper` package; added `self.nixosModules.deployd` to erebonia |
+| File                         | Change                                                                        |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `modules/common/default.nix` | Added `./deployd.nix` import                                                  |
+| `tests/default.nix`          | Added deployd test                                                            |
+| `flake.nix`                  | Added `deployd-helper` package; added `self.nixosModules.deployd` to erebonia |
 
 #### Module Options (`deployd.*`)
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `enable` | bool | false | Enable deployd-helper |
-| `package` | package | `pkgs.mmell.deployd-helper` | Helper binary package |
-| `registryAllowlist` | list of str | `[]` | Permitted OCI registry prefixes |
-| `hostnameAllowlist` | list of str | `[]` | Permitted hostname suffixes for Caddy routes |
-| `portRange.min` | port | 1024 | Minimum host port |
-| `portRange.max` | port | 65535 | Maximum host port |
-| `socketPath` | str | `/run/deployd/deployd.sock` | Unix socket path |
-| `stateDir` | str | `/var/lib/deployd` | Reserved for future state (Phase D4 iSCSI); not used at runtime |
-| `auditLogPath` | str | `/var/log/deployd/audit.log` | Audit log path |
-| `capabilityTokenFile` | str | (required) | Path to capability token file |
-| `allowedUid` | int | (required) | UID permitted to connect |
-| `bridge.name` | str | `br-deploy` | Bridge device name |
-| `bridge.subnet` | str | `10.100.0.1/24` | Bridge subnet |
-| `caddy.enable` | bool | true | Enable Caddy integration |
-| `caddy.adminUrl` | str | `http://localhost:2019` | Caddy admin API URL |
-| `caddy.serverName` | str | `deployd` | Caddy server block name for routes |
-| `caddy.listenAddress` | str | `""` | Caddy HTTPS listen address |
-| `kata.enable` | bool | true | Enforce Kata runtime (guarded by nixpkgs option availability) |
+| Option                | Type        | Default                      | Description                                                     |
+| --------------------- | ----------- | ---------------------------- | --------------------------------------------------------------- |
+| `enable`              | bool        | false                        | Enable deployd-helper                                           |
+| `package`             | package     | `pkgs.mmell.deployd-helper`  | Helper binary package                                           |
+| `registryAllowlist`   | list of str | `[]`                         | Permitted OCI registry prefixes                                 |
+| `hostnameAllowlist`   | list of str | `[]`                         | Permitted hostname suffixes for Caddy routes                    |
+| `portRange.min`       | port        | 1024                         | Minimum host port                                               |
+| `portRange.max`       | port        | 65535                        | Maximum host port                                               |
+| `socketPath`          | str         | `/run/deployd/deployd.sock`  | Unix socket path                                                |
+| `auditLogPath`        | str         | `/var/log/deployd/audit.log` | Audit log path                                                  |
+| `capabilityTokenFile` | str         | (required)                   | Path to capability token file                                   |
+| `allowedUid`          | int         | (required)                   | UID permitted to connect                                        |
+| `bridge.name`         | str         | `br-deploy`                  | Bridge device name                                              |
+| `bridge.subnet`       | str         | `10.100.0.1/24`              | Bridge subnet                                                   |
+| `caddy.enable`        | bool        | true                         | Enable Caddy integration                                        |
+| `caddy.adminUrl`      | str         | `http://localhost:2019`      | Caddy admin API URL                                             |
+| `caddy.serverName`    | str         | `deployd`                    | Caddy server block name for routes                              |
+| `caddy.listenAddress` | str         | `""`                         | Caddy HTTPS listen address                                      |
+| `kata.enable`         | bool        | true                         | Enforce Kata runtime (guarded by nixpkgs option availability)   |
 
 #### Security Features Implemented
 
@@ -148,12 +154,12 @@ Remove dynamic nftables port management from deployd-helper and replace with sta
 
 #### Filesystem Access (exhaustive)
 
-| Path | Access | Purpose |
-|------|--------|---------|
-| `/run/containers/systemd/` | read-write (group `deployd-helper`, mode 0775) | Runtime quadlet files |
+| Path                       | Access                                         | Purpose                                           |
+| -------------------------- | ---------------------------------------------- | ------------------------------------------------- |
+| `/run/containers/systemd/` | read-write (group `deployd-helper`, mode 0775) | Runtime quadlet files                             |
 | `/etc/containers/systemd/` | read-write (group `deployd-helper`, mode 0775) | Persistent quadlet files (native Podman location) |
-| `/run/deployd/` | read-write (owner `deployd-helper`, mode 0750) | Unix socket |
-| `/var/log/deployd/` | read-write (owner `deployd-helper`, mode 0750) | Audit log |
+| `/run/deployd/`            | read-write (owner `deployd-helper`, mode 0750) | Unix socket                                       |
+| `/var/log/deployd/`        | read-write (owner `deployd-helper`, mode 0750) | Audit log                                         |
 
 #### Test Coverage
 
@@ -165,32 +171,35 @@ Remove dynamic nftables port management from deployd-helper and replace with sta
 
 These changes were made during code review to improve security and correctness:
 
-| Change | Rationale |
-|--------|-----------|
-| Added `validate_name()` to Teardown, AddCaddyRoute, RemoveCaddyRoute | Original only validated names in Deploy; standalone commands could inject paths or systemd unit names |
-| Added `validate_port_range()` to AddCaddyRoute | Original only validated ports in Deploy; standalone commands accepted any u16 |
-| Added `validate_hostname()` to AddCaddyRoute | Original only validated hostnames in Deploy ingress; standalone command had no hostname check |
-| Added `validate_env()` for environment variable keys/values | Original wrote env vars directly to quadlet files; newlines in values could inject systemd unit directives |
-| Replaced hand-rolled token comparison with `subtle::ConstantTimeEq` | Original used `!=` (timing side-channel); hand-rolled XOR loop could be optimized away by compiler; `subtle` uses `#[inline(never)]` + compiler barriers |
-| Replaced `BufReader::lines()` with `take().read_line()` | Original buffered entire lines before size check; malicious client could send multi-GB line without `\n` to exhaust memory |
-| Persistent quadlets use native `/etc/containers/systemd/` | Original wrote to custom `{stateDir}/quadlets/` and copied to runtime dir on boot; this duplicated Podman's native persistence mechanism and had no cleanup for stale entries |
-| Removed `restore_persistent_quadlets()` | No longer needed — native `/etc/containers/systemd/` is scanned by quadlet generator at boot automatically |
-| Dropped `CAP_DAC_OVERRIDE` | Original needed it to write to root-owned quadlet dirs; changed dirs to group `deployd-helper` with mode 0775 instead. CAP_DAC_OVERRIDE bypasses ALL filesystem permission checks system-wide |
-| Added polkit rule for systemctl | Original had no polkit authorization; `systemctl daemon-reload/start/stop` would fail as non-root user. Scoped to `manage-units` and `reload-daemon` only |
-| Set `NoNewPrivileges = true` | Original set `false` ("required for capability use"); only needed for CAP_DAC_OVERRIDE interaction. No ambient capabilities remain, so no conflict |
-| Set `UMask = 0027` | Original used default 0022; quadlet files (containing env vars with potential secrets) were world-readable at 0644. Now created as 0640 |
-| Removed `stateDir` from runtime | Original allocated `/var/lib/deployd` with ReadWritePaths, tmpfiles, impermanence, and env var. Nothing uses it at runtime. NixOS option retained for Phase D4 (iSCSI state) |
-| Kept `libc` SO_PEERCRED instead of nightly `peer_cred()` | Evaluated switching to nightly Rust for `#![feature(peer_credentials_unix_socket)]` to eliminate the only `unsafe` block. Feature tracking issue (#42839) is nearly 10 years old with no stabilization momentum — poor foundation to depend on. The `libc` code is correct, minimal, and idiomatic |
-| Removed `libc` → restored `libc` | Briefly attempted to use stdlib `UnixStream::peer_cred()`, discovered it requires nightly (unstable since 2017). Beta Rust also doesn't work — `#![feature]` gates are nightly-only. Reverted to `libc::getsockopt` |
+| Change                                                                    | Rationale                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Added `validate_name()` to Teardown                                        | Original only validated names in Deploy; Teardown could inject paths or systemd unit names                                                                                                                                                                                                                          |
+| Added `validate_env()` for environment variable keys/values               | Original wrote env vars directly to quadlet files; newlines in values could inject systemd unit directives                                                                                                                                                                                                          |
+| Replaced hand-rolled token comparison with `subtle::ConstantTimeEq`       | Original used `!=` (timing side-channel); hand-rolled XOR loop could be optimized away by compiler; `subtle` uses `#[inline(never)]` + compiler barriers                                                                                                                                                            |
+| Replaced `BufReader::lines()` with `take().read_line()`                   | Original buffered entire lines before size check; malicious client could send multi-GB line without `\n` to exhaust memory                                                                                                                                                                                          |
+| Persistent quadlets use native `/etc/containers/systemd/`                 | Original wrote to custom `{stateDir}/quadlets/` and copied to runtime dir on boot; this duplicated Podman's native persistence mechanism and had no cleanup for stale entries                                                                                                                                       |
+| Removed `restore_persistent_quadlets()`                                   | No longer needed — native `/etc/containers/systemd/` is scanned by quadlet generator at boot automatically                                                                                                                                                                                                          |
+| Dropped `CAP_DAC_OVERRIDE`                                                | Original needed it to write to root-owned quadlet dirs; changed dirs to group `deployd-helper` with mode 0775 instead. CAP_DAC_OVERRIDE bypasses ALL filesystem permission checks system-wide                                                                                                                       |
+| Added polkit rule for systemctl                                           | Original had no polkit authorization; `systemctl daemon-reload/start/stop` would fail as non-root user. Scoped to `manage-units` and `reload-daemon` only                                                                                                                                                           |
+| Set `NoNewPrivileges = true`                                              | Original set `false` ("required for capability use"); only needed for CAP_DAC_OVERRIDE interaction. No ambient capabilities remain, so no conflict                                                                                                                                                                  |
+| Set `UMask = 0027`                                                        | Original used default 0022; quadlet files (containing env vars with potential secrets) were world-readable at 0644. Now created as 0640                                                                                                                                                                             |
+| Removed `stateDir` from runtime                                           | Original allocated `/var/lib/deployd` with ReadWritePaths, tmpfiles, impermanence, and env var. Nothing uses it at runtime. NixOS option later also removed (see below).                                                                                                                                            |
+| Kept `libc` SO_PEERCRED instead of nightly `peer_cred()`                  | Evaluated switching to nightly Rust for `#![feature(peer_credentials_unix_socket)]` to eliminate the only `unsafe` block. Feature tracking issue (#42839) is nearly 10 years old with no stabilization momentum — poor foundation to depend on. The `libc` code is correct, minimal, and idiomatic                  |
+| Removed `libc` → restored `libc`                                          | Briefly attempted to use stdlib `UnixStream::peer_cred()`, discovered it requires nightly (unstable since 2017). Beta Rust also doesn't work — `#![feature]` gates are nightly-only. Reverted to `libc::getsockopt`                                                                                                 |
 | Removed `AddFirewallPort`/`RemoveFirewallPort` commands and all nft usage | Replaced dynamic nftables `allowed_ports` set with static Caddy-only bridge isolation. CAP_NET_ADMIN is unscoped (grants authority over ALL host network config); static isolation + Caddy dynamic routing achieves the same goal without elevated capabilities. See "Architecture Change: Static Bridge Isolation" |
-| Dropped `CAP_NET_ADMIN` | No longer needed — deployd-helper no longer calls nft. Zero extended capabilities. |
-| Removed `AF_NETLINK` from `RestrictAddressFamilies` | AF_NETLINK was only needed for nft commands. Tighter socket allowlist. |
+| Dropped `CAP_NET_ADMIN`                                                   | No longer needed — deployd-helper no longer calls nft. Zero extended capabilities.                                                                                                                                                                                                                                  |
+| Removed `AF_NETLINK` from `RestrictAddressFamilies`                       | AF_NETLINK was only needed for nft commands. Tighter socket allowlist.                                                                                                                                                                                                                                              |
+| Removed standalone `AddCaddyRoute`/`RemoveCaddyRoute` commands            | Subsumed by Deploy/Teardown lifecycle. Deploy creates Caddy route if `ingress` is set; Teardown removes it best-effort. Eliminates extra protocol surface with no concrete use case.                                                                                                                                 |
+| Added `upstream_port` to `IngressConfig`                                  | Deploy needs to know which port to proxy to when creating Caddy routes. Explicit field avoids magic conventions (e.g. "use first port mapping").                                                                                                                                                                     |
+| Removed `block_volume: Option<String>` from `ContainerDefinition`         | Phase D4 placeholder — dead code carried through every message, test, and serialization path. Trivial to re-add when needed.                                                                                                                                                                                        |
+| Removed `stateDir` NixOS option                                           | Previously retained for Phase D4, but the option itself was dead — not wired to any tmpfiles, ReadWritePaths, or env var. Re-add when D4 needs it.                                                                                                                                                                  |
 
 ### Phase D2: deployd API MicroVM — NOT STARTED
 
 Dependencies: Phase D0 (go/no-go), Phase D1 (complete)
 
 Tasks:
+
 - [ ] Choose microVM name (Trails-series Erebonia city: Roer, Ordis, Legram, Bareahard, Celdic, Ymir, Jurai, Heimdallr)
 - [ ] Register deployd microVM in `lib/common/data/network.nix` (management zone, VLAN 11)
 - [ ] Create microVM guest config under `hosts/erebonia/microvm/guests/<name>/`
@@ -205,6 +214,7 @@ Tasks:
 Dependencies: CI/CD Phases 1-3 + Phase 6 (container registry on creil)
 
 Tasks:
+
 - [ ] Add deploy step to CI workflow
 - [ ] Add deployd CLI tool for manual deployments
 - [ ] Update `llm-notes/plans/ci-cd-plan.md` Phase 6
@@ -216,6 +226,7 @@ Dependencies: Headscale deployment
 Non-HTTP workloads (game servers) use a separate bridge (br41) in the "game" zone on thebeyond. Zone-level firewall policy is managed by router6 (static, boot-time). For L4 proxying of non-HTTP traffic, evaluate caddy-l4 (maintained by Matt Holt) or equivalent. deployd-helper does NOT need CAP_NET_ADMIN for this — the same pattern applies: static policy in the kernel (router6 zones), dynamic policy in the proxy (caddy-l4 or similar).
 
 Tasks:
+
 - [ ] Add VLAN 41 bridge (br41) to erebonia
 - [ ] Create game zone on thebeyond (router6 zone model)
 - [ ] Per-container bridge selection in deployd
@@ -224,30 +235,29 @@ Tasks:
 - [ ] Caddy listener on `tailscale0`
 - [ ] iSCSI block storage add-on (Suspend/Resume/AttachVolume/DetachVolume commands)
 - [ ] Storage pool configuration and validation
-- [ ] Re-add `stateDir` to runtime (ReadWritePaths, tmpfiles, impermanence) for iSCSI state
+- [ ] Add `stateDir` option and `block_volume` protocol field for iSCSI state (removed in D1b)
 
 ## Deferred Items (from Code Review)
 
 These items were identified in the code review but are intentionally deferred:
 
-| Item | Deferred To | Rationale |
-|------|-------------|-----------|
-| Suspend/Resume/AttachVolume/DetachVolume protocol variants | Phase D4 | iSCSI addon is Phase D4 scope |
-| Storage pool NixOS option + device path validation | Phase D4 | Coupled to iSCSI addon |
-| `block_volume` field handling in executor | Phase D4 | Field exists as placeholder (`Option<String>`) |
-| `stateDir` runtime wiring (ReadWritePaths, tmpfiles, impermanence) | Phase D4 | Nothing uses it at runtime until iSCSI state |
-| Multi-threaded connection handling | Future | Single-client homelab use; deployd API is the only client |
-| Nightly Rust for safe `peer_cred()` | When stabilized | Feature #42839 has no stabilization momentum; `libc` code is correct |
+| Item                                                               | Deferred To     | Rationale                                                            |
+| ------------------------------------------------------------------ | --------------- | -------------------------------------------------------------------- |
+| Suspend/Resume/AttachVolume/DetachVolume protocol variants         | Phase D4        | iSCSI addon is Phase D4 scope                                        |
+| Storage pool NixOS option + device path validation                 | Phase D4        | Coupled to iSCSI addon                                               |
+| `block_volume` field + `stateDir` option                           | Phase D4        | Removed in D1b (dead code); re-add when iSCSI state is needed        |
+| Multi-threaded connection handling                                 | Future          | Single-client homelab use; deployd API is the only client            |
+| Nightly Rust for safe `peer_cred()`                                | When stabilized | Feature #42839 has no stabilization momentum; `libc` code is correct |
 
 ## Network Changes Summary
 
-| Change | File | Phase |
-|--------|------|-------|
-| Add deployd microVM to management zone | `lib/common/data/network.nix` | D2 |
-| DMZ→management forward: saint-arkh→deployd:443 | `hosts/thebeyond/router.nix` | D2 |
-| trusted→management forward: operator→deployd:443 | `hosts/thebeyond/router.nix` | D2 |
-| Add VLAN 41 bridge to erebonia | `hosts/erebonia/default.nix` | D4 |
-| Create game zone (split from untrusted) | `hosts/thebeyond/router.nix` | D4 |
+| Change                                           | File                          | Phase |
+| ------------------------------------------------ | ----------------------------- | ----- |
+| Add deployd microVM to management zone           | `lib/common/data/network.nix` | D2    |
+| DMZ→management forward: saint-arkh→deployd:443   | `hosts/thebeyond/router.nix`  | D2    |
+| trusted→management forward: operator→deployd:443 | `hosts/thebeyond/router.nix`  | D2    |
+| Add VLAN 41 bridge to erebonia                   | `hosts/erebonia/default.nix`  | D4    |
+| Create game zone (split from untrusted)          | `hosts/thebeyond/router.nix`  | D4    |
 
 ## Reference Patterns
 
