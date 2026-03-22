@@ -62,7 +62,7 @@ in {
     stateDir = mkOption {
       type = types.str;
       default = "/var/lib/deployd";
-      description = "Directory for persistent state (quadlet files, state.json).";
+      description = "Directory for persistent deployd state.";
     };
 
     auditLogPath = mkOption {
@@ -190,7 +190,7 @@ in {
       # Directory structure
       systemd.tmpfiles.rules = [
         "d /run/containers/systemd 0775 root root - -"
-        "d /etc/containers/systemd 0755 deployd-helper deployd-helper - -"
+        "d /etc/containers/systemd 0755 root root - -"
         "d /run/deployd 0750 deployd-helper deployd-helper - -"
         "d ${cfg.stateDir} 0750 deployd-helper deployd-helper - -"
         "d /var/log/deployd 0750 deployd-helper deployd-helper - -"
