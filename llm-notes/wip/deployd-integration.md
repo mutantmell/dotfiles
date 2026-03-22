@@ -83,22 +83,24 @@ All files created, tests passing, code reviewed.
 #### Security Features Implemented
 
 - **SO_PEERCRED** on every connection — rejects unauthorized UIDs (root allowed for operational debugging; token still required)
-- **Capability token** validated on every message
+- **Capability token** validated on every message with constant-time comparison
 - **Message size limit** (1 MiB) prevents DoS
 - **Registry allowlist** checked independently by helper
 - **Digest pinning** required for all image references
-- **Container name validation** — alphanumeric/hyphen/underscore only, no dots/slashes/special chars
+- **Container name validation** — alphanumeric/hyphen/underscore only, no dots/slashes/special chars; enforced on all commands (Deploy, Teardown, AddCaddyRoute, RemoveCaddyRoute)
 - **Volume path validation** — absolute paths only, no `..`, blocks `/etc /boot /proc /sys /dev /nix`
-- **Port range enforcement**
-- **Hostname suffix allowlist** for Caddy routes
+- **Port range enforcement** — on Deploy ports and standalone AddFirewallPort/RemoveFirewallPort/AddCaddyRoute commands
+- **Hostname suffix allowlist** for Caddy routes — enforced on both Deploy ingress and standalone AddCaddyRoute
+- **Environment variable sanitization** — keys must be alphanumeric+underscore, values must not contain newlines (prevents quadlet file injection)
 - **nftables table** scoped to bridge with `policy accept` — only filters traffic TO `br-deploy`
 - **systemd hardening** — CAP_NET_ADMIN + CAP_DAC_OVERRIDE only, ProtectSystem=strict, RestrictAddressFamilies, etc.
 - **Append-only audit log** on host filesystem (outside microVM trust boundary)
+- **Persistent quadlet restore** — on service start, copies persistent quadlets back to runtime dir so containers survive reboots
 
 #### Test Coverage
 
-- 19 Rust unit tests (name validation, image validation, port ranges, volume paths, hostname validation, quadlet generation)
-- 1 VM integration test (bridge creation, address assignment, nftables table/set, helper service, socket, directories, Podman, firewall set manipulation)
+- 26 Rust unit tests (name validation, image validation, port ranges, volume paths, hostname validation, env var validation, quadlet generation)
+- 1 VM integration test (bridge creation, address assignment, nftables table/set, helper service, socket, directories, Podman, firewall set manipulation, socket protocol/auth verification, audit log verification)
 - All 4 host evaluations pass (thebeyond, calvard, erebonia, remiferia)
 
 ### Phase D2: deployd API MicroVM — NOT STARTED

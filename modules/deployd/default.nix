@@ -190,9 +190,9 @@ in {
       # Directory structure
       systemd.tmpfiles.rules = [
         "d /run/containers/systemd 0775 root root - -"
+        "d /etc/containers/systemd 0755 deployd-helper deployd-helper - -"
         "d /run/deployd 0750 deployd-helper deployd-helper - -"
         "d ${cfg.stateDir} 0750 deployd-helper deployd-helper - -"
-        "d ${cfg.stateDir}/quadlets 0750 deployd-helper deployd-helper - -"
         "d /var/log/deployd 0750 deployd-helper deployd-helper - -"
       ];
 
@@ -240,6 +240,7 @@ in {
           ProtectSystem = "strict";
           ReadWritePaths = [
             "/run/containers/systemd"
+            "/etc/containers/systemd"
             "/run/deployd"
             cfg.stateDir
             "/var/log/deployd"

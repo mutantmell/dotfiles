@@ -5,9 +5,11 @@ mod protocol;
 mod quadlet;
 mod validation;
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixListener;
+use std::os::unix::net::UnixStream;
 use std::path::Path;
+use subtle::ConstantTimeEq;
 use tracing::{error, info, warn};
 
 use config::Config;
@@ -60,9 +62,9 @@ fn main() {
         }
     }
 
-    info!(socket = %config.socket_path, "deployd-helper listening");
-
     let executor = Executor::new(config.clone());
+
+    info!(socket = %config.socket_path, "deployd-helper listening");
 
     for stream in listener.incoming() {
         match stream {
@@ -94,7 +96,7 @@ fn main() {
     }
 }
 
-fn get_peer_uid(stream: &std::os::unix::net::UnixStream) -> Result<u32, String> {
+fn get_peer_uid(stream: &UnixStream) -> Result<u32, String> {
     use std::os::unix::io::AsRawFd;
 
     let fd = stream.as_raw_fd();
@@ -122,23 +124,32 @@ fn get_peer_uid(stream: &std::os::unix::net::UnixStream) -> Result<u32, String> 
 }
 
 fn handle_connection(
-    stream: std::os::unix::net::UnixStream,
+    stream: UnixStream,
     peer_uid: u32,
     config: &Config,
     executor: &Executor,
 ) {
-    let reader = BufReader::new(&stream);
+    let mut reader = BufReader::new(&stream);
 
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
+    loop {
+        let mut line = String::new();
+
+        // Read one line, enforcing MAX_MESSAGE_SIZE as a hard limit on memory.
+        // BufReader::read_line() appends to the buffer, so we use take() to
+        // cap the read at MAX_MESSAGE_SIZE + 1 bytes, allowing us to detect
+        // oversized messages without buffering them entirely.
+        match reader.by_ref().take((MAX_MESSAGE_SIZE + 1) as u64).read_line(&mut line) {
+            Ok(0) => break, // EOF
+            Ok(_) => {}
             Err(e) => {
                 error!("read error: {}", e);
                 break;
             }
-        };
+        }
 
-        if line.trim().is_empty() {
+        let line = line.trim_end_matches('\n').trim_end_matches('\r');
+
+        if line.is_empty() {
             continue;
         }
 
@@ -159,8 +170,8 @@ fn handle_connection(
             }
         };
 
-        // Validate capability token
-        if msg.token != config.capability_token {
+        // Validate capability token (constant-time comparison via subtle crate)
+        if msg.token.as_bytes().ct_eq(config.capability_token.as_bytes()).unwrap_u8() != 1 {
             warn!(peer_uid, "invalid capability token");
             let resp = HelperResponse::err("invalid capability token");
             let _ = write_response(&stream, &resp);
@@ -176,7 +187,7 @@ fn handle_connection(
 }
 
 fn write_response(
-    stream: &std::os::unix::net::UnixStream,
+    stream: &UnixStream,
     response: &HelperResponse,
 ) -> Result<(), String> {
     let mut stream = stream;

@@ -88,6 +88,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "subtle",
  "tracing",
  "tracing-subscriber",
  "ureq",

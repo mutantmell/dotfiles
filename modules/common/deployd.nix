@@ -33,6 +33,11 @@ in {
     (lib.optionalAttrs hasDeployd (lib.mkIf (cfg.enable && impCfg.enable) {
       environment.persistence.${impCfg.persistDir}.directories = [
         {
+          directory = "/etc/containers/systemd";
+          user = "deployd-helper";
+          group = "deployd-helper";
+        }
+        {
           directory = "/var/lib/deployd";
           user = "deployd-helper";
           group = "deployd-helper";
