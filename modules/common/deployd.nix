@@ -34,8 +34,8 @@ in {
       environment.persistence.${impCfg.persistDir}.directories = [
         {
           directory = "/etc/containers/systemd";
-          user = "deployd-helper";
-          group = "deployd-helper";
+          user = "root";
+          group = "root";
         }
         {
           directory = "/var/lib/deployd";
