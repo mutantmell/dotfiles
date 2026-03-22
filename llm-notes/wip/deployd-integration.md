@@ -9,10 +9,31 @@ deployd is a lightweight Rust service for deploying OCI containers at runtime wi
 - **Host:** erebonia (bare metal KVM, already runs microVMs + Incus)
 - **Network:** `br-deploy` as a local bridge (not VLAN), containers publish ports on host IP
 - **Ingress:** Caddy on erebonia with admin API; deployd-helper manages routes dynamically
+- **Bridge isolation:** Static nftables rules restrict br-deploy inbound traffic to Caddy only. Caddy route presence/absence is the sole dynamic access control. deployd-helper has no kernel-level network authority (no CAP_NET_ADMIN). See "Architecture Change: Static Bridge Isolation" below.
 - **Registry:** Forgejo container registry on creil (CI/CD Phase 6 dependency)
 - **Auth:** Keycloak OAuth2 (messeldam) for API; Unix socket SO_PEERCRED + capability token for helper
 - **API zone:** management (VLAN 11), alongside messeldam/basel/tharbad
 - **Kata fallback:** Prototype first (Phase D0); fall back to rootless Podman if Kata has NixOS issues
+
+### Architecture Change: Static Bridge Isolation (Post-D1 Review)
+
+**Decision:** Remove all nftables set manipulation from deployd-helper. Replace the dynamic `allowed_ports` set with a static nftables rule that restricts br-deploy inbound traffic to Caddy only. Drop CAP_NET_ADMIN from the helper.
+
+**Rationale:**
+
+The original design used a dynamic nftables `allowed_ports` set — deployd-helper added port entries when deploying containers and removed them on teardown, requiring CAP_NET_ADMIN. However:
+
+1. **CAP_NET_ADMIN is unscoped.** It grants authority over ALL network configuration on the host: every nftables table, routing tables, interfaces. deployd-helper only needs to manage one set, but if compromised, an attacker could rewrite the entire host network stack.
+
+2. **The nftables set is redundant with Caddy.** Caddy route presence/absence already controls which services are reachable. If no Caddy route exists for a container's port, external traffic cannot reach it. The nftables set was belt-and-suspenders for the same check.
+
+3. **Static isolation is stronger and simpler.** A boot-time nftables rule "only Caddy can reach br-deploy" provides kernel-level defense-in-depth without giving deployd-helper kernel-level network authority. The principle: **static policy in the kernel, dynamic policy in Caddy, no elevated capabilities in the helper.**
+
+4. **The split still makes sense.** Even without CAP_NET_ADMIN, deployd-helper is privileged — it writes quadlet files and controls systemctl. The deployd API → deployd-helper Unix socket boundary keeps the HTTP/OAuth2 attack surface in an unprivileged microVM.
+
+5. **Non-HTTP workloads (Phase D4) don't change this.** Game servers use a separate bridge (br41) in the "game" zone on thebeyond. That zone's firewall policy is managed by router6 (static, boot-time), not by deployd-helper. For L4 proxying, caddy-l4 or an equivalent proxy handles dynamic routing without kernel-level access.
+
+6. **Additional ingress paths (e.g., cloud host → WireGuard → langport → Caddy → br-deploy) don't change this.** The static isolation rule is origin-agnostic — it restricts which process can reach br-deploy, not where the traffic came from. Upstream routing/zone policy is thebeyond's responsibility.
 
 ## Phase Status
 
@@ -27,9 +48,31 @@ Manual validation on erebonia:
 
 **Output:** Go/no-go on the architecture. Kata fallback to rootless Podman if steps 1-3 fail.
 
-### Phase D1: deployd-helper Module + Binary — COMPLETE
+### Phase D1: deployd-helper Module + Binary — IN PROGRESS
 
-All files created, tests passing, code reviewed and hardened.
+Core implementation complete. Remaining work: remove nftables set manipulation and CAP_NET_ADMIN per the static bridge isolation decision.
+
+#### D1b: Static Bridge Isolation (TODO)
+
+Remove dynamic nftables port management from deployd-helper and replace with static Caddy-only isolation.
+
+**Binary changes:**
+- [ ] Remove `AddFirewallPort` and `RemoveFirewallPort` variants from `HelperCommand` enum (`protocol.rs`)
+- [ ] Remove `add_firewall_port()`, `remove_firewall_port()`, and `nft()` from `Executor` (`executor.rs`)
+- [ ] Remove `validate_port_range()` calls that were only used by firewall port commands (keep for Deploy/AddCaddyRoute)
+- [ ] Remove `nft_path` and `nftables_table` from `Config` (`config.rs`)
+- [ ] Remove nft-related unit tests
+
+**Module changes (`modules/deployd/default.nix`):**
+- [ ] Replace dynamic `allowed_ports` nftables table with static Caddy-only isolation rule (allow inbound to br-deploy only from Caddy's process/UID or loopback, drop all else)
+- [ ] Remove `CAP_NET_ADMIN` from `AmbientCapabilities` and `CapabilityBoundingSet`
+- [ ] Remove `AF_NETLINK` from `RestrictAddressFamilies` (only needed for nft)
+- [ ] Remove `DEPLOYD_NFT_PATH` and `DEPLOYD_NFTABLES_TABLE` environment variables
+
+**Test changes (`tests/modules/deployd.nix`):**
+- [ ] Remove nftables set manipulation tests (`nft add element`, `nft list set`, `nft delete element`)
+- [ ] Add test verifying static isolation: traffic from non-Caddy source to br-deploy is dropped
+- [ ] Keep socket protocol, audit log, bridge, and directory tests
 
 #### Files Created
 
@@ -39,9 +82,9 @@ All files created, tests passing, code reviewed and hardened.
 | `packages/deployd-helper/Cargo.lock` | Pinned dependencies |
 | `packages/deployd-helper/default.nix` | Nix package (`rustPlatform.buildRustPackage`) |
 | `packages/deployd-helper/src/main.rs` | Unix socket listener, SO_PEERCRED, capability token auth, bounded message reads |
-| `packages/deployd-helper/src/protocol.rs` | `HelperCommand` enum (Deploy, Teardown, AddFirewallPort, RemoveFirewallPort, AddCaddyRoute, RemoveCaddyRoute, Status) |
+| `packages/deployd-helper/src/protocol.rs` | `HelperCommand` enum (Deploy, Teardown, AddCaddyRoute, RemoveCaddyRoute, Status) |
 | `packages/deployd-helper/src/config.rs` | Configuration from environment variables |
-| `packages/deployd-helper/src/executor.rs` | Command execution: quadlet write, systemctl, nft set management, Caddy admin API |
+| `packages/deployd-helper/src/executor.rs` | Command execution: quadlet write, systemctl, Caddy admin API |
 | `packages/deployd-helper/src/validation.rs` | Input validation: registry allowlist, port ranges, hostname suffixes, name format, digest pinning, volume path safety, env var sanitization |
 | `packages/deployd-helper/src/quadlet.rs` | Podman quadlet file generation |
 | `packages/deployd-helper/src/audit.rs` | Append-only structured JSON audit logging |
@@ -89,16 +132,16 @@ All files created, tests passing, code reviewed and hardened.
 - **Digest pinning** required for all image references
 - **Container name validation** — alphanumeric/hyphen/underscore only, no dots/slashes/special chars; enforced on all commands (Deploy, Teardown, AddCaddyRoute, RemoveCaddyRoute)
 - **Volume path validation** — absolute paths only, no `..`, blocks `/etc /boot /proc /sys /dev /nix`
-- **Port range enforcement** — on Deploy ports and standalone AddFirewallPort/RemoveFirewallPort/AddCaddyRoute commands
+- **Port range enforcement** — on Deploy ports and standalone AddCaddyRoute commands
 - **Hostname suffix allowlist** for Caddy routes — enforced on both Deploy ingress and standalone AddCaddyRoute
 - **Environment variable sanitization** — keys must be alphanumeric+underscore, values must not contain newlines (prevents quadlet file injection)
-- **nftables table** scoped to bridge with `policy accept` — only filters traffic TO `br-deploy`
-- **Minimal capabilities** — `CAP_NET_ADMIN` only (for nft set manipulation); no `CAP_DAC_OVERRIDE`
+- **Static bridge isolation** — boot-time nftables rule restricts br-deploy inbound to Caddy only; no dynamic set manipulation
+- **Zero extended capabilities** — no `CAP_NET_ADMIN`, no `CAP_DAC_OVERRIDE`; deployd-helper operates as an unprivileged user with polkit-scoped systemctl access
 - **Scoped polkit rule** — deployd-helper authorized for `manage-units` and `reload-daemon` only
 - **`NoNewPrivileges = true`** — prevents privilege escalation via execve
 - **`ProtectSystem = strict`** — filesystem read-only except explicitly listed paths
 - **`UMask = 0027`** — quadlet files created 0640 (no world-readable container configs)
-- **`RestrictAddressFamilies`** — AF_UNIX (socket), AF_NETLINK (nft), AF_INET (Caddy admin API) only
+- **`RestrictAddressFamilies`** — AF_UNIX (socket), AF_INET (Caddy admin API) only
 - **`RestrictNamespaces = true`** and **`SystemCallFilter = @system-service ~@privileged`**
 - **Append-only audit log** on host filesystem (outside microVM trust boundary)
 - **Native quadlet persistence** — persistent containers use `/etc/containers/systemd/` (Podman's native persistent directory); runtime-only containers use `/run/containers/systemd/` (tmpfs)
@@ -115,7 +158,7 @@ All files created, tests passing, code reviewed and hardened.
 #### Test Coverage
 
 - 26 Rust unit tests (name validation, image validation, port ranges, volume paths, hostname validation, env var validation, quadlet generation)
-- 1 VM integration test (bridge creation, address assignment, nftables table/set, helper service, socket, directories, Podman, firewall set manipulation, socket protocol/auth verification, audit log verification)
+- 1 VM integration test (bridge creation, address assignment, static nftables isolation, helper service, socket, directories, Podman, socket protocol/auth verification, audit log verification)
 - All 4 host evaluations pass (thebeyond, calvard, erebonia, remiferia)
 
 #### Changes from Original Implementation
@@ -125,7 +168,7 @@ These changes were made during code review to improve security and correctness:
 | Change | Rationale |
 |--------|-----------|
 | Added `validate_name()` to Teardown, AddCaddyRoute, RemoveCaddyRoute | Original only validated names in Deploy; standalone commands could inject paths or systemd unit names |
-| Added `validate_port_range()` to AddFirewallPort, RemoveFirewallPort, AddCaddyRoute | Original only validated ports in Deploy; standalone commands accepted any u16 |
+| Added `validate_port_range()` to AddCaddyRoute | Original only validated ports in Deploy; standalone commands accepted any u16 |
 | Added `validate_hostname()` to AddCaddyRoute | Original only validated hostnames in Deploy ingress; standalone command had no hostname check |
 | Added `validate_env()` for environment variable keys/values | Original wrote env vars directly to quadlet files; newlines in values could inject systemd unit directives |
 | Replaced hand-rolled token comparison with `subtle::ConstantTimeEq` | Original used `!=` (timing side-channel); hand-rolled XOR loop could be optimized away by compiler; `subtle` uses `#[inline(never)]` + compiler barriers |
@@ -134,11 +177,14 @@ These changes were made during code review to improve security and correctness:
 | Removed `restore_persistent_quadlets()` | No longer needed — native `/etc/containers/systemd/` is scanned by quadlet generator at boot automatically |
 | Dropped `CAP_DAC_OVERRIDE` | Original needed it to write to root-owned quadlet dirs; changed dirs to group `deployd-helper` with mode 0775 instead. CAP_DAC_OVERRIDE bypasses ALL filesystem permission checks system-wide |
 | Added polkit rule for systemctl | Original had no polkit authorization; `systemctl daemon-reload/start/stop` would fail as non-root user. Scoped to `manage-units` and `reload-daemon` only |
-| Set `NoNewPrivileges = true` | Original set `false` ("required for capability use"); only needed for CAP_DAC_OVERRIDE interaction. CAP_NET_ADMIN ambient capabilities work fine with NoNewPrivileges |
+| Set `NoNewPrivileges = true` | Original set `false` ("required for capability use"); only needed for CAP_DAC_OVERRIDE interaction. No ambient capabilities remain, so no conflict |
 | Set `UMask = 0027` | Original used default 0022; quadlet files (containing env vars with potential secrets) were world-readable at 0644. Now created as 0640 |
 | Removed `stateDir` from runtime | Original allocated `/var/lib/deployd` with ReadWritePaths, tmpfiles, impermanence, and env var. Nothing uses it at runtime. NixOS option retained for Phase D4 (iSCSI state) |
 | Kept `libc` SO_PEERCRED instead of nightly `peer_cred()` | Evaluated switching to nightly Rust for `#![feature(peer_credentials_unix_socket)]` to eliminate the only `unsafe` block. Feature tracking issue (#42839) is nearly 10 years old with no stabilization momentum — poor foundation to depend on. The `libc` code is correct, minimal, and idiomatic |
 | Removed `libc` → restored `libc` | Briefly attempted to use stdlib `UnixStream::peer_cred()`, discovered it requires nightly (unstable since 2017). Beta Rust also doesn't work — `#![feature]` gates are nightly-only. Reverted to `libc::getsockopt` |
+| Removed `AddFirewallPort`/`RemoveFirewallPort` commands and all nft usage | Replaced dynamic nftables `allowed_ports` set with static Caddy-only bridge isolation. CAP_NET_ADMIN is unscoped (grants authority over ALL host network config); static isolation + Caddy dynamic routing achieves the same goal without elevated capabilities. See "Architecture Change: Static Bridge Isolation" |
+| Dropped `CAP_NET_ADMIN` | No longer needed — deployd-helper no longer calls nft. Zero extended capabilities. |
+| Removed `AF_NETLINK` from `RestrictAddressFamilies` | AF_NETLINK was only needed for nft commands. Tighter socket allowlist. |
 
 ### Phase D2: deployd API MicroVM — NOT STARTED
 
@@ -167,11 +213,14 @@ Tasks:
 
 Dependencies: Headscale deployment
 
+Non-HTTP workloads (game servers) use a separate bridge (br41) in the "game" zone on thebeyond. Zone-level firewall policy is managed by router6 (static, boot-time). For L4 proxying of non-HTTP traffic, evaluate caddy-l4 (maintained by Matt Holt) or equivalent. deployd-helper does NOT need CAP_NET_ADMIN for this — the same pattern applies: static policy in the kernel (router6 zones), dynamic policy in the proxy (caddy-l4 or similar).
+
 Tasks:
 - [ ] Add VLAN 41 bridge (br41) to erebonia
-- [ ] Create game zone on thebeyond
+- [ ] Create game zone on thebeyond (router6 zone model)
 - [ ] Per-container bridge selection in deployd
 - [ ] Headscale subnet router for game zone
+- [ ] Evaluate caddy-l4 for non-HTTP L4 proxying (game server traffic)
 - [ ] Caddy listener on `tailscale0`
 - [ ] iSCSI block storage add-on (Suspend/Resume/AttachVolume/DetachVolume commands)
 - [ ] Storage pool configuration and validation
