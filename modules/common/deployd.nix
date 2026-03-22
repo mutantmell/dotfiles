@@ -1,7 +1,7 @@
 # Project-specific wiring for the deployd container deployment service.
 #
 # - Wires registry allowlist to project registries
-# - Integrates state directory with impermanence
+# - Integrates persistent paths with impermanence
 # - Configures socket path for virtiofs share access
 # - Adds step-ca root cert trust for registry TLS
 {

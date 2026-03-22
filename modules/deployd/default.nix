@@ -1,8 +1,8 @@
 # Extractable module: deployd container deployment service.
 #
-# Provides a privileged helper that accepts typed commands over a Unix socket,
+# Provides a helper that accepts typed commands over a Unix socket,
 # deploys OCI containers as Podman quadlet units with optional Kata isolation,
-# and manages an nftables-scoped bridge network + optional Caddy ingress.
+# and manages Caddy ingress routes on a statically-isolated bridge network.
 #
 # No project-specific logic — no hardcoded hostnames, impermanence, or
 # auto-discovery. See modules/common/deployd.nix for project wiring.
@@ -57,12 +57,6 @@ in {
       type = types.str;
       default = "/run/deployd/deployd.sock";
       description = "Path to the Unix domain socket for helper communication.";
-    };
-
-    stateDir = mkOption {
-      type = types.str;
-      default = "/var/lib/deployd";
-      description = "Directory for persistent deployd state.";
     };
 
     auditLogPath = mkOption {
@@ -134,7 +128,7 @@ in {
       virtualisation.containers.enable = true;
       virtualisation.podman.enable = true;
 
-      # nftables required for the container-deploy table
+      # nftables required for static bridge isolation
       networking.nftables.enable = true;
 
       # Bridge network for managed containers
@@ -151,12 +145,14 @@ in {
         linkConfig.ActivationPolicy = "always-up";
       };
 
-      # nftables table scoped to the bridge — only affects br-deploy traffic
+      # Static bridge isolation: block all unsolicited forward-chain traffic
+      # to containers. Caddy reaches containers via published ports (host
+      # namespace), which bypass the forward chain entirely. This rule is
+      # defense-in-depth — it ensures nothing can reach containers via
+      # forwarded traffic even if the host firewall is misconfigured.
       networking.nftables.tables.container-deploy = {
         family = "inet";
         content = ''
-          set allowed_ports { type inet_service; }
-
           chain forward {
             type filter hook forward priority 5; policy accept;
 
@@ -168,10 +164,6 @@ in {
 
             # Allow established/related connections back to containers
             oifname "${cfg.bridge.name}" ct state established,related accept
-
-            # Allow only permitted ports inbound to containers
-            oifname "${cfg.bridge.name}" tcp dport @allowed_ports accept
-            oifname "${cfg.bridge.name}" udp dport @allowed_ports accept
 
             # Drop all other traffic destined to the bridge
             oifname "${cfg.bridge.name}" drop
@@ -224,7 +216,6 @@ in {
           DEPLOYD_PORT_RANGE_MAX = toString cfg.portRange.max;
           DEPLOYD_AUDIT_LOG = cfg.auditLogPath;
           DEPLOYD_BRIDGE_NAME = cfg.bridge.name;
-          DEPLOYD_NFTABLES_TABLE = "container-deploy";
           DEPLOYD_CADDY_ADMIN_URL = cfg.caddy.adminUrl;
           DEPLOYD_CADDY_SERVER_NAME = cfg.caddy.serverName;
           DEPLOYD_KATA_RUNTIME =
@@ -232,7 +223,6 @@ in {
             then "/run/current-system/sw/bin/kata-runtime"
             else "/run/current-system/sw/bin/crun";
           DEPLOYD_SYSTEMCTL_PATH = "/run/current-system/sw/bin/systemctl";
-          DEPLOYD_NFT_PATH = "/run/current-system/sw/bin/nft";
         };
 
         # Read capability token from file into env var at service start
@@ -244,8 +234,6 @@ in {
         serviceConfig = {
           User = "deployd-helper";
           Group = "deployd-helper";
-          AmbientCapabilities = ["CAP_NET_ADMIN"];
-          CapabilityBoundingSet = ["CAP_NET_ADMIN"];
           NoNewPrivileges = true;
           ProtectSystem = "strict";
           ReadWritePaths = [
@@ -255,7 +243,7 @@ in {
             "/var/log/deployd"
           ];
           UMask = "0027";
-          RestrictAddressFamilies = ["AF_UNIX" "AF_NETLINK" "AF_INET"];
+          RestrictAddressFamilies = ["AF_UNIX" "AF_INET"];
           RestrictNamespaces = true;
           SystemCallFilter = ["@system-service" "~@privileged"];
         };

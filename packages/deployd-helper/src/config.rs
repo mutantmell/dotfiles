@@ -13,12 +13,10 @@ pub struct Config {
     pub port_range_max: u16,
     pub audit_log_path: String,
     pub bridge_name: String,
-    pub nftables_table: String,
     pub caddy_admin_url: String,
     pub caddy_server_name: String,
     pub kata_runtime: String,
     pub systemctl_path: String,
-    pub nft_path: String,
 }
 
 impl Config {
@@ -40,7 +38,6 @@ impl Config {
                 .map_err(|e| format!("DEPLOYD_PORT_RANGE_MAX: {}", e))?,
             audit_log_path: env_or("DEPLOYD_AUDIT_LOG", "/var/log/deployd/audit.log"),
             bridge_name: env_or("DEPLOYD_BRIDGE_NAME", "br-deploy"),
-            nftables_table: env_or("DEPLOYD_NFTABLES_TABLE", "container-deploy"),
             caddy_admin_url: env_or("DEPLOYD_CADDY_ADMIN_URL", "http://localhost:2019"),
             caddy_server_name: env_or("DEPLOYD_CADDY_SERVER_NAME", "deployd"),
             kata_runtime: env_or(
@@ -48,7 +45,6 @@ impl Config {
                 "/run/current-system/sw/bin/kata-runtime",
             ),
             systemctl_path: env_or("DEPLOYD_SYSTEMCTL_PATH", "/run/current-system/sw/bin/systemctl"),
-            nft_path: env_or("DEPLOYD_NFT_PATH", "/run/current-system/sw/bin/nft"),
         })
     }
 

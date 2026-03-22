@@ -62,7 +62,6 @@ mod tests {
             }],
             persistent: true,
             ingress: None,
-            block_volume: None,
         };
 
         let output = generate_quadlet(&def, "/run/current-system/sw/bin/kata-runtime", "br-deploy");

@@ -10,12 +10,13 @@ pub fn validate_container(def: &ContainerDefinition, config: &Config) -> Result<
     validate_env(&def.env)?;
     if let Some(ref ingress) = def.ingress {
         validate_hostname(&ingress.hostname, &config.hostname_allowlist)?;
+        validate_port_range(ingress.upstream_port, config)?;
     }
     Ok(())
 }
 
-/// Validate a name used in standalone commands (Teardown, AddCaddyRoute, RemoveCaddyRoute).
-/// Same rules as container names — prevents path traversal and injection.
+/// Validate a name (container names, Teardown target).
+/// Prevents path traversal and injection.
 pub fn validate_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("container name must not be empty".into());
@@ -116,8 +117,7 @@ fn validate_volumes(
 }
 
 /// Validate a host port against the configured range.
-/// Used by standalone AddFirewallPort/RemoveFirewallPort commands.
-pub fn validate_port_range(port: u16, config: &Config) -> Result<(), String> {
+fn validate_port_range(port: u16, config: &Config) -> Result<(), String> {
     if port < config.port_range_min || port > config.port_range_max {
         return Err(format!(
             "port {} is outside permitted range {}-{}",
@@ -128,8 +128,7 @@ pub fn validate_port_range(port: u16, config: &Config) -> Result<(), String> {
 }
 
 /// Validate a hostname against the allowlist.
-/// Used by standalone AddCaddyRoute command.
-pub fn validate_hostname(hostname: &str, allowlist: &[String]) -> Result<(), String> {
+fn validate_hostname(hostname: &str, allowlist: &[String]) -> Result<(), String> {
     if allowlist.is_empty() {
         return Err("hostname allowlist is empty — no hostnames are permitted".into());
     }
@@ -191,12 +190,10 @@ mod tests {
             port_range_max: 65535,
             audit_log_path: "/tmp/deployd/audit.log".into(),
             bridge_name: "br-deploy".into(),
-            nftables_table: "container-deploy".into(),
             caddy_admin_url: "http://localhost:2019".into(),
             caddy_server_name: "deployd".into(),
             kata_runtime: "/run/current-system/sw/bin/kata-runtime".into(),
             systemctl_path: "/run/current-system/sw/bin/systemctl".into(),
-            nft_path: "/run/current-system/sw/bin/nft".into(),
         }
     }
 
@@ -287,7 +284,6 @@ mod tests {
             volumes: vec![],
             persistent: false,
             ingress: None,
-            block_volume: None,
         };
         assert!(validate_ports(&def, &config).is_ok());
 
@@ -385,10 +381,10 @@ mod tests {
         assert!(validate_hostname("myapp.internal", &allowlist).is_err());
     }
 
-    // --- Port range validation (standalone) ---
+    // --- Port range validation ---
 
     #[test]
-    fn test_standalone_port_range_valid() {
+    fn test_port_range_valid() {
         let config = test_config();
         assert!(validate_port_range(8080, &config).is_ok());
         assert!(validate_port_range(1024, &config).is_ok());
@@ -396,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn test_standalone_port_range_invalid() {
+    fn test_port_range_invalid() {
         let config = test_config();
         assert!(validate_port_range(80, &config).is_err());
         assert!(validate_port_range(443, &config).is_err());
