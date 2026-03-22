@@ -1,6 +1,7 @@
 {
   imports = [
     ./btrfs.nix
+    ./deployd.nix
     ./firewall.nix
     ./impermanence.nix
     ./incus.nix
