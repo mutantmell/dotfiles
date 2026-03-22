@@ -99,6 +99,13 @@ let
         fi
       ''}
 
+      # Override root disk size if configured
+      ${optionalString (guestCfg.limits.disk != null) ''
+        echo "Setting root disk size for $INSTANCE to ${guestCfg.limits.disk}"
+        ${pkgs.incus}/bin/incus config device override "$INSTANCE" root size=${guestCfg.limits.disk} 2>/dev/null || \
+          ${pkgs.incus}/bin/incus config device set "$INSTANCE" root size=${guestCfg.limits.disk}
+      ''}
+
       # Add static directory mount if configured
       # Containers need shift=true for UID/GID mapping in unprivileged namespaces
       ${optionalString (guestCfg.staticDir != null) ''
@@ -167,6 +174,14 @@ let
       ''}
       ${optionalString (guestCfg.limits.memory != null) ''
         ${incus} config set "$INSTANCE" limits.memory=${guestCfg.limits.memory}
+      ''}
+      ${optionalString (guestCfg.limits.disk != null) ''
+        CURRENT_DISK=$(${incus} config device get "$INSTANCE" root size 2>/dev/null || true)
+        if [ "$CURRENT_DISK" != "${guestCfg.limits.disk}" ]; then
+          echo "Updating root disk size for $INSTANCE to ${guestCfg.limits.disk}"
+          ${incus} config device set "$INSTANCE" root size=${guestCfg.limits.disk} 2>/dev/null || \
+            ${incus} config device override "$INSTANCE" root size=${guestCfg.limits.disk}
+        fi
       ''}
 
       # Find store paths missing from the guest (differential transfer)
@@ -262,6 +277,13 @@ in {
               default = null;
               description = "Memory limit for this instance (e.g. \"8GB\"). Applied via incus config set.";
               example = "8GB";
+            };
+
+            disk = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              description = "Root disk size for this instance (e.g. \"100GB\"). Overrides the profile's root disk size.";
+              example = "100GB";
             };
           };
         };
