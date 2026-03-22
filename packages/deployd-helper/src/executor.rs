@@ -58,34 +58,19 @@ impl Executor {
 
         let quadlet = generate_quadlet(def, &self.config.kata_runtime, &self.config.bridge_name);
 
-        // Write to runtime dir
-        let runtime_path = format!(
-            "{}/{}.container",
-            self.config.quadlet_runtime_dir(),
-            def.name
-        );
-        if let Err(e) = fs::write(&runtime_path, &quadlet) {
-            return HelperResponse::err(format!("failed to write runtime quadlet: {}", e));
-        }
-        info!(name = %def.name, path = %runtime_path, "wrote runtime quadlet");
+        // Persistent containers go to /etc/containers/systemd (survives reboots),
+        // runtime-only containers go to /run/containers/systemd (tmpfs).
+        let quadlet_dir = if def.persistent {
+            self.config.quadlet_persistent_dir()
+        } else {
+            self.config.quadlet_runtime_dir()
+        };
+        let quadlet_path = format!("{}/{}.container", quadlet_dir, def.name);
 
-        // Write to persistent dir if persistent
-        if def.persistent {
-            let persistent_path = format!(
-                "{}/{}.container",
-                self.config.quadlet_persistent_dir(),
-                def.name
-            );
-            if let Err(e) = fs::write(&persistent_path, &quadlet) {
-                // Clean up runtime file on failure
-                let _ = fs::remove_file(&runtime_path);
-                return HelperResponse::err(format!(
-                    "failed to write persistent quadlet: {}",
-                    e
-                ));
-            }
-            info!(name = %def.name, path = %persistent_path, "wrote persistent quadlet");
+        if let Err(e) = fs::write(&quadlet_path, &quadlet) {
+            return HelperResponse::err(format!("failed to write quadlet: {}", e));
         }
+        info!(name = %def.name, path = %quadlet_path, persistent = def.persistent, "wrote quadlet");
 
         // daemon-reload
         if let Err(e) = self.systemctl(&["daemon-reload"]) {
@@ -96,15 +81,7 @@ impl Executor {
         let service_name = format!("{}.service", def.name);
         if let Err(e) = self.systemctl(&["start", &service_name]) {
             // Clean up on start failure
-            let _ = fs::remove_file(&runtime_path);
-            if def.persistent {
-                let persistent_path = format!(
-                    "{}/{}.container",
-                    self.config.quadlet_persistent_dir(),
-                    def.name
-                );
-                let _ = fs::remove_file(&persistent_path);
-            }
+            let _ = fs::remove_file(&quadlet_path);
             let _ = self.systemctl(&["daemon-reload"]);
             return HelperResponse::err(format!("failed to start {}: {}", service_name, e));
         }
@@ -114,6 +91,10 @@ impl Executor {
     }
 
     fn teardown(&self, name: &str) -> HelperResponse {
+        if let Err(e) = validation::validate_name(name) {
+            return HelperResponse::err(e);
+        }
+
         let service_name = format!("{}.service", name);
 
         // Stop the service (ignore error if already stopped)
@@ -121,16 +102,10 @@ impl Executor {
             error!(name = %name, error = %e, "stop failed (may be already stopped)");
         }
 
-        // Remove quadlet files
-        let runtime_path = format!("{}/{}.container", self.config.quadlet_runtime_dir(), name);
-        let _ = fs::remove_file(&runtime_path);
-
-        let persistent_path = format!(
-            "{}/{}.container",
-            self.config.quadlet_persistent_dir(),
-            name
-        );
-        let _ = fs::remove_file(&persistent_path);
+        // Remove quadlet from both locations (we don't track which was used)
+        let filename = format!("{}.container", name);
+        let _ = fs::remove_file(format!("{}/{}", self.config.quadlet_runtime_dir(), filename));
+        let _ = fs::remove_file(format!("{}/{}", self.config.quadlet_persistent_dir(), filename));
 
         // daemon-reload
         if let Err(e) = self.systemctl(&["daemon-reload"]) {
@@ -142,6 +117,10 @@ impl Executor {
     }
 
     fn add_firewall_port(&self, port: u16, protocol: PortProtocol) -> HelperResponse {
+        if let Err(e) = validation::validate_port_range(port, &self.config) {
+            return HelperResponse::err(e);
+        }
+
         let proto = protocol.to_string();
         let result = self.nft(&[
             "add",
@@ -161,6 +140,10 @@ impl Executor {
     }
 
     fn remove_firewall_port(&self, port: u16, protocol: PortProtocol) -> HelperResponse {
+        if let Err(e) = validation::validate_port_range(port, &self.config) {
+            return HelperResponse::err(e);
+        }
+
         let proto = protocol.to_string();
         let result = self.nft(&[
             "delete",
@@ -185,6 +168,16 @@ impl Executor {
         hostname: &str,
         upstream_port: u16,
     ) -> HelperResponse {
+        if let Err(e) = validation::validate_name(name) {
+            return HelperResponse::err(e);
+        }
+        if let Err(e) = validation::validate_hostname(hostname, &self.config.hostname_allowlist) {
+            return HelperResponse::err(e);
+        }
+        if let Err(e) = validation::validate_port_range(upstream_port, &self.config) {
+            return HelperResponse::err(e);
+        }
+
         let route = serde_json::json!({
             "@id": format!("deployd-{}", name),
             "match": [{"host": [hostname]}],
@@ -213,6 +206,10 @@ impl Executor {
     }
 
     fn remove_caddy_route(&self, name: &str) -> HelperResponse {
+        if let Err(e) = validation::validate_name(name) {
+            return HelperResponse::err(e);
+        }
+
         let url = format!("{}/id/deployd-{}", self.config.caddy_admin_url, name);
 
         match ureq::delete(&url).call() {

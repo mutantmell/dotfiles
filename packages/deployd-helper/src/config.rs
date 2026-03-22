@@ -11,6 +11,7 @@ pub struct Config {
     pub hostname_allowlist: Vec<String>,
     pub port_range_min: u16,
     pub port_range_max: u16,
+    #[allow(dead_code)] // Reserved for Phase D4 (iSCSI state)
     pub state_dir: String,
     pub audit_log_path: String,
     pub bridge_name: String,
@@ -54,12 +55,14 @@ impl Config {
         })
     }
 
-    pub fn quadlet_runtime_dir(&self) -> String {
-        "/run/containers/systemd".to_string()
+    /// Runtime quadlet directory (tmpfs, cleared on reboot).
+    pub fn quadlet_runtime_dir(&self) -> &'static str {
+        "/run/containers/systemd"
     }
 
-    pub fn quadlet_persistent_dir(&self) -> String {
-        format!("{}/quadlets", self.state_dir)
+    /// Persistent quadlet directory (native Podman location, survives reboots).
+    pub fn quadlet_persistent_dir(&self) -> &'static str {
+        "/etc/containers/systemd"
     }
 }
 

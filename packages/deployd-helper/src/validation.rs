@@ -7,13 +7,16 @@ pub fn validate_container(def: &ContainerDefinition, config: &Config) -> Result<
     validate_image(&def.image, &config.registry_allowlist)?;
     validate_ports(def, config)?;
     validate_volumes(&def.volumes)?;
+    validate_env(&def.env)?;
     if let Some(ref ingress) = def.ingress {
         validate_hostname(&ingress.hostname, &config.hostname_allowlist)?;
     }
     Ok(())
 }
 
-fn validate_name(name: &str) -> Result<(), String> {
+/// Validate a name used in standalone commands (Teardown, AddCaddyRoute, RemoveCaddyRoute).
+/// Same rules as container names — prevents path traversal and injection.
+pub fn validate_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("container name must not be empty".into());
     }
@@ -112,7 +115,21 @@ fn validate_volumes(
     Ok(())
 }
 
-fn validate_hostname(hostname: &str, allowlist: &[String]) -> Result<(), String> {
+/// Validate a host port against the configured range.
+/// Used by standalone AddFirewallPort/RemoveFirewallPort commands.
+pub fn validate_port_range(port: u16, config: &Config) -> Result<(), String> {
+    if port < config.port_range_min || port > config.port_range_max {
+        return Err(format!(
+            "port {} is outside permitted range {}-{}",
+            port, config.port_range_min, config.port_range_max
+        ));
+    }
+    Ok(())
+}
+
+/// Validate a hostname against the allowlist.
+/// Used by standalone AddCaddyRoute command.
+pub fn validate_hostname(hostname: &str, allowlist: &[String]) -> Result<(), String> {
     if allowlist.is_empty() {
         return Err("hostname allowlist is empty — no hostnames are permitted".into());
     }
@@ -122,6 +139,37 @@ fn validate_hostname(hostname: &str, allowlist: &[String]) -> Result<(), String>
             "hostname '{}' does not match any permitted hostname suffix",
             hostname
         ));
+    }
+    Ok(())
+}
+
+/// Validate environment variable keys and values for quadlet file safety.
+/// Rejects characters that could inject systemd unit directives.
+fn validate_env(env: &std::collections::HashMap<String, String>) -> Result<(), String> {
+    for (key, value) in env {
+        if key.is_empty() {
+            return Err("environment variable key must not be empty".into());
+        }
+        // Keys: only alphanumeric + underscore, must start with letter or underscore
+        if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(format!(
+                "environment variable key '{}' contains invalid characters (only alphanumeric and underscore allowed)",
+                key
+            ));
+        }
+        if key.starts_with(|c: char| c.is_ascii_digit()) {
+            return Err(format!(
+                "environment variable key '{}' must not start with a digit",
+                key
+            ));
+        }
+        // Values: reject newlines and carriage returns (could inject unit file directives)
+        if value.contains('\n') || value.contains('\r') {
+            return Err(format!(
+                "environment variable '{}' value contains newline characters",
+                key
+            ));
+        }
     }
     Ok(())
 }
@@ -336,5 +384,74 @@ mod tests {
     fn test_hostname_empty_allowlist() {
         let allowlist: Vec<String> = vec![];
         assert!(validate_hostname("myapp.internal", &allowlist).is_err());
+    }
+
+    // --- Port range validation (standalone) ---
+
+    #[test]
+    fn test_standalone_port_range_valid() {
+        let config = test_config();
+        assert!(validate_port_range(8080, &config).is_ok());
+        assert!(validate_port_range(1024, &config).is_ok());
+        assert!(validate_port_range(65535, &config).is_ok());
+    }
+
+    #[test]
+    fn test_standalone_port_range_invalid() {
+        let config = test_config();
+        assert!(validate_port_range(80, &config).is_err());
+        assert!(validate_port_range(443, &config).is_err());
+        assert!(validate_port_range(1023, &config).is_err());
+    }
+
+    // --- Environment variable validation ---
+
+    #[test]
+    fn test_valid_env() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("FOO".into(), "bar".into());
+        env.insert("DATABASE_URL".into(), "postgres://localhost/db".into());
+        env.insert("_PRIVATE".into(), "value".into());
+        assert!(validate_env(&env).is_ok());
+    }
+
+    #[test]
+    fn test_env_key_empty() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("".into(), "value".into());
+        assert!(validate_env(&env).is_err());
+    }
+
+    #[test]
+    fn test_env_key_invalid_chars() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("FOO-BAR".into(), "value".into());
+        assert!(validate_env(&env).is_err());
+
+        let mut env = std::collections::HashMap::new();
+        env.insert("FOO.BAR".into(), "value".into());
+        assert!(validate_env(&env).is_err());
+
+        let mut env = std::collections::HashMap::new();
+        env.insert("FOO BAR".into(), "value".into());
+        assert!(validate_env(&env).is_err());
+    }
+
+    #[test]
+    fn test_env_key_starts_with_digit() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("1FOO".into(), "value".into());
+        assert!(validate_env(&env).is_err());
+    }
+
+    #[test]
+    fn test_env_value_newline_injection() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("FOO".into(), "bar\nExecStart=/bin/malicious".into());
+        assert!(validate_env(&env).is_err());
+
+        let mut env = std::collections::HashMap::new();
+        env.insert("FOO".into(), "bar\r\nExecStart=/bin/malicious".into());
+        assert!(validate_env(&env).is_err());
     }
 }

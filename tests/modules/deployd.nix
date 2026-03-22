@@ -44,8 +44,11 @@ in
         caddy.enable = false;
       };
 
-      # nft CLI for test assertions
-      environment.systemPackages = [pkgs.nftables];
+      # Test tools
+      environment.systemPackages = [
+        pkgs.nftables
+        pkgs.python3  # for socket protocol tests
+      ];
 
       # Test VM needs more resources
       virtualisation = {
@@ -74,11 +77,11 @@ in
 
       # State directories exist
       host.succeed("test -d /var/lib/deployd")
-      host.succeed("test -d /var/lib/deployd/quadlets")
       host.succeed("test -d /var/log/deployd")
 
-      # Quadlet runtime directory exists
+      # Quadlet directories exist (runtime + persistent)
       host.succeed("test -d /run/containers/systemd")
+      host.succeed("test -d /etc/containers/systemd")
 
       # Podman is available
       host.succeed("podman --version")
@@ -87,5 +90,61 @@ in
       host.succeed("nft add element inet container-deploy allowed_ports { 8080 }")
       host.succeed("nft list set inet container-deploy allowed_ports | grep 8080")
       host.succeed("nft delete element inet container-deploy allowed_ports { 8080 }")
+
+      # Socket protocol: valid Status command returns success
+      host.succeed(
+          """
+          python3 -c '
+      import socket, json, os
+
+      sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+      sock.connect("/run/deployd/deployd.sock")
+
+      msg = json.dumps({"token": "test-capability-token", "command": {"type": "Status"}})
+      sock.sendall((msg + chr(10)).encode())
+
+      data = b""
+      while b"\\n" not in data:
+          chunk = sock.recv(4096)
+          if not chunk:
+              break
+          data += chunk
+      resp = json.loads(data.decode())
+      assert resp["success"] is True, f"expected success, got: {resp}"
+      assert "running" in resp["message"], f"unexpected message: {resp}"
+      sock.close()
+      '
+          """
+      )
+
+      # Socket protocol: invalid token is rejected
+      host.succeed(
+          """
+          python3 -c '
+      import socket, json
+
+      sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+      sock.connect("/run/deployd/deployd.sock")
+
+      msg = json.dumps({"token": "wrong-token", "command": {"type": "Status"}})
+      sock.sendall((msg + chr(10)).encode())
+
+      data = b""
+      while b"\\n" not in data:
+          chunk = sock.recv(4096)
+          if not chunk:
+              break
+          data += chunk
+      resp = json.loads(data.decode())
+      assert resp["success"] is False, f"expected failure, got: {resp}"
+      assert "token" in resp["message"].lower(), f"unexpected message: {resp}"
+      sock.close()
+      '
+          """
+      )
+
+      # Audit log is written after socket interactions
+      host.succeed("test -f /var/log/deployd/audit.log")
+      host.succeed("grep '\"command\":\"Status\"' /var/log/deployd/audit.log")
     '';
   }
