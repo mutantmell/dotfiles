@@ -1,0 +1,185 @@
+mod audit;
+mod config;
+mod executor;
+mod protocol;
+mod quadlet;
+mod validation;
+
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::UnixListener;
+use std::path::Path;
+use tracing::{error, info, warn};
+
+use config::Config;
+use executor::Executor;
+use protocol::{HelperMessage, HelperResponse};
+
+/// Maximum allowed message size (1 MiB). Prevents memory exhaustion from
+/// a compromised or misbehaving client sending unbounded data.
+const MAX_MESSAGE_SIZE: usize = 1_048_576;
+
+fn main() {
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .json()
+        .init();
+
+    let config = match Config::from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            error!("configuration error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Clean up stale socket
+    let socket_path = Path::new(&config.socket_path);
+    if socket_path.exists() {
+        if let Err(e) = std::fs::remove_file(socket_path) {
+            error!("failed to remove stale socket: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    let listener = match UnixListener::bind(socket_path) {
+        Ok(l) => l,
+        Err(e) => {
+            error!("failed to bind socket at {}: {}", config.socket_path, e);
+            std::process::exit(1);
+        }
+    };
+
+    // Set socket permissions so the deployd user can connect
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o660);
+        if let Err(e) = std::fs::set_permissions(socket_path, perms) {
+            error!("failed to set socket permissions: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    info!(socket = %config.socket_path, "deployd-helper listening");
+
+    let executor = Executor::new(config.clone());
+
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => {
+                let peer_uid = match get_peer_uid(&stream) {
+                    Ok(uid) => uid,
+                    Err(e) => {
+                        warn!("failed to get peer credentials: {}", e);
+                        continue;
+                    }
+                };
+
+                // SO_PEERCRED: only accept the configured deployd UID.
+                // Root (UID 0) is also accepted for operational debugging —
+                // capability token is still required on every message regardless.
+                if peer_uid != config.allowed_uid && peer_uid != 0 {
+                    warn!(peer_uid, "rejecting connection from unauthorized UID");
+                    continue;
+                }
+
+                info!(peer_uid, "accepted connection");
+
+                handle_connection(stream, peer_uid, &config, &executor);
+            }
+            Err(e) => {
+                error!("accept failed: {}", e);
+            }
+        }
+    }
+}
+
+fn get_peer_uid(stream: &std::os::unix::net::UnixStream) -> Result<u32, String> {
+    use std::os::unix::io::AsRawFd;
+
+    let fd = stream.as_raw_fd();
+    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+
+    let ret = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            &mut cred as *mut _ as *mut libc::c_void,
+            &mut len,
+        )
+    };
+
+    if ret == 0 {
+        Ok(cred.uid)
+    } else {
+        Err(format!(
+            "getsockopt SO_PEERCRED failed: {}",
+            std::io::Error::last_os_error()
+        ))
+    }
+}
+
+fn handle_connection(
+    stream: std::os::unix::net::UnixStream,
+    peer_uid: u32,
+    config: &Config,
+    executor: &Executor,
+) {
+    let reader = BufReader::new(&stream);
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                error!("read error: {}", e);
+                break;
+            }
+        };
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        if line.len() > MAX_MESSAGE_SIZE {
+            warn!(size = line.len(), "rejecting oversized message");
+            let resp = HelperResponse::err("message exceeds maximum size");
+            let _ = write_response(&stream, &resp);
+            continue;
+        }
+
+        let msg: HelperMessage = match serde_json::from_str(&line) {
+            Ok(m) => m,
+            Err(e) => {
+                warn!("invalid message: {}", e);
+                let resp = HelperResponse::err(format!("invalid message format: {}", e));
+                let _ = write_response(&stream, &resp);
+                continue;
+            }
+        };
+
+        // Validate capability token
+        if msg.token != config.capability_token {
+            warn!(peer_uid, "invalid capability token");
+            let resp = HelperResponse::err("invalid capability token");
+            let _ = write_response(&stream, &resp);
+            continue;
+        }
+
+        let response = executor.execute(peer_uid, &msg.command);
+        if let Err(e) = write_response(&stream, &response) {
+            error!("failed to write response: {}", e);
+            break;
+        }
+    }
+}
+
+fn write_response(
+    stream: &std::os::unix::net::UnixStream,
+    response: &HelperResponse,
+) -> Result<(), String> {
+    let mut stream = stream;
+    let line = serde_json::to_string(response).map_err(|e| format!("serialize error: {}", e))?;
+    writeln!(stream, "{}", line).map_err(|e| format!("write error: {}", e))
+}

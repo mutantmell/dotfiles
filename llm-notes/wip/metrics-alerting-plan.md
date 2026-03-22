@@ -45,14 +45,14 @@ config, so tharbad can reach exporters in those zones without extra firewall rul
 
 ### Stack Selection
 
-| Component       | Choice                 | Rationale                                                                                                  |
-| --------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Metrics         | **Prometheus**         | Already running on tharbad, NixOS module is mature, pull-based model works well for homelab                |
-| Visualization   | **Perses**             | Prometheus-native; dashboards-as-code (declarative/GitOps-first), replaces Grafana                         |
-| Log aggregation | **Loki**               | Already running on tharbad, designed for Prometheus stack, low resource usage vs ELK                       |
-| Log shipping    | **Promtail**           | Native Loki companion; can scrape systemd journal on each host                                             |
-| Alerting        | **Alertmanager**       | Native Prometheus integration, supports multiple notification channels                                     |
-| Notifications   | **ntfy** (self-hosted) | See Notification System section below                                                                      |
+| Component       | Choice                 | Rationale                                                                                   |
+| --------------- | ---------------------- | ------------------------------------------------------------------------------------------- |
+| Metrics         | **Prometheus**         | Already running on tharbad, NixOS module is mature, pull-based model works well for homelab |
+| Visualization   | **Perses**             | Prometheus-native; dashboards-as-code (declarative/GitOps-first), replaces Grafana          |
+| Log aggregation | **Loki**               | Already running on tharbad, designed for Prometheus stack, low resource usage vs ELK        |
+| Log shipping    | **Promtail**           | Native Loki companion; can scrape systemd journal on each host                              |
+| Alerting        | **Alertmanager**       | Native Prometheus integration, supports multiple notification channels                      |
+| Notifications   | **ntfy** (self-hosted) | See Notification System section below                                                       |
 
 ### Why not VictoriaMetrics / Mimir / Thanos?
 
@@ -176,11 +176,11 @@ Strict egress filter — tharbad should only talk to known targets:
 
 ### Secrets (sops-nix)
 
-| Secret                   | Used by                                           |
-| ------------------------ | ------------------------------------------------- |
-| `ntfy-auth-token`        | ntfy access control                               |
-| `alertmanager-ntfy-url`  | Alertmanager webhook config (includes topic auth) |
-| `perses-oidc-secret`     | Perses → Keycloak OIDC                             |
+| Secret                  | Used by                                           |
+| ----------------------- | ------------------------------------------------- |
+| `ntfy-auth-token`       | ntfy access control                               |
+| `alertmanager-ntfy-url` | Alertmanager webhook config (includes topic auth) |
+| `perses-oidc-secret`    | Perses → Keycloak OIDC                            |
 
 ---
 

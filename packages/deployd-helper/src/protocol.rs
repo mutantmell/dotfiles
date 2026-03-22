@@ -1,0 +1,120 @@
+use serde::{Deserialize, Serialize};
+
+/// Wire protocol between deployd API (microVM) and deployd-helper (host).
+/// Each message is a newline-delimited JSON object prefixed by a capability token.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HelperMessage {
+    pub token: String,
+    pub command: HelperCommand,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum HelperCommand {
+    Deploy(ContainerDefinition),
+    Teardown {
+        name: String,
+    },
+    AddFirewallPort {
+        port: u16,
+        protocol: PortProtocol,
+    },
+    RemoveFirewallPort {
+        port: u16,
+        protocol: PortProtocol,
+    },
+    AddCaddyRoute {
+        name: String,
+        hostname: String,
+        upstream_port: u16,
+    },
+    RemoveCaddyRoute {
+        name: String,
+    },
+    Status,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerDefinition {
+    pub name: String,
+    pub image: String,
+    #[serde(default)]
+    pub ports: Vec<PortMapping>,
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub volumes: Vec<VolumeMount>,
+    #[serde(default)]
+    pub persistent: bool,
+    pub ingress: Option<IngressConfig>,
+    /// Reserved for iSCSI block storage add-on (Phase D4).
+    /// Volume ID previously allocated via the deployd API.
+    #[serde(default)]
+    pub block_volume: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortMapping {
+    pub host: u16,
+    pub container: u16,
+    #[serde(default = "default_tcp")]
+    pub protocol: PortProtocol,
+}
+
+fn default_tcp() -> PortProtocol {
+    PortProtocol::Tcp
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PortProtocol {
+    Tcp,
+    Udp,
+}
+
+impl std::fmt::Display for PortProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PortProtocol::Tcp => write!(f, "tcp"),
+            PortProtocol::Udp => write!(f, "udp"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeMount {
+    pub host: String,
+    pub container: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngressConfig {
+    pub hostname: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HelperResponse {
+    pub success: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+}
+
+impl HelperResponse {
+    pub fn ok(message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            message: message.into(),
+            data: None,
+        }
+    }
+
+    pub fn err(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            message: message.into(),
+            data: None,
+        }
+    }
+}

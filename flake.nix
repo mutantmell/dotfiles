@@ -45,6 +45,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = {
     self,
@@ -62,11 +66,16 @@
     nixos-wsl,
     deploy-rs,
     treefmt-nix,
+    rust-overlay,
   }: let
     pkgsFor = basepkgs: system:
       import basepkgs {
         inherit system;
-        overlays = builtins.attrValues self.overlays;
+        overlays =
+          builtins.attrValues self.overlays
+          ++ [
+            (import rust-overlay)
+          ];
         config.allowUnfree = true;
       };
     allSystems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
@@ -86,8 +95,11 @@
       default = pkgs.mkShell {
         packages = [
           pkgs.bashInteractive
-          pkgs.sops
-          pkgs.ssh-to-age
+          #          pkgs.sops
+          #          pkgs.ssh-to-age
+          pkgs.openssl
+          pkgs.pkg-config
+          pkgs.rust-bin.stable.latest.default
         ];
       };
     });
@@ -98,7 +110,6 @@
       pkgs,
       ...
     }: {
-      cc = pkgs.claude-code;
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
       };
@@ -131,6 +142,9 @@
           rsync
           xz
           ;
+      };
+      deployd-helper = import packages/deployd-helper {
+        inherit (pkgs) lib rustPlatform;
       };
       openwrt-deployer = import ./packages/openwrt-deployer {
         inherit (pkgs) lib stdenv makeWrapper openssh coreutils;
@@ -308,6 +322,7 @@
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
           self.nixosModules.incus
+          self.nixosModules.deployd
           ./hosts/erebonia
         ];
       };

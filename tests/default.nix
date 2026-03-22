@@ -12,6 +12,7 @@
 (import ./router6.nix {inherit pkgs lib;})
 // {
   # Incus integration tests
+  deployd = import ./modules/deployd.nix {inherit pkgs lib;};
   incus-container = import ./modules/incus-container.nix {inherit pkgs lib;};
   incus-vm = import ./modules/incus-vm.nix {inherit pkgs lib;};
 
