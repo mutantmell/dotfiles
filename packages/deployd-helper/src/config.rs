@@ -11,8 +11,6 @@ pub struct Config {
     pub hostname_allowlist: Vec<String>,
     pub port_range_min: u16,
     pub port_range_max: u16,
-    #[allow(dead_code)] // Reserved for Phase D4 (iSCSI state)
-    pub state_dir: String,
     pub audit_log_path: String,
     pub bridge_name: String,
     pub nftables_table: String,
@@ -40,7 +38,6 @@ impl Config {
             port_range_max: env_or("DEPLOYD_PORT_RANGE_MAX", "65535")
                 .parse()
                 .map_err(|e| format!("DEPLOYD_PORT_RANGE_MAX: {}", e))?,
-            state_dir: env_or("DEPLOYD_STATE_DIR", "/var/lib/deployd"),
             audit_log_path: env_or("DEPLOYD_AUDIT_LOG", "/var/log/deployd/audit.log"),
             bridge_name: env_or("DEPLOYD_BRIDGE_NAME", "br-deploy"),
             nftables_table: env_or("DEPLOYD_NFTABLES_TABLE", "container-deploy"),

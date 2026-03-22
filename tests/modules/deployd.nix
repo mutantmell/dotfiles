@@ -75,8 +75,7 @@ in
       # Socket file exists
       host.succeed("test -S /run/deployd/deployd.sock")
 
-      # State directories exist
-      host.succeed("test -d /var/lib/deployd")
+      # Log directory exists
       host.succeed("test -d /var/log/deployd")
 
       # Quadlet directories exist (runtime + persistent)
