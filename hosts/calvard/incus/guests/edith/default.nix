@@ -13,6 +13,7 @@
     profile = "dev";
     bridge = "br21";
     limits.memory = "16GB";
+    limits.disk = "100GB";
   };
 
   nix.settings.experimental-features = ["nix-command" "flakes"];

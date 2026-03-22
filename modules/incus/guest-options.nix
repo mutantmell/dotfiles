@@ -46,6 +46,13 @@ in {
         description = "Memory limit for this instance (e.g. \"8GB\"). Applied via incus config set.";
         example = "8GB";
       };
+
+      disk = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = "Root disk size for this instance (e.g. \"100GB\"). Overrides the profile's root disk size.";
+        example = "100GB";
+      };
     };
   };
 
