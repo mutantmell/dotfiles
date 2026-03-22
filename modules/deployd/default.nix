@@ -189,8 +189,8 @@ in {
 
       # Directory structure
       systemd.tmpfiles.rules = [
-        "d /run/containers/systemd 0775 root root - -"
-        "d /etc/containers/systemd 0755 root root - -"
+        "d /run/containers/systemd 0775 root deployd-helper - -"
+        "d /etc/containers/systemd 0775 root deployd-helper - -"
         "d /run/deployd 0750 deployd-helper deployd-helper - -"
         "d ${cfg.stateDir} 0750 deployd-helper deployd-helper - -"
         "d /var/log/deployd 0750 deployd-helper deployd-helper - -"
@@ -234,9 +234,9 @@ in {
         serviceConfig = {
           User = "deployd-helper";
           Group = "deployd-helper";
-          AmbientCapabilities = ["CAP_NET_ADMIN" "CAP_DAC_OVERRIDE"];
-          CapabilityBoundingSet = ["CAP_NET_ADMIN" "CAP_DAC_OVERRIDE"];
-          NoNewPrivileges = false; # required for capability use
+          AmbientCapabilities = ["CAP_NET_ADMIN"];
+          CapabilityBoundingSet = ["CAP_NET_ADMIN"];
+          NoNewPrivileges = true;
           ProtectSystem = "strict";
           ReadWritePaths = [
             "/run/containers/systemd"
@@ -245,6 +245,7 @@ in {
             cfg.stateDir
             "/var/log/deployd"
           ];
+          UMask = "0027";
           RestrictAddressFamilies = ["AF_UNIX" "AF_NETLINK" "AF_INET"];
           RestrictNamespaces = true;
           SystemCallFilter = ["@system-service" "~@privileged"];
