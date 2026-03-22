@@ -74,10 +74,23 @@ let
       INSTANCE="${name}"
       IMAGE_ALIAS="${name}"
 
-      # Import image if alias doesn't exist
-      if ! ${pkgs.incus}/bin/incus image list --format=csv -c l | grep -q "^$IMAGE_ALIAS$"; then
+      # Import or update image
+      # Track the nix store path of the image derivation in a marker file.
+      # When the NixOS config changes, the derivation path changes, triggering
+      # a reimport so that any newly created instances use the latest image.
+      IMAGE_MARKER="/var/lib/incus/.image-source-$IMAGE_ALIAS"
+      EXPECTED_SOURCE="${image}"
+
+      if [ -f "$IMAGE_MARKER" ] && [ "$(cat "$IMAGE_MARKER")" = "$EXPECTED_SOURCE" ]; then
+        echo "Image $IMAGE_ALIAS is up to date"
+      else
+        if ${pkgs.incus}/bin/incus image list --format=csv -c l | grep -q "^$IMAGE_ALIAS$"; then
+          echo "Image $IMAGE_ALIAS has changed, replacing..."
+          ${pkgs.incus}/bin/incus image delete "$IMAGE_ALIAS"
+        fi
         echo "Importing image: $IMAGE_ALIAS"
         ${pkgs.incus}/bin/incus image import ${imageFiles} --alias "$IMAGE_ALIAS"
+        echo "$EXPECTED_SOURCE" > "$IMAGE_MARKER"
       fi
 
       # Create instance if it doesn't exist
