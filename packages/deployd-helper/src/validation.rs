@@ -189,7 +189,6 @@ mod tests {
             hostname_allowlist: vec![".internal".into()],
             port_range_min: 1024,
             port_range_max: 65535,
-            state_dir: "/tmp/deployd".into(),
             audit_log_path: "/tmp/deployd/audit.log".into(),
             bridge_name: "br-deploy".into(),
             nftables_table: "container-deploy".into(),

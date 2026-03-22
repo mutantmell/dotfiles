@@ -38,11 +38,6 @@ in {
           group = "root";
         }
         {
-          directory = "/var/lib/deployd";
-          user = "deployd-helper";
-          group = "deployd-helper";
-        }
-        {
           directory = "/var/log/deployd";
           user = "deployd-helper";
           group = "deployd-helper";

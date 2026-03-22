@@ -187,12 +187,23 @@ in {
       };
       users.groups.deployd-helper = {};
 
+      # Polkit rule: allow deployd-helper to manage container units via systemctl.
+      # Scoped to daemon-reload and unit start/stop only.
+      security.polkit.extraConfig = ''
+        polkit.addRule(function(action, subject) {
+          if (subject.user === "deployd-helper" &&
+              (action.id === "org.freedesktop.systemd1.manage-units" ||
+               action.id === "org.freedesktop.systemd1.reload-daemon")) {
+            return polkit.Result.YES;
+          }
+        });
+      '';
+
       # Directory structure
       systemd.tmpfiles.rules = [
         "d /run/containers/systemd 0775 root deployd-helper - -"
         "d /etc/containers/systemd 0775 root deployd-helper - -"
         "d /run/deployd 0750 deployd-helper deployd-helper - -"
-        "d ${cfg.stateDir} 0750 deployd-helper deployd-helper - -"
         "d /var/log/deployd 0750 deployd-helper deployd-helper - -"
       ];
 
@@ -211,7 +222,6 @@ in {
           DEPLOYD_HOSTNAME_ALLOWLIST = builtins.concatStringsSep "," cfg.hostnameAllowlist;
           DEPLOYD_PORT_RANGE_MIN = toString cfg.portRange.min;
           DEPLOYD_PORT_RANGE_MAX = toString cfg.portRange.max;
-          DEPLOYD_STATE_DIR = cfg.stateDir;
           DEPLOYD_AUDIT_LOG = cfg.auditLogPath;
           DEPLOYD_BRIDGE_NAME = cfg.bridge.name;
           DEPLOYD_NFTABLES_TABLE = "container-deploy";
@@ -242,7 +252,6 @@ in {
             "/run/containers/systemd"
             "/etc/containers/systemd"
             "/run/deployd"
-            cfg.stateDir
             "/var/log/deployd"
           ];
           UMask = "0027";
