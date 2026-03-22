@@ -1,271 +1,355 @@
-# Disko-based Incus VM Image Builder
+# XFS Support for Incus VM Images
 
 ## Problem
 
-Incus VM images are currently built via nixpkgs' `make-disk-image.nix`, which
-hardcodes ext4 when a partition table is present. This caused a cascading failure:
-disk filled up → ext4 journal corruption → read-only filesystem → GC couldn't
-run → VM unrecoverable. XFS handles full-disk scenarios more gracefully
-(pre-allocated journal, no corruption cascade), but `make-disk-image.nix` can't
-produce XFS images.
+Incus VM images are built via nixpkgs' `make-disk-image.nix`, which hardcodes
+ext4 when a partition table is present. This caused a cascading failure on edith
+(Incus VM on calvard): disk filled up → ext4 journal corruption → read-only
+filesystem → GC couldn't run → VM unrecoverable, had to tear down and recreate.
 
-## Solution
+XFS handles full-disk scenarios more gracefully (pre-allocated journal, returns
+ENOSPC without corruption or forced read-only remount), but
+`make-disk-image.nix` can't produce XFS images with partition tables.
 
-Replace `make-disk-image.nix` with disko's `system.build.diskoImages` for Incus
-VM image building. Disko has its own image builder that runs inside a QEMU VM
-during the Nix build, supports arbitrary filesystems (XFS, btrfs, ZFS), and
-outputs qcow2 images.
+## Investigation Summary
 
-## How disko's Image Builder Works
+We explored two alternative approaches before concluding that an upstream fix is
+the right answer:
 
-Disko's `make-disk-image.nix` (at `lib/make-disk-image.nix` in the disko flake):
+### Approach 1: Disko Image Builder (Rejected — too much overhead)
 
-1. **Pre-VM**: Creates empty qcow2 disk images sized per `disko.devices.disk.*.imageSize`
-2. **In-VM**: Boots a QEMU VM with OVMF (UEFI), runs disko's
-   `destroyFormatMount` to partition and format disks, then runs `nixos-install`
-   to populate the filesystem from the NixOS closure
-3. **Post-VM**: Outputs the qcow2 images
+Disko has its own `system.build.diskoImages` that runs disko inside a QEMU VM
+during the Nix build, supporting arbitrary filesystems. This works (validated
+with eval tests) but requires:
+- A new disko profile for Incus VMs
+- Replacing or cherry-picking from `incus-virtual-machine.nix` (it conflicts
+  with disko's fileSystems definitions — confirmed via eval test)
+- Wiring `system.build.diskoImages` into the incus-manager module
+- Slower builds (full VM boot vs LKL tooling)
 
-Key options:
-- `disko.imageBuilder.imageFormat` — `"raw"` (default) or `"qcow2"`
-- `disko.imageBuilder.copyNixStore` — whether to populate the nix store (default `true`)
-- `disko.imageBuilder.extraPostVM` — post-processing (e.g. compression)
-- `disko.imageBuilder.extraConfig` — extra NixOS config for the build VM
-  (useful for dummy LUKS keys)
-- `disko.memSize` — RAM for the build VM (in MiB)
-- `disko.devices.disk.*.imageSize` — size of each disk image
-- `disko.devices.disk.*.imageName` — filename for each disk image
+This is a lot of machinery for what is fundamentally a one-line limitation in
+`make-disk-image.nix`.
 
-Output: `system.build.diskoImages` — a derivation containing the disk images.
+### Approach 2: guestfish (Rejected — custom image pipeline)
 
-## Critical Blocker: `incus-virtual-machine.nix` Conflict
+Follow microvm.nix's pattern using `parted` + `guestfish` to build images.
+`guestfish mkfs xfs` supports XFS natively. But this means maintaining a custom
+image builder — essentially writing a second `make-disk-image.nix`.
 
-The `incus-virtual-machine.nix` module from nixpkgs hardcodes ext4 `fileSystems`
-entries for `/` and `/boot`, and produces `system.build.qemuImage` via nixpkgs'
-`make-disk-image.nix`. Disko needs to replace both the filesystem definitions
-and the image builder. **Resolving this conflict is the first thing to
-investigate** — if `mkForce` on disko's fileSystems is sufficient, the rest of
-the plan is straightforward. If not, we may need to stop importing
-`incus-virtual-machine.nix` entirely and instead cherry-pick just the parts we
-need (incus agent, qemu guest profile, kernel params, CPU hotplug udev rule).
+### Approach 3: Upstream PR to `make-disk-image.nix` (Recommended)
 
-## Implementation Plan
+Fix the root cause in nixpkgs. The ext4 hardcoding exists for two specific
+reasons, both solvable:
 
-### Step 1: Create a disko profile for Incus VMs
+1. **`mkfs` and `cptofs` use ext4-specific flags** — need filesystem-aware
+   formatting and copying
+2. **An assertion blocks non-ext4 with partition tables** — needs to be relaxed
 
-Create `profiles/disko/incus-vm.nix` — a simple XFS layout without LUKS
-(encryption is unnecessary for VMs running on an already-encrypted host).
+This is the least overhead, benefits the entire NixOS community, and keeps our
+Incus module unchanged.
+
+## What Needs to Change in `make-disk-image.nix`
+
+The file is at `<nixpkgs>/nixos/lib/make-disk-image.nix`. All line references
+are to the current version (nixpkgs 25.05).
+
+### Change 1: Remove the ext4 assertion (line 222)
 
 ```nix
-# profiles/disko/incus-vm.nix
-{ disk ? "/dev/vda", ... }: {
-  disko.devices = {
-    disk.main = {
-      type = "disk";
-      device = disk;
-      imageSize = "10G";  # minimum image size; incus grows at runtime
-      content = {
-        type = "gpt";
-        partitions = {
-          esp = {
-            name = "ESP";
-            size = "256M";
-            type = "EF00";
-            content = {
-              type = "filesystem";
-              format = "vfat";
-              mountpoint = "/boot";
-              mountOptions = [ "fmask=0077" "dmask=0077" ];
-            };
-          };
-          root = {
-            name = "nixos";
-            size = "100%";
-            content = {
-              type = "filesystem";
-              format = "xfs";
-              mountpoint = "/";
-              mountOptions = [ "defaults" "noatime" ];
-            };
-          };
-        };
-      };
-    };
-  };
-}
+# CURRENT (line 222):
+assert (
+  lib.assertMsg (partitionTableType != "none" -> fsType == "ext4")
+    "to produce a partition table, we need to use -E offset flag which is support only for fsType = ext4"
+);
+
+# PROPOSED: allow ext4 and xfs
+assert (
+  lib.assertMsg (partitionTableType != "none" -> lib.elem fsType ["ext4" "xfs"])
+    "partitioned disk images currently support fsType ext4 or xfs"
+);
 ```
 
-Design decisions:
-- **No LUKS**: The host disk is already encrypted. Adding LUKS to a VM image
-  complicates the build (needs a dummy key for image creation) and adds overhead
-  with no security benefit.
-- **XFS root**: Handles full-disk gracefully — returns ENOSPC without journal
-  corruption or forced read-only remount.
-- **Small `imageSize`**: The image only needs to hold the initial NixOS closure.
-  Incus grows the disk to `limits.disk` at runtime, and NixOS's
-  `boot.growPartition = true` + XFS's `autoResize = true` expand it on boot.
-- **`/dev/vda`**: The virtio disk device name used by Incus/QEMU VMs.
+### Change 2: Make `mkfs` invocation filesystem-aware (lines 613-625)
 
-### Step 2: Add disko to the edith guest config
+The current code uses ext4-specific flags (`-b`, `-F`, `-E offset=`):
 
-Modify `hosts/calvard/incus/guests/edith/default.nix`:
-
-```nix
-{
-  imports = [
-    ./sops.nix
-    (import ../../../../profiles/disko/incus-vm.nix { })
-  ];
-
-  disko.imageBuilder.imageFormat = "qcow2";
-
-  # Remove the fileSystems config from incus-virtual-machine.nix
-  # since disko now manages the partition layout
-  fileSystems = lib.mkForce { };  # disko provides these
-
-  # ... rest of edith's config unchanged ...
-}
+```bash
+# CURRENT (line 619):
+mkfs.${fsType} -b ${blockSize} -F -L ${label} $diskImage -E offset=$(sectorsToBytes $START) $(sectorsToKilobytes $SECTORS)K
 ```
 
-**Open question**: `incus-virtual-machine.nix` sets `fileSystems."/"` and
-`fileSystems."/boot"` with hardcoded ext4/vfat. We need to override or disable
-those. Options:
-- `lib.mkForce` on the disko-provided fileSystems
-- Don't import `incus-virtual-machine.nix` at all; instead import only the parts
-  we need (incus agent, qemu guest profile, kernel params)
-- Use disko's `disko.testMode` which may handle this
+XFS's `mkfs.xfs` has completely different flags. The fix is to branch:
 
-This needs investigation. The `incus-virtual-machine.nix` module provides:
-- `system.build.qemuImage` (replaced by `system.build.diskoImages`)
-- `fileSystems` for `/` and `/boot` (replaced by disko)
-- `boot.growPartition = true` (still needed)
-- `boot.loader.systemd-boot.enable = true` (still needed)
-- `boot.loader.grub.device = "/dev/vda"` (still needed for image builder)
-- `boot.kernelParams` for serial console (still needed)
-- CPU hotplug udev rule (still needed)
-- `virtualisation.incus.agent.enable` (still needed)
-
-We may want to keep importing `incus-virtual-machine.nix` and just `mkForce`
-the fileSystems, or extract the non-filesystem parts into a separate module.
-
-### Step 3: Update mkVMImage in the incus module
-
-Modify `modules/incus/default.nix` to support disko-based images:
-
-```nix
-mkVMImage = name: guestCfg: let
-  sys = guestCfg.system.config;
-  useDisko = sys ? disko && sys.disko.devices != {};
-in
-  if useDisko then
-    # disko produces images at system.build.diskoImages/<imageName>.<format>
-    pkgs.runCommand "${name}-vm-image" {} ''
-      mkdir -p $out
-      ln -s ${sys.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
-      ln -s ${sys.system.build.diskoImages}/*.qcow2 $out/disk.qcow2
-    ''
+```bash
+# PROPOSED:
+if partitionTableType != "none" then
+  if fsType == "ext4" then
+    # ext4: format with -E offset (LKL in-place formatting without loopback)
+    mkfs.ext4 -b ${blockSize} -F -L ${label} $diskImage -E offset=$(sectorsToBytes $START) $(sectorsToKilobytes $SECTORS)K
   else
-    # Fallback to nixpkgs' make-disk-image.nix (ext4)
-    pkgs.runCommand "${name}-vm-image" {} ''
-      mkdir -p $out
-      ln -s ${sys.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
-      ln -s ${sys.system.build.qemuImage}/*.qcow2 $out/disk.qcow2
-    '';
+    # Other filesystems: extract partition to loopback device and format
+    LOOP=$(losetup --find --show --offset $(sectorsToBytes $START) --sizelimit $(sectorsToBytes $SECTORS) $diskImage)
+    mkfs.${fsType} -L ${label} $LOOP
+    losetup -d $LOOP
 ```
 
-The fallback preserves compatibility — guests without disko continue to use the
-existing ext4 image path.
+**Key insight**: ext4's `mkfs -E offset=` is a special feature that formats a
+partition directly inside a raw disk image without needing a loopback device.
+Other filesystems don't have this — they need `losetup` to expose the partition
+as a block device first.
 
-**Note**: The disko image output path is
-`diskoImages/<imageName>.<imageFormat>` where `imageName` defaults to the disk
-name (e.g., `main`). So the glob `*.qcow2` should work, but verify the exact
-filename.
+However, `losetup` requires root or `/dev/loop*` access, which isn't available
+in a normal Nix sandbox. This code runs inside `vmTools.runInLinuxVM` (the
+in-VM phase at line 660), where loopback IS available. But the `mkfs` call at
+line 619 happens in `prepareImage` (the pre-VM phase, line 428), which runs in
+the Nix sandbox.
 
-### Step 4: Handle the metadata tarball
+**This is the core technical challenge**: ext4's `-E offset` trick lets
+`make-disk-image.nix` format the partition without a VM. For XFS, the formatting
+would need to move into the VM phase (after line 700 where the disk is already
+available as `/dev/vda`).
 
-`system.build.metadata` comes from `incus-virtual-machine.nix` via
-`lxc-instance-common.nix`. This should still work since we're keeping that
-module imported. Verify that disko doesn't interfere with the metadata
-generation.
+### Change 3: Replace `cptofs` for non-ext4 (lines 627-632)
 
-### Step 5: Test
+```bash
+# CURRENT:
+cptofs -p -P ${rootPartition} -t ${fsType} -i $diskImage $root/* /
+```
 
-1. **Build the image**: `nix build .#incusGuests.edith.system.config.system.build.diskoImages`
-   (or however the guest system is exposed). Verify it produces a qcow2 with XFS.
+`cptofs` is an LKL tool that only supports ext4. For XFS, the copy needs to
+happen inside the VM (where the filesystem is mounted at `/mnt`). The flow
+becomes:
 
-2. **Inspect the image**:
-   ```bash
-   qemu-img info result/*.qcow2
-   # Mount and check filesystem type
-   losetup -fP result/*.qcow2
-   lsblk /dev/loop0
-   file -s /dev/loop0p2  # should show XFS
-   ```
+- **ext4 path** (unchanged): `cptofs` in the pre-VM sandbox phase
+- **XFS path**: skip `cptofs` in pre-VM, instead copy files via
+  `nixos-install` in the VM phase (this already happens at line 519, but
+  currently runs in the pre-VM sandbox)
 
-3. **Import and boot in Incus**: Delete the old edith, import the new image,
-   create and start the instance. Verify:
-   - Boots with correct XFS root
-   - Network config is correct
-   - `boot.growPartition` expands to the full disk size
-   - `switch-to-configuration switch` works and persists across reboot
+This means for XFS, both `mkfs` and the file copy need to move from the pre-VM
+`prepareImage` phase into the in-VM `buildImage` phase. The VM phase already
+mounts the disk, installs the bootloader, etc. — it just needs to also handle
+formatting and populating the root filesystem for non-ext4.
 
-4. **Full-disk test**: Fill the disk inside the VM, verify XFS handles it
-   gracefully (ENOSPC errors but no journal corruption, no read-only remount).
+### Change 4: Filesystem-aware size calculation (lines 426, 451-456)
 
-5. **Update the integration test**: Modify `tests/modules/incus-vm.nix` to test
-   with a disko-based image, or add a new test.
+```nix
+# CURRENT:
+blockSize = toString (4 * 1024); # ext4fs block size
+compute_fudge() {  # ext4 reserved space percentage
+  echo $(( $1 * 52 / 1000 ))
+}
+```
 
-### Step 6: Consider for other guests
+XFS has different overhead characteristics. The fudge factor and block size
+should be conditional:
 
-Once proven on edith, this can be adopted for any future Incus VM guests. The
-disko profile is reusable — guests just import it and set their
-`disko.imageBuilder.imageFormat = "qcow2"`.
+```nix
+blockSize = toString (if fsType == "xfs" then 4096 else 4096);  # same default, but explicit
+# XFS doesn't reserve 5% by default like ext4, so fudge can be smaller
+```
 
-## Risks and Open Questions
+In practice, XFS's overhead is lower than ext4's. A simpler approach: keep the
+ext4 fudge for XFS too (slightly oversizes the image, which is fine).
 
-1. **`incus-virtual-machine.nix` conflict**: The biggest unknown. The module
-   hardcodes `fileSystems` entries that conflict with disko. Need to test whether
-   `mkForce` on disko's fileSystems is sufficient, or if we need to split the
-   module apart.
+### Change 5: Add `xfsprogs` to build inputs (line 392-407)
 
-2. **`boot.growPartition`**: Currently uses `cloud-utils` which calls
-   `growpart` (designed for ext4/common partition types). Verify it works with
-   XFS partitions. XFS has its own `xfs_growfs` for filesystem expansion, but
-   the partition itself needs to grow first (GPT-level), then the filesystem.
-   NixOS's `autoResize = true` on the fileSystems entry should handle the
-   filesystem resize via `systemd-growfs`.
+```nix
+binPath = lib.makeBinPath (with pkgs; [
+  rsync util-linux parted e2fsprogs lkl ...
+  # ADD:
+] ++ lib.optional (fsType == "xfs") xfsprogs
+```
 
-3. **Image size**: disko's `imageSize` sets the initial qcow2 size. It needs to
-   be large enough to hold the NixOS closure but small enough that the build
-   doesn't take forever. 10GB should be sufficient for the initial install; Incus
-   grows it to `limits.disk` at runtime.
+And in the VM phase build inputs (line 664):
 
-4. **Build time**: disko's image builder runs a full QEMU VM during the Nix
-   build. This is slower than `make-disk-image.nix`'s LKL approach. Acceptable
-   for a one-time image build, but worth noting.
+```nix
+buildInputs = with pkgs; [
+  util-linux e2fsprogs dosfstools
+  # ADD:
+] ++ lib.optional (fsType == "xfs") xfsprogs;
+```
 
-5. **metadata compatibility**: Verify that `system.build.metadata` (Incus
-   metadata tarball) is still generated correctly when disko is involved. This
-   comes from `lxc-instance-common.nix`, which shouldn't be affected by disko,
-   but needs confirmation.
+### Change 6: Skip ext4-specific tune2fs in VM phase (line 692-694)
 
-6. **Disk device naming**: Incus VMs use virtio (`/dev/vda`). The disko profile
-   must use `/dev/vda`, not `/dev/sda`. The `incus-virtual-machine.nix` module's
-   `boot.loader.grub.device = "/dev/vda"` should still apply.
+```nix
+# CURRENT:
+${lib.optionalString (fsType == "ext4" && deterministic) ''
+  tune2fs -T now -U ${rootFSUID} -c 0 -i 0 $rootDisk
+''}
+```
 
-## Files to Modify
+This is already guarded by `fsType == "ext4"`, so no change needed. But the
+`deterministic` option's assertion (line 217) also needs updating:
 
-- `profiles/disko/incus-vm.nix` — **new** — XFS disko profile for Incus VMs
-- `hosts/calvard/incus/guests/edith/default.nix` — add disko import + config
-- `modules/incus/default.nix` — update `mkVMImage` to support disko output
-- `flake.nix` — possibly update `mk-incus-vm` to include disko module
-- `tests/modules/incus-vm.nix` — update or add test for disko-based images
+```nix
+# CURRENT:
+lib.assertMsg (fsType == "ext4" && deterministic -> rootFSUID != null) ...
+
+# Fine as-is — only applies when fsType == "ext4"
+```
+
+### Change 7: Update `incus-virtual-machine.nix` (optional)
+
+Once `make-disk-image.nix` supports XFS, `incus-virtual-machine.nix` could
+accept a configurable fsType:
+
+```nix
+# CURRENT:
+fileSystems."/" = {
+  device = "/dev/disk/by-label/nixos";
+  autoResize = true;
+  fsType = "ext4";
+};
+
+# PROPOSED:
+fileSystems."/" = {
+  device = "/dev/disk/by-label/nixos";
+  autoResize = true;
+  fsType = config.virtualisation.incus.vm.fsType;  # default "ext4"
+};
+```
+
+This could be a follow-up PR or part of the same one.
+
+## Restructured Approach for the PR
+
+The cleanest path for the PR, given the pre-VM vs in-VM constraint:
+
+### Option A: Move formatting into the VM for all filesystems
+
+Simplify `make-disk-image.nix` by always formatting inside the VM. This removes
+the LKL `cptofs` dependency entirely and makes any filesystem work. The tradeoff
+is that ext4 images would build slightly slower (need a VM boot). This aligns
+with the comment at the top of the file:
+
+> please consider to work towards the effort of unifying our image builders,
+> as outlined in https://github.com/NixOS/nixpkgs/issues/324817
+
+### Option B: Keep ext4 fast path, add VM-based path for others
+
+Less disruptive. ext4 keeps using `cptofs` + `-E offset` (no VM needed for
+formatting). XFS and future filesystems use the VM path. The downside is two
+code paths to maintain.
+
+**Option B is probably more acceptable upstream** — it doesn't regress ext4
+build performance and is a smaller diff.
+
+## Implementation Sketch (Option B)
+
+The key change is splitting `prepareImage` into two parts:
+
+1. **Common pre-VM work** (runs in sandbox): partition the disk, copy closure
+   to staging root, run `nixos-install` in staging
+2. **ext4 pre-VM work** (runs in sandbox): `mkfs.ext4 -E offset=...` + `cptofs`
+3. **Non-ext4 VM work** (runs in VM): `mkfs.xfs` on `/dev/vdaN` + copy from
+   staging root (passed via 9p/virtiofs share)
+
+The VM phase already has the disk as `/dev/vda` and mounts it. For XFS, instead
+of `cptofs` pre-populating the image, the VM phase would:
+
+```bash
+# Format the root partition
+mkfs.xfs -L nixos /dev/vda${rootPartition}
+mount /dev/vda${rootPartition} /mnt
+
+# Copy the staging root (passed in via 9p share)
+cp -a /tmp/xchg/root/* /mnt/
+
+# Install bootloader (already happens)
+nixos-install --root /mnt ...
+```
+
+The staging root can be passed to the VM via the existing `xchg` mechanism that
+`vmTools.runInLinuxVM` provides.
+
+## Testing the PR
+
+The PR should include a NixOS VM test that:
+
+1. Builds an XFS disk image via `make-disk-image.nix`
+2. Boots it in a VM
+3. Verifies `mount` shows XFS on `/`
+4. Verifies `systemd-growfs` works (disk auto-resize)
+5. Fills the disk to near-capacity and verifies graceful ENOSPC (no journal
+   corruption, no read-only remount)
+
+Existing tests to reference:
+- `nixos/tests/image/make-disk-image.nix` (if it exists)
+- `nixos/tests/incus/` tests
 
 ## References
 
-- Disko image builder source: `<disko>/lib/make-disk-image.nix`
-- Disko image builder options: `<disko>/module.nix` (lines 23-137)
-- nixpkgs `incus-virtual-machine.nix`: `<nixpkgs>/nixos/modules/virtualisation/incus-virtual-machine.nix`
-- microvm.nix boot-disk builder (inspiration for alternative approaches):
-  `<microvm>/nixos-modules/microvm/boot-disk.nix`
-- Current incus module: `modules/incus/default.nix`
+- `make-disk-image.nix`: `<nixpkgs>/nixos/lib/make-disk-image.nix`
+- `incus-virtual-machine.nix`: `<nixpkgs>/nixos/modules/virtualisation/incus-virtual-machine.nix`
+- Image builder unification issue: https://github.com/NixOS/nixpkgs/issues/324817
+- LKL project (provides `cptofs`): https://github.com/lkl/linux
+- `cptofs` ext4 limitation: LKL only implements ext4 filesystem operations
+
+## Interim Workaround
+
+Until the upstream PR lands, the practical mitigation for our Incus VMs:
+
+1. **Increase disk headroom**: Set `limits.disk = "150GB"` or higher for
+   development VMs that accumulate nix store bloat
+2. **Periodic GC**: Add a systemd timer inside the guest that runs
+   `nix-collect-garbage -d` regularly
+3. **Image update feature**: Already implemented (marker file in
+   `incus-ensure-instances`) — ensures recreated instances use the latest config
+4. **If ext4 corrupts again**: Follow the recovery procedure below
+
+### Recovery Procedure (Validated)
+
+If an Incus VM becomes unrecoverable (ext4 journal corruption, wrong IP, etc.),
+tear down and recreate from the declarative config. Run on calvard:
+
+```bash
+# 1. Backup user data while the VM is still accessible via incus exec
+#    (incus exec uses vsock, works even when guest networking is broken)
+#    Note: gzip may not be available in the guest — use plain tar
+incus exec <name> -- tar cf - /home > /tmp/<name>-home-backup.tar
+
+# 2. Delete the broken instance and stale image
+incus stop <name>
+incus delete <name>
+incus image delete <name>
+
+# 3. Rebuild calvard if the NixOS config has changed since last deploy
+#    (skip if already deployed with latest config)
+nixos-rebuild switch --flake <flake-path>
+
+# 4. Recreate from the current NixOS config
+systemctl start incus-ensure-instances
+
+# 5. Push the latest NixOS closure into the new instance
+incus-update-instance <name>
+
+# 6. Restore the backup
+cat /tmp/<name>-home-backup.tar | incus exec <name> -- tar xf - -C /
+
+# 7. Verify correct IP and reboot persistence
+incus list
+incus restart <name>
+incus list   # IP should be unchanged after reboot
+```
+
+Things that survive instance deletion (no backup needed):
+- SSH host keys and sops age keys (host-side `/persist/guests/<name>/static/`)
+- The NixOS system config (declarative, in the repo)
+
+Things that are lost (backup if needed):
+- User home directories
+- Any in-guest state on the root filesystem (databases, logs, etc.)
+
+## Disko Fallback (If Upstream PR Is Not Accepted)
+
+If the upstream maintainers don't want to expand `make-disk-image.nix`'s
+filesystem support (e.g., they prefer the disko path per issue #324817), the
+disko-based approach is fully validated:
+
+- Disko's `system.build.diskoImages` produces qcow2 with XFS — confirmed
+- `incus-virtual-machine.nix` conflict resolved by cherry-picking its
+  non-filesystem parts (incus agent, qemu guest profile, kernel params, CPU
+  hotplug) into a local `modules/incus/disko-virtual-machine.nix` — confirmed
+  via eval test
+- `system.build.metadata` (Incus metadata tarball) still generates correctly
+  when importing `lxc-instance-common.nix` directly — confirmed via eval test
