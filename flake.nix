@@ -493,12 +493,17 @@
       # Host config eval checks — catch broken configs before deploy
       // (let
         mkHostCheck = name:
-          pkgs.runCommand "host-eval-${name}" {
-            inherit (self.nixosConfigurations.${name}.config.system.build.toplevel) drvPath;
-          } ''
-            echo "Host ${name} evaluated successfully: $drvPath"
-            echo "$drvPath" > $out
-          '';
+          let
+            # Force full evaluation of the NixOS toplevel derivation.
+            # builtins.seq evaluates the first arg (forcing any eval errors)
+            # but doesn't add it as a build dependency of the runCommand.
+            toplevel = self.nixosConfigurations.${name}.config.system.build.toplevel;
+          in
+          builtins.seq toplevel.drvPath
+            (pkgs.runCommand "host-eval-${name}" {} ''
+              echo "Host ${name} config evaluated successfully"
+              echo ok > $out
+            '');
       in {
         host-eval-thebeyond = mkHostCheck "thebeyond";
         host-eval-calvard = mkHostCheck "calvard";
