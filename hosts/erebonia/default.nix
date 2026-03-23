@@ -1,4 +1,8 @@
-{pkgs, ...}: {
+{
+  pkgs,
+  config,
+  ...
+}: {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
@@ -12,6 +16,15 @@
   boot.loader.efi.canTouchEfiVariables = true;
 
   common.impermanence.enable = true;
+  common.deployd.enable = true;
+  deployd = {
+    capabilityTokenFile = config.sops.secrets."deployd-capability-token".path;
+    # Root (UID 0) — deployd-api connects from roer microVM via virtiofs.
+    # Virtiofs passthrough UID mapping means only root can traverse the
+    # socket directory. Capability token is the real auth boundary.
+    allowedUid = 0;
+    caddy.listenAddress = (pkgs.mmell.lib.data.network.forHost "erebonia").host.ipv4;
+  };
   common.btrfs.enable = true;
   common.btrfs.keyfileUnlock.enable = true;
   common.btrfs.impermanence.enable = true;

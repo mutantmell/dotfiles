@@ -236,6 +236,18 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "implicitFlowEnabled": false
+    },
+    {
+      "clientId": "deployd-api",
+      "name": "deployd Container Deployment API (roer)",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "serviceAccountsEnabled": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "bearerOnly": true,
+      "defaultClientScopes": ["openid", "groups"]
     }
   ],
   "groups": [

@@ -14,6 +14,7 @@ keys:
 
   # erebonia
   - &sv_erebonia age1jdzk34ssywxnnyg4aqtuaee0nclst760sywdfs4hjyn543pegf7s66ur0l
+  - &sv_roer age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
   - &sv_saint-arkh age1e2qunrzrtfzfny5yvww3y5sx8mwfvssvtjg8mkeg6cuv5flh5casjszej6
   - &sv_trista age1xsv89czz3fuxeth6e2xg0u5g2xm4hymsh42qxc7g7arzeuq093aqfl4lff
 
@@ -66,6 +67,11 @@ creation_rules:
       - age:
           - *ad_denai
           - *sv_erebonia
+  - path_regex: hosts/erebonia/microvm/guests/roer/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+          - *ad_denai
+          - *sv_roer
   - path_regex: hosts/erebonia/microvm/guests/saint-arkh/secrets/[^/]+\.yaml$
     key_groups:
       - age:

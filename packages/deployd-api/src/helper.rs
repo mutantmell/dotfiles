@@ -1,0 +1,125 @@
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::net::UnixStream;
+
+use serde::{Deserialize, Serialize};
+
+/// Client for the deployd-helper Unix socket protocol.
+pub struct HelperClient {
+    socket_path: String,
+    token: String,
+}
+
+/// Wire format matches deployd-helper's HelperMessage.
+#[derive(Serialize)]
+struct HelperMessage {
+    token: String,
+    command: HelperCommand,
+}
+
+/// Commands sent to the helper. Must match deployd-helper's HelperCommand enum.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum HelperCommand {
+    Deploy(ContainerDefinition),
+    Teardown { name: String },
+    Status,
+}
+
+/// Mirrors deployd-helper's ContainerDefinition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerDefinition {
+    pub name: String,
+    pub image: String,
+    #[serde(default)]
+    pub ports: Vec<PortMapping>,
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub volumes: Vec<VolumeMount>,
+    #[serde(default)]
+    pub persistent: bool,
+    pub ingress: Option<IngressConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortMapping {
+    pub host: u16,
+    pub container: u16,
+    #[serde(default = "default_tcp")]
+    pub protocol: String,
+}
+
+fn default_tcp() -> String {
+    "tcp".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeMount {
+    pub host: String,
+    pub container: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngressConfig {
+    pub hostname: String,
+    pub upstream_port: u16,
+}
+
+/// Response from deployd-helper.
+#[derive(Debug, Clone, Deserialize)]
+pub struct HelperResponse {
+    pub success: bool,
+    pub message: String,
+    pub data: Option<serde_json::Value>,
+}
+
+impl HelperClient {
+    pub fn new(socket_path: String, token: String) -> Self {
+        Self { socket_path, token }
+    }
+
+    /// Send a command to the helper and return its response.
+    /// Uses spawn_blocking to avoid blocking the tokio runtime on Unix socket I/O.
+    pub async fn send(&self, command: HelperCommand) -> Result<HelperResponse, String> {
+        let socket_path = self.socket_path.clone();
+        let token = self.token.clone();
+
+        tokio::task::spawn_blocking(move || {
+            Self::send_blocking(&socket_path, &token, command)
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking failed: {}", e))?
+    }
+
+    fn send_blocking(
+        socket_path: &str,
+        token: &str,
+        command: HelperCommand,
+    ) -> Result<HelperResponse, String> {
+        let msg = HelperMessage {
+            token: token.to_string(),
+            command,
+        };
+
+        let mut stream = UnixStream::connect(socket_path)
+            .map_err(|e| format!("failed to connect to helper socket: {}", e))?;
+
+        let mut payload = serde_json::to_string(&msg)
+            .map_err(|e| format!("failed to serialize command: {}", e))?;
+        payload.push('\n');
+
+        stream
+            .write_all(payload.as_bytes())
+            .map_err(|e| format!("failed to write to helper: {}", e))?;
+
+        let reader = BufReader::new(&stream);
+        let mut response_line = String::new();
+        reader
+            .take(1024 * 1024) // 1 MiB limit
+            .read_line(&mut response_line)
+            .map_err(|e| format!("failed to read helper response: {}", e))?;
+
+        serde_json::from_str(&response_line)
+            .map_err(|e| format!("failed to parse helper response: {}", e))
+    }
+}
