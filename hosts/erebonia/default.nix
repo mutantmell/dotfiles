@@ -19,12 +19,13 @@
   common.deployd.enable = true;
   deployd = {
     capabilityTokenFile = config.sops.secrets."deployd-capability-token".path;
-    # Root (UID 0) — deployd-api connects from roer microVM via virtiofs.
-    # Virtiofs passthrough UID mapping means only root can traverse the
-    # socket directory. Capability token is the real auth boundary.
-    allowedUid = 0;
+    allowedUid = 398;
     caddy.listenAddress = (pkgs.mmell.lib.data.network.forHost "erebonia").host.ipv4;
   };
+  # Static UID for deployd-helper — must match deployd-api UID in roer microVM
+  # so that virtiofs passthrough UID mapping allows socket access.
+  users.users.deployd-helper.uid = 398;
+  users.groups.deployd-helper.gid = 398;
   common.btrfs.enable = true;
   common.btrfs.keyfileUnlock.enable = true;
   common.btrfs.impermanence.enable = true;
