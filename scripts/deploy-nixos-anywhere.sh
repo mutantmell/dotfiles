@@ -179,8 +179,12 @@ else
   echo "No host-level secret files found for $HOSTNAME, skipping re-encryption."
 fi
 
-# --- MicroVM guest setup ---
+# --- Guest setup (microVM + Incus) via setup-guest.sh ---
+SETUP_GUEST="$REPO_ROOT/scripts/setup-guest.sh"
 GUEST_DIR="$REPO_ROOT/hosts/$HOSTNAME/microvm/guests"
+INCUS_GUEST_DIR="$REPO_ROOT/hosts/$HOSTNAME/incus/guests"
+INCUS_GUESTS=()
+
 if [[ -d $GUEST_DIR ]]; then
   echo ""
   echo "Setting up microVM guests..."
@@ -188,75 +192,10 @@ if [[ -d $GUEST_DIR ]]; then
     [[ -d $guest_path ]] || continue
     guest="$(basename "$guest_path")"
     echo "  Guest: $guest"
-
-    GUEST_SSH_KEY="$KEYFILE_DIR/${guest}-ssh_host_ed25519_key"
-
-    # Generate or reuse SSH host key
-    if [[ -f "$KEYS_DIR/${guest}-ssh_host_ed25519_key" ]]; then
-      echo "    Using existing SSH key from .keys/"
-      cp "$KEYS_DIR/${guest}-ssh_host_ed25519_key" "$GUEST_SSH_KEY"
-      cp "$KEYS_DIR/${guest}-ssh_host_ed25519_key.pub" "$GUEST_SSH_KEY.pub"
-      chmod 600 "$GUEST_SSH_KEY"
-    else
-      echo "    Generating new SSH key..."
-      ssh-keygen -t ed25519 -f "$GUEST_SSH_KEY" -q -N ""
-    fi
-    update_host_key_registry "$guest" "$GUEST_SSH_KEY.pub"
-
-    # Place SSH key in extra-files for virtiofs share
-    mkdir -p "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh"
-    cp "$GUEST_SSH_KEY" "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key"
-    cp "$GUEST_SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key.pub"
-    chmod 600 "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key"
-    chmod 644 "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key.pub"
-
-    # Create images directory (microvm service creates volume images on first start)
-    mkdir -p "$EXTRA_FILES_DIR/persist/guests/${guest}/images"
-
-    # Derive age key and update .sops.yaml
-    GUEST_AGE_KEY=$(ssh-to-age <"$GUEST_SSH_KEY.pub")
-    GUEST_ANCHOR="&sv_${guest}"
-    GUEST_ANCHOR_ESCAPED="${GUEST_ANCHOR//&/\\&}"
-
-    if grep -q "$GUEST_ANCHOR" "$SOPS_FILE"; then
-      EXISTING_GUEST_KEY=$(grep "$GUEST_ANCHOR" "$SOPS_FILE" | sed 's/.*'"$GUEST_ANCHOR"' //')
-      if [[ $EXISTING_GUEST_KEY == "$GUEST_AGE_KEY" ]]; then
-        echo "    .sops.yaml key already correct"
-      else
-        echo "    Updating $GUEST_ANCHOR in .sops.yaml..."
-        sed -i "s|$GUEST_ANCHOR .*|$GUEST_ANCHOR_ESCAPED $GUEST_AGE_KEY|" "$SOPS_FILE"
-      fi
-    else
-      echo "    WARNING: No $GUEST_ANCHOR anchor in .sops.yaml — add manually"
-    fi
-
-    # Re-encrypt guest secrets if they exist
-    GUEST_SECRET_DIR="$GUEST_DIR/$guest/secrets"
-    if [[ -d $GUEST_SECRET_DIR ]]; then
-      GUEST_SECRET_FILES=$(find "$GUEST_SECRET_DIR" -name '*.yaml' 2>/dev/null || true)
-      if [[ -n $GUEST_SECRET_FILES ]]; then
-        echo "    Re-encrypting secrets..."
-        echo "$GUEST_SECRET_FILES" | while read -r f; do
-          echo "      sops updatekeys: $f"
-          sops updatekeys --yes "$f"
-        done
-      fi
-    fi
-
-    # Backup keys
-    mkdir -p "$KEYS_DIR"
-    if [[ ! -f "$KEYS_DIR/${guest}-ssh_host_ed25519_key" ]]; then
-      cp "$GUEST_SSH_KEY" "$KEYS_DIR/${guest}-ssh_host_ed25519_key"
-      cp "$GUEST_SSH_KEY.pub" "$KEYS_DIR/${guest}-ssh_host_ed25519_key.pub"
-      chmod 600 "$KEYS_DIR/${guest}-ssh_host_ed25519_key"
-      echo "    Saved new SSH key to .keys/${guest}-ssh_host_ed25519_key"
-    fi
+    "$SETUP_GUEST" "$HOSTNAME" "$guest" --output-dir "$EXTRA_FILES_DIR"
   done
 fi
 
-# --- Incus guest setup ---
-INCUS_GUEST_DIR="$REPO_ROOT/hosts/$HOSTNAME/incus/guests"
-INCUS_GUESTS=()
 if [[ -d $INCUS_GUEST_DIR ]]; then
   echo ""
   echo "Setting up Incus guests..."
@@ -265,66 +204,7 @@ if [[ -d $INCUS_GUEST_DIR ]]; then
     guest="$(basename "$guest_path")"
     echo "  Guest: $guest"
     INCUS_GUESTS+=("$guest")
-
-    GUEST_SSH_KEY="$KEYFILE_DIR/${guest}-ssh_host_ed25519_key"
-
-    # Generate or reuse SSH host key
-    if [[ -f "$KEYS_DIR/${guest}-ssh_host_ed25519_key" ]]; then
-      echo "    Using existing SSH key from .keys/"
-      cp "$KEYS_DIR/${guest}-ssh_host_ed25519_key" "$GUEST_SSH_KEY"
-      cp "$KEYS_DIR/${guest}-ssh_host_ed25519_key.pub" "$GUEST_SSH_KEY.pub"
-      chmod 600 "$GUEST_SSH_KEY"
-    else
-      echo "    Generating new SSH key..."
-      ssh-keygen -t ed25519 -f "$GUEST_SSH_KEY" -q -N ""
-    fi
-    update_host_key_registry "$guest" "$GUEST_SSH_KEY.pub"
-
-    # Place SSH key in extra-files for static directory bind mount
-    mkdir -p "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh"
-    cp "$GUEST_SSH_KEY" "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key"
-    cp "$GUEST_SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key.pub"
-    chmod 600 "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key"
-    chmod 644 "$EXTRA_FILES_DIR/persist/guests/${guest}/static/etc/ssh/ssh_host_ed25519_key.pub"
-
-    # Derive age key and update .sops.yaml
-    GUEST_AGE_KEY=$(ssh-to-age <"$GUEST_SSH_KEY.pub")
-    GUEST_ANCHOR="&sv_${guest}"
-    GUEST_ANCHOR_ESCAPED="${GUEST_ANCHOR//&/\\&}"
-
-    if grep -q "$GUEST_ANCHOR" "$SOPS_FILE"; then
-      EXISTING_GUEST_KEY=$(grep "$GUEST_ANCHOR" "$SOPS_FILE" | sed 's/.*'"$GUEST_ANCHOR"' //')
-      if [[ $EXISTING_GUEST_KEY == "$GUEST_AGE_KEY" ]]; then
-        echo "    .sops.yaml key already correct"
-      else
-        echo "    Updating $GUEST_ANCHOR in .sops.yaml..."
-        sed -i "s|$GUEST_ANCHOR .*|$GUEST_ANCHOR_ESCAPED $GUEST_AGE_KEY|" "$SOPS_FILE"
-      fi
-    else
-      echo "    WARNING: No $GUEST_ANCHOR anchor in .sops.yaml — add manually"
-    fi
-
-    # Re-encrypt guest secrets if they exist
-    GUEST_SECRET_DIR="$INCUS_GUEST_DIR/$guest/secrets"
-    if [[ -d $GUEST_SECRET_DIR ]]; then
-      GUEST_SECRET_FILES=$(find "$GUEST_SECRET_DIR" -name '*.yaml' 2>/dev/null || true)
-      if [[ -n $GUEST_SECRET_FILES ]]; then
-        echo "    Re-encrypting secrets..."
-        echo "$GUEST_SECRET_FILES" | while read -r f; do
-          echo "      sops updatekeys: $f"
-          sops updatekeys --yes "$f"
-        done
-      fi
-    fi
-
-    # Backup keys
-    mkdir -p "$KEYS_DIR"
-    if [[ ! -f "$KEYS_DIR/${guest}-ssh_host_ed25519_key" ]]; then
-      cp "$GUEST_SSH_KEY" "$KEYS_DIR/${guest}-ssh_host_ed25519_key"
-      cp "$GUEST_SSH_KEY.pub" "$KEYS_DIR/${guest}-ssh_host_ed25519_key.pub"
-      chmod 600 "$KEYS_DIR/${guest}-ssh_host_ed25519_key"
-      echo "    Saved new SSH key to .keys/${guest}-ssh_host_ed25519_key"
-    fi
+    "$SETUP_GUEST" "$HOSTNAME" "$guest" --output-dir "$EXTRA_FILES_DIR"
   done
 fi
 
@@ -381,23 +261,9 @@ sign_host_cert() {
 
 if [[ -f $CA_KEY ]]; then
   echo ""
-  echo "Signing SSH host certificates..."
+  echo "Signing SSH host certificate for $HOSTNAME..."
   sign_host_cert "$HOSTNAME" "$SSH_KEY.pub"
-  # Sign guest certificates
-  if [[ -d $GUEST_DIR ]]; then
-    for guest_path in "$GUEST_DIR"/*/; do
-      [[ -d $guest_path ]] || continue
-      guest="$(basename "$guest_path")"
-      sign_host_cert "$guest" "$KEYFILE_DIR/${guest}-ssh_host_ed25519_key.pub"
-    done
-  fi
-  if [[ -d $INCUS_GUEST_DIR ]]; then
-    for guest_path in "$INCUS_GUEST_DIR"/*/; do
-      [[ -d $guest_path ]] || continue
-      guest="$(basename "$guest_path")"
-      sign_host_cert "$guest" "$KEYFILE_DIR/${guest}-ssh_host_ed25519_key.pub"
-    done
-  fi
+  # Guest certificates are signed by setup-guest.sh
 else
   echo ""
   echo "WARNING: SSH host CA key not found at $CA_KEY"
@@ -405,20 +271,7 @@ else
   echo ""
   echo "To sign host certificates manually after deployment, run:"
   echo "  nix run .#ssh-host-cert-sign -- --sign $HOSTNAME"
-  # Collect all hosts that would need signing
   UNSIGNED_HOSTS+=("$HOSTNAME")
-  if [[ -d $GUEST_DIR ]]; then
-    for guest_path in "$GUEST_DIR"/*/; do
-      [[ -d $guest_path ]] || continue
-      UNSIGNED_HOSTS+=("$(basename "$guest_path")")
-    done
-  fi
-  if [[ -d $INCUS_GUEST_DIR ]]; then
-    for guest_path in "$INCUS_GUEST_DIR"/*/; do
-      [[ -d $guest_path ]] || continue
-      UNSIGNED_HOSTS+=("$(basename "$guest_path")")
-    done
-  fi
 fi
 
 # Prepare extra-files directory with SSH host key for nixos-anywhere
