@@ -56,6 +56,12 @@ $(nix build .#openwrt-deployer --print-out-paths --no-link)/bin/openwrt-deploy <
 
 # Show OpenWrt UCI config
 nix run .#openwrt-show-config -- <device-name>
+
+# Set up a new VM guest on an already-deployed host (SSH keys, sops, certs)
+./scripts/setup-guest.sh <parent-hostname> <guest-name> --target root@<host-ip>
+
+# Set up guest files into a local directory (used by deploy-nixos-anywhere)
+./scripts/setup-guest.sh <parent-hostname> <guest-name> --output-dir <dir>
 ```
 
 ## Architecture
