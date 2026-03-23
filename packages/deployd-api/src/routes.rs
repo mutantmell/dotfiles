@@ -48,7 +48,7 @@ pub async fn deploy(
 
     match state.helper.send(HelperCommand::Deploy(def)).await {
         Ok(resp) if resp.success => {
-            (StatusCode::OK, Json(serde_json::json!({"message": resp.message})))
+            (StatusCode::OK, Json(helper_ok_json(&resp)))
         }
         Ok(resp) => {
             (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"error": resp.message})))
@@ -83,7 +83,7 @@ pub async fn teardown(
 
     match state.helper.send(HelperCommand::Teardown { name: name.clone() }).await {
         Ok(resp) if resp.success => {
-            (StatusCode::OK, Json(serde_json::json!({"message": resp.message})))
+            (StatusCode::OK, Json(helper_ok_json(&resp)))
         }
         Ok(resp) => {
             (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"error": resp.message})))
@@ -113,13 +113,22 @@ pub async fn status(
     match state.helper.send(HelperCommand::Status).await {
         Ok(resp) => {
             let status_code = if resp.success { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
-            (status_code, Json(serde_json::json!({"message": resp.message})))
+            (status_code, Json(helper_ok_json(&resp)))
         }
         Err(e) => {
             error!(error = %e, "helper communication error");
             (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "helper unreachable"})))
         }
     }
+}
+
+/// Build a JSON response from a successful helper response, including data if present.
+fn helper_ok_json(resp: &crate::helper::HelperResponse) -> serde_json::Value {
+    let mut obj = serde_json::json!({"message": resp.message});
+    if let Some(ref data) = resp.data {
+        obj["data"] = data.clone();
+    }
+    obj
 }
 
 /// GET /healthz — Unauthenticated health check for load balancers/probes.

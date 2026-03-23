@@ -46,11 +46,18 @@ pub struct PortMapping {
     pub host: u16,
     pub container: u16,
     #[serde(default = "default_tcp")]
-    pub protocol: String,
+    pub protocol: PortProtocol,
 }
 
-fn default_tcp() -> String {
-    "tcp".to_string()
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PortProtocol {
+    Tcp,
+    Udp,
+}
+
+fn default_tcp() -> PortProtocol {
+    PortProtocol::Tcp
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

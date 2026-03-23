@@ -11,6 +11,18 @@
   caUrl = "https://basel.internal";
   caRoot = "/etc/ssl/certs/ca-certificates.crt";
 in {
+  # Static UID 398 — must match deployd-helper UID on erebonia host so that
+  # virtiofs passthrough UID mapping allows socket access (0660, owner-only).
+  users.users.deployd-api = {
+    isSystemUser = true;
+    uid = 398;
+    group = "deployd-api";
+    description = "deployd API service";
+  };
+  users.groups.deployd-api.gid = 398;
+
+  sops.secrets."deployd-capability-token".owner = "deployd-api";
+
   # deployd-api systemd service
   systemd.services.deployd-api = {
     description = "deployd container deployment API";
@@ -30,11 +42,8 @@ in {
     '';
 
     serviceConfig = {
-      # Runs as root because the deployd-helper Unix socket (shared via virtiofs)
-      # is owned by deployd-helper:deployd-helper with mode 0660. With virtiofs
-      # passthrough UID mapping, only root (UID 0) can traverse the directory
-      # and connect to the socket from the microVM. The capability token is the
-      # real authentication boundary.
+      User = "deployd-api";
+      Group = "deployd-api";
       NoNewPrivileges = true;
       ProtectSystem = "strict";
       ProtectHome = true;

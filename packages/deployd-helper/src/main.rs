@@ -77,12 +77,15 @@ fn main() {
                     }
                 };
 
-                // SO_PEERCRED: only accept the configured deployd UID.
-                // Root (UID 0) is also accepted for operational debugging —
-                // capability token is still required on every message regardless.
-                if peer_uid != config.allowed_uid && peer_uid != 0 {
-                    warn!(peer_uid, "rejecting connection from unauthorized UID");
-                    continue;
+                // SO_PEERCRED: if an allowed UID is configured, only accept
+                // that UID (plus root for operational debugging). When no UID
+                // filter is set, any UID can connect — capability token is
+                // still required on every message regardless.
+                if let Some(allowed) = config.allowed_uid {
+                    if peer_uid != allowed && peer_uid != 0 {
+                        warn!(peer_uid, "rejecting connection from unauthorized UID");
+                        continue;
+                    }
                 }
 
                 info!(peer_uid, "accepted connection");

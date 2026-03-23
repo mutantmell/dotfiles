@@ -6,7 +6,7 @@ use serde::Deserialize;
 pub struct Config {
     pub socket_path: String,
     pub capability_token: String,
-    pub allowed_uid: u32,
+    pub allowed_uid: Option<u32>,
     pub registry_allowlist: Vec<String>,
     pub hostname_allowlist: Vec<String>,
     pub port_range_min: u16,
@@ -25,9 +25,13 @@ impl Config {
         Ok(Self {
             socket_path: env_required("DEPLOYD_SOCKET_PATH")?,
             capability_token: env_required("DEPLOYD_CAPABILITY_TOKEN")?,
-            allowed_uid: env_required("DEPLOYD_ALLOWED_UID")?
-                .parse()
-                .map_err(|e| format!("DEPLOYD_ALLOWED_UID: {}", e))?,
+            allowed_uid: match std::env::var("DEPLOYD_ALLOWED_UID") {
+                Ok(v) if !v.is_empty() => Some(
+                    v.parse()
+                        .map_err(|e| format!("DEPLOYD_ALLOWED_UID: {}", e))?,
+                ),
+                _ => None,
+            },
             registry_allowlist: env_list("DEPLOYD_REGISTRY_ALLOWLIST"),
             hostname_allowlist: env_list("DEPLOYD_HOSTNAME_ALLOWLIST"),
             port_range_min: env_or("DEPLOYD_PORT_RANGE_MIN", "1024")

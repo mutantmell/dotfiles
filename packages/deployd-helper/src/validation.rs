@@ -183,7 +183,7 @@ mod tests {
         Config {
             socket_path: "/tmp/test.sock".into(),
             capability_token: "test-token".into(),
-            allowed_uid: 1000,
+            allowed_uid: Some(1000),
             registry_allowlist: vec!["creil.internal".into()],
             hostname_allowlist: vec![".internal".into()],
             port_range_min: 1024,
