@@ -136,10 +136,10 @@ Removed dynamic nftables port management and standalone Caddy route commands fro
 - **Bounded message reads** — `BufReader::take()` enforces 1 MiB hard limit before buffering, preventing memory exhaustion from unbounded lines
 - **Registry allowlist** checked independently by helper
 - **Digest pinning** required for all image references
-- **Container name validation** — alphanumeric/hyphen/underscore only, no dots/slashes/special chars; enforced on all commands (Deploy, Teardown, AddCaddyRoute, RemoveCaddyRoute)
+- **Container name validation** — alphanumeric/hyphen/underscore only, no dots/slashes/special chars; enforced on all commands (Deploy, Teardown)
 - **Volume path validation** — absolute paths only, no `..`, blocks `/etc /boot /proc /sys /dev /nix`
-- **Port range enforcement** — on Deploy ports and standalone AddCaddyRoute commands
-- **Hostname suffix allowlist** for Caddy routes — enforced on both Deploy ingress and standalone AddCaddyRoute
+- **Port range enforcement** — on Deploy ports
+- **Hostname suffix allowlist** for Caddy routes — enforced on Deploy ingress
 - **Environment variable sanitization** — keys must be alphanumeric+underscore, values must not contain newlines (prevents quadlet file injection)
 - **Static bridge isolation** — boot-time nftables rule restricts br-deploy inbound to Caddy only; no dynamic set manipulation
 - **Zero extended capabilities** — no `CAP_NET_ADMIN`, no `CAP_DAC_OVERRIDE`; deployd-helper operates as an unprivileged user with polkit-scoped systemctl access
@@ -211,32 +211,33 @@ Tasks:
 
 #### Files Created
 
-| File | Purpose |
-|------|---------|
-| `packages/deployd-api/Cargo.toml` | Rust project definition |
-| `packages/deployd-api/Cargo.lock` | Pinned dependencies |
-| `packages/deployd-api/default.nix` | Nix package (`rustPlatform.buildRustPackage`) |
-| `packages/deployd-api/src/main.rs` | Axum HTTP server, routing, state setup |
-| `packages/deployd-api/src/config.rs` | Configuration from environment variables |
-| `packages/deployd-api/src/auth.rs` | JWKS-cached OIDC token validation with key rotation retry |
-| `packages/deployd-api/src/routes.rs` | Deploy, teardown, status, healthz endpoints |
-| `packages/deployd-api/src/helper.rs` | Unix socket client for deployd-helper (async via spawn_blocking) |
-| `hosts/erebonia/microvm/guests/roer/default.nix` | MicroVM config: network, egress, impermanence |
-| `hosts/erebonia/microvm/guests/roer/microvm.nix` | Hardware: vsock CID 4, virtiofs shares (incl. deployd socket), 512M/2vcpu |
-| `hosts/erebonia/microvm/guests/roer/sops.nix` | Secrets: deployd capability token |
-| `hosts/erebonia/microvm/guests/roer/modules/api.nix` | deployd-api service, nginx TLS termination, step-ca bootstrap |
+| File                                                 | Purpose                                                                   |
+| ---------------------------------------------------- | ------------------------------------------------------------------------- |
+| `packages/deployd-api/Cargo.toml`                    | Rust project definition                                                   |
+| `packages/deployd-api/Cargo.lock`                    | Pinned dependencies                                                       |
+| `packages/deployd-api/default.nix`                   | Nix package (`rustPlatform.buildRustPackage`)                             |
+| `packages/deployd-api/src/main.rs`                   | Axum HTTP server, routing, state setup                                    |
+| `packages/deployd-api/src/config.rs`                 | Configuration from environment variables                                  |
+| `packages/deployd-api/src/auth.rs`                   | JWKS-cached OIDC token validation with key rotation retry                 |
+| `packages/deployd-api/src/routes.rs`                 | Deploy, teardown, status, healthz endpoints                               |
+| `packages/deployd-api/src/helper.rs`                 | Unix socket client for deployd-helper (async via spawn_blocking)          |
+| `hosts/erebonia/microvm/guests/roer/default.nix`     | MicroVM config: network, egress, impermanence                             |
+| `hosts/erebonia/microvm/guests/roer/microvm.nix`     | Hardware: vsock CID 4, virtiofs shares (incl. deployd socket), 512M/2vcpu |
+| `hosts/erebonia/microvm/guests/roer/sops.nix`        | Secrets: deployd capability token                                         |
+| `hosts/erebonia/microvm/guests/roer/modules/api.nix` | deployd-api service, nginx TLS termination, step-ca bootstrap             |
 
 #### Files Modified
 
-| File | Change |
-|------|--------|
-| `lib/common/data/network.nix` | Added roer to management zone (host ID 32) |
-| `hosts/thebeyond/router.nix` | Added saint-arkh→roer:443 DMZ→management forward rules |
-| `hosts/erebonia/default.nix` | Enabled `common.deployd`, configured `deployd.*` options |
-| `hosts/erebonia/sops.nix` | Added `deployd-capability-token` secret |
-| `hosts/calvard/microvm/guests/messeldam/modules/homelab-realm.json` | Added `deployd-api` bearer-only Keycloak client |
-| `flake.nix` | Added `deployd-api` package |
-| `hosts/erebonia/incus/guests/trista/default.nix` | Added missing disko profile import (pre-existing bug fix) |
+| File                                                                | Change                                                                          |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `lib/common/data/network.nix`                                       | Added roer to management zone (host ID 32)                                      |
+| `lib/common/data/default.nix`                                       | Added `deployd.uid` (398) — shared UID for virtiofs socket access coordination  |
+| `hosts/thebeyond/router.nix`                                        | Added saint-arkh→roer:443 DMZ→management forward rules                          |
+| `hosts/erebonia/default.nix`                                        | Enabled `common.deployd`, configured `deployd.*` options, static UID 398        |
+| `hosts/erebonia/sops.nix`                                           | Added `deployd-capability-token` secret                                         |
+| `hosts/calvard/microvm/guests/messeldam/modules/homelab-realm.json` | Added `deployd-api` bearer-only Keycloak client                                 |
+| `flake.nix`                                                         | Added `deployd-api` package                                                     |
+| `hosts/erebonia/incus/guests/trista/default.nix`                    | Added missing disko profile import (pre-existing bug fix)                       |
 
 #### Architecture
 
@@ -264,10 +265,21 @@ Tasks:
 
 - **OIDC (Keycloak)** validates API callers — group `deploy` required
 - **Capability token (sops)** authenticates the API→helper Unix socket boundary
-- **SO_PEERCRED** accepts root (UID 0) from microVM — virtiofs passthrough UID mapping
+- **SO_PEERCRED** accepts UID 398 (shared static UID) — virtiofs passthrough UID mapping; deployd-api runs as dedicated `deployd-api` user, not root
+- **Shared static UID (398)** — defined once in `lib/common/data/default.nix`, referenced by both erebonia (`deployd-helper`) and roer (`deployd-api`). Below the NixOS dynamic system range (400-999), clear of microvm UID 300.
 - **JWKS cache** with automatic refresh on unknown `kid` (handles key rotation)
 - **spawn_blocking** for Unix socket I/O — avoids blocking the tokio runtime
-- **systemd hardening** on deployd-api: NoNewPrivileges, ProtectSystem=strict, RestrictAddressFamilies, RestrictNamespaces
+- **systemd hardening** on deployd-api: User=deployd-api, NoNewPrivileges, ProtectSystem=strict, RestrictAddressFamilies, RestrictNamespaces
+
+#### Changes from D2 Code Review
+
+| Change | Rationale |
+|--------|-----------|
+| `PortMapping.protocol` changed from `String` to `PortProtocol` enum in deployd-api | API client accepted any string (e.g., "sctp") which would deserialize-fail in the helper, producing a confusing 500 instead of a clean 400. Now mirrors the helper's enum exactly. |
+| Helper response `data` field forwarded to API callers | Status and future commands may return structured data; previously silently dropped. |
+| deployd-api runs as dedicated `deployd-api` user (UID 398), not root | Root was only needed because the virtiofs-mounted socket directory (0750) was inaccessible to non-root. Solved with shared static UID instead of privilege escalation. |
+| Shared static UID 398 in `lib/common/data/default.nix` | Single source of truth for the UID shared between deployd-helper (erebonia) and deployd-api (roer). Below dynamic system range (400-999), clear of microvm UID 300. |
+| sops secret ownership set to `deployd-api` user | Allows non-root deployd-api service to read the capability token at `/run/secrets/deployd-capability-token`. |
 
 ### Phase D3: CI/CD Integration — NOT STARTED
 

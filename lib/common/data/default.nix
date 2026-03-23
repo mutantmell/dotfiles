@@ -5,6 +5,10 @@ in {
   keys = builtins.fromJSON (
     builtins.readFile ./keys.json
   );
+  # Shared UID/GID for deployd services. The deployd-helper (host) and
+  # deployd-api (microVM guest) must share a UID so that virtiofs passthrough
+  # UID mapping allows socket access. Below the dynamic system range (400-999).
+  deployd.uid = 398;
   pki = {
     root = pki + "/root_ca.crt";
     intermediate = pki + "/intermediate_ca.crt";

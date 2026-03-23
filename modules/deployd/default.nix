@@ -71,9 +71,8 @@ in {
     };
 
     allowedUid = mkOption {
-      type = types.nullOr types.int;
-      default = null;
-      description = "UID of the deployd API process permitted to connect to the socket. When null, any UID is accepted (capability token is still required).";
+      type = types.int;
+      description = "UID of the deployd API process permitted to connect to the socket.";
     };
 
     bridge = {
@@ -210,7 +209,7 @@ in {
         environment = {
           DEPLOYD_SOCKET_PATH = cfg.socketPath;
           DEPLOYD_CAPABILITY_TOKEN_FILE = cfg.capabilityTokenFile;
-          DEPLOYD_ALLOWED_UID = lib.optionalString (cfg.allowedUid != null) (toString cfg.allowedUid);
+          DEPLOYD_ALLOWED_UID = toString cfg.allowedUid;
           DEPLOYD_REGISTRY_ALLOWLIST = builtins.concatStringsSep "," cfg.registryAllowlist;
           DEPLOYD_HOSTNAME_ALLOWLIST = builtins.concatStringsSep "," cfg.hostnameAllowlist;
           DEPLOYD_PORT_RANGE_MIN = toString cfg.portRange.min;

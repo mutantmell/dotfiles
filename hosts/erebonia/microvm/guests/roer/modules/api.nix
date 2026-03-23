@@ -10,16 +10,17 @@
   keyFile = "${certDir}/key.pem";
   caUrl = "https://basel.internal";
   caRoot = "/etc/ssl/certs/ca-certificates.crt";
+  deployUid = pkgs.mmell.lib.data.deployd.uid;
 in {
-  # Static UID 398 — must match deployd-helper UID on erebonia host so that
+  # Static UID — must match deployd-helper UID on erebonia host so that
   # virtiofs passthrough UID mapping allows socket access (0660, owner-only).
   users.users.deployd-api = {
     isSystemUser = true;
-    uid = 398;
+    uid = deployUid;
     group = "deployd-api";
     description = "deployd API service";
   };
-  users.groups.deployd-api.gid = 398;
+  users.groups.deployd-api.gid = deployUid;
 
   sops.secrets."deployd-capability-token".owner = "deployd-api";
 
