@@ -36,7 +36,7 @@
             type = "filesystem";
             format = "xfs";
             mountpoint = "/";
-            mountOptions = ["defaults" "noatime"];
+            mountOptions = ["defaults" "noatime" "x-systemd.growfs"];
           };
         };
       };
