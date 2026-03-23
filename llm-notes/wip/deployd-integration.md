@@ -109,25 +109,25 @@ Removed dynamic nftables port management and standalone Caddy route commands fro
 
 #### Module Options (`deployd.*`)
 
-| Option                | Type        | Default                      | Description                                                     |
-| --------------------- | ----------- | ---------------------------- | --------------------------------------------------------------- |
-| `enable`              | bool        | false                        | Enable deployd-helper                                           |
-| `package`             | package     | `pkgs.mmell.deployd-helper`  | Helper binary package                                           |
-| `registryAllowlist`   | list of str | `[]`                         | Permitted OCI registry prefixes                                 |
-| `hostnameAllowlist`   | list of str | `[]`                         | Permitted hostname suffixes for Caddy routes                    |
-| `portRange.min`       | port        | 1024                         | Minimum host port                                               |
-| `portRange.max`       | port        | 65535                        | Maximum host port                                               |
-| `socketPath`          | str         | `/run/deployd/deployd.sock`  | Unix socket path                                                |
-| `auditLogPath`        | str         | `/var/log/deployd/audit.log` | Audit log path                                                  |
-| `capabilityTokenFile` | str         | (required)                   | Path to capability token file                                   |
-| `allowedUid`          | int         | (required)                   | UID permitted to connect                                        |
-| `bridge.name`         | str         | `br-deploy`                  | Bridge device name                                              |
-| `bridge.subnet`       | str         | `10.100.0.1/24`              | Bridge subnet                                                   |
-| `caddy.enable`        | bool        | true                         | Enable Caddy integration                                        |
-| `caddy.adminUrl`      | str         | `http://localhost:2019`      | Caddy admin API URL                                             |
-| `caddy.serverName`    | str         | `deployd`                    | Caddy server block name for routes                              |
-| `caddy.listenAddress` | str         | `""`                         | Caddy HTTPS listen address                                      |
-| `kata.enable`         | bool        | true                         | Enforce Kata runtime (guarded by nixpkgs option availability)   |
+| Option                | Type        | Default                      | Description                                                   |
+| --------------------- | ----------- | ---------------------------- | ------------------------------------------------------------- |
+| `enable`              | bool        | false                        | Enable deployd-helper                                         |
+| `package`             | package     | `pkgs.mmell.deployd-helper`  | Helper binary package                                         |
+| `registryAllowlist`   | list of str | `[]`                         | Permitted OCI registry prefixes                               |
+| `hostnameAllowlist`   | list of str | `[]`                         | Permitted hostname suffixes for Caddy routes                  |
+| `portRange.min`       | port        | 1024                         | Minimum host port                                             |
+| `portRange.max`       | port        | 65535                        | Maximum host port                                             |
+| `socketPath`          | str         | `/run/deployd/deployd.sock`  | Unix socket path                                              |
+| `auditLogPath`        | str         | `/var/log/deployd/audit.log` | Audit log path                                                |
+| `capabilityTokenFile` | str         | (required)                   | Path to capability token file                                 |
+| `allowedUid`          | int         | (required)                   | UID permitted to connect                                      |
+| `bridge.name`         | str         | `br-deploy`                  | Bridge device name                                            |
+| `bridge.subnet`       | str         | `10.100.0.1/24`              | Bridge subnet                                                 |
+| `caddy.enable`        | bool        | true                         | Enable Caddy integration                                      |
+| `caddy.adminUrl`      | str         | `http://localhost:2019`      | Caddy admin API URL                                           |
+| `caddy.serverName`    | str         | `deployd`                    | Caddy server block name for routes                            |
+| `caddy.listenAddress` | str         | `""`                         | Caddy HTTPS listen address                                    |
+| `kata.enable`         | bool        | true                         | Enforce Kata runtime (guarded by nixpkgs option availability) |
 
 #### Security Features Implemented
 
@@ -173,7 +173,7 @@ These changes were made during code review to improve security and correctness:
 
 | Change                                                                    | Rationale                                                                                                                                                                                                                                                                                                           |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Added `validate_name()` to Teardown                                        | Original only validated names in Deploy; Teardown could inject paths or systemd unit names                                                                                                                                                                                                                          |
+| Added `validate_name()` to Teardown                                       | Original only validated names in Deploy; Teardown could inject paths or systemd unit names                                                                                                                                                                                                                          |
 | Added `validate_env()` for environment variable keys/values               | Original wrote env vars directly to quadlet files; newlines in values could inject systemd unit directives                                                                                                                                                                                                          |
 | Replaced hand-rolled token comparison with `subtle::ConstantTimeEq`       | Original used `!=` (timing side-channel); hand-rolled XOR loop could be optimized away by compiler; `subtle` uses `#[inline(never)]` + compiler barriers                                                                                                                                                            |
 | Replaced `BufReader::lines()` with `take().read_line()`                   | Original buffered entire lines before size check; malicious client could send multi-GB line without `\n` to exhaust memory                                                                                                                                                                                          |
@@ -189,8 +189,8 @@ These changes were made during code review to improve security and correctness:
 | Removed `AddFirewallPort`/`RemoveFirewallPort` commands and all nft usage | Replaced dynamic nftables `allowed_ports` set with static Caddy-only bridge isolation. CAP_NET_ADMIN is unscoped (grants authority over ALL host network config); static isolation + Caddy dynamic routing achieves the same goal without elevated capabilities. See "Architecture Change: Static Bridge Isolation" |
 | Dropped `CAP_NET_ADMIN`                                                   | No longer needed — deployd-helper no longer calls nft. Zero extended capabilities.                                                                                                                                                                                                                                  |
 | Removed `AF_NETLINK` from `RestrictAddressFamilies`                       | AF_NETLINK was only needed for nft commands. Tighter socket allowlist.                                                                                                                                                                                                                                              |
-| Removed standalone `AddCaddyRoute`/`RemoveCaddyRoute` commands            | Subsumed by Deploy/Teardown lifecycle. Deploy creates Caddy route if `ingress` is set; Teardown removes it best-effort. Eliminates extra protocol surface with no concrete use case.                                                                                                                                 |
-| Added `upstream_port` to `IngressConfig`                                  | Deploy needs to know which port to proxy to when creating Caddy routes. Explicit field avoids magic conventions (e.g. "use first port mapping").                                                                                                                                                                     |
+| Removed standalone `AddCaddyRoute`/`RemoveCaddyRoute` commands            | Subsumed by Deploy/Teardown lifecycle. Deploy creates Caddy route if `ingress` is set; Teardown removes it best-effort. Eliminates extra protocol surface with no concrete use case.                                                                                                                                |
+| Added `upstream_port` to `IngressConfig`                                  | Deploy needs to know which port to proxy to when creating Caddy routes. Explicit field avoids magic conventions (e.g. "use first port mapping").                                                                                                                                                                    |
 | Removed `block_volume: Option<String>` from `ContainerDefinition`         | Phase D4 placeholder — dead code carried through every message, test, and serialization path. Trivial to re-add when needed.                                                                                                                                                                                        |
 | Removed `stateDir` NixOS option                                           | Previously retained for Phase D4, but the option itself was dead — not wired to any tmpfiles, ReadWritePaths, or env var. Re-add when D4 needs it.                                                                                                                                                                  |
 
@@ -241,13 +241,13 @@ Tasks:
 
 These items were identified in the code review but are intentionally deferred:
 
-| Item                                                               | Deferred To     | Rationale                                                            |
-| ------------------------------------------------------------------ | --------------- | -------------------------------------------------------------------- |
-| Suspend/Resume/AttachVolume/DetachVolume protocol variants         | Phase D4        | iSCSI addon is Phase D4 scope                                        |
-| Storage pool NixOS option + device path validation                 | Phase D4        | Coupled to iSCSI addon                                               |
-| `block_volume` field + `stateDir` option                           | Phase D4        | Removed in D1b (dead code); re-add when iSCSI state is needed        |
-| Multi-threaded connection handling                                 | Future          | Single-client homelab use; deployd API is the only client            |
-| Nightly Rust for safe `peer_cred()`                                | When stabilized | Feature #42839 has no stabilization momentum; `libc` code is correct |
+| Item                                                       | Deferred To     | Rationale                                                            |
+| ---------------------------------------------------------- | --------------- | -------------------------------------------------------------------- |
+| Suspend/Resume/AttachVolume/DetachVolume protocol variants | Phase D4        | iSCSI addon is Phase D4 scope                                        |
+| Storage pool NixOS option + device path validation         | Phase D4        | Coupled to iSCSI addon                                               |
+| `block_volume` field + `stateDir` option                   | Phase D4        | Removed in D1b (dead code); re-add when iSCSI state is needed        |
+| Multi-threaded connection handling                         | Future          | Single-client homelab use; deployd API is the only client            |
+| Nightly Rust for safe `peer_cred()`                        | When stabilized | Feature #42839 has no stabilization momentum; `libc` code is correct |
 
 ## Network Changes Summary
 

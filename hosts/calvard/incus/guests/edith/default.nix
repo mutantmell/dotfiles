@@ -7,6 +7,7 @@
 }: {
   imports = [
     ./sops.nix
+    (import ../../../../../profiles/disko/incus-vm.nix {})
   ];
 
   incus-guest = {
