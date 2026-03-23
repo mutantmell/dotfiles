@@ -43,7 +43,7 @@ let
     pkgs.runCommand "${name}-vm-image" {} ''
       mkdir -p $out
       ln -s ${guestCfg.system.config.system.build.metadata}/tarball/*.tar.xz $out/metadata.tar.xz
-      ln -s ${guestCfg.system.config.system.build.qemuImage}/*.qcow2 $out/disk.qcow2
+      ln -s ${guestCfg.system.config.system.build.diskoImages}/*.qcow2 $out/disk.qcow2
     '';
 
   mkContainerImage = name: guestCfg:

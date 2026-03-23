@@ -197,6 +197,7 @@
       diskoProfiles = {
         tmpfs = import ./profiles/disko/tmpfs.nix;
         btrfs = import ./profiles/disko/btrfs.nix;
+        incus-vm = import ./profiles/disko/incus-vm.nix;
       };
       mk-nixos = args @ {
         nixpkgs,
@@ -246,11 +247,12 @@
             guestModule
             sops-nix.nixosModules.sops
             impermanence.nixosModules.impermanence
+            disko.nixosModules.disko
             self.nixosModules.common
             self.nixosModules."promtail-client"
             self.nixosModules."node-exporter-client"
             ./modules/incus/guest-options.nix
-            "${nixpkgs}/nixos/modules/virtualisation/incus-virtual-machine.nix"
+            ./modules/incus/disko-virtual-machine.nix
             {
               nixpkgs = {
                 overlays = builtins.attrValues self.overlays;

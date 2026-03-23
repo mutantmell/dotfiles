@@ -1,7 +1,7 @@
 # NixOS integration test for incus-manager VM lifecycle
 #
 # Verifies that the incus-manager module can:
-# 1. Import a VM image
+# 1. Import a disko-built VM image
 # 2. Create a VM instance
 # 3. Add a static disk device to the VM
 #
@@ -12,7 +12,7 @@
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
 }: let
-  evalConfig = import (pkgs.path + "/nixos/lib/eval-config.nix");
+  inherit ((builtins.getFlake (toString ../..)).inputs) disko;
 
   # Minimal VM guest NixOS config — keep it as small as possible
   guestConfig = {
@@ -23,21 +23,18 @@
   }: {
     networking.hostName = "testvm";
     system.stateVersion = "25.11";
-    fileSystems."/" = {
-      device = "/dev/disk/by-label/nixos";
-      fsType = "ext4";
-    };
-    boot.loader.grub.device = "/dev/vda";
     # Minimize closure size
     documentation.enable = false;
   };
 
-  # Build a VM system with incus-virtual-machine module
-  guestSystem = evalConfig {
+  # Build a VM system with disko-virtual-machine module
+  guestSystem = lib.nixosSystem {
     system = "x86_64-linux";
     modules = [
       guestConfig
-      "${pkgs.path}/nixos/modules/virtualisation/incus-virtual-machine.nix"
+      disko.nixosModules.disko
+      ../../modules/incus/disko-virtual-machine.nix
+      (import ../../profiles/disko/incus-vm.nix {})
     ];
   };
 in

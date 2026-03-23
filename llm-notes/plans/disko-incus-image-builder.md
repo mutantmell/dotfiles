@@ -16,6 +16,7 @@ ENOSPC without corruption or forced read-only remount).
 Replace `incus-virtual-machine.nix` with disko's `system.build.diskoImages`.
 
 `incus-virtual-machine.nix` is a thin wrapper (~60 lines) around:
+
 - `qemu-guest.nix` (virtio kernel modules)
 - `lxc-instance-common.nix` (Incus metadata tarball)
 - `make-disk-image.nix` (ext4-only image builder)
@@ -74,6 +75,7 @@ modules = [
 ```
 
 Results:
+
 - `fileSystems."/".fsType` = `"xfs"` (disko owns it, no conflict)
 - `fileSystems."/boot".device` = `"/dev/disk/by-partlabel/disk-main-ESP"`
 - `system.build.diskoImages` = present (disko image builder)
@@ -159,6 +161,7 @@ This is intentionally minimal — it provides only the things that
 ```
 
 Design decisions:
+
 - **No LUKS**: Host disk is already encrypted. No security benefit for VMs.
 - **XFS root**: Handles full-disk gracefully — ENOSPC without journal corruption.
 - **Small `imageSize` (10G)**: Only needs to hold the initial NixOS closure.
@@ -189,6 +192,7 @@ mk-incus-vm-disko = guestModule:
 ```
 
 Key difference from `mk-incus-vm`:
+
 - `disko.nixosModules.disko` replaces the nixpkgs incus-virtual-machine module
 - `./modules/incus/disko-virtual-machine.nix` provides the boot/agent config
 
@@ -346,10 +350,12 @@ incus list   # IP should be unchanged after reboot
 ```
 
 Things that survive instance deletion (no backup needed):
+
 - SSH host keys and sops age keys (host-side `/persist/guests/<name>/static/`)
 - The NixOS system config (declarative, in the repo)
 
 Things that are lost (backup if needed):
+
 - User home directories
 - Any in-guest state on the root filesystem (databases, logs, etc.)
 
