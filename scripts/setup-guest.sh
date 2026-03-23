@@ -32,18 +32,18 @@ OUTPUT_DIR=""
 TARGET=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --output-dir)
-      OUTPUT_DIR="$2"
-      shift 2
-      ;;
-    --target)
-      TARGET="$2"
-      shift 2
-      ;;
-    *)
-      echo "Unknown option: $1"
-      exit 1
-      ;;
+  --output-dir)
+    OUTPUT_DIR="$2"
+    shift 2
+    ;;
+  --target)
+    TARGET="$2"
+    shift 2
+    ;;
+  *)
+    echo "Unknown option: $1"
+    exit 1
+    ;;
   esac
 done
 
@@ -206,9 +206,9 @@ elif [[ -n $TARGET ]]; then
   # Create directory structure on remote
   ssh "$TARGET" "mkdir -p /persist/guests/${GUEST}/static/etc/ssh"
   scp "$DEPLOY_DIR/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key" \
-      "$TARGET:/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
+    "$TARGET:/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
   scp "$DEPLOY_DIR/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub" \
-      "$TARGET:/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
+    "$TARGET:/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
   ssh "$TARGET" "chmod 600 /persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
   ssh "$TARGET" "chmod 644 /persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
   ssh "$TARGET" "chown -R root:root /persist/guests/${GUEST}/static"

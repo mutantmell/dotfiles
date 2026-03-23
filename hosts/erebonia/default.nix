@@ -2,7 +2,9 @@
   pkgs,
   config,
   ...
-}: {
+}: let
+  deployUid = pkgs.mmell.lib.data.deployd.uid;
+in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
@@ -19,13 +21,12 @@
   common.deployd.enable = true;
   deployd = {
     capabilityTokenFile = config.sops.secrets."deployd-capability-token".path;
-    allowedUid = 398;
+    allowedUid = deployUid;
     caddy.listenAddress = (pkgs.mmell.lib.data.network.forHost "erebonia").host.ipv4;
   };
-  # Static UID for deployd-helper — must match deployd-api UID in roer microVM
-  # so that virtiofs passthrough UID mapping allows socket access.
-  users.users.deployd-helper.uid = 398;
-  users.groups.deployd-helper.gid = 398;
+  # Static UID — must match deployd-api UID in roer microVM for virtiofs socket access.
+  users.users.deployd-helper.uid = deployUid;
+  users.groups.deployd-helper.gid = deployUid;
   common.btrfs.enable = true;
   common.btrfs.keyfileUnlock.enable = true;
   common.btrfs.impermanence.enable = true;
