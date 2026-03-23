@@ -194,20 +194,80 @@ These changes were made during code review to improve security and correctness:
 | Removed `block_volume: Option<String>` from `ContainerDefinition`         | Phase D4 placeholder — dead code carried through every message, test, and serialization path. Trivial to re-add when needed.                                                                                                                                                                                        |
 | Removed `stateDir` NixOS option                                           | Previously retained for Phase D4, but the option itself was dead — not wired to any tmpfiles, ReadWritePaths, or env var. Re-add when D4 needs it.                                                                                                                                                                  |
 
-### Phase D2: deployd API MicroVM — NOT STARTED
+### Phase D2: deployd API MicroVM — COMPLETE
 
 Dependencies: Phase D0 (go/no-go), Phase D1 (complete)
 
 Tasks:
 
-- [ ] Choose microVM name (Trails-series Erebonia city: Roer, Ordis, Legram, Bareahard, Celdic, Ymir, Jurai, Heimdallr)
-- [ ] Register deployd microVM in `lib/common/data/network.nix` (management zone, VLAN 11)
-- [ ] Create microVM guest config under `hosts/erebonia/microvm/guests/<name>/`
-- [ ] Build deployd API binary (Rust/axum): HTTP API, OAuth2 validation, Unix socket client
-- [ ] Add Keycloak client in messeldam config
-- [ ] Add forward rules on thebeyond: DMZ→management (saint-arkh→deployd), trusted→management
-- [ ] Wire virtiofs share for Unix socket, egress rules, DNS entries
-- [ ] Configure capability token generation at microVM boot
+- [x] Choose microVM name: **roer**
+- [x] Register deployd microVM in `lib/common/data/network.nix` (management zone, VLAN 11, host ID 32)
+- [x] Create microVM guest config under `hosts/erebonia/microvm/guests/roer/`
+- [x] Build deployd API binary (Rust/axum): HTTP API, OAuth2 validation, Unix socket client
+- [x] Add Keycloak client in messeldam config (`deployd-api`, bearer-only)
+- [x] Add forward rules on thebeyond: DMZ→management (saint-arkh→roer:443). Trusted→management already covered by zone `accessTo`.
+- [x] Wire virtiofs share for Unix socket, egress rules, DNS entries
+- [x] Configure capability token via sops (shared between erebonia and roer)
+
+#### Files Created
+
+| File | Purpose |
+|------|---------|
+| `packages/deployd-api/Cargo.toml` | Rust project definition |
+| `packages/deployd-api/Cargo.lock` | Pinned dependencies |
+| `packages/deployd-api/default.nix` | Nix package (`rustPlatform.buildRustPackage`) |
+| `packages/deployd-api/src/main.rs` | Axum HTTP server, routing, state setup |
+| `packages/deployd-api/src/config.rs` | Configuration from environment variables |
+| `packages/deployd-api/src/auth.rs` | JWKS-cached OIDC token validation with key rotation retry |
+| `packages/deployd-api/src/routes.rs` | Deploy, teardown, status, healthz endpoints |
+| `packages/deployd-api/src/helper.rs` | Unix socket client for deployd-helper (async via spawn_blocking) |
+| `hosts/erebonia/microvm/guests/roer/default.nix` | MicroVM config: network, egress, impermanence |
+| `hosts/erebonia/microvm/guests/roer/microvm.nix` | Hardware: vsock CID 4, virtiofs shares (incl. deployd socket), 512M/2vcpu |
+| `hosts/erebonia/microvm/guests/roer/sops.nix` | Secrets: deployd capability token |
+| `hosts/erebonia/microvm/guests/roer/modules/api.nix` | deployd-api service, nginx TLS termination, step-ca bootstrap |
+
+#### Files Modified
+
+| File | Change |
+|------|--------|
+| `lib/common/data/network.nix` | Added roer to management zone (host ID 32) |
+| `hosts/thebeyond/router.nix` | Added saint-arkh→roer:443 DMZ→management forward rules |
+| `hosts/erebonia/default.nix` | Enabled `common.deployd`, configured `deployd.*` options |
+| `hosts/erebonia/sops.nix` | Added `deployd-capability-token` secret |
+| `hosts/calvard/microvm/guests/messeldam/modules/homelab-realm.json` | Added `deployd-api` bearer-only Keycloak client |
+| `flake.nix` | Added `deployd-api` package |
+| `hosts/erebonia/incus/guests/trista/default.nix` | Added missing disko profile import (pre-existing bug fix) |
+
+#### Architecture
+
+```
+  [saint-arkh (DMZ)]                    [operator (trusted)]
+         |                                       |
+         | HTTPS :443                             | HTTPS :443
+         | (forward rule)                         | (zone accessTo)
+         v                                        v
+  [roer microVM (management zone, 10.97.11.32)]
+    nginx (TLS termination, step-ca cert)
+      -> deployd-api (localhost:8443)
+           | OIDC token validation (Keycloak JWKS)
+           | group-based authorization ("deploy")
+           |
+           | Unix socket (virtiofs: /run/deployd-host/deployd.sock)
+           v
+  [erebonia host]
+    deployd-helper (capability token auth)
+      -> Podman quadlet management
+      -> Caddy dynamic ingress
+```
+
+#### Security Model
+
+- **OIDC (Keycloak)** validates API callers — group `deploy` required
+- **Capability token (sops)** authenticates the API→helper Unix socket boundary
+- **SO_PEERCRED** accepts root (UID 0) from microVM — virtiofs passthrough UID mapping
+- **JWKS cache** with automatic refresh on unknown `kid` (handles key rotation)
+- **spawn_blocking** for Unix socket I/O — avoids blocking the tokio runtime
+- **systemd hardening** on deployd-api: NoNewPrivileges, ProtectSystem=strict, RestrictAddressFamilies, RestrictNamespaces
 
 ### Phase D3: CI/CD Integration — NOT STARTED
 

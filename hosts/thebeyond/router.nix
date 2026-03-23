@@ -22,6 +22,8 @@
   inherit (net.hosts) messeldam;
   inherit (net.hosts) basel;
   inherit (net.hosts) tharbad;
+  inherit (net.hosts) roer;
+  saint-arkh = net.hosts."saint-arkh";
 
   # Helper to define a per-VLAN bridge with bond0 + bat0 members.
   # Batman-adv only carries mesh-encapsulated frames on hard interfaces,
@@ -339,6 +341,21 @@ in {
             tcp.dport = 3100;
             verdict = "accept";
             comment = "DMZ -> tharbad (Loki v6)";
+          }
+          # saint-arkh → roer (deployd container deployment API)
+          {
+            ip.saddr = saint-arkh.ipv4;
+            ip.daddr = roer.ipv4;
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "saint-arkh -> roer (deployd API)";
+          }
+          {
+            ip6.saddr = saint-arkh.ipv6;
+            ip6.daddr = roer.ipv6;
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "saint-arkh -> roer (deployd API v6)";
           }
         ];
       };

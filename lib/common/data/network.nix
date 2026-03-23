@@ -30,6 +30,7 @@
         remiferia = 20; # NAS — before VM hosts
         calvard = 30; # VM host
         erebonia = 31; # VM host
+        roer = 32; # deployd API (erebonia)
       };
     };
     trusted = {

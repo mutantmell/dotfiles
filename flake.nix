@@ -146,6 +146,9 @@
       deployd-helper = import packages/deployd-helper {
         inherit (pkgs) lib rustPlatform;
       };
+      deployd-api = import packages/deployd-api {
+        inherit (pkgs) lib rustPlatform;
+      };
       openwrt-deployer = import ./packages/openwrt-deployer {
         inherit (pkgs) lib stdenv makeWrapper openssh coreutils;
       };
