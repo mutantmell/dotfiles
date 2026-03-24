@@ -248,6 +248,17 @@
       "implicitFlowEnabled": false,
       "bearerOnly": true,
       "defaultClientScopes": ["openid", "groups"]
+    },
+    {
+      "clientId": "deployd-operator",
+      "name": "deployd operator access",
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "defaultClientScopes": ["openid", "groups"]
     }
   ],
   "groups": [

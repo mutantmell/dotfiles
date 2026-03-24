@@ -27,6 +27,9 @@ in {
         registryAllowlist = ["creil.internal"];
         hostnameAllowlist = [".internal"];
       };
+
+      # Trust step-ca root CA so Podman can pull from creil.internal over HTTPS
+      security.pki.certificateFiles = [pkgs.mmell.lib.data.pki.root];
     }))
 
     # Persist deployd state via impermanence
