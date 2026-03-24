@@ -10,7 +10,7 @@ _: {
       {
         name = "default";
         driver = "btrfs";
-        config.source = "/persist/incus";
+        config.source = "/var/lib/incus/storage-pools/default";
       }
     ];
 
