@@ -97,6 +97,7 @@
           pkgs.bashInteractive
           #          pkgs.sops
           #          pkgs.ssh-to-age
+          pkgs.skopeo
           pkgs.openssl
           pkgs.pkg-config
           pkgs.rust-bin.stable.latest.default
