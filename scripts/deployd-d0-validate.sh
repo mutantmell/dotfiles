@@ -9,6 +9,8 @@
 #   - Network access to creil.internal, roer.internal, erebonia
 #   - skopeo and jq available (nix-shell -p skopeo jq)
 #   - Keycloak account in homelab realm with 'deploy' group membership
+#   - Forgejo account with write:package access to the deployd org on creil.internal
+#     Set FORGEJO_USER and FORGEJO_TOKEN, or you will be prompted.
 #
 # Usage: ./scripts/deployd-d0-validate.sh [--skip-build] [--skip-push]
 set -euo pipefail
@@ -54,8 +56,17 @@ log "Image at: $IMAGE_PATH"
 
 # Step 2: Push to registry
 if [ "$SKIP_PUSH" = false ]; then
+  if [ -z "${FORGEJO_USER:-}" ]; then
+    read -rp "Forgejo username: " FORGEJO_USER
+  fi
+  if [ -z "${FORGEJO_TOKEN:-}" ]; then
+    read -rsp "Forgejo token: " FORGEJO_TOKEN
+    echo
+  fi
   log "Pushing image to $REGISTRY/$IMAGE_NAME:$IMAGE_TAG..."
   skopeo copy \
+    --insecure-policy \
+    --dest-creds "$FORGEJO_USER:$FORGEJO_TOKEN" \
     "docker-archive:$IMAGE_PATH" \
     "docker://$REGISTRY/$IMAGE_NAME:$IMAGE_TAG" \
     --dest-tls-verify=false
@@ -63,7 +74,7 @@ fi
 
 # Step 3: Get image digest
 log "Fetching image digest..."
-DIGEST="$(skopeo inspect "docker://$REGISTRY/$IMAGE_NAME:$IMAGE_TAG" --tls-verify=false | jq -r .Digest)"
+DIGEST="$(skopeo inspect --insecure-policy "docker://$REGISTRY/$IMAGE_NAME:$IMAGE_TAG" --tls-verify=false | jq -r .Digest)"
 [ -n "$DIGEST" ] || fail "Could not fetch image digest"
 log "Digest: $DIGEST"
 FULL_IMAGE="$REGISTRY/$IMAGE_NAME@$DIGEST"
