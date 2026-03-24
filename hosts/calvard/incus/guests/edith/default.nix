@@ -87,6 +87,8 @@
   };
   networking.firewall.allowedTCPPorts = [2022];
 
+  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
+
   node-exporter-client.enable = true;
 
   system.stateVersion = "25.11";

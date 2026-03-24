@@ -97,6 +97,7 @@
           pkgs.bashInteractive
           #          pkgs.sops
           #          pkgs.ssh-to-age
+          pkgs.jq
           pkgs.skopeo
           pkgs.openssl
           pkgs.pkg-config
