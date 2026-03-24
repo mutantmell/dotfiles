@@ -33,14 +33,12 @@ in {
 
     environment = {
       DEPLOYD_HELPER_SOCKET = "/run/deployd-host/deployd.sock";
+      DEPLOYD_CAPABILITY_TOKEN_FILE = config.sops.secrets."deployd-capability-token".path;
       DEPLOYD_OIDC_ISSUER = "https://auth.mutantmell.net/realms/homelab";
       DEPLOYD_REQUIRED_GROUP = "deploy";
     };
 
-    script = ''
-      export DEPLOYD_CAPABILITY_TOKEN="$(cat ${config.sops.secrets."deployd-capability-token".path})"
-      exec ${pkgs.mmell.deployd-api}/bin/deployd-api
-    '';
+    serviceConfig.ExecStart = "${pkgs.mmell.deployd-api}/bin/deployd-api";
 
     serviceConfig = {
       User = "deployd-api";

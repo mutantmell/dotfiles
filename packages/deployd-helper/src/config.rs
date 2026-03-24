@@ -24,7 +24,7 @@ impl Config {
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
             socket_path: env_required("DEPLOYD_SOCKET_PATH")?,
-            capability_token: env_required("DEPLOYD_CAPABILITY_TOKEN")?,
+            capability_token: read_secret_file("DEPLOYD_CAPABILITY_TOKEN_FILE")?,
             allowed_uid: env_required("DEPLOYD_ALLOWED_UID")?
                 .parse()
                 .map_err(|e| format!("DEPLOYD_ALLOWED_UID: {}", e))?,
@@ -61,6 +61,13 @@ impl Config {
 
 fn env_required(key: &str) -> Result<String, String> {
     std::env::var(key).map_err(|_| format!("{} is required but not set", key))
+}
+
+fn read_secret_file(key: &str) -> Result<String, String> {
+    let path = env_required(key)?;
+    std::fs::read_to_string(&path)
+        .map(|s| s.trim_end().to_string())
+        .map_err(|e| format!("{}: {}", path, e))
 }
 
 fn env_or(key: &str, default: &str) -> String {
