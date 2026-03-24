@@ -20,7 +20,7 @@ impl Config {
 
         Self {
             helper_socket_path: require_env("DEPLOYD_HELPER_SOCKET"),
-            capability_token: require_env("DEPLOYD_CAPABILITY_TOKEN"),
+            capability_token: read_secret_file("DEPLOYD_CAPABILITY_TOKEN_FILE"),
             oidc_issuer,
             oidc_jwks_url,
             required_group: std::env::var("DEPLOYD_REQUIRED_GROUP")
@@ -32,4 +32,11 @@ impl Config {
 fn require_env(name: &str) -> String {
     std::env::var(name)
         .unwrap_or_else(|_| panic!("{} must be set", name))
+}
+
+fn read_secret_file(key: &str) -> String {
+    let path = require_env(key);
+    std::fs::read_to_string(&path)
+        .map(|s| s.trim_end().to_string())
+        .unwrap_or_else(|e| panic!("{}: {}", path, e))
 }

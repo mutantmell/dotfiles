@@ -255,11 +255,7 @@ in {
           DEPLOYD_SYSTEMCTL_PATH = "/run/current-system/sw/bin/systemctl";
         };
 
-        # Read capability token from file into env var at service start
-        script = ''
-          export DEPLOYD_CAPABILITY_TOKEN="$(cat "$DEPLOYD_CAPABILITY_TOKEN_FILE")"
-          exec ${cfg.package}/bin/deployd-helper
-        '';
+        serviceConfig.ExecStart = "${cfg.package}/bin/deployd-helper";
 
         serviceConfig = {
           User = "deployd-helper";
