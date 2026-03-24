@@ -3,7 +3,7 @@
     defaultSopsFile = ./secrets/secrets.yaml;
     age.sshKeyPaths = ["/persist/etc/ssh/ssh_host_ed25519_key"];
     secrets = {
-      "deployd-capability-token" = {};
+      "deployd-capability-token".owner = "deployd-helper";
     };
   };
 }
