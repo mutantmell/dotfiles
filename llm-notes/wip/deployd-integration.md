@@ -228,16 +228,16 @@ Tasks:
 
 #### Files Modified
 
-| File                                                                | Change                                                                          |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `lib/common/data/network.nix`                                       | Added roer to management zone (host ID 32)                                      |
-| `lib/common/data/default.nix`                                       | Added `deployd.uid` (398) — shared UID for virtiofs socket access coordination  |
-| `hosts/thebeyond/router.nix`                                        | Added saint-arkh→roer:443 DMZ→management forward rules                          |
-| `hosts/erebonia/default.nix`                                        | Enabled `common.deployd`, configured `deployd.*` options, static UID 398        |
-| `hosts/erebonia/sops.nix`                                           | Added `deployd-capability-token` secret                                         |
-| `hosts/calvard/microvm/guests/messeldam/modules/homelab-realm.json` | Added `deployd-api` bearer-only Keycloak client                                 |
-| `flake.nix`                                                         | Added `deployd-api` package                                                     |
-| `hosts/erebonia/incus/guests/trista/default.nix`                    | Added missing disko profile import (pre-existing bug fix)                       |
+| File                                                                | Change                                                                         |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `lib/common/data/network.nix`                                       | Added roer to management zone (host ID 32)                                     |
+| `lib/common/data/default.nix`                                       | Added `deployd.uid` (398) — shared UID for virtiofs socket access coordination |
+| `hosts/thebeyond/router.nix`                                        | Added saint-arkh→roer:443 DMZ→management forward rules                         |
+| `hosts/erebonia/default.nix`                                        | Enabled `common.deployd`, configured `deployd.*` options, static UID 398       |
+| `hosts/erebonia/sops.nix`                                           | Added `deployd-capability-token` secret                                        |
+| `hosts/calvard/microvm/guests/messeldam/modules/homelab-realm.json` | Added `deployd-api` bearer-only Keycloak client                                |
+| `flake.nix`                                                         | Added `deployd-api` package                                                    |
+| `hosts/erebonia/incus/guests/trista/default.nix`                    | Added missing disko profile import (pre-existing bug fix)                      |
 
 #### Architecture
 
@@ -273,13 +273,13 @@ Tasks:
 
 #### Changes from D2 Code Review
 
-| Change | Rationale |
-|--------|-----------|
+| Change                                                                             | Rationale                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PortMapping.protocol` changed from `String` to `PortProtocol` enum in deployd-api | API client accepted any string (e.g., "sctp") which would deserialize-fail in the helper, producing a confusing 500 instead of a clean 400. Now mirrors the helper's enum exactly. |
-| Helper response `data` field forwarded to API callers | Status and future commands may return structured data; previously silently dropped. |
-| deployd-api runs as dedicated `deployd-api` user (UID 398), not root | Root was only needed because the virtiofs-mounted socket directory (0750) was inaccessible to non-root. Solved with shared static UID instead of privilege escalation. |
-| Shared static UID 398 in `lib/common/data/default.nix` | Single source of truth for the UID shared between deployd-helper (erebonia) and deployd-api (roer). Below dynamic system range (400-999), clear of microvm UID 300. |
-| sops secret ownership set to `deployd-api` user | Allows non-root deployd-api service to read the capability token at `/run/secrets/deployd-capability-token`. |
+| Helper response `data` field forwarded to API callers                              | Status and future commands may return structured data; previously silently dropped.                                                                                                |
+| deployd-api runs as dedicated `deployd-api` user (UID 398), not root               | Root was only needed because the virtiofs-mounted socket directory (0750) was inaccessible to non-root. Solved with shared static UID instead of privilege escalation.             |
+| Shared static UID 398 in `lib/common/data/default.nix`                             | Single source of truth for the UID shared between deployd-helper (erebonia) and deployd-api (roer). Below dynamic system range (400-999), clear of microvm UID 300.                |
+| sops secret ownership set to `deployd-api` user                                    | Allows non-root deployd-api service to read the capability token at `/run/secrets/deployd-capability-token`.                                                                       |
 
 ### Phase D3: CI/CD Integration — NOT STARTED
 

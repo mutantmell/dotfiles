@@ -152,6 +152,7 @@
       openwrt-deployer = import ./packages/openwrt-deployer {
         inherit (pkgs) lib stdenv makeWrapper openssh coreutils;
       };
+      claude-sandbox-image = import packages/claude-sandbox-image {inherit pkgs;};
       installer-iso = let
         keys = builtins.fromJSON (builtins.readFile ./lib/common/data/keys.json);
         installer = nixpkgs.lib.nixosSystem {

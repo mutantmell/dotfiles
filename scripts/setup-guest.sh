@@ -204,13 +204,17 @@ elif [[ -n $TARGET ]]; then
   place_ssh_keys "$DEPLOY_DIR"
 
   # Create directory structure on remote
+  # shellcheck disable=SC2029 # Intentional client-side expansion for all SSH commands below
   ssh "$TARGET" "mkdir -p /persist/guests/${GUEST}/static/etc/ssh"
   scp "$DEPLOY_DIR/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key" \
     "$TARGET:/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
   scp "$DEPLOY_DIR/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub" \
     "$TARGET:/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
+  # shellcheck disable=SC2029
   ssh "$TARGET" "chmod 600 /persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
+  # shellcheck disable=SC2029
   ssh "$TARGET" "chmod 644 /persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
+  # shellcheck disable=SC2029
   ssh "$TARGET" "chown -R root:root /persist/guests/${GUEST}/static"
 
   if [[ $GUEST_TYPE == "microvm" ]]; then
@@ -224,6 +228,7 @@ elif [[ -n $TARGET ]]; then
       MICROVM_UID=300
     fi
 
+    # shellcheck disable=SC2029
     ssh "$TARGET" "mkdir -p /persist/guests/${GUEST}/images && chown ${MICROVM_UID}:${KVM_GID} /persist/guests/${GUEST}/images"
   fi
 

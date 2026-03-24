@@ -23,6 +23,15 @@ in {
     capabilityTokenFile = config.sops.secrets."deployd-capability-token".path;
     allowedUid = deployUid;
     caddy.listenAddress = (pkgs.mmell.lib.data.network.forHost "erebonia").host.ipv4;
+    kata.enable = false;
+    bridge = {
+      name = "deploy-dmz";
+      uplink = "br100";
+      subnet = "10.97.100.0/24";
+      gateway = "10.97.100.1";
+      poolStart = "10.97.100.128";
+      poolEnd = "10.97.100.191";
+    };
   };
   # Static UID — must match deployd-api UID in roer microVM for virtiofs socket access.
   users.users.deployd-helper.uid = deployUid;
