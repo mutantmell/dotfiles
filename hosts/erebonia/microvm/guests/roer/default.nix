@@ -108,7 +108,8 @@ in {
   );
 
   # Allow inbound HTTPS from management zone and DMZ (via forward rules on thebeyond)
-  networking.firewall.allowedTCPPorts = [443];
+  # Port 80 is needed for ACME HTTP-01 challenge from basel during cert bootstrap/renewal.
+  networking.firewall.allowedTCPPorts = [80 443];
 
   promtail-client.enable = true;
   node-exporter-client.enable = true;

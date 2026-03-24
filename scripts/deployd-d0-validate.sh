@@ -25,6 +25,7 @@ CONTAINER_NAME="claude-sandbox"
 AUTH_URL="https://auth.mutantmell.net/realms/homelab/protocol/openid-connect/token"
 API_URL="https://roer.internal/api/v1"
 EREBONIA_HOST="erebonia"
+CACERT="$REPO_DIR/lib/common/data/pki/root_ca.crt"
 
 SKIP_BUILD=false
 SKIP_PUSH=false
@@ -89,7 +90,7 @@ if [ -z "${DEPLOYD_PASS:-}" ]; then
   echo
 fi
 
-TOKEN_RESPONSE="$(curl -sf -X POST "$AUTH_URL" \
+TOKEN_RESPONSE="$(curl -sf --cacert "$CACERT" -X POST "$AUTH_URL" \
   -d "grant_type=password" \
   -d "client_id=deployd-operator" \
   -d "username=$DEPLOYD_USER" \
@@ -100,10 +101,15 @@ log "Got access token"
 
 # Step 5: Deploy via deployd-api
 log "Deploying $CONTAINER_NAME via deployd-api..."
-DEPLOY_RESPONSE="$(curl -sf -X POST "$API_URL/deploy" \
+DEPLOY_RESPONSE="$(curl -s --cacert "$CACERT" -w "\n%{http_code}" -X POST "$API_URL/deploy" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"name\":\"$CONTAINER_NAME\",\"image\":\"$FULL_IMAGE\"}")" || fail "Deploy request failed"
+  -d "{\"name\":\"$CONTAINER_NAME\",\"image\":\"$FULL_IMAGE\"}")" \
+  || fail "Deploy request failed (curl error $?)"
+DEPLOY_HTTP_CODE="$(echo "$DEPLOY_RESPONSE" | tail -1)"
+DEPLOY_BODY="$(echo "$DEPLOY_RESPONSE" | head -n -1)"
+[ "$DEPLOY_HTTP_CODE" -ge 200 ] && [ "$DEPLOY_HTTP_CODE" -lt 300 ] \
+  || fail "Deploy request failed (HTTP $DEPLOY_HTTP_CODE): $DEPLOY_BODY"
 echo "Deploy response: $DEPLOY_RESPONSE"
 
 # Step 6: Discover container IP
@@ -152,16 +158,21 @@ read -rp "Press Enter to tear down (or Ctrl-C to leave running)... "
 # Step 10: Teardown
 log "Tearing down $CONTAINER_NAME..."
 # Re-fetch token in case it expired
-TOKEN_RESPONSE="$(curl -sf -X POST "$AUTH_URL" \
+TOKEN_RESPONSE="$(curl -sf --cacert "$CACERT" -X POST "$AUTH_URL" \
   -d "grant_type=password" \
   -d "client_id=deployd-operator" \
   -d "username=$DEPLOYD_USER" \
   -d "password=$DEPLOYD_PASS")" || fail "Token refresh failed"
 TOKEN="$(echo "$TOKEN_RESPONSE" | jq -r .access_token)"
 
-TEARDOWN_RESPONSE="$(curl -sf -X DELETE "$API_URL/teardown/$CONTAINER_NAME" \
-  -H "Authorization: Bearer $TOKEN")" || fail "Teardown request failed"
-echo "Teardown response: $TEARDOWN_RESPONSE"
+TEARDOWN_RESPONSE="$(curl -s --cacert "$CACERT" -w "\n%{http_code}" -X DELETE "$API_URL/teardown/$CONTAINER_NAME" \
+  -H "Authorization: Bearer $TOKEN")" \
+  || fail "Teardown request failed (curl error $?)"
+TEARDOWN_HTTP_CODE="$(echo "$TEARDOWN_RESPONSE" | tail -1)"
+TEARDOWN_BODY="$(echo "$TEARDOWN_RESPONSE" | head -n -1)"
+[ "$TEARDOWN_HTTP_CODE" -ge 200 ] && [ "$TEARDOWN_HTTP_CODE" -lt 300 ] \
+  || fail "Teardown request failed (HTTP $TEARDOWN_HTTP_CODE): $TEARDOWN_BODY"
+echo "Teardown response: $TEARDOWN_BODY"
 log "Teardown complete"
 
 log "D0 validation complete!"
