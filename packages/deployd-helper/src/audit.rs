@@ -10,7 +10,7 @@ use crate::protocol::HelperCommand;
 #[derive(Serialize)]
 struct AuditEntry<'a> {
     timestamp: String,
-    peer_uid: u32,
+    peer_cid: u32,
     command: &'a str,
     params: serde_json::Value,
     outcome: &'a str,
@@ -20,7 +20,7 @@ struct AuditEntry<'a> {
 /// Write an audit log entry. Never fails the calling operation — logs error and continues.
 pub fn log_command(
     audit_path: &Path,
-    peer_uid: u32,
+    peer_cid: u32,
     command: &HelperCommand,
     outcome: &str,
     message: &str,
@@ -33,7 +33,7 @@ pub fn log_command(
 
     let entry = AuditEntry {
         timestamp: Utc::now().to_rfc3339(),
-        peer_uid,
+        peer_cid,
         command: cmd_name,
         params,
         outcome,

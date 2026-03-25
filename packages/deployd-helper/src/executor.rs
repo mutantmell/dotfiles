@@ -17,12 +17,12 @@ impl Executor {
         Self { config }
     }
 
-    pub fn execute(&self, peer_uid: u32, command: &HelperCommand) -> HelperResponse {
+    pub fn execute(&self, peer_cid: u32, command: &HelperCommand) -> HelperResponse {
         let result = self.execute_inner(command);
         let outcome = if result.success { "ok" } else { "error" };
         audit::log_command(
             std::path::Path::new(&self.config.audit_log_path),
-            peer_uid,
+            peer_cid,
             command,
             outcome,
             &result.message,

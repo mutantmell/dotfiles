@@ -4,9 +4,9 @@ use serde::Deserialize;
 /// All paths are set by the NixOS module via environment variables.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    pub socket_path: String,
+    pub vsock_port: u32,
+    pub vsock_allowed_cid: u32,
     pub capability_token: String,
-    pub allowed_uid: u32,
     pub registry_allowlist: Vec<String>,
     pub hostname_allowlist: Vec<String>,
     pub port_range_min: u16,
@@ -23,11 +23,13 @@ impl Config {
     /// Load configuration from environment variables.
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
-            socket_path: env_required("DEPLOYD_SOCKET_PATH")?,
-            capability_token: read_secret_file("DEPLOYD_CAPABILITY_TOKEN_FILE")?,
-            allowed_uid: env_required("DEPLOYD_ALLOWED_UID")?
+            vsock_port: env_required("DEPLOYD_VSOCK_PORT")?
                 .parse()
-                .map_err(|e| format!("DEPLOYD_ALLOWED_UID: {}", e))?,
+                .map_err(|e| format!("DEPLOYD_VSOCK_PORT: {}", e))?,
+            vsock_allowed_cid: env_required("DEPLOYD_VSOCK_ALLOWED_CID")?
+                .parse()
+                .map_err(|e| format!("DEPLOYD_VSOCK_ALLOWED_CID: {}", e))?,
+            capability_token: read_secret_file("DEPLOYD_CAPABILITY_TOKEN_FILE")?,
             registry_allowlist: env_list("DEPLOYD_REGISTRY_ALLOWLIST"),
             hostname_allowlist: env_list("DEPLOYD_HOSTNAME_ALLOWLIST"),
             port_range_min: env_or("DEPLOYD_PORT_RANGE_MIN", "1024")

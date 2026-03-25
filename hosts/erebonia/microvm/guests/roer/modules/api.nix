@@ -32,7 +32,7 @@ in {
     wants = ["network-online.target"];
 
     environment = {
-      DEPLOYD_HELPER_SOCKET = "/run/deployd-host/deployd.sock";
+      DEPLOYD_HELPER_VSOCK_PORT = "7000";
       DEPLOYD_CAPABILITY_TOKEN_FILE = config.sops.secrets."deployd-capability-token".path;
       DEPLOYD_OIDC_ISSUER = "https://auth.mutantmell.net/realms/homelab";
       DEPLOYD_REQUIRED_GROUP = "deploy";
@@ -46,7 +46,7 @@ in {
       NoNewPrivileges = true;
       ProtectSystem = "strict";
       ProtectHome = true;
-      RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_INET6"];
+      RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_INET6" "AF_VSOCK"];
       RestrictNamespaces = true;
       SystemCallFilter = ["@system-service" "~@privileged"];
     };

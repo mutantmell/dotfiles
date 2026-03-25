@@ -1,11 +1,11 @@
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
+use std::io::{BufRead, BufReader, Write};
+use vsock::{VsockStream, VsockAddr};
 
 use serde::{Deserialize, Serialize};
 
-/// Client for the deployd-helper Unix socket protocol.
+/// Client for the deployd-helper vsock protocol.
 pub struct HelperClient {
-    socket_path: String,
+    vsock_port: u32,
     token: String,
 }
 
@@ -80,26 +80,29 @@ pub struct HelperResponse {
     pub data: Option<serde_json::Value>,
 }
 
+// VMADDR_CID_HOST = 2: from the guest, this refers to the host.
+const VMADDR_CID_HOST: u32 = 2;
+
 impl HelperClient {
-    pub fn new(socket_path: String, token: String) -> Self {
-        Self { socket_path, token }
+    pub fn new(vsock_port: u32, token: String) -> Self {
+        Self { vsock_port, token }
     }
 
     /// Send a command to the helper and return its response.
-    /// Uses spawn_blocking to avoid blocking the tokio runtime on Unix socket I/O.
+    /// Uses spawn_blocking to avoid blocking the tokio runtime on vsock I/O.
     pub async fn send(&self, command: HelperCommand) -> Result<HelperResponse, String> {
-        let socket_path = self.socket_path.clone();
+        let vsock_port = self.vsock_port;
         let token = self.token.clone();
 
         tokio::task::spawn_blocking(move || {
-            Self::send_blocking(&socket_path, &token, command)
+            Self::send_blocking(vsock_port, &token, command)
         })
         .await
         .map_err(|e| format!("spawn_blocking failed: {}", e))?
     }
 
     fn send_blocking(
-        socket_path: &str,
+        vsock_port: u32,
         token: &str,
         command: HelperCommand,
     ) -> Result<HelperResponse, String> {
@@ -108,7 +111,8 @@ impl HelperClient {
             command,
         };
 
-        let mut stream = UnixStream::connect(socket_path)
+        let addr = VsockAddr::new(VMADDR_CID_HOST, vsock_port);
+        let mut stream = VsockStream::connect(&addr)
             .map_err(|e| format!("failed to connect to helper socket: {}", e))?;
 
         let mut payload = serde_json::to_string(&msg)
@@ -119,7 +123,7 @@ impl HelperClient {
             .write_all(payload.as_bytes())
             .map_err(|e| format!("failed to write to helper: {}", e))?;
 
-        let reader = BufReader::new(&stream);
+        let mut reader = BufReader::new(stream);
         let mut response_line = String::new();
         reader
             .take(1024 * 1024) // 1 MiB limit
