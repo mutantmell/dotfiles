@@ -90,8 +90,8 @@ in {
       uplink = mkOption {
         type = types.str;
         default = "";
-        example = "br100";
-        description = "Existing bridge to connect to via a veth pair. When set, containers get L2 connectivity to the uplink network and nftables isolation is skipped (zone rules handle security). When empty, the bridge is isolated with nftables forward-chain rules.";
+        example = "eno1.100";
+        description = "Parent interface for macvlan container networking. When set, a macvlan Podman network is created on this interface so containers get direct L2 connectivity to the uplink network and nftables isolation is skipped (zone rules handle security). When empty, an isolated bridge network with nftables forward-chain rules is used instead.";
       };
       subnet = mkOption {
         type = types.str;
@@ -155,25 +155,36 @@ in {
       virtualisation.containers.enable = true;
       virtualisation.podman.enable = true;
 
-      # Create the Podman bridge network via podman network create.
+      # Create the Podman network via podman network create.
       # Runs on every boot (idempotent): avoids depending on Podman's internal
       # JSON format, which changed between CNI and Netavark backends.
+      #
+      # Uplink mode uses macvlan (not bridge) so containers appear directly on
+      # the uplink L2 network. Bridge mode would assign the gateway IP to the
+      # local bridge, conflicting with the real router and breaking return routing.
       systemd.services.deployd-podman-network = {
-        description = "Create deployd Podman bridge network";
+        description = "Create deployd Podman network";
         wantedBy = ["multi-user.target"];
         after = ["network.target"];
         path = [pkgs.podman];
         script = let
-          args = lib.concatStringsSep " \\\n      " (
+          isolatedArgs = lib.concatStringsSep " \\\n      " (
             [ "--driver=bridge"
               "--subnet=${cfg.bridge.subnet}"
               "--interface-name=${cfg.bridge.name}" ]
             ++ lib.optional (cfg.bridge.gateway != "") "--gateway=${cfg.bridge.gateway}"
             ++ lib.optional (cfg.bridge.poolStart != "" && cfg.bridge.poolEnd != "")
                  "--ip-range=${cfg.bridge.poolStart}-${cfg.bridge.poolEnd}"
-            ++ lib.optional hasUplink "--opt=no_default_route=1"
-            ++ lib.optional hasUplink "--disable-dns"
           );
+          uplinkArgs = lib.concatStringsSep " \\\n      " (
+            [ "--driver=macvlan"
+              "--subnet=${cfg.bridge.subnet}"
+              "-o parent=${cfg.bridge.uplink}" ]
+            ++ lib.optional (cfg.bridge.gateway != "") "--gateway=${cfg.bridge.gateway}"
+            ++ lib.optional (cfg.bridge.poolStart != "" && cfg.bridge.poolEnd != "")
+                 "--ip-range=${cfg.bridge.poolStart}-${cfg.bridge.poolEnd}"
+          );
+          args = if hasUplink then uplinkArgs else isolatedArgs;
         in ''
           podman network exists ${lib.escapeShellArg cfg.bridge.name} && exit 0
           podman network create \
@@ -275,8 +286,9 @@ in {
       };
     }
 
-    # Bridge device (always created via systemd-networkd)
-    {
+    # Bridge device (isolated mode only — uplink mode uses macvlan on the
+    # uplink interface directly, so no local bridge is needed)
+    (mkIf (!hasUplink) {
       systemd.network.netdevs."50-${cfg.bridge.name}".netdevConfig = {
         Kind = "bridge";
         Name = cfg.bridge.name;
@@ -285,37 +297,6 @@ in {
         matchConfig.Name = cfg.bridge.name;
         networkConfig.ConfigureWithoutCarrier = true;
         linkConfig.ActivationPolicy = "always-up";
-      };
-    }
-
-    # Uplink: veth pair connecting deployd bridge to an existing bridge
-    (mkIf hasUplink {
-      systemd.network.netdevs."50-veth-deploy" = {
-        netdevConfig = {
-          Kind = "veth";
-          Name = "veth-deploy";
-        };
-        peerConfig.Name = "veth-deploy-br";
-      };
-
-      # veth-deploy end joins the deployd bridge
-      systemd.network.networks."50-veth-deploy" = {
-        matchConfig.Name = "veth-deploy";
-        networkConfig = {
-          Bridge = cfg.bridge.name;
-          DHCP = "no";
-          LinkLocalAddressing = "no";
-        };
-      };
-
-      # veth-deploy-br end joins the uplink bridge
-      systemd.network.networks."50-veth-deploy-br" = {
-        matchConfig.Name = "veth-deploy-br";
-        networkConfig = {
-          Bridge = cfg.bridge.uplink;
-          DHCP = "no";
-          LinkLocalAddressing = "no";
-        };
       };
     })
 

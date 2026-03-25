@@ -12,7 +12,8 @@
 
   incus-guest = {
     profile = "dmz-vm";
-    bridge = "br100";
+    parent = "eno1.100";
+    nictype = "macvlan";
   };
 
   nix.settings.experimental-features = ["nix-command" "flakes"];

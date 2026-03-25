@@ -19,11 +19,17 @@ in {
       example = "dev";
     };
 
-    bridge = lib.mkOption {
+    parent = lib.mkOption {
       type = lib.types.nullOr lib.types.str;
       default = null;
-      description = "Host bridge to attach this instance to via nictype=bridged.";
-      example = "br20";
+      description = "Host interface to attach this instance to (bridge for nictype=bridged, parent interface for nictype=macvlan).";
+      example = "eno1.100";
+    };
+
+    nictype = lib.mkOption {
+      type = lib.types.enum ["bridged" "macvlan"];
+      default = "bridged";
+      description = "NIC type for the instance's primary network interface.";
     };
 
     autoStart = lib.mkOption {

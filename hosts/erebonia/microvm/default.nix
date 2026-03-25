@@ -54,10 +54,7 @@ in {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br21";
     };
-    netdevs."20-br100" = {
-      netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br100";
-    };
+
     netdevs."20-eno1.11" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "eno1.11";
@@ -110,12 +107,16 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-    networks."20-vm100-bridge" = {
-      matchConfig.Name = ["eno1.100" "vm-100-*"];
-      networkConfig.Bridge = "br100";
+    networks."20-eno1.100" = {
+      matchConfig.Name = "eno1.100";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+    # macvtap interfaces for VLAN 100 guests: no host-side IP, just carrier
+    networks."20-vm100-macvtap" = {
+      matchConfig.Name = "vm-100-*";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
     };
     networks."20-br21" = {
       matchConfig.Name = "br21";
@@ -123,12 +124,7 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-    networks."20-br100" = {
-      matchConfig.Name = "br100";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-    };
+
   };
   services.resolved.enable = true;
 

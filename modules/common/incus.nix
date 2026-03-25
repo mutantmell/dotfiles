@@ -52,7 +52,8 @@ in {
           type = guestType;
           system = builtSystem;
           inherit (guestMeta) profile;
-          inherit (guestMeta) bridge;
+          inherit (guestMeta) parent;
+          inherit (guestMeta) nictype;
           inherit (guestMeta) autoStart;
           inherit (guestMeta) limits;
           staticDir = "${impCfg.persistDir}/guests/${name}/static";
