@@ -204,6 +204,8 @@ in {
         description = "deployd privileged helper";
       };
       users.groups.deployd-helper = {};
+      # Allow cloud-hypervisor (microvm user) to connect to the vsock proxy socket.
+      users.users.microvm.extraGroups = ["deployd-helper"];
 
       # Polkit rule: allow deployd-helper to manage container units via systemctl.
       # Scoped to daemon-reload and unit start/stop only.
@@ -249,6 +251,14 @@ in {
         };
 
         serviceConfig.ExecStart = "${cfg.package}/bin/deployd-helper";
+
+        # Grant deployd-helper group write on the vsock socket directory via ACL.
+        # Runs as root before the main process; handles both normal boots (directory
+        # already exists) and fresh installs (directory created by microvm-install
+        # after tmpfiles runs). kvm group access is unaffected.
+        serviceConfig.ExecStartPre = [
+          "+${pkgs.acl}/bin/setfacl -m g:deployd-helper:rwx ${builtins.dirOf cfg.vsockHostSocket}"
+        ];
 
         serviceConfig = {
           User = "deployd-helper";
