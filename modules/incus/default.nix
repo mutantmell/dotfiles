@@ -97,18 +97,20 @@ let
       if ! ${pkgs.incus}/bin/incus list --format=csv -c n | grep -q "^$INSTANCE$"; then
         echo "Creating instance: $INSTANCE"
         ${pkgs.incus}/bin/incus init "$IMAGE_ALIAS" "$INSTANCE"${vmFlag}${profileFlag}
-        ${optionalString (guestCfg.bridge != null) ''
+        ${optionalString (guestCfg.parent != null) ''
         ${pkgs.incus}/bin/incus config device add "$INSTANCE" eth0 nic \
-          nictype=bridged parent="${guestCfg.bridge}" name=eth0 || true
+          nictype=${guestCfg.nictype} parent="${guestCfg.parent}" name=eth0 || true
       ''}
       fi
 
-      # Reconcile bridge parent if it has drifted (e.g. VLAN migration)
-      ${optionalString (guestCfg.bridge != null) ''
-        CURRENT_BRIDGE=$(${pkgs.incus}/bin/incus config device get "$INSTANCE" eth0 parent 2>/dev/null || true)
-        if [ "$CURRENT_BRIDGE" != "${guestCfg.bridge}" ]; then
-          echo "Updating $INSTANCE eth0 bridge: $CURRENT_BRIDGE -> ${guestCfg.bridge}"
-          ${pkgs.incus}/bin/incus config device set "$INSTANCE" eth0 parent "${guestCfg.bridge}"
+      # Reconcile NIC parent if it has drifted (e.g. VLAN or nictype migration)
+      ${optionalString (guestCfg.parent != null) ''
+        CURRENT_PARENT=$(${pkgs.incus}/bin/incus config device get "$INSTANCE" eth0 parent 2>/dev/null || true)
+        CURRENT_NICTYPE=$(${pkgs.incus}/bin/incus config device get "$INSTANCE" eth0 nictype 2>/dev/null || true)
+        if [ "$CURRENT_PARENT" != "${guestCfg.parent}" ] || [ "$CURRENT_NICTYPE" != "${guestCfg.nictype}" ]; then
+          echo "Updating $INSTANCE eth0: $CURRENT_NICTYPE:$CURRENT_PARENT -> ${guestCfg.nictype}:${guestCfg.parent}"
+          ${pkgs.incus}/bin/incus config device set "$INSTANCE" eth0 nictype=${guestCfg.nictype}
+          ${pkgs.incus}/bin/incus config device set "$INSTANCE" eth0 parent "${guestCfg.parent}"
         fi
       ''}
 
@@ -259,10 +261,16 @@ in {
             description = "Incus profile to apply to this instance.";
           };
 
-          bridge = mkOption {
+          parent = mkOption {
             type = types.nullOr types.str;
             default = null;
-            description = "Host bridge to attach this instance to via nictype=bridged.";
+            description = "Host interface to attach this instance to (bridge for nictype=bridged, parent interface for nictype=macvlan).";
+          };
+
+          nictype = mkOption {
+            type = types.enum ["bridged" "macvlan"];
+            default = "bridged";
+            description = "NIC type for the instance's primary network interface.";
           };
 
           autoStart = mkOption {

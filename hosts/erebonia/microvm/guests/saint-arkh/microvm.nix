@@ -32,9 +32,10 @@
   microvm.vcpu = 4;
   microvm.interfaces = [
     {
-      type = "tap";
+      type = "macvtap";
       id = "vm-100-s-arkh";
       mac = "5E:64:00:3D:00:01";
+      macvtap.link = "eno1.100";
     }
   ];
 }
