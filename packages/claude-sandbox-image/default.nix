@@ -31,7 +31,7 @@
   '';
   shadowFile = pkgs.writeText "shadow" ''
     root:!:1::::::
-    ${user}:!:1::::::
+    ${user}:*:1::::::
   '';
   nsswitch = pkgs.writeText "nsswitch.conf" ''
     passwd: files
