@@ -20,50 +20,6 @@
   hasKataOption = options ? virtualisation && options.virtualisation ? kata-containers;
 
   hasUplink = cfg.bridge.uplink != "";
-
-  # Build Podman network JSON for environment.etc
-  podmanNetworkJson = let
-    ipamRange =
-      {inherit (cfg.bridge) subnet;}
-      // lib.optionalAttrs (cfg.bridge.gateway != "") {inherit (cfg.bridge) gateway;}
-      // lib.optionalAttrs (cfg.bridge.poolStart != "" && cfg.bridge.poolEnd != "") {
-        rangeStart = cfg.bridge.poolStart;
-        rangeEnd = cfg.bridge.poolEnd;
-      };
-  in
-    builtins.toJSON {
-      cniVersion = "0.4.0";
-      inherit (cfg.bridge) name;
-      plugins = [
-        ({
-            type = "bridge";
-            bridge = cfg.bridge.name;
-            ipam = {
-              type = "host-local";
-              ranges = [[ipamRange]];
-            };
-          }
-          // (
-            if hasUplink
-            then {
-              # Uplinked: gateway is external (e.g. router), not this bridge
-              isGateway = false;
-              ipMasq = false;
-            }
-            else {
-              # Isolated: bridge acts as gateway, masquerade for egress
-              isGateway = true;
-              ipMasq = true;
-            }
-          ))
-        {
-          type = "portmap";
-          capabilities = {portMappings = true;};
-        }
-        {type = "firewall";}
-        {type = "tuning";}
-      ];
-    };
 in {
   options.deployd = {
     enable = mkEnableOption "deployd container deployment helper";
@@ -199,9 +155,34 @@ in {
       virtualisation.containers.enable = true;
       virtualisation.podman.enable = true;
 
-      # Podman network config (CNI JSON)
-      environment.etc."containers/networks/${cfg.bridge.name}.json" = {
-        text = podmanNetworkJson;
+      # Create the Podman bridge network via podman network create.
+      # Runs on every boot (idempotent): avoids depending on Podman's internal
+      # JSON format, which changed between CNI and Netavark backends.
+      systemd.services.deployd-podman-network = {
+        description = "Create deployd Podman bridge network";
+        wantedBy = ["multi-user.target"];
+        after = ["network.target"];
+        path = [pkgs.podman];
+        script = let
+          args = lib.concatStringsSep " \\\n      " (
+            [ "--driver=bridge"
+              "--subnet=${cfg.bridge.subnet}"
+              "--interface-name=${cfg.bridge.name}" ]
+            ++ lib.optional (cfg.bridge.gateway != "") "--gateway=${cfg.bridge.gateway}"
+            ++ lib.optional (cfg.bridge.poolStart != "" && cfg.bridge.poolEnd != "")
+                 "--ip-range=${cfg.bridge.poolStart}-${cfg.bridge.poolEnd}"
+            ++ lib.optional hasUplink "--opt=no_default_route=1"
+          );
+        in ''
+          podman network exists ${lib.escapeShellArg cfg.bridge.name} && exit 0
+          podman network create \
+            ${args} \
+            ${lib.escapeShellArg cfg.bridge.name}
+        '';
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
       };
 
       # User and group for the helper
@@ -252,7 +233,7 @@ in {
         description = "deployd privileged helper";
         wantedBy = ["multi-user.target"];
         requires = ["deployd-vsock-acl.service"];
-        after = ["network.target" "deployd-vsock-acl.service"];
+        after = ["network.target" "deployd-vsock-acl.service" "deployd-podman-network.service"];
 
         environment = {
           DEPLOYD_VSOCK_HOST_SOCKET = cfg.vsockHostSocket;
@@ -268,7 +249,7 @@ in {
           DEPLOYD_KATA_RUNTIME =
             if cfg.kata.enable
             then "/run/current-system/sw/bin/kata-runtime"
-            else "crun";
+            else "${pkgs.crun}/bin/crun";
           DEPLOYD_SYSTEMCTL_PATH = "/run/current-system/sw/bin/systemctl";
         };
 
