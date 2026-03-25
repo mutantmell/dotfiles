@@ -181,9 +181,9 @@ mod tests {
 
     fn test_config() -> Config {
         Config {
-            socket_path: "/tmp/test.sock".into(),
+            vsock_port: 7000,
+            vsock_allowed_cid: 4,
             capability_token: "test-token".into(),
-            allowed_uid: 1000,
             registry_allowlist: vec!["creil.internal".into()],
             hostname_allowlist: vec![".internal".into()],
             port_range_min: 1024,

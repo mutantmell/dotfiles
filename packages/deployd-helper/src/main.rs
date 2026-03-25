@@ -5,7 +5,7 @@ mod protocol;
 mod quadlet;
 mod validation;
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use tracing::{error, info, warn};
 use vsock::{VsockListener, VsockAddr, VMADDR_CID_ANY};
 use subtle::ConstantTimeEq;

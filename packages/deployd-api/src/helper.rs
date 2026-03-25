@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use vsock::{VsockStream, VsockAddr};
 
 use serde::{Deserialize, Serialize};
