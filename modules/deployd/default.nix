@@ -101,15 +101,9 @@ in {
       };
     };
 
-    vsockPort = mkOption {
-      type = types.port;
-      default = 7000;
-      description = "vsock port the helper listens on. The API VM connects via CID 2 (host).";
-    };
-
-    vsockAllowedCid = mkOption {
-      type = types.int;
-      description = "vsock CID of the API VM permitted to connect to the helper.";
+    vsockHostSocket = mkOption {
+      type = types.str;
+      description = "Unix socket path cloud-hypervisor proxies guest vsock connections to (e.g. /var/lib/microvms/roer/notify.vsock_7000).";
     };
 
     auditLogPath = mkOption {
@@ -237,8 +231,7 @@ in {
         after = ["network.target"];
 
         environment = {
-          DEPLOYD_VSOCK_PORT = toString cfg.vsockPort;
-          DEPLOYD_VSOCK_ALLOWED_CID = toString cfg.vsockAllowedCid;
+          DEPLOYD_VSOCK_HOST_SOCKET = cfg.vsockHostSocket;
           DEPLOYD_CAPABILITY_TOKEN_FILE = cfg.capabilityTokenFile;
           DEPLOYD_REGISTRY_ALLOWLIST = builtins.concatStringsSep "," cfg.registryAllowlist;
           DEPLOYD_HOSTNAME_ALLOWLIST = builtins.concatStringsSep "," cfg.hostnameAllowlist;
@@ -266,9 +259,10 @@ in {
             "/run/containers/systemd"
             "/etc/containers/systemd"
             "/var/log/deployd"
+            "/var/lib/microvms"
           ];
           UMask = "0027";
-          RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_VSOCK"];
+          RestrictAddressFamilies = ["AF_UNIX" "AF_INET"];
           RestrictNamespaces = true;
           SystemCallFilter = ["@system-service" "~@privileged"];
         };

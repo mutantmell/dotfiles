@@ -21,7 +21,7 @@ in {
   common.deployd.enable = true;
   deployd = {
     capabilityTokenFile = config.sops.secrets."deployd-capability-token".path;
-    vsockAllowedCid = 4; # roer microvm.vsock.cid
+    vsockHostSocket = "/var/lib/microvms/roer/notify.vsock_7000";
     caddy.listenAddress = (pkgs.mmell.lib.data.network.forHost "erebonia").host.ipv4;
     kata.enable = false;
     bridge = {
