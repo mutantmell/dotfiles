@@ -2,7 +2,7 @@
 #
 # - Wires registry allowlist to project registries
 # - Integrates persistent paths with impermanence
-# - Configures socket path for virtiofs share access
+# - Wires registry/hostname allowlists to project values
 # - Adds step-ca root cert trust for registry TLS
 {
   config,

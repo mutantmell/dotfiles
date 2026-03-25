@@ -12,8 +12,8 @@
   caRoot = "/etc/ssl/certs/ca-certificates.crt";
   deployUid = pkgs.mmell.lib.data.deployd.uid;
 in {
-  # Static UID — must match deployd-helper UID on erebonia host so that
-  # virtiofs passthrough UID mapping allows socket access (0660, owner-only).
+  # Static UID — pinned for consistency with deployd-helper UID on erebonia.
+  # Originally required for virtiofs UID mapping; retained for stability.
   users.users.deployd-api = {
     isSystemUser = true;
     uid = deployUid;
