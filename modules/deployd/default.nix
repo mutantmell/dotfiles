@@ -12,13 +12,10 @@
   config,
   pkgs,
   lib,
-  options,
   ...
 }: let
   cfg = config.deployd;
   inherit (lib) mkOption mkEnableOption types mkIf mkMerge;
-  hasKataOption = options ? virtualisation && options.virtualisation ? kata-containers;
-
   hasUplink = cfg.bridge.uplink != "";
 in {
   options.deployd = {
@@ -329,10 +326,17 @@ in {
       };
     })
 
-    # Kata runtime (optional — only set if nixpkgs provides the option)
-    (lib.optionalAttrs hasKataOption (mkIf cfg.kata.enable {
-      virtualisation.kata-containers.enable = true;
-    }))
+    # Kata runtime: install the package, load required kernel modules, and
+    # create /etc/kata-containers/configuration.toml.  kata-runtime checks
+    # /etc/kata-containers/configuration.toml before its compiled-in store
+    # path, so pointing it explicitly to the QEMU config ensures the right
+    # backend is selected regardless of how the package was built.
+    (mkIf cfg.kata.enable {
+      environment.systemPackages = [ pkgs.kata-runtime ];
+      boot.kernelModules = [ "vhost" "vhost_net" "vhost_vsock" "kvm" ];
+      environment.etc."kata-containers/configuration.toml".source =
+        "${pkgs.kata-runtime}/share/defaults/kata-containers/configuration-qemu.toml";
+    })
 
     # Caddy ingress (optional)
     (mkIf cfg.caddy.enable {
