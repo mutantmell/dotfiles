@@ -138,17 +138,23 @@ CONTAINER_IP="$(ssh "$EREBONIA_HOST" \
 [ -n "$CONTAINER_IP" ] || fail "Container has no IP"
 log "Container IP: $CONTAINER_IP"
 
-# Step 7: Verify connectivity
+# Step 7: Verify connectivity (retry for up to 30s)
 log "Pinging container..."
-ping -c 3 -W 2 "$CONTAINER_IP" >/dev/null 2>&1 || fail "Container unreachable from local host"
+for i in $(seq 1 10); do
+  ping -c 1 -W 3 "$CONTAINER_IP" >/dev/null 2>&1 && break
+  [ "$i" -eq 10 ] && fail "Container unreachable from local host after 30s"
+  sleep 3
+done
 log "Ping OK"
 
-# Step 8: Verify SSH
-log "Waiting for sshd to start..."
-sleep 2
+# Step 8: Verify SSH (retry for up to 30s — sshd may still be starting)
 log "Testing SSH to claude@$CONTAINER_IP..."
-ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "claude@$CONTAINER_IP" \
-  "echo 'SSH OK'; uname -a" || fail "SSH unreachable"
+for i in $(seq 1 10); do
+  ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "claude@$CONTAINER_IP" \
+    "echo 'SSH OK'; uname -a" && break
+  [ "$i" -eq 10 ] && fail "SSH unreachable after 30s"
+  sleep 3
+done
 log "SSH OK"
 
 # Step 9: Interactive phase
