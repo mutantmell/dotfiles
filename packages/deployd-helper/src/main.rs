@@ -5,12 +5,10 @@ mod protocol;
 mod quadlet;
 mod validation;
 
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixListener;
-use std::os::unix::net::UnixStream;
-use std::path::Path;
-use subtle::ConstantTimeEq;
+use std::io::{BufRead, BufReader, Write};
 use tracing::{error, info, warn};
+use vsock::{VsockListener, VsockAddr, VMADDR_CID_ANY};
+use subtle::ConstantTimeEq;
 
 use config::Config;
 use executor::Executor;
@@ -34,60 +32,37 @@ fn main() {
         }
     };
 
-    // Clean up stale socket
-    let socket_path = Path::new(&config.socket_path);
-    if socket_path.exists() {
-        if let Err(e) = std::fs::remove_file(socket_path) {
-            error!("failed to remove stale socket: {}", e);
-            std::process::exit(1);
-        }
-    }
-
-    let listener = match UnixListener::bind(socket_path) {
+    let addr = VsockAddr::new(VMADDR_CID_ANY, config.vsock_port);
+    let listener = match VsockListener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {
-            error!("failed to bind socket at {}: {}", config.socket_path, e);
+            error!("failed to bind vsock port {}: {}", config.vsock_port, e);
             std::process::exit(1);
         }
     };
 
-    // Set socket permissions so the deployd user can connect
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = std::fs::Permissions::from_mode(0o660);
-        if let Err(e) = std::fs::set_permissions(socket_path, perms) {
-            error!("failed to set socket permissions: {}", e);
-            std::process::exit(1);
-        }
-    }
-
     let executor = Executor::new(config.clone());
 
-    info!(socket = %config.socket_path, "deployd-helper listening");
+    info!(vsock_port = config.vsock_port, "deployd-helper listening");
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let peer_uid = match get_peer_uid(&stream) {
-                    Ok(uid) => uid,
+                let peer_cid = match stream.peer_addr() {
+                    Ok(addr) => addr.cid(),
                     Err(e) => {
-                        warn!("failed to get peer credentials: {}", e);
+                        warn!("failed to get peer address: {}", e);
                         continue;
                     }
                 };
 
-                // SO_PEERCRED: only accept the configured deployd UID.
-                // Root (UID 0) is also accepted for operational debugging —
-                // capability token is still required on every message regardless.
-                if peer_uid != config.allowed_uid && peer_uid != 0 {
-                    warn!(peer_uid, "rejecting connection from unauthorized UID");
+                if peer_cid != config.vsock_allowed_cid {
+                    warn!(peer_cid, allowed = config.vsock_allowed_cid, "rejecting connection from unauthorized CID");
                     continue;
                 }
 
-                info!(peer_uid, "accepted connection");
-
-                handle_connection(stream, peer_uid, &config, &executor);
+                info!(peer_cid, "accepted connection");
+                handle_connection(stream, peer_cid, &config, &executor);
             }
             Err(e) => {
                 error!("accept failed: {}", e);
@@ -96,48 +71,24 @@ fn main() {
     }
 }
 
-fn get_peer_uid(stream: &UnixStream) -> Result<u32, String> {
-    use std::os::unix::io::AsRawFd;
-
-    let fd = stream.as_raw_fd();
-    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
-    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-
-    let ret = unsafe {
-        libc::getsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            &mut cred as *mut _ as *mut libc::c_void,
-            &mut len,
-        )
-    };
-
-    if ret == 0 {
-        Ok(cred.uid)
-    } else {
-        Err(format!(
-            "getsockopt SO_PEERCRED failed: {}",
-            std::io::Error::last_os_error()
-        ))
-    }
-}
-
 fn handle_connection(
-    stream: UnixStream,
-    peer_uid: u32,
+    stream: vsock::VsockStream,
+    peer_cid: u32,
     config: &Config,
     executor: &Executor,
 ) {
-    let mut reader = BufReader::new(&stream);
+    let mut writer = match stream.try_clone() {
+        Ok(w) => w,
+        Err(e) => {
+            error!("failed to clone vsock stream: {}", e);
+            return;
+        }
+    };
+    let mut reader = BufReader::new(stream);
 
     loop {
         let mut line = String::new();
 
-        // Read one line, enforcing MAX_MESSAGE_SIZE as a hard limit on memory.
-        // BufReader::read_line() appends to the buffer, so we use take() to
-        // cap the read at MAX_MESSAGE_SIZE + 1 bytes, allowing us to detect
-        // oversized messages without buffering them entirely.
         match reader.by_ref().take((MAX_MESSAGE_SIZE + 1) as u64).read_line(&mut line) {
             Ok(0) => break, // EOF
             Ok(_) => {}
@@ -156,7 +107,7 @@ fn handle_connection(
         if line.len() > MAX_MESSAGE_SIZE {
             warn!(size = line.len(), "rejecting oversized message");
             let resp = HelperResponse::err("message exceeds maximum size");
-            let _ = write_response(&stream, &resp);
+            let _ = write_response(&mut writer, &resp);
             continue;
         }
 
@@ -165,21 +116,21 @@ fn handle_connection(
             Err(e) => {
                 warn!("invalid message: {}", e);
                 let resp = HelperResponse::err(format!("invalid message format: {}", e));
-                let _ = write_response(&stream, &resp);
+                let _ = write_response(&mut writer, &resp);
                 continue;
             }
         };
 
         // Validate capability token (constant-time comparison via subtle crate)
         if msg.token.as_bytes().ct_eq(config.capability_token.as_bytes()).unwrap_u8() != 1 {
-            warn!(peer_uid, "invalid capability token");
+            warn!(peer_cid, "invalid capability token");
             let resp = HelperResponse::err("invalid capability token");
-            let _ = write_response(&stream, &resp);
+            let _ = write_response(&mut writer, &resp);
             continue;
         }
 
-        let response = executor.execute(peer_uid, &msg.command);
-        if let Err(e) = write_response(&stream, &response) {
+        let response = executor.execute(peer_cid, &msg.command);
+        if let Err(e) = write_response(&mut writer, &response) {
             error!("failed to write response: {}", e);
             break;
         }
@@ -187,10 +138,9 @@ fn handle_connection(
 }
 
 fn write_response(
-    stream: &UnixStream,
+    writer: &mut vsock::VsockStream,
     response: &HelperResponse,
 ) -> Result<(), String> {
-    let mut stream = stream;
     let line = serde_json::to_string(response).map_err(|e| format!("serialize error: {}", e))?;
-    writeln!(stream, "{}", line).map_err(|e| format!("write error: {}", e))
+    writeln!(writer, "{}", line).map_err(|e| format!("write error: {}", e))
 }

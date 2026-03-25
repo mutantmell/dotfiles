@@ -101,10 +101,15 @@ in {
       };
     };
 
-    socketPath = mkOption {
-      type = types.str;
-      default = "/run/deployd/deployd.sock";
-      description = "Path to the Unix domain socket for helper communication.";
+    vsockPort = mkOption {
+      type = types.port;
+      default = 7000;
+      description = "vsock port the helper listens on. The API VM connects via CID 2 (host).";
+    };
+
+    vsockAllowedCid = mkOption {
+      type = types.int;
+      description = "vsock CID of the API VM permitted to connect to the helper.";
     };
 
     auditLogPath = mkOption {
@@ -118,10 +123,6 @@ in {
       description = "Path to the file containing the capability token for socket authentication.";
     };
 
-    allowedUid = mkOption {
-      type = types.int;
-      description = "UID of the deployd API process permitted to connect to the socket.";
-    };
 
     bridge = {
       name = mkOption {
@@ -226,7 +227,6 @@ in {
       systemd.tmpfiles.rules = [
         "d /run/containers/systemd 0775 root deployd-helper - -"
         "d /etc/containers/systemd 0775 root deployd-helper - -"
-        "d /run/deployd 0750 deployd-helper deployd-helper - -"
         "d /var/log/deployd 0750 deployd-helper deployd-helper - -"
       ];
 
@@ -237,9 +237,9 @@ in {
         after = ["network.target"];
 
         environment = {
-          DEPLOYD_SOCKET_PATH = cfg.socketPath;
+          DEPLOYD_VSOCK_PORT = toString cfg.vsockPort;
+          DEPLOYD_VSOCK_ALLOWED_CID = toString cfg.vsockAllowedCid;
           DEPLOYD_CAPABILITY_TOKEN_FILE = cfg.capabilityTokenFile;
-          DEPLOYD_ALLOWED_UID = toString cfg.allowedUid;
           DEPLOYD_REGISTRY_ALLOWLIST = builtins.concatStringsSep "," cfg.registryAllowlist;
           DEPLOYD_HOSTNAME_ALLOWLIST = builtins.concatStringsSep "," cfg.hostnameAllowlist;
           DEPLOYD_PORT_RANGE_MIN = toString cfg.portRange.min;
@@ -265,11 +265,10 @@ in {
           ReadWritePaths = [
             "/run/containers/systemd"
             "/etc/containers/systemd"
-            "/run/deployd"
             "/var/log/deployd"
           ];
           UMask = "0027";
-          RestrictAddressFamilies = ["AF_UNIX" "AF_INET"];
+          RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_VSOCK"];
           RestrictNamespaces = true;
           SystemCallFilter = ["@system-service" "~@privileged"];
         };

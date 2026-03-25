@@ -32,7 +32,7 @@ async fn main() {
 
     let config = Config::from_env();
     let helper = HelperClient::new(
-        config.helper_socket_path.clone(),
+        config.helper_vsock_port,
         config.capability_token.clone(),
     );
     let jwks = auth::JwksCache::new(config.oidc_jwks_url.clone());

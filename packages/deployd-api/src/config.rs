@@ -1,7 +1,7 @@
 /// Configuration from environment variables.
 pub struct Config {
-    /// Path to the deployd-helper Unix socket on the host (via virtiofs mount).
-    pub helper_socket_path: String,
+    /// vsock port for the deployd-helper on the host (CID 2).
+    pub helper_vsock_port: u32,
     /// Capability token for authenticating with deployd-helper.
     pub capability_token: String,
     /// OIDC issuer URL (Keycloak realm endpoint).
@@ -19,7 +19,9 @@ impl Config {
             .unwrap_or_else(|_| format!("{}/protocol/openid-connect/certs", oidc_issuer));
 
         Self {
-            helper_socket_path: require_env("DEPLOYD_HELPER_SOCKET"),
+            helper_vsock_port: require_env("DEPLOYD_HELPER_VSOCK_PORT")
+                .parse()
+                .unwrap_or_else(|e| panic!("DEPLOYD_HELPER_VSOCK_PORT: {}", e)),
             capability_token: read_secret_file("DEPLOYD_CAPABILITY_TOKEN_FILE"),
             oidc_issuer,
             oidc_jwks_url,

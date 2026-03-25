@@ -15,13 +15,6 @@
       tag = "static";
       proto = "virtiofs";
     }
-    # deployd-helper Unix socket — shared from erebonia host
-    {
-      source = "/run/deployd";
-      mountPoint = "/run/deployd-host";
-      tag = "deployd-socket";
-      proto = "virtiofs";
-    }
   ];
   fileSystems."/static".neededForBoot = lib.mkForce true;
 
