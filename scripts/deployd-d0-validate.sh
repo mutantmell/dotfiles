@@ -151,11 +151,19 @@ log "Ping OK"
 log "Testing SSH to claude@$CONTAINER_IP..."
 for i in $(seq 1 10); do
   ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no "claude@$CONTAINER_IP" \
-    "echo 'SSH OK'; uname -a" && break
+    "uname -r" && break
   [ "$i" -eq 10 ] && fail "SSH unreachable after 30s"
   sleep 3
 done
 log "SSH OK"
+
+# Step 8b: Verify Kata VM boundary — guest kernel must differ from host
+HOST_KERNEL="$(uname -r)"
+GUEST_KERNEL="$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "claude@$CONTAINER_IP" "uname -r" 2>/dev/null)"
+log "Host kernel:  $HOST_KERNEL"
+log "Guest kernel: $GUEST_KERNEL"
+[ "$HOST_KERNEL" != "$GUEST_KERNEL" ] \
+  || fail "Kata VM boundary not confirmed: guest kernel matches host (container may be running as runc/crun)"
 
 # Step 9: Interactive phase
 log ""
