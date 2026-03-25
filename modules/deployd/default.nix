@@ -172,6 +172,7 @@ in {
             ++ lib.optional (cfg.bridge.poolStart != "" && cfg.bridge.poolEnd != "")
                  "--ip-range=${cfg.bridge.poolStart}-${cfg.bridge.poolEnd}"
             ++ lib.optional hasUplink "--opt=no_default_route=1"
+            ++ lib.optional hasUplink "--disable-dns"
           );
         in ''
           podman network exists ${lib.escapeShellArg cfg.bridge.name} && exit 0
