@@ -109,8 +109,9 @@ pub async fn validate_token(
 
     let claims = token_data.claims;
 
-    // Check group membership
-    if !claims.groups.iter().any(|g| g == &state.config.required_group) {
+    // Check group membership. Keycloak group mappers may emit absolute paths
+    // (e.g. "/deploy") or bare names ("deploy") depending on mapper config.
+    if !claims.groups.iter().any(|g| g.trim_start_matches('/') == state.config.required_group) {
         return Err((
             StatusCode::FORBIDDEN,
             format!("missing required group: {}", state.config.required_group),

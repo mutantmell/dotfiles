@@ -1,6 +1,6 @@
 # Extractable module: deployd container deployment service.
 #
-# Provides a helper that accepts typed commands over a Unix socket,
+# Provides a helper that accepts typed commands over a vsock-proxied Unix socket,
 # deploys OCI containers as Podman quadlet units with optional Kata isolation,
 # and manages Caddy ingress routes. Supports isolated bridge mode (default)
 # and uplinked bridge mode (veth pair to an existing bridge for zone-level
@@ -104,6 +104,13 @@ in {
     vsockHostSocket = mkOption {
       type = types.str;
       description = "Unix socket path cloud-hypervisor proxies guest vsock connections to (e.g. /var/lib/microvms/roer/notify.vsock_7000).";
+    };
+
+    vsockDirectoryService = mkOption {
+      type = types.str;
+      default = "";
+      example = "microvm@roer.service";
+      description = "Systemd service that creates the vsock socket directory. When set, deployd-vsock-acl is ordered after it, removing the need for a retry loop.";
     };
 
     auditLogPath = mkOption {
@@ -226,11 +233,26 @@ in {
         "d /var/log/deployd 0750 deployd-helper deployd-helper - -"
       ];
 
+      # Ensure vsock socket directory has deployd-helper group write (ACL).
+      # Retries until the directory exists — handles fresh installs where
+      # microvm-install creates the directory after boot.
+      systemd.services.deployd-vsock-acl = {
+        description = "Set deployd-helper ACL on vsock socket directory";
+        after = lib.optional (cfg.vsockDirectoryService != "") cfg.vsockDirectoryService;
+        wants = lib.optional (cfg.vsockDirectoryService != "") cfg.vsockDirectoryService;
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = "${pkgs.acl}/bin/setfacl -m g:deployd-helper:rwx ${builtins.dirOf cfg.vsockHostSocket}";
+        };
+      };
+
       # deployd-helper systemd service
       systemd.services.deployd-helper = {
         description = "deployd privileged helper";
         wantedBy = ["multi-user.target"];
-        after = ["network.target"];
+        requires = ["deployd-vsock-acl.service"];
+        after = ["network.target" "deployd-vsock-acl.service"];
 
         environment = {
           DEPLOYD_VSOCK_HOST_SOCKET = cfg.vsockHostSocket;
@@ -251,14 +273,6 @@ in {
         };
 
         serviceConfig.ExecStart = "${cfg.package}/bin/deployd-helper";
-
-        # Grant deployd-helper group write on the vsock socket directory via ACL.
-        # Runs as root before the main process; handles both normal boots (directory
-        # already exists) and fresh installs (directory created by microvm-install
-        # after tmpfiles runs). kvm group access is unaffected.
-        serviceConfig.ExecStartPre = [
-          "+${pkgs.acl}/bin/setfacl -m g:deployd-helper:rwx ${builtins.dirOf cfg.vsockHostSocket}"
-        ];
 
         serviceConfig = {
           User = "deployd-helper";

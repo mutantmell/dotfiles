@@ -52,6 +52,18 @@ fn main() {
         }
     };
 
+    // Restrict to deployd-helper group (0660): only cloud-hypervisor (microvm user,
+    // member of deployd-helper group) can connect — restores defense-in-depth.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o660);
+        if let Err(e) = std::fs::set_permissions(socket_path, perms) {
+            error!("failed to set socket permissions: {}", e);
+            std::process::exit(1);
+        }
+    }
+
     let executor = Executor::new(config.clone());
 
     info!(socket = %config.vsock_host_socket, "deployd-helper listening");

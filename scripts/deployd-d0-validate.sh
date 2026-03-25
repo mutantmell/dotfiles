@@ -50,7 +50,6 @@ fail() {
 # Step 1: Build OCI image
 if [ "$SKIP_BUILD" = false ]; then
   log "Building claude-sandbox-image..."
-  nix build "$REPO_DIR#claude-sandbox-image" --print-out-paths --no-link
 fi
 IMAGE_PATH="$(nix build "$REPO_DIR#claude-sandbox-image" --print-out-paths --no-link)"
 log "Image at: $IMAGE_PATH"
