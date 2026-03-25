@@ -4,8 +4,8 @@ use serde::Deserialize;
 /// All paths are set by the NixOS module via environment variables.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    pub vsock_port: u32,
-    pub vsock_allowed_cid: u32,
+    /// Unix socket path cloud-hypervisor proxies guest vsock connections to.
+    pub vsock_host_socket: String,
     pub capability_token: String,
     pub registry_allowlist: Vec<String>,
     pub hostname_allowlist: Vec<String>,
@@ -23,12 +23,7 @@ impl Config {
     /// Load configuration from environment variables.
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
-            vsock_port: env_required("DEPLOYD_VSOCK_PORT")?
-                .parse()
-                .map_err(|e| format!("DEPLOYD_VSOCK_PORT: {}", e))?,
-            vsock_allowed_cid: env_required("DEPLOYD_VSOCK_ALLOWED_CID")?
-                .parse()
-                .map_err(|e| format!("DEPLOYD_VSOCK_ALLOWED_CID: {}", e))?,
+            vsock_host_socket: env_required("DEPLOYD_VSOCK_HOST_SOCKET")?,
             capability_token: read_secret_file("DEPLOYD_CAPABILITY_TOKEN_FILE")?,
             registry_allowlist: env_list("DEPLOYD_REGISTRY_ALLOWLIST"),
             hostname_allowlist: env_list("DEPLOYD_HOSTNAME_ALLOWLIST"),
