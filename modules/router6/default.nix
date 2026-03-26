@@ -1568,6 +1568,10 @@ in {
             interfaces-config = {
               interfaces = dhcpServerInterfaces;
               dhcp-socket-type = "raw";
+              # Retry opening sockets when interfaces aren't ready at startup
+              # (e.g. VLANs on bridges that take time to come up)
+              service-sockets-max-retries = 10;
+              service-sockets-retry-wait-time = 2000;
             };
 
             lease-database = {
@@ -1607,6 +1611,8 @@ in {
           settings = {
             interfaces-config = {
               interfaces = dhcp6ServerInterfaces;
+              service-sockets-max-retries = 10;
+              service-sockets-retry-wait-time = 2000;
             };
 
             lease-database = {
