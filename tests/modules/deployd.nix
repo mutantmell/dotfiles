@@ -28,9 +28,10 @@ in
         enable = true;
         registryAllowlist = ["registry.test"];
         hostnameAllowlist = [".test.internal"];
-        socketPath = "/run/deployd/deployd.sock";
+        # In tests, the vsock socket path is a plain Unix socket; no cloud-hypervisor
+        # proxy is involved.  deployd-helper still binds and listens on this path.
+        vsockHostSocket = "/run/deployd/deployd.sock";
         capabilityTokenFile = "${testTokenFile}";
-        allowedUid = 1000;
 
         bridge = {
           name = "br-deploy";
@@ -77,12 +78,9 @@ in
       # Log directory exists
       host.succeed("test -d /var/log/deployd")
 
-      # Quadlet directories exist (runtime + persistent)
-      host.succeed("test -d /run/containers/systemd")
-      host.succeed("test -d /etc/containers/systemd")
-
-      # Podman is available
-      host.succeed("podman --version")
+      # nerdctl and containerd are available
+      host.succeed("nerdctl --version")
+      host.succeed("containerd --version")
 
       # Socket protocol: valid Status command returns success
       host.succeed(

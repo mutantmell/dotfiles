@@ -191,7 +191,8 @@ mod tests {
             bridge_name: "br-deploy".into(),
             caddy_admin_url: "http://localhost:2019".into(),
             caddy_server_name: "deployd".into(),
-            kata_runtime: "/run/current-system/sw/bin/kata-runtime".into(),
+            runtime_class: "io.containerd.kata.v2".into(),
+            nerdctl_path: "/run/current-system/sw/bin/nerdctl".into(),
             systemctl_path: "/run/current-system/sw/bin/systemctl".into(),
         }
     }

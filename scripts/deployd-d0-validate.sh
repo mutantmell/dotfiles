@@ -36,7 +36,11 @@ for arg in "$@"; do
   case "$arg" in
   --skip-build) SKIP_BUILD=true ;;
   --skip-push) SKIP_PUSH=true ;;
-  --skip-deploy) SKIP_DEPLOY=true; SKIP_BUILD=true; SKIP_PUSH=true ;;
+  --skip-deploy)
+    SKIP_DEPLOY=true
+    SKIP_BUILD=true
+    SKIP_PUSH=true
+    ;;
   *)
     echo "Unknown arg: $arg"
     exit 1
@@ -119,12 +123,12 @@ if [ "$SKIP_DEPLOY" = false ]; then
   DEPLOY_RESPONSE="$(curl -s --cacert "$CACERT" -w "\n%{http_code}" -X POST "$API_URL/deploy" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d "{\"name\":\"$CONTAINER_NAME\",\"image\":\"$FULL_IMAGE\"}")" \
-    || fail "Deploy request failed (curl error $?)"
+    -d "{\"name\":\"$CONTAINER_NAME\",\"image\":\"$FULL_IMAGE\"}")" ||
+    fail "Deploy request failed (curl error $?)"
   DEPLOY_HTTP_CODE="$(echo "$DEPLOY_RESPONSE" | tail -1)"
   DEPLOY_BODY="$(echo "$DEPLOY_RESPONSE" | head -n -1)"
-  [ "$DEPLOY_HTTP_CODE" -ge 200 ] && [ "$DEPLOY_HTTP_CODE" -lt 300 ] \
-    || fail "Deploy request failed (HTTP $DEPLOY_HTTP_CODE): $DEPLOY_BODY"
+  [ "$DEPLOY_HTTP_CODE" -ge 200 ] && [ "$DEPLOY_HTTP_CODE" -lt 300 ] ||
+    fail "Deploy request failed (HTTP $DEPLOY_HTTP_CODE): $DEPLOY_BODY"
   echo "Deploy response: $DEPLOY_BODY"
 fi
 
@@ -162,8 +166,8 @@ HOST_KERNEL="$(uname -r)"
 GUEST_KERNEL="$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "claude@$CONTAINER_IP" "uname -r" 2>/dev/null)"
 log "Host kernel:  $HOST_KERNEL"
 log "Guest kernel: $GUEST_KERNEL"
-[ "$HOST_KERNEL" != "$GUEST_KERNEL" ] \
-  || fail "Kata VM boundary not confirmed: guest kernel matches host (container may be running as runc/crun)"
+[ "$HOST_KERNEL" != "$GUEST_KERNEL" ] ||
+  fail "Kata VM boundary not confirmed: guest kernel matches host (container may be running as runc/crun)"
 
 # Step 9: Interactive phase
 log ""
@@ -189,12 +193,12 @@ TOKEN_RESPONSE="$(curl -sf --cacert "$CACERT" -X POST "$AUTH_URL" \
 TOKEN="$(echo "$TOKEN_RESPONSE" | jq -r .access_token)"
 
 TEARDOWN_RESPONSE="$(curl -s --cacert "$CACERT" -w "\n%{http_code}" -X DELETE "$API_URL/teardown/$CONTAINER_NAME" \
-  -H "Authorization: Bearer $TOKEN")" \
-  || fail "Teardown request failed (curl error $?)"
+  -H "Authorization: Bearer $TOKEN")" ||
+  fail "Teardown request failed (curl error $?)"
 TEARDOWN_HTTP_CODE="$(echo "$TEARDOWN_RESPONSE" | tail -1)"
 TEARDOWN_BODY="$(echo "$TEARDOWN_RESPONSE" | head -n -1)"
-[ "$TEARDOWN_HTTP_CODE" -ge 200 ] && [ "$TEARDOWN_HTTP_CODE" -lt 300 ] \
-  || fail "Teardown request failed (HTTP $TEARDOWN_HTTP_CODE): $TEARDOWN_BODY"
+[ "$TEARDOWN_HTTP_CODE" -ge 200 ] && [ "$TEARDOWN_HTTP_CODE" -lt 300 ] ||
+  fail "Teardown request failed (HTTP $TEARDOWN_HTTP_CODE): $TEARDOWN_BODY"
 echo "Teardown response: $TEARDOWN_BODY"
 log "Teardown complete"
 

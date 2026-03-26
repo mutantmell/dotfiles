@@ -4,7 +4,7 @@ use tracing::{info, error, warn};
 
 use crate::config::Config;
 use crate::protocol::{ContainerDefinition, HelperCommand, HelperResponse};
-use crate::quadlet::generate_quadlet;
+use crate::unit::generate_unit;
 use crate::audit;
 use crate::validation;
 
@@ -43,21 +43,26 @@ impl Executor {
             return HelperResponse::err(e);
         }
 
-        let quadlet = generate_quadlet(def, &self.config.kata_runtime, &self.config.bridge_name);
+        let unit = generate_unit(
+            def,
+            &self.config.runtime_class,
+            &self.config.bridge_name,
+            &self.config.nerdctl_path,
+        );
 
-        // Persistent containers go to /etc/containers/systemd (survives reboots),
-        // runtime-only containers go to /run/containers/systemd (tmpfs).
-        let quadlet_dir = if def.persistent {
-            self.config.quadlet_persistent_dir()
+        // Persistent containers go to /etc/systemd/system (survives reboots),
+        // runtime-only containers go to /run/systemd/system (tmpfs).
+        let unit_dir = if def.persistent {
+            self.config.unit_persistent_dir()
         } else {
-            self.config.quadlet_runtime_dir()
+            self.config.unit_runtime_dir()
         };
-        let quadlet_path = format!("{}/{}.container", quadlet_dir, def.name);
+        let unit_path = format!("{}/{}.service", unit_dir, def.name);
 
-        if let Err(e) = fs::write(&quadlet_path, &quadlet) {
-            return HelperResponse::err(format!("failed to write quadlet: {}", e));
+        if let Err(e) = fs::write(&unit_path, &unit) {
+            return HelperResponse::err(format!("failed to write unit: {}", e));
         }
-        info!(name = %def.name, path = %quadlet_path, persistent = def.persistent, "wrote quadlet");
+        info!(name = %def.name, path = %unit_path, persistent = def.persistent, "wrote unit");
 
         // daemon-reload
         if let Err(e) = self.systemctl(&["daemon-reload"]) {
@@ -68,7 +73,7 @@ impl Executor {
         let service_name = format!("{}.service", def.name);
         if let Err(e) = self.systemctl(&["start", &service_name]) {
             // Clean up on start failure
-            let _ = fs::remove_file(&quadlet_path);
+            let _ = fs::remove_file(&unit_path);
             let _ = self.systemctl(&["daemon-reload"]);
             return HelperResponse::err(format!("failed to start {}: {}", service_name, e));
         }
@@ -79,7 +84,7 @@ impl Executor {
                 // Roll back: stop container, remove quadlet, daemon-reload
                 error!(name = %def.name, error = %e, "Caddy route failed, rolling back deploy");
                 let _ = self.systemctl(&["stop", &service_name]);
-                let _ = fs::remove_file(&quadlet_path);
+                let _ = fs::remove_file(&unit_path);
                 let _ = self.systemctl(&["daemon-reload"]);
                 return HelperResponse::err(format!("failed to add Caddy route: {}", e));
             }
@@ -101,10 +106,10 @@ impl Executor {
             error!(name = %name, error = %e, "stop failed (may be already stopped)");
         }
 
-        // Remove quadlet from both locations (we don't track which was used)
-        let filename = format!("{}.container", name);
-        let _ = fs::remove_file(format!("{}/{}", self.config.quadlet_runtime_dir(), filename));
-        let _ = fs::remove_file(format!("{}/{}", self.config.quadlet_persistent_dir(), filename));
+        // Remove unit from both locations (we don't track which was used)
+        let filename = format!("{}.service", name);
+        let _ = fs::remove_file(format!("{}/{}", self.config.unit_runtime_dir(), filename));
+        let _ = fs::remove_file(format!("{}/{}", self.config.unit_persistent_dir(), filename));
 
         // daemon-reload
         if let Err(e) = self.systemctl(&["daemon-reload"]) {

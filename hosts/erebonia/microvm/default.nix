@@ -124,7 +124,6 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-
   };
   services.resolved.enable = true;
 

@@ -1,10 +1,16 @@
 # Extractable module: deployd container deployment service.
 #
 # Provides a helper that accepts typed commands over a vsock-proxied Unix socket,
-# deploys OCI containers as Podman quadlet units with optional Kata isolation,
-# and manages Caddy ingress routes. Supports isolated bridge mode (default)
-# and uplinked bridge mode (veth pair to an existing bridge for zone-level
-# network integration).
+# deploys OCI containers as containerd/nerdctl systemd units with optional Kata
+# isolation, and manages Caddy ingress routes. Supports isolated bridge mode
+# (default) and uplinked bridge mode (macvlan on an existing interface for
+# zone-level network integration).
+#
+# Container runtime: containerd + nerdctl.
+# TODO: Switch back to Podman quadlets when Podman supports kata-containers natively.
+# Kata v3 uses the containerd shimv2 protocol, which Podman cannot invoke directly
+# (Podman requires an OCI runtime CLI binary). containerd is the only supported
+# path for kata v3. Track: https://github.com/kata-containers/kata-containers/issues/722
 #
 # No project-specific logic — no hardcoded hostnames, impermanence, or
 # auto-discovery. See modules/common/deployd.nix for project wiring.
@@ -77,18 +83,17 @@ in {
       description = "Path to the file containing the capability token for socket authentication.";
     };
 
-
     bridge = {
       name = mkOption {
         type = types.str;
         default = "br-deploy";
-        description = "Name of the bridge network for managed containers.";
+        description = "Name of the network for managed containers.";
       };
       uplink = mkOption {
         type = types.str;
         default = "";
         example = "eno1.100";
-        description = "Parent interface for macvlan container networking. When set, a macvlan Podman network is created on this interface so containers get direct L2 connectivity to the uplink network and nftables isolation is skipped (zone rules handle security). When empty, an isolated bridge network with nftables forward-chain rules is used instead.";
+        description = "Parent interface for macvlan container networking. When set, a macvlan nerdctl network is created on this interface so containers get direct L2 connectivity to the uplink network and nftables isolation is skipped (zone rules handle security). When empty, an isolated bridge network with nftables forward-chain rules is used instead.";
       };
       subnet = mkOption {
         type = types.str;
@@ -146,53 +151,63 @@ in {
   };
 
   config = mkIf cfg.enable (mkMerge [
-    # Core: deployd-helper service, Podman, network config
+    # Core: deployd-helper service, containerd, network config
     {
-      # Container runtime
-      virtualisation.containers.enable = true;
-      virtualisation.podman.enable = true;
+      # Container runtime: containerd + nerdctl.
+      # nerdctl is the Docker-compatible CLI for containerd; kata uses the
+      # containerd shimv2 API which nerdctl/containerd support natively.
+      virtualisation.containerd.enable = true;
+      environment.systemPackages = [pkgs.nerdctl pkgs.cni-plugins];
 
-      # Create the Podman network via podman network create.
-      # Runs on every boot (idempotent): avoids depending on Podman's internal
-      # JSON format, which changed between CNI and Netavark backends.
-      #
-      # Uplink mode uses macvlan (not bridge) so containers appear directly on
-      # the uplink L2 network. Bridge mode would assign the gateway IP to the
-      # local bridge, conflicting with the real router and breaking return routing.
-      systemd.services.deployd-podman-network = {
-        description = "Create deployd Podman network";
-        wantedBy = ["multi-user.target"];
-        after = ["network.target"];
-        path = [pkgs.podman];
-        script = let
-          isolatedArgs = lib.concatStringsSep " \\\n      " (
-            [ "--driver=bridge"
-              "--subnet=${cfg.bridge.subnet}"
-              "--interface-name=${cfg.bridge.name}" ]
-            ++ lib.optional (cfg.bridge.gateway != "") "--gateway=${cfg.bridge.gateway}"
-            ++ lib.optional (cfg.bridge.poolStart != "" && cfg.bridge.poolEnd != "")
-                 "--ip-range=${cfg.bridge.poolStart}-${cfg.bridge.poolEnd}"
-          );
-          uplinkArgs = lib.concatStringsSep " \\\n      " (
-            [ "--driver=macvlan"
-              "--subnet=${cfg.bridge.subnet}"
-              "-o parent=${cfg.bridge.uplink}" ]
-            ++ lib.optional (cfg.bridge.gateway != "") "--gateway=${cfg.bridge.gateway}"
-            ++ lib.optional (cfg.bridge.poolStart != "" && cfg.bridge.poolEnd != "")
-                 "--ip-range=${cfg.bridge.poolStart}-${cfg.bridge.poolEnd}"
-          );
-          args = if hasUplink then uplinkArgs else isolatedArgs;
-        in ''
-          podman network exists ${lib.escapeShellArg cfg.bridge.name} && exit 0
-          podman network create \
-            ${args} \
-            ${lib.escapeShellArg cfg.bridge.name}
-        '';
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
+      # Tell nerdctl where to find CNI plugin binaries.  On NixOS, plugins are
+      # in /run/current-system/sw/bin/ alongside all other system packages.
+      environment.etc."nerdctl/nerdctl.toml".text = ''
+        cni_path = "/run/current-system/sw/bin"
+      '';
+
+      # Static CNI conflist for the deployd network.
+      # Writing directly to /etc/cni/net.d/ avoids `nerdctl network create`,
+      # which doesn't support setting the bridge interface name.  The CNI bridge
+      # plugin reuses an existing interface with the given name (created by
+      # systemd-networkd in isolated mode, or the macvlan parent in uplink mode).
+      environment.etc."cni/net.d/${cfg.bridge.name}.conflist".text = builtins.toJSON (let
+        gateway = lib.optional (cfg.bridge.gateway != "") cfg.bridge.gateway;
+        ipamRange =
+          {inherit (cfg.bridge) subnet;}
+          // lib.optionalAttrs (cfg.bridge.gateway != "") {inherit (cfg.bridge) gateway;}
+          // lib.optionalAttrs (cfg.bridge.poolStart != "") {rangeStart = cfg.bridge.poolStart;}
+          // lib.optionalAttrs (cfg.bridge.poolEnd != "") {rangeEnd = cfg.bridge.poolEnd;};
+        ipam = {
+          type = "host-local";
+          ranges = [[ipamRange]];
+          routes = [{dst = "0.0.0.0/0";}];
         };
-      };
+        mainPlugin =
+          if hasUplink
+          then {
+            type = "macvlan";
+            master = cfg.bridge.uplink;
+            mode = "bridge";
+            inherit ipam;
+          }
+          else {
+            type = "bridge";
+            bridge = cfg.bridge.name;
+            isGateway = true;
+            ipMasq = true;
+            inherit ipam;
+          };
+      in {
+        cniVersion = "1.0.0";
+        inherit (cfg.bridge) name;
+        plugins = [
+          mainPlugin
+          {
+            type = "portmap";
+            capabilities.portMappings = true;
+          }
+        ];
+      });
 
       # User and group for the helper
       users.users.deployd-helper = {
@@ -201,8 +216,6 @@ in {
         description = "deployd privileged helper";
       };
       users.groups.deployd-helper = {};
-      # Allow cloud-hypervisor (microvm user) to connect to the vsock proxy socket.
-      users.users.microvm.extraGroups = ["deployd-helper"];
 
       # Polkit rule: allow deployd-helper to manage container units via systemctl.
       # Scoped to daemon-reload and unit start/stop only.
@@ -218,10 +231,36 @@ in {
 
       # Directory structure
       systemd.tmpfiles.rules = [
-        "d /run/containers/systemd 0775 root deployd-helper - -"
-        "d /etc/containers/systemd 0775 root deployd-helper - -"
         "d /var/log/deployd 0750 deployd-helper deployd-helper - -"
+        # Create vsock socket directory if it does not already exist.
+        # In production the directory is created by the microvm service; this
+        # ensures it exists in environments without a microvm (e.g. VM tests).
+        "d ${builtins.dirOf cfg.vsockHostSocket} 0770 deployd-helper deployd-helper - -"
       ];
+
+      # Grant deployd-helper group write on the standard systemd unit directories
+      # so it can deploy and remove .service files without running as root.
+      # /run/systemd/system — runtime units (tmpfs, cleared on reboot).
+      # /etc/systemd/system — persistent units (survive reboots).
+      # Security: deployd-helper could write arbitrary unit files, but this is
+      # equivalent to the write access it previously had over Podman quadlet dirs.
+      # The capability-token + SO_PEERCRED socket boundary limits who can trigger
+      # a deploy.
+      systemd.services.deployd-unit-acl = {
+        description = "Grant deployd-helper write access to systemd unit directories";
+        wantedBy = ["multi-user.target"];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = pkgs.writeShellScript "deployd-unit-acl" ''
+            ${pkgs.acl}/bin/setfacl -m g:deployd-helper:rwx /run/systemd/system
+            # /etc/systemd/system is managed by NixOS activation on some configurations
+            # (e.g. VM tests) and may be read-only.  Best-effort: deployd-helper will
+            # return an error to the client if it cannot write persistent units there.
+            ${pkgs.acl}/bin/setfacl -m g:deployd-helper:rwx /etc/systemd/system || true
+          '';
+        };
+      };
 
       # Ensure vsock socket directory has deployd-helper group write (ACL).
       # Retries until the directory exists — handles fresh installs where
@@ -241,8 +280,13 @@ in {
       systemd.services.deployd-helper = {
         description = "deployd privileged helper";
         wantedBy = ["multi-user.target"];
-        requires = ["deployd-vsock-acl.service"];
-        after = ["network.target" "deployd-vsock-acl.service" "deployd-podman-network.service"];
+        requires = ["deployd-vsock-acl.service" "deployd-unit-acl.service"];
+        after = [
+          "network.target"
+          "deployd-vsock-acl.service"
+          "deployd-unit-acl.service"
+          "containerd.service"
+        ];
 
         environment = {
           DEPLOYD_VSOCK_HOST_SOCKET = cfg.vsockHostSocket;
@@ -255,25 +299,25 @@ in {
           DEPLOYD_BRIDGE_NAME = cfg.bridge.name;
           DEPLOYD_CADDY_ADMIN_URL = cfg.caddy.adminUrl;
           DEPLOYD_CADDY_SERVER_NAME = cfg.caddy.serverName;
-          DEPLOYD_KATA_RUNTIME =
+          DEPLOYD_RUNTIME_CLASS =
             if cfg.kata.enable
-            then "/run/current-system/sw/bin/kata-runtime"
-            else "${pkgs.crun}/bin/crun";
+            then "io.containerd.kata.v2"
+            else "io.containerd.runc.v2";
+          DEPLOYD_NERDCTL_PATH = "/run/current-system/sw/bin/nerdctl";
           DEPLOYD_SYSTEMCTL_PATH = "/run/current-system/sw/bin/systemctl";
         };
 
-        serviceConfig.ExecStart = "${cfg.package}/bin/deployd-helper";
-
         serviceConfig = {
+          ExecStart = "${cfg.package}/bin/deployd-helper";
           User = "deployd-helper";
           Group = "deployd-helper";
           NoNewPrivileges = true;
           ProtectSystem = "strict";
           ReadWritePaths = [
-            "/run/containers/systemd"
-            "/etc/containers/systemd"
+            "/run/systemd/system"
+            "/etc/systemd/system"
             "/var/log/deployd"
-            "/var/lib/microvms"
+            (builtins.dirOf cfg.vsockHostSocket)
           ];
           UMask = "0027";
           RestrictAddressFamilies = ["AF_UNIX" "AF_INET"];
@@ -326,16 +370,19 @@ in {
       };
     })
 
-    # Kata runtime: install the package, load required kernel modules, and
-    # create /etc/kata-containers/configuration.toml.  kata-runtime checks
-    # /etc/kata-containers/configuration.toml before its compiled-in store
-    # path, so pointing it explicitly to the QEMU config ensures the right
-    # backend is selected regardless of how the package was built.
+    # Kata runtime: install kata-runtime (provides containerd-shim-kata-v2),
+    # load required kernel modules, create /etc/kata-containers/configuration.toml,
+    # and set the containerd service PATH so it can find the shim binary.
     (mkIf cfg.kata.enable {
-      environment.systemPackages = [ pkgs.kata-runtime ];
-      boot.kernelModules = [ "vhost" "vhost_net" "vhost_vsock" "kvm" ];
-      environment.etc."kata-containers/configuration.toml".source =
-        "${pkgs.kata-runtime}/share/defaults/kata-containers/configuration-qemu.toml";
+      environment.systemPackages = [pkgs.kata-runtime];
+      boot.kernelModules = ["vhost" "vhost_net" "vhost_vsock" "kvm"];
+      environment.etc."kata-containers/configuration.toml".source = "${pkgs.kata-runtime}/share/defaults/kata-containers/configuration-qemu.toml";
+
+      # containerd resolves shim binaries via exec.LookPath, which searches the
+      # process's PATH.  Adding kata-runtime to the containerd service path
+      # ensures containerd-shim-kata-v2 is discoverable without overriding the
+      # NixOS-managed PATH.
+      systemd.services.containerd.path = [pkgs.kata-runtime];
     })
 
     # Caddy ingress (optional)
