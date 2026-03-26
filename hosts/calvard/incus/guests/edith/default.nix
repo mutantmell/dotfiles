@@ -12,7 +12,7 @@
 
   incus-guest = {
     profile = "dev";
-    bridge = "br21";
+    parent = "br21";
     limits.memory = "16GB";
     limits.disk = "100GB";
   };

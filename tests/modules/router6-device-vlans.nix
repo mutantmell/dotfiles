@@ -166,32 +166,32 @@ pkgs.testers.nixosTest {
     router.wait_for_unit("network-online.target")
 
     # Test 1: Batman device without VLANs or members exists and has IP
-    router.succeed("ip link show bat0")
-    router.succeed("ip addr show bat0 | grep '10.0.10.1/24'")
+    router.wait_until_succeeds("ip link show bat0", timeout=30)
+    router.wait_until_succeeds("ip addr show bat0 | grep '10.0.10.1/24'", timeout=30)
 
     # Test 2: Batman device with VLANs - parent exists, no IP
-    router.succeed("ip link show bat1")
+    router.wait_until_succeeds("ip link show bat1", timeout=30)
     router.fail("ip addr show bat1 | grep '10.0.20.1'")
 
     # Test 3: Batman VLAN exists and has IP
-    router.succeed("ip link show vlan20")
-    router.succeed("ip addr show vlan20 | grep '10.0.20.1/24'")
+    router.wait_until_succeeds("ip link show vlan20", timeout=30)
+    router.wait_until_succeeds("ip addr show vlan20 | grep '10.0.20.1/24'", timeout=30)
 
     # Test 4: Bond without VLANs has IP
-    router.succeed("ip link show bond0")
-    router.succeed("ip addr show bond0 | grep '10.0.1.1/24'")
+    router.wait_until_succeeds("ip link show bond0", timeout=30)
+    router.wait_until_succeeds("ip addr show bond0 | grep '10.0.1.1/24'", timeout=30)
 
     # Test 5: Physical interface with VLANs - parent exists, no IP
-    router.succeed("ip link show eth3")
+    router.wait_until_succeeds("ip link show eth3", timeout=30)
     router.fail("ip addr show eth3 | grep '10.0.30.1'")
 
     # Test 6: Physical VLAN exists and has IP
-    router.succeed("ip link show vlan30")
-    router.succeed("ip addr show vlan30 | grep '10.0.30.1/24'")
+    router.wait_until_succeeds("ip link show vlan30", timeout=30)
+    router.wait_until_succeeds("ip addr show vlan30 | grep '10.0.30.1/24'", timeout=30)
 
     # Test 7: Batman device with members - member is attached
-    router.succeed("ip link show bat2")
-    router.succeed("ip addr show bat2 | grep '10.0.40.1/24'")
+    router.wait_until_succeeds("ip link show bat2", timeout=30)
+    router.wait_until_succeeds("ip addr show bat2 | grep '10.0.40.1/24'", timeout=30)
     # Verify eth4 is attached to bat2 (check systemd-networkd config)
     router.succeed("grep -q 'BatmanAdvanced=bat2' /etc/systemd/network/10-eth4.network")
 

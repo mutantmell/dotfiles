@@ -11,8 +11,11 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
+  # disko flake input, passed from the flake checks so we avoid builtins.getFlake
+  # in a pure nix store evaluation context
+  disko,
 }: let
-  inherit ((builtins.getFlake (toString ../..)).inputs) disko;
+  nixosSystem = import (pkgs.path + "/nixos/lib/eval-config.nix");
 
   # Minimal VM guest NixOS config — keep it as small as possible
   guestConfig = {
@@ -28,7 +31,7 @@
   };
 
   # Build a VM system with disko-virtual-machine module
-  guestSystem = lib.nixosSystem {
+  guestSystem = nixosSystem {
     system = "x86_64-linux";
     modules = [
       guestConfig

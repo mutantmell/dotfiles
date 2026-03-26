@@ -490,7 +490,7 @@
       pkgs,
     }:
       (import ./tests {
-        inherit pkgs;
+        inherit pkgs disko;
         inherit (pkgs) lib;
       })
       // (nixpkgs.lib.optionalAttrs (deploy-rs.lib ? ${system})
