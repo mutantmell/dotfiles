@@ -15,7 +15,10 @@ pub struct Config {
     pub bridge_name: String,
     pub caddy_admin_url: String,
     pub caddy_server_name: String,
-    pub kata_runtime: String,
+    /// containerd runtime class name (e.g. "io.containerd.kata.v2" or "io.containerd.runc.v2").
+    pub runtime_class: String,
+    /// Path to the nerdctl binary used to run and stop containers.
+    pub nerdctl_path: String,
     pub systemctl_path: String,
 }
 
@@ -37,22 +40,23 @@ impl Config {
             bridge_name: env_or("DEPLOYD_BRIDGE_NAME", "br-deploy"),
             caddy_admin_url: env_or("DEPLOYD_CADDY_ADMIN_URL", "http://localhost:2019"),
             caddy_server_name: env_or("DEPLOYD_CADDY_SERVER_NAME", "deployd"),
-            kata_runtime: env_or(
-                "DEPLOYD_KATA_RUNTIME",
-                "/run/current-system/sw/bin/kata-runtime",
+            runtime_class: env_or("DEPLOYD_RUNTIME_CLASS", "io.containerd.kata.v2"),
+            nerdctl_path: env_or(
+                "DEPLOYD_NERDCTL_PATH",
+                "/run/current-system/sw/bin/nerdctl",
             ),
             systemctl_path: env_or("DEPLOYD_SYSTEMCTL_PATH", "/run/current-system/sw/bin/systemctl"),
         })
     }
 
-    /// Runtime quadlet directory (tmpfs, cleared on reboot).
-    pub fn quadlet_runtime_dir(&self) -> &'static str {
-        "/run/containers/systemd"
+    /// Runtime unit directory (tmpfs, cleared on reboot).
+    pub fn unit_runtime_dir(&self) -> &'static str {
+        "/run/systemd/system"
     }
 
-    /// Persistent quadlet directory (native Podman location, survives reboots).
-    pub fn quadlet_persistent_dir(&self) -> &'static str {
-        "/etc/containers/systemd"
+    /// Persistent unit directory (survives reboots).
+    pub fn unit_persistent_dir(&self) -> &'static str {
+        "/etc/systemd/system"
     }
 }
 
