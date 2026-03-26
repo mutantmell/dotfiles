@@ -137,7 +137,7 @@ log "Waiting for container to start..."
 sleep 3
 # shellcheck disable=SC2029 # Intentional client-side expansion
 CONTAINER_IP="$(ssh "$EREBONIA_HOST" \
-  "podman inspect systemd-$CONTAINER_NAME --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'")" ||
+  "nerdctl inspect $CONTAINER_NAME --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'")" ||
   fail "Could not inspect container on $EREBONIA_HOST"
 [ -n "$CONTAINER_IP" ] || fail "Container has no IP"
 log "Container IP: $CONTAINER_IP"
