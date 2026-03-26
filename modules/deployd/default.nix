@@ -354,8 +354,9 @@ in {
           chain forward {
             type filter hook forward priority 5; policy accept;
 
-            # Allow container-to-container on the bridge
-            iifname "${cfg.bridge.name}" oifname "${cfg.bridge.name}" accept
+            # Block container-to-container lateral movement on the bridge.
+            # Per-container rules may be added in Phase D4 for game servers.
+            iifname "${cfg.bridge.name}" oifname "${cfg.bridge.name}" drop
 
             # Allow container egress (outbound from bridge)
             iifname "${cfg.bridge.name}" accept
