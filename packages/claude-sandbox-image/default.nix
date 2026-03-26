@@ -59,6 +59,11 @@
     # Ensure privilege separation directory exists
     mkdir -p /var/empty
 
+    # Clone repo if SANDBOX_REPO_URL is set (injected by cc-sandbox via deployd env)
+    if [ -n "''${SANDBOX_REPO_URL:-}" ]; then
+      su -s /bin/bash ${user} -c "${pkgs.git}/bin/git clone \"$SANDBOX_REPO_URL\" /workspace/repo" || true
+    fi
+
     # Start sshd in the foreground
     exec ${pkgs.openssh}/bin/sshd -D -e -f /etc/ssh/sshd_config
   '';

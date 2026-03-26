@@ -90,8 +90,19 @@ impl Executor {
             }
         }
 
-        info!(name = %def.name, "container deployed successfully");
-        HelperResponse::ok(format!("container '{}' deployed", def.name))
+        // Inspect container to get its IP address
+        let ip = self.nerdctl_inspect_ip(&def.name);
+        if let Some(ref addr) = ip {
+            info!(name = %def.name, ip = %addr, "container deployed successfully");
+        } else {
+            warn!(name = %def.name, "container deployed but IP could not be determined");
+        }
+
+        HelperResponse {
+            success: true,
+            message: format!("container '{}' deployed", def.name),
+            data: ip.map(|addr| serde_json::json!({"ip": addr})),
+        }
     }
 
     fn teardown(&self, name: &str) -> HelperResponse {
@@ -164,6 +175,24 @@ impl Executor {
 
         info!(name, "removed Caddy route");
         Ok(())
+    }
+
+    /// Get a container's IP address via `nerdctl inspect`.
+    fn nerdctl_inspect_ip(&self, name: &str) -> Option<String> {
+        let output = Command::new(&self.config.nerdctl_path)
+            .args([
+                "inspect", name,
+                "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+            ])
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if ip.is_empty() { None } else { Some(ip) }
     }
 
     fn systemctl(&self, args: &[&str]) -> Result<(), String> {

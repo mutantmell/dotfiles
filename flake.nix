@@ -154,6 +154,9 @@
       openwrt-deployer = import ./packages/openwrt-deployer {
         inherit (pkgs) lib stdenv makeWrapper openssh coreutils;
       };
+      cc-sandbox = import packages/cc-sandbox {
+        inherit (pkgs) lib stdenv makeWrapper python3 skopeo nix cacert;
+      };
       claude-sandbox-image = import packages/claude-sandbox-image {inherit pkgs;};
       installer-iso = let
         keys = builtins.fromJSON (builtins.readFile ./lib/common/data/keys.json);
