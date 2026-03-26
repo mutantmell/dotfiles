@@ -1195,6 +1195,13 @@ in {
         };
 
         systemd.network.enable = true;
+        # Disable systemd-networkd-wait-online for routers.  A router has both
+        # DHCP WAN (lease arrives late) and static LAN interfaces.  When the
+        # WAN lease arrives, networkd re-triggers network-online.target, which
+        # puts kea's start job into "waiting" indefinitely.  A router must
+        # serve LAN DHCP independently of WAN state, so there is no meaningful
+        # "network is online" moment to wait for.
+        systemd.network.wait-online.enable = false;
         services.resolved.enable = false; # We use kresd
 
         environment.systemPackages = with pkgs; [
