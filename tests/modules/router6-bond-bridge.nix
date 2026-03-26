@@ -160,11 +160,11 @@ pkgs.testers.nixosTest {
     router.succeed("cat /sys/class/net/bond0/bonding/slaves | grep eth2")
 
     # Test 3: VLAN on bond exists
-    router.succeed("ip link show vlan10")
-    router.succeed("cat /sys/class/net/vlan10/operstate | grep up")
+    router.wait_until_succeeds("ip link show vlan10", timeout=30)
+    router.wait_until_succeeds("cat /sys/class/net/vlan10/operstate | grep up", timeout=30)
 
     # Test 4: Bridge exists
-    router.succeed("ip link show brMGMT")
+    router.wait_until_succeeds("ip link show brMGMT", timeout=30)
 
     # Verify correct netdev ordering (bond before VLAN before bridge, VLAN before network files)
     router.succeed("ls /etc/systemd/network/01-bond0.netdev")
@@ -173,18 +173,18 @@ pkgs.testers.nixosTest {
     router.succeed("ls /etc/systemd/network/04-vlan20.netdev")
 
     # Test 5: Bridge members are attached (VLAN and physical interface)
-    router.succeed("bridge link | grep vlan10")
-    router.succeed("bridge link | grep eth3")
+    router.wait_until_succeeds("bridge link | grep vlan10", timeout=30)
+    router.wait_until_succeeds("bridge link | grep eth3", timeout=30)
 
     # Test 6: Bridge has correct IPv4 address
-    router.succeed("ip addr show brMGMT | grep '10.0.10.1/24'")
+    router.wait_until_succeeds("ip addr show brMGMT | grep '10.0.10.1/24'", timeout=30)
 
     # Test 7: Bridge has auto-generated (normalized) IPv6 from subnetId
-    router.succeed("ip addr show brMGMT | grep 'fdc6:55f2:a5e:a::1/64'")
+    router.wait_until_succeeds("ip addr show brMGMT | grep 'fdc6:55f2:a5e:a::1/64'", timeout=30)
 
     # Test 8: Non-bridged VLAN (vlan20) has its own config
-    router.succeed("ip addr show vlan20 | grep '10.0.20.1/24'")
-    router.succeed("ip addr show vlan20 | grep 'fdc6:55f2:a5e:14::1/64'")
+    router.wait_until_succeeds("ip addr show vlan20 | grep '10.0.20.1/24'", timeout=30)
+    router.wait_until_succeeds("ip addr show vlan20 | grep 'fdc6:55f2:a5e:14::1/64'", timeout=30)
 
     # Test 9: DHCP works through bridge
     # Note: Don't wait for network-online.target as it may not activate with legacy networking

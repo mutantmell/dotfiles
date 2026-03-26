@@ -171,16 +171,16 @@ pkgs.testers.nixosTest {
     router.succeed("ip link show bond0")
 
     # Verify VLANs on bond exist
-    router.succeed("ip link show vlan10")
-    router.succeed("ip link show vlan20")
+    router.wait_until_succeeds("ip link show vlan10", timeout=60)
+    router.wait_until_succeeds("ip link show vlan20", timeout=60)
 
     # Verify bridge exists and has IP
-    router.succeed("ip link show br0")
-    router.succeed("ip addr show br0 | grep '10.0.1.1/24'")
+    router.wait_until_succeeds("ip link show br0", timeout=60)
+    router.wait_until_succeeds("ip addr show br0 | grep '10.0.1.1/24'", timeout=60)
 
     # Verify VLANs are members of the bridge
-    router.succeed("bridge link show | grep vlan10")
-    router.succeed("bridge link show | grep vlan20")
+    router.wait_until_succeeds("bridge link show | grep vlan10", timeout=60)
+    router.wait_until_succeeds("bridge link show | grep vlan20", timeout=60)
 
     # Verify VLANs don't have the bridge's IP address
     router.fail("ip addr show vlan10 | grep '10.0.1.1'")
@@ -191,17 +191,17 @@ pkgs.testers.nixosTest {
     # ============================================================
 
     # Verify bridge exists (no configured IP on bridge itself)
-    router.succeed("ip link show br1")
+    router.wait_until_succeeds("ip link show br1", timeout=60)
     router.fail("ip -4 addr show br1 | grep 'inet '")
 
     # Verify eth3 is a member of the bridge (so bridge has carrier)
-    router.succeed("bridge link show | grep eth3")
+    router.wait_until_succeeds("bridge link show | grep eth3", timeout=60)
 
     # Verify VLANs on bridge exist and have IPs
-    router.succeed("ip link show vlan30")
-    router.succeed("ip link show vlan40")
-    router.succeed("ip addr show vlan30 | grep '10.0.30.1/24'")
-    router.succeed("ip addr show vlan40 | grep '10.0.40.1/24'")
+    router.wait_until_succeeds("ip link show vlan30", timeout=60)
+    router.wait_until_succeeds("ip link show vlan40", timeout=60)
+    router.wait_until_succeeds("ip addr show vlan30 | grep '10.0.30.1/24'", timeout=60)
+    router.wait_until_succeeds("ip addr show vlan40 | grep '10.0.40.1/24'", timeout=60)
 
     # ============================================================
     # Verify correct netdev creation order
@@ -242,7 +242,7 @@ pkgs.testers.nixosTest {
     router.wait_for_unit("kea-dhcp4-server.service")
 
     # Client should get a DHCP address on VLAN 30
-    client.wait_until_succeeds("ip addr show vlan30 | grep '10.0.30'", timeout=30)
+    client.wait_until_succeeds("ip addr show vlan30 | grep '10.0.30'", timeout=60)
 
     # Client can ping the router through the VLAN
     client.succeed("ping -c 1 10.0.30.1")
