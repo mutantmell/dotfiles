@@ -8,178 +8,153 @@ With deployd validated end-to-end (D0 complete), the next step is automating san
 
 ```
   [edith (10.97.21.42, lab zone)]
-    cc-sandbox daemon (systemd service)
+    cc-sandbox CLI (runs as mutantmell)
+      - rebuild-image: nix build + skopeo push (privileged)
+      - create/teardown/list/ssh: talks to daemon via Unix socket
+
+    cc-sandbox daemon (systemd service, cc-sandbox user)
       - Unix socket: /run/cc-sandbox/cc-sandbox.sock
       - Holds: Keycloak creds, Forgejo token (sops)
       - State: /var/lib/cc-sandbox/state.json
+      - NO nix, skopeo, or SSH access
       |
       | HTTPS (password grant → Bearer token)
       v
     [roer.internal] → deployd-api → deployd-helper → nerdctl + Kata
       |
-      | deploy response includes container IP (new)
+      | deploy response includes container IP
       v
     [sandbox container on br-deploy (10.100.0.x)]
       - Direct route from edith exists
-      - cc-sandbox SSH key authorized in image
+      - Clones SANDBOX_REPO_URL on startup (env var from deployd)
+      - User SSH keys authorized in image
 ```
 
 ## Language: Python
 
-cc-sandbox is a thin orchestration layer — it shells out to `nix build`, `skopeo`, and `ssh`, and makes a few HTTP calls. No concurrent connections, no security-critical parsing, no performance requirements. Python with `requests` and standard library is sufficient and much faster to develop than Rust.
+cc-sandbox is a thin orchestration layer — the daemon makes HTTP calls to Keycloak and deployd-api. The CLI additionally shells out to `nix build` and `skopeo` for image management. Python with `requests` and standard library is sufficient and much faster to develop than Rust.
 
-Packaging: `pkgs.python3Packages.buildPythonApplication` or a simple `writeShellApplication` wrapper around a Python script with `python3.withPackages`. The daemon and CLI are a single Python file (or small package) with `argparse` subcommands.
+Packaging: `stdenv.mkDerivation` with `makeWrapper` around `python3.withPackages`, following the `openwrt-builder` pattern.
 
-## Prerequisite: deployd-helper returns container IP on deploy
+## Privilege Separation
 
-Currently `deploy()` returns `HelperResponse::ok("container 'X' deployed")` with no IP data. The `data` field exists but is unused. We need to:
+The daemon and CLI have different privilege levels:
 
-1. **deployd-helper** (`packages/deployd-helper/src/executor.rs`): After successful `systemctl start`, run `nerdctl inspect <name>` to get the container IP, return it in `HelperResponse.data`:
-   ```json
-   {"ip": "10.100.0.5"}
-   ```
+| Capability | Daemon (cc-sandbox user) | CLI (mutantmell) |
+|---|---|---|
+| OIDC client secret | Yes (sops secret) | No |
+| Forgejo token | Yes (sops secrets) | Yes (reads token file) |
+| deployd-api access | Yes (via Keycloak token) | No (via daemon socket) |
+| nix build | No | Yes |
+| skopeo push/inspect | No | Yes |
+| SSH to containers | No | No (user SSHs directly) |
+| State file | Read/write | No (sends digest via socket) |
 
-2. **deployd-api** (`packages/deployd-api/src/routes.rs`): Already forwards `resp.data` to the HTTP caller (`helper_ok_json(&resp)` includes data). No API changes needed.
+The daemon's systemd service restricts PATH to exclude nix/skopeo. Image building runs as the calling user via `cc-sandbox rebuild-image`.
 
-Backwards-compatible — existing callers that ignore `data` are unaffected.
+## Prerequisite: deployd-helper returns container IP on deploy — COMPLETE
+
+deployd-helper runs `nerdctl inspect` after `systemctl start` to get the container IP. Returns it in the existing `HelperResponse.data` field. deployd-api already forwards `data` to HTTP callers. Backwards-compatible.
 
 **Files modified:**
-- `packages/deployd-helper/src/executor.rs` — add `nerdctl inspect` after start, populate `data` with IP
+- `packages/deployd-helper/src/executor.rs` — `nerdctl_inspect_ip()` method, populated in deploy response
 
-## Phase 1: Python Package + CLI/Daemon
+## Phase 1-3: Python Package — COMPLETE
 
-**New files:**
-- `packages/cc-sandbox/cc_sandbox.py` — single-file Python application:
-  - `argparse` subcommands: `daemon`, `create [--repo <url>]`, `ssh <name>`, `teardown <name>`, `list`
-  - Daemon mode: `socketserver.UnixStreamServer`, synchronous (single client at a time is fine)
-  - CLI mode: connect to Unix socket, send JSON-line request, print response
-  - Config from env vars: socket path, state file, secret file paths, API URLs, registry URL, flake path, SSH key path
-- `packages/cc-sandbox/default.nix` — Nix package:
-  - `python3.withPackages (ps: [ ps.requests ])` for runtime
-  - Runtime deps: `nix`, `skopeo`, `openssh` (for SSH to containers)
-  - Wrap as `cc-sandbox` binary
+Single Python file (`cc_sandbox.py`) with daemon + CLI:
 
-**Modified files:**
-- `flake.nix` — add `cc-sandbox` package
+**Daemon commands (via Unix socket):**
+- `create [--repo <url>]` — generate hostname, fork repo on Forgejo, deploy container with `SANDBOX_REPO_URL` env var
+- `teardown <name>` — destroy sandbox via deployd-api, remove from state
+- `list` — return active sandboxes from state
+- `info <name>` — return single sandbox details
+- `set-digest` — record image digest (sent by CLI after push). Daemon is sole state writer.
 
-## Phase 2: deployd + Keycloak Integration
+**CLI commands (talk to daemon via socket):**
+- `rebuild-image` — `nix build` + `skopeo push` + send digest to daemon via socket. Runs as calling user.
+- `ssh <name>` — query daemon for IP, exec SSH (runs as calling user)
 
-In `cc_sandbox.py`:
+**Files created:**
+- `packages/cc-sandbox/cc_sandbox.py` — daemon + CLI
+- `packages/cc-sandbox/default.nix` — Nix package
 
-- `get_token(auth_url, username, password)` — Keycloak password grant via `deployd-operator` client, returns access token. Cache token, refresh on expiry (parse `expires_in` from response).
-- `deploy(api_url, token, name, image)` — `requests.post()` to `/api/v1/deploy`, returns container IP from `response.json()["data"]["ip"]`
-- `teardown(api_url, token, name)` — `requests.delete()` to `/api/v1/teardown/{name}`
+**Files modified:**
+- `flake.nix` — added `cc-sandbox` package
+- `packages/claude-sandbox-image/default.nix` — entrypoint clones `SANDBOX_REPO_URL` if set
 
-CA cert: pass internal CA cert path to `requests` via `verify=` parameter.
+**Features:**
+- Trails-themed hostname generation (30 adjectives x 30 nouns = 900 combinations)
+- OIDC client credentials grant (confidential client, not password grant) with token caching
+- JSON state file with flock locking
+- Separate Forgejo URL config (`CC_SANDBOX_FORGEJO_URL`, defaults to `https://<registry>`)
+- skopeo TLS verification via CA cert (falls back to `--tls-verify=false` only if no cert configured)
+- Container env var for repo cloning (no SSH from daemon into containers)
 
-**Protocol (daemon ↔ CLI, Unix socket, JSON-line):**
-```
-→ {"command":"create","repo":"https://creil.internal/user/repo"}
-← {"success":true,"data":{"name":"silver-blade","ip":"10.100.0.5"}}
+## Phase 4: Forgejo Integration — COMPLETE (in Phase 1-3)
 
-→ {"command":"teardown","name":"silver-blade"}
-← {"success":true,"message":"torn down"}
+Repo forking via Forgejo API is integrated into the daemon's `create` handler. The fork URL is passed as `SANDBOX_REPO_URL` env var to the container, and the container entrypoint handles cloning.
 
-→ {"command":"list"}
-← {"success":true,"data":{"sandboxes":[...]}}
-
-→ {"command":"info","name":"silver-blade"}
-← {"success":true,"data":{"name":"silver-blade","ip":"10.100.0.5","repo":"..."}}
-```
-
-## Phase 3: Image Build + Push, State, Hostnames
-
-In `cc_sandbox.py`:
-
-**Image management:**
-- `ensure_image(flake_path, registry, forgejo_token)`:
-  - Run `nix build <flake>#claude-sandbox-image --print-out-paths --no-link`
-  - Push via `skopeo copy docker-archive:<path> docker://<registry>/deployd/claude-sandbox:latest`
-  - Fetch digest via `skopeo inspect`
-  - Cache digest in state file; skip rebuild if cached (add `--rebuild` flag to force)
-
-**State file** (`/var/lib/cc-sandbox/state.json`):
-```json
-{
-  "sandboxes": {
-    "silver-blade": {
-      "container_name": "cc-silver-blade",
-      "ip": "10.100.0.5",
-      "repo": "https://creil.internal/cc/repo.git",
-      "created_at": "2026-03-26T10:00:00Z"
-    }
-  },
-  "image_digest": "sha256:abc123..."
-}
-```
-- `fcntl.flock()` for file-level locking
-
-**Hostname generation:**
-- Two lists of Trails-themed words drawn from craft/arts naming (e.g., Silver, Heavy, Phantom, Crimson, Azure, Steel, Raging + Blade, Streak, Fang, Wing, Storm, Cross, Lance)
-- `random.choice()` from each list → `silver-blade`
-- Collision check against current state
-- Container name: `cc-silver-blade` (prefixed to avoid deployd namespace collisions)
-
-## Phase 4: Forgejo Integration + Repo Cloning
-
-In `cc_sandbox.py`:
-
-- `fork_repo(forgejo_url, token, owner, repo)` → `requests.post()` to `/api/v1/repos/{owner}/{repo}/forks` with `organization: "cc"`
-- `clone_into_container(ip, ssh_key, repo_url)` → `subprocess.run(["ssh", ...])` to `claude@<ip>`, run `git clone <url> /workspace/<repo>`
-- Parse repo URL to extract owner/name (support `https://creil.internal/owner/repo` and `owner/repo` shorthand)
-
-## Phase 5: NixOS Wiring on edith
+## Phase 5: NixOS Wiring on edith — COMPLETE
 
 **New files:**
-- `hosts/calvard/incus/guests/edith/modules/cc-sandbox.nix` — systemd service + config:
-  - Service runs as `cc-sandbox` system user
+- `hosts/calvard/incus/guests/edith/modules/cc-sandbox.nix` — NixOS module with options:
+  - `services.cc-sandbox.enable` + apiUrl, authUrl, registry, forgejoUrl, caCert, flakePath, flakeAttr
+  - Systemd service: runs as `cc-sandbox` system user, hardened (ProtectSystem, NoNewPrivileges, restricted address families/syscalls)
+  - Daemon PATH restricted to just the cc-sandbox package (no nix/skopeo/ssh)
   - `mutantmell` added to `cc-sandbox` group (socket access)
-  - Sops secrets: keycloak-user, keycloak-pass, forgejo-token, cc-sandbox SSH private key
+  - Sops secrets: client-secret, forgejo-token (token readable by group for CLI image push)
   - Impermanence: persist `/var/lib/cc-sandbox`
-  - Env vars: secret file paths, API URLs, flake path, registry URL, CA cert path, SSH key path
-  - `environment.systemPackages = [ pkgs.mmell.cc-sandbox ]` for CLI access
+  - Env vars for daemon: secret file paths, API URLs, registry, CA cert
+  - Env vars for CLI: socket path, registry, flake path/attr, forgejo token file (system-wide via environment.variables)
 
 **Modified files:**
-- `hosts/calvard/incus/guests/edith/default.nix` — import `./modules/cc-sandbox.nix`
-- `hosts/calvard/incus/guests/edith/sops.nix` — add cc-sandbox secrets
-- `packages/claude-sandbox-image/default.nix` — add cc-sandbox SSH public key to authorized_keys
-- `lib/common/data/keys.json` — add `cc-sandbox` SSH public key
+- `hosts/calvard/incus/guests/edith/default.nix` — import module, enable with production URLs
+- `hosts/calvard/incus/guests/edith/sops.nix` — declare cc-sandbox secrets
 
-**Manual steps:**
-- Generate cc-sandbox SSH keypair, add private key to edith sops secrets
+**Manual steps (before deploy):**
 - Create "cc" user on Forgejo (creil), generate personal access token with write:repository + write:package
-- Add Keycloak user or reuse existing user in "deploy" group
-- Encrypt new secrets with sops
+- Create `cc-sandbox` confidential client in Keycloak (homelab realm):
+  - Client authentication: ON (confidential)
+  - Grant type: client credentials only
+  - Map the `deploy` group to the client's service account (so tokens carry the group claim)
+- Create `hosts/calvard/incus/guests/edith/secrets/secrets.yaml` with sops:
+  - `cc-sandbox-client-secret`, `cc-sandbox-forgejo-token`
 
-## Phase 6: Update deployd integration doc
+## Phase 6: Update deployd integration doc — NOT STARTED
 
 - `llm-notes/wip/deployd-integration.md` — mark D0 complete, document cc-sandbox
 
+## Security Notes
+
+**Container name injection (issue 3):** The daemon prefixes all container names with `cc-` and deployd-helper validates names (alphanumeric + hyphen + underscore only). For multi-user scenarios, add per-user namespacing or authentication on the Unix socket.
+
+**SSH host key verification (issue 4):** `cc-sandbox ssh` uses `StrictHostKeyChecking=no` because containers generate ephemeral host keys on boot. The proper fix is having containers request SSH host certificates from step-ca, which requires br-deploy egress to the CA. Deferred — tracked as a future improvement.
+
+## Other Changes
+
+**Container lateral movement blocked:** `modules/deployd/default.nix` nftables rule changed from `accept` to `drop` for container-to-container traffic on br-deploy. Per-container rules deferred to Phase D4 (game servers).
+
 ## Create Flow (end-to-end)
 
-1. CLI sends `create` (with optional repo URL) to daemon via Unix socket
-2. Daemon generates Trails-themed hostname → `silver-blade`, container name → `cc-silver-blade`
-3. Daemon checks if image digest is cached; if not, builds image (`nix build`), pushes to creil (`skopeo`), extracts digest
-4. Daemon gets Keycloak token (cached with expiry refresh)
-5. Daemon calls deployd-api POST `/api/v1/deploy` with `{name: "cc-silver-blade", image: "creil.internal/deployd/claude-sandbox@sha256:..."}`
-6. deployd-helper starts container, runs `nerdctl inspect`, returns IP in response data
-7. If repo specified: daemon forks on Forgejo under "cc" user, SSHs to `claude@<ip>` to clone
-8. Daemon writes state entry, returns `{name: "silver-blade", ip: "10.100.0.5"}` to CLI
-9. CLI prints: `Sandbox "silver-blade" ready at 10.100.0.5 — run: cc-sandbox ssh silver-blade`
+1. User runs `cc-sandbox rebuild-image` (once, or when image changes)
+   - CLI builds image (`nix build`), pushes to creil (`skopeo`), sends digest to daemon via socket
+2. User runs `cc-sandbox create [--repo owner/repo]`
+   - CLI sends `create` to daemon via Unix socket
+3. Daemon generates Trails-themed hostname → `silver-blade`, container name → `cc-silver-blade`
+4. Daemon reads cached image digest from state file
+5. If repo specified: daemon forks on Forgejo under "cc" user, gets fork URL
+6. Daemon calls deployd-api POST `/api/v1/deploy` with image ref and `SANDBOX_REPO_URL` env var
+7. deployd-helper starts container, runs `nerdctl inspect`, returns IP in response
+8. Container entrypoint clones `SANDBOX_REPO_URL` if set
+9. Daemon writes state, returns `{name: "silver-blade", ip: "10.100.0.5"}` to CLI
+10. CLI prints: `Sandbox "silver-blade" ready at 10.100.0.5 — run: cc-sandbox ssh silver-blade`
 
 ## Verification
 
 1. `nix build .#cc-sandbox` — package builds
-2. `nix build .#checks.x86_64-linux.deployd` — deployd test still passes (with IP-in-response change)
-3. Deploy edith config, run `cc-sandbox create`, verify container starts and IP is reachable
+2. `nix build .#checks.x86_64-linux.deployd` — deployd test still passes
+3. Deploy edith config, run `cc-sandbox rebuild-image`, then `cc-sandbox create`
 4. `cc-sandbox ssh <name>` drops into container shell
-5. `cc-sandbox create --repo creil.internal/user/repo` forks and clones
+5. `cc-sandbox create --repo owner/repo` forks and clones via env var
 6. `cc-sandbox list` shows active sandboxes
 7. `cc-sandbox teardown <name>` cleans up container and state
-
-## Implementation Order
-
-1. **deployd-helper IP-in-response** (prerequisite, small Rust change)
-2. **Phases 1-3** — Python package with daemon, CLI, deployd client, state, hostnames, image management (these are all in one file, natural to build together)
-3. **Phase 4** — Forgejo integration (can be deferred if "cc" user isn't set up yet)
-4. **Phase 5** — NixOS wiring on edith
