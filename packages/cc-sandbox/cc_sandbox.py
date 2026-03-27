@@ -210,8 +210,8 @@ def deployd_teardown(config, name):
 
 # --- Image management (CLI-only, not used by daemon) ---
 
-def rebuild_image(socket_path, registry, image_name, forgejo_token, ca_cert,
-                  flake_path, flake_attr):
+def rebuild_image(socket_path, registry, image_name, registry_user, forgejo_token,
+                  ca_cert, flake_path, flake_attr):
     """Build, push, and record the sandbox image digest.
 
     Runs as the calling user (not the daemon) — requires nix and skopeo in PATH.
@@ -229,7 +229,7 @@ def rebuild_image(socket_path, registry, image_name, forgejo_token, ca_cert,
     dest = f"docker://{registry}/{image_name}:latest"
     skopeo_push = [
         "skopeo", "copy", "--insecure-policy",
-        "--dest-creds", f"cc:{forgejo_token}",
+        "--dest-creds", f"{registry_user}:{forgejo_token}",
         f"docker-archive:{image_path}", dest,
     ]
     if ca_cert:
@@ -578,6 +578,25 @@ def cli_list(_args, socket_path):
         print(f"{sb['name']:<20} {sb.get('ip', ''):<16} {repo:<40} {created}")
 
 
+def _read_cli_token():
+    """Read the Forgejo token for CLI operations.
+
+    Checks, in order:
+      1. CC_SANDBOX_FORGEJO_TOKEN_FILE env var (explicit file path)
+      2. ~/.config/cc-sandbox/forgejo-token (default location)
+      3. CC_SANDBOX_FORGEJO_TOKEN env var (direct value)
+    """
+    token_file = os.environ.get("CC_SANDBOX_FORGEJO_TOKEN_FILE", "")
+    if token_file:
+        return Path(token_file).read_text().strip()
+
+    default_path = Path.home() / ".config" / "cc-sandbox" / "forgejo-token"
+    if default_path.exists():
+        return default_path.read_text().strip()
+
+    return os.environ.get("CC_SANDBOX_FORGEJO_TOKEN", "")
+
+
 def cli_rebuild_image(args, socket_path):
     """CLI: build, push, and record the sandbox image.
 
@@ -586,28 +605,26 @@ def cli_rebuild_image(args, socket_path):
     """
     registry = os.environ.get("CC_SANDBOX_REGISTRY", "")
     image_name = os.environ.get("CC_SANDBOX_IMAGE_NAME", "deployd/claude-sandbox")
+    registry_user = os.environ.get("CC_SANDBOX_REGISTRY_USER", os.environ.get("USER", ""))
     ca_cert = os.environ.get("CC_SANDBOX_CA_CERT", "")
     flake_path = os.environ.get("CC_SANDBOX_FLAKE_PATH", ".")
     flake_attr = os.environ.get("CC_SANDBOX_FLAKE_ATTR", "claude-sandbox-image")
-
-    # Forgejo token can come from env file or direct env var (for CLI use)
-    token_file = os.environ.get("CC_SANDBOX_FORGEJO_TOKEN_FILE", "")
-    if token_file:
-        forgejo_token = Path(token_file).read_text().strip()
-    else:
-        forgejo_token = os.environ.get("CC_SANDBOX_FORGEJO_TOKEN", "")
+    forgejo_token = _read_cli_token()
 
     if not registry:
         print("Error: CC_SANDBOX_REGISTRY not set", file=sys.stderr)
         sys.exit(1)
     if not forgejo_token:
-        print("Error: CC_SANDBOX_FORGEJO_TOKEN_FILE or CC_SANDBOX_FORGEJO_TOKEN not set",
-              file=sys.stderr)
+        print("Error: no Forgejo token found — create ~/.config/cc-sandbox/forgejo-token"
+              " or set CC_SANDBOX_FORGEJO_TOKEN_FILE", file=sys.stderr)
+        sys.exit(1)
+    if not registry_user:
+        print("Error: CC_SANDBOX_REGISTRY_USER not set and $USER is empty", file=sys.stderr)
         sys.exit(1)
 
     print("Building image...", flush=True)
-    digest = rebuild_image(socket_path, registry, image_name, forgejo_token,
-                           ca_cert, flake_path, flake_attr)
+    digest = rebuild_image(socket_path, registry, image_name, registry_user,
+                           forgejo_token, ca_cert, flake_path, flake_attr)
     print(f"Image pushed, digest: {digest}")
 
 
