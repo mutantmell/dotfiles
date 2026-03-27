@@ -392,6 +392,8 @@ in {
           ProtectSystem = "strict";
           ReadWritePaths = [
             "/var/log/deployd"
+            "/run/systemd/system"
+            "/etc/systemd/system"
             (builtins.dirOf cfg.vsockHostSocket)
           ];
           UMask = "0027";
