@@ -392,14 +392,12 @@ in {
           ExecStart = "${cfg.package}/bin/deployd-helper";
           User = "deployd-helper";
           Group = "deployd-helper";
-          ProtectSystem = "strict";
-          ReadWritePaths = [
-            "/var/log/deployd"
-            "/run/systemd/system"
-            "/etc/systemd/system"
-            "/var/lib/nerdctl"
-            (builtins.dirOf cfg.vsockHostSocket)
-          ];
+          # ProtectSystem is intentionally omitted: the deployd-exec wrapper
+          # runs via sudo in the service's mount namespace.  ProtectSystem=strict
+          # would require whitelisting every path the wrapper touches
+          # (systemd unit dirs, /var/lib/nerdctl, containerd socket, etc.),
+          # defeating the purpose.  The sudo rule (single immutable store path)
+          # is the privilege boundary instead.
           UMask = "0027";
           RestrictAddressFamilies = ["AF_UNIX" "AF_INET"];
           RestrictNamespaces = true;
