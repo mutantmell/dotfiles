@@ -236,6 +236,10 @@ in {
         # In production the directory is created by the microvm service; this
         # ensures it exists in environments without a microvm (e.g. VM tests).
         "d ${builtins.dirOf cfg.vsockHostSocket} 0770 deployd-helper deployd-helper - -"
+        # Ensure /var/lib/nerdctl exists before deployd-unit-acl applies ACLs.
+        # nerdctl creates this on first container start (as root); pre-creating it
+        # lets the ACL + default ACL be set at boot so inspect works immediately.
+        "d /var/lib/nerdctl 0755 root root - -"
       ];
 
       # Grant deployd-helper group write on the standard systemd unit directories
@@ -258,6 +262,10 @@ in {
             # (e.g. VM tests) and may be read-only.  Best-effort: deployd-helper will
             # return an error to the client if it cannot write persistent units there.
             ${pkgs.acl}/bin/setfacl -m g:deployd-helper:rwx /etc/systemd/system || true
+            # nerdctl stores container metadata in /var/lib/nerdctl (owned by root).
+            # deployd-helper needs read access for `nerdctl inspect`.
+            ${pkgs.acl}/bin/setfacl -R -m g:deployd-helper:rX /var/lib/nerdctl || true
+            ${pkgs.acl}/bin/setfacl -R -d -m g:deployd-helper:rX /var/lib/nerdctl || true
           '';
         };
       };
@@ -317,6 +325,7 @@ in {
             "/run/systemd/system"
             "/etc/systemd/system"
             "/var/log/deployd"
+            "/var/lib/nerdctl"
             (builtins.dirOf cfg.vsockHostSocket)
           ];
           UMask = "0027";
