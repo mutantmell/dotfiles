@@ -337,6 +337,9 @@ in {
         # In production the directory is created by the microvm service; this
         # ensures it exists in environments without a microvm (e.g. VM tests).
         "d ${builtins.dirOf cfg.vsockHostSocket} 0770 deployd-helper deployd-helper - -"
+        # nerdctl creates /var/lib/nerdctl on first container start (as root);
+        # pre-creating ensures the mount namespace includes it for inspect.
+        "d /var/lib/nerdctl 0700 root root - -"
       ];
 
       # Ensure vsock socket directory has deployd-helper group write (ACL).
@@ -394,6 +397,7 @@ in {
             "/var/log/deployd"
             "/run/systemd/system"
             "/etc/systemd/system"
+            "/var/lib/nerdctl"
             (builtins.dirOf cfg.vsockHostSocket)
           ];
           UMask = "0027";
