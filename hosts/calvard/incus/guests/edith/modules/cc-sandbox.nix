@@ -80,10 +80,9 @@ in {
       mode = "0400";
     };
     sops.secrets."cc-sandbox-forgejo-token" = {
-      # Readable by both daemon (owner) and mutantmell (group) for CLI image push
       owner = "cc-sandbox";
       group = "cc-sandbox";
-      mode = "0440";
+      mode = "0400";
     };
 
     # Note: no impermanence block needed — edith has a persistent XFS root,
@@ -138,7 +137,8 @@ in {
       CC_SANDBOX_CA_CERT = cfg.caCert;
       CC_SANDBOX_FLAKE_PATH = cfg.flakePath;
       CC_SANDBOX_FLAKE_ATTR = cfg.flakeAttr;
-      CC_SANDBOX_FORGEJO_TOKEN_FILE = config.sops.secrets."cc-sandbox-forgejo-token".path;
+      # Forgejo token for CLI (rebuild-image) is the user's own credential,
+      # read from ~/.config/cc-sandbox/forgejo-token by default.
     };
   };
 }
