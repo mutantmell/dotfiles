@@ -239,7 +239,7 @@ in {
         # Ensure /var/lib/nerdctl exists before deployd-unit-acl applies ACLs.
         # nerdctl creates this on first container start (as root); pre-creating it
         # lets the ACL + default ACL be set at boot so inspect works immediately.
-        "d /var/lib/nerdctl 0755 root root - -"
+        "d /var/lib/nerdctl 0700 root root - -"
       ];
 
       # Grant deployd-helper group write on the standard systemd unit directories
@@ -270,6 +270,21 @@ in {
         };
       };
 
+      # Grant deployd-helper read access to the containerd socket so nerdctl
+      # inspect works as a non-root user (nerdctl 2.x defaults to rootless mode
+      # otherwise).
+      systemd.services.deployd-containerd-acl = {
+        description = "Grant deployd-helper access to containerd socket";
+        after = ["containerd.service"];
+        requires = ["containerd.service"];
+        wantedBy = ["multi-user.target"];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = "${pkgs.acl}/bin/setfacl -m g:deployd-helper:rw /run/containerd/containerd.sock";
+        };
+      };
+
       # Ensure vsock socket directory has deployd-helper group write (ACL).
       # Retries until the directory exists — handles fresh installs where
       # microvm-install creates the directory after boot.
@@ -288,11 +303,12 @@ in {
       systemd.services.deployd-helper = {
         description = "deployd privileged helper";
         wantedBy = ["multi-user.target"];
-        requires = ["deployd-vsock-acl.service" "deployd-unit-acl.service"];
+        requires = ["deployd-vsock-acl.service" "deployd-unit-acl.service" "deployd-containerd-acl.service"];
         after = [
           "network.target"
           "deployd-vsock-acl.service"
           "deployd-unit-acl.service"
+          "deployd-containerd-acl.service"
           "containerd.service"
         ];
 

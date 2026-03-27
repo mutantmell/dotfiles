@@ -174,6 +174,7 @@ impl Executor {
 
         let output = Command::new(&self.config.nerdctl_path)
             .args([
+                "--host", "unix:///run/containerd/containerd.sock",
                 "--data-root", "/var/lib/nerdctl",
                 "inspect", name,
                 "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
