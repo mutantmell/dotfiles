@@ -399,7 +399,9 @@ in {
           # defeating the purpose.  The sudo rule (single immutable store path)
           # is the privilege boundary instead.
           UMask = "0027";
-          RestrictAddressFamilies = ["AF_UNIX" "AF_INET"];
+          # AF_NETLINK is required because nerdctl inspect (run via sudo
+          # deployd-exec) uses netlink to query container network info.
+          RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_NETLINK"];
           RestrictNamespaces = true;
           # Note: cannot use ~@privileged because sudo (invoked for deployd-exec)
           # needs setuid/setgid syscalls after the setuid exec.
