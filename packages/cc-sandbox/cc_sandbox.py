@@ -268,8 +268,8 @@ def forgejo_fork(config, owner, repo):
         json={"organization": "cc"},
         verify=config.requests_verify(),
     )
-    if resp.status_code == 409:
-        # Fork already exists
+    if resp.status_code in (409, 422):
+        # Fork already exists (Forgejo returns 409 or 422 depending on version)
         return f"{config.forgejo_url}/cc/{repo}.git"
     resp.raise_for_status()
     return resp.json().get("clone_url", f"{config.forgejo_url}/cc/{repo}.git")
