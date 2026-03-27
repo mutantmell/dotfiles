@@ -3,7 +3,8 @@
     defaultSopsFile = ./secrets/secrets.yaml;
     age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"];
     secrets = {
-      # Add secrets as needed
+      "cc-sandbox-client-secret" = {};
+      "cc-sandbox-forgejo-token" = {};
     };
   };
 }

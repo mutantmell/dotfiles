@@ -2,8 +2,25 @@
 """cc-sandbox: Claude Code sandbox orchestrator.
 
 Daemon + CLI for creating isolated Claude Code coding environments via deployd.
-The daemon holds credentials (Keycloak, Forgejo) and manages sandbox lifecycle.
-The CLI talks to the daemon over a Unix socket.
+
+The daemon holds limited credentials (Keycloak, Forgejo) and manages sandbox
+lifecycle — create, teardown, list. It never builds images or runs nix/skopeo.
+
+The CLI has two roles:
+  1. Thin client for daemon commands (create, teardown, list, ssh)
+  2. Privileged image management (rebuild-image) — runs as the calling user,
+     which has nix and skopeo access. Sends the digest to the daemon via
+     the Unix socket (the daemon is the sole writer of state).
+
+Security notes:
+  - The daemon should not have nix, skopeo, or openssh in its PATH.
+  - Container name injection: the daemon prefixes all names with "cc-" and
+    deployd-helper validates names. For multi-user scenarios, add per-user
+    namespacing or authentication on the Unix socket.
+  - SSH host key verification: cc-sandbox ssh uses StrictHostKeyChecking=no
+    because containers generate ephemeral host keys on boot. A proper fix
+    is to have containers request SSH host certificates from step-ca, which
+    requires br-deploy egress to the CA. Deferred to Phase D5.
 """
 
 import argparse
@@ -53,8 +70,12 @@ def generate_hostname(existing_names):
 
 # --- Configuration ---
 
-class Config:
-    """Daemon configuration from environment variables."""
+class DaemonConfig:
+    """Daemon configuration from environment variables.
+
+    The daemon only needs HTTP client capabilities (Keycloak + deployd-api)
+    and file access (state + secrets). It does NOT need nix, skopeo, or SSH.
+    """
 
     def __init__(self):
         self.socket_path = os.environ.get(
@@ -73,13 +94,11 @@ class Config:
             "CC_SANDBOX_FORGEJO_URL", f"https://{self.registry}"
         )
         self.image_name = os.environ.get("CC_SANDBOX_IMAGE_NAME", "deployd/claude-sandbox")
-        self.flake_path = os.environ.get("CC_SANDBOX_FLAKE_PATH", ".")
-        self.flake_attr = os.environ.get("CC_SANDBOX_FLAKE_ATTR", "claude-sandbox-image")
         self.ca_cert = os.environ.get("CC_SANDBOX_CA_CERT", "")
 
-        # Read secrets from files
-        self.keycloak_user = _read_secret("CC_SANDBOX_KEYCLOAK_USER_FILE")
-        self.keycloak_pass = _read_secret("CC_SANDBOX_KEYCLOAK_PASS_FILE")
+        # OIDC client credentials (confidential client, not password grant)
+        self.client_id = os.environ.get("CC_SANDBOX_CLIENT_ID", "cc-sandbox")
+        self.client_secret = _read_secret("CC_SANDBOX_CLIENT_SECRET_FILE")
         self.forgejo_token = _read_secret("CC_SANDBOX_FORGEJO_TOKEN_FILE")
 
         # Token cache
@@ -139,10 +158,9 @@ def get_token(config):
     resp = requests.post(
         config.auth_url,
         data={
-            "grant_type": "password",
-            "client_id": "deployd-operator",
-            "username": config.keycloak_user,
-            "password": config.keycloak_pass,
+            "grant_type": "client_credentials",
+            "client_id": config.client_id,
+            "client_secret": config.client_secret,
         },
         verify=config.requests_verify(),
     )
@@ -190,44 +208,52 @@ def deployd_teardown(config, name):
     return resp.json()
 
 
-# --- Image management ---
+# --- Image management (CLI-only, not used by daemon) ---
 
-def ensure_image(config, state, force_rebuild=False):
-    """Build and push image if needed. Returns digest string."""
-    data = state.load()
-    if data.get("image_digest") and not force_rebuild:
-        return data["image_digest"]
+def rebuild_image(socket_path, registry, image_name, forgejo_token, ca_cert,
+                  flake_path, flake_attr):
+    """Build, push, and record the sandbox image digest.
 
+    Runs as the calling user (not the daemon) — requires nix and skopeo in PATH.
+    Sends the digest to the daemon via the Unix socket so the daemon can record it.
+    """
     # Build
     result = subprocess.run(
-        ["nix", "build", f"{config.flake_path}#{config.flake_attr}",
+        ["nix", "build", f"{flake_path}#{flake_attr}",
          "--print-out-paths", "--no-link"],
         capture_output=True, text=True, check=True,
     )
     image_path = result.stdout.strip()
 
-    # Push
-    dest = f"docker://{config.registry}/{config.image_name}:latest"
-    subprocess.run(
-        ["skopeo", "copy", "--insecure-policy",
-         "--dest-creds", f"cc:{config.forgejo_token}",
-         f"docker-archive:{image_path}", dest,
-         "--dest-tls-verify=false"],
-        check=True,
-    )
+    # Push (with TLS verification via CA cert)
+    dest = f"docker://{registry}/{image_name}:latest"
+    skopeo_push = [
+        "skopeo", "copy", "--insecure-policy",
+        "--dest-creds", f"cc:{forgejo_token}",
+        f"docker-archive:{image_path}", dest,
+    ]
+    if ca_cert:
+        skopeo_push += ["--dest-cert-dir", str(Path(ca_cert).parent)]
+    else:
+        skopeo_push += ["--dest-tls-verify=false"]
+    subprocess.run(skopeo_push, check=True)
 
-    # Get digest
-    result = subprocess.run(
-        ["skopeo", "inspect", "--insecure-policy",
-         f"docker://{config.registry}/{config.image_name}:latest",
-         "--tls-verify=false"],
-        capture_output=True, text=True, check=True,
-    )
+    # Get digest (with TLS verification via CA cert)
+    skopeo_inspect = [
+        "skopeo", "inspect", "--insecure-policy",
+        f"docker://{registry}/{image_name}:latest",
+    ]
+    if ca_cert:
+        skopeo_inspect += ["--cert-dir", str(Path(ca_cert).parent)]
+    else:
+        skopeo_inspect += ["--tls-verify=false"]
+    result = subprocess.run(skopeo_inspect, capture_output=True, text=True, check=True)
     digest = json.loads(result.stdout)["Digest"]
 
-    # Cache digest
-    data["image_digest"] = digest
-    state.save(data)
+    # Send digest to daemon
+    resp = send_command(socket_path, {"command": "set-digest", "digest": digest})
+    if not resp.get("success"):
+        raise RuntimeError(f"failed to set digest: {resp.get('message', 'unknown error')}")
 
     return digest
 
@@ -271,15 +297,18 @@ def parse_repo_url(url):
 def handle_create(config, state, params):
     """Handle a create sandbox request."""
     data = state.load()
+
+    # Check that an image digest exists (set by `cc-sandbox rebuild-image`)
+    digest = data.get("image_digest", "")
+    if not digest:
+        return {
+            "success": False,
+            "message": "no image digest available — run 'cc-sandbox rebuild-image' first",
+        }
+
     name = generate_hostname(set(data["sandboxes"].keys()))
     container_name = f"cc-{name}"
-
-    # Ensure image is built and pushed (may update state file with digest)
-    digest = ensure_image(config, state)
     image_ref = f"{config.registry}/{config.image_name}@{digest}"
-
-    # Re-load state — ensure_image may have saved a new digest
-    data = state.load()
 
     # Fork repo on Forgejo if specified (before deploy, so we have the URL)
     repo_param = params.get("repo", "")
@@ -362,13 +391,17 @@ def handle_info(state, params):
     }
 
 
-def handle_rebuild_image(config, state):
-    """Handle an image rebuild request."""
-    try:
-        digest = ensure_image(config, state, force_rebuild=True)
-        return {"success": True, "message": f"image rebuilt, digest: {digest}"}
-    except Exception as e:
-        return {"success": False, "message": f"image rebuild failed: {e}"}
+def handle_set_digest(state, params):
+    """Handle a set-digest request from the CLI after image push."""
+    digest = params.get("digest", "")
+    if not digest:
+        return {"success": False, "message": "missing 'digest' parameter"}
+
+    data = state.load()
+    data["image_digest"] = digest
+    state.save(data)
+
+    return {"success": True, "message": f"digest set to {digest}"}
 
 
 # --- Daemon ---
@@ -399,8 +432,8 @@ class DaemonHandler(socketserver.StreamRequestHandler):
                 result = handle_list(state)
             elif command == "info":
                 result = handle_info(state, req)
-            elif command == "rebuild-image":
-                result = handle_rebuild_image(config, state)
+            elif command == "set-digest":
+                result = handle_set_digest(state, req)
             else:
                 result = {"success": False, "message": f"unknown command: {command}"}
         except Exception as e:
@@ -447,7 +480,7 @@ def run_daemon(config):
 def send_command(socket_path, request):
     """Send a command to the daemon and return the response."""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(300)  # 5 minute timeout for long operations (nix build)
+    sock.settimeout(300)  # 5 minute timeout for long operations
     try:
         sock.connect(socket_path)
         payload = json.dumps(request) + "\n"
@@ -501,6 +534,9 @@ def cli_ssh(args, socket_path):
         print("Error: sandbox has no IP address", file=sys.stderr)
         sys.exit(1)
 
+    # TODO: StrictHostKeyChecking=no is used because containers generate
+    # ephemeral host keys on boot. Fix by having containers request SSH host
+    # certificates from step-ca (requires br-deploy egress to the CA).
     os.execvp("ssh", [
         "ssh", "-o", "StrictHostKeyChecking=no",
         f"claude@{ip}",
@@ -542,16 +578,37 @@ def cli_list(_args, socket_path):
         print(f"{sb['name']:<20} {sb.get('ip', ''):<16} {repo:<40} {created}")
 
 
-def cli_rebuild_image(_args, socket_path):
-    """CLI: force rebuild and push the sandbox image."""
-    print("Rebuilding image...", flush=True)
-    resp = send_command(socket_path, {"command": "rebuild-image"})
+def cli_rebuild_image(args, socket_path):
+    """CLI: build, push, and record the sandbox image.
 
-    if not resp.get("success"):
-        print(f"Error: {resp.get('message', 'unknown error')}", file=sys.stderr)
+    Runs directly as the calling user who has nix/skopeo access.
+    Sends the resulting digest to the daemon via the Unix socket.
+    """
+    registry = os.environ.get("CC_SANDBOX_REGISTRY", "")
+    image_name = os.environ.get("CC_SANDBOX_IMAGE_NAME", "deployd/claude-sandbox")
+    ca_cert = os.environ.get("CC_SANDBOX_CA_CERT", "")
+    flake_path = os.environ.get("CC_SANDBOX_FLAKE_PATH", ".")
+    flake_attr = os.environ.get("CC_SANDBOX_FLAKE_ATTR", "claude-sandbox-image")
+
+    # Forgejo token can come from env file or direct env var (for CLI use)
+    token_file = os.environ.get("CC_SANDBOX_FORGEJO_TOKEN_FILE", "")
+    if token_file:
+        forgejo_token = Path(token_file).read_text().strip()
+    else:
+        forgejo_token = os.environ.get("CC_SANDBOX_FORGEJO_TOKEN", "")
+
+    if not registry:
+        print("Error: CC_SANDBOX_REGISTRY not set", file=sys.stderr)
+        sys.exit(1)
+    if not forgejo_token:
+        print("Error: CC_SANDBOX_FORGEJO_TOKEN_FILE or CC_SANDBOX_FORGEJO_TOKEN not set",
+              file=sys.stderr)
         sys.exit(1)
 
-    print(resp.get("message", "done"))
+    print("Building image...", flush=True)
+    digest = rebuild_image(socket_path, registry, image_name, forgejo_token,
+                           ca_cert, flake_path, flake_attr)
+    print(f"Image pushed, digest: {digest}")
 
 
 # --- Main ---
@@ -585,13 +642,13 @@ def main():
     # list
     subparsers.add_parser("list", help="list active sandboxes")
 
-    # rebuild-image
-    subparsers.add_parser("rebuild-image", help="force rebuild and push the sandbox image")
+    # rebuild-image (runs directly, not via daemon)
+    subparsers.add_parser("rebuild-image", help="build, push, and record the sandbox image")
 
     args = parser.parse_args()
 
     if args.command == "daemon":
-        config = Config()
+        config = DaemonConfig()
         run_daemon(config)
     else:
         socket_path = args.socket
