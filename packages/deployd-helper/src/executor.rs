@@ -174,6 +174,7 @@ impl Executor {
 
         let output = Command::new(&self.config.nerdctl_path)
             .args([
+                "--data-root", "/var/lib/nerdctl",
                 "inspect", name,
                 "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
             ])
