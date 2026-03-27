@@ -1,7 +1,7 @@
 # cc-sandbox: Claude Code sandbox orchestrator
 #
 # Runs a daemon that manages sandbox lifecycle (create/teardown/list) via deployd.
-# The daemon holds Keycloak + Forgejo credentials and is the sole writer of state.
+# The daemon holds OIDC + Forgejo credentials and is the sole writer of state.
 # Image building (nix/skopeo) runs as the calling user via `cc-sandbox rebuild-image`.
 {
   config,
@@ -86,14 +86,9 @@ in {
       mode = "0440";
     };
 
-    # Directory setup
-    systemd.tmpfiles.rules = [
-      "d /run/cc-sandbox 0750 cc-sandbox cc-sandbox - -"
-      "d /var/lib/cc-sandbox 0750 cc-sandbox cc-sandbox - -"
-    ];
-
     # Note: no impermanence block needed — edith has a persistent XFS root,
     # so /var/lib/cc-sandbox survives reboots without bind-mount persistence.
+    # RuntimeDirectory and StateDirectory in serviceConfig handle directory creation.
 
     # The daemon: restricted PATH (no nix, skopeo, SSH), only HTTP + state
     systemd.services.cc-sandbox = {
@@ -116,24 +111,20 @@ in {
       };
 
       serviceConfig = {
-        ExecStart = "${pkg}/bin/cc-sandbox daemon";
+        # cc-sandbox-daemon wrapper has restricted PATH (python only, no nix/skopeo)
+        ExecStart = "${pkg}/bin/cc-sandbox-daemon";
         User = "cc-sandbox";
         Group = "cc-sandbox";
         RuntimeDirectory = "cc-sandbox";
+        RuntimeDirectoryMode = "0750";
         StateDirectory = "cc-sandbox";
+        StateDirectoryMode = "0750";
         NoNewPrivileges = true;
         ProtectSystem = "strict";
         ProtectHome = true;
-        ReadWritePaths = [
-          "/run/cc-sandbox"
-          "/var/lib/cc-sandbox"
-        ];
         RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_INET6"];
         RestrictNamespaces = true;
         SystemCallFilter = ["@system-service" "~@privileged"];
-        # Restricted PATH: only what the daemon needs (python + requests).
-        # Explicitly excludes nix, skopeo, and openssh.
-        Environment = "PATH=${pkg}/bin";
       };
     };
 
