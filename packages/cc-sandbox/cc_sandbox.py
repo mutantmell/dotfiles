@@ -196,6 +196,21 @@ def deployd_deploy(config, name, image, env=None):
     return ip
 
 
+def deployd_inspect(config, name):
+    """Inspect a container via deployd-api. Returns the IP if available."""
+    token = get_token(config)
+    resp = requests.get(
+        f"{config.api_url}/inspect/{name}",
+        headers={"Authorization": f"Bearer {token}"},
+        verify=config.requests_verify(),
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if "data" in body and body["data"]:
+        return body["data"].get("ip")
+    return None
+
+
 def deployd_teardown(config, name):
     """Tear down a container via deployd-api."""
     token = get_token(config)
@@ -320,20 +335,17 @@ def handle_create(config, state, params):
         env["SANDBOX_REPO_URL"] = fork_url
 
     # Deploy via deployd-api (env vars are passed to container)
-    ip = deployd_deploy(config, container_name, image_ref, env=env or None)
-    if not ip:
-        ip = ""
+    deployd_deploy(config, container_name, image_ref, env=env or None)
 
-    # Save state
+    # Save state (IP resolved lazily via inspect when needed)
     data["sandboxes"][name] = {
         "container_name": container_name,
-        "ip": ip,
         "repo": fork_url,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     state.save(data)
 
-    return {"success": True, "data": {"name": name, "ip": ip}}
+    return {"success": True, "data": {"name": name}}
 
 
 def handle_teardown(config, state, params):
@@ -391,6 +403,46 @@ def handle_info(state, params):
     }
 
 
+def handle_resolve_ip(config, state, params):
+    """Resolve a sandbox's IP via deployd inspect, polling until available."""
+    name = params["name"]
+    timeout = params.get("timeout", 30)
+    data = state.load()
+
+    if name not in data["sandboxes"]:
+        return {"success": False, "message": f"sandbox '{name}' not found"}
+
+    # Return cached IP if we already have one
+    cached_ip = data["sandboxes"][name].get("ip", "")
+    if cached_ip:
+        return {"success": True, "data": {"name": name, "ip": cached_ip}}
+
+    container_name = data["sandboxes"][name]["container_name"]
+
+    # Poll deployd-api for the IP
+    deadline = time.time() + timeout
+    ip = None
+    while time.time() < deadline:
+        try:
+            ip = deployd_inspect(config, container_name)
+        except Exception:
+            pass
+        if ip:
+            break
+        time.sleep(1)
+
+    if not ip:
+        return {"success": False, "message": f"sandbox '{name}' IP not available after {timeout}s"}
+
+    # Cache the IP in state
+    data = state.load()
+    if name in data["sandboxes"]:
+        data["sandboxes"][name]["ip"] = ip
+        state.save(data)
+
+    return {"success": True, "data": {"name": name, "ip": ip}}
+
+
 def handle_set_digest(state, params):
     """Handle a set-digest request from the CLI after image push."""
     digest = params.get("digest", "")
@@ -432,6 +484,8 @@ class DaemonHandler(socketserver.StreamRequestHandler):
                 result = handle_list(state)
             elif command == "info":
                 result = handle_info(state, req)
+            elif command == "resolve-ip":
+                result = handle_resolve_ip(config, state, req)
             elif command == "set-digest":
                 result = handle_set_digest(state, req)
             else:
@@ -512,27 +566,25 @@ def cli_create(args, socket_path):
         print(f"Error: {resp.get('message', 'unknown error')}", file=sys.stderr)
         sys.exit(1)
 
-    data = resp["data"]
-    name = data["name"]
-    ip = data["ip"]
-    print(f'Sandbox "{name}" ready at {ip}')
+    name = resp["data"]["name"]
+    print(f'Sandbox "{name}" created')
     print(f"  SSH: cc-sandbox ssh {name}")
-    if resp.get("warning"):
-        print(f"  Warning: {resp['warning']}")
 
 
 def cli_ssh(args, socket_path):
     """CLI: SSH into a sandbox."""
-    resp = send_command(socket_path, {"command": "info", "name": args.name})
+    print("Waiting for sandbox IP...", flush=True)
+    resp = send_command(socket_path, {
+        "command": "resolve-ip",
+        "name": args.name,
+        "timeout": 30,
+    })
 
     if not resp.get("success"):
         print(f"Error: {resp.get('message', 'unknown error')}", file=sys.stderr)
         sys.exit(1)
 
     ip = resp["data"]["ip"]
-    if not ip:
-        print("Error: sandbox has no IP address", file=sys.stderr)
-        sys.exit(1)
 
     # TODO: StrictHostKeyChecking=no is used because containers generate
     # ephemeral host keys on boot. Fix by having containers request SSH host

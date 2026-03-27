@@ -28,6 +28,7 @@ pub fn log_command(
     let (cmd_name, params) = match command {
         HelperCommand::Deploy(def) => ("Deploy", serde_json::json!({"name": def.name, "image": def.image})),
         HelperCommand::Teardown { name } => ("Teardown", serde_json::json!({"name": name})),
+        HelperCommand::Inspect { name } => ("Inspect", serde_json::json!({"name": name})),
         HelperCommand::Status => ("Status", serde_json::json!({})),
     };
 

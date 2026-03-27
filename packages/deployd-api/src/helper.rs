@@ -22,6 +22,7 @@ struct HelperMessage {
 pub enum HelperCommand {
     Deploy(ContainerDefinition),
     Teardown { name: String },
+    Inspect { name: String },
     Status,
 }
 

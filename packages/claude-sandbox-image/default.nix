@@ -56,12 +56,13 @@
       ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ""
     fi
 
-    # Ensure privilege separation directory exists
-    mkdir -p /var/empty
+    # Ensure required directories exist
+    mkdir -p /var/empty /run
 
     # Clone repo if SANDBOX_REPO_URL is set (injected by cc-sandbox via deployd env)
     if [ -n "''${SANDBOX_REPO_URL:-}" ]; then
-      su -s /bin/bash ${user} -c "${pkgs.git}/bin/git clone \"$SANDBOX_REPO_URL\" /workspace/repo" || true
+      ${pkgs.git}/bin/git clone "$SANDBOX_REPO_URL" /workspace/repo || true
+      ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} /workspace/repo
     fi
 
     # Start sshd in the foreground

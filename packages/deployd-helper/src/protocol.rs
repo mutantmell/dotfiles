@@ -16,6 +16,9 @@ pub enum HelperCommand {
     Teardown {
         name: String,
     },
+    Inspect {
+        name: String,
+    },
     Status,
 }
 

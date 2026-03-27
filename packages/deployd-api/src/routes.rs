@@ -95,6 +95,41 @@ pub async fn teardown(
     }
 }
 
+/// GET /api/v1/inspect/:name — Get a container's IP address.
+pub async fn inspect(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let auth_header = match get_auth_header(&headers) {
+        Some(h) => h,
+        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "missing Authorization header"}))),
+    };
+
+    let claims = match auth::validate_token(&state, &auth_header).await {
+        Ok(c) => c,
+        Err((status, msg)) => {
+            error!(error = %msg, "auth failed");
+            return (status, Json(serde_json::json!({"error": msg})));
+        }
+    };
+
+    info!(user = %claims.sub, container = %name, "inspect request");
+
+    match state.helper.send(HelperCommand::Inspect { name: name.clone() }).await {
+        Ok(resp) if resp.success => {
+            (StatusCode::OK, Json(helper_ok_json(&resp)))
+        }
+        Ok(resp) => {
+            (StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({"error": resp.message})))
+        }
+        Err(e) => {
+            error!(error = %e, "helper communication error");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "internal error"})))
+        }
+    }
+}
+
 /// GET /api/v1/status — Check deployd-helper status.
 pub async fn status(
     State(state): State<Arc<AppState>>,

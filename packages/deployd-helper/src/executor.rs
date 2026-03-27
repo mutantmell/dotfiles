@@ -34,6 +34,7 @@ impl Executor {
         match command {
             HelperCommand::Deploy(def) => self.deploy(def),
             HelperCommand::Teardown { name } => self.teardown(name),
+            HelperCommand::Inspect { name } => self.inspect(name),
             HelperCommand::Status => HelperResponse::ok("deployd-helper is running"),
         }
     }
@@ -90,19 +91,8 @@ impl Executor {
             }
         }
 
-        // Inspect container to get its IP address
-        let ip = self.nerdctl_inspect_ip(&def.name);
-        if let Some(ref addr) = ip {
-            info!(name = %def.name, ip = %addr, "container deployed successfully");
-        } else {
-            warn!(name = %def.name, "container deployed but IP could not be determined");
-        }
-
-        HelperResponse {
-            success: true,
-            message: format!("container '{}' deployed", def.name),
-            data: ip.map(|addr| serde_json::json!({"ip": addr})),
-        }
+        info!(name = %def.name, "container deployed successfully");
+        HelperResponse::ok(format!("container '{}' deployed", def.name))
     }
 
     fn teardown(&self, name: &str) -> HelperResponse {
@@ -177,33 +167,41 @@ impl Executor {
         Ok(())
     }
 
-    /// Get a container's IP address via `nerdctl inspect`.
-    /// Retries a few times since the container may not have an IP immediately
-    /// after starting (e.g. waiting for DHCP lease or network setup).
-    fn nerdctl_inspect_ip(&self, name: &str) -> Option<String> {
-        for attempt in 0..5 {
-            if attempt > 0 {
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-
-            let output = Command::new(&self.config.nerdctl_path)
-                .args([
-                    "inspect", name,
-                    "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-                ])
-                .output()
-                .ok()?;
-
-            if !output.status.success() {
-                continue;
-            }
-
-            let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !ip.is_empty() {
-                return Some(ip);
-            }
+    fn inspect(&self, name: &str) -> HelperResponse {
+        if let Err(e) = validation::validate_name(name) {
+            return HelperResponse::err(e);
         }
-        None
+
+        let output = Command::new(&self.config.nerdctl_path)
+            .args([
+                "inspect", name,
+                "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+            ])
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let ip = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if ip.is_empty() {
+                    HelperResponse {
+                        success: true,
+                        message: format!("container '{}' has no IP yet", name),
+                        data: None,
+                    }
+                } else {
+                    HelperResponse {
+                        success: true,
+                        message: format!("container '{}' inspected", name),
+                        data: Some(serde_json::json!({"ip": ip})),
+                    }
+                }
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                HelperResponse::err(format!("nerdctl inspect failed: {}", stderr.trim()))
+            }
+            Err(e) => HelperResponse::err(format!("failed to run nerdctl: {}", e)),
+        }
     }
 
     fn systemctl(&self, args: &[&str]) -> Result<(), String> {
