@@ -178,21 +178,32 @@ impl Executor {
     }
 
     /// Get a container's IP address via `nerdctl inspect`.
+    /// Retries a few times since the container may not have an IP immediately
+    /// after starting (e.g. waiting for DHCP lease or network setup).
     fn nerdctl_inspect_ip(&self, name: &str) -> Option<String> {
-        let output = Command::new(&self.config.nerdctl_path)
-            .args([
-                "inspect", name,
-                "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            ])
-            .output()
-            .ok()?;
+        for attempt in 0..5 {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
 
-        if !output.status.success() {
-            return None;
+            let output = Command::new(&self.config.nerdctl_path)
+                .args([
+                    "inspect", name,
+                    "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+                ])
+                .output()
+                .ok()?;
+
+            if !output.status.success() {
+                continue;
+            }
+
+            let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !ip.is_empty() {
+                return Some(ip);
+            }
         }
-
-        let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if ip.is_empty() { None } else { Some(ip) }
+        None
     }
 
     fn systemctl(&self, args: &[&str]) -> Result<(), String> {
