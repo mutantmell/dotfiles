@@ -12,6 +12,11 @@
 # (Podman requires an OCI runtime CLI binary). containerd is the only supported
 # path for kata v3. Track: https://github.com/kata-containers/kata-containers/issues/722
 #
+# Privilege model: deployd-helper runs as an unprivileged user.  All root
+# operations (writing systemd units, systemctl, nerdctl inspect) are performed
+# by a small shell script (deployd-exec) invoked via a restrictive sudo rule.
+# The script lives in the Nix store (read-only, immutable).
+#
 # No project-specific logic — no hardcoded hostnames, impermanence, or
 # auto-discovery. See modules/common/deployd.nix for project wiring.
 {
@@ -23,6 +28,98 @@
   cfg = config.deployd;
   inherit (lib) mkOption mkEnableOption types mkIf mkMerge;
   hasUplink = cfg.bridge.uplink != "";
+
+  nerdctlPath = "/run/current-system/sw/bin/nerdctl";
+  systemctlPath = "/run/current-system/sw/bin/systemctl";
+
+  # Privileged wrapper script — handles all root operations on behalf of
+  # deployd-helper.  Invoked via sudo; the sudoers rule below permits only
+  # this exact Nix store path.
+  deployd-exec = pkgs.writeShellScript "deployd-exec" ''
+    set -euo pipefail
+
+    usage() {
+      echo "Usage: deployd-exec <command> <name> [options]" >&2
+      exit 1
+    }
+
+    # Validate container name: alphanumeric, hyphen, underscore only.
+    validate_name() {
+      local name="$1"
+      if [ -z "$name" ] || ! echo "$name" | grep -qE '^[a-zA-Z0-9][a-zA-Z0-9_-]*$'; then
+        echo "invalid container name: $name" >&2
+        exit 1
+      fi
+      if [ ''${#name} -gt 63 ]; then
+        echo "container name too long: $name" >&2
+        exit 1
+      fi
+    }
+
+    [ $# -ge 1 ] || usage
+    cmd="$1"; shift
+
+    case "$cmd" in
+      write-unit)
+        [ $# -ge 1 ] || usage
+        name="$1"; shift
+        validate_name "$name"
+
+        persistent=false
+        for arg in "$@"; do
+          case "$arg" in
+            --persistent) persistent=true ;;
+            *) echo "unknown option: $arg" >&2; exit 1 ;;
+          esac
+        done
+
+        if [ "$persistent" = true ]; then
+          dest="/etc/systemd/system/''${name}.service"
+        else
+          dest="/run/systemd/system/''${name}.service"
+        fi
+
+        cat > "$dest"
+        ${systemctlPath} daemon-reload
+        ;;
+
+      start)
+        [ $# -eq 1 ] || usage
+        name="$1"
+        validate_name "$name"
+        ${systemctlPath} start "''${name}.service"
+        ;;
+
+      stop)
+        [ $# -eq 1 ] || usage
+        name="$1"
+        validate_name "$name"
+        ${systemctlPath} stop "''${name}.service" || true
+        ;;
+
+      remove-unit)
+        [ $# -eq 1 ] || usage
+        name="$1"
+        validate_name "$name"
+        rm -f "/run/systemd/system/''${name}.service"
+        rm -f "/etc/systemd/system/''${name}.service"
+        ${systemctlPath} daemon-reload
+        ;;
+
+      inspect)
+        [ $# -eq 1 ] || usage
+        name="$1"
+        validate_name "$name"
+        ${nerdctlPath} inspect "$name" \
+          --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+        ;;
+
+      *)
+        echo "unknown command: $cmd" >&2
+        exit 1
+        ;;
+    esac
+  '';
 in {
   options.deployd = {
     enable = mkEnableOption "deployd container deployment helper";
@@ -217,17 +314,21 @@ in {
       };
       users.groups.deployd-helper = {};
 
-      # Polkit rule: allow deployd-helper to manage container units via systemctl.
-      # Scoped to daemon-reload and unit start/stop only.
-      security.polkit.extraConfig = ''
-        polkit.addRule(function(action, subject) {
-          if (subject.user === "deployd-helper" &&
-              (action.id === "org.freedesktop.systemd1.manage-units" ||
-               action.id === "org.freedesktop.systemd1.reload-daemon")) {
-            return polkit.Result.YES;
+      # Sudo rule: deployd-helper can run exactly this Nix store path, nothing else.
+      security.sudo = {
+        enable = true;
+        extraRules = [
+          {
+            users = ["deployd-helper"];
+            commands = [
+              {
+                command = "${deployd-exec}";
+                options = ["NOPASSWD"];
+              }
+            ];
           }
-        });
-      '';
+        ];
+      };
 
       # Directory structure
       systemd.tmpfiles.rules = [
@@ -236,58 +337,11 @@ in {
         # In production the directory is created by the microvm service; this
         # ensures it exists in environments without a microvm (e.g. VM tests).
         "d ${builtins.dirOf cfg.vsockHostSocket} 0770 deployd-helper deployd-helper - -"
-        # Ensure /var/lib/nerdctl exists before deployd-unit-acl applies ACLs.
-        # nerdctl creates this on first container start (as root); pre-creating it
-        # lets the ACL + default ACL be set at boot so inspect works immediately.
-        "d /var/lib/nerdctl 0700 root root - -"
       ];
 
-      # Grant deployd-helper group write on the standard systemd unit directories
-      # so it can deploy and remove .service files without running as root.
-      # /run/systemd/system — runtime units (tmpfs, cleared on reboot).
-      # /etc/systemd/system — persistent units (survive reboots).
-      # Security: deployd-helper could write arbitrary unit files, but this is
-      # equivalent to the write access it previously had over Podman quadlet dirs.
-      # The capability-token + SO_PEERCRED socket boundary limits who can trigger
-      # a deploy.
-      systemd.services.deployd-unit-acl = {
-        description = "Grant deployd-helper write access to systemd unit directories";
-        wantedBy = ["multi-user.target"];
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-          ExecStart = pkgs.writeShellScript "deployd-unit-acl" ''
-            ${pkgs.acl}/bin/setfacl -m g:deployd-helper:rwx /run/systemd/system
-            # /etc/systemd/system is managed by NixOS activation on some configurations
-            # (e.g. VM tests) and may be read-only.  Best-effort: deployd-helper will
-            # return an error to the client if it cannot write persistent units there.
-            ${pkgs.acl}/bin/setfacl -m g:deployd-helper:rwx /etc/systemd/system || true
-            # nerdctl stores container metadata in /var/lib/nerdctl (owned by root).
-            # deployd-helper needs read access for `nerdctl inspect`.
-            ${pkgs.acl}/bin/setfacl -R -m g:deployd-helper:rX /var/lib/nerdctl || true
-            ${pkgs.acl}/bin/setfacl -R -d -m g:deployd-helper:rX /var/lib/nerdctl || true
-          '';
-        };
-      };
-
-      # Grant deployd-helper read access to the containerd socket so nerdctl
-      # inspect works as a non-root user (nerdctl 2.x defaults to rootless mode
-      # otherwise).
-      systemd.services.deployd-containerd-acl = {
-        description = "Grant deployd-helper access to containerd socket";
-        after = ["containerd.service"];
-        requires = ["containerd.service"];
-        wantedBy = ["multi-user.target"];
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-          ExecStart = "${pkgs.acl}/bin/setfacl -m g:deployd-helper:rw /run/containerd/containerd.sock";
-        };
-      };
-
       # Ensure vsock socket directory has deployd-helper group write (ACL).
-      # Retries until the directory exists — handles fresh installs where
-      # microvm-install creates the directory after boot.
+      # This is the only remaining ACL — needed because the microvm service
+      # creates the directory as root, and deployd-helper must bind its socket there.
       systemd.services.deployd-vsock-acl = {
         description = "Set deployd-helper ACL on vsock socket directory";
         after = lib.optional (cfg.vsockDirectoryService != "") cfg.vsockDirectoryService;
@@ -303,12 +357,10 @@ in {
       systemd.services.deployd-helper = {
         description = "deployd privileged helper";
         wantedBy = ["multi-user.target"];
-        requires = ["deployd-vsock-acl.service" "deployd-unit-acl.service" "deployd-containerd-acl.service"];
+        requires = ["deployd-vsock-acl.service"];
         after = [
           "network.target"
           "deployd-vsock-acl.service"
-          "deployd-unit-acl.service"
-          "deployd-containerd-acl.service"
           "containerd.service"
         ];
 
@@ -327,27 +379,27 @@ in {
             if cfg.kata.enable
             then "io.containerd.kata.v2"
             else "io.containerd.runc.v2";
-          DEPLOYD_NERDCTL_PATH = "/run/current-system/sw/bin/nerdctl";
-          DEPLOYD_SYSTEMCTL_PATH = "/run/current-system/sw/bin/systemctl";
+          DEPLOYD_NERDCTL_PATH = nerdctlPath;
+          DEPLOYD_EXEC_PATH = "${deployd-exec}";
         };
+
+        path = ["/run/wrappers"]; # sudo lives here on NixOS
 
         serviceConfig = {
           ExecStart = "${cfg.package}/bin/deployd-helper";
           User = "deployd-helper";
           Group = "deployd-helper";
-          NoNewPrivileges = true;
           ProtectSystem = "strict";
           ReadWritePaths = [
-            "/run/systemd/system"
-            "/etc/systemd/system"
             "/var/log/deployd"
-            "/var/lib/nerdctl"
             (builtins.dirOf cfg.vsockHostSocket)
           ];
           UMask = "0027";
           RestrictAddressFamilies = ["AF_UNIX" "AF_INET"];
           RestrictNamespaces = true;
-          SystemCallFilter = ["@system-service" "~@privileged"];
+          # Note: cannot use ~@privileged because sudo (invoked for deployd-exec)
+          # needs setuid/setgid syscalls after the setuid exec.
+          SystemCallFilter = ["@system-service"];
         };
       };
     }
