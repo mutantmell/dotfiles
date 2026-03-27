@@ -193,7 +193,7 @@ mod tests {
             caddy_server_name: "deployd".into(),
             runtime_class: "io.containerd.kata.v2".into(),
             nerdctl_path: "/run/current-system/sw/bin/nerdctl".into(),
-            systemctl_path: "/run/current-system/sw/bin/systemctl".into(),
+            deployd_exec_path: "/run/current-system/sw/bin/deployd-exec".into(),
         }
     }
 

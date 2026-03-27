@@ -17,9 +17,10 @@ pub struct Config {
     pub caddy_server_name: String,
     /// containerd runtime class name (e.g. "io.containerd.kata.v2" or "io.containerd.runc.v2").
     pub runtime_class: String,
-    /// Path to the nerdctl binary used to run and stop containers.
+    /// Path to nerdctl, embedded in generated systemd unit files (not called directly).
     pub nerdctl_path: String,
-    pub systemctl_path: String,
+    /// Path to the deployd-exec privileged wrapper script (invoked via sudo).
+    pub deployd_exec_path: String,
 }
 
 impl Config {
@@ -45,18 +46,8 @@ impl Config {
                 "DEPLOYD_NERDCTL_PATH",
                 "/run/current-system/sw/bin/nerdctl",
             ),
-            systemctl_path: env_or("DEPLOYD_SYSTEMCTL_PATH", "/run/current-system/sw/bin/systemctl"),
+            deployd_exec_path: env_required("DEPLOYD_EXEC_PATH")?,
         })
-    }
-
-    /// Runtime unit directory (tmpfs, cleared on reboot).
-    pub fn unit_runtime_dir(&self) -> &'static str {
-        "/run/systemd/system"
-    }
-
-    /// Persistent unit directory (survives reboots).
-    pub fn unit_persistent_dir(&self) -> &'static str {
-        "/etc/systemd/system"
     }
 }
 

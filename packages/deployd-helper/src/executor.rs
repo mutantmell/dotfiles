@@ -1,4 +1,3 @@
-use std::fs;
 use std::process::Command;
 use tracing::{info, error, warn};
 
@@ -51,42 +50,28 @@ impl Executor {
             &self.config.nerdctl_path,
         );
 
-        // Persistent containers go to /etc/systemd/system (survives reboots),
-        // runtime-only containers go to /run/systemd/system (tmpfs).
-        let unit_dir = if def.persistent {
-            self.config.unit_persistent_dir()
-        } else {
-            self.config.unit_runtime_dir()
-        };
-        let unit_path = format!("{}/{}.service", unit_dir, def.name);
-
-        if let Err(e) = fs::write(&unit_path, &unit) {
+        // Pipe unit content to deployd-exec write-unit via stdin
+        let mut write_args = vec!["write-unit", &def.name];
+        if def.persistent {
+            write_args.push("--persistent");
+        }
+        if let Err(e) = self.deployd_exec_stdin(&write_args, &unit) {
             return HelperResponse::err(format!("failed to write unit: {}", e));
         }
-        info!(name = %def.name, path = %unit_path, persistent = def.persistent, "wrote unit");
 
-        // daemon-reload
-        if let Err(e) = self.systemctl(&["daemon-reload"]) {
-            return HelperResponse::err(format!("daemon-reload failed: {}", e));
-        }
-
-        // start the service
-        let service_name = format!("{}.service", def.name);
-        if let Err(e) = self.systemctl(&["start", &service_name]) {
+        // Start the service
+        if let Err(e) = self.deployd_exec(&["start", &def.name]) {
             // Clean up on start failure
-            let _ = fs::remove_file(&unit_path);
-            let _ = self.systemctl(&["daemon-reload"]);
-            return HelperResponse::err(format!("failed to start {}: {}", service_name, e));
+            let _ = self.deployd_exec(&["remove-unit", &def.name]);
+            return HelperResponse::err(format!("failed to start {}: {}", def.name, e));
         }
 
         // Add Caddy route if ingress is configured
         if let Some(ref ingress) = def.ingress {
             if let Err(e) = self.add_caddy_route(&def.name, &ingress.hostname, ingress.upstream_port) {
-                // Roll back: stop container, remove quadlet, daemon-reload
                 error!(name = %def.name, error = %e, "Caddy route failed, rolling back deploy");
-                let _ = self.systemctl(&["stop", &service_name]);
-                let _ = fs::remove_file(&unit_path);
-                let _ = self.systemctl(&["daemon-reload"]);
+                let _ = self.deployd_exec(&["stop", &def.name]);
+                let _ = self.deployd_exec(&["remove-unit", &def.name]);
                 return HelperResponse::err(format!("failed to add Caddy route: {}", e));
             }
         }
@@ -100,21 +85,14 @@ impl Executor {
             return HelperResponse::err(e);
         }
 
-        let service_name = format!("{}.service", name);
-
         // Stop the service (ignore error if already stopped)
-        if let Err(e) = self.systemctl(&["stop", &service_name]) {
+        if let Err(e) = self.deployd_exec(&["stop", name]) {
             error!(name = %name, error = %e, "stop failed (may be already stopped)");
         }
 
-        // Remove unit from both locations (we don't track which was used)
-        let filename = format!("{}.service", name);
-        let _ = fs::remove_file(format!("{}/{}", self.config.unit_runtime_dir(), filename));
-        let _ = fs::remove_file(format!("{}/{}", self.config.unit_persistent_dir(), filename));
-
-        // daemon-reload
-        if let Err(e) = self.systemctl(&["daemon-reload"]) {
-            return HelperResponse::err(format!("daemon-reload failed: {}", e));
+        // Remove unit file and daemon-reload
+        if let Err(e) = self.deployd_exec(&["remove-unit", name]) {
+            return HelperResponse::err(format!("remove-unit failed: {}", e));
         }
 
         // Remove Caddy route (best-effort — container may not have had ingress)
@@ -124,6 +102,32 @@ impl Executor {
 
         info!(name = %name, "container torn down");
         HelperResponse::ok(format!("container '{}' torn down", name))
+    }
+
+    fn inspect(&self, name: &str) -> HelperResponse {
+        if let Err(e) = validation::validate_name(name) {
+            return HelperResponse::err(e);
+        }
+
+        match self.deployd_exec(&["inspect", name]) {
+            Ok(output) => {
+                let ip = output.trim().to_string();
+                if ip.is_empty() {
+                    HelperResponse {
+                        success: true,
+                        message: format!("container '{}' has no IP yet", name),
+                        data: None,
+                    }
+                } else {
+                    HelperResponse {
+                        success: true,
+                        message: format!("container '{}' inspected", name),
+                        data: Some(serde_json::json!({"ip": ip})),
+                    }
+                }
+            }
+            Err(e) => HelperResponse::err(format!("inspect failed: {}", e)),
+        }
     }
 
     fn add_caddy_route(
@@ -167,57 +171,56 @@ impl Executor {
         Ok(())
     }
 
-    fn inspect(&self, name: &str) -> HelperResponse {
-        if let Err(e) = validation::validate_name(name) {
-            return HelperResponse::err(e);
-        }
-
-        let output = Command::new(&self.config.nerdctl_path)
-            .args([
-                "--host", "unix:///run/containerd/containerd.sock",
-                "--data-root", "/var/lib/nerdctl",
-                "inspect", name,
-                "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            ])
-            .output();
-
-        match output {
-            Ok(out) if out.status.success() => {
-                let ip = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if ip.is_empty() {
-                    HelperResponse {
-                        success: true,
-                        message: format!("container '{}' has no IP yet", name),
-                        data: None,
-                    }
-                } else {
-                    HelperResponse {
-                        success: true,
-                        message: format!("container '{}' inspected", name),
-                        data: Some(serde_json::json!({"ip": ip})),
-                    }
-                }
-            }
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                HelperResponse::err(format!("nerdctl inspect failed: {}", stderr.trim()))
-            }
-            Err(e) => HelperResponse::err(format!("failed to run nerdctl: {}", e)),
-        }
-    }
-
-    fn systemctl(&self, args: &[&str]) -> Result<(), String> {
-        let output = Command::new(&self.config.systemctl_path)
+    /// Run deployd-exec via sudo and return stdout on success.
+    fn deployd_exec(&self, args: &[&str]) -> Result<String, String> {
+        let output = Command::new("sudo")
+            .arg(&self.config.deployd_exec_path)
             .args(args)
             .output()
-            .map_err(|e| format!("failed to run systemctl: {}", e))?;
+            .map_err(|e| format!("failed to run deployd-exec: {}", e))?;
 
         if output.status.success() {
-            Ok(())
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             Err(format!(
-                "systemctl {} failed: {}",
+                "deployd-exec {} failed: {}",
+                args.join(" "),
+                stderr.trim()
+            ))
+        }
+    }
+
+    /// Run deployd-exec via sudo, piping data to stdin.
+    fn deployd_exec_stdin(&self, args: &[&str], stdin_data: &str) -> Result<String, String> {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let mut child = Command::new("sudo")
+            .arg(&self.config.deployd_exec_path)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("failed to spawn deployd-exec: {}", e))?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(stdin_data.as_bytes())
+                .map_err(|e| format!("failed to write to deployd-exec stdin: {}", e))?;
+        }
+
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("failed to wait for deployd-exec: {}", e))?;
+
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!(
+                "deployd-exec {} failed: {}",
                 args.join(" "),
                 stderr.trim()
             ))
