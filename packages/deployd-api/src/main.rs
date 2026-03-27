@@ -46,6 +46,7 @@ async fn main() {
     let app = Router::new()
         .route("/api/v1/deploy", post(routes::deploy))
         .route("/api/v1/teardown/{name}", delete(routes::teardown))
+        .route("/api/v1/inspect/{name}", get(routes::inspect))
         .route("/api/v1/status", get(routes::status))
         .route("/healthz", get(routes::healthz))
         .layer(TraceLayer::new_for_http())
