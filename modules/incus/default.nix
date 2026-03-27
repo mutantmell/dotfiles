@@ -183,19 +183,30 @@ let
 
       echo "Updating instance: $INSTANCE"
 
-      # Apply resource limits
+      # Apply resource limits (non-fatal — live resizing can fail under memory
+      # pressure or other transient conditions; the config switch should still proceed
+      # and limits will apply on next reboot)
       ${optionalString (guestCfg.limits.cpu != null) ''
-        ${incus} config set "$INSTANCE" limits.cpu=${guestCfg.limits.cpu}
+        CURRENT_CPU=$(${incus} config get "$INSTANCE" limits.cpu 2>/dev/null || true)
+        if [ "$CURRENT_CPU" != "${guestCfg.limits.cpu}" ]; then
+          ${incus} config set "$INSTANCE" limits.cpu=${guestCfg.limits.cpu} || \
+            echo "Warning: failed to set CPU limit for $INSTANCE, continuing..."
+        fi
       ''}
       ${optionalString (guestCfg.limits.memory != null) ''
-        ${incus} config set "$INSTANCE" limits.memory=${guestCfg.limits.memory}
+        CURRENT_MEM=$(${incus} config get "$INSTANCE" limits.memory 2>/dev/null || true)
+        if [ "$CURRENT_MEM" != "${guestCfg.limits.memory}" ]; then
+          ${incus} config set "$INSTANCE" limits.memory=${guestCfg.limits.memory} || \
+            echo "Warning: failed to set memory limit for $INSTANCE, continuing..."
+        fi
       ''}
       ${optionalString (guestCfg.limits.disk != null) ''
         CURRENT_DISK=$(${incus} config device get "$INSTANCE" root size 2>/dev/null || true)
         if [ "$CURRENT_DISK" != "${guestCfg.limits.disk}" ]; then
           echo "Updating root disk size for $INSTANCE to ${guestCfg.limits.disk}"
           ${incus} config device set "$INSTANCE" root size=${guestCfg.limits.disk} 2>/dev/null || \
-            ${incus} config device override "$INSTANCE" root size=${guestCfg.limits.disk}
+            ${incus} config device override "$INSTANCE" root size=${guestCfg.limits.disk} || \
+            echo "Warning: failed to set disk limit for $INSTANCE, continuing..."
         fi
       ''}
 
