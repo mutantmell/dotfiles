@@ -112,6 +112,7 @@ in
       pkgs.cacert
       pkgs.openssh
       pkgs.claude-code
+      pkgs.nix
     ];
 
     extraCommands = ''
@@ -137,6 +138,9 @@ in
       mkdir -p etc/ssl/certs
       cat ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt ${internalCaCert} > etc/ssl/certs/ca-certificates.crt
 
+      # Nix config: enable flakes
+      mkdir -p etc/nix
+      echo 'experimental-features = nix-command flakes' > etc/nix/nix.conf
     '';
 
     # fakeRootCommands runs under fakeroot so chown works
