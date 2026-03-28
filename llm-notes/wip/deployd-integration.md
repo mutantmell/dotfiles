@@ -35,19 +35,236 @@ The original design used a dynamic nftables `allowed_ports` set — deployd-help
 
 6. **Additional ingress paths (e.g., cloud host → WireGuard → langport → Caddy → br-deploy) don't change this.** The static isolation rule is origin-agnostic — it restricts which process can reach br-deploy, not where the traffic came from. Upstream routing/zone policy is thebeyond's responsibility.
 
+### Architecture Change: Replace nerdctl with Containerd gRPC (Post-D0 Finding)
+
+#### Problem
+
+deployd-helper's container management path currently involves six distinct
+tools/mechanisms:
+
+| Tool              | Used by                        | Purpose                                    |
+| ----------------- | ------------------------------ | ------------------------------------------ |
+| **nerdctl**       | systemd units (ExecStart/Stop) | `run`, `stop`, `rm` containers             |
+| **ctr**           | deployd-exec `inspect`         | query containerd for container ID by label |
+| **systemctl**     | deployd-exec start/stop/etc.   | manage systemd units                       |
+| **CNI file scan** | deployd-exec `inspect`         | read IP from host-local state files        |
+| **sudo**          | deployd-helper → deployd-exec  | privilege escalation                       |
+| **deployd-exec**  | deployd-helper (shell out)     | privileged wrapper coordinating all above  |
+
+`nerdctl` and `ctr` are two different CLIs for the same underlying containerd
+service. nerdctl has been a recurring source of problems throughout D0 validation:
+
+- **Rootful/rootless namespace confusion** — nerdctl v2 silently defaults to a
+  different containerd namespace for non-root callers, even when the rootful
+  containerd has the containers. This broke inspect and required the deployd-exec
+  sudo wrapper.
+- **CNI container ID mismatch** — nerdctl prepends its own namespace (`default-`)
+  to the containerd container ID when calling CNI, creating a mismatch between
+  what containerd reports and what CNI stores.
+- **CNI state file format** — the host-local IPAM files use `\r\n` line endings,
+  requiring explicit stripping in the shell script.
+- **Environment sensitivity** — nerdctl's behavior changes based on `$HOME`,
+  `$XDG_DATA_HOME`, and whether it detects a rootless setup, making it unreliable
+  when invoked via sudo from a service user.
+
+More broadly, the architecture has deployd-helper (a typed Rust binary) delegating
+container management to a chain of CLI tools via shell scripts, losing type
+safety and error context at every boundary. Each fix to the shell glue layer adds
+more special-case handling.
+
+#### Recommended solution
+
+Replace nerdctl with direct containerd gRPC API calls from deployd-helper. The
+`containerd-client` crate provides typed Rust bindings for containerd's gRPC API
+over the Unix socket (`/run/containerd/containerd.sock`).
+
+The key insight: `nerdctl run` does five things for us — image pull, OCI spec
+generation, CNI network setup, containerd container creation, and task start. Of
+these, containerd's gRPC API handles image pull, container creation, and task
+start natively. OCI spec generation is bounded for our use case (name, image,
+env, volumes, ports, runtime class — no Docker compat surface). CNI invocation is
+a well-defined protocol (exec plugin binary with env vars and stdin JSON).
+
+If deployd-helper handles CNI itself, the IP is a direct return value from the
+CNI ADD call. The entire inspect path disappears — no separate inspect command,
+no ctr, no CNI file scanning, no `\r\n` stripping, no namespace prefix matching.
+
+#### What changes
+
+| Operation        | Current                                                        | After                                                |
+| ---------------- | -------------------------------------------------------------- | ---------------------------------------------------- |
+| Create container | generate unit → nerdctl run (image pull, OCI spec, CNI, start) | generate unit → deployd-helper subcommand (gRPC+CNI) |
+| Start            | sudo deployd-exec start → systemctl start                      | unchanged                                            |
+| Stop             | sudo deployd-exec stop → systemctl stop                        | unchanged                                            |
+| Get IP           | sudo deployd-exec inspect → ctr → CNI file scan → strip `\r\n` | returned directly from CNI ADD at create time        |
+| Remove           | sudo deployd-exec remove-unit → rm + daemon-reload             | unchanged                                            |
+
+The systemd unit template changes from:
+
+```ini
+ExecStartPre=-/run/current-system/sw/bin/nerdctl rm -f <name>
+ExecStart=/run/current-system/sw/bin/nerdctl run --rm --name=<name> --network=<bridge> ...
+ExecStop=/run/current-system/sw/bin/nerdctl stop <name>
+```
+
+to:
+
+```ini
+ExecStartPre=-deployd-helper container-rm <name>
+ExecStart=deployd-helper container-run --name=<name> --network=<bridge> --runtime=<runtime> <image>
+ExecStop=deployd-helper container-stop <name>
+```
+
+deployd-helper's `container-run` subcommand:
+
+1. Pulls the image via containerd gRPC (if not present)
+2. Generates an OCI runtime spec (env, volumes, ports, runtime class)
+3. Creates a network namespace and invokes CNI ADD (bridge + portmap plugins)
+4. Creates the container in containerd with the spec and namespace
+5. Starts the task and blocks until exit (foreground for systemd)
+6. On exit: invokes CNI DEL, deletes the container
+
+The IP from step 3 is available immediately. deployd-helper's `deploy()` method
+can read it after `systemctl start` returns (the CNI result is stored by the
+subcommand process in a known location, or queried via containerd labels).
+
+#### What gets removed
+
+- **nerdctl** — no longer used anywhere in the deployd module
+- **ctr** — no longer used for inspect
+- **deployd-exec `inspect`** subcommand — IP known at create time
+- **CNI file scanning** + `\r\n` stripping + `default-` prefix matching
+- `unit.rs` nerdctl argument generation — replaced with deployd-helper subcommand args
+
+#### What stays
+
+- **Systemd units** — persistent units in `/etc/systemd/system/` survive reboots;
+  runtime units in `/run/systemd/system/` are ephemeral. This is the right model.
+  Only the ExecStart/ExecStop commands change (nerdctl → deployd-helper subcommand).
+- **deployd-exec** for `write-unit`/`start`/`stop`/`remove-unit` — these need root
+  for systemctl and writing to protected directories. The sudo wrapper stays.
+- **sudo** + sudoers rule — still needed for the systemd operations above.
+
+#### What gets added
+
+- `containerd-client` + `tonic` + `prost` + `tokio` — gRPC client for containerd
+- `container-run`/`container-stop`/`container-rm` subcommands in deployd-helper
+- CNI invocation module (~200 lines): conflist parsing, plugin exec, result parsing
+- OCI spec builder (~150 lines): for our subset (image, env, volumes, runtime class)
+- Containerd socket access for deployd-helper (via `grpc.gid` or ACL)
+
+#### Tool inventory after
+
+| Tool                             | Purpose                                           |
+| -------------------------------- | ------------------------------------------------- |
+| **containerd gRPC** (from Rust)  | image pull, container create/start/stop/delete    |
+| **CNI plugins** (exec'd by Rust) | network setup/teardown (bridge, portmap)          |
+| **systemctl**                    | start/stop/reload units via deployd-exec          |
+| **sudo + deployd-exec**          | systemd unit operations (write/start/stop/remove) |
+
+nerdctl and ctr are no longer in the deployd module's dependency chain. They
+remain available as system packages for manual debugging.
+
+#### Privilege model
+
+The `container-run` subcommand needs root for CNI (creating network namespaces,
+configuring interfaces). This is handled naturally: the systemd unit runs
+ExecStart as root, just as nerdctl runs as root today. The deployd-helper socket
+listener (the service) stays unprivileged as the `deployd-helper` user — the two
+roles are separate processes of the same binary.
+
+deployd-helper also needs access to the containerd socket for the gRPC calls in
+the `container-run` subcommand. Since that subcommand runs as root (via systemd
+unit), socket access is automatic. The socket listener process does NOT need
+containerd socket access — it delegates to deployd-exec for starting the unit,
+which starts the subcommand as root.
+
+This means no new socket permissions or ACLs are needed beyond what systemd
+already provides.
+
+#### Scope estimate
+
+| Piece                                | Est. lines | Notes                                                 |
+| ------------------------------------ | ---------- | ----------------------------------------------------- |
+| containerd gRPC module               | ~200       | `containerd-client` does the heavy lifting            |
+| OCI spec generation (our subset)     | ~150       | image, env, volumes, ports, runtime class only        |
+| CNI invocation (ADD/DEL, conflist)   | ~200       | well-defined protocol: exec binary + parse JSON       |
+| Network namespace lifecycle          | ~50        | create netns, pass to containerd, clean up            |
+| Image pull via containerd API        | ~50        | containerd handles natively                           |
+| Subcommands (container-run/stop/rm)  | ~100       | CLI arg parsing + orchestration                       |
+| Unit template update                 | ~30        | simpler: deployd-helper subcommand instead of nerdctl |
+| Total new Rust                       | **~780**   |                                                       |
+| Removed Rust (unit.rs nerdctl args)  | ~60        |                                                       |
+| Removed shell (deployd-exec inspect) | ~30        |                                                       |
+
+#### Tradeoff
+
+The `containerd-client` crate pulls in tokio (async runtime), tonic (gRPC), and
+prost (protobuf). deployd-helper is currently ~600 lines of synchronous Rust with
+minimal dependencies. This is a real increase in binary complexity. However:
+
+1. The complexity moves from fragile shell glue (untyped, hard to test, arcane
+   workarounds for tool quirks) into typed Rust (compile-time checks, proper
+   error handling, unit testable).
+
+2. The async runtime can be contained — `tokio::runtime::Runtime::new()` in
+   blocking helper functions. The main socket loop stays synchronous.
+
+3. nerdctl has been the source of every D0-blocking bug. Removing it from the
+   dependency chain eliminates an entire class of problems (namespace confusion,
+   environment sensitivity, undocumented CNI ID prefixing).
+
+4. The inspect path disappears entirely. IP retrieval becomes a side effect of
+   container creation, not a separate operation with its own failure modes.
+
+#### Timing
+
+This should be done before D3 (CI/CD integration) to avoid building CI workflows
+on top of the fragile shell+nerdctl approach. It does not block cc-sandbox
+usage — the current ctr + CNI workaround works for D0 validation.
+
 ## Phase Status
 
-### Phase D0: Prototype Validation — NOT STARTED
+### Phase D0: Prototype Validation — IN PROGRESS
 
-Manual validation on erebonia:
+Manual validation on erebonia, using cc-sandbox on edith as the test client
+(see `llm-notes/wip/cc-sandbox-plan.md`):
 
-1. [ ] Kata Containers with Podman — verify VM boundary
-2. [ ] Kata with quadlet file — verify systemd integration
-3. [ ] br-deploy bridge with Kata — verify published ports, egress, netavark/nftables
-4. [ ] Caddy dynamic route via admin API — verify route add/remove lifecycle
-5. [ ] Unix socket between microVM and host — verify SO_PEERCRED
+1. [x] Kata Containers — verified VM boundary via containerd shimv2 (not Podman; see D1 note)
+2. [x] Systemd unit integration — deployd-helper generates nerdctl-based units, starts/stops via deployd-exec
+3. [x] br-deploy bridge with Kata — published ports, CNI bridge, nftables isolation all working
+4. [x] Caddy dynamic route via admin API — route add/remove lifecycle verified
+5. [x] Unix socket between microVM and host — SO_PEERCRED + capability token verified
+6. [x] cc-sandbox create/teardown — end-to-end lifecycle works (deploy, SSH, teardown)
+7. [x] Container IP retrieval — working via ctr + CNI state scan (see D0-inspect below)
 
-**Output:** Go/no-go on the architecture. Kata fallback to rootless Podman if steps 1-3 fail.
+**Output:** Architecture validated. Kata + containerd is the correct path (Podman
+cannot speak shimv2). The core workflow works end-to-end, but the current
+privilege/tooling model is fragile and should be consolidated before D3.
+
+#### D0-inspect: Container IP Retrieval
+
+The original approach — deployd-helper calling `nerdctl inspect` — failed because
+nerdctl v2 has rootful/rootless namespace confusion: even when run as root via
+sudo, nerdctl could not reliably find containers in the rootful containerd
+namespace. This issue consumed multiple iterations (5+ commits of privilege
+tweaks, ACL additions, and sudo wrapper changes).
+
+**Intermediate fix (current):** The `deployd-exec inspect` subcommand now uses
+`ctr` (containerd's native CLI, a direct gRPC client with no namespace confusion)
+to find the container by nerdctl name label, then scans CNI host-local IPAM state
+files at `/var/lib/cni/networks/<bridge>/` to match the container ID to its IP.
+
+Findings during implementation:
+
+- CNI host-local files use `\r\n` line endings — required explicit stripping
+- nerdctl prepends its namespace (`default-`) to the containerd container ID when
+  calling CNI — the stored ID is `default-<containerd-id>`, not the raw ID
+- The approach works and is tested in a VM integration test, but adds `ctr` as a
+  third CLI tool alongside `nerdctl` and `systemctl`
+
+See "Architecture Change: Replace nerdctl with Containerd gRPC" above for the
+recommended approach.
 
 ### Phase D1: deployd-helper Module + Binary — COMPLETE
 
@@ -257,7 +474,8 @@ Tasks:
            v
   [erebonia host]
     deployd-helper (capability token auth)
-      -> Podman quadlet management
+      -> sudo deployd-exec (systemd unit management)
+      -> containerd gRPC + CNI (container lifecycle, planned)
       -> Caddy dynamic ingress
 ```
 
@@ -281,9 +499,41 @@ Tasks:
 | Shared static UID 398 in `lib/common/data/default.nix`                             | Single source of truth for the UID shared between deployd-helper (erebonia) and deployd-api (roer). Below dynamic system range (400-999), clear of microvm UID 300.                |
 | sops secret ownership set to `deployd-api` user                                    | Allows non-root deployd-api service to read the capability token at `/run/secrets/deployd-capability-token`.                                                                       |
 
+### Phase D1c: Replace nerdctl with Containerd gRPC — NOT STARTED
+
+Dependencies: Phase D0 (validated, provides test environment)
+
+Replace nerdctl with direct containerd gRPC API calls and CNI invocation from
+deployd-helper. See "Architecture Change: Replace nerdctl with Containerd gRPC"
+above for full rationale and design.
+
+Tasks:
+
+- [ ] Add `containerd-client` + `tokio` + `tonic` + `prost` to Cargo.toml
+- [ ] Create `containerd.rs` module: gRPC connection, image pull, container
+      create/delete, task create/start/kill/delete
+- [ ] Create `cni.rs` module: conflist parsing, plugin exec (ADD/DEL), result
+      parsing, network namespace lifecycle
+- [ ] Create `oci.rs` module: generate OCI runtime spec for our subset (image,
+      env, volumes, ports, runtime class)
+- [ ] Add `container-run` subcommand: image pull → OCI spec → CNI ADD →
+      containerd create+start → block until exit → CNI DEL → cleanup
+- [ ] Add `container-stop` subcommand: send signal, wait for graceful shutdown
+- [ ] Add `container-rm` subcommand: stop if running, delete container, CNI DEL
+- [ ] Update `unit.rs`: ExecStart/ExecStop/ExecStartPre use deployd-helper
+      subcommands instead of nerdctl
+- [ ] Update `executor.rs` deploy(): capture IP from CNI result after systemctl
+      start (stored by container-run in a known location or containerd labels)
+- [ ] Remove `inspect` subcommand from `deployd-exec`; remove `ctr` reference
+- [ ] Remove `nerdctl` from deployd module (keep as system package for debugging)
+- [ ] Update NixOS module: remove nerdctl-specific config, ensure deployd-helper
+      binary is in the unit's ExecStart PATH
+- [ ] Update VM test: verify deploy returns IP, inspect returns same IP, full
+      deploy→inspect→teardown cycle without nerdctl
+
 ### Phase D3: CI/CD Integration — NOT STARTED
 
-Dependencies: CI/CD Phases 1-3 + Phase 6 (container registry on creil)
+Dependencies: CI/CD Phases 1-3 + Phase 6 (container registry on creil), Phase D1c
 
 Tasks:
 

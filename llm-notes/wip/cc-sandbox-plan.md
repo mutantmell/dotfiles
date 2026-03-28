@@ -20,7 +20,7 @@ With deployd validated end-to-end (D0 complete), the next step is automating san
       |
       | HTTPS (password grant → Bearer token)
       v
-    [roer.internal] → deployd-api → deployd-helper → nerdctl + Kata
+    [roer.internal] → deployd-api → deployd-helper → containerd/Kata
       |
       | deploy response includes container IP
       v
@@ -52,13 +52,30 @@ The daemon and CLI have different privilege levels:
 
 The daemon's systemd service restricts PATH to exclude nix/skopeo. Image building runs as the calling user via `cc-sandbox rebuild-image`.
 
-## Prerequisite: deployd-helper returns container IP on deploy — COMPLETE
+## Prerequisite: deployd-helper returns container IP on inspect — COMPLETE
 
-deployd-helper runs `nerdctl inspect` after `systemctl start` to get the container IP. Returns it in the existing `HelperResponse.data` field. deployd-api already forwards `data` to HTTP callers. Backwards-compatible.
+deployd-helper's Inspect command retrieves the container IP. The implementation
+has gone through several iterations:
+
+1. ~~`nerdctl inspect`~~ — failed due to nerdctl v2 rootful/rootless namespace confusion
+2. **Current:** `deployd-exec inspect` uses `ctr` (containerd's native gRPC CLI)
+   to find the container by nerdctl name label, then scans CNI host-local IPAM
+   state files for the IP. Works but involves fragile shell parsing (see
+   "Containerd gRPC Consolidation" in `deployd-integration.md` for planned fix).
+
+Returns IP in the `HelperResponse.data` field. deployd-api forwards `data` to
+HTTP callers. cc-sandbox daemon reads IP from the deploy response.
+
+Planned: Phase D1c will replace the entire inspect path by having deployd-helper
+invoke CNI directly during container creation. The IP will be a return value from
+CNI ADD, eliminating the need for a separate inspect step. See
+`deployd-integration.md` "Architecture Change: Replace nerdctl with Containerd
+gRPC" for details.
 
 **Files modified:**
 
-- `packages/deployd-helper/src/executor.rs` — `nerdctl_inspect_ip()` method, populated in deploy response
+- `modules/deployd/default.nix` — `deployd-exec inspect` subcommand (ctr + CNI state scan)
+- `packages/deployd-helper/src/executor.rs` — calls deployd-exec inspect, parses result
 
 ## Phase 1-3: Python Package — COMPLETE
 
@@ -153,7 +170,7 @@ Repo forking via Forgejo API is integrated into the daemon's `create` handler. T
 4. Daemon reads cached image digest from state file
 5. If repo specified: daemon forks on Forgejo under "cc" user, gets fork URL
 6. Daemon calls deployd-api POST `/api/v1/deploy` with image ref and `SANDBOX_REPO_URL` env var
-7. deployd-helper starts container, runs `nerdctl inspect`, returns IP in response
+7. deployd-helper starts container, retrieves IP via ctr + CNI state, returns IP in response
 8. Container entrypoint clones `SANDBOX_REPO_URL` if set
 9. Daemon writes state, returns `{name: "silver-blade", ip: "10.100.0.5"}` to CLI
 10. CLI prints: `Sandbox "silver-blade" ready at 10.100.0.5 — run: cc-sandbox ssh silver-blade`
