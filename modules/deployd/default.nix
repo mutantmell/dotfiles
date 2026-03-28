@@ -30,6 +30,7 @@
   hasUplink = cfg.bridge.uplink != "";
 
   nerdctlPath = "/run/current-system/sw/bin/nerdctl";
+  ctrPath = "/run/current-system/sw/bin/ctr";
   systemctlPath = "/run/current-system/sw/bin/systemctl";
 
   # Privileged wrapper script — handles all root operations on behalf of
@@ -110,8 +111,38 @@
         [ $# -eq 1 ] || usage
         name="$1"
         validate_name "$name"
-        ${nerdctlPath} inspect "$name" \
-          --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+
+        # Find container ID via containerd gRPC API (ctr).
+        # nerdctl stores the human-readable name as a label on the containerd
+        # container.  ctr queries containerd directly — no rootful/rootless
+        # namespace confusion that plagues nerdctl v2.
+        container_id=$(${ctrPath} -n default containers ls -q \
+          "labels.\"nerdctl/name\"==$name" 2>/dev/null | head -1 | tr -d '\r\n ')
+        if [ -z "$container_id" ]; then
+          echo "container not found: $name" >&2
+          exit 1
+        fi
+
+        # Find IP from CNI host-local IPAM state.
+        # The host-local plugin stores one file per allocation at
+        # /var/lib/cni/networks/<network>/<ip>, containing the CNI container
+        # ID on the first line (with \r\n line endings).
+        # nerdctl prepends its namespace to the containerd container ID when
+        # calling CNI, so the stored ID is "default-<containerd-id>".
+        cni_dir="/var/lib/cni/networks/${cfg.bridge.name}"
+        cni_id="default-$container_id"
+        if [ -d "$cni_dir" ]; then
+          for ip_file in "$cni_dir"/*; do
+            [ -f "$ip_file" ] || continue
+            stored_id=$(head -1 "$ip_file" 2>/dev/null | tr -d '\r\n ')
+            if [ "$stored_id" = "$cni_id" ]; then
+              basename "$ip_file"
+              exit 0
+            fi
+          done
+        fi
+        # No IP found yet (container may still be starting)
+        echo ""
         ;;
 
       *)
@@ -337,9 +368,6 @@ in {
         # In production the directory is created by the microvm service; this
         # ensures it exists in environments without a microvm (e.g. VM tests).
         "d ${builtins.dirOf cfg.vsockHostSocket} 0770 deployd-helper deployd-helper - -"
-        # nerdctl creates /var/lib/nerdctl on first container start (as root);
-        # pre-creating ensures the mount namespace includes it for inspect.
-        "d /var/lib/nerdctl 0700 root root - -"
       ];
 
       # Ensure vsock socket directory has deployd-helper group write (ACL).
@@ -399,9 +427,7 @@ in {
           # defeating the purpose.  The sudo rule (single immutable store path)
           # is the privilege boundary instead.
           UMask = "0027";
-          # AF_NETLINK is required because nerdctl inspect (run via sudo
-          # deployd-exec) uses netlink to query container network info.
-          RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_NETLINK"];
+          RestrictAddressFamilies = ["AF_UNIX" "AF_INET"];
           RestrictNamespaces = true;
           # Note: cannot use ~@privileged because sudo (invoked for deployd-exec)
           # needs setuid/setgid syscalls after the setuid exec.
