@@ -78,10 +78,12 @@
     fi
 
     # Clone repo if SANDBOX_REPO_URL is set (injected by cc-sandbox via deployd env).
+    # SANDBOX_REPO_NAME controls the directory name (defaults to "repo").
     # Failure is non-fatal so sshd still starts (allows debugging via SSH).
     if [ -n "''${SANDBOX_REPO_URL:-}" ]; then
-      if ${pkgs.git}/bin/git clone "$SANDBOX_REPO_URL" /workspace/repo; then
-        ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} /workspace/repo
+      repo_dir="/workspace/''${SANDBOX_REPO_NAME:-repo}"
+      if ${pkgs.git}/bin/git clone "$SANDBOX_REPO_URL" "$repo_dir"; then
+        ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} "$repo_dir"
       else
         echo "WARNING: git clone failed (exit $?)" >&2
       fi
@@ -143,8 +145,8 @@ in
       mkdir -p etc/ssl/certs
       cat ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt ${internalCaCert} > etc/ssl/certs/ca-certificates.crt
 
-      # Bash profile: add npm-global binaries to PATH
-      cat > workspace/.bashrc << 'BASHRC'
+      # Bash profile: add npm-global binaries to PATH (login shells read .bash_profile)
+      cat > workspace/.bash_profile << 'BASHRC'
       export PATH="/workspace/.npm-global/bin:$PATH"
       BASHRC
     '';
