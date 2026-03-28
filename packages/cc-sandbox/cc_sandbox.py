@@ -335,7 +335,14 @@ def handle_create(config, state, params):
     if repo_param:
         owner, repo_name = parse_repo_url(repo_param)
         fork_url = forgejo_fork(config, owner, repo_name)
-        env["SANDBOX_REPO_URL"] = fork_url
+        # Embed Forgejo token in the clone URL for non-interactive auth.
+        # The fork is under the "cc" org whose token the daemon holds.
+        parsed = urlparse(fork_url)
+        authed_url = parsed._replace(
+            netloc=f"cc:{config.forgejo_token}@{parsed.hostname}"
+            + (f":{parsed.port}" if parsed.port else "")
+        ).geturl()
+        env["SANDBOX_REPO_URL"] = authed_url
 
     # Deploy via deployd-api (env vars are passed to container)
     deployd_deploy(config, container_name, image_ref, env=env or None)
