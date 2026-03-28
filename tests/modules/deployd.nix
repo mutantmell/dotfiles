@@ -8,6 +8,18 @@
   lib ? pkgs.lib,
 }: let
   testTokenFile = pkgs.writeText "deployd-test-token" "test-capability-token";
+
+  # Minimal container image for testing deploy/inspect flow.
+  # Built at Nix eval time; imported into containerd in the test VM.
+  testImage = pkgs.dockerTools.buildImage {
+    name = "registry.test/test-app";
+    tag = "latest";
+    copyToRoot = pkgs.buildEnv {
+      name = "test-env";
+      paths = [pkgs.busybox];
+    };
+    config.Cmd = ["/bin/sleep" "3600"];
+  };
 in
   pkgs.testers.nixosTest {
     name = "deployd";
@@ -137,5 +149,54 @@ in
       # Audit log is written after socket interactions
       host.succeed("test -f /var/log/deployd/audit.log")
       host.succeed("grep '\"command\":\"Status\"' /var/log/deployd/audit.log")
+
+      # --- Deploy + Inspect flow ---
+      # Import a pre-built test image into containerd and run a container
+      # manually (simulating what a deployd systemd unit does), then verify
+      # that Inspect returns the container's IP via the ctr + CNI state path.
+
+      host.succeed("ctr -n default images import ${testImage}")
+      host.succeed(
+          "nerdctl run -d --name=test-inspect --network=br-deploy "
+          + "registry.test/test-app:latest"
+      )
+
+      # Wait for CNI to assign an IP (host-local IPAM writes state files)
+      host.wait_until_succeeds("ls /var/lib/cni/networks/br-deploy/10.* 2>/dev/null", timeout=15)
+
+      # Inspect via deployd-helper socket: should return an IP in 10.100.0.0/24
+      host.succeed(
+          """
+          python3 -c '
+      import socket, json
+
+      sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+      sock.connect("/run/deployd/deployd.sock")
+
+      msg = json.dumps({"token": "test-capability-token", "command": {"type": "Inspect", "name": "test-inspect"}})
+      sock.sendall((msg + chr(10)).encode())
+
+      data = b""
+      while b"\\n" not in data:
+          chunk = sock.recv(4096)
+          if not chunk:
+              break
+          data += chunk
+      resp = json.loads(data.decode())
+      assert resp["success"] is True, f"inspect failed: {resp}"
+      ip = resp.get("data", {}).get("ip", "")
+      assert ip.startswith("10.100.0."), f"expected 10.100.0.x IP, got: {ip!r}"
+      print(f"Inspect returned IP: {ip}")
+      sock.close()
+      '
+          """
+      )
+
+      # Verify inspect is logged in audit
+      host.succeed("grep '\"Inspect\"' /var/log/deployd/audit.log")
+
+      # Clean up the test container
+      host.succeed("nerdctl stop test-inspect >/dev/null 2>&1 || true")
+      host.succeed("nerdctl rm -f test-inspect >/dev/null 2>&1 || true")
     '';
   }
