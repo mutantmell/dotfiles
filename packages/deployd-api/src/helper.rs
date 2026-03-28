@@ -40,6 +40,12 @@ pub struct ContainerDefinition {
     #[serde(default)]
     pub persistent: bool,
     pub ingress: Option<IngressConfig>,
+    /// Memory limit (e.g. "2g", "512m"). Passed as --memory to nerdctl.
+    #[serde(default)]
+    pub memory: Option<String>,
+    /// CPU limit (e.g. "2.0", "0.5"). Passed as --cpus to nerdctl.
+    #[serde(default)]
+    pub cpus: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

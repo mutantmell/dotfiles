@@ -284,6 +284,8 @@ mod tests {
             volumes: vec![],
             persistent: false,
             ingress: None,
+            memory: None,
+            cpus: None,
         };
         assert!(validate_ports(&def, &config).is_ok());
 

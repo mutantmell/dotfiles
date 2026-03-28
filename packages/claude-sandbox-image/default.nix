@@ -15,7 +15,7 @@
   uid = "1000";
   gid = "1000";
 
-  keys = builtins.fromJSON (builtins.readFile ../../lib/common/data/keys.json);
+  inherit (pkgs.mmell.lib.data) keys;
   authorizedKeys = builtins.concatStringsSep "\n" [
     keys.ssh.deploy
     keys.ssh.home
@@ -23,7 +23,7 @@
   ];
 
   # Internal step-ca root certificate for TLS to creil.internal, etc.
-  internalCaCert = ../../lib/common/data/pki/root_ca.crt;
+  internalCaCert = pkgs.mmell.lib.data.pki.root;
 
   # Minimal passwd/group for the non-root user.
   # Home is /workspace so SSH sessions land there directly.
@@ -56,6 +56,17 @@
     PermitRootLogin no
     PrintMotd no
     Subsystem sftp internal-sftp
+  '';
+  nixConf = pkgs.writeText "nix.conf" ''
+    experimental-features = nix-command flakes
+    build-users-group =
+  '';
+
+  # Git credential helper — reads token from a file at runtime.
+  # Built as a store path so the entrypoint just copies it into place.
+  gitCredentialHelper = pkgs.writeShellScript "git-credential-helper" ''
+    echo "username=cc"
+    echo "password=$(cat /workspace/.config/git/token)"
   '';
 
   # Nix store registration for the image closure — loaded at boot to populate
@@ -100,11 +111,26 @@
 
     # Initialize Nix store DB and register the image closure so `nix develop` works.
     # Single-user mode: the claude user owns the store directly (no daemon).
+    # /nix/var ownership is pre-set at image build time; only db.sqlite needs chown.
     if [ ! -f /nix/var/nix/db/db.sqlite ]; then
-      HOME=/root ${pkgs.nix}/bin/nix-store --init
-      HOME=/root ${pkgs.nix}/bin/nix-store --load-db < /nix/nix-registration
-      ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} /nix/var
-      ${pkgs.coreutils}/bin/chown ${uid}:${gid} /nix/store
+      (
+        HOME=/root ${pkgs.nix}/bin/nix-store --init
+        HOME=/root ${pkgs.nix}/bin/nix-store --load-db < /nix/nix-registration
+        ${pkgs.coreutils}/bin/chown ${uid}:${gid} /nix/var/nix/db/db.sqlite
+        ${pkgs.coreutils}/bin/chown ${uid}:${gid} /nix/store
+      ) &
+      nix_init_pid=$!
+    fi
+
+    # Set up git credential helper if a token is provided.
+    # The token is stored in a file (not in .git/config or the clone URL).
+    if [ -n "''${SANDBOX_GIT_TOKEN:-}" ]; then
+      mkdir -p /workspace/.config/git
+      cp ${gitCredentialHelper} /workspace/.config/git/credential-helper
+      echo -n "$SANDBOX_GIT_TOKEN" > /workspace/.config/git/token
+      chmod 600 /workspace/.config/git/token
+      ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} /workspace/.config
+      ${pkgs.git}/bin/git config --system credential.helper /workspace/.config/git/credential-helper
     fi
 
     # Clone repo if SANDBOX_REPO_URL is set (injected by cc-sandbox via deployd env).
@@ -121,6 +147,11 @@
       else
         echo "WARNING: git clone failed" >&2
       fi
+    fi
+
+    # Wait for nix store init before starting sshd
+    if [ -n "''${nix_init_pid:-}" ]; then
+      wait "$nix_init_pid"
     fi
 
     # Start sshd in the foreground
@@ -158,10 +189,7 @@ in
 
       # Nix config: enable flakes + single-user store
       mkdir -p etc/nix
-      cat > etc/nix/nix.conf << 'NIXCONF'
-      experimental-features = nix-command flakes
-      build-users-group =
-      NIXCONF
+      cp ${nixConf} etc/nix/nix.conf
 
       # Nix store DB directories + registration file (loaded by entrypoint)
       mkdir -p nix/var/nix/db nix/var/nix/gcroots nix/var/nix/profiles
@@ -173,6 +201,8 @@ in
       chown -R ${uid}:${gid} workspace
       chmod 700 workspace/.ssh
       chmod 600 workspace/.ssh/authorized_keys
+      # Pre-set nix directory ownership so entrypoint only chowns runtime db.sqlite
+      chown -R ${uid}:${gid} nix/var
     '';
 
     config = {

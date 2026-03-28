@@ -96,6 +96,8 @@ class DaemonConfig:
         self.image_name = os.environ.get("CC_SANDBOX_IMAGE_NAME", "deployd/claude-sandbox")
         self.ca_cert = os.environ.get("CC_SANDBOX_CA_CERT", "")
         self.dns_servers = os.environ.get("CC_SANDBOX_DNS_SERVERS", "")
+        self.memory_limit = os.environ.get("CC_SANDBOX_MEMORY_LIMIT", "")
+        self.cpu_limit = os.environ.get("CC_SANDBOX_CPU_LIMIT", "")
 
         # OIDC client credentials (confidential client, not password grant)
         self.client_id = os.environ.get("CC_SANDBOX_CLIENT_ID", "cc-sandbox")
@@ -174,12 +176,16 @@ def get_token(config):
 
 # --- deployd API client ---
 
-def deployd_deploy(config, name, image, env=None):
+def deployd_deploy(config, name, image, env=None, memory=None, cpus=None):
     """Deploy a container via deployd-api. Returns the container IP."""
     token = get_token(config)
     payload = {"name": name, "image": image}
     if env:
         payload["env"] = env
+    if memory:
+        payload["memory"] = memory
+    if cpus:
+        payload["cpus"] = cpus
     resp = requests.post(
         f"{config.api_url}/deploy",
         headers={
@@ -335,19 +341,21 @@ def handle_create(config, state, params):
     if repo_param:
         owner, repo_name = parse_repo_url(repo_param)
         fork_url = forgejo_fork(config, owner, repo_name)
-        # Embed Forgejo token in the clone URL for non-interactive auth.
-        # The fork is under the "cc" org whose token the daemon holds.
-        parsed = urlparse(fork_url)
-        authed_url = parsed._replace(
-            netloc=f"cc:{config.forgejo_token}@{parsed.hostname}"
-            + (f":{parsed.port}" if parsed.port else "")
-        ).geturl()
-        env["SANDBOX_REPO_URL"] = authed_url
+        # Pass the unauthenticated fork URL + token separately.
+        # The entrypoint configures a git credential helper so the token
+        # never appears in .git/config (addresses audit recommendation).
+        env["SANDBOX_REPO_URL"] = fork_url
         env["SANDBOX_REPO_NAME"] = repo_name
+        env["SANDBOX_GIT_TOKEN"] = config.forgejo_token
         env["SANDBOX_UPSTREAM_URL"] = f"{config.forgejo_url}/{owner}/{repo_name}.git"
 
-    # Deploy via deployd-api (env vars are passed to container)
-    deployd_deploy(config, container_name, image_ref, env=env or None)
+    # Deploy via deployd-api (env vars + resource limits are passed to container)
+    deployd_deploy(
+        config, container_name, image_ref,
+        env=env or None,
+        memory=config.memory_limit or None,
+        cpus=config.cpu_limit or None,
+    )
 
     # Save state (IP resolved lazily via inspect when needed)
     data["sandboxes"][name] = {
