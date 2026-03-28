@@ -225,22 +225,35 @@ usage — the current ctr + CNI workaround works for D0 validation.
 
 ## Phase Status
 
-### Phase D0: Prototype Validation — IN PROGRESS
+### Phase D0: Prototype Validation — COMPLETE
 
 Manual validation on erebonia, using cc-sandbox on edith as the test client
 (see `llm-notes/wip/cc-sandbox-plan.md`):
 
 1. [x] Kata Containers — verified VM boundary via containerd shimv2 (not Podman; see D1 note)
 2. [x] Systemd unit integration — deployd-helper generates nerdctl-based units, starts/stops via deployd-exec
-3. [x] br-deploy bridge with Kata — published ports, CNI bridge, nftables isolation all working
+3. [x] deploy-dmz bridge with Kata — CNI macvlan, nftables isolation all working
 4. [x] Caddy dynamic route via admin API — route add/remove lifecycle verified
 5. [x] Unix socket between microVM and host — SO_PEERCRED + capability token verified
 6. [x] cc-sandbox create/teardown — end-to-end lifecycle works (deploy, SSH, teardown)
 7. [x] Container IP retrieval — working via ctr + CNI state scan (see D0-inspect below)
+8. [x] Sandbox environment — Claude Code (nixpkgs), nix develop, git credential helper, DNS/TLS all working
+9. [x] Resource limits — memory + CPU limits passed through deployd stack, verified inside containers
 
-**Output:** Architecture validated. Kata + containerd is the correct path (Podman
-cannot speak shimv2). The core workflow works end-to-end, but the current
-privilege/tooling model is fragile and should be consolidated before D3.
+**Output:** Architecture validated end-to-end. Kata + containerd is the correct path
+(Podman cannot speak shimv2). cc-sandbox creates fully functional Claude Code sandboxes
+with repo cloning, nix develop support, and resource limits. The current privilege/tooling
+model is fragile (nerdctl quirks) and should be consolidated before D3.
+
+#### D0 Protocol Changes
+
+During D0 validation, `memory` and `cpus` optional fields were added to
+`ContainerDefinition` in both deployd-helper and deployd-api to support container
+resource limits:
+
+- `packages/deployd-helper/src/protocol.rs` — added `memory: Option<String>`, `cpus: Option<String>`
+- `packages/deployd-helper/src/unit.rs` — generates `--memory` and `--cpus` nerdctl flags when set
+- `packages/deployd-api/src/helper.rs` — mirrored fields in API's ContainerDefinition copy
 
 #### D0-inspect: Container IP Retrieval
 
@@ -481,7 +494,11 @@ Tasks:
 
 #### Security Model
 
-- **OIDC (Keycloak)** validates API callers — group `deploy` required
+- **OIDC (Keycloak)** validates API callers — group `deploy` required. deployd-api
+  checks JWT signature and group claims but is agnostic to token origin — works with
+  both service account tokens (client credentials grant, used by the cc-sandbox
+  prototype) and user tokens (auth code grant, used by the cc-sandbox product design).
+  No deployd-api changes needed when clients switch auth flows.
 - **Capability token (sops)** authenticates the API→helper Unix socket boundary
 - **SO_PEERCRED** accepts UID 398 (shared static UID) — virtiofs passthrough UID mapping; deployd-api runs as dedicated `deployd-api` user, not root
 - **Shared static UID (398)** — defined once in `lib/common/data/default.nix`, referenced by both erebonia (`deployd-helper`) and roer (`deployd-api`). Below the NixOS dynamic system range (400-999), clear of microvm UID 300.
