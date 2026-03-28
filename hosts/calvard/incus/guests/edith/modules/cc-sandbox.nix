@@ -55,6 +55,18 @@ in {
       description = "DNS server IPs passed to sandbox containers (written to /etc/resolv.conf at boot)";
     };
 
+    memoryLimit = lib.mkOption {
+      type = lib.types.str;
+      default = "4g";
+      description = "Memory limit per sandbox container (nerdctl --memory format, e.g. '4g', '512m')";
+    };
+
+    cpuLimit = lib.mkOption {
+      type = lib.types.str;
+      default = "2";
+      description = "CPU limit per sandbox container (nerdctl --cpus format, e.g. '2', '0.5')";
+    };
+
     flakePath = lib.mkOption {
       type = lib.types.str;
       default = "/home/mutantmell/git/dotfiles";
@@ -113,6 +125,8 @@ in {
         CC_SANDBOX_IMAGE_NAME = cfg.imageName;
         CC_SANDBOX_CA_CERT = cfg.caCert;
         CC_SANDBOX_DNS_SERVERS = builtins.concatStringsSep " " cfg.dnsServers;
+        CC_SANDBOX_MEMORY_LIMIT = cfg.memoryLimit;
+        CC_SANDBOX_CPU_LIMIT = cfg.cpuLimit;
         CC_SANDBOX_CLIENT_SECRET_FILE = config.sops.secrets."cc-sandbox-client-secret".path;
         CC_SANDBOX_FORGEJO_TOKEN_FILE = config.sops.secrets."cc-sandbox-forgejo-token".path;
       };

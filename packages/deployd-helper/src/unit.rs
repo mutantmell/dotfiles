@@ -38,6 +38,13 @@ pub fn generate_unit(
         run_args.push(format!("--volume={}:{}", vol.host, vol.container));
     }
 
+    if let Some(ref memory) = def.memory {
+        run_args.push(format!("--memory={}", memory));
+    }
+    if let Some(ref cpus) = def.cpus {
+        run_args.push(format!("--cpus={}", cpus));
+    }
+
     run_args.push(def.image.clone());
 
     format!(
@@ -102,6 +109,8 @@ mod tests {
             }],
             persistent: true,
             ingress: None,
+            memory: None,
+            cpus: None,
         };
 
         let output = generate_unit(&def, "io.containerd.kata.v2", "br-deploy", nerdctl());
@@ -132,6 +141,8 @@ mod tests {
             volumes: vec![],
             persistent: false,
             ingress: None,
+            memory: None,
+            cpus: None,
         };
 
         let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl());
@@ -148,6 +159,8 @@ mod tests {
             volumes: vec![],
             persistent: false,
             ingress: None,
+            memory: None,
+            cpus: None,
         };
 
         let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl());
