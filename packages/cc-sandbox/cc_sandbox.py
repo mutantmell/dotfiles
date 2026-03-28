@@ -344,6 +344,7 @@ def handle_create(config, state, params):
         ).geturl()
         env["SANDBOX_REPO_URL"] = authed_url
         env["SANDBOX_REPO_NAME"] = repo_name
+        env["SANDBOX_UPSTREAM_URL"] = f"{config.forgejo_url}/{owner}/{repo_name}.git"
 
     # Deploy via deployd-api (env vars are passed to container)
     deployd_deploy(config, container_name, image_ref, env=env or None)

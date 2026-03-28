@@ -58,6 +58,27 @@
     Subsystem sftp internal-sftp
   '';
 
+  # Nix store registration for the image closure — loaded at boot to populate
+  # the Nix DB so `nix develop` can find existing store paths.
+  imageContents = [
+    pkgs.bashInteractive
+    pkgs.coreutils
+    pkgs.findutils
+    pkgs.gnugrep
+    pkgs.gnused
+    pkgs.gawk
+    pkgs.git
+    pkgs.nodejs
+    pkgs.curl
+    pkgs.vim
+    pkgs.less
+    pkgs.cacert
+    pkgs.openssh
+    pkgs.claude-code
+    pkgs.nix
+  ];
+  closure = pkgs.closureInfo {rootPaths = imageContents;};
+
   entrypoint = pkgs.writeShellScript "entrypoint.sh" ''
     set -euo pipefail
 
@@ -77,6 +98,15 @@
       done
     fi
 
+    # Initialize Nix store DB and register the image closure so `nix develop` works.
+    # Single-user mode: the claude user owns the store directly (no daemon).
+    if [ ! -f /nix/var/nix/db/db.sqlite ]; then
+      ${pkgs.nix}/bin/nix-store --init
+      ${pkgs.nix}/bin/nix-store --load-db < /nix/nix-registration
+      ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} /nix/var
+      ${pkgs.coreutils}/bin/chown ${uid}:${gid} /nix/store
+    fi
+
     # Clone repo if SANDBOX_REPO_URL is set (injected by cc-sandbox via deployd env).
     # SANDBOX_REPO_NAME controls the directory name (defaults to "repo").
     # Failure is non-fatal so sshd still starts (allows debugging via SSH).
@@ -84,6 +114,10 @@
       repo_dir="/workspace/''${SANDBOX_REPO_NAME:-repo}"
       if ${pkgs.git}/bin/git clone "$SANDBOX_REPO_URL" "$repo_dir"; then
         ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} "$repo_dir"
+        # Add upstream remote pointing to the original (non-fork) repo
+        if [ -n "''${SANDBOX_UPSTREAM_URL:-}" ]; then
+          ${pkgs.git}/bin/git -C "$repo_dir" remote add upstream "$SANDBOX_UPSTREAM_URL"
+        fi
       else
         echo "WARNING: git clone failed (exit $?)" >&2
       fi
@@ -97,23 +131,7 @@ in
     name = "claude-sandbox";
     tag = "latest";
 
-    contents = [
-      pkgs.bashInteractive
-      pkgs.coreutils
-      pkgs.findutils
-      pkgs.gnugrep
-      pkgs.gnused
-      pkgs.gawk
-      pkgs.git
-      pkgs.nodejs
-      pkgs.curl
-      pkgs.vim
-      pkgs.less
-      pkgs.cacert
-      pkgs.openssh
-      pkgs.claude-code
-      pkgs.nix
-    ];
+    contents = imageContents;
 
     extraCommands = ''
       # Set up filesystem structure
@@ -138,9 +156,13 @@ in
       mkdir -p etc/ssl/certs
       cat ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt ${internalCaCert} > etc/ssl/certs/ca-certificates.crt
 
-      # Nix config: enable flakes
+      # Nix config: enable flakes + single-user store
       mkdir -p etc/nix
       echo 'experimental-features = nix-command flakes' > etc/nix/nix.conf
+
+      # Nix store DB directories + registration file (loaded by entrypoint)
+      mkdir -p nix/var/nix/db nix/var/nix/gcroots nix/var/nix/profiles
+      cp ${closure}/registration nix/nix-registration
     '';
 
     # fakeRootCommands runs under fakeroot so chown works
