@@ -48,6 +48,13 @@ in {
       description = "Path to CA certificate for TLS verification";
     };
 
+    dnsServers = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [];
+      example = ["10.97.100.1"];
+      description = "DNS server IPs passed to sandbox containers (written to /etc/resolv.conf at boot)";
+    };
+
     flakePath = lib.mkOption {
       type = lib.types.str;
       default = "/home/mutantmell/git/dotfiles";
@@ -105,6 +112,7 @@ in {
         CC_SANDBOX_FORGEJO_URL = cfg.forgejoUrl;
         CC_SANDBOX_IMAGE_NAME = cfg.imageName;
         CC_SANDBOX_CA_CERT = cfg.caCert;
+        CC_SANDBOX_DNS_SERVERS = builtins.concatStringsSep " " cfg.dnsServers;
         CC_SANDBOX_CLIENT_SECRET_FILE = config.sops.secrets."cc-sandbox-client-secret".path;
         CC_SANDBOX_FORGEJO_TOKEN_FILE = config.sops.secrets."cc-sandbox-forgejo-token".path;
       };

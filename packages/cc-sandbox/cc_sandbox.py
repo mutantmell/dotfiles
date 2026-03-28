@@ -95,6 +95,7 @@ class DaemonConfig:
         )
         self.image_name = os.environ.get("CC_SANDBOX_IMAGE_NAME", "deployd/claude-sandbox")
         self.ca_cert = os.environ.get("CC_SANDBOX_CA_CERT", "")
+        self.dns_servers = os.environ.get("CC_SANDBOX_DNS_SERVERS", "")
 
         # OIDC client credentials (confidential client, not password grant)
         self.client_id = os.environ.get("CC_SANDBOX_CLIENT_ID", "cc-sandbox")
@@ -329,6 +330,8 @@ def handle_create(config, state, params):
     repo_param = params.get("repo", "")
     fork_url = ""
     env = {}
+    if config.dns_servers:
+        env["SANDBOX_DNS"] = config.dns_servers
     if repo_param:
         owner, repo_name = parse_repo_url(repo_param)
         fork_url = forgejo_fork(config, owner, repo_name)
