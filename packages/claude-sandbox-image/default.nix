@@ -113,13 +113,13 @@
     if [ -n "''${SANDBOX_REPO_URL:-}" ]; then
       repo_dir="/workspace/''${SANDBOX_REPO_NAME:-repo}"
       if ${pkgs.git}/bin/git clone "$SANDBOX_REPO_URL" "$repo_dir"; then
-        ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} "$repo_dir"
-        # Add upstream remote pointing to the original (non-fork) repo
+        # Add upstream remote before chown (both run as root)
         if [ -n "''${SANDBOX_UPSTREAM_URL:-}" ]; then
           ${pkgs.git}/bin/git -C "$repo_dir" remote add upstream "$SANDBOX_UPSTREAM_URL"
         fi
+        ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} "$repo_dir"
       else
-        echo "WARNING: git clone failed (exit $?)" >&2
+        echo "WARNING: git clone failed" >&2
       fi
     fi
 
