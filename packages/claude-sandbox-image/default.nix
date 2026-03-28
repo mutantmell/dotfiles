@@ -101,8 +101,8 @@
     # Initialize Nix store DB and register the image closure so `nix develop` works.
     # Single-user mode: the claude user owns the store directly (no daemon).
     if [ ! -f /nix/var/nix/db/db.sqlite ]; then
-      ${pkgs.nix}/bin/nix-store --init
-      ${pkgs.nix}/bin/nix-store --load-db < /nix/nix-registration
+      HOME=/root ${pkgs.nix}/bin/nix-store --init
+      HOME=/root ${pkgs.nix}/bin/nix-store --load-db < /nix/nix-registration
       ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} /nix/var
       ${pkgs.coreutils}/bin/chown ${uid}:${gid} /nix/store
     fi
@@ -158,7 +158,10 @@ in
 
       # Nix config: enable flakes + single-user store
       mkdir -p etc/nix
-      echo 'experimental-features = nix-command flakes' > etc/nix/nix.conf
+      cat > etc/nix/nix.conf << 'NIXCONF'
+      experimental-features = nix-command flakes
+      build-users-group =
+      NIXCONF
 
       # Nix store DB directories + registration file (loaded by entrypoint)
       mkdir -p nix/var/nix/db nix/var/nix/gcroots nix/var/nix/profiles
