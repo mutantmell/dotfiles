@@ -89,15 +89,6 @@
       fi
     fi
 
-    # Install Claude Code (latest version, needs nodejs + npm from image).
-    # Failure is non-fatal so sshd still starts.
-    if HOME=/tmp NPM_CONFIG_PREFIX=/workspace/.npm-global \
-        ${pkgs.nodejs}/bin/npm install -g @anthropic-ai/claude-code; then
-      ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} /workspace/.npm-global
-    else
-      echo "WARNING: claude code install failed (exit $?)" >&2
-    fi
-
     # Start sshd in the foreground
     exec ${pkgs.openssh}/bin/sshd -D -e -f /etc/ssh/sshd_config
   '';
@@ -120,11 +111,12 @@ in
       pkgs.less
       pkgs.cacert
       pkgs.openssh
+      pkgs.claude-code
     ];
 
     extraCommands = ''
       # Set up filesystem structure
-      mkdir -p workspace/.ssh workspace/.npm-global/bin tmp var/empty etc/ssh
+      mkdir -p workspace/.ssh tmp var/empty etc/ssh
       chmod 1777 tmp
 
       # Install user database files
@@ -145,10 +137,6 @@ in
       mkdir -p etc/ssl/certs
       cat ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt ${internalCaCert} > etc/ssl/certs/ca-certificates.crt
 
-      # Bash profile: add npm-global binaries to PATH (login shells read .bash_profile)
-      cat > workspace/.bash_profile << 'BASHRC'
-      export PATH="/workspace/.npm-global/bin:$PATH"
-      BASHRC
     '';
 
     # fakeRootCommands runs under fakeroot so chown works
@@ -165,7 +153,7 @@ in
         "HOME=/workspace"
         "USER=${user}"
         "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
-        "PATH=/workspace/.npm-global/bin:/bin:/usr/bin"
+        "PATH=/bin:/usr/bin"
       ];
       # Run as root — sshd needs root to bind port 22 and read host keys.
       # SSH sessions drop to the claude user via normal sshd privilege separation.
