@@ -111,12 +111,12 @@
 
     # Initialize Nix store DB and register the image closure so `nix develop` works.
     # Single-user mode: the claude user owns the store directly (no daemon).
-    # /nix/var ownership is pre-set at image build time; only db.sqlite needs chown.
+    # /nix/var ownership is pre-set at image build time; chown runtime-created db files.
     if [ ! -f /nix/var/nix/db/db.sqlite ]; then
       (
         HOME=/root ${pkgs.nix}/bin/nix-store --init
         HOME=/root ${pkgs.nix}/bin/nix-store --load-db < /nix/nix-registration
-        ${pkgs.coreutils}/bin/chown ${uid}:${gid} /nix/var/nix/db/db.sqlite
+        ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} /nix/var/nix/db
         ${pkgs.coreutils}/bin/chown ${uid}:${gid} /nix/store
       ) &
       nix_init_pid=$!
