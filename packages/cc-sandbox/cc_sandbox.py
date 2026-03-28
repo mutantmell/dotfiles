@@ -343,6 +343,7 @@ def handle_create(config, state, params):
             + (f":{parsed.port}" if parsed.port else "")
         ).geturl()
         env["SANDBOX_REPO_URL"] = authed_url
+        env["SANDBOX_REPO_NAME"] = repo_name
 
     # Deploy via deployd-api (env vars are passed to container)
     deployd_deploy(config, container_name, image_ref, env=env or None)
