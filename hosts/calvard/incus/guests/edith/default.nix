@@ -96,6 +96,8 @@
     authUrl = "https://auth.mutantmell.net/realms/homelab/protocol/openid-connect/token";
     registry = "creil.internal";
     caCert = builtins.toString pkgs.mmell.lib.data.pki.root;
+    # Router's kresd DNS — reachable from deploy-dmz containers via masquerade
+    dnsServers = ["10.97.100.1"];
   };
 
   node-exporter-client.enable = true;
