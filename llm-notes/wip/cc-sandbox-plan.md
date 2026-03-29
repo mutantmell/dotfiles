@@ -362,7 +362,7 @@ ReadWritePaths = [
 deployd-helper's only remaining privilege escalation path is the single sudoers rule,
 which is scoped to one immutable binary.
 
-## Phase 7: Repo-Centric Design — STEP 1 COMPLETE
+## Phase 7: Repo-Centric Design — STEPS 1-2 COMPLETE
 
 With deployd validated, cc-sandbox can be designed as a product rather than a test
 harness. Feedback from using the prototype identified four problems: the tool is
@@ -779,8 +779,10 @@ Equivalent to the current `cc-sandbox create` without `--repo`.
    edith host config at `home/hosts/edith.nix`. NixOS module + system service removed.
    **Manual steps remaining:** Keycloak client reconfiguration, sops secret creation for
    HM (see below).
-2. **Project profiles + init/up/down** — new CLI commands, profile directory structure,
-   auto-detect from cwd. Fork moves from `up` to `init`.
+2. **Project profiles + init/up/down** — COMPLETE. New CLI commands (`init`, `up`,
+   `down`), `Profile` class for per-project state in `projects/<owner>-<repo>/profile.json`,
+   auto-detect from cwd via `git remote get-url origin`. `create`/`teardown` removed.
+   `State.load()` default no longer includes `sandboxes` dict.
 3. **Auto image rebuild** — integrate into `up`. Remove manual rebuild as primary path.
 4. **Local dev shell build + nix copy** — build locally, push to container, SSH readiness
    polling.
