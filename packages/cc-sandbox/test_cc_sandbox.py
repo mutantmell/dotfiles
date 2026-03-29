@@ -507,6 +507,92 @@ class TestEnsureImage:
         assert digest == "sha256:new"
 
 
+# --- Dev shell management ---
+
+
+class TestBuildDevShell:
+    def test_skips_when_no_checkout_path(self):
+        data = {"checkout_path": ""}
+        assert cc_sandbox.build_dev_shell(data) is None
+
+    def test_skips_when_no_flake_nix(self, tmp_path):
+        data = {"checkout_path": str(tmp_path)}
+        assert cc_sandbox.build_dev_shell(data) is None
+
+    def test_returns_cached_when_lock_unchanged(self, tmp_path):
+        (tmp_path / "flake.nix").write_text("{}")
+        (tmp_path / "flake.lock").write_text('{"nodes":{}}')
+        lock_hash = cc_sandbox.hashlib.sha256(b'{"nodes":{}}').hexdigest()
+
+        data = {
+            "checkout_path": str(tmp_path),
+            "dev_shell_path": "/nix/store/cached-shell",
+            "dev_shell_flake_lock_hash": lock_hash,
+        }
+        result = cc_sandbox.build_dev_shell(data)
+        assert result == ("/nix/store/cached-shell", lock_hash)
+
+    def test_builds_when_lock_changed(self, tmp_path):
+        (tmp_path / "flake.nix").write_text("{}")
+        (tmp_path / "flake.lock").write_text('{"nodes":{"new":true}}')
+
+        data = {
+            "checkout_path": str(tmp_path),
+            "dev_shell_path": "/nix/store/old-shell",
+            "dev_shell_flake_lock_hash": "oldhash",
+        }
+
+        mock_result = mock.Mock()
+        mock_result.stdout = "/nix/store/new-shell\n"
+        with mock.patch("cc_sandbox.subprocess.run", return_value=mock_result) as mock_run:
+            result = cc_sandbox.build_dev_shell(data)
+
+        store_path, lock_hash = result
+        assert store_path == "/nix/store/new-shell"
+        assert lock_hash != "oldhash"
+        mock_run.assert_called_once()
+        assert "devShells.x86_64-linux.default" in mock_run.call_args.args[0][2]
+
+    def test_builds_on_first_run(self, tmp_path):
+        (tmp_path / "flake.nix").write_text("{}")
+        (tmp_path / "flake.lock").write_text("{}")
+
+        data = {"checkout_path": str(tmp_path)}
+
+        mock_result = mock.Mock()
+        mock_result.stdout = "/nix/store/first-shell\n"
+        with mock.patch("cc_sandbox.subprocess.run", return_value=mock_result):
+            result = cc_sandbox.build_dev_shell(data)
+
+        assert result is not None
+        assert result[0] == "/nix/store/first-shell"
+
+    def test_handles_no_flake_lock(self, tmp_path):
+        (tmp_path / "flake.nix").write_text("{}")
+        # No flake.lock file
+
+        data = {"checkout_path": str(tmp_path)}
+
+        mock_result = mock.Mock()
+        mock_result.stdout = "/nix/store/shell\n"
+        with mock.patch("cc_sandbox.subprocess.run", return_value=mock_result):
+            result = cc_sandbox.build_dev_shell(data)
+
+        assert result is not None
+        assert result[1] == ""  # empty lock hash
+
+
+class TestWaitForSsh:
+    def test_returns_true_on_connect(self):
+        with mock.patch("cc_sandbox.socket.create_connection") as mock_conn:
+            mock_conn.return_value = mock.Mock()
+            assert cc_sandbox.wait_for_ssh("10.0.0.5", timeout=5) is True
+
+    def test_returns_false_on_timeout(self):
+        with mock.patch("cc_sandbox.socket.create_connection", side_effect=OSError):
+            assert cc_sandbox.wait_for_ssh("10.0.0.5", timeout=0) is False
+
+
 class TestRebuildImage:
     def test_always_pushes(self, tmp_state, mock_config):
         tmp_state.save({"image_digest": "sha256:old", "image_store_path": "/nix/store/old"})
@@ -688,6 +774,7 @@ class TestCmdUp:
         inspect_resp.raise_for_status = mock.Mock()
 
         with mock.patch("cc_sandbox.ensure_image", return_value="sha256:abc"), \
+             mock.patch("cc_sandbox.build_dev_shell", return_value=None), \
              mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
              mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
              mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
@@ -701,6 +788,33 @@ class TestCmdUp:
         assert data["container_name"] == "cc-silver-blade"
         assert data["container_ip"] == "10.0.0.5"
         assert data["created_at"] is not None
+
+    def test_copies_dev_shell(self, state_dir, mock_config):
+        self._setup_profile(state_dir)
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        token_mgr = mock.Mock()
+        token_mgr.get_token.return_value = "tok"
+
+        inspect_resp = mock.Mock()
+        inspect_resp.json.return_value = {"data": {"ip": "10.0.0.5"}}
+        inspect_resp.raise_for_status = mock.Mock()
+
+        with mock.patch("cc_sandbox.ensure_image", return_value="sha256:abc"), \
+             mock.patch("cc_sandbox.build_dev_shell", return_value=("/nix/store/shell", "lockhash")), \
+             mock.patch("cc_sandbox.wait_for_ssh", return_value=True), \
+             mock.patch("cc_sandbox.copy_dev_shell") as mock_copy, \
+             mock.patch("cc_sandbox.deployd_deploy"), \
+             mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
+             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
+            cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
+
+        mock_copy.assert_called_once_with("10.0.0.5", "/nix/store/shell")
+        data = cc_sandbox.Profile("owner", "repo").load()
+        assert data["dev_shell_path"] == "/nix/store/shell"
+        assert data["dev_shell_flake_lock_hash"] == "lockhash"
 
     def test_no_profile_fails(self, state_dir, mock_config):
         state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
@@ -741,6 +855,7 @@ class TestCmdUp:
         inspect_resp.raise_for_status = mock.Mock()
 
         with mock.patch("cc_sandbox.ensure_image", return_value="sha256:abc"), \
+             mock.patch("cc_sandbox.build_dev_shell", return_value=None), \
              mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
              mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
              mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
@@ -818,7 +933,7 @@ class TestCmdDown:
 
 
 class TestCmdSsh:
-    def test_execs_ssh_with_cached_ip(self, state_dir, mock_config):
+    def test_plain_ssh_without_dev_shell(self, state_dir, mock_config):
         p = cc_sandbox.Profile("owner", "repo")
         p.save({
             "owner": "owner", "repo": "repo",
@@ -830,6 +945,7 @@ class TestCmdSsh:
         })
         args = mock.Mock()
         args.repo = "owner/repo"
+        args.no_develop = False
         state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
         token_mgr = mock.Mock()
 
@@ -837,7 +953,57 @@ class TestCmdSsh:
             cc_sandbox.cmd_ssh(args, mock_config, state, token_mgr)
 
         mock_exec.assert_called_once_with("ssh", [
-            "ssh", "-o", "StrictHostKeyChecking=no", "claude@10.0.0.5",
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "claude@10.0.0.5",
+        ])
+
+    def test_nix_develop_when_dev_shell_set(self, state_dir, mock_config):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "x", "upstream_url": "x",
+            "checkout_path": "/home/user/repo",
+            "container_name": "cc-test",
+            "container_ip": "10.0.0.5",
+            "created_at": "2025-01-01T00:00:00+00:00",
+            "dev_shell_path": "/nix/store/shell",
+        })
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        args.no_develop = False
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        token_mgr = mock.Mock()
+
+        with mock.patch("cc_sandbox.os.execvp") as mock_exec:
+            cc_sandbox.cmd_ssh(args, mock_config, state, token_mgr)
+
+        mock_exec.assert_called_once_with("ssh", [
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "-t", "claude@10.0.0.5",
+            "cd /workspace/repo && nix develop",
+        ])
+
+    def test_no_develop_flag_skips_nix_develop(self, state_dir, mock_config):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "x", "upstream_url": "x",
+            "checkout_path": "/home/user/repo",
+            "container_name": "cc-test",
+            "container_ip": "10.0.0.5",
+            "created_at": "2025-01-01T00:00:00+00:00",
+            "dev_shell_path": "/nix/store/shell",
+        })
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        args.no_develop = True
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        token_mgr = mock.Mock()
+
+        with mock.patch("cc_sandbox.os.execvp") as mock_exec:
+            cc_sandbox.cmd_ssh(args, mock_config, state, token_mgr)
+
+        mock_exec.assert_called_once_with("ssh", [
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "claude@10.0.0.5",
         ])
 
     def test_no_container_fails(self, state_dir, mock_config):
@@ -850,6 +1016,7 @@ class TestCmdSsh:
         })
         args = mock.Mock()
         args.repo = "owner/repo"
+        args.no_develop = False
         state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
         token_mgr = mock.Mock()
 
@@ -868,6 +1035,7 @@ class TestCmdSsh:
         })
         args = mock.Mock()
         args.repo = "owner/repo"
+        args.no_develop = False
         state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
         token_mgr = mock.Mock()
         token_mgr.get_token.return_value = "tok"
@@ -878,7 +1046,7 @@ class TestCmdSsh:
 
         mock_insp.assert_called_once_with(mock_config, "tok", "cc-test")
         mock_exec.assert_called_once_with("ssh", [
-            "ssh", "-o", "StrictHostKeyChecking=no", "claude@10.0.0.9",
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "claude@10.0.0.9",
         ])
         # Verify IP was persisted to profile
         data = cc_sandbox.Profile("owner", "repo").load()
