@@ -103,6 +103,9 @@ class Config:
         self.auth_base_url = cfg["authBaseUrl"]
         self.client_id = cfg.get("clientId", "cc-sandbox")
 
+        # Registry push credentials
+        self.registry_user = cfg.get("registryUser", "cc")
+
         # Forgejo token from file
         self.forgejo_token_file = cfg.get("forgejoTokenFile", "")
         self._forgejo_token = None
@@ -437,9 +440,7 @@ def rebuild_image(config, state):
             "no Forgejo token found — check forgejoTokenFile in config"
         )
 
-    registry_user = os.environ.get("CC_SANDBOX_REGISTRY_USER", os.environ.get("USER", ""))
-    if not registry_user:
-        raise RuntimeError("CC_SANDBOX_REGISTRY_USER not set and $USER is empty")
+    registry_user = config.registry_user
 
     # Build
     result = subprocess.run(
