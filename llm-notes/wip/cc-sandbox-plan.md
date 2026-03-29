@@ -362,7 +362,7 @@ ReadWritePaths = [
 deployd-helper's only remaining privilege escalation path is the single sudoers rule,
 which is scoped to one immutable binary.
 
-## Phase 7: Repo-Centric Design — STEPS 1-2 COMPLETE
+## Phase 7: Repo-Centric Design — STEPS 1-3 COMPLETE
 
 With deployd validated, cc-sandbox can be designed as a product rather than a test
 harness. Feedback from using the prototype identified four problems: the tool is
@@ -783,7 +783,10 @@ Equivalent to the current `cc-sandbox create` without `--repo`.
    `down`), `Profile` class for per-project state in `projects/<owner>-<repo>/profile.json`,
    auto-detect from cwd via `git remote get-url origin`. `create`/`teardown` removed.
    `State.load()` default no longer includes `sandboxes` dict.
-3. **Auto image rebuild** — integrate into `up`. Remove manual rebuild as primary path.
+3. **Auto image rebuild** — COMPLETE. `up` calls `ensure_image()` which builds the
+   image, compares the nix store output path against saved state, and only pushes if
+   changed. `rebuild_image` refactored into `build_image` + `push_image` helpers.
+   `rebuild-image` command stays as force-push override.
 4. **Local dev shell build + nix copy** — build locally, push to container, SSH readiness
    polling.
 5. **Claude state persistence** — shared `claude/` volume mount.

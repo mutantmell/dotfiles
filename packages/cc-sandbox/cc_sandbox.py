@@ -490,33 +490,29 @@ def deployd_teardown(config, token, name):
 
 # --- Image management ---
 
-def rebuild_image(config, state):
-    """Build, push, and record the sandbox image digest.
+def build_image(config):
+    """Build the sandbox image and return the nix store output path."""
+    result = subprocess.run(
+        ["nix", "build", f"{config.flake_path}#{config.flake_attr}",
+         "--print-out-paths", "--no-link"],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout.strip()
 
-    Runs as the calling user — requires nix and skopeo in PATH.
-    Writes the digest to state directly.
-    """
+
+def push_image(config, image_path):
+    """Push a docker-archive image to the registry and return its digest."""
     forgejo_token = config.forgejo_token
     if not forgejo_token:
         raise RuntimeError(
             "no Forgejo token found — check forgejoTokenFile in config"
         )
 
-    registry_user = config.registry_user
-
-    # Build
-    result = subprocess.run(
-        ["nix", "build", f"{config.flake_path}#{config.flake_attr}",
-         "--print-out-paths", "--no-link"],
-        capture_output=True, text=True, check=True,
-    )
-    image_path = result.stdout.strip()
-
     # Push (with TLS verification via CA cert)
     dest = f"docker://{config.registry}/{config.image_name}:latest"
     skopeo_push = [
         "skopeo", "copy", "--insecure-policy",
-        "--dest-creds", f"{registry_user}:{forgejo_token}",
+        "--dest-creds", f"{config.registry_user}:{forgejo_token}",
         f"docker-archive:{image_path}", dest,
     ]
     if config.ca_cert:
@@ -535,13 +531,36 @@ def rebuild_image(config, state):
     else:
         skopeo_inspect += ["--tls-verify=false"]
     result = subprocess.run(skopeo_inspect, capture_output=True, text=True, check=True)
-    digest = json.loads(result.stdout)["Digest"]
+    return json.loads(result.stdout)["Digest"]
 
-    # Write digest to state directly
+
+def ensure_image(config, state):
+    """Build the image, push only if changed. Returns the digest."""
+    image_path = build_image(config)
+
+    data = state.load()
+    if data.get("image_store_path") == image_path and data.get("image_digest"):
+        return data["image_digest"]
+
+    print("Image changed, pushing...", flush=True)
+    digest = push_image(config, image_path)
+
     data = state.load()
     data["image_digest"] = digest
+    data["image_store_path"] = image_path
     state.save(data)
+    return digest
 
+
+def rebuild_image(config, state):
+    """Build, push, and record the sandbox image digest (force push)."""
+    image_path = build_image(config)
+    digest = push_image(config, image_path)
+
+    data = state.load()
+    data["image_digest"] = digest
+    data["image_store_path"] = image_path
+    state.save(data)
     return digest
 
 
@@ -633,13 +652,9 @@ def cmd_up(args, config, state, token_mgr):
               file=sys.stderr)
         sys.exit(1)
 
-    # Check image digest
-    state_data = state.load()
-    digest = state_data.get("image_digest", "")
-    if not digest:
-        print("Error: no image digest available — run 'cc-sandbox rebuild-image' first",
-              file=sys.stderr)
-        sys.exit(1)
+    # Build image and push if needed
+    print("Checking image...", flush=True)
+    digest = ensure_image(config, state)
 
     token = token_mgr.get_token()
     name = generate_hostname(set())
