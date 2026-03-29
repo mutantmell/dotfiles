@@ -624,7 +624,7 @@ def copy_dev_shell(ip, store_path):
     ephemeral host keys and IPs are reused from a pool.
     """
     env = os.environ.copy()
-    env["NIX_SSHOPTS"] = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    env["NIX_SSHOPTS"] = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
     subprocess.run(
         ["nix", "copy", "--to", f"ssh-ng://claude@{ip}", store_path],
         check=True, env=env,
