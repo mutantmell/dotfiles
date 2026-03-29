@@ -31,6 +31,9 @@ keys:
   # other hosts
   - &sv_azoth age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
 
+  # users
+  - &us_edith age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+
 creation_rules:
   # thebeyond
   - path_regex: hosts/thebeyond/microvm/guests/phantasma/secrets/[^/]+\.yaml$
@@ -133,3 +136,10 @@ creation_rules:
       - age:
           - *ad_denai
         # OpenWrt devices don't need keys - secrets are pushed via SSH at deploy time
+
+  # Users
+  - path_regex: home/hosts/edith/secrets.yaml
+    key_groups:
+      - age:
+          - *ad_denai
+          - *us_edith

@@ -179,6 +179,7 @@ The sandbox container image (`packages/claude-sandbox-image/default.nix`) provid
 complete Claude Code development environment:
 
 **Installed tools (via nixpkgs):**
+
 - bashInteractive, coreutils, findutils, gnugrep, gnused, gawk
 - git, nodejs, curl, vim, less
 - cacert, openssh (sshd)
@@ -186,6 +187,7 @@ complete Claude Code development environment:
 - nix (single-user mode for `nix develop`)
 
 **Boot-time setup (entrypoint):**
+
 1. Generate SSH host keys (if first start)
 2. Write `/etc/resolv.conf` from `SANDBOX_DNS` env var
 3. Initialize Nix store DB + register image closure (parallelized, runs in background)
@@ -195,6 +197,7 @@ complete Claude Code development environment:
 7. Wait for Nix store init, then exec sshd
 
 **Security features:**
+
 - Git credential helper: token stored in `/workspace/.config/git/token`, not embedded in
   clone URLs or git remote config. Token accessible only to the claude user.
 - Internal CA trust: step-ca root certificate concatenated with public CAs for TLS to
@@ -203,6 +206,7 @@ complete Claude Code development environment:
 - User home is `/workspace` — SSH sessions land directly in the workspace.
 
 **Nix develop support:**
+
 - `closureInfo` generates store registration data at build time
 - Entrypoint runs `nix-store --init` + `nix-store --load-db` to populate the Nix DB
 - `/nix/var` pre-chowned to claude user so nix commands work without root
@@ -358,7 +362,7 @@ ReadWritePaths = [
 deployd-helper's only remaining privilege escalation path is the single sudoers rule,
 which is scoped to one immutable binary.
 
-## Phase 7: Repo-Centric Design — NOT STARTED
+## Phase 7: Repo-Centric Design — STEP 1 COMPLETE
 
 With deployd validated, cc-sandbox can be designed as a product rather than a test
 harness. Feedback from using the prototype identified four problems: the tool is
@@ -384,12 +388,12 @@ across sandbox sessions.
 
 This resolves each prototype problem naturally:
 
-| Problem | Why it resolves |
-|---------|----------------|
-| System service over-engineering | A project tool belongs in the user's environment, not the system |
-| Manual image rebuild | Image is an implementation detail of `up`, not user-facing |
-| Too many steps | `init` once, then `up` does everything |
-| Lost Claude state | Per-project persistent state directory, mounted into each container |
+| Problem                         | Why it resolves                                                     |
+| ------------------------------- | ------------------------------------------------------------------- |
+| System service over-engineering | A project tool belongs in the user's environment, not the system    |
+| Manual image rebuild            | Image is an implementation detail of `up`, not user-facing          |
+| Too many steps                  | `init` once, then `up` does everything                              |
+| Lost Claude state               | Per-project persistent state directory, mounted into each container |
 
 ### Hard dependency: eliminate daemon, move to home-manager
 
@@ -398,6 +402,7 @@ a system service with a daemon/CLI split.** This is a hard dependency, not a nic
 cleanup.
 
 A repo-centric tool fundamentally operates on user-level concerns:
+
 - It references the user's local git checkouts for flake evaluation
 - It stores per-project state (fork URLs, dev shell closures, Claude memories) that
   belongs to the user, not the system
@@ -414,13 +419,13 @@ separation: the daemon held secrets while the CLI held nix. But there is only on
 principal — the user. Every daemon responsibility is trivially handled by the CLI
 directly:
 
-| Daemon responsibility | Without daemon |
-|---|---|
-| OIDC token caching | File-based cache in `$XDG_STATE_HOME/cc-sandbox/token.json` with expiry. Standard pattern (gcloud, aws, gh all do this). |
-| Forgejo token | CLI reads directly from sops-nix-decrypted file |
-| State serialization | CLI takes flock on state file directly |
-| deployd-api HTTP calls | CLI makes requests directly |
-| Image digest tracking | CLI writes to state file after push |
+| Daemon responsibility  | Without daemon                                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| OIDC token caching     | File-based cache in `$XDG_STATE_HOME/cc-sandbox/token.json` with expiry. Standard pattern (gcloud, aws, gh all do this). |
+| Forgejo token          | CLI reads directly from sops-nix-decrypted file                                                                          |
+| State serialization    | CLI takes flock on state file directly                                                                                   |
+| deployd-api HTTP calls | CLI makes requests directly                                                                                              |
+| Image digest tracking  | CLI writes to state file after push                                                                                      |
 
 **What cc-sandbox becomes:** A single CLI binary. No daemon process, no Unix socket
 protocol, no socket permissions, no systemd service. It reads config from
@@ -440,6 +445,7 @@ deployd-api + Forgejo APIs.
 - State in `$XDG_STATE_HOME/cc-sandbox/` (projects, token cache, image digest)
 
 **What gets removed from NixOS config:**
+
 - `hosts/calvard/incus/guests/edith/modules/cc-sandbox.nix` — entire NixOS module
 - `cc-sandbox` system user and group
 - sops secret declarations in `hosts/calvard/incus/guests/edith/sops.nix`
@@ -448,11 +454,13 @@ deployd-api + Forgejo APIs.
 - System-wide environment variables for CLI config
 
 **What gets added to home-manager config:**
+
 - `home.packages = [pkgs.mmell.cc-sandbox]`
 - sops-nix home-manager secret (forgejo-token only)
 - `xdg.configFile."cc-sandbox/config.json"` with API URLs, registry, etc.
 
 **What gets removed from cc-sandbox Python code:**
+
 - Daemon main loop and socket server
 - Unix socket protocol (message format, bounded reads, socket auth)
 - `set-digest` command (CLI writes state directly)
@@ -489,6 +497,7 @@ gets real user identity in the JWT claims.
 **OAuth flow — Authorization Code with PKCE + Device Grant fallback:**
 
 For interactive sessions with a browser:
+
 1. First use: `cc-sandbox init` (or first `up`) detects no cached token
 2. CLI starts a temporary localhost HTTP server (random port callback)
 3. Opens browser to Keycloak's authorize endpoint with PKCE challenge
@@ -498,6 +507,7 @@ For interactive sessions with a browser:
 7. Subsequent commands use cached access token; refresh when expired
 
 For SSH sessions without a browser (the common case on edith):
+
 1. CLI detects no display / no browser available
 2. Falls back to Device Authorization Grant (RFC 8628)
 3. Prints a URL and a one-time code (like `gh auth login` over SSH)
@@ -507,12 +517,12 @@ For SSH sessions without a browser (the common case on edith):
 
 **Changes by component:**
 
-| Component | Change |
-|---|---|
-| **Keycloak** | `cc-sandbox` client: confidential → public, enable auth code + device grant, require PKCE, remove service account and its `deploy` group mapping |
-| **cc-sandbox CLI** | Replace client credentials grant with auth code/device flow + PKCE + token refresh |
-| **cc-sandbox secrets** | Remove `cc-sandbox-client-secret` from sops entirely |
-| **deployd-api** | Minimal — already validates JWT and checks group claims. Optionally extract `sub`/`preferred_username` for audit logging |
+| Component              | Change                                                                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Keycloak**           | `cc-sandbox` client: confidential → public, enable auth code + device grant, require PKCE, remove service account and its `deploy` group mapping |
+| **cc-sandbox CLI**     | Replace client credentials grant with auth code/device flow + PKCE + token refresh                                                               |
+| **cc-sandbox secrets** | Remove `cc-sandbox-client-secret` from sops entirely                                                                                             |
+| **deployd-api**        | Minimal — already validates JWT and checks group claims. Optionally extract `sub`/`preferred_username` for audit logging                         |
 
 **Manual steps (updated for Phase 7):**
 
@@ -617,6 +627,7 @@ Each registered project gets a profile directory:
 ```
 
 `profile.json` fields:
+
 - `owner`, `repo` — canonical project identity
 - `fork_url` — Forgejo fork URL (set at init, reused on every up)
 - `upstream_url` — original repo URL (set at init)
@@ -664,6 +675,7 @@ the profile knows.
 
 **Important subtlety: the local machine must be able to evaluate the repo's flake.**
 This means edith needs:
+
 - The local checkout recorded in the profile (the path from `init`)
 - Network access to fetch flake inputs (resolving `flake.lock` entries)
 - The same system architecture as the container (`x86_64-linux` — true for edith and
@@ -677,6 +689,7 @@ If the repo has no `flake.nix`, the dev shell step is skipped entirely.
 
 After `nix copy` populates the store, `cc-sandbox ssh` needs to activate the dev shell.
 Options (to be decided during implementation):
+
 - Let `cc-sandbox ssh` exec `nix develop` as the SSH command — cleanest, user can
   opt out with `cc-sandbox ssh --no-develop`
 - `nix print-dev-env` on edith, ship the output, source it in `.bash_profile` — instant
@@ -697,9 +710,10 @@ directory. The shared volume mirrors how Claude Code works on a normal workstati
 
 **No deployd-api or deployd-helper changes required.** The full volume pipeline already
 exists end-to-end:
+
 - deployd-api (`helper.rs`) accepts `volumes: Vec<VolumeMount>` and passes through
 - deployd-helper validates volume mounts (absolute paths, no `..`, blocks `/etc /boot
-  /proc /sys /dev /nix`) then generates `--volume=host:container` nerdctl flags
+/proc /sys /dev /nix`) then generates `--volume=host:container` nerdctl flags
 - cc-sandbox adds a `volumes` entry to the deploy payload
 
 **Changes (cc-sandbox only):**
@@ -758,11 +772,13 @@ Equivalent to the current `cc-sandbox create` without `--repo`.
 
 ### Implementation order
 
-1. **Eliminate daemon + home-manager migration + user auth** (hard dependency) — remove
-   daemon, rewrite CLI to call APIs directly. Switch from client credentials grant to
-   auth code / device grant with PKCE. Reconfigure Keycloak client as public. Remove
-   client secret from sops. Move Forgejo token to sops-nix home-manager. Add
-   home-manager config. Validate create/teardown workflow still works.
+1. **Eliminate daemon + home-manager migration + user auth** — COMPLETE. Daemon removed,
+   CLI calls APIs directly. OAuth auth code + PKCE with device grant fallback replaces
+   client credentials grant. Config from `~/.config/cc-sandbox/config.json`, state in
+   `$XDG_STATE_HOME/cc-sandbox/`. Home-manager module at `home/modules/cc-sandbox.nix`,
+   edith host config at `home/hosts/edith.nix`. NixOS module + system service removed.
+   **Manual steps remaining:** Keycloak client reconfiguration, sops secret creation for
+   HM (see below).
 2. **Project profiles + init/up/down** — new CLI commands, profile directory structure,
    auto-detect from cwd. Fork moves from `up` to `init`.
 3. **Auto image rebuild** — integrate into `up`. Remove manual rebuild as primary path.
@@ -782,3 +798,25 @@ Each step is independently deployable and testable. Steps 2-5 depend on step 1.
 6. `cc-sandbox down` + `cc-sandbox up` — Claude memories persist across sessions
 7. `cc-sandbox up` with no changes — near-instant (image cached, dev shell cached)
 8. `cc-sandbox list` shows registered projects and their status
+
+## Step 1 Manual Steps (post-deploy)
+
+1. **Keycloak** — reconfigure `cc-sandbox` client in homelab realm:
+   - Client authentication: OFF (public client)
+   - Grant types: authorization code + device authorization
+   - PKCE: required (S256)
+   - Valid redirect URIs: `http://localhost:*`
+   - Remove service account and its group mappings
+   - Ensure mutantmell's account has `deploy` group membership
+
+2. **sops secrets for home-manager** — create `home/hosts/edith/secrets.yaml`:
+   - Get mutantmell's age public key: `ssh-to-age -i ~/.ssh/id_ed25519.pub`
+   - Add the age key to `.sops.yaml` with an anchor (e.g. `&user_mutantmell_edith`)
+   - Add a creation rule: `path_regex: home/hosts/edith/secrets\.yaml$`
+   - Create with: `sops home/hosts/edith/secrets.yaml`
+   - Add key: `cc-sandbox-forgejo-token` (same value as current NixOS secret)
+
+3. **Cleanup** — after HM deploy is verified working:
+   - Remove `cc-sandbox-client-secret` from edith's NixOS sops secrets file
+   - Remove `cc-sandbox-forgejo-token` from edith's NixOS sops secrets file
+   - Stop and disable the old `cc-sandbox` systemd service on edith
