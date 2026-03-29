@@ -32,7 +32,7 @@ keys:
   - &sv_azoth age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
 
   # users
-  - &us_edith age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc
+  - &us_edith age1l9m5wxvev2w74u7hv4ayzc0e300686sagpcmsfr42mr258e5lsssv56tcw
 
 creation_rules:
   # thebeyond
