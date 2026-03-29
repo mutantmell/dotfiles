@@ -136,7 +136,7 @@ class State:
 
     def load(self):
         if not self.path.exists():
-            return {"sandboxes": {}, "image_digest": ""}
+            return {"image_digest": ""}
         with open(self.path) as f:
             fcntl.flock(f, fcntl.LOCK_SH)
             try:
@@ -153,6 +153,68 @@ class State:
                 f.write("\n")
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
+
+
+# --- Project profiles ---
+
+class Profile:
+    """Per-project profile stored in $XDG_STATE_HOME/cc-sandbox/projects/<owner>-<repo>/."""
+
+    def __init__(self, owner, repo):
+        self.owner = owner
+        self.repo = repo
+        self.dir = Path(xdg_state_home()) / "cc-sandbox" / "projects" / f"{owner}-{repo}"
+        self.path = self.dir / "profile.json"
+
+    def exists(self):
+        return self.path.exists()
+
+    def load(self):
+        return json.loads(self.path.read_text())
+
+    def save(self, data):
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(data, indent=2) + "\n")
+
+    @staticmethod
+    def list_all():
+        projects_dir = Path(xdg_state_home()) / "cc-sandbox" / "projects"
+        if not projects_dir.exists():
+            return []
+        profiles = []
+        for entry in sorted(projects_dir.iterdir()):
+            profile_path = entry / "profile.json"
+            if entry.is_dir() and profile_path.exists():
+                data = json.loads(profile_path.read_text())
+                profiles.append(data)
+        return profiles
+
+
+# --- Repo detection ---
+
+def detect_repo_from_cwd():
+    """Auto-detect repo from cwd via git remote origin. Returns (owner, repo) or None."""
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return parse_repo_url(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def resolve_project(args_repo):
+    """Resolve a project from args or cwd. Returns (owner, repo)."""
+    if args_repo:
+        return parse_repo_url(args_repo)
+    detected = detect_repo_from_cwd()
+    if detected is None:
+        print("Error: not in a git repo — specify a repo argument", file=sys.stderr)
+        sys.exit(1)
+    return detected
 
 
 # --- OAuth token management ---
@@ -519,70 +581,162 @@ def parse_repo_url(url):
 
 # --- CLI commands ---
 
-def cmd_create(args, config, state, token_mgr):
-    """Create a new sandbox."""
-    data = state.load()
+def cmd_init(args, config, _state, _token_mgr):
+    """Register a project — fork on Forgejo, create profile."""
+    owner, repo = resolve_project(getattr(args, "repo", None))
+    profile = Profile(owner, repo)
 
-    # Check that an image digest exists (set by `cc-sandbox rebuild-image`)
-    digest = data.get("image_digest", "")
+    if profile.exists():
+        print(f"Error: project {owner}/{repo} is already registered", file=sys.stderr)
+        sys.exit(1)
+
+    fork_url = forgejo_fork(config, owner, repo)
+    upstream_url = f"{config.forgejo_url}/{owner}/{repo}.git"
+
+    # Record checkout_path if auto-detected from cwd
+    checkout_path = ""
+    if not getattr(args, "repo", None):
+        checkout_path = os.getcwd()
+
+    data = {
+        "owner": owner,
+        "repo": repo,
+        "fork_url": fork_url,
+        "upstream_url": upstream_url,
+        "checkout_path": checkout_path,
+        "container_name": None,
+        "container_ip": None,
+        "created_at": None,
+    }
+    profile.save(data)
+
+    print(f"Project {owner}/{repo} registered")
+    print(f"  Fork: {fork_url}")
+    if checkout_path:
+        print(f"  Checkout: {checkout_path}")
+
+
+def cmd_up(args, config, state, token_mgr):
+    """Spin up a container from an existing profile."""
+    owner, repo = resolve_project(getattr(args, "repo", None))
+    profile = Profile(owner, repo)
+
+    if not profile.exists():
+        print(f"Error: project {owner}/{repo} not registered — run 'cc-sandbox init' first",
+              file=sys.stderr)
+        sys.exit(1)
+
+    data = profile.load()
+
+    if data.get("container_name"):
+        print(f"Error: project {owner}/{repo} already has a running container: {data['container_name']}",
+              file=sys.stderr)
+        sys.exit(1)
+
+    # Check image digest
+    state_data = state.load()
+    digest = state_data.get("image_digest", "")
     if not digest:
         print("Error: no image digest available — run 'cc-sandbox rebuild-image' first",
               file=sys.stderr)
         sys.exit(1)
 
     token = token_mgr.get_token()
-    name = generate_hostname(set(data["sandboxes"].keys()))
+    name = generate_hostname(set())
     container_name = f"cc-{name}"
     image_ref = f"{config.registry}/{config.image_name}@{digest}"
 
-    # Fork repo on Forgejo if specified (before deploy, so we have the URL)
-    repo_param = args.repo or ""
-    fork_url = ""
     env = {}
     if config.dns_servers:
         env["SANDBOX_DNS"] = config.dns_servers
-    if repo_param:
-        owner, repo_name = parse_repo_url(repo_param)
-        fork_url = forgejo_fork(config, owner, repo_name)
-        env["SANDBOX_REPO_URL"] = fork_url
-        env["SANDBOX_REPO_NAME"] = repo_name
-        env["SANDBOX_GIT_TOKEN"] = config.forgejo_token
-        env["SANDBOX_UPSTREAM_URL"] = f"{config.forgejo_url}/{owner}/{repo_name}.git"
+    env["SANDBOX_REPO_URL"] = data["fork_url"]
+    env["SANDBOX_REPO_NAME"] = repo
+    env["SANDBOX_GIT_TOKEN"] = config.forgejo_token
+    env["SANDBOX_UPSTREAM_URL"] = data["upstream_url"]
 
-    print("Creating sandbox...", flush=True)
+    print(f"Deploying container for {owner}/{repo}...", flush=True)
     deployd_deploy(
         config, token, container_name, image_ref,
-        env=env or None,
+        env=env,
         memory=config.memory_limit or None,
         cpus=config.cpu_limit or None,
     )
 
-    # Save state (IP resolved lazily via inspect when needed)
-    data["sandboxes"][name] = {
-        "container_name": container_name,
-        "repo": fork_url,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    state.save(data)
+    # Poll for IP
+    ip = None
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            ip = deployd_inspect(config, token, container_name)
+        except Exception:
+            pass
+        if ip:
+            break
+        time.sleep(1)
 
-    print(f'Sandbox "{name}" created')
-    print(f"  SSH: cc-sandbox ssh {name}")
+    data["container_name"] = container_name
+    data["container_ip"] = ip
+    data["created_at"] = datetime.now(timezone.utc).isoformat()
+    profile.save(data)
+
+    print(f"Sandbox ready: {container_name}")
+    if ip:
+        print("  SSH: cc-sandbox ssh")
+    else:
+        print("  IP not yet available — SSH will poll on connect")
 
 
-def cmd_ssh(args, config, state, token_mgr):
-    """SSH into a sandbox."""
-    name = args.name
-    data = state.load()
+def cmd_down(args, config, _state, token_mgr):
+    """Tear down the container for a project. Profile persists."""
+    owner, repo = resolve_project(getattr(args, "repo", None))
+    profile = Profile(owner, repo)
 
-    if name not in data["sandboxes"]:
-        print(f"Error: sandbox '{name}' not found", file=sys.stderr)
+    if not profile.exists():
+        print(f"Error: project {owner}/{repo} not registered", file=sys.stderr)
         sys.exit(1)
 
-    # Return cached IP if available
-    cached_ip = data["sandboxes"][name].get("ip", "")
+    data = profile.load()
+
+    if not data.get("container_name"):
+        print(f"Error: project {owner}/{repo} has no active container", file=sys.stderr)
+        sys.exit(1)
+
+    token = token_mgr.get_token()
+    container_name = data["container_name"]
+
+    try:
+        deployd_teardown(config, token, container_name)
+    except Exception as e:
+        print(f"Error: teardown failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    data["container_name"] = None
+    data["container_ip"] = None
+    data["created_at"] = None
+    profile.save(data)
+
+    print(f"Container for {owner}/{repo} torn down")
+
+
+def cmd_ssh(args, config, _state, token_mgr):
+    """SSH into the active container for a project."""
+    owner, repo = resolve_project(getattr(args, "repo", None))
+    profile = Profile(owner, repo)
+
+    if not profile.exists():
+        print(f"Error: project {owner}/{repo} not registered", file=sys.stderr)
+        sys.exit(1)
+
+    data = profile.load()
+
+    if not data.get("container_name"):
+        print(f"Error: project {owner}/{repo} has no active container", file=sys.stderr)
+        sys.exit(1)
+
+    cached_ip = data.get("container_ip")
     if not cached_ip:
         token = token_mgr.get_token()
-        container_name = data["sandboxes"][name]["container_name"]
+        container_name = data["container_name"]
 
         print("Waiting for sandbox IP...", flush=True)
         deadline = time.time() + 30
@@ -597,14 +751,11 @@ def cmd_ssh(args, config, state, token_mgr):
             time.sleep(1)
 
         if not ip:
-            print(f"Error: sandbox '{name}' IP not available after 30s", file=sys.stderr)
+            print("Error: sandbox IP not available after 30s", file=sys.stderr)
             sys.exit(1)
 
-        # Cache the IP
-        data = state.load()
-        if name in data["sandboxes"]:
-            data["sandboxes"][name]["ip"] = ip
-            state.save(data)
+        data["container_ip"] = ip
+        profile.save(data)
         cached_ip = ip
 
     # TODO: StrictHostKeyChecking=no is used because containers generate
@@ -616,47 +767,24 @@ def cmd_ssh(args, config, state, token_mgr):
     ])
 
 
-def cmd_teardown(args, config, state, token_mgr):
-    """Tear down a sandbox."""
-    name = args.name
-    data = state.load()
+def cmd_list(_args, _config, _state, _token_mgr):
+    """List registered projects and their status."""
+    profiles = Profile.list_all()
 
-    if name not in data["sandboxes"]:
-        print(f"Error: sandbox '{name}' not found", file=sys.stderr)
-        sys.exit(1)
-
-    token = token_mgr.get_token()
-    container_name = data["sandboxes"][name]["container_name"]
-
-    try:
-        deployd_teardown(config, token, container_name)
-    except Exception as e:
-        print(f"Error: teardown failed: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    del data["sandboxes"][name]
-    state.save(data)
-
-    print(f"Sandbox '{name}' torn down")
-
-
-def cmd_list(_args, _config, state, _token_mgr):
-    """List active sandboxes."""
-    data = state.load()
-    sandboxes = data.get("sandboxes", {})
-
-    if not sandboxes:
-        print("No active sandboxes.")
+    if not profiles:
+        print("No registered projects.")
         return
 
-    print(f"{'NAME':<20} {'IP':<16} {'REPO':<40} {'CREATED'}")
-    print("-" * 96)
-    for name, info in sandboxes.items():
-        repo = info.get("repo", "")
-        if len(repo) > 38:
-            repo = "..." + repo[-35:]
-        created = info.get("created_at", "")[:19]
-        print(f"{name:<20} {info.get('ip', ''):<16} {repo:<40} {created}")
+    print(f"{'PROJECT':<30} {'STATUS':<10} {'IP':<16} {'REPO'}")
+    print("-" * 90)
+    for info in profiles:
+        project = f"{info['owner']}/{info['repo']}"
+        status = "running" if info.get("container_name") else "stopped"
+        ip = info.get("container_ip") or ""
+        upstream = info.get("upstream_url", "")
+        if len(upstream) > 38:
+            upstream = "..." + upstream[-35:]
+        print(f"{project:<30} {status:<10} {ip:<16} {upstream}")
 
 
 def cmd_rebuild_image(_args, config, state, _token_mgr):
@@ -675,20 +803,28 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # create
-    create_parser = subparsers.add_parser("create", help="create a new sandbox")
-    create_parser.add_argument("--repo", help="repo URL to fork and clone into the sandbox")
+    # init
+    init_parser = subparsers.add_parser("init", help="register a project")
+    init_parser.add_argument("repo", nargs="?", default=None,
+                             help="owner/repo or URL (auto-detects from cwd if omitted)")
+
+    # up
+    up_parser = subparsers.add_parser("up", help="spin up a container for a project")
+    up_parser.add_argument("repo", nargs="?", default=None,
+                           help="owner/repo or URL (auto-detects from cwd if omitted)")
+
+    # down
+    down_parser = subparsers.add_parser("down", help="tear down a project's container")
+    down_parser.add_argument("repo", nargs="?", default=None,
+                             help="owner/repo or URL (auto-detects from cwd if omitted)")
 
     # ssh
-    ssh_parser = subparsers.add_parser("ssh", help="SSH into a sandbox")
-    ssh_parser.add_argument("name", help="sandbox name")
-
-    # teardown
-    teardown_parser = subparsers.add_parser("teardown", help="tear down a sandbox")
-    teardown_parser.add_argument("name", help="sandbox name")
+    ssh_parser = subparsers.add_parser("ssh", help="SSH into a project's container")
+    ssh_parser.add_argument("repo", nargs="?", default=None,
+                            help="owner/repo or URL (auto-detects from cwd if omitted)")
 
     # list
-    subparsers.add_parser("list", help="list active sandboxes")
+    subparsers.add_parser("list", help="list registered projects")
 
     # rebuild-image
     subparsers.add_parser("rebuild-image", help="build, push, and record the sandbox image")
@@ -700,9 +836,10 @@ def main():
     token_mgr = TokenManager(config)
 
     handler = {
-        "create": cmd_create,
+        "init": cmd_init,
+        "up": cmd_up,
+        "down": cmd_down,
         "ssh": cmd_ssh,
-        "teardown": cmd_teardown,
         "list": cmd_list,
         "rebuild-image": cmd_rebuild_image,
     }[args.command]

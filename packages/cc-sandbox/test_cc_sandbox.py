@@ -209,24 +209,21 @@ class TestConfig:
 class TestState:
     def test_load_missing_file(self, tmp_state):
         data = tmp_state.load()
-        assert data == {"sandboxes": {}, "image_digest": ""}
+        assert data == {"image_digest": ""}
 
     def test_save_load_roundtrip(self, tmp_state):
-        data = {
-            "sandboxes": {"silver-blade": {"container_name": "cc-silver-blade", "repo": ""}},
-            "image_digest": "sha256:abc123",
-        }
+        data = {"image_digest": "sha256:abc123"}
         tmp_state.save(data)
         loaded = tmp_state.load()
         assert loaded == data
 
     def test_save_creates_parents(self, tmp_path):
         st = cc_sandbox.State(path=tmp_path / "a" / "b" / "state.json")
-        st.save({"sandboxes": {}, "image_digest": ""})
+        st.save({"image_digest": ""})
         assert st.path.exists()
 
     def test_load_preserves_extra_keys(self, tmp_state):
-        data = {"sandboxes": {}, "image_digest": "", "extra": "kept"}
+        data = {"image_digest": "", "extra": "kept"}
         tmp_state.save(data)
         assert tmp_state.load()["extra"] == "kept"
 
@@ -462,3 +459,427 @@ class TestDeploydApi:
 
         mock_del.assert_called_once()
         assert "teardown/cc-test" in mock_del.call_args.args[0]
+
+
+# --- Profile ---
+
+
+class TestProfile:
+    def test_save_load_roundtrip(self, state_dir):
+        p = cc_sandbox.Profile("owner", "repo")
+        data = {
+            "owner": "owner", "repo": "repo",
+            "fork_url": "https://forgejo.test/cc/repo.git",
+            "upstream_url": "https://forgejo.test/owner/repo.git",
+            "checkout_path": "/home/user/repo",
+            "container_name": None,
+            "container_ip": None,
+            "created_at": None,
+        }
+        p.save(data)
+        assert p.exists()
+        assert p.load() == data
+
+    def test_exists_false_when_missing(self, state_dir):
+        p = cc_sandbox.Profile("owner", "repo")
+        assert not p.exists()
+
+    def test_list_all_empty(self, state_dir):
+        assert cc_sandbox.Profile.list_all() == []
+
+    def test_list_all_returns_profiles(self, state_dir):
+        for name in ["alice-foo", "bob-bar"]:
+            owner, repo = name.split("-")
+            p = cc_sandbox.Profile(owner, repo)
+            p.save({"owner": owner, "repo": repo, "container_name": None})
+        profiles = cc_sandbox.Profile.list_all()
+        assert len(profiles) == 2
+        owners = {p["owner"] for p in profiles}
+        assert owners == {"alice", "bob"}
+
+    def test_list_all_skips_dirs_without_profile(self, state_dir):
+        projects_dir = Path(state_dir) / "cc-sandbox" / "projects" / "empty-dir"
+        projects_dir.mkdir(parents=True)
+        assert cc_sandbox.Profile.list_all() == []
+
+
+# --- detect_repo_from_cwd ---
+
+
+class TestDetectRepoFromCwd:
+    def test_returns_owner_repo(self):
+        result = mock.Mock()
+        result.returncode = 0
+        result.stdout = "https://github.com/owner/repo.git\n"
+        with mock.patch("cc_sandbox.subprocess.run", return_value=result):
+            assert cc_sandbox.detect_repo_from_cwd() == ("owner", "repo")
+
+    def test_returns_none_on_failure(self):
+        result = mock.Mock()
+        result.returncode = 128
+        result.stdout = ""
+        with mock.patch("cc_sandbox.subprocess.run", return_value=result):
+            assert cc_sandbox.detect_repo_from_cwd() is None
+
+    def test_returns_none_on_unparseable(self):
+        result = mock.Mock()
+        result.returncode = 0
+        result.stdout = "not-a-url\n"
+        with mock.patch("cc_sandbox.subprocess.run", return_value=result):
+            assert cc_sandbox.detect_repo_from_cwd() is None
+
+
+# --- resolve_project ---
+
+
+class TestResolveProject:
+    def test_with_explicit_arg(self):
+        assert cc_sandbox.resolve_project("owner/repo") == ("owner", "repo")
+
+    def test_auto_detect(self):
+        with mock.patch("cc_sandbox.detect_repo_from_cwd", return_value=("owner", "repo")):
+            assert cc_sandbox.resolve_project(None) == ("owner", "repo")
+
+    def test_auto_detect_fails(self):
+        with mock.patch("cc_sandbox.detect_repo_from_cwd", return_value=None):
+            with pytest.raises(SystemExit):
+                cc_sandbox.resolve_project(None)
+
+
+# --- cmd_init ---
+
+
+class TestCmdInit:
+    def test_creates_profile(self, state_dir, mock_config):
+        args = mock.Mock()
+        args.repo = "owner/myrepo"
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        token_mgr = mock.Mock()
+
+        with mock.patch("cc_sandbox.forgejo_fork", return_value="https://forgejo.test/cc/myrepo.git"):
+            cc_sandbox.cmd_init(args, mock_config, state, token_mgr)
+
+        p = cc_sandbox.Profile("owner", "myrepo")
+        assert p.exists()
+        data = p.load()
+        assert data["owner"] == "owner"
+        assert data["repo"] == "myrepo"
+        assert data["fork_url"] == "https://forgejo.test/cc/myrepo.git"
+        assert data["upstream_url"] == "https://forgejo.test/owner/myrepo.git"
+        assert data["checkout_path"] == ""
+        assert data["container_name"] is None
+
+    def test_auto_detect_records_checkout_path(self, state_dir, mock_config):
+        args = mock.Mock()
+        args.repo = None
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        token_mgr = mock.Mock()
+
+        with mock.patch("cc_sandbox.detect_repo_from_cwd", return_value=("owner", "repo")):
+            with mock.patch("cc_sandbox.forgejo_fork", return_value="https://forgejo.test/cc/repo.git"):
+                cc_sandbox.cmd_init(args, mock_config, state, token_mgr)
+
+        data = cc_sandbox.Profile("owner", "repo").load()
+        assert data["checkout_path"] == os.getcwd()
+
+    def test_duplicate_init_fails(self, state_dir, mock_config):
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        token_mgr = mock.Mock()
+
+        with mock.patch("cc_sandbox.forgejo_fork", return_value="https://forgejo.test/cc/repo.git"):
+            cc_sandbox.cmd_init(args, mock_config, state, token_mgr)
+
+        with mock.patch("cc_sandbox.forgejo_fork"):
+            with pytest.raises(SystemExit):
+                cc_sandbox.cmd_init(args, mock_config, state, token_mgr)
+
+
+# --- cmd_up ---
+
+
+class TestCmdUp:
+    def _setup_profile(self, state_dir):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "https://forgejo.test/cc/repo.git",
+            "upstream_url": "https://forgejo.test/owner/repo.git",
+            "checkout_path": "/home/user/repo",
+            "container_name": None,
+            "container_ip": None,
+            "created_at": None,
+        })
+        return p
+
+    def test_deploys_container(self, state_dir, mock_config):
+        self._setup_profile(state_dir)
+        # Write image digest
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        state.save({"image_digest": "sha256:abc"})
+
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        token_mgr = mock.Mock()
+        token_mgr.get_token.return_value = "tok"
+
+        inspect_resp = mock.Mock()
+        inspect_resp.json.return_value = {"data": {"ip": "10.0.0.5"}}
+        inspect_resp.raise_for_status = mock.Mock()
+
+        with mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
+             mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
+             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
+            cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
+
+        mock_deploy.assert_called_once()
+        call_kwargs = mock_deploy.call_args
+        assert call_kwargs.args[2] == "cc-silver-blade"
+
+        data = cc_sandbox.Profile("owner", "repo").load()
+        assert data["container_name"] == "cc-silver-blade"
+        assert data["container_ip"] == "10.0.0.5"
+        assert data["created_at"] is not None
+
+    def test_no_profile_fails(self, state_dir, mock_config):
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        token_mgr = mock.Mock()
+
+        with pytest.raises(SystemExit):
+            cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
+
+    def test_already_running_fails(self, state_dir, mock_config):
+        p = self._setup_profile(state_dir)
+        data = p.load()
+        data["container_name"] = "cc-existing"
+        p.save(data)
+
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        state.save({"image_digest": "sha256:abc"})
+
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        token_mgr = mock.Mock()
+
+        with pytest.raises(SystemExit):
+            cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
+
+    def test_no_image_digest_fails(self, state_dir, mock_config):
+        self._setup_profile(state_dir)
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        token_mgr = mock.Mock()
+
+        with pytest.raises(SystemExit):
+            cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
+
+    def test_env_vars_passed_to_deploy(self, state_dir, mock_config):
+        self._setup_profile(state_dir)
+        mock_config.dns_servers = "10.0.0.1"
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        state.save({"image_digest": "sha256:abc"})
+
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        token_mgr = mock.Mock()
+        token_mgr.get_token.return_value = "tok"
+
+        inspect_resp = mock.Mock()
+        inspect_resp.json.return_value = {"data": {"ip": "10.0.0.5"}}
+        inspect_resp.raise_for_status = mock.Mock()
+
+        with mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
+             mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
+             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
+            cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
+
+        env = mock_deploy.call_args.kwargs.get("env") or mock_deploy.call_args[1].get("env")
+        assert env["SANDBOX_DNS"] == "10.0.0.1"
+        assert env["SANDBOX_REPO_URL"] == "https://forgejo.test/cc/repo.git"
+        assert env["SANDBOX_REPO_NAME"] == "repo"
+        assert env["SANDBOX_GIT_TOKEN"] == "test-token"
+        assert env["SANDBOX_UPSTREAM_URL"] == "https://forgejo.test/owner/repo.git"
+
+
+# --- cmd_down ---
+
+
+class TestCmdDown:
+    def _setup_running(self, state_dir):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "https://forgejo.test/cc/repo.git",
+            "upstream_url": "https://forgejo.test/owner/repo.git",
+            "checkout_path": "/home/user/repo",
+            "container_name": "cc-silver-blade",
+            "container_ip": "10.0.0.5",
+            "created_at": "2025-01-01T00:00:00+00:00",
+        })
+        return p
+
+    def test_tears_down_and_clears_container(self, state_dir, mock_config):
+        self._setup_running(state_dir)
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        token_mgr = mock.Mock()
+        token_mgr.get_token.return_value = "tok"
+
+        with mock.patch("cc_sandbox.deployd_teardown") as mock_td:
+            cc_sandbox.cmd_down(args, mock_config, state, token_mgr)
+
+        mock_td.assert_called_once_with(mock_config, "tok", "cc-silver-blade")
+        data = cc_sandbox.Profile("owner", "repo").load()
+        assert data["container_name"] is None
+        assert data["container_ip"] is None
+        assert data["created_at"] is None
+
+    def test_no_active_container_fails(self, state_dir, mock_config):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "x", "upstream_url": "x",
+            "checkout_path": "", "container_name": None,
+            "container_ip": None, "created_at": None,
+        })
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        token_mgr = mock.Mock()
+
+        with pytest.raises(SystemExit):
+            cc_sandbox.cmd_down(args, mock_config, state, token_mgr)
+
+    def test_unregistered_project_fails(self, state_dir, mock_config):
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        args = mock.Mock()
+        args.repo = "owner/nonexistent"
+        token_mgr = mock.Mock()
+
+        with pytest.raises(SystemExit):
+            cc_sandbox.cmd_down(args, mock_config, state, token_mgr)
+
+
+# --- cmd_ssh ---
+
+
+class TestCmdSsh:
+    def test_execs_ssh_with_cached_ip(self, state_dir, mock_config):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "x", "upstream_url": "x",
+            "checkout_path": "",
+            "container_name": "cc-test",
+            "container_ip": "10.0.0.5",
+            "created_at": "2025-01-01T00:00:00+00:00",
+        })
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        token_mgr = mock.Mock()
+
+        with mock.patch("cc_sandbox.os.execvp") as mock_exec:
+            cc_sandbox.cmd_ssh(args, mock_config, state, token_mgr)
+
+        mock_exec.assert_called_once_with("ssh", [
+            "ssh", "-o", "StrictHostKeyChecking=no", "claude@10.0.0.5",
+        ])
+
+    def test_no_container_fails(self, state_dir, mock_config):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "x", "upstream_url": "x",
+            "checkout_path": "",
+            "container_name": None, "container_ip": None, "created_at": None,
+        })
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        token_mgr = mock.Mock()
+
+        with pytest.raises(SystemExit):
+            cc_sandbox.cmd_ssh(args, mock_config, state, token_mgr)
+
+    def test_polls_for_ip_when_not_cached(self, state_dir, mock_config):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "x", "upstream_url": "x",
+            "checkout_path": "",
+            "container_name": "cc-test",
+            "container_ip": None,
+            "created_at": "2025-01-01T00:00:00+00:00",
+        })
+        args = mock.Mock()
+        args.repo = "owner/repo"
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        token_mgr = mock.Mock()
+        token_mgr.get_token.return_value = "tok"
+
+        with mock.patch("cc_sandbox.deployd_inspect", return_value="10.0.0.9") as mock_insp, \
+             mock.patch("cc_sandbox.os.execvp") as mock_exec:
+            cc_sandbox.cmd_ssh(args, mock_config, state, token_mgr)
+
+        mock_insp.assert_called_once_with(mock_config, "tok", "cc-test")
+        mock_exec.assert_called_once_with("ssh", [
+            "ssh", "-o", "StrictHostKeyChecking=no", "claude@10.0.0.9",
+        ])
+        # Verify IP was persisted to profile
+        data = cc_sandbox.Profile("owner", "repo").load()
+        assert data["container_ip"] == "10.0.0.9"
+
+
+# --- cmd_list ---
+
+
+class TestCmdList:
+    def test_empty(self, state_dir, capsys):
+        args = mock.Mock()
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        cc_sandbox.cmd_list(args, mock.Mock(), state, mock.Mock())
+        assert "No registered projects" in capsys.readouterr().out
+
+    def test_shows_running_project(self, state_dir, capsys):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "x",
+            "upstream_url": "https://forgejo.test/owner/repo.git",
+            "checkout_path": "",
+            "container_name": "cc-test",
+            "container_ip": "10.0.0.5",
+            "created_at": "2025-01-01T00:00:00+00:00",
+        })
+        args = mock.Mock()
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        cc_sandbox.cmd_list(args, mock.Mock(), state, mock.Mock())
+        out = capsys.readouterr().out
+        assert "owner/repo" in out
+        assert "running" in out
+        assert "10.0.0.5" in out
+
+    def test_shows_stopped_project(self, state_dir, capsys):
+        p = cc_sandbox.Profile("owner", "repo")
+        p.save({
+            "owner": "owner", "repo": "repo",
+            "fork_url": "x",
+            "upstream_url": "https://forgejo.test/owner/repo.git",
+            "checkout_path": "",
+            "container_name": None,
+            "container_ip": None,
+            "created_at": None,
+        })
+        args = mock.Mock()
+        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
+        cc_sandbox.cmd_list(args, mock.Mock(), state, mock.Mock())
+        out = capsys.readouterr().out
+        assert "owner/repo" in out
+        assert "stopped" in out
