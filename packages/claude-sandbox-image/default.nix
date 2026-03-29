@@ -60,6 +60,7 @@
   nixConf = pkgs.writeText "nix.conf" ''
     experimental-features = nix-command flakes
     build-users-group =
+    require-sigs = false
   '';
 
   # Git credential helper — reads token from a file at runtime.
