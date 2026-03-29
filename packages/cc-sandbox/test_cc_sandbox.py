@@ -143,6 +143,7 @@ class TestConfig:
         assert cfg.flake_path == "."
         assert cfg.flake_attr == "claude-sandbox-image"
         assert cfg.forgejo_url == "https://registry.test"
+        assert cfg.registry_user == "cc"
 
     def test_all_fields_override_defaults(self, config_dir):
         _write_config(config_dir, {

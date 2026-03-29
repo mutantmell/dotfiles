@@ -79,6 +79,12 @@ in {
       description = "Flake attribute for the sandbox image";
     };
 
+    registryUser = lib.mkOption {
+      type = lib.types.str;
+      default = "cc";
+      description = "Registry username for image push (the Forgejo user that owns the token)";
+    };
+
     forgejoTokenFile = lib.mkOption {
       type = lib.types.str;
       default = "";
@@ -102,6 +108,7 @@ in {
       inherit (cfg) clientId;
       inherit (cfg) flakePath;
       inherit (cfg) flakeAttr;
+      inherit (cfg) registryUser;
       inherit (cfg) forgejoTokenFile;
     };
   };
