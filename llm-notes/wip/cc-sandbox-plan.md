@@ -529,7 +529,7 @@ For SSH sessions without a browser (the common case on edith):
 - Reconfigure `cc-sandbox` Keycloak client (homelab realm):
   - Client authentication: OFF (public client)
   - Grant types: authorization code + device authorization
-  - PKCE: required (S256)
+  - PKCE: S256 (not "required" — device grant has no redirect to protect)
   - Valid redirect URIs: `http://localhost:*` (for auth code callback)
   - Remove service account and its group mappings
 - Ensure mutantmell's Keycloak account has the `deploy` group membership
@@ -804,7 +804,7 @@ Each step is independently deployable and testable. Steps 2-5 depend on step 1.
 1. **Keycloak** — reconfigure `cc-sandbox` client in homelab realm:
    - Client authentication: OFF (public client)
    - Grant types: authorization code + device authorization
-   - PKCE: required (S256)
+   - PKCE: S256 (not "required" — device grant has no redirect to protect)
    - Valid redirect URIs: `http://localhost:*`
    - Remove service account and its group mappings
    - Ensure mutantmell's account has `deploy` group membership
