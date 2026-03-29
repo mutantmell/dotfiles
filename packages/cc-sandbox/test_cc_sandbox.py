@@ -461,6 +461,67 @@ class TestDeploydApi:
         assert "teardown/cc-test" in mock_del.call_args.args[0]
 
 
+# --- Image management ---
+
+
+class TestEnsureImage:
+    def test_skips_push_when_unchanged(self, tmp_state, mock_config):
+        tmp_state.save({"image_digest": "sha256:abc", "image_store_path": "/nix/store/old-image"})
+
+        with mock.patch("cc_sandbox.build_image", return_value="/nix/store/old-image") as mock_build, \
+             mock.patch("cc_sandbox.push_image") as mock_push:
+            digest = cc_sandbox.ensure_image(mock_config, tmp_state)
+
+        assert digest == "sha256:abc"
+        mock_build.assert_called_once()
+        mock_push.assert_not_called()
+
+    def test_pushes_when_store_path_changed(self, tmp_state, mock_config):
+        tmp_state.save({"image_digest": "sha256:old", "image_store_path": "/nix/store/old-image"})
+
+        with mock.patch("cc_sandbox.build_image", return_value="/nix/store/new-image"), \
+             mock.patch("cc_sandbox.push_image", return_value="sha256:new") as mock_push:
+            digest = cc_sandbox.ensure_image(mock_config, tmp_state)
+
+        assert digest == "sha256:new"
+        mock_push.assert_called_once_with(mock_config, "/nix/store/new-image")
+        saved = tmp_state.load()
+        assert saved["image_digest"] == "sha256:new"
+        assert saved["image_store_path"] == "/nix/store/new-image"
+
+    def test_pushes_on_first_run(self, tmp_state, mock_config):
+        with mock.patch("cc_sandbox.build_image", return_value="/nix/store/first-image"), \
+             mock.patch("cc_sandbox.push_image", return_value="sha256:first") as mock_push:
+            digest = cc_sandbox.ensure_image(mock_config, tmp_state)
+
+        assert digest == "sha256:first"
+        mock_push.assert_called_once()
+
+    def test_pushes_when_digest_missing_but_path_matches(self, tmp_state, mock_config):
+        tmp_state.save({"image_digest": "", "image_store_path": "/nix/store/img"})
+
+        with mock.patch("cc_sandbox.build_image", return_value="/nix/store/img"), \
+             mock.patch("cc_sandbox.push_image", return_value="sha256:new"):
+            digest = cc_sandbox.ensure_image(mock_config, tmp_state)
+
+        assert digest == "sha256:new"
+
+
+class TestRebuildImage:
+    def test_always_pushes(self, tmp_state, mock_config):
+        tmp_state.save({"image_digest": "sha256:old", "image_store_path": "/nix/store/old"})
+
+        with mock.patch("cc_sandbox.build_image", return_value="/nix/store/old"), \
+             mock.patch("cc_sandbox.push_image", return_value="sha256:refreshed") as mock_push:
+            digest = cc_sandbox.rebuild_image(mock_config, tmp_state)
+
+        assert digest == "sha256:refreshed"
+        mock_push.assert_called_once()
+        saved = tmp_state.load()
+        assert saved["image_digest"] == "sha256:refreshed"
+        assert saved["image_store_path"] == "/nix/store/old"
+
+
 # --- Profile ---
 
 
@@ -615,9 +676,7 @@ class TestCmdUp:
 
     def test_deploys_container(self, state_dir, mock_config):
         self._setup_profile(state_dir)
-        # Write image digest
         state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
-        state.save({"image_digest": "sha256:abc"})
 
         args = mock.Mock()
         args.repo = "owner/repo"
@@ -628,7 +687,8 @@ class TestCmdUp:
         inspect_resp.json.return_value = {"data": {"ip": "10.0.0.5"}}
         inspect_resp.raise_for_status = mock.Mock()
 
-        with mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
+        with mock.patch("cc_sandbox.ensure_image", return_value="sha256:abc"), \
+             mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
              mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
              mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
             cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
@@ -658,18 +718,6 @@ class TestCmdUp:
         p.save(data)
 
         state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
-        state.save({"image_digest": "sha256:abc"})
-
-        args = mock.Mock()
-        args.repo = "owner/repo"
-        token_mgr = mock.Mock()
-
-        with pytest.raises(SystemExit):
-            cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
-
-    def test_no_image_digest_fails(self, state_dir, mock_config):
-        self._setup_profile(state_dir)
-        state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
 
         args = mock.Mock()
         args.repo = "owner/repo"
@@ -682,7 +730,6 @@ class TestCmdUp:
         self._setup_profile(state_dir)
         mock_config.dns_servers = "10.0.0.1"
         state = cc_sandbox.State(path=Path(state_dir) / "cc-sandbox" / "state.json")
-        state.save({"image_digest": "sha256:abc"})
 
         args = mock.Mock()
         args.repo = "owner/repo"
@@ -693,7 +740,8 @@ class TestCmdUp:
         inspect_resp.json.return_value = {"data": {"ip": "10.0.0.5"}}
         inspect_resp.raise_for_status = mock.Mock()
 
-        with mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
+        with mock.patch("cc_sandbox.ensure_image", return_value="sha256:abc"), \
+             mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
              mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
              mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
             cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
