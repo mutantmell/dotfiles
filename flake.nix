@@ -385,9 +385,13 @@
       "mutantmell@edith" = home-manager.lib.homeManagerConfiguration {
         pkgs = pkgsFor nixpkgs "x86_64-linux";
         modules = [
+          sops-nix.homeManagerModules.sops
           (import ./home {
             user = "mutantmell";
             langs = ["agda" "rust"];
+            extraModules = [
+              ./home/hosts/edith.nix
+            ];
           })
         ];
       };

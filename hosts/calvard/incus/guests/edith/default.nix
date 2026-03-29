@@ -7,7 +7,6 @@
 }: {
   imports = [
     ./sops.nix
-    ./modules/cc-sandbox.nix
     (import ../../../../../profiles/disko/incus-vm.nix {})
   ];
 
@@ -89,16 +88,6 @@
   networking.firewall.allowedTCPPorts = [2022];
 
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
-
-  services.cc-sandbox = {
-    enable = true;
-    apiUrl = "https://roer.internal/api/v1";
-    authUrl = "https://auth.mutantmell.net/realms/homelab/protocol/openid-connect/token";
-    registry = "creil.internal";
-    caCert = builtins.toString pkgs.mmell.lib.data.pki.root;
-    # Router's kresd DNS — reachable from deploy-dmz containers via masquerade
-    dnsServers = ["10.97.100.1"];
-  };
 
   node-exporter-client.enable = true;
 
