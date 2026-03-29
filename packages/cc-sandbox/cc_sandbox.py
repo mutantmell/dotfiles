@@ -23,6 +23,7 @@ import json
 import os
 import random
 import secrets
+import socket
 import subprocess
 import sys
 import time
@@ -564,6 +565,72 @@ def rebuild_image(config, state):
     return digest
 
 
+# --- Dev shell management ---
+
+def build_dev_shell(profile_data):
+    """Build the dev shell if the project has a flake. Returns (store_path, lock_hash) or None.
+
+    Skips if no checkout_path or no flake.nix in the checkout.
+    Skips the build (returns cached) if flake.lock hash hasn't changed.
+    """
+    checkout = profile_data.get("checkout_path", "")
+    if not checkout:
+        return None
+
+    flake_nix = Path(checkout) / "flake.nix"
+    if not flake_nix.exists():
+        return None
+
+    # Hash flake.lock for staleness check
+    flake_lock = Path(checkout) / "flake.lock"
+    if flake_lock.exists():
+        lock_hash = hashlib.sha256(flake_lock.read_bytes()).hexdigest()
+    else:
+        lock_hash = ""
+
+    # Check if cached dev shell is still current
+    cached_hash = profile_data.get("dev_shell_flake_lock_hash", "")
+    cached_path = profile_data.get("dev_shell_path", "")
+    if cached_hash == lock_hash and cached_path:
+        return cached_path, lock_hash
+
+    # Build
+    result = subprocess.run(
+        ["nix", "build", f"{checkout}#devShells.x86_64-linux.default",
+         "--print-out-paths", "--no-link"],
+        capture_output=True, text=True, check=True,
+    )
+    store_path = result.stdout.strip()
+    return store_path, lock_hash
+
+
+def wait_for_ssh(ip, timeout=60):
+    """Poll until TCP port 22 accepts connections. Returns True on success."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            sock = socket.create_connection((ip, 22), timeout=2)
+            sock.close()
+            return True
+        except OSError:
+            time.sleep(1)
+    return False
+
+
+def copy_dev_shell(ip, store_path):
+    """Copy a nix store path to the container via ssh-ng.
+
+    Passes SSH options to skip host key verification — containers have
+    ephemeral host keys and IPs are reused from a pool.
+    """
+    env = os.environ.copy()
+    env["NIX_SSHOPTS"] = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    subprocess.run(
+        ["nix", "copy", "--to", f"ssh-ng://claude@{ip}", store_path],
+        check=True, env=env,
+    )
+
+
 # --- Forgejo API client ---
 
 def forgejo_fork(config, owner, repo):
@@ -692,6 +759,28 @@ def cmd_up(args, config, state, token_mgr):
     data["container_name"] = container_name
     data["container_ip"] = ip
     data["created_at"] = datetime.now(timezone.utc).isoformat()
+
+    # Build dev shell if project has a flake
+    dev_shell = build_dev_shell(data)
+    if dev_shell:
+        store_path, lock_hash = dev_shell
+        data["dev_shell_path"] = store_path
+        data["dev_shell_flake_lock_hash"] = lock_hash
+
+        if ip:
+            print("Waiting for SSH...", flush=True)
+            if wait_for_ssh(ip):
+                print("Copying dev shell to container...", flush=True)
+                try:
+                    copy_dev_shell(ip, store_path)
+                except subprocess.CalledProcessError as e:
+                    print(f"Warning: dev shell copy failed: {e}", file=sys.stderr)
+            else:
+                print("Warning: SSH not ready after 60s, skipping dev shell copy",
+                      file=sys.stderr)
+        else:
+            print("Warning: no IP available, skipping dev shell copy", file=sys.stderr)
+
     profile.save(data)
 
     print(f"Sandbox ready: {container_name}")
@@ -776,10 +865,20 @@ def cmd_ssh(args, config, _state, token_mgr):
     # TODO: StrictHostKeyChecking=no is used because containers generate
     # ephemeral host keys on boot. Fix by having containers request SSH host
     # certificates from step-ca (requires br-deploy egress to the CA).
-    os.execvp("ssh", [
-        "ssh", "-o", "StrictHostKeyChecking=no",
-        f"claude@{cached_ip}",
-    ])
+    ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+
+    dev_shell = data.get("dev_shell_path")
+    no_develop = getattr(args, "no_develop", False)
+    if dev_shell and not no_develop:
+        checkout = data.get("checkout_path", "")
+        repo_name = data.get("repo", "")
+        work_dir = f"/workspace/{repo_name}" if repo_name else "/workspace"
+        ssh_cmd += ["-t", f"claude@{cached_ip}",
+                    f"cd {work_dir} && nix develop"]
+    else:
+        ssh_cmd.append(f"claude@{cached_ip}")
+
+    os.execvp("ssh", ssh_cmd)
 
 
 def cmd_list(_args, _config, _state, _token_mgr):
@@ -837,6 +936,8 @@ def main():
     ssh_parser = subparsers.add_parser("ssh", help="SSH into a project's container")
     ssh_parser.add_argument("repo", nargs="?", default=None,
                             help="owner/repo or URL (auto-detects from cwd if omitted)")
+    ssh_parser.add_argument("--no-develop", action="store_true",
+                            help="plain shell instead of nix develop")
 
     # list
     subparsers.add_parser("list", help="list registered projects")
