@@ -444,7 +444,7 @@ class TokenManager:
 
 # --- deployd API client ---
 
-def deployd_deploy(config, token, name, image, env=None, memory=None, cpus=None):
+def deployd_deploy(config, token, name, image, env=None, memory=None, cpus=None, volumes=None):
     """Deploy a container via deployd-api. Returns the container IP."""
     payload = {"name": name, "image": image}
     if env:
@@ -453,6 +453,8 @@ def deployd_deploy(config, token, name, image, env=None, memory=None, cpus=None)
         payload["memory"] = memory
     if cpus:
         payload["cpus"] = cpus
+    if volumes:
+        payload["volumes"] = volumes
     resp = http_requests.post(
         f"{config.api_url}/deploy",
         headers={
@@ -771,12 +773,22 @@ def cmd_up(args, config, state, token_mgr):
     env["SANDBOX_GIT_TOKEN"] = config.forgejo_token
     env["SANDBOX_UPSTREAM_URL"] = data["upstream_url"]
 
+    # Shared Claude state directory — persists auth, memories, settings across containers.
+    # UID/GID 1000 matches the container's "claude" user.
+    claude_state_dir = Path(xdg_state_home()) / "cc-sandbox" / "claude"
+    claude_state_dir.mkdir(parents=True, exist_ok=True)
+    os.chown(claude_state_dir, 1000, 1000)
+    claude_state_dir.chmod(0o700)
+
+    volumes = [{"host": str(claude_state_dir), "container": "/workspace/.claude"}]
+
     print(f"Deploying container for {owner}/{repo}...", flush=True)
     deployd_deploy(
         config, token, container_name, image_ref,
         env=env,
         memory=config.memory_limit or None,
         cpus=config.cpu_limit or None,
+        volumes=volumes,
     )
 
     # Poll for IP

@@ -362,7 +362,7 @@ ReadWritePaths = [
 deployd-helper's only remaining privilege escalation path is the single sudoers rule,
 which is scoped to one immutable binary.
 
-## Phase 7: Repo-Centric Design — STEPS 1-4 COMPLETE
+## Phase 7: Repo-Centric Design — STEPS 1-5 COMPLETE
 
 With deployd validated, cc-sandbox can be designed as a product rather than a test
 harness. Feedback from using the prototype identified four problems: the tool is
@@ -800,7 +800,10 @@ Equivalent to the current `cc-sandbox create` without `--repo`.
    store paths from `nix copy`. **Follow-up:** replace with proper store path signing —
    generate a key pair, store the secret key in sops, bake the public key into the
    container's `trusted-public-keys`, and pass `--secret-key-file` to `nix copy`.
-5. **Claude state persistence** — shared `claude/` volume mount.
+5. **Claude state persistence** — COMPLETE. Shared `claude/` directory at
+   `$XDG_STATE_HOME/cc-sandbox/claude/` (mode 700, owned by UID 1000) is mounted into
+   every container at `/workspace/.claude` via deployd volumes. Created on first `up`.
+   Auth, memories, and settings persist across container lifecycles.
 
 Each step is independently deployable and testable. Steps 2-5 depend on step 1.
 
