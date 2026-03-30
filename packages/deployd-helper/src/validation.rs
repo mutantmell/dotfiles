@@ -5,6 +5,7 @@ use crate::protocol::ContainerDefinition;
 pub fn validate_container(def: &ContainerDefinition, config: &Config) -> Result<(), String> {
     validate_name(&def.name)?;
     validate_image(&def.image, &config.registry_allowlist)?;
+    validate_user(&def.user, &def.volumes)?;
     validate_ports(def, config)?;
     validate_volumes(&def.volumes)?;
     validate_env(&def.env)?;
@@ -38,6 +39,20 @@ pub fn validate_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Validate the user field.
+/// Must be a safe directory name (reuses name validation rules) when volumes
+/// are present, since it's used as a path component in the volume root.
+/// Empty user is allowed only when there are no volumes.
+fn validate_user(user: &str, volumes: &[crate::protocol::VolumeMount]) -> Result<(), String> {
+    if volumes.is_empty() {
+        return Ok(());
+    }
+    if user.is_empty() {
+        return Err("user is required when volumes are specified".into());
+    }
+    validate_name(user).map_err(|e| format!("user: {}", e))
+}
+
 fn validate_image(image: &str, allowlist: &[String]) -> Result<(), String> {
     if allowlist.is_empty() {
         return Err("registry allowlist is empty — no images are permitted".into());
@@ -68,32 +83,22 @@ fn validate_ports(def: &ContainerDefinition, config: &Config) -> Result<(), Stri
     Ok(())
 }
 
-/// Validate volume mount paths for safety.
-/// Host paths must be absolute, normalized (no `..`), and not point to
-/// sensitive system directories.
+/// Validate volume mounts.
+///
+/// Volume names are resolved by deployd-helper to per-user directories under
+/// the volume root. Clients never specify host paths.
 fn validate_volumes(
     volumes: &[crate::protocol::VolumeMount],
 ) -> Result<(), String> {
     for vol in volumes {
-        // Host path must be absolute
-        if !vol.host.starts_with('/') {
-            return Err(format!(
-                "volume host path '{}' must be absolute",
-                vol.host
-            ));
-        }
-        // Container path must be absolute
+        // Volume name follows container name rules
+        validate_name(&vol.name).map_err(|e| format!("volume name: {}", e))?;
+
+        // Container path must be absolute with no traversal
         if !vol.container.starts_with('/') {
             return Err(format!(
                 "volume container path '{}' must be absolute",
                 vol.container
-            ));
-        }
-        // No path traversal components
-        if vol.host.contains("..") {
-            return Err(format!(
-                "volume host path '{}' must not contain '..'",
-                vol.host
             ));
         }
         if vol.container.contains("..") {
@@ -101,16 +106,6 @@ fn validate_volumes(
                 "volume container path '{}' must not contain '..'",
                 vol.container
             ));
-        }
-        // Block access to sensitive host directories
-        let blocked_prefixes = ["/etc", "/boot", "/proc", "/sys", "/dev", "/nix"];
-        for prefix in &blocked_prefixes {
-            if vol.host == *prefix || vol.host.starts_with(&format!("{}/", prefix)) {
-                return Err(format!(
-                    "volume host path '{}' is within a protected directory ({})",
-                    vol.host, prefix
-                ));
-            }
         }
     }
     Ok(())
@@ -194,6 +189,7 @@ mod tests {
             runtime_class: "io.containerd.kata.v2".into(),
             nerdctl_path: "/run/current-system/sw/bin/nerdctl".into(),
             deployd_exec_path: "/run/current-system/sw/bin/deployd-exec".into(),
+            volume_root: "/tmp/deployd-test-volumes".into(),
         }
     }
 
@@ -275,6 +271,7 @@ mod tests {
         let def = ContainerDefinition {
             name: "test".into(),
             image: "creil.internal/test@sha256:abc".into(),
+            user: "testuser".into(),
             ports: vec![PortMapping {
                 host: 8080,
                 container: 80,
@@ -303,18 +300,24 @@ mod tests {
     // --- Volume validation ---
 
     #[test]
-    fn test_valid_volumes() {
+    fn test_valid_volume() {
         let vols = vec![VolumeMount {
-            host: "/var/lib/myapp".into(),
+            name: "my-volume".into(),
             container: "/data".into(),
         }];
         assert!(validate_volumes(&vols).is_ok());
     }
 
     #[test]
-    fn test_volume_relative_host_path() {
+    fn test_volume_invalid_name() {
         let vols = vec![VolumeMount {
-            host: "relative/path".into(),
+            name: "-bad-name".into(),
+            container: "/data".into(),
+        }];
+        assert!(validate_volumes(&vols).is_err());
+
+        let vols = vec![VolumeMount {
+            name: "bad/name".into(),
             container: "/data".into(),
         }];
         assert!(validate_volumes(&vols).is_err());
@@ -323,44 +326,54 @@ mod tests {
     #[test]
     fn test_volume_relative_container_path() {
         let vols = vec![VolumeMount {
-            host: "/var/lib/myapp".into(),
+            name: "my-volume".into(),
             container: "relative".into(),
         }];
         assert!(validate_volumes(&vols).is_err());
     }
 
     #[test]
-    fn test_volume_path_traversal() {
+    fn test_volume_container_path_traversal() {
         let vols = vec![VolumeMount {
-            host: "/var/lib/../etc/shadow".into(),
-            container: "/data".into(),
+            name: "my-volume".into(),
+            container: "/data/../etc".into(),
         }];
         assert!(validate_volumes(&vols).is_err());
     }
 
-    #[test]
-    fn test_volume_blocked_directories() {
-        for dir in &["/etc", "/boot", "/proc", "/sys", "/dev", "/nix"] {
-            let vols = vec![VolumeMount {
-                host: dir.to_string(),
-                container: "/data".into(),
-            }];
-            assert!(
-                validate_volumes(&vols).is_err(),
-                "should block {}",
-                dir
-            );
+    // --- User validation ---
 
-            let vols = vec![VolumeMount {
-                host: format!("{}/foo", dir),
-                container: "/data".into(),
-            }];
-            assert!(
-                validate_volumes(&vols).is_err(),
-                "should block {}/foo",
-                dir
-            );
-        }
+    #[test]
+    fn test_user_required_with_volumes() {
+        let vols = vec![VolumeMount {
+            name: "my-volume".into(),
+            container: "/data".into(),
+        }];
+        assert!(validate_user("", &vols).is_err());
+    }
+
+    #[test]
+    fn test_user_not_required_without_volumes() {
+        assert!(validate_user("", &[]).is_ok());
+    }
+
+    #[test]
+    fn test_user_valid_name() {
+        let vols = vec![VolumeMount {
+            name: "vol".into(),
+            container: "/data".into(),
+        }];
+        assert!(validate_user("mutantmell", &vols).is_ok());
+    }
+
+    #[test]
+    fn test_user_rejects_path_traversal() {
+        let vols = vec![VolumeMount {
+            name: "vol".into(),
+            container: "/data".into(),
+        }];
+        assert!(validate_user("../../etc", &vols).is_err());
+        assert!(validate_user("foo/bar", &vols).is_err());
     }
 
     // --- Hostname validation ---

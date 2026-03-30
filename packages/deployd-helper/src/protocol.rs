@@ -26,6 +26,9 @@ pub enum HelperCommand {
 pub struct ContainerDefinition {
     pub name: String,
     pub image: String,
+    /// User who initiated the deploy (injected by deployd-api from OAuth claims).
+    #[serde(default)]
+    pub user: String,
     #[serde(default)]
     pub ports: Vec<PortMapping>,
     #[serde(default)]
@@ -73,7 +76,10 @@ impl std::fmt::Display for PortProtocol {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeMount {
-    pub host: String,
+    /// Volume name — resolved to a host directory by deployd-helper under
+    /// the per-user volume root (e.g. /var/lib/deployd/volumes/<user>/<name>).
+    pub name: String,
+    /// Absolute mount target inside the container.
     pub container: String,
 }
 

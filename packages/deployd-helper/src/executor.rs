@@ -3,7 +3,7 @@ use tracing::{info, error, warn};
 
 use crate::config::Config;
 use crate::protocol::{ContainerDefinition, HelperCommand, HelperResponse};
-use crate::unit::generate_unit;
+use crate::unit::{generate_unit, ensure_volume_dirs};
 use crate::audit;
 use crate::validation;
 
@@ -43,11 +43,16 @@ impl Executor {
             return HelperResponse::err(e);
         }
 
+        if let Err(e) = ensure_volume_dirs(def, &self.config.volume_root) {
+            return HelperResponse::err(e);
+        }
+
         let unit = generate_unit(
             def,
             &self.config.runtime_class,
             &self.config.bridge_name,
             &self.config.nerdctl_path,
+            &self.config.volume_root,
         );
 
         // Pipe unit content to deployd-exec write-unit via stdin
