@@ -798,8 +798,8 @@ class TestCmdUp:
              mock.patch("cc_sandbox.build_dev_shell", return_value=None), \
              mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
              mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
-             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"), \
-             mock.patch("cc_sandbox.os.chown"):
+             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
+
             cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
 
         mock_deploy.assert_called_once()
@@ -831,8 +831,8 @@ class TestCmdUp:
              mock.patch("cc_sandbox.copy_dev_env_script") as mock_copy_env, \
              mock.patch("cc_sandbox.deployd_deploy"), \
              mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
-             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"), \
-             mock.patch("cc_sandbox.os.chown"):
+             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
+
             cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
 
         mock_copy.assert_called_once_with("10.0.0.5", "/nix/store/shell")
@@ -861,8 +861,8 @@ class TestCmdUp:
              mock.patch("cc_sandbox.copy_dev_env_script"), \
              mock.patch("cc_sandbox.deployd_deploy"), \
              mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
-             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"), \
-             mock.patch("cc_sandbox.os.chown"):
+             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
+
             cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
 
         data = cc_sandbox.Profile("owner", "repo").load()
@@ -911,8 +911,8 @@ class TestCmdUp:
              mock.patch("cc_sandbox.build_dev_shell", return_value=None), \
              mock.patch("cc_sandbox.deployd_deploy") as mock_deploy, \
              mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
-             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"), \
-             mock.patch("cc_sandbox.os.chown"):
+             mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
+
             cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
 
         env = mock_deploy.call_args.kwargs.get("env") or mock_deploy.call_args[1].get("env")
