@@ -133,6 +133,12 @@
       ${pkgs.git}/bin/git config --system credential.helper /workspace/.config/git/credential-helper
     fi
 
+    # Fix ownership on mounted Claude state directory (bind-mounted from host).
+    # The host UID may differ from the container's claude user (1000).
+    if [ -d /workspace/.claude ]; then
+      ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} /workspace/.claude
+    fi
+
     # Clone repo if SANDBOX_REPO_URL is set (injected by cc-sandbox via deployd env).
     # SANDBOX_REPO_NAME controls the directory name (defaults to "repo").
     # Failure is non-fatal so sshd still starts (allows debugging via SSH).

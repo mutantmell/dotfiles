@@ -774,10 +774,9 @@ def cmd_up(args, config, state, token_mgr):
     env["SANDBOX_UPSTREAM_URL"] = data["upstream_url"]
 
     # Shared Claude state directory — persists auth, memories, settings across containers.
-    # UID/GID 1000 matches the container's "claude" user.
+    # The container entrypoint chowns this to the claude user (UID 1000) on boot.
     claude_state_dir = Path(xdg_state_home()) / "cc-sandbox" / "claude"
     claude_state_dir.mkdir(parents=True, exist_ok=True)
-    os.chown(claude_state_dir, 1000, 1000)
     claude_state_dir.chmod(0o700)
 
     volumes = [{"host": str(claude_state_dir), "container": "/workspace/.claude"}]
