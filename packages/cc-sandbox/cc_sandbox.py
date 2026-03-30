@@ -36,6 +36,12 @@ from urllib.parse import urlparse, urlencode, parse_qs
 
 import requests as http_requests
 
+# SSH options for connecting to containers.  Containers generate ephemeral host
+# keys on boot and IPs are reused from a pool, so we skip host key verification.
+# TODO: replace with SSH host certificates from step-ca (Phase D5).
+SSH_OPTS = ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR"]
+
 # --- Trails-themed hostname word lists ---
 # Drawn from craft/arts naming in the Trails series.
 ADJECTIVES = [
@@ -641,9 +647,7 @@ def wait_for_ssh(ip, timeout=60):
 def copy_dev_env_script(ip, env_script_path):
     """Copy the dev-env.sh script to the container via scp."""
     subprocess.run(
-        ["scp", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
-         "-o", "LogLevel=ERROR",
-         env_script_path, f"claude@{ip}:/workspace/.dev-env.sh"],
+        ["scp"] + SSH_OPTS + [env_script_path, f"claude@{ip}:/workspace/.dev-env.sh"],
         check=True,
     )
 
@@ -655,7 +659,7 @@ def copy_dev_shell(ip, store_path):
     ephemeral host keys and IPs are reused from a pool.
     """
     env = os.environ.copy()
-    env["NIX_SSHOPTS"] = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+    env["NIX_SSHOPTS"] = " ".join(SSH_OPTS)
     subprocess.run(
         ["nix", "copy", "--to", f"ssh-ng://claude@{ip}", store_path],
         check=True, env=env,
@@ -798,6 +802,7 @@ def cmd_up(args, config, state, token_mgr):
         data["dev_shell_path"] = store_path
         data["dev_shell_flake_lock_hash"] = lock_hash
 
+        copied = False
         if ip:
             print("Waiting for SSH...", flush=True)
             if wait_for_ssh(ip):
@@ -805,6 +810,7 @@ def cmd_up(args, config, state, token_mgr):
                 try:
                     copy_dev_shell(ip, store_path)
                     copy_dev_env_script(ip, env_script_path)
+                    copied = True
                 except subprocess.CalledProcessError as e:
                     print(f"Warning: dev shell copy failed: {e}", file=sys.stderr)
             else:
@@ -812,6 +818,12 @@ def cmd_up(args, config, state, token_mgr):
                       file=sys.stderr)
         else:
             print("Warning: no IP available, skipping dev shell copy", file=sys.stderr)
+
+        if not copied:
+            # Don't record dev shell in profile — ssh would try to source a
+            # missing dev-env.sh on the container.
+            data.pop("dev_shell_path", None)
+            data.pop("dev_shell_flake_lock_hash", None)
 
     profile.save(data)
 
@@ -894,10 +906,7 @@ def cmd_ssh(args, config, _state, token_mgr):
         profile.save(data)
         cached_ip = ip
 
-    # TODO: StrictHostKeyChecking=no is used because containers generate
-    # ephemeral host keys on boot. Fix by having containers request SSH host
-    # certificates from step-ca (requires br-deploy egress to the CA).
-    ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    ssh_cmd = ["ssh"] + SSH_OPTS
 
     dev_shell = data.get("dev_shell_path")
     no_develop = getattr(args, "no_develop", False)
