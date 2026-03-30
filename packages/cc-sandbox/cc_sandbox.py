@@ -567,13 +567,19 @@ def rebuild_image(config, state):
 
 # --- Dev shell management ---
 
-def build_dev_shell(profile_data):
-    """Build the dev shell if the project has a flake. Returns (store_path, lock_hash) or None.
+def build_dev_shell(profile):
+    """Build the dev shell if the project has a flake.
 
+    Returns (store_path, lock_hash, env_script_path) or None.
     Skips if no checkout_path or no flake.nix in the checkout.
     Skips the build (returns cached) if flake.lock hash hasn't changed.
+
+    The env_script_path is a file in the profile directory containing the output
+    of `nix print-dev-env`, used to activate the environment without re-evaluating
+    the flake inside the container.
     """
-    checkout = profile_data.get("checkout_path", "")
+    data = profile.load() if isinstance(profile, Profile) else profile
+    checkout = data.get("checkout_path", "")
     if not checkout:
         return None
 
@@ -588,20 +594,35 @@ def build_dev_shell(profile_data):
     else:
         lock_hash = ""
 
+    # Determine where to store the env script
+    owner = data.get("owner", "")
+    repo = data.get("repo", "")
+    env_script_path = Path(xdg_state_home()) / "cc-sandbox" / "projects" / f"{owner}-{repo}" / "dev-env.sh"
+
     # Check if cached dev shell is still current
-    cached_hash = profile_data.get("dev_shell_flake_lock_hash", "")
-    cached_path = profile_data.get("dev_shell_path", "")
-    if cached_hash == lock_hash and cached_path:
-        return cached_path, lock_hash
+    cached_hash = data.get("dev_shell_flake_lock_hash", "")
+    cached_path = data.get("dev_shell_path", "")
+    if cached_hash == lock_hash and cached_path and env_script_path.exists():
+        return cached_path, lock_hash, str(env_script_path)
+
+    flake_ref = f"{checkout}#devShells.x86_64-linux.default"
 
     # Build
     result = subprocess.run(
-        ["nix", "build", f"{checkout}#devShells.x86_64-linux.default",
-         "--print-out-paths", "--no-link"],
+        ["nix", "build", flake_ref, "--print-out-paths", "--no-link"],
         capture_output=True, text=True, check=True,
     )
     store_path = result.stdout.strip()
-    return store_path, lock_hash
+
+    # Generate dev-env.sh via nix print-dev-env
+    result = subprocess.run(
+        ["nix", "print-dev-env", flake_ref],
+        capture_output=True, text=True, check=True,
+    )
+    env_script_path.parent.mkdir(parents=True, exist_ok=True)
+    env_script_path.write_text(result.stdout)
+
+    return store_path, lock_hash, str(env_script_path)
 
 
 def wait_for_ssh(ip, timeout=60):
@@ -615,6 +636,16 @@ def wait_for_ssh(ip, timeout=60):
         except OSError:
             time.sleep(1)
     return False
+
+
+def copy_dev_env_script(ip, env_script_path):
+    """Copy the dev-env.sh script to the container via scp."""
+    subprocess.run(
+        ["scp", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+         "-o", "LogLevel=ERROR",
+         env_script_path, f"claude@{ip}:/workspace/.dev-env.sh"],
+        check=True,
+    )
 
 
 def copy_dev_shell(ip, store_path):
@@ -763,7 +794,7 @@ def cmd_up(args, config, state, token_mgr):
     # Build dev shell if project has a flake
     dev_shell = build_dev_shell(data)
     if dev_shell:
-        store_path, lock_hash = dev_shell
+        store_path, lock_hash, env_script_path = dev_shell
         data["dev_shell_path"] = store_path
         data["dev_shell_flake_lock_hash"] = lock_hash
 
@@ -773,6 +804,7 @@ def cmd_up(args, config, state, token_mgr):
                 print("Copying dev shell to container...", flush=True)
                 try:
                     copy_dev_shell(ip, store_path)
+                    copy_dev_env_script(ip, env_script_path)
                 except subprocess.CalledProcessError as e:
                     print(f"Warning: dev shell copy failed: {e}", file=sys.stderr)
             else:
@@ -870,11 +902,10 @@ def cmd_ssh(args, config, _state, token_mgr):
     dev_shell = data.get("dev_shell_path")
     no_develop = getattr(args, "no_develop", False)
     if dev_shell and not no_develop:
-        checkout = data.get("checkout_path", "")
         repo_name = data.get("repo", "")
         work_dir = f"/workspace/{repo_name}" if repo_name else "/workspace"
         ssh_cmd += ["-t", f"claude@{cached_ip}",
-                    f"cd {work_dir} && nix develop"]
+                    f"cd {work_dir} && source /workspace/.dev-env.sh && exec bash"]
     else:
         ssh_cmd.append(f"claude@{cached_ip}")
 

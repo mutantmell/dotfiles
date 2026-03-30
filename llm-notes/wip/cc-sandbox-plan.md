@@ -688,14 +688,18 @@ If the repo has no `flake.nix`, the dev shell step is skipped entirely.
 **Entering the dev shell on SSH:**
 
 After `nix copy` populates the store, `cc-sandbox ssh` needs to activate the dev shell.
-Options (to be decided during implementation):
 
-- Let `cc-sandbox ssh` exec `nix develop` as the SSH command — cleanest, user can
-  opt out with `cc-sandbox ssh --no-develop`
-- `nix print-dev-env` on edith, ship the output, source it in `.bash_profile` — instant
-  activation, but fragile across nix versions
-- Write a `.bash_profile` that runs `nix develop` (instant since deps are cached) —
-  simplest, but adds latency to every shell start
+**Chosen approach:** `nix print-dev-env` on edith generates a shell script (`dev-env.sh`)
+stored in the profile directory. This script is `scp`'d to `/workspace/.dev-env.sh` on the
+container during `up`. `cc-sandbox ssh` then runs
+`source /workspace/.dev-env.sh && exec bash` instead of `nix develop`, avoiding a 188 MiB
+flake input download that `nix develop` triggers (it re-evaluates the flake, fetching
+the nixpkgs tarball from cache.nixos.org even though all store paths are present).
+
+**Trade-off:** `nix print-dev-env` output is tied to the nix version. If edith and the
+container run different nix versions, the script may not source correctly. In practice
+both run the same nixpkgs pin, so this is low risk. `--no-develop` flag available as
+escape hatch.
 
 ### Claude state persistence
 
@@ -788,9 +792,14 @@ Equivalent to the current `cc-sandbox create` without `--repo`.
    changed. `rebuild_image` refactored into `build_image` + `push_image` helpers.
    `rebuild-image` command stays as force-push override.
 4. **Local dev shell build + nix copy** — COMPLETE. `cmd_up` calls `build_dev_shell()`
-   (checks flake.lock hash for staleness), `wait_for_ssh()` (TCP poll), and
-   `copy_dev_shell()` (`nix copy --to ssh-ng://`). `cmd_ssh` runs
-   `nix develop` when `dev_shell_path` is set; `--no-develop` flag for plain shell.
+   (checks flake.lock hash for staleness, runs `nix build` + `nix print-dev-env`),
+   `wait_for_ssh()` (TCP poll), `copy_dev_shell()` (`nix copy --to ssh-ng://`), and
+   `copy_dev_env_script()` (scp of `dev-env.sh`). `cmd_ssh` sources
+   `/workspace/.dev-env.sh` when `dev_shell_path` is set; `--no-develop` flag for plain
+   shell. Container image sets `require-sigs = false` in nix.conf to accept unsigned
+   store paths from `nix copy`. **Follow-up:** replace with proper store path signing —
+   generate a key pair, store the secret key in sops, bake the public key into the
+   container's `trusted-public-keys`, and pass `--secret-key-file` to `nix copy`.
 5. **Claude state persistence** — shared `claude/` volume mount.
 
 Each step is independently deployable and testable. Steps 2-5 depend on step 1.
