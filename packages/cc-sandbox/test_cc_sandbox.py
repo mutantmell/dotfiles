@@ -519,67 +519,87 @@ class TestBuildDevShell:
         data = {"checkout_path": str(tmp_path)}
         assert cc_sandbox.build_dev_shell(data) is None
 
-    def test_returns_cached_when_lock_unchanged(self, tmp_path):
+    def test_returns_cached_when_lock_unchanged(self, tmp_path, state_dir):
         (tmp_path / "flake.nix").write_text("{}")
         (tmp_path / "flake.lock").write_text('{"nodes":{}}')
         lock_hash = cc_sandbox.hashlib.sha256(b'{"nodes":{}}').hexdigest()
 
+        # Create the cached env script where build_dev_shell expects it
+        env_script = Path(state_dir) / "cc-sandbox" / "projects" / "own-rpo" / "dev-env.sh"
+        env_script.parent.mkdir(parents=True, exist_ok=True)
+        env_script.write_text("cached env")
+
         data = {
+            "owner": "own", "repo": "rpo",
             "checkout_path": str(tmp_path),
             "dev_shell_path": "/nix/store/cached-shell",
             "dev_shell_flake_lock_hash": lock_hash,
         }
         result = cc_sandbox.build_dev_shell(data)
-        assert result == ("/nix/store/cached-shell", lock_hash)
+        assert result == ("/nix/store/cached-shell", lock_hash, str(env_script))
 
-    def test_builds_when_lock_changed(self, tmp_path):
+    def test_builds_when_lock_changed(self, tmp_path, state_dir):
         (tmp_path / "flake.nix").write_text("{}")
         (tmp_path / "flake.lock").write_text('{"nodes":{"new":true}}')
 
         data = {
+            "owner": "own", "repo": "rpo",
             "checkout_path": str(tmp_path),
             "dev_shell_path": "/nix/store/old-shell",
             "dev_shell_flake_lock_hash": "oldhash",
         }
 
-        mock_result = mock.Mock()
-        mock_result.stdout = "/nix/store/new-shell\n"
-        with mock.patch("cc_sandbox.subprocess.run", return_value=mock_result) as mock_run:
+        build_result = mock.Mock()
+        build_result.stdout = "/nix/store/new-shell\n"
+        env_result = mock.Mock()
+        env_result.stdout = "# dev env script\n"
+        with mock.patch("cc_sandbox.subprocess.run", side_effect=[build_result, env_result]) as mock_run:
             result = cc_sandbox.build_dev_shell(data)
 
-        store_path, lock_hash = result
+        store_path, lock_hash, env_script_path = result
         assert store_path == "/nix/store/new-shell"
         assert lock_hash != "oldhash"
-        mock_run.assert_called_once()
-        assert "devShells.x86_64-linux.default" in mock_run.call_args.args[0][2]
+        assert env_script_path.endswith("dev-env.sh")
+        assert mock_run.call_count == 2
+        # First call: nix build
+        assert "devShells.x86_64-linux.default" in mock_run.call_args_list[0].args[0][2]
+        # Second call: nix print-dev-env
+        assert mock_run.call_args_list[1].args[0][0] == "nix"
+        assert mock_run.call_args_list[1].args[0][1] == "print-dev-env"
 
-    def test_builds_on_first_run(self, tmp_path):
+    def test_builds_on_first_run(self, tmp_path, state_dir):
         (tmp_path / "flake.nix").write_text("{}")
         (tmp_path / "flake.lock").write_text("{}")
 
-        data = {"checkout_path": str(tmp_path)}
+        data = {"owner": "own", "repo": "rpo", "checkout_path": str(tmp_path)}
 
-        mock_result = mock.Mock()
-        mock_result.stdout = "/nix/store/first-shell\n"
-        with mock.patch("cc_sandbox.subprocess.run", return_value=mock_result):
+        build_result = mock.Mock()
+        build_result.stdout = "/nix/store/first-shell\n"
+        env_result = mock.Mock()
+        env_result.stdout = "# env\n"
+        with mock.patch("cc_sandbox.subprocess.run", side_effect=[build_result, env_result]):
             result = cc_sandbox.build_dev_shell(data)
 
         assert result is not None
         assert result[0] == "/nix/store/first-shell"
+        assert result[2].endswith("dev-env.sh")
 
-    def test_handles_no_flake_lock(self, tmp_path):
+    def test_handles_no_flake_lock(self, tmp_path, state_dir):
         (tmp_path / "flake.nix").write_text("{}")
         # No flake.lock file
 
-        data = {"checkout_path": str(tmp_path)}
+        data = {"owner": "own", "repo": "rpo", "checkout_path": str(tmp_path)}
 
-        mock_result = mock.Mock()
-        mock_result.stdout = "/nix/store/shell\n"
-        with mock.patch("cc_sandbox.subprocess.run", return_value=mock_result):
+        build_result = mock.Mock()
+        build_result.stdout = "/nix/store/shell\n"
+        env_result = mock.Mock()
+        env_result.stdout = "# env\n"
+        with mock.patch("cc_sandbox.subprocess.run", side_effect=[build_result, env_result]):
             result = cc_sandbox.build_dev_shell(data)
 
         assert result is not None
         assert result[1] == ""  # empty lock hash
+        assert result[2].endswith("dev-env.sh")
 
 
 class TestWaitForSsh:
@@ -803,15 +823,17 @@ class TestCmdUp:
         inspect_resp.raise_for_status = mock.Mock()
 
         with mock.patch("cc_sandbox.ensure_image", return_value="sha256:abc"), \
-             mock.patch("cc_sandbox.build_dev_shell", return_value=("/nix/store/shell", "lockhash")), \
+             mock.patch("cc_sandbox.build_dev_shell", return_value=("/nix/store/shell", "lockhash", "/tmp/dev-env.sh")), \
              mock.patch("cc_sandbox.wait_for_ssh", return_value=True), \
              mock.patch("cc_sandbox.copy_dev_shell") as mock_copy, \
+             mock.patch("cc_sandbox.copy_dev_env_script") as mock_copy_env, \
              mock.patch("cc_sandbox.deployd_deploy"), \
              mock.patch("cc_sandbox.http_requests.get", return_value=inspect_resp), \
              mock.patch("cc_sandbox.generate_hostname", return_value="silver-blade"):
             cc_sandbox.cmd_up(args, mock_config, state, token_mgr)
 
         mock_copy.assert_called_once_with("10.0.0.5", "/nix/store/shell")
+        mock_copy_env.assert_called_once_with("10.0.0.5", "/tmp/dev-env.sh")
         data = cc_sandbox.Profile("owner", "repo").load()
         assert data["dev_shell_path"] == "/nix/store/shell"
         assert data["dev_shell_flake_lock_hash"] == "lockhash"
@@ -979,7 +1001,7 @@ class TestCmdSsh:
         mock_exec.assert_called_once_with("ssh", [
             "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
             "-t", "claude@10.0.0.5",
-            "cd /workspace/repo && nix develop",
+            "cd /workspace/repo && source /workspace/.dev-env.sh && exec bash",
         ])
 
     def test_no_develop_flag_skips_nix_develop(self, state_dir, mock_config):
