@@ -1,4 +1,30 @@
+use std::path::Path;
+
 use crate::protocol::ContainerDefinition;
+
+/// Resolve a volume mount to a host directory path under the volume root.
+///
+/// Layout: `<volume_root>/<user>/<volume_name>/`
+///
+/// Does NOT create the directory — callers should call `ensure_volume_dirs`
+/// before generating the unit.
+pub fn resolve_volume_path(volume_root: &str, user: &str, name: &str) -> String {
+    Path::new(volume_root).join(user).join(name).to_string_lossy().into_owned()
+}
+
+/// Create all volume directories for a container definition.
+/// Must be called before `generate_unit` so the paths exist at container start.
+pub fn ensure_volume_dirs(
+    def: &ContainerDefinition,
+    volume_root: &str,
+) -> Result<(), String> {
+    for vol in &def.volumes {
+        let path = Path::new(volume_root).join(&def.user).join(&vol.name);
+        std::fs::create_dir_all(&path)
+            .map_err(|e| format!("failed to create volume directory for '{}': {}", vol.name, e))?;
+    }
+    Ok(())
+}
 
 /// Generate a systemd .service file that runs a container via nerdctl/containerd.
 ///
@@ -14,6 +40,7 @@ pub fn generate_unit(
     runtime_class: &str,
     bridge_name: &str,
     nerdctl_path: &str,
+    volume_root: &str,
 ) -> String {
     let mut run_args: Vec<String> = vec![
         "run".to_string(),
@@ -35,7 +62,8 @@ pub fn generate_unit(
     }
 
     for vol in &def.volumes {
-        run_args.push(format!("--volume={}:{}", vol.host, vol.container));
+        let host_path = resolve_volume_path(volume_root, &def.user, &vol.name);
+        run_args.push(format!("--volume={}:{}", host_path, vol.container));
     }
 
     if let Some(ref memory) = def.memory {
@@ -90,9 +118,14 @@ mod tests {
 
     #[test]
     fn test_basic_unit() {
+        let tmp = std::env::temp_dir().join("deployd-test-volumes-basic");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let vol_root = tmp.to_str().unwrap();
+
         let def = ContainerDefinition {
             name: "myapp".into(),
             image: "creil.internal/myapp@sha256:abc123".into(),
+            user: "testuser".into(),
             ports: vec![PortMapping {
                 host: 8080,
                 container: 80,
@@ -104,7 +137,7 @@ mod tests {
                 m
             },
             volumes: vec![VolumeMount {
-                host: "/var/lib/myapp".into(),
+                name: "mydata".into(),
                 container: "/data".into(),
             }],
             persistent: true,
@@ -113,7 +146,11 @@ mod tests {
             cpus: None,
         };
 
-        let output = generate_unit(&def, "io.containerd.kata.v2", "br-deploy", nerdctl());
+        // ensure_volume_dirs creates the directories (called by executor before generate_unit)
+        ensure_volume_dirs(&def, vol_root).unwrap();
+        assert!(tmp.join("testuser/mydata").is_dir());
+
+        let output = generate_unit(&def, "io.containerd.kata.v2", "br-deploy", nerdctl(), vol_root);
         assert!(output.contains("Description=deployd: myapp"));
         assert!(output.contains("Requires=containerd.service"));
         assert!(output.contains("--name=myapp"));
@@ -121,10 +158,13 @@ mod tests {
         assert!(output.contains("--runtime=io.containerd.kata.v2"));
         assert!(output.contains("--publish=8080:80/tcp"));
         assert!(output.contains("--env=FOO=bar"));
-        assert!(output.contains("--volume=/var/lib/myapp:/data"));
+        let expected_vol = format!("--volume={}/testuser/mydata:/data", vol_root);
+        assert!(output.contains(&expected_vol), "expected '{}' in output", expected_vol);
         assert!(output.contains("creil.internal/myapp@sha256:abc123"));
         assert!(output.contains("Restart=on-failure"));
         assert!(output.contains("WantedBy=default.target"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -132,6 +172,7 @@ mod tests {
         let def = ContainerDefinition {
             name: "myapp".into(),
             image: "creil.internal/myapp@sha256:abc123".into(),
+            user: "testuser".into(),
             ports: vec![],
             env: {
                 let mut m = HashMap::new();
@@ -145,7 +186,7 @@ mod tests {
             cpus: None,
         };
 
-        let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl());
+        let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl(), "/tmp/vols");
         assert!(output.contains("\"--env=MSG=hello world\""));
     }
 
@@ -154,6 +195,7 @@ mod tests {
         let def = ContainerDefinition {
             name: "myapp".into(),
             image: "creil.internal/myapp@sha256:abc123".into(),
+            user: "testuser".into(),
             ports: vec![],
             env: HashMap::new(),
             volumes: vec![],
@@ -163,7 +205,7 @@ mod tests {
             cpus: None,
         };
 
-        let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl());
+        let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl(), "/tmp/vols");
         assert!(output.contains("--runtime=io.containerd.runc.v2"));
     }
 }

@@ -925,8 +925,7 @@ class TestCmdUp:
         volumes = mock_deploy.call_args.kwargs.get("volumes")
         assert volumes is not None
         assert len(volumes) == 1
-        assert volumes[0]["container"] == "/workspace/.claude"
-        assert volumes[0]["host"].endswith("/cc-sandbox/claude")
+        assert volumes[0] == {"name": "cc-claude-state", "container": "/workspace/.claude"}
 
 
 # --- cmd_down ---

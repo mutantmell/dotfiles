@@ -21,6 +21,9 @@ pub struct Config {
     pub nerdctl_path: String,
     /// Path to the deployd-exec privileged wrapper script (invoked via sudo).
     pub deployd_exec_path: String,
+    /// Root directory for managed volumes. Per-user subdirectories are created
+    /// automatically (e.g. <volume_root>/<user>/<volume_name>/).
+    pub volume_root: String,
 }
 
 impl Config {
@@ -47,6 +50,7 @@ impl Config {
                 "/run/current-system/sw/bin/nerdctl",
             ),
             deployd_exec_path: env_required("DEPLOYD_EXEC_PATH")?,
+            volume_root: env_or("DEPLOYD_VOLUME_ROOT", "/var/lib/deployd/volumes"),
         })
     }
 }

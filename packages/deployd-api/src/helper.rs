@@ -31,6 +31,9 @@ pub enum HelperCommand {
 pub struct ContainerDefinition {
     pub name: String,
     pub image: String,
+    /// User who initiated the deploy (injected by the API from OAuth claims).
+    #[serde(default)]
+    pub user: String,
     #[serde(default)]
     pub ports: Vec<PortMapping>,
     #[serde(default)]
@@ -69,7 +72,9 @@ fn default_tcp() -> PortProtocol {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VolumeMount {
-    pub host: String,
+    /// Volume name — resolved to a host directory by deployd-helper.
+    pub name: String,
+    /// Absolute mount target inside the container.
     pub container: String,
 }
 

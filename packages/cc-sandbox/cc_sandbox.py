@@ -773,13 +773,10 @@ def cmd_up(args, config, state, token_mgr):
     env["SANDBOX_GIT_TOKEN"] = config.forgejo_token
     env["SANDBOX_UPSTREAM_URL"] = data["upstream_url"]
 
-    # Shared Claude state directory — persists auth, memories, settings across containers.
-    # The container entrypoint chowns this to the claude user (UID 1000) on boot.
-    claude_state_dir = Path(xdg_state_home()) / "cc-sandbox" / "claude"
-    claude_state_dir.mkdir(parents=True, exist_ok=True)
-    claude_state_dir.chmod(0o700)
-
-    volumes = [{"host": str(claude_state_dir), "container": "/workspace/.claude"}]
+    # Named volume for Claude state — persists auth, memories, settings across containers.
+    # deployd-helper resolves this to a per-user directory on the host.
+    # The container entrypoint chowns /workspace/.claude to the claude user on boot.
+    volumes = [{"name": "cc-claude-state", "container": "/workspace/.claude"}]
 
     print(f"Deploying container for {owner}/{repo}...", flush=True)
     deployd_deploy(

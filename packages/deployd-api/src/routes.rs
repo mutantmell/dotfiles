@@ -39,10 +39,14 @@ pub async fn deploy(
         }
     };
 
-    let def: ContainerDefinition = match serde_json::from_slice(&body) {
+    let mut def: ContainerDefinition = match serde_json::from_slice(&body) {
         Ok(d) => d,
         Err(e) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("invalid request body: {}", e)}))),
     };
+
+    // Inject authenticated user — the helper uses this for per-user volume namespacing.
+    // Clients cannot set this field; it's always overwritten from the token.
+    def.user = claims.sub.clone();
 
     info!(user = %claims.sub, container = %def.name, "deploy request");
 

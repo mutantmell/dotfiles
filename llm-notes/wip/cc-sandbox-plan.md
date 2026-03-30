@@ -712,55 +712,52 @@ Claude Code already scopes project-level memories by workspace directory path in
 so different repos get different project memories even within the same `~/.claude/`
 directory. The shared volume mirrors how Claude Code works on a normal workstation.
 
-**No deployd-api or deployd-helper changes required.** The full volume pipeline already
-exists end-to-end:
+**Managed named volumes via deployd.** Rather than exposing host paths via bind mounts,
+volumes are managed by deployd-helper under a dedicated volume root
+(`/var/lib/deployd/volumes/<user>/<volume_name>/`). Clients specify only a volume name
+and a container mount target — deployd-helper resolves the name to a host directory,
+creating it on first use. Volumes are namespaced per user (from OAuth `claims.sub`).
 
-- deployd-api (`helper.rs`) accepts `volumes: Vec<VolumeMount>` and passes through
-- deployd-helper validates volume mounts (absolute paths, no `..`, blocks `/etc /boot
-/proc /sys /dev /nix`) then generates `--volume=host:container` nerdctl flags
-- cc-sandbox adds a `volumes` entry to the deploy payload
+**Changes across packages:**
 
-**Changes (cc-sandbox only):**
-
-1. Shared directory at `~/.local/state/cc-sandbox/claude/`, created on first `up`
-2. Directory ownership set to match container's `claude` user UID/GID (Kata uses a
-   real VM with no user namespace remapping — host UID must match image UID)
-3. Every deploy payload includes volume:
-   ```python
-   volumes=[{"host": "~/.local/state/cc-sandbox/claude",
-             "container": "/workspace/.claude"}]
-   ```
-4. First-time setup: pre-populate with auth token so the first sandbox doesn't need
-   manual authorization
+1. **deployd-helper:** `VolumeMount` struct changed from `{host, container}` to
+   `{name, container}`. New `volume_root` config field. `ensure_volume_dirs()` creates
+   directories before unit generation. `generate_unit()` resolves names to host paths.
+   Validation: volume names follow container name rules; `user` validated when volumes
+   are present (reuses `validate_name()` to prevent path traversal). Bind mount support
+   removed entirely.
+2. **deployd-api:** Injects `claims.sub` into `ContainerDefinition.user` — clients
+   cannot set this field (always overwritten from the token). `VolumeMount` struct
+   updated to match helper.
+3. **NixOS module:** `DEPLOYD_VOLUME_ROOT` env var, `StateDirectory = "deployd"` for
+   systemd-managed `/var/lib/deployd`.
+4. **Container image entrypoint:** chowns `/workspace/.claude` to the `claude` user on
+   boot (the host directory is owned by deployd-helper's UID, not UID 1000).
+5. **cc-sandbox:** deploy payload includes
+   `volumes=[{"name": "cc-claude-state", "container": "/workspace/.claude"}]`.
 
 **Security considerations:**
 
-1. **Host path exposure.** The volume mount exposes a state subdirectory into a Kata
-   VM. The path passes deployd-helper's validation (not under any blocked prefix). The
-   Kata VM boundary means the container can only see this specific mount, not the host
-   filesystem — stronger than a normal container bind mount.
+1. **No host path exposure.** Clients specify volume names, not paths. deployd-helper
+   resolves names under its own managed root. No filesystem structure leaks to clients.
 
-2. **Claude auth token on disk.** The `.claude/` directory contains an API key or OAuth
-   token. With persistence, this lives on erebonia's disk under the user's state
-   directory. This is the same trust model as sops secrets on that host. The directory
-   should be mode 700.
+2. **Per-user namespacing.** Volume directories are created under `<volume_root>/<user>/`,
+   where `user` comes from the OAuth token (injected by the API, not the client).
+   Prevents cross-user volume access. `user` is validated with the same rules as
+   container names to prevent path traversal.
 
-3. **Concurrent sandboxes.** If two sandboxes run simultaneously with the same shared
-   mount, both write to the same `claude/` directory. SQLite (which Claude Code may use
-   internally) handles concurrent writes from different hosts poorly. For single-user,
-   one-at-a-time usage a simple bind mount is sufficient. The `up` command can warn if
-   another sandbox is already running.
+3. **Claude auth token on disk.** The `.claude/` directory contains an API key or OAuth
+   token. With persistence, this lives on erebonia's disk under the deployd volume root.
+   This is the same trust model as sops secrets on that host.
 
-4. **Volume mount permissions.** The container's `claude` user has a fixed UID/GID set
-   in the image. The shared directory must be owned by that same UID. The first `up`
-   handles this. Since Kata uses a VM (no user namespace remapping), the UID mapping
-   is direct.
+4. **Concurrent sandboxes.** If two sandboxes run simultaneously with the same volume,
+   both write to the same `claude/` directory. For single-user, one-at-a-time usage
+   this is sufficient. The `up` command already errors if a container is running.
 
-5. **Container-path validation gap (pre-existing).** deployd-helper validates host paths
-   but does not restrict container mount targets. A compromised cc-sandbox process could
-   mount to arbitrary container paths. This is not new — any deployd client can already
-   specify arbitrary container paths. The mount target (`/workspace/.claude`) is benign.
-   A future hardening could add a container-path allowlist to deployd-helper.
+5. **Container-path validation gap (pre-existing).** deployd-helper validates volume
+   names but does not restrict container mount targets. A compromised client could mount
+   to arbitrary container paths. The mount target (`/workspace/.claude`) is benign.
+   A future hardening could add a container-path allowlist.
 
 ### Bare sandbox (no project)
 
@@ -800,10 +797,12 @@ Equivalent to the current `cc-sandbox create` without `--repo`.
    store paths from `nix copy`. **Follow-up:** replace with proper store path signing —
    generate a key pair, store the secret key in sops, bake the public key into the
    container's `trusted-public-keys`, and pass `--secret-key-file` to `nix copy`.
-5. **Claude state persistence** — COMPLETE. Shared `claude/` directory at
-   `$XDG_STATE_HOME/cc-sandbox/claude/` (mode 700, owned by UID 1000) is mounted into
-   every container at `/workspace/.claude` via deployd volumes. Created on first `up`.
-   Auth, memories, and settings persist across container lifecycles.
+5. **Claude state persistence** — COMPLETE. Named volume `cc-claude-state` mounted at
+   `/workspace/.claude` via deployd's managed volume system. deployd-helper creates
+   per-user directories under `/var/lib/deployd/volumes/<user>/`. Container entrypoint
+   chowns the mount to the `claude` user. Auth, memories, and settings persist across
+   container lifecycles. deployd changes: `VolumeMount` uses `name` instead of `host`,
+   API injects `claims.sub` as `user`, helper validates user + creates volume dirs.
 
 Each step is independently deployable and testable. Steps 2-5 depend on step 1.
 

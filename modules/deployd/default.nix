@@ -412,6 +412,7 @@ in {
             else "io.containerd.runc.v2";
           DEPLOYD_NERDCTL_PATH = nerdctlPath;
           DEPLOYD_EXEC_PATH = "${deployd-exec}";
+          DEPLOYD_VOLUME_ROOT = "/var/lib/deployd/volumes";
         };
 
         path = ["/run/wrappers"]; # sudo lives here on NixOS
@@ -426,6 +427,8 @@ in {
           # (systemd unit dirs, /var/lib/nerdctl, containerd socket, etc.),
           # defeating the purpose.  The sudo rule (single immutable store path)
           # is the privilege boundary instead.
+          StateDirectory = "deployd";
+          StateDirectoryMode = "0750";
           UMask = "0027";
           RestrictAddressFamilies = ["AF_UNIX" "AF_INET"];
           RestrictNamespaces = true;
