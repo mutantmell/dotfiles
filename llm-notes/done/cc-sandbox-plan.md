@@ -803,6 +803,9 @@ Equivalent to the current `cc-sandbox create` without `--repo`.
    chowns the mount to the `claude` user. Auth, memories, and settings persist across
    container lifecycles. deployd changes: `VolumeMount` uses `name` instead of `host`,
    API injects `claims.sub` as `user`, helper validates user + creates volume dirs.
+   **Known limitation:** Claude Code stores onboarding state in `/workspace/.claude.json`
+   (workspace-scoped, not under `~/.claude/`), so the setup wizard runs on every fresh
+   container. Credentials are still persisted — the OAuth flow is skipped after first auth.
 
 Each step is independently deployable and testable. Steps 2-5 depend on step 1.
 
