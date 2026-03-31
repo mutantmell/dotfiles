@@ -21,7 +21,7 @@ and some gaps in test coverage and deployment automation.
 ### Phase 1: Reduce friction in the largest files
 
 - [ ] **1.1 Split router6/default.nix into sub-files**
-      Current: 2573 lines in one file covering options, IP parsing, topology, DHCP, DNS,
+      Current: 2586 lines in one file covering options, IP parsing, topology, DHCP, DNS,
       DynDNS, firewall, systemd-networkd, assertions.
       Target structure:
 
@@ -63,11 +63,14 @@ and some gaps in test coverage and deployment automation.
       (`lib/common/data/network-display.nix`) or into the apps that consume them
       (`apps/netinfo.nix`, `apps/hostinfo.nix`).
 
-- [ ] **2.4 Reconcile mkEgressFilter (lib/common) vs router6 egressPolicy**
+- [ ] **2.4 Document mkEgressFilter (lib/common) vs router6 egressPolicy split**
       `lib/common/default.nix` has `mkEgressFilter` (raw nftables string template).
       Router6 has `firewall.egressPolicy` + `egressRules` (structured DSL-based).
-      Evaluate whether `mkEgressFilter` is still used; if only by non-router hosts,
-      consider migrating those to a lighter shared module or documenting the split.
+      mkEgressFilter is actively used by 12 microVM guest configs across calvard,
+      erebonia, and remiferia, plus the egress-filter test. The two approaches serve
+      different contexts: mkEgressFilter for standalone microVM guests, router6's
+      egressPolicy for the router itself. Document this split clearly and consider
+      whether a lighter shared module could unify the interface.
 
 ### Phase 3: Test coverage
 
@@ -80,32 +83,34 @@ and some gaps in test coverage and deployment automation.
   - Host alias resolution
   - Error on unknown host
 
-- [ ] **3.2 Add OpenWrt config builder tests**
-      `lib/openwrt/default.nix` (1112 lines) and `uci.nix` (230 lines) have no tests.
-      Add pure eval tests for UCI rendering and at least one device-type config snapshot.
+- [ ] **3.2 Add OpenWrt UCI rendering tests**
+      `tests/lib/openwrt-config.nix` already covers config builder functions
+      (mkDeviceConfig, mkSecretsMap, mkConfigFiles). What's missing is unit tests
+      for `lib/openwrt/uci.nix` (230 lines) — the UCI rendering layer itself.
+      Add pure eval tests for UCI attribute-to-string conversion and edge cases.
 
 ### Phase 4: Automation & cleanup
 
 - [ ] **4.1 Auto-derive host eval checks from nixosConfigurations**
-      Currently hardcoded to 4 hosts (lines 486-489 of flake.nix). Replace with:
+      Currently hardcoded to 4 hosts (lines 507-524 of flake.nix): thebeyond, calvard,
+      erebonia, remiferia. But nixosConfigurations has 6 active hosts — kernviter and
+      angbar are missing eval checks. Replace with:
 
   ```nix
   lib.mapAttrs' (name: _: lib.nameValuePair "host-eval-${name}" (mkHostCheck name))
     self.nixosConfigurations
   ```
 
-- [ ] **4.2 Add deploy-rs nodes for calvard, erebonia, remiferia**
-      Only thebeyond has a deploy-rs definition. Add the other three deployed hosts.
+- [ ] **4.2 Add deploy-rs nodes for calvard, erebonia, remiferia, kernviter, angbar**
+      Only thebeyond has a deploy-rs definition. Add the other five active hosts.
 
 - [ ] **4.3 Remove or document commented-out hosts**
       `azoth` (Raspberry Pi) and `arcus` (Steam Deck / Jovian) are commented out in
       flake.nix with no explanation. Either remove them or add a comment explaining
       their status and when they might return.
 
-- [ ] **4.4 Document the incus two-pass type probing**
-      `common/incus.nix` builds a VM system first to read `incus-guest.type`, then
-      rebuilds as container if needed. Add a comment explaining the laziness dependency
-      so future changes don't break it.
+- [x] **4.4 Document the incus two-pass type probing**
+      Already documented at `modules/common/incus.nix:33-42`.
 
 - [ ] **4.5 Audit scheduled-deploy module usage**
       Verify whether `modules/scheduled-deploy/` is used by any host. If not, decide
@@ -121,6 +126,5 @@ and some gaps in test coverage and deployment automation.
       Add a helper to generate matching IPv4 + IPv6 firewall rules from a single template,
       reducing the boilerplate of writing every rule twice in router configs.
 
-- [ ] **5.3 Document OpenWrt secret marker pattern**
-      The `{_secret = "key.name"}` convention in OpenWrt configs is undocumented.
-      Add a section to docs or a comment block in `lib/openwrt/default.nix`.
+- [x] **5.3 Document OpenWrt secret marker pattern**
+      Already documented at `lib/openwrt/default.nix:230-232` with examples.

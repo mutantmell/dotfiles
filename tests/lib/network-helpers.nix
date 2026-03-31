@@ -87,13 +87,6 @@
   aliasDataBasel = net.mkUnboundAliasData ["basel"];
   aliasDataBaselCount = assertEq "aliasDataBasel count" (builtins.length aliasDataBasel) 0;
 
-  # --- mkHostsFileEntries tests ---
-
-  hostsFileBasic = net.mkHostsFileEntries ["messeldam"];
-  hostsFileMesseldamV4 = contains "10.97.11.6 messeldam messeldam.internal.mutantmell.net messeldam.internal auth.mutantmell.net" hostsFileBasic;
-  hostsFileMesseldamV6 = contains "fdc6:55f2:0a5e:b::6 messeldam messeldam.internal.mutantmell.net messeldam.internal auth.mutantmell.net" hostsFileBasic;
-  hostsFileNoLegacy = !(contains "10.0." hostsFileBasic);
-
   # --- mkExtraHosts includes aliases ---
 
   extraHostsWithAliases = net.mkExtraHosts ["messeldam"];
@@ -192,11 +185,6 @@
     "mkUnboundAliasData produces 4 records for thebeyond (2 aliases)" = aliasDataThebeyondCount;
     "mkUnboundAliasData includes internal A record" = aliasDataThebeyondInternal;
     "mkUnboundAliasData produces 0 records for host without aliases" = aliasDataBaselCount;
-
-    # mkHostsFileEntries
-    "mkHostsFileEntries produces v4 with aliases for messeldam" = hostsFileMesseldamV4;
-    "mkHostsFileEntries produces v6 with aliases for messeldam" = hostsFileMesseldamV6;
-    "mkHostsFileEntries contains no legacy addresses" = hostsFileNoLegacy;
 
     # mkExtraHosts includes aliases
     "mkExtraHosts includes aliases in domain list" = extraHostsAliasIncluded;

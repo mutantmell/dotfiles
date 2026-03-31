@@ -288,21 +288,8 @@
     + lib.concatStringsSep "\n" (lib.mapAttrsToList hostinfoMarkdownRow hosts)
     + "\n";
 
-  # /etc/hosts format — one line per IP, with all domains for that host
-  mkHostsFileEntries = hostnames:
-    lib.concatMapStringsSep "\n" (name: let
-      h = hosts.${name};
-      domains = domainsForHost name;
-      domainStr = lib.concatStringsSep " " domains;
-    in
-      lib.concatStringsSep "\n" (lib.filter (s: s != "") [
-        (lib.optionalString (h ? ipv4) "${h.ipv4} ${domainStr}")
-        (lib.optionalString (h ? ipv6) "${h.ipv6} ${domainStr}")
-      ]))
-    hostnames;
-
   # Pre-computed /etc/hosts output for all registered hosts
-  hostsFile = mkHostsFileEntries (builtins.attrNames hosts);
+  hostsFile = mkExtraHosts (builtins.attrNames hosts);
 
   # mkEgressRules: Expand host-based egress rules into dual-stack nftables strings
   # Each rule: { host OR gateway = true OR any = true; proto = "tcp"|"udp"; port = int|string; comment? = string; }
@@ -358,7 +345,6 @@ in {
     mkEgressRules
     hostinfoSummary
     hostinfoMarkdown
-    mkHostsFileEntries
     hostsFile
     ;
 }

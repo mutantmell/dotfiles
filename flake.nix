@@ -208,6 +208,13 @@
         btrfs = import ./profiles/disko/btrfs.nix;
         incus-vm = import ./profiles/disko/incus-vm.nix;
       };
+      commonModules = [
+        sops-nix.nixosModules.sops
+        impermanence.nixosModules.impermanence
+        self.nixosModules.common
+        self.nixosModules."promtail-client"
+        self.nixosModules."node-exporter-client"
+      ];
       mk-nixos = args @ {
         nixpkgs,
         system,
@@ -227,12 +234,8 @@
                   config.allowUnfree = true;
                 };
               }
-              self.nixosModules.common
-              self.nixosModules."promtail-client"
-              self.nixosModules."node-exporter-client"
-              sops-nix.nixosModules.sops
-              impermanence.nixosModules.impermanence
             ]
+            ++ self.lib.commonModules
             ++ args.modules;
         };
 
@@ -240,55 +243,43 @@
         nixpkgs.lib.mkMerge [
           args
           {
-            imports = [
-              sops-nix.nixosModules.sops
-              impermanence.nixosModules.impermanence
-              self.nixosModules.common
-              self.nixosModules."promtail-client"
-              self.nixosModules."node-exporter-client"
-            ];
+            imports = self.lib.commonModules;
           }
         ];
       mk-incus-vm = guestModule:
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
-          modules = [
-            guestModule
-            sops-nix.nixosModules.sops
-            impermanence.nixosModules.impermanence
-            disko.nixosModules.disko
-            self.nixosModules.common
-            self.nixosModules."promtail-client"
-            self.nixosModules."node-exporter-client"
-            ./modules/incus/guest-options.nix
-            ./modules/incus/disko-virtual-machine.nix
-            {
-              nixpkgs = {
-                overlays = builtins.attrValues self.overlays;
-                config.allowUnfree = true;
-              };
-            }
-          ];
+          modules =
+            [
+              guestModule
+              disko.nixosModules.disko
+              ./modules/incus/guest-options.nix
+              ./modules/incus/disko-virtual-machine.nix
+              {
+                nixpkgs = {
+                  overlays = builtins.attrValues self.overlays;
+                  config.allowUnfree = true;
+                };
+              }
+            ]
+            ++ self.lib.commonModules;
         };
       mk-incus-container = guestModule:
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
-          modules = [
-            guestModule
-            sops-nix.nixosModules.sops
-            impermanence.nixosModules.impermanence
-            self.nixosModules.common
-            self.nixosModules."promtail-client"
-            self.nixosModules."node-exporter-client"
-            ./modules/incus/guest-options.nix
-            "${nixpkgs}/nixos/modules/virtualisation/lxc-container.nix"
-            {
-              nixpkgs = {
-                overlays = builtins.attrValues self.overlays;
-                config.allowUnfree = true;
-              };
-            }
-          ];
+          modules =
+            [
+              guestModule
+              ./modules/incus/guest-options.nix
+              "${nixpkgs}/nixos/modules/virtualisation/lxc-container.nix"
+              {
+                nixpkgs = {
+                  overlays = builtins.attrValues self.overlays;
+                  config.allowUnfree = true;
+                };
+              }
+            ]
+            ++ self.lib.commonModules;
         };
     };
 
@@ -516,11 +507,8 @@
             echo "Host ${name} config evaluated successfully"
             echo ok > $out
           '');
-      in {
-        host-eval-thebeyond = mkHostCheck "thebeyond";
-        host-eval-calvard = mkHostCheck "calvard";
-        host-eval-erebonia = mkHostCheck "erebonia";
-        host-eval-remiferia = mkHostCheck "remiferia";
-      }));
+      in
+        nixpkgs.lib.mapAttrs' (name: _: nixpkgs.lib.nameValuePair "host-eval-${name}" (mkHostCheck name))
+        self.nixosConfigurations));
   };
 }
