@@ -21,25 +21,7 @@ let
     mkOption
     mkEnableOption
     types
-    mkIf
-    mkMerge
-    optional
-    optionals
-    mapAttrs
-    mapAttrsToList
-    filterAttrs
-    concatMapAttrs
-    optionalAttrs
-    optionalString
-    concatStringsSep
-    flatten
-    filter
-    elem
-    splitString
-    toInt
-    any
     ;
-  inherit (builtins) attrNames attrValues hasAttr length head elemAt;
 
   # nftables DSL library for structured rule generation
   nft = import ../../lib/nftables.nix {inherit lib;};
@@ -229,129 +211,29 @@ let
   # Type for nftables rules: either a raw string or a structured attribute set
   nftRuleType = lib.types.either lib.types.str lib.types.attrs;
 
-  # ============================================================================
-  # Device Kind Queries
-  # ============================================================================
+  r6lib = import ./lib.nix {inherit cfg lib;};
 
-  # Get all devices of a specific kind from topology
-  # Example: devicesByKind "bond" returns all bond devices
-  devicesByKind = kind: filterAttrs (n: v: v.kind == kind) cfg.topology;
-
-  # ============================================================================
-  # Bond/Bridge Membership
-  # ============================================================================
-
-  # Generic helper: check if a device is a member of any container of given kind
-  isMember = kind: devName:
-    any (container: elem devName (container.members or []))
-    (attrValues (devicesByKind kind));
-
-  # Generic helper: find which container of given kind contains this member
-  # Throws an error if the member is in multiple containers (invalid config)
-  findContaining = kind: member: let
-    containers =
-      filter (c: elem member (c.members or []))
-      (mapAttrsToList (n: v: v // {name = n;}) (devicesByKind kind));
-    count = length containers;
-  in
-    if count == 0
-    then null
-    else if count == 1
-    then (head containers).name
-    else throw "Device '${member}' is in multiple ${kind}s: ${lib.concatStringsSep ", " (map (c: c.name) containers)}. Each device can only be in one ${kind}.";
-
-  # ============================================================================
-  # Topology Processing
-  # ============================================================================
-
-  # Helper to flatten topology into a list of all network interfaces
-  flattenTopology = let
-    flattenDevice = name: device: let
-      baseInterface = {
-        inherit name;
-        network = device.network or {type = "disabled";};
-        inherit (device) kind;
-        isVlan = false;
-        parent = null;
-        tag = null;
-        isBridge = device.kind == "bridge";
-        isBond = device.kind == "bond";
-      };
-
-      # VLANs nested under this device
-      vlans = mapAttrsToList (vlanName: vlan: {
-        name = vlanName;
-        # If VLAN is a bridge member, then fail if network is not disabled
-        network =
-          if isMember "bridge" vlanName && vlan.network.type != "disabled"
-          then throw "vlan cannot be a member of a bridge and have a network"
-          else vlan.network;
-        isVlan = true;
-        parent = name;
-        inherit (vlan) tag;
-        bridge =
-          if isMember "bridge" vlanName
-          then findContaining "bridge" vlanName
-          else null;
-        kind = "vlan";
-        isBridge = false;
-        isBond = false;
-      }) (device.vlans or {});
-    in
-      [baseInterface] ++ vlans;
-  in
-    flatten (mapAttrsToList flattenDevice cfg.topology);
-
-  # Get all interfaces matching a predicate
-  interfacesWhere = pred: map (i: i.name) (filter pred flattenTopology);
-
-  # Get interfaces in a specific zone
-  interfacesInZone = zoneName:
-    interfacesWhere (i: (i.network.zone or null) == zoneName);
-
-  # Get interfaces for a list of zones
-  zonesInterfaces = zoneNames:
-    lib.unique (lib.concatMap interfacesInZone zoneNames);
-
-  # Active zones (zones that have at least one interface assigned)
-  activeZones = filter (z: interfacesInZone z != []) (attrNames cfg.zones);
-
-  # Interfaces that should accept IPv6 Router Advertisements (DHCP/WAN interfaces)
-  raInterfaces =
-    interfacesWhere (i:
-      i.network.type == "dhcp" || (i.network.ipv6PrefixDelegation.enable or false));
-
-  # Check whether a zone's inputRules actually allow DNS (port 53) access
-  zoneAllowsDns = zoneName: let
-    zone = cfg.zones.${zoneName};
-    portMatchesDns = dp: dp == 53 || (lib.isList dp && elem 53 dp);
-    ruleAllowsDns = rule:
-      if lib.isAttrs rule
-      then
-        # Blanket accept (no port/proto restriction) → DNS allowed
-        ((rule ? verdict)
-          && rule.verdict == "accept"
-          && !(rule ? tcp)
-          && !(rule ? udp))
-        # Or explicitly allows UDP/TCP port 53
-        || ((rule ? udp) && portMatchesDns (rule.udp.dport or null))
-        || ((rule ? tcp) && portMatchesDns (rule.tcp.dport or null))
-      else true; # Raw strings: conservative, assume DNS allowed
-  in
-    any ruleAllowsDns zone.inputRules;
-
-  # Interfaces whose zones provide DNS service (kresd should listen)
-  dnsInterfaces = interfacesWhere (i: let
-    z = i.network.zone or null;
-  in
-    z != null && hasAttr z cfg.zones && zoneAllowsDns z);
-
-  # Get interfaces with DHCP server enabled
-  dhcpServerInterfaces = interfacesWhere (i: i.network.dhcp.enable or false);
-
-  # Get interfaces that need NAT
-  natInterfaces = interfacesWhere (i: i.network.nat.enable or false);
+  inherit
+    (lib)
+    mkIf
+    optionals
+    mapAttrsToList
+    filterAttrs
+    flatten
+    filter
+    elem
+    ;
+  inherit (builtins) attrNames attrValues hasAttr length;
+  inherit (r6lib) flattenTopology devicesByKind;
 in {
+  imports = [
+    ./dhcp.nix
+    ./dns.nix
+    ./dyndns.nix
+    ./firewall.nix
+    ./networking.nix
+  ];
+
   options.router6 = {
     enable = mkEnableOption "IPv6-ready router service";
 
@@ -432,14 +314,11 @@ in {
         ...
       }: {
         options = {
-          # Device kind (with smart default for physical interfaces)
           kind = mkOption {
             type = types.enum ["physical" "bond" "bridge" "batman" "wireguard"];
             default =
-              # Auto-default ONLY for unambiguous physical interfaces
               if config.mac != null || config.hardwareName != null
               then "physical"
-              # Everything else must be explicit
               else
                 throw ''
                   Device '${name}' must specify 'kind'.
@@ -458,7 +337,6 @@ in {
             '';
           };
 
-          # Interface identification (one of these required for physical interfaces)
           mac = mkOption {
             type = types.nullOr types.str;
             default = null;
@@ -473,14 +351,12 @@ in {
             example = "enp0s3";
           };
 
-          # Members (for bonds and bridges)
           members = mkOption {
             type = types.listOf types.str;
             default = [];
             description = "For bonds: physical interface names. For bridges: VLAN/interface names. For batman: physical interface or bond names.";
           };
 
-          # Bond-specific options
           mode = mkOption {
             type = types.nullOr (types.enum [
               "balance-rr"
@@ -507,13 +383,11 @@ in {
             description = "MII link monitoring interval";
           };
 
-          # Network configuration
           network = mkOption {
             type = mkNetworkSubmodule {};
             default = {type = "disabled";};
           };
 
-          # VLAN configuration
           vlans = mkOption {
             type = types.attrsOf (types.submodule {
               options = {
@@ -532,7 +406,6 @@ in {
             default = {};
           };
 
-          # Batman-adv mesh networking
           batman = mkOption {
             type = types.nullOr (types.submodule {
               options = {
@@ -550,7 +423,6 @@ in {
             description = "Batman-adv mesh configuration (makes this a batadv interface)";
           };
 
-          # Wireguard configuration
           wireguard = mkOption {
             type = types.nullOr (types.submodule {
               options = {
@@ -890,1697 +762,168 @@ in {
     };
   };
 
-  config = mkIf cfg.enable (let
-    # ============================================================================
-    # Address Generation & Parsing
-    # ============================================================================
-    # Parse a plain IP address string (no prefix length) into a structured object.
-    # Works on both IPv4 and IPv6. The result carries .isV6 and .ip so that
-    # isV4/isV6/partitionAF/firstIPv4/firstIPv6 work uniformly on both
-    # parseIPAddress and parseCIDR results.
-    parseIPAddress = ipStr: let
-      v6 = lib.hasInfix ":" ipStr;
-    in {
-      ip = ipStr;
-      isV6 = v6;
-      parts =
-        if v6
-        then lib.splitString ":" ipStr
-        else lib.splitString "." ipStr;
-      # For IPv6, the network prefix (part before ::) — used for RA and Kea subnet6
-      networkPrefix =
-        if v6
-        then "${head (lib.splitString "::" ipStr)}::"
-        else null;
-    };
-
-    # Parse a CIDR string ("ip/prefix") into a structured object.
-    # The .addr field holds the parseIPAddress result for the IP portion.
-    # Top-level .ip and .isV6 are shortcuts into .addr for convenience.
-    parseCIDR = cidrStr: let
-      parts = lib.splitString "/" cidrStr;
-    in
-      if length parts != 2
-      then throw "Invalid CIDR address '${cidrStr}' - must be in format 'ip/prefix'"
-      else let
-        addr = parseIPAddress (head parts);
-        prefix = lib.toInt (lib.elemAt parts 1);
-      in {
-        cidr = cidrStr;
-        inherit addr prefix;
-        inherit (addr) ip isV6 networkPrefix;
-        # For IPv4, calculate network address and pool defaults
-        networkAddr =
-          if addr.isV6
-          then null
-          else let
-            o = map lib.toInt addr.parts;
-          in "${toString (elemAt o 0)}.${toString (elemAt o 1)}.${toString (elemAt o 2)}.0";
-        poolStart =
-          if addr.isV6
-          then null
-          else "${elemAt addr.parts 0}.${elemAt addr.parts 1}.${elemAt addr.parts 2}.100";
-        poolEnd =
-          if addr.isV6
-          then null
-          else "${elemAt addr.parts 0}.${elemAt addr.parts 1}.${elemAt addr.parts 2}.200";
-        gateway = addr.ip; # Router is typically the gateway
-      };
-
-    # Address family helpers — operate on any parsed object (parseIPAddress or parseCIDR)
-    isV6 = a: a.isV6;
-    isV4 = a: !a.isV6;
-    partitionAF = addrs: {
-      all = addrs;
-      v4 = filter isV4 addrs;
-      v6 = filter isV6 addrs;
-    };
-
-    # Get first IPv4 parsed object from a list
-    firstIPv4 = addrs: let
-      v4 = filter isV4 addrs;
-    in
-      if v4 == []
-      then null
-      else head v4;
-
-    # Get first IPv6 parsed object from a list
-    firstIPv6 = addrs: let
-      v6 = filter isV6 addrs;
-    in
-      if v6 == []
-      then null
-      else head v6;
-
-    # Generate IPv6 address from ULA prefix and VLAN tag
-    mkAutoIPv6 = vlanTag:
-      if cfg.ulaPrefix != null
-      then let
-        basePrefix = lib.removeSuffix "::/48" cfg.ulaPrefix;
-        vlanHex = lib.toLower (lib.toHexString vlanTag);
-      in "${basePrefix}:${vlanHex}::1/64"
-      else null;
-
-    # Get effective addresses including auto-generated IPv6
-    # Returns list of parsed address objects (from parseCIDR)
-    getEffectiveAddresses = iface:
-      if iface == null
-      then []
-      else let
-        explicit = iface.network.addresses or [];
-        # Check raw strings for IPv6 before parsing (hasInfix on raw config strings)
-        hasExplicitV6 = lib.any (a: lib.hasInfix ":" a) explicit;
-
-        # Get subnetId: from network.subnetId if not null, otherwise default to VLAN tag
-        # Note: Can't use 'or' alone because it doesn't distinguish between null and missing
-        subnetId =
-          if (iface.network.subnetId or null) != null
-          then iface.network.subnetId
-          else (iface.tag or null);
-
-        # Auto-generate IPv6 if dhcp6 enabled, no explicit IPv6, and have subnetId
-        autoV6 =
-          if !hasExplicitV6 && (iface.network.dhcp6.enable or false) && subnetId != null
-          then mkAutoIPv6 subnetId
-          else null;
-
-        allAddrs = explicit ++ (optional (autoV6 != null) autoV6);
+  config = mkIf cfg.enable {
+    assertions =
+      # DHCPv6 server on WAN interface assertion
+      [
+        {
+          assertion =
+            !(lib.any (
+                i:
+                  (i.network.dhcp6.enable or false) && i.network.type == "dhcp"
+              )
+              flattenTopology);
+          message = "router6: dhcp6.enable (RA server) cannot be set on a DHCP client interface — it would send RAs upstream to the ISP";
+        }
+      ]
+      # dhcp6.dnsAddress must be set when dhcp6.enable is true
+      ++ (map (i: {
+        assertion = (i.network.dhcp6.dnsAddress or null) != null;
+        message = "router6: interface '${i.name}' has dhcp6.enable = true but no dhcp6.dnsAddress set. Set it to the router's ULA address on this interface (e.g. the address kresd listens on).";
+      }) (filter (i: i.network.dhcp6.enable or false) flattenTopology))
+      # pdSubnetId requires at least one PD source
+      ++ (let
+        hasPdSource = lib.any (i: i.network.ipv6PrefixDelegation.enable or false) flattenTopology;
+        pdReceivers = filter (i: (i.network.pdSubnetId or null) != null) flattenTopology;
       in
-        map parseCIDR allAddrs;
-
-    # Convert IPv4 address string to 32-bit integer for stable Kea subnet IDs
-    ipv4ToInt = ipStr: let
-      octets = splitString "." ipStr;
-    in
-      (toInt (elemAt octets 0))
-      * 16777216
-      + # 2^24
-      (toInt (elemAt octets 1)) * 65536
-      + # 2^16
-      (toInt (elemAt octets 2)) * 256
-      + # 2^8
-      (toInt (elemAt octets 3));
-
-    # Build Kea subnet4 config for an interface
-    mkKeaSubnet4 = iface: let
-      parsed = firstIPv4 (getEffectiveAddresses iface);
-      dhcpCfg = iface.network.dhcp;
-    in
-      if parsed == null
-      then null
-      else let
-        # Use explicit null check since dhcpCfg.poolStart exists but may be null
-        poolStart =
-          if dhcpCfg.poolStart != null
-          then dhcpCfg.poolStart
-          else parsed.poolStart;
-        poolEnd =
-          if dhcpCfg.poolEnd != null
-          then dhcpCfg.poolEnd
-          else parsed.poolEnd;
-        # Generate stable subnet ID from network address (unique per subnet)
-        subnetId = ipv4ToInt parsed.networkAddr;
-      in {
-        # Kea requires unique stable IDs for lease database integrity
-        id = subnetId;
-        subnet = "${parsed.networkAddr}/${toString parsed.prefix}";
-        pools = [
+        optionals (pdReceivers != []) [
           {
-            pool = "${poolStart} - ${poolEnd}";
+            assertion = hasPdSource;
+            message = "router6: interface(s) ${lib.concatMapStringsSep ", " (i: "'${i.name}'") pdReceivers} have pdSubnetId set but no interface has ipv6PrefixDelegation.enable = true";
           }
-        ];
-        option-data =
-          [
-            {
-              name = "routers";
-              data = parsed.gateway;
-            }
-            {
-              name = "domain-name-servers";
-              data = parsed.gateway;
-            }
-          ]
-          ++ optional (cfg.dns.localDomain != null) {
-            name = "domain-name";
-            data = cfg.dns.localDomain;
-          };
-        reservations = map (r:
-          {
-            hw-address = r.mac;
-            ip-address = r.ip;
-          }
-          // optionalAttrs (r.hostname != null) {
-            inherit (r) hostname;
-          }) (dhcpCfg.reservations or []);
-      };
-
-    # Generate all Kea subnets (IDs derived from network address for stability)
-    keaSubnets =
-      filter (x: x != null) (map mkKeaSubnet4
-        (filter (i: i.network.dhcp.enable or false) flattenTopology));
-
-    # Build Kea subnet6 config for an interface
-    mkKeaSubnet6 = iface: let
-      effectiveAddrs = getEffectiveAddresses iface;
-      parsed = firstIPv6 effectiveAddrs;
-      dhcp6Cfg = iface.network.dhcp6;
-    in
-      if parsed == null
-      then null
-      else let
-        # Stable subnet ID from subnetId or VLAN tag, offset to avoid collision with v4 IDs
-        subnetIdNum =
-          if (iface.network.subnetId or null) != null
-          then iface.network.subnetId
-          else (iface.tag or 1);
-      in {
-        id = 100000 + subnetIdNum;
-        subnet = "${parsed.networkPrefix}/${toString parsed.prefix}";
-        interface = iface.name;
-        pools =
-          if dhcp6Cfg.mode == "stateful"
-          then [
-            {
-              # DHCPv6 pool: ::1000 through ::1fff (avoids ::1 gateway and SLAAC range)
-              pool = "${parsed.networkPrefix}1000-${parsed.networkPrefix}1fff";
-            }
-          ]
-          else []; # stateless mode: no address pool, only options
-        option-data =
-          [
-            {
-              name = "dns-servers";
-              data = parsed.ip;
-            }
-          ]
-          ++ optional (cfg.dns.localDomain != null) {
-            name = "domain-search";
-            data = cfg.dns.localDomain;
-          };
-      };
-
-    # Interfaces that need Kea DHCPv6 (stateful or stateless, not pure slaac)
-    dhcp6ServerInterfaces =
-      interfacesWhere (i:
-        (i.network.dhcp6.enable or false) && (i.network.dhcp6.mode or "slaac") != "slaac");
-
-    # Generate all Kea DHCPv6 subnets
-    keaSubnets6 =
-      filter (x: x != null) (map mkKeaSubnet6
-        (filter (i: (i.network.dhcp6.enable or false) && (i.network.dhcp6.mode or "slaac") != "slaac") flattenTopology));
-
-    # ============================================================================
-    # nftables Helpers
-    # ============================================================================
-
-    # Concatenate rule sections, separating non-empty sections with blank lines
-    concatSections = sections: let
-      nonEmpty = filter (s: s != []) sections;
-    in
-      lib.concatLists (lib.intersperse [""] nonEmpty);
-
-    # Render a list of rules into an indented string block (empty string if no rules)
-    renderSection = ind: rules:
-      if rules == []
-      then ""
-      else "\n${ind}${nft.rulesToStringIndented ind rules}";
-  in
-    mkMerge [
-      # ===================
-      # Basic System Config
-      # ===================
-      {
-        boot.kernel.sysctl =
-          {
-            # Routing
-            "net.ipv4.conf.all.forwarding" = true;
-            "net.ipv6.conf.all.forwarding" = true;
-            "net.ipv4.conf.default.rp_filter" = 1;
-            "net.ipv4.conf.all.rp_filter" = 1;
-
-            # Accept RAs on external interface even when forwarding
-            "net.ipv6.conf.all.accept_ra" = 0;
-            "net.ipv6.conf.default.accept_ra" = 0;
-
-            # ICMP redirect hardening — router must not send or accept redirects
-            "net.ipv4.conf.all.send_redirects" = 0;
-            "net.ipv4.conf.default.send_redirects" = 0;
-            "net.ipv4.conf.all.accept_redirects" = 0;
-            "net.ipv4.conf.default.accept_redirects" = 0;
-            "net.ipv6.conf.all.accept_redirects" = 0;
-            "net.ipv6.conf.default.accept_redirects" = 0;
-
-            # Log martian packets (spoofed/impossible source addresses)
-            "net.ipv4.conf.all.log_martians" = 1;
-            "net.ipv4.conf.default.log_martians" = 1;
-
-            # Kernel hardening
-            "dev.tty.ldisc_autoload" = 0;
-            "fs.protected_fifos" = 2;
-            "fs.protected_regular" = 2;
-            "fs.suid_dumpable" = 0;
-            "kernel.kptr_restrict" = 2;
-            "kernel.sysrq" = 0;
-            "net.core.bpf_jit_harden" = 2;
-          }
-          // lib.listToAttrs (map (iface: {
-              name = "net.ipv6.conf.${iface}.accept_ra";
-              value = 2;
-            })
-            raInterfaces);
-
-        networking = {
-          useDHCP = false;
-          firewall.enable = false; # We use nftables directly
-        };
-
-        systemd.network.enable = true;
-        # Disable systemd-networkd-wait-online for routers.  A router has both
-        # DHCP WAN (lease arrives late) and static LAN interfaces.  When the
-        # WAN lease arrives, networkd re-triggers network-online.target, which
-        # puts kea's start job into "waiting" indefinitely.  A router must
-        # serve LAN DHCP independently of WAN state, so there is no meaningful
-        # "network is online" moment to wait for.
-        systemd.network.wait-online.enable = false;
-        services.resolved.enable = false; # We use kresd
-
-        environment.systemPackages = with pkgs; [
-          tcpdump
-          conntrack-tools
-          ethtool
-          dig
-        ];
-      }
-
-      # ========================
-      # systemd-networkd: Links
-      # ========================
-      {
-        systemd.network.links = lib.listToAttrs (filter (x: x != null) (
-          mapAttrsToList (
-            name: iface:
-              if iface.mac != null
-              then {
-                name = "00-${name}";
-                value = {
-                  matchConfig.MACAddress = iface.mac;
-                  matchConfig.Type = "ether";
-                  linkConfig.Name = name;
-                };
-              }
-              else if iface.hardwareName != null
-              then {
-                name = "00-${name}";
-                value = {
-                  matchConfig.OriginalName = iface.hardwareName;
-                  linkConfig.Name = name;
-                };
-              }
-              else null
-          )
-          cfg.topology
-        ));
-      }
-
-      # ==========================
-      # systemd-networkd: Netdevs
-      # ==========================
-      {
-        systemd.network.netdevs = let
-          # Bond netdevs (from topology) - 01- prefix (early, can be batman members)
-          bondDevs = mapAttrs (name: device: {
-            name = "01-${name}";
-            value = {
-              netdevConfig = {
-                Name = name;
-                Kind = "bond";
-              };
-              bondConfig =
-                {
-                  Mode = device.mode;
-                  MIIMonitorSec = device.miiMonitorSec or "100ms";
-                }
-                // optionalAttrs (device.mode == "802.3ad") {
-                  LACPTransmitRate = device.lacpTransmitRate or "fast";
-                };
-            };
-          }) (devicesByKind "bond");
-
-          # Bridge netdevs (from topology) - 03- prefix (after bonds/batman, before VLANs)
-          bridgeDevs = mapAttrs (name: device: {
-            name = "03-${name}";
-            value = {
-              netdevConfig = {
-                Name = name;
-                Kind = "bridge";
-              };
-            };
-          }) (devicesByKind "bridge");
-
-          # VLAN netdevs - 04- prefix (after all potential parent netdevs, before any network files)
-          vlanDevs =
-            concatMapAttrs (
-              parentName: parent:
-                mapAttrs (vlanName: vlan: {
-                  name = "04-${vlanName}";
-                  value = {
-                    netdevConfig = {
-                      Name = vlanName;
-                      Kind = "vlan";
-                    };
-                    vlanConfig.Id = vlan.tag;
-                  };
-                }) (parent.vlans or {})
-            )
-            cfg.topology;
-
-          # Batman netdevs - 02- prefix (after bonds, can use bonds as members)
-          batmanDevs = filterAttrs (n: v: v != null) (mapAttrs (
-              name: iface:
-                if iface.batman != null
-                then {
-                  name = "02-${name}";
-                  value = {
-                    netdevConfig = {
-                      Name = name;
-                      Kind = "batadv";
-                    };
-                    batmanAdvancedConfig = {
-                      GatewayMode = iface.batman.gatewayMode;
-                      RoutingAlgorithm = iface.batman.routingAlgorithm;
-                    };
-                  };
-                }
-                else null
-            )
-            cfg.topology);
-
-          # Wireguard netdevs - 30- prefix
-          wgDevs = filterAttrs (n: v: v != null) (mapAttrs (
-              name: iface:
-                if iface.wireguard != null
-                then {
-                  name = "30-${name}";
-                  value = {
-                    netdevConfig = {
-                      Name = name;
-                      Kind = "wireguard";
-                    };
-                    wireguardConfig =
-                      {
-                        PrivateKeyFile = iface.wireguard.privateKeyFile;
-                      }
-                      // optionalAttrs (iface.wireguard.port != null) {
-                        ListenPort = iface.wireguard.port;
-                      };
-                    wireguardPeers = map (peer:
-                      {
-                        PublicKey = peer.publicKey;
-                        AllowedIPs = peer.allowedIPs;
-                      }
-                      // optionalAttrs (peer.endpoint != null) {
-                        Endpoint = peer.endpoint;
-                      }
-                      // optionalAttrs (peer.persistentKeepalive != null) {
-                        PersistentKeepalive = peer.persistentKeepalive;
-                      })
-                    iface.wireguard.peers;
-                  };
-                }
-                else null
-            )
-            cfg.topology);
+        ])
+      # Dynamic DNS assertions
+      ++ (optionals cfg.dyndns.enable [
+        {
+          assertion = cfg.dyndns.passwordFile != null;
+          message = "router6.dyndns: passwordFile must be set when dyndns is enabled";
+        }
+        {
+          assertion = cfg.dyndns.domain != null || cfg.dyndns.domainFile != null;
+          message = "router6.dyndns: either domain or domainFile must be set";
+        }
+        {
+          assertion = !(cfg.dyndns.domain != null && cfg.dyndns.domainFile != null);
+          message = "router6.dyndns: domain and domainFile are mutually exclusive";
+        }
+        {
+          assertion = cfg.dyndns.hosts != [];
+          message = "router6.dyndns: at least one host must be specified";
+        }
+        {
+          assertion = cfg.dyndns.server != "";
+          message = "router6.dyndns: server must be set";
+        }
+      ])
+      # Zone assertions: accessTo and forwardRules must not overlap
+      ++ lib.concatMap (
+        zoneName: let
+          zone = cfg.zones.${zoneName};
         in
-          lib.listToAttrs (
-            mapAttrsToList (n: v: v) (bondDevs // bridgeDevs // vlanDevs // batmanDevs // wgDevs)
-          );
-      }
-
-      # ============================
-      # systemd-networkd: Networks
-      # ============================
-      {
-        systemd.network.networks = let
-          mkNetworkConfig = name: ifaceData: {
-            network,
-            kind,
-            vlans ? {},
-            ...
-          }: let
-            # Build membership config by merging all applicable memberships
-            membershipConfig =
-              (
-                if kind == "physical" && isMember "bond" name
-                then {Bond = findContaining "bond" name;}
-                else {}
-              )
-              // (
-                if (kind == "physical" || kind == "bond") && isMember "batman" name
-                then {BatmanAdvanced = findContaining "batman" name;}
-                else {}
-              )
-              // (
-                if isMember "bridge" name
-                then {Bridge = findContaining "bridge" name;}
-                else {}
-              );
-
-            # Get effective addresses as parsed objects (including auto-generated IPv6)
-            effectiveAddrs =
-              if ifaceData != null
-              then getEffectiveAddresses ifaceData
-              else map parseCIDR (network.addresses or []);
-            # Check if this interface should send Router Advertisements
-            # Driven by explicit options, not by type
-            shouldSendRA = (network.dhcp6.enable or false) || (network.pdSubnetId or null) != null;
-            # Get IPv6 addresses for RA prefix configuration
-            v6Addrs = filter isV6 effectiveAddrs;
-          in
-            {
-              matchConfig.Name = name;
-
-              # Static addresses (NixOS uses top-level 'address' list, not networkConfig.Address)
-              address =
-                if network.type == "static"
-                then map (a: a.cidr) effectiveAddrs
-                else [];
-
-              networkConfig =
-                {
-                  DHCP =
-                    if network.type == "dhcp"
-                    then "yes"
-                    else "no";
-                  IPv6AcceptRA = network.type == "dhcp" || (network.ipv6PrefixDelegation.enable or false);
-                  LinkLocalAddressing =
-                    if network.type == "disabled"
-                    then "no"
-                    else if network.type == "dhcp"
-                    then "yes"
-                    else "ipv6";
-                }
-                // optionalAttrs (network.type == "static" && length effectiveAddrs > 0) {
-                  # Address = effectiveAddrs;
-                }
-                // optionalAttrs (network.gateway != null) {
-                  Gateway = network.gateway;
-                }
-                // optionalAttrs (length network.dns > 0) {
-                  DNS = network.dns;
-                }
-                // optionalAttrs shouldSendRA {
-                  # Enable Router Advertisement on interfaces with dhcp6 enabled
-                  IPv6SendRA = true;
-                }
-                // optionalAttrs ((network.pdSubnetId or null) != null) {
-                  # Receive delegated /64 from WAN PD pool
-                  DHCPPrefixDelegation = true;
-                }
-                // membershipConfig; # Merge membership settings (Bond=, BatmanAdvanced=, Bridge=)
-
-              linkConfig =
-                {
-                  RequiredForOnline =
-                    if network.required
-                    then "routable"
-                    else "no";
-                }
-                // optionalAttrs (network.mtu != null) {
-                  MTUBytes = toString network.mtu;
-                };
-            }
-            // optionalAttrs shouldSendRA {
-              # IPv6 Router Advertisement configuration
-              ipv6SendRAConfig = let
-                dhcp6Mode = network.dhcp6.mode or "slaac";
-              in
-                {
-                  # RA flags control whether clients use DHCPv6:
-                  # slaac:     M=0, O=0 — SLAAC only, no DHCPv6
-                  # stateless: M=0, O=1 — SLAAC for addresses, DHCPv6 for DNS/options
-                  # stateful:  M=1, O=0 — DHCPv6 for addresses, SLAAC still runs for privacy
-                  Managed = dhcp6Mode == "stateful";
-                  OtherInformation = dhcp6Mode == "stateless";
-                  RouterLifetimeSec = 1800;
-                }
-                // optionalAttrs ((network.dhcp6.dnsAddress or null) != null) {
-                  # Advertise explicitly configured DNS server address in RAs
-                  EmitDNS = true;
-                  DNS = network.dhcp6.dnsAddress;
-                };
-
-              # Advertise static IPv6 prefixes for SLAAC (ULA)
-              # Delegated prefixes are announced automatically by DHCPPrefixDelegation
-              ipv6Prefixes =
-                map (addr: {
-                  Prefix = "${addr.networkPrefix}/${toString addr.prefix}";
-                  PreferredLifetimeSec = 3600;
-                  ValidLifetimeSec = 7200;
-                })
-                v6Addrs;
-            }
-            // optionalAttrs (network.ipv6PrefixDelegation.enable or false) {
-              # DHCPv6-PD client: request delegated prefix from ISP
-              dhcpV6Config = {
-                PrefixDelegationHint = "::/${toString network.ipv6PrefixDelegation.prefixLength}";
-                # Always send DHCPv6 solicits, even if ISP RA doesn't set M flag
-                WithoutRA = "solicit";
-                # Don't use ISP-provided DNS — we run our own resolver
-                UseDNS = false;
-                UseHostname = false;
-              };
-            }
-            // optionalAttrs ((network.pdSubnetId or null) != null) {
-              # Receive a /64 from the delegated prefix pool
-              dhcpPrefixDelegationConfig = {
-                SubnetId = network.pdSubnetId;
-                Token = "::1";
-                Announce = true;
-                Assign = true;
-              };
-            }
-            // optionalAttrs (vlans != {}) {
-              # Add VLAN list if device has VLANs
-              vlan = attrNames vlans;
-            };
-
-          # Determine numeric prefix for a device network
-          # 10- for regular devices, 40- for wireguard
-          devicePrefix = device:
-            if device.kind == "wireguard"
-            then "40-"
-            else "10-";
-
-          # Physical and virtual device networks
-          deviceNetworks =
-            mapAttrs (name: device: {
-              name = "${devicePrefix device}${name}";
-              value = mkNetworkConfig name (lib.findFirst (i: i.name == name) null flattenTopology) device;
-            })
-            cfg.topology;
-
-          # VLAN networks - 21- prefix
-          vlanNetworks =
-            concatMapAttrs (
-              parentName: parent:
-                mapAttrs (
-                  vlanName: vlan: let
-                    ifaceData = lib.findFirst (i: i.name == vlanName) null flattenTopology;
-
-                    # Bridged VLAN: attach to bridge, no own IP config
-                    bridgedVlan = {
-                      name = "21-${vlanName}";
-                      value = {
-                        matchConfig.Name = vlanName;
-                        networkConfig.Bridge = findContaining "bridge" vlanName;
-                        linkConfig.RequiredForOnline = "no";
-                      };
-                    };
-
-                    # Standalone VLAN: has own network config
-                    standaloneVlan = {
-                      name = "21-${vlanName}";
-                      value = mkNetworkConfig vlanName ifaceData {
-                        inherit (vlan) network;
-                        kind = "vlan";
-                      };
-                    };
-                  in
-                    if isMember "bridge" vlanName
-                    then bridgedVlan
-                    else standaloneVlan
-                ) (parent.vlans or {})
-            )
-            cfg.topology;
+          map (dstZone: {
+            assertion = !elem dstZone zone.accessTo;
+            message = "Zone '${zoneName}': destination '${dstZone}' appears in both accessTo and forwardRules. Use one or the other.";
+          }) (attrNames zone.forwardRules)
+      ) (attrNames cfg.zones)
+      # forwardRules keys reference valid zones
+      ++ lib.concatMap (
+        zoneName: let
+          zone = cfg.zones.${zoneName};
         in
-          lib.listToAttrs (
-            mapAttrsToList (n: v: v) (deviceNetworks // vlanNetworks)
-          );
-      }
-
-      # ===================
-      # Kea DHCP4 Server
-      # ===================
-      (mkIf (keaSubnets != []) {
-        services.kea.dhcp4 = {
-          enable = true;
-          settings = {
-            interfaces-config = {
-              interfaces = dhcpServerInterfaces;
-              dhcp-socket-type = "raw";
-              # Retry opening sockets when interfaces aren't ready at startup
-              # (e.g. VLANs on bridges that take time to come up)
-              service-sockets-max-retries = 10;
-              service-sockets-retry-wait-time = 2000;
-            };
-
-            lease-database = {
-              type = "memfile";
-              persist = true;
-              name = "/var/lib/kea/dhcp4.leases";
-            };
-
-            valid-lifetime = 7200;
-            renew-timer = 1800;
-            rebind-timer = 3600;
-
-            subnet4 = keaSubnets;
-
-            # Enable hostname updates to DNS
-            ddns-send-updates = false; # kresd handles local DNS differently
-
-            option-def = [];
-
-            loggers = [
-              {
-                name = "kea-dhcp4";
-                output_options = [{output = "syslog";}];
-                severity = "INFO";
-              }
-            ];
-          };
-        };
-      })
-
-      # ===================
-      # Kea DHCP6 Server
-      # ===================
-      (mkIf (keaSubnets6 != []) {
-        services.kea.dhcp6 = {
-          enable = true;
-          settings = {
-            interfaces-config = {
-              interfaces = dhcp6ServerInterfaces;
-              service-sockets-max-retries = 10;
-              service-sockets-retry-wait-time = 2000;
-            };
-
-            lease-database = {
-              type = "memfile";
-              persist = true;
-              name = "/var/lib/kea/dhcp6.leases";
-            };
-
-            preferred-lifetime = 3600;
-            valid-lifetime = 7200;
-            renew-timer = 1800;
-            rebind-timer = 3600;
-
-            subnet6 = keaSubnets6;
-
-            loggers = [
-              {
-                name = "kea-dhcp6";
-                output_options = [{output = "syslog";}];
-                severity = "INFO";
-              }
-            ];
-          };
-        };
-      })
-
-      # ===================
-      # kresd DNS Server
-      # ===================
-      {
-        services.kresd = {
-          enable = true;
-          listenPlain =
-            [
-              "127.0.0.1:53"
-              "[::1]:53"
-            ]
-            ++ (flatten (map (
-                iface: let
-                  ifaceData = lib.findFirst (i: i.name == iface) null flattenTopology;
-                  addrs =
-                    if ifaceData != null
-                    then getEffectiveAddresses ifaceData
-                    else [];
-                  split = partitionAF addrs;
-                in
-                  (map (a: "${a.ip}:53") split.v4)
-                  ++ (map (a: "[${a.ip}]:53") split.v6)
-              )
-              dnsInterfaces));
-
-          extraConfig = let
-            primaryServers = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.upstream);
-            staticFallback = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.fallback);
-            hasStaticFallback = cfg.dns.fallback != [] && cfg.dns.fallback != cfg.dns.upstream;
-            hasPrimary = cfg.dns.upstream != [];
-            useDHCP = cfg.dns.useDHCPFallback;
-          in ''
-            modules.load('policy')
-
-            ${optionalString (hasPrimary && (useDHCP || hasStaticFallback)) ''
-              -- Primary DNS with fallback support
-              local primary_failures = 0
-              local last_primary_success = os.time()
-              local primary_down = false
-              local PRIMARY_THRESHOLD = 3      -- failures before switching
-              local PRIMARY_RETRY = 30         -- seconds before retrying primary
-
-              local primary = policy.FORWARD({${primaryServers}})
-
-              -- Read DHCP-provided DNS servers from lease file
-              local function get_dhcp_dns()
-                local servers = {}
-                local f = io.open('/run/kresd/dhcp-dns', 'r')
-                if f then
-                  for line in f:lines() do
-                    local ip = line:match('^%s*(.-)%s*$')  -- trim whitespace
-                    if ip and ip ~= "" then
-                      table.insert(servers, ip)
-                    end
-                  end
-                  f:close()
-                end
-                return servers
-              end
-
-              local function get_fallback()
-                ${
-                if useDHCP
-                then ''
-                  local dhcp_servers = get_dhcp_dns()
-                  if #dhcp_servers > 0 then
-                    return policy.FORWARD(dhcp_servers)
-                  end
-                ''
-                else ""
-              }
-                ${
-                if hasStaticFallback
-                then ''
-                  return policy.FORWARD({${staticFallback}})
-                ''
-                else ''
-                  return nil
-                ''
-              }
-              end
-
-              policy.add(function(state, req)
-                -- If primary is marked down, check if we should retry
-                if primary_down then
-                  if os.time() - last_primary_success > PRIMARY_RETRY then
-                    primary_down = false
-                    primary_failures = 0
-                  else
-                    local fb = get_fallback()
-                    if fb then return fb(state, req) end
-                  end
-                end
-
-                -- Try primary
-                local result = primary(state, req)
-                if result then
-                  last_primary_success = os.time()
-                  primary_failures = 0
-                  return result
-                else
-                  primary_failures = primary_failures + 1
-                  if primary_failures >= PRIMARY_THRESHOLD then
-                    primary_down = true
-                    log('[dns] Primary DNS unavailable, switching to fallback')
-                  end
-                  local fb = get_fallback()
-                  if fb then return fb(state, req) end
-                end
-              end)
-            ''}
-
-            ${optionalString (hasPrimary && !useDHCP && !hasStaticFallback) ''
-              -- Upstream DNS servers (no fallback configured)
-              policy.add(policy.all(policy.FORWARD({${primaryServers}})))
-            ''}
-
-            ${optionalString (!hasPrimary && useDHCP) ''
-              -- Use DHCP-provided DNS only
-              local function get_dhcp_dns()
-                local servers = {}
-                local f = io.open('/run/kresd/dhcp-dns', 'r')
-                if f then
-                  for line in f:lines() do
-                    local ip = line:match('^%s*(.-)%s*$')
-                    if ip and ip ~= "" then
-                      table.insert(servers, ip)
-                    end
-                  end
-                  f:close()
-                end
-                return servers
-              end
-
-              policy.add(function(state, req)
-                local servers = get_dhcp_dns()
-                if #servers > 0 then
-                  return policy.FORWARD(servers)(state, req)
-                end
-              end)
-            ''}
-
-            ${optionalString (cfg.dns.localDomain != null) ''
-              -- Block external resolution of local domain
-              policy.add(policy.suffix(policy.DENY, policy.todnames({'${cfg.dns.localDomain}.'})))
-            ''}
-
-            -- DNSSEC (kresd has validation enabled by default with built-in root keys)
-            ${optionalString (!cfg.dns.enableDNSSEC) ''
-              trust_anchors.negative = { '.' }
-            ''}
-
-            -- Cache size (helps during outages)
-            cache.size = 100 * MB
-          '';
-        };
-
-        # Create directory for DHCP DNS file
-        systemd.tmpfiles.rules = [
-          "d /run/kresd 0755 knot-resolver knot-resolver -"
-        ];
-
-        # Service to extract DNS from DHCP lease and write to kresd-readable file
-        systemd.services.kresd-dhcp-dns = mkIf cfg.dns.useDHCPFallback {
-          description = "Extract DNS servers from DHCP lease for kresd";
-          after = ["systemd-networkd.service"];
-          wantedBy = ["multi-user.target"];
-
-          # Run when network changes
-          serviceConfig = {
-            Type = "oneshot";
-            RemainAfterExit = true;
-            ExecStart = let
-              script = pkgs.writeShellScript "kresd-dhcp-dns" ''
-                set -euo pipefail
-                mkdir -p /run/kresd
-                : > /run/kresd/dhcp-dns.tmp
-
-                # Look for lease files from DHCP interfaces
-                for lease in /run/systemd/netif/leases/*; do
-                  [ -f "$lease" ] || continue
-                  # Extract DNS servers from lease
-                  ${pkgs.gnugrep}/bin/grep -E '^DNS=' "$lease" 2>/dev/null | \
-                    ${pkgs.coreutils}/bin/cut -d= -f2 | \
-                    ${pkgs.coreutils}/bin/tr ' ' '\n' >> /run/kresd/dhcp-dns.tmp || true
-                done
-
-                # Deduplicate and move to final location
-                ${pkgs.coreutils}/bin/sort -u /run/kresd/dhcp-dns.tmp > /run/kresd/dhcp-dns
-                rm -f /run/kresd/dhcp-dns.tmp
-
-                # Log what we found
-                if [ -s /run/kresd/dhcp-dns ]; then
-                  echo "DHCP DNS servers: $(${pkgs.coreutils}/bin/tr '\n' ' ' < /run/kresd/dhcp-dns)"
-                else
-                  echo "No DHCP DNS servers found"
-                fi
-              '';
-            in "${script}";
-          };
-        };
-
-        # Trigger DNS extraction when network changes
-        systemd.paths.kresd-dhcp-dns = mkIf cfg.dns.useDHCPFallback {
-          description = "Watch for DHCP lease changes";
-          wantedBy = ["multi-user.target"];
-          pathConfig = {
-            PathChanged = "/run/systemd/netif/leases";
-            Unit = "kresd-dhcp-dns.service";
-          };
-        };
-      }
-
-      # ===================
-      # Dynamic DNS
-      # ===================
-      (mkIf cfg.dyndns.enable (let
-        inherit (cfg) dyndns;
-        dhcpIfaces = filter (i: i.network.type == "dhcp") flattenTopology;
-        inferredIface =
-          if length dhcpIfaces == 1
-          then (head dhcpIfaces).name
-          else throw "router6.dyndns: cannot infer external interface (found ${toString (length dhcpIfaces)} DHCP interfaces) — set router6.dyndns.interface explicitly";
-        iface =
-          if dyndns.interface != null
-          then dyndns.interface
-          else inferredIface;
-        hostsList = concatStringsSep " " (map (h: ''"${h}"'') dyndns.hosts);
-      in {
-        systemd.services.router6-dyndns = {
-          description = "Dynamic DNS updater";
-          after = ["network-online.target"];
-          wants = ["network-online.target"];
-          serviceConfig = {
-            Type = "oneshot";
-            RuntimeDirectory = "router6-dyndns";
-          };
-          path = [pkgs.curl pkgs.dig pkgs.gnugrep pkgs.iproute2];
-          script =
-            if dyndns.protocol == "namecheap"
-            then ''
-              set -euo pipefail
-
-              STATE_DIR="/run/router6-dyndns"
-              DDNS_EXTERNAL_IP="$(ip -4 a show ${iface} | grep -Po 'inet \K[0-9.]*' | head -1)"
-              DDNS_DOMAIN="${
-                if dyndns.domain != null
-                then dyndns.domain
-                else "$(cat ${dyndns.domainFile})"
-              }"
-              DDNS_PASSWORD="$(cat ${dyndns.passwordFile})"
-
-              LAST_IP=""
-              if [ -f "$STATE_DIR/last-ip" ]; then
-                LAST_IP="$(cat "$STATE_DIR/last-ip")"
-              fi
-
-              if [ "$DDNS_EXTERNAL_IP" = "$LAST_IP" ]; then
-                echo "External IP $DDNS_EXTERNAL_IP unchanged since last run, skipping"
-                exit 0
-              fi
-
-              ERRORS=0
-              for DDNS_HOST in ${hostsList}; do
-                DDNS_FQDN="$DDNS_HOST.$DDNS_DOMAIN"
-                if [ "$DDNS_HOST" = "@" ]; then
-                  DDNS_FQDN="$DDNS_DOMAIN"
-                fi
-
-                DDNS_DOMAIN_IP="$(dig +short -t A "$DDNS_FQDN" | head -1)" || DDNS_DOMAIN_IP=""
-                if [ "$DDNS_EXTERNAL_IP" != "$DDNS_DOMAIN_IP" ]; then
-                  echo "Updating $DDNS_HOST: $DDNS_DOMAIN_IP -> $DDNS_EXTERNAL_IP"
-                  RESPONSE="$(curl -sf --get \
-                    --data-urlencode "host=$DDNS_HOST" \
-                    --data-urlencode "domain=$DDNS_DOMAIN" \
-                    --data-urlencode "password=$DDNS_PASSWORD" \
-                    "${dyndns.server}/update")" || {
-                    echo "ERROR: curl failed for host $DDNS_HOST" >&2
-                    ERRORS=$((ERRORS + 1))
-                    continue
-                  }
-                  echo "Response for $DDNS_HOST: $RESPONSE"
-                else
-                  echo "$DDNS_HOST already points to $DDNS_EXTERNAL_IP"
-                fi
-              done
-
-              if [ "$ERRORS" -eq 0 ]; then
-                echo "$DDNS_EXTERNAL_IP" > "$STATE_DIR/last-ip"
-              else
-                echo "WARNING: $ERRORS host(s) failed to update, not caching IP" >&2
-                exit 1
-              fi
-            ''
-            else throw "router6.dyndns: unknown protocol '${dyndns.protocol}'";
-        };
-
-        systemd.timers.router6-dyndns = {
-          description = "Dynamic DNS update timer";
-          wantedBy = ["timers.target"];
-          timerConfig = {
-            OnBootSec = dyndns.renewPeriod;
-            OnUnitActiveSec = dyndns.renewPeriod;
-            RandomizedDelaySec = "5m";
-            Unit = "router6-dyndns.service";
-          };
-        };
-      }))
-
-      # ===================
-      # nftables Firewall
-      # ===================
-      {
-        networking.nftables = {
-          enable = true;
-          ruleset = let
-            # Wireguard ports that need to be opened
-            wgPorts = filter (p: p != null) (mapAttrsToList (
-                name: iface:
-                  if iface.wireguard != null && iface.wireguard.openFirewall && iface.wireguard.port != null
-                  then iface.wireguard.port
-                  else null
-              )
-              cfg.topology);
-
-            # Port forwarding helper — builds protocol + interface match
-            mkProtoMatch = {
-              proto,
-              iifname,
-              dport,
-            }:
-              if proto == "both"
-              then {
-                inherit iifname;
-                meta.l4proto = "{ tcp, udp }";
-                th.dport = dport;
-              }
-              else {
-                inherit iifname;
-                ${proto}.dport = dport;
-              };
-
-            # DNAT prerouting rules
-            dnatRulesList =
-              map (
-                pf:
-                  (mkProtoMatch {
-                    inherit (pf) proto;
-                    iifname = pf.sourceInterface;
-                    dport = pf.sourcePort;
-                  })
-                  // {verdict = {dnat = pf.destination;};}
-              )
-              cfg.firewall.portForwards;
-
-            # Port forward accept rules for forward chain
-            forwardDnatRulesList =
-              map (
-                pf: let
-                  destParts = lib.splitString ":" pf.destination;
-                  destIP = head destParts;
-                  destPort = elemAt destParts 1;
-                in
-                  (mkProtoMatch {
-                    inherit (pf) proto;
-                    iifname = pf.sourceInterface;
-                    dport = destPort;
-                  })
-                  // {
-                    ip.daddr = destIP;
-                    verdict = "accept";
-                  }
-                  // optionalAttrs (pf.destinationInterface != null) {oifname = pf.destinationInterface;}
-              )
-              cfg.firewall.portForwards;
-
-            # DNS interception DNAT rules
-            # Redirects non-router DNS traffic to the router's kresd instance.
-            # Excludes: configured upstream/exclude addresses (source), all router IPs (destination).
-            dnsIntercept = cfg.dns.interception;
-
-            # Plain IP addresses (not CIDR) — use parseIPAddress so partitionAF works
-            dnsExcludes = partitionAF (map parseIPAddress (
-              (
-                if dnsIntercept.excludeAddresses != []
-                then dnsIntercept.excludeAddresses
-                else cfg.dns.upstream
-              )
-              ++ dnsIntercept.extraExcludeAddresses
-            ));
-
-            allRouterAddrs = lib.concatMap getEffectiveAddresses flattenTopology;
-            routerIPs = partitionAF allRouterAddrs;
-
-            dnsTargets = let
-              dnsIfaceAddrs =
-                lib.concatMap getEffectiveAddresses
-                (filter (i: let
-                  z = i.network.zone or null;
-                in
-                  z != null && hasAttr z cfg.zones && zoneAllowsDns z)
-                flattenTopology);
-            in {
-              v4 =
-                if dnsIntercept.target != null
-                then parseIPAddress dnsIntercept.target
-                else firstIPv4 dnsIfaceAddrs;
-              v6 =
-                if dnsIntercept.target6 != null
-                then parseIPAddress dnsIntercept.target6
-                else firstIPv6 dnsIfaceAddrs;
-            };
-
-            mkNftSet = addrs:
-              if length addrs == 1
-              then head addrs
-              else "{ ${concatStringsSep ", " addrs} }";
-
-            # Build interception rules for one address family.
-            # All inputs are parsed address objects; .ip is extracted here at the nftables boundary.
-            mkDnsInterceptRules = {
-              af,
-              excludes,
-              routers,
-              target,
-            }:
-              optionals (dnsIntercept.enable && target != null) (
-                let
-                  srcExcludes = lib.unique (map (a: a.ip) excludes);
-                  dstExcludes = lib.unique (map (a: a.ip) (routers ++ excludes));
-                  afAttrs =
-                    optionalAttrs (srcExcludes != []) {saddr = {not = mkNftSet srcExcludes;};}
-                    // optionalAttrs (dstExcludes != []) {daddr = {not = mkNftSet dstExcludes;};};
-                  dnatTarget =
-                    if af == "ip6"
-                    then "[${target.ip}]:53"
-                    else "${target.ip}:53";
-                  mkRule = proto: {
-                    ${af} = afAttrs;
-                    ${proto}.dport = 53;
-                    verdict = {dnat = dnatTarget;};
-                  };
-                in [(mkRule "udp") (mkRule "tcp")]
-              );
-
-            dnsInterceptV4RulesList = mkDnsInterceptRules {
-              af = "ip";
-              excludes = dnsExcludes.v4;
-              routers = routerIPs.v4;
-              target = dnsTargets.v4;
-            };
-
-            dnsInterceptV6RulesList = mkDnsInterceptRules {
-              af = "ip6";
-              excludes = dnsExcludes.v6;
-              routers = routerIPs.v6;
-              target = dnsTargets.v6;
-            };
-
-            # Indentation helper
-            ind = "              ";
-
-            # Base rules for input chain
-            inputBaseRules = optionals cfg.firewall.baseRules [
-              "# Accept established/related, drop invalid"
-              {
-                ct.state = ["established" "related"];
-                verdict = "accept";
-              }
-              {
-                ct.state = "invalid";
-                verdict = "drop";
-              }
-              ""
-              "# Accept loopback"
-              {
-                iifname = "lo";
-                verdict = "accept";
-              }
-              ""
-              "# Accept essential ICMP/ICMPv6 from anywhere (required for network operation)"
-              "# - destination-unreachable: connection handling"
-              "# - packet-too-big (v6) / frag-needed (v4): Path MTU Discovery (critical)"
-              "# - time-exceeded: traceroute, TTL expiry"
-              "# - parameter-problem: malformed packet notification"
-              {
-                icmp.type = ["destination-unreachable" "time-exceeded" "parameter-problem"];
-                verdict = "accept";
-              }
-              {
-                icmpv6.type = ["destination-unreachable" "packet-too-big" "time-exceeded" "parameter-problem"];
-                verdict = "accept";
-              }
-              ""
-              "# Accept Neighbor Discovery (required for IPv6 to function - like ARP for IPv4)"
-              {
-                icmpv6.type = ["nd-router-solicit" "nd-router-advert" "nd-neighbor-solicit" "nd-neighbor-advert"];
-                verdict = "accept";
-              }
-            ];
-
-            # Generate zone input rules (ICMP echo + inputRules)
-            # DHCPv6 client rule: allow incoming DHCPv6 responses (UDP port 546)
-            # DHCPv6 uses regular UDP sockets (unlike DHCPv4 which uses raw sockets),
-            # so it IS subject to nftables. Solicits go to multicast ff02::1:2,
-            # making conntrack unable to match the unicast response as "established".
-            dhcp6ClientIfaces =
-              interfacesWhere (i:
-                i.network.type == "dhcp" || (i.network.ipv6PrefixDelegation.enable or false));
-
-            zoneInputRules =
-              lib.concatMap (
-                zoneName: let
-                  zone = cfg.zones.${zoneName};
-                  ifaces = interfacesInZone zoneName;
-                  limitOrNull =
-                    if cfg.firewall.icmpRateLimit != null
-                    then cfg.firewall.icmpRateLimit
-                    else null;
-                  icmpV4Rules = optionals (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv4-only") [
-                    {
-                      iifname = ifaces;
-                      icmp.type = ["echo-request" "echo-reply"];
-                      limit = limitOrNull;
-                      verdict = "accept";
-                    }
-                  ];
-                  icmpV6Rules = optionals (zone.icmpEcho == "enable" || zone.icmpEcho == "ipv6-only") [
-                    {
-                      iifname = ifaces;
-                      icmpv6.type = ["echo-request" "echo-reply"];
-                      limit = limitOrNull;
-                      verdict = "accept";
-                    }
-                  ];
-                  inputLines = map (rule: rule // {iifname = ifaces;}) zone.inputRules;
-                in
-                  if ifaces == []
-                  then []
-                  else icmpV4Rules ++ icmpV6Rules ++ inputLines
-              )
-              activeZones;
-
-            # DHCPv6 client responses (bypasses conntrack — multicast Solicit)
-            dhcp6ClientRules = optionals (dhcp6ClientIfaces != []) [
-              {
-                iifname = dhcp6ClientIfaces;
-                udp.dport = 546;
-                verdict = "accept";
-              }
-            ];
-
-            # Wireguard port rules
-            wgRules = optionals (wgPorts != []) [
-              {
-                udp.dport = wgPorts;
-                verdict = "accept";
-              }
-            ];
-
-            # Base rules for forward chain
-            forwardBaseRules = optionals cfg.firewall.baseRules [
-              "# Accept established/related, drop invalid"
-              {
-                ct.state = ["established" "related"];
-                verdict = "accept";
-              }
-              {
-                ct.state = "invalid";
-                verdict = "drop";
-              }
-              ""
-              "# Clamp MSS to path MTU"
-              "tcp flags syn tcp option maxseg size set rt mtu"
-            ];
-
-            # Generate zone forward rules (accessTo)
-            zoneForwardAccessRules =
-              lib.concatMap (
-                zoneName: let
-                  zone = cfg.zones.${zoneName};
-                  srcIfaces = interfacesInZone zoneName;
-                  dstIfaces = zonesInterfaces zone.accessTo;
-                in
-                  if srcIfaces != [] && dstIfaces != []
-                  then [
-                    {
-                      iifname = srcIfaces;
-                      oifname = dstIfaces;
-                      verdict = "accept";
-                    }
-                  ]
-                  else []
-              )
-              activeZones;
-
-            # Generate zone forward filter rules (forwardRules)
-            zoneForwardFilterRules =
-              lib.concatMap (
-                zoneName: let
-                  zone = cfg.zones.${zoneName};
-                  srcIfaces = interfacesInZone zoneName;
-                in
-                  lib.concatLists (lib.mapAttrsToList (
-                      dstZone: rulesList: let
-                        dstIfaces = interfacesInZone dstZone;
-                      in
-                        if srcIfaces != [] && dstIfaces != [] && rulesList != []
-                        then
-                          map (rule:
-                            rule
-                            // {
-                              iifname = srcIfaces;
-                              oifname = dstIfaces;
-                            })
-                          rulesList
-                        else []
-                    )
-                    zone.forwardRules)
-              )
-              activeZones;
-
-            # Port forward accept rules for forward chain
-            forwardDnatAcceptRules = forwardDnatRulesList;
-
-            # Drop logging (rate-limited log + explicit drop before implicit policy drop)
-            mkDropLog = chain:
-              optionals cfg.firewall.logDropped [
-                {
-                  limit = cfg.firewall.logDroppedRateLimit;
-                  log = "DROP-${chain}: ";
-                  counter = true;
-                  verdict = "drop";
-                }
-                {
-                  counter = true;
-                  verdict = "drop";
-                }
-              ];
-
-            # Egress (output) chain rules
-            egressPolicy =
-              if cfg.firewall.egressPolicy == "drop"
-              then "drop"
-              else "accept";
-            egressChainRules =
-              if cfg.firewall.egressPolicy == "accept"
-              then ""
-              else let
-                # Base egress rules
-                egressBaseRules = [
-                  {
-                    ct.state = ["established" "related"];
-                    verdict = "accept";
-                  }
-                  {
-                    oifname = "lo";
-                    verdict = "accept";
-                  }
-                  {
-                    icmp.type = ["destination-unreachable" "time-exceeded" "parameter-problem" "echo-request" "echo-reply"];
-                    verdict = "accept";
-                  }
-                  {
-                    icmpv6.type = ["destination-unreachable" "packet-too-big" "time-exceeded" "parameter-problem" "echo-request" "echo-reply" "nd-router-solicit" "nd-router-advert" "nd-neighbor-solicit" "nd-neighbor-advert"];
-                    verdict = "accept";
-                  }
-                ];
-                # User-defined egress rules
-                egressUserRules = cfg.firewall.egressRules;
-                # Log unmatched egress traffic
-                egressLog = optionals (cfg.firewall.egressPolicy == "log") [
-                  {
-                    limit = cfg.firewall.logDroppedRateLimit;
-                    log = cfg.firewall.egressLogPrefix;
-                    counter = true;
-                  }
-                ];
-                allEgressRules = concatSections [egressBaseRules egressUserRules egressLog];
-              in "${ind}${nft.rulesToStringIndented ind allEgressRules}";
-
-            # Combine all input chain rules
-            allInputRules = concatSections [
-              inputBaseRules
-              zoneInputRules
-              dhcp6ClientRules
-              wgRules
-              cfg.firewall.extraInputRules
-              (mkDropLog "INPUT")
-            ];
-
-            # Combine all forward chain rules
-            allForwardRules = concatSections [
-              forwardBaseRules
-              zoneForwardAccessRules
-              zoneForwardFilterRules
-              forwardDnatAcceptRules
-              cfg.firewall.extraForwardRules
-              (mkDropLog "FORWARD")
-            ];
-
-            # NAT prerouting rules (DNAT / port forwarding + DNS interception)
-            natPreroutingRules = concatSections [
-              dnatRulesList
-              dnsInterceptV4RulesList
-              cfg.firewall.extraNatRules
-            ];
-
-            # NAT postrouting rules (masquerade)
-            masqueradeRules = optionals (natInterfaces != []) [
-              {
-                oifname = natInterfaces;
-                masquerade = true;
-              }
-            ];
-            natPostroutingRules = concatSections [
-              masqueradeRules
-              cfg.firewall.extraNatPostroutingRules
-            ];
-
-            # IPv6 NAT prerouting rules
-            nat6PreroutingRules = concatSections [
-              dnsInterceptV6RulesList
-              cfg.firewall.extraNat6Rules
-            ];
-
-            # IPv6 NAT postrouting rules
-            nat6PostroutingRules = cfg.firewall.extraNat6PostroutingRules;
-          in ''
-                      table inet filter {
-                        chain input {
-                          type filter hook input priority filter; policy drop;
-            ${renderSection ind allInputRules}
-                        }
-
-                        chain forward {
-                          type filter hook forward priority filter; policy drop;
-            ${renderSection ind allForwardRules}
-                        }
-
-                        chain output {
-                          type filter hook output priority filter; policy ${egressPolicy};
-            ${egressChainRules}
-                        }
-                      }
-
-                      table ip nat {
-                        chain prerouting {
-                          type nat hook prerouting priority dstnat;
-            ${renderSection ind natPreroutingRules}
-                        }
-
-                        chain postrouting {
-                          type nat hook postrouting priority srcnat;
-            ${renderSection ind natPostroutingRules}
-                        }
-                      }
-
-                      # IPv6 NAT table
-                      # ULA addresses are used for internal IPv6 communication only
-                      table ip6 nat {
-                        chain prerouting {
-                          type nat hook prerouting priority dstnat;
-            ${renderSection ind nat6PreroutingRules}
-                        }
-
-                        chain postrouting {
-                          type nat hook postrouting priority srcnat;
-            ${renderSection ind nat6PostroutingRules}
-                        }
-                      }
-          '';
-        };
-      }
-
-      # ===================
-      # Assertions
-      # ===================
-      {
-        assertions =
-          # DHCPv6 server on WAN interface assertion
-          [
-            {
-              assertion =
-                !(lib.any (
-                    i:
-                      (i.network.dhcp6.enable or false) && i.network.type == "dhcp"
-                  )
-                  flattenTopology);
-              message = "router6: dhcp6.enable (RA server) cannot be set on a DHCP client interface — it would send RAs upstream to the ISP";
-            }
-          ]
-          # dhcp6.dnsAddress must be set when dhcp6.enable is true
-          ++ (map (i: {
-            assertion = (i.network.dhcp6.dnsAddress or null) != null;
-            message = "router6: interface '${i.name}' has dhcp6.enable = true but no dhcp6.dnsAddress set. Set it to the router's ULA address on this interface (e.g. the address kresd listens on).";
-          }) (filter (i: i.network.dhcp6.enable or false) flattenTopology))
-          # pdSubnetId requires at least one PD source
-          ++ (let
-            hasPdSource = lib.any (i: i.network.ipv6PrefixDelegation.enable or false) flattenTopology;
-            pdReceivers = filter (i: (i.network.pdSubnetId or null) != null) flattenTopology;
-          in
-            optionals (pdReceivers != []) [
-              {
-                assertion = hasPdSource;
-                message = "router6: interface(s) ${lib.concatMapStringsSep ", " (i: "'${i.name}'") pdReceivers} have pdSubnetId set but no interface has ipv6PrefixDelegation.enable = true";
-              }
-            ])
-          # Dynamic DNS assertions
-          ++ (optionals cfg.dyndns.enable [
-            {
-              assertion = cfg.dyndns.passwordFile != null;
-              message = "router6.dyndns: passwordFile must be set when dyndns is enabled";
-            }
-            {
-              assertion = cfg.dyndns.domain != null || cfg.dyndns.domainFile != null;
-              message = "router6.dyndns: either domain or domainFile must be set";
-            }
-            {
-              assertion = !(cfg.dyndns.domain != null && cfg.dyndns.domainFile != null);
-              message = "router6.dyndns: domain and domainFile are mutually exclusive";
-            }
-            {
-              assertion = cfg.dyndns.hosts != [];
-              message = "router6.dyndns: at least one host must be specified";
-            }
-            {
-              assertion = cfg.dyndns.server != "";
-              message = "router6.dyndns: server must be set";
-            }
-          ])
-          # Zone assertions: accessTo and forwardRules must not overlap
-          ++ lib.concatMap (
-            zoneName: let
-              zone = cfg.zones.${zoneName};
-            in
-              map (dstZone: {
-                assertion = !elem dstZone zone.accessTo;
-                message = "Zone '${zoneName}': destination '${dstZone}' appears in both accessTo and forwardRules. Use one or the other.";
-              }) (attrNames zone.forwardRules)
-          ) (attrNames cfg.zones)
-          # forwardRules keys reference valid zones
-          ++ lib.concatMap (
-            zoneName: let
-              zone = cfg.zones.${zoneName};
-            in
-              map (target: {
-                assertion = hasAttr target cfg.zones;
-                message = "Zone '${zoneName}': forwardRules references unknown zone '${target}'";
-              }) (attrNames zone.forwardRules)
-          ) (attrNames cfg.zones)
-          # inputRules must not contain iifname (it's auto-set)
-          ++ lib.concatMap (
-            zoneName: let
-              zone = cfg.zones.${zoneName};
-            in
-              lib.imap0 (i: rule: {
-                assertion = !(lib.isAttrs rule && hasAttr "iifname" rule);
-                message = "Zone '${zoneName}': inputRules[${toString i}] must not specify iifname (auto-set from zone interfaces)";
-              })
-              zone.inputRules
-          ) (attrNames cfg.zones)
-          # forwardRules must not contain iifname or oifname
-          ++ lib.concatMap (
-            zoneName: let
-              zone = cfg.zones.${zoneName};
-            in
-              lib.concatMap (
-                dstZone:
-                  lib.imap0 (i: rule: {
-                    assertion = !(lib.isAttrs rule && (hasAttr "iifname" rule || hasAttr "oifname" rule));
-                    message = "Zone '${zoneName}': forwardRules.${dstZone}[${toString i}] must not specify iifname/oifname (auto-set from zone interfaces)";
-                  })
-                  zone.forwardRules.${dstZone}
-              ) (attrNames zone.forwardRules)
-          ) (attrNames cfg.zones)
-          # Wireguard openFirewall requires port
-          ++ (mapAttrsToList (name: iface: {
-            assertion = !(iface.wireguard.openFirewall or false) || (iface.wireguard.port or null) != null;
-            message = "Wireguard interface ${name}: openFirewall requires port to be set";
-          }) (filterAttrs (n: v: v.wireguard != null) cfg.topology))
-          # Bond member validation
-          ++ flatten (mapAttrsToList (
-            bondName: bond:
-              map (member: {
-                assertion =
-                  hasAttr member cfg.topology
-                  && cfg.topology.${member}.kind == "physical";
-                message = "Bond '${bondName}' member '${member}' must exist and be a physical interface";
-              }) (bond.members or [])
-          ) (devicesByKind "bond"))
-          # Batman member validation
-          ++ flatten (mapAttrsToList (
-            batmanName: batman:
-              map (member: {
-                assertion =
-                  hasAttr member cfg.topology
-                  && elem cfg.topology.${member}.kind ["physical" "bond"];
-                message = "Batman '${batmanName}' member '${member}' must exist and be a physical interface or bond";
-              }) (batman.members or [])
-          ) (devicesByKind "batman"))
-          # Bridge member validation (members can be VLANs)
-          ++ flatten (mapAttrsToList (
-            bridgeName: bridge:
-              map (member: {
-                assertion =
-                  hasAttr member cfg.topology
-                  || any (dev: hasAttr member (dev.vlans or {})) (attrValues cfg.topology);
-                message = "Bridge '${bridgeName}' references non-existent member '${member}'";
-              }) (bridge.members or [])
-          ) (devicesByKind "bridge"))
-          # Bonds must have members; bridges must have members OR VLANs
-          ++ mapAttrsToList (name: device: {
-            assertion =
-              if device.kind == "bond"
-              then length (device.members or []) > 0
-              else if device.kind == "bridge"
-              then length (device.members or []) > 0 || length (attrNames (device.vlans or {})) > 0
-              else true;
-            message =
-              if device.kind == "bond"
-              then "Bond '${name}' has no members defined"
-              else "Bridge '${name}' has no members and no VLANs defined";
+          map (target: {
+            assertion = hasAttr target cfg.zones;
+            message = "Zone '${zoneName}': forwardRules references unknown zone '${target}'";
+          }) (attrNames zone.forwardRules)
+      ) (attrNames cfg.zones)
+      # inputRules must not contain iifname (it's auto-set)
+      ++ lib.concatMap (
+        zoneName: let
+          zone = cfg.zones.${zoneName};
+        in
+          lib.imap0 (i: rule: {
+            assertion = !(lib.isAttrs rule && hasAttr "iifname" rule);
+            message = "Zone '${zoneName}': inputRules[${toString i}] must not specify iifname (auto-set from zone interfaces)";
           })
-          cfg.topology
-          # Bonds must have mode
-          ++ mapAttrsToList (name: device: {
-            assertion = device.mode != null;
-            message = "Bond '${name}' must have mode defined";
-          }) (devicesByKind "bond")
-          # Cross-kind membership: an interface cannot be both a batman member and a bridge member
-          # (Linux only supports one master device per interface)
-          ++ (let
-            batmanMembers = lib.concatMap (bat: bat.members or []) (attrValues (devicesByKind "batman"));
-            bridgeMembers = lib.concatMap (br: br.members or []) (attrValues (devicesByKind "bridge"));
-            overlap = filter (m: elem m bridgeMembers) batmanMembers;
-          in
-            map (member: {
-              assertion = false;
-              message = "Interface '${member}' is a member of both a batman device and a bridge. Linux only supports one master per interface. Remove it from the bridge — batman forwards traffic through to its soft interface automatically.";
-            })
-            overlap);
-      }
-    ]);
+          zone.inputRules
+      ) (attrNames cfg.zones)
+      # forwardRules must not contain iifname or oifname
+      ++ lib.concatMap (
+        zoneName: let
+          zone = cfg.zones.${zoneName};
+        in
+          lib.concatMap (
+            dstZone:
+              lib.imap0 (i: rule: {
+                assertion = !(lib.isAttrs rule && (hasAttr "iifname" rule || hasAttr "oifname" rule));
+                message = "Zone '${zoneName}': forwardRules.${dstZone}[${toString i}] must not specify iifname/oifname (auto-set from zone interfaces)";
+              })
+              zone.forwardRules.${dstZone}
+          ) (attrNames zone.forwardRules)
+      ) (attrNames cfg.zones)
+      # Wireguard openFirewall requires port
+      ++ (mapAttrsToList (name: iface: {
+        assertion = !(iface.wireguard.openFirewall or false) || (iface.wireguard.port or null) != null;
+        message = "Wireguard interface ${name}: openFirewall requires port to be set";
+      }) (filterAttrs (n: v: v.wireguard != null) cfg.topology))
+      # Bond member validation
+      ++ flatten (mapAttrsToList (
+        bondName: bond:
+          map (member: {
+            assertion =
+              hasAttr member cfg.topology
+              && cfg.topology.${member}.kind == "physical";
+            message = "Bond '${bondName}' member '${member}' must exist and be a physical interface";
+          }) (bond.members or [])
+      ) (devicesByKind "bond"))
+      # Batman member validation
+      ++ flatten (mapAttrsToList (
+        batmanName: batman:
+          map (member: {
+            assertion =
+              hasAttr member cfg.topology
+              && elem cfg.topology.${member}.kind ["physical" "bond"];
+            message = "Batman '${batmanName}' member '${member}' must exist and be a physical interface or bond";
+          }) (batman.members or [])
+      ) (devicesByKind "batman"))
+      # Bridge member validation (members can be VLANs)
+      ++ flatten (mapAttrsToList (
+        bridgeName: bridge:
+          map (member: {
+            assertion =
+              hasAttr member cfg.topology
+              || lib.any (dev: hasAttr member (dev.vlans or {})) (attrValues cfg.topology);
+            message = "Bridge '${bridgeName}' references non-existent member '${member}'";
+          }) (bridge.members or [])
+      ) (devicesByKind "bridge"))
+      # Bonds must have members; bridges must have members OR VLANs
+      ++ mapAttrsToList (name: device: {
+        assertion =
+          if device.kind == "bond"
+          then length (device.members or []) > 0
+          else if device.kind == "bridge"
+          then length (device.members or []) > 0 || length (attrNames (device.vlans or {})) > 0
+          else true;
+        message =
+          if device.kind == "bond"
+          then "Bond '${name}' has no members defined"
+          else "Bridge '${name}' has no members and no VLANs defined";
+      })
+      cfg.topology
+      # Bonds must have mode
+      ++ mapAttrsToList (name: device: {
+        assertion = device.mode != null;
+        message = "Bond '${name}' must have mode defined";
+      }) (devicesByKind "bond")
+      # Cross-kind membership: an interface cannot be both a batman member and a bridge member
+      ++ (let
+        batmanMembers = lib.concatMap (bat: bat.members or []) (attrValues (devicesByKind "batman"));
+        bridgeMembers = lib.concatMap (br: br.members or []) (attrValues (devicesByKind "bridge"));
+        overlap = filter (m: elem m bridgeMembers) batmanMembers;
+      in
+        map (member: {
+          assertion = false;
+          message = "Interface '${member}' is a member of both a batman device and a bridge. Linux only supports one master per interface. Remove it from the bridge — batman forwards traffic through to its soft interface automatically.";
+        })
+        overlap);
+  };
 }
