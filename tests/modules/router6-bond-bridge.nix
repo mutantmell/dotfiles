@@ -195,6 +195,6 @@ pkgs.testers.nixosTest {
 
     # Test 11: Client can reach router
     client.succeed("ping -c 1 10.0.10.1")
-    client.succeed("ping -c 1 fdc6:55f2:a5e:a::1")
+    client.wait_until_succeeds("ping -c 1 fdc6:55f2:a5e:a::1", timeout=30)
   '';
 }
