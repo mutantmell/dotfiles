@@ -20,42 +20,41 @@ and some gaps in test coverage and deployment automation.
 
 ### Phase 1: Reduce friction in the largest files
 
-- [ ] **1.1 Split router6/default.nix into sub-files**
-      Current: 2586 lines in one file covering options, IP parsing, topology, DHCP, DNS,
-      DynDNS, firewall, systemd-networkd, assertions.
-      Target structure:
+- [x] **1.1 Split router6/default.nix into sub-files**
+      Split from 2586 lines into focused sub-modules. Final structure:
 
   ```
   modules/router6/
-    default.nix        — imports + top-level enable option
-    options.nix        — all mkOption declarations (zones, topology, dns, firewall, dyndns)
-    lib.nix            — internal helpers (parseCIDR, parseIPAddress, flattenTopology,
-                         getEffectiveAddresses, address family helpers, ipv4ToInt)
-    networking.nix     — systemd-networkd links, netdevs, networks, RA config
-    dhcp.nix           — Kea DHCP4/6 subnet generation
-    dns.nix            — kresd config, DHCP DNS extraction, DNS interception
+    default.nix        — imports, option declarations, assertions (~810 lines)
+    lib.nix            — shared helpers: topology processing, address parsing,
+                         DHCP builders, nftables helpers (~320 lines)
+    networking.nix     — systemd-networkd links, netdevs, networks, sysctl, RA config
+    dhcp.nix           — Kea DHCP4/6 server config
+    dns.nix            — kresd config, DHCP DNS extraction
     firewall.nix       — nftables ruleset generation (zones, input, forward, NAT, egress)
     dyndns.nix         — dynamic DNS service + timer
-    assertions.nix     — all assertion blocks
   ```
 
-- [ ] **1.2 Extract common module list in flake.nix builders**
-      `mk-nixos`, `mk-microvm`, `mk-incus-vm`, `mk-incus-container` all repeat the same
-      5-module import list (sops-nix, impermanence, common, promtail-client,
-      node-exporter-client). Extract to a `commonModules` binding and reference it.
+      Assertions stayed in default.nix alongside the option definitions (not a separate
+      file) to keep them visible when adding/changing config options. lib.nix imports
+      nft internally rather than threading it through every sub-module.
+
+- [x] **1.2 Extract common module list in flake.nix builders**
+      Extracted `commonModules` binding referenced by all 4 builders (mk-nixos,
+      mk-microvm, mk-incus-vm, mk-incus-container).
 
 ### Phase 2: Library consolidation
 
 - [ ] **2.1 Consolidate IP parsing into lib/common/**
       Two independent implementations exist:
   - `lib/common/default.nix` — `parse-ipv4`, `parse-cidr4` (IPv4 only, no validation)
-  - `modules/router6/default.nix` lines 901-998 — `parseIPAddress`, `parseCIDR` (dual-stack)
+  - `modules/router6/lib.nix` — `parseIPAddress`, `parseCIDR` (dual-stack)
     Merge into a single `lib/common/network-parsing.nix` with the router6 version as base.
     Add input validation. Router6 imports from lib instead of defining its own.
 
-- [ ] **2.2 Remove duplicate mkExtraHosts / mkHostsFileEntries**
-      `network.nix` defines both `mkExtraHosts` (line 196) and `mkHostsFileEntries` (line 291)
-      which produce identical output. Remove one and alias the other.
+- [x] **2.2 Remove duplicate mkExtraHosts / mkHostsFileEntries**
+      Removed `mkHostsFileEntries` (identical to `mkExtraHosts`). Updated all references
+      and removed associated tests.
 
 - [ ] **2.3 Move display/formatting out of network.nix**
       Lines 139-302 contain ~160 lines of `pad`, `summary`, `markdown`, `hostinfoPad`,
@@ -74,14 +73,10 @@ and some gaps in test coverage and deployment automation.
 
 ### Phase 3: Test coverage
 
-- [ ] **3.1 Add network registry tests**
-      `lib/common/data/network.nix` (363 lines) has zero tests. Add pure eval tests in
-      `tests/lib/network-registry.nix` covering:
-  - `forHost` returns correct IPs/zones
-  - `mkExtraHosts` output format
-  - `mkEgressRules` dual-stack expansion
-  - Host alias resolution
-  - Error on unknown host
+- [x] **3.1 Add network registry tests**
+      Added `tests/lib/network-registry.nix` with 30 pure eval tests covering: networks
+      (subnet/gateway derivation), mkHost (address fields), hosts (flattened lookup
+      including hex encoding), forHost (structured lookup + error on unknown), allHostDomains.
 
 - [ ] **3.2 Add OpenWrt UCI rendering tests**
       `tests/lib/openwrt-config.nix` already covers config builder functions
@@ -91,15 +86,8 @@ and some gaps in test coverage and deployment automation.
 
 ### Phase 4: Automation & cleanup
 
-- [ ] **4.1 Auto-derive host eval checks from nixosConfigurations**
-      Currently hardcoded to 4 hosts (lines 507-524 of flake.nix): thebeyond, calvard,
-      erebonia, remiferia. But nixosConfigurations has 6 active hosts — kernviter and
-      angbar are missing eval checks. Replace with:
-
-  ```nix
-  lib.mapAttrs' (name: _: lib.nameValuePair "host-eval-${name}" (mkHostCheck name))
-    self.nixosConfigurations
-  ```
+- [x] **4.1 Auto-derive host eval checks from nixosConfigurations**
+      Replaced hardcoded host list with `lib.mapAttrs'` over `self.nixosConfigurations`.
 
 - [ ] **4.2 Add deploy-rs nodes for calvard, erebonia, remiferia, kernviter, angbar**
       Only thebeyond has a deploy-rs definition. Add the other five active hosts.
