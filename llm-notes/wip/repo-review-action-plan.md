@@ -45,12 +45,12 @@ and some gaps in test coverage and deployment automation.
 
 ### Phase 2: Library consolidation
 
-- [ ] **2.1 Consolidate IP parsing into lib/common/**
-      Two independent implementations exist:
-  - `lib/common/default.nix` — `parse-ipv4`, `parse-cidr4` (IPv4 only, no validation)
-  - `modules/router6/lib.nix` — `parseIPAddress`, `parseCIDR` (dual-stack)
-    Merge into a single `lib/common/network-parsing.nix` with the router6 version as base.
-    Add input validation. Router6 imports from lib instead of defining its own.
+- [x] **2.1 Consolidate IP parsing into lib/common/**
+      Removed `parse-ipv4` and `parse-cidr4` from `lib/common/default.nix` — they were
+      only used in `modules/common/networking.nix` to derive gateway addresses. Replaced
+      with `forHost` from the network registry, which already provides `zone.gateway4`.
+      Router6's dual-stack parsers remain in `modules/router6/lib.nix` (router-specific
+      concerns like DHCP pools and auto IPv6 don't belong in the shared lib).
 
 - [x] **2.2 Remove duplicate mkExtraHosts / mkHostsFileEntries**
       Removed `mkHostsFileEntries` (identical to `mkExtraHosts`). Updated all references
