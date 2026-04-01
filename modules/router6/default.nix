@@ -651,7 +651,9 @@ in {
             type = types.enum ["accept" "drop" "log"];
             default = "accept";
             description = ''
-              Output chain policy for router-originated traffic:
+              Output chain policy for router-originated traffic.
+              This is the router6 equivalent of lib.nftables.mkEgressFilter,
+              which serves standalone microVM/container guests instead.
               - "accept": empty chain with policy accept (default, backwards compatible)
               - "drop": policy drop with base rules + egressRules
               - "log": policy accept with base rules + egressRules + rate-limited log for unmatched

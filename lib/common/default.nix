@@ -2,6 +2,9 @@
   data = import ./data {inherit lib;};
   nftables = {
     # Build an egress filter table body with default-drop output chain.
+    # Used by standalone microVM/container guests that don't use the router6 module.
+    # For the router itself, use router6.firewall.egressPolicy + egressRules instead
+    # (structured DSL-based, integrated with the zone firewall).
     # Allows established/related, loopback, and ICMP by default.
     # extraRules: list of nftables rule strings for host-specific allowlist.
     mkEgressFilter = extraRules: {
