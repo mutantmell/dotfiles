@@ -92,17 +92,18 @@ and some gaps in test coverage and deployment automation.
 - [ ] **4.2 Add deploy-rs nodes for calvard, erebonia, remiferia, kernviter, angbar**
       Only thebeyond has a deploy-rs definition. Add the other five active hosts.
 
-- [ ] **4.3 Remove or document commented-out hosts**
-      `azoth` (Raspberry Pi) and `arcus` (Steam Deck / Jovian) are commented out in
-      flake.nix with no explanation. Either remove them or add a comment explaining
-      their status and when they might return.
+- [x] **4.3 Remove commented-out hosts**
+      Removed azoth (Raspberry Pi) and arcus (Steam Deck) NixOS configurations,
+      host directories, and sops entries. Marked hostnames as unallocated.
+      Kept jovian flake input for future use. Network registry entries retained
+      (azoth is still a physical device on the network).
 
 - [x] **4.4 Document the incus two-pass type probing**
       Already documented at `modules/common/incus.nix:33-42`.
 
-- [ ] **4.5 Audit scheduled-deploy module usage**
-      Verify whether `modules/scheduled-deploy/` is used by any host. If not, decide
-      whether to keep it (for future use) or remove it.
+- [x] **4.5 Audit scheduled-deploy module usage**
+      Module was unused by any host. Removed module, docs, and example config.
+      Plan is to replace with CI/CD action runners.
 
 ### Phase 5: Larger improvements (optional / future)
 

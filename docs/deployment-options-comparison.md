@@ -29,10 +29,6 @@ All options build the configuration **remotely** (not on the router) to avoid re
 ```bash
 # Manual deployment
 deploy .#thebeyond
-
-# Automated via systemd timer (on VM host)
-# See docs/scheduled-deploy-module.md
-services.scheduled-deploy.enable = true;
 ```
 
 ### Configuration
@@ -245,8 +241,8 @@ Regardless of deployment method, always:
 
 For automated deployments:
 
-1. **deploy-rs** (implemented): Use the systemd timer module
-2. **nixos-rebuild**: Create a similar systemd service
+1. **deploy-rs**: Integrate with CI/CD pipelines
+2. **nixos-rebuild**: Create a similar CI/CD job
 3. **CI/CD**: GitHub Actions, Gitea Actions, etc.
 
 Example automated workflow:

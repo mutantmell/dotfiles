@@ -28,9 +28,6 @@ keys:
   - &sv_oracion age1r2f3qnzdlnu28kgg2zwzk44zm2qhjtq98x8l4vsrcdqtl845zsasp6shyj
   - &sv_creil age1zjslnd63kf2k000ahqxqudwmlrluszdg45dczlrxk50zjcujrc9qvwrq7g
 
-  # other hosts
-  - &sv_azoth age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9
-
   # users
   - &us_edith age1l9m5wxvev2w74u7hv4ayzc0e300686sagpcmsfr42mr258e5lsssv56tcw
 
@@ -122,13 +119,6 @@ creation_rules:
       - age:
           - *ad_denai
           - *sv_edith
-
-  # azoth
-  - path_regex: hosts/azoth/secrets/[^/]+\.yaml$
-    key_groups:
-      - age:
-          - *ad_denai
-          - *sv_azoth
 
   # OpenWrt
   - path_regex: hosts/openwrt/secrets/[^/]+\.yaml$
