@@ -329,15 +329,6 @@
         ];
       };
 
-      #      azoth = self.lib.mk-nixos {
-      #        inherit nixpkgs;
-      #        system = "aarch64-linux";
-      #        modules = [
-      #          home-manager.nixosModules.home-manager
-      #          nixos-hardware.nixosModules.raspberry-pi-4
-      #          ./hosts/azoth
-      #        ];
-      #      };
       kernviter = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
@@ -358,16 +349,6 @@
           ./hosts/angbar
         ];
       };
-
-      #      arcus = self.lib.mk-nixos {
-      #        inherit nixpkgs;
-      #        system = "x86_64-linux";
-      #        modules = [
-      #          home-manager.nixosModules.home-manager
-      #          jovian.nixosModules.jovian
-      #          ./hosts/arcus
-      #        ];
-      #      };
     };
 
     homeConfigurations = {

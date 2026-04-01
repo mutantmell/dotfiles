@@ -70,12 +70,12 @@ PERSONAL COMPUTERS (Legendary weapons)
 └── angbar            (NixOS Laptop — ThinkPad X1 Carbon 7th Gen)
 
 UTILITY HOSTS (Artifacts)
-├── azoth
+├── azoth             (not allocated)
 ├── gospel
 └── gleipnir
 
 OTHER HOSTS (Orbments)
-├── arcus
+├── arcus             (not allocated)
 ├── enigma
 └── xipha
 ```
