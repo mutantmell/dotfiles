@@ -83,6 +83,8 @@
     // {
       subnet4 = "${ipv4Prefix}.${toString net.vlanId}.0/24";
       subnet6 = "${ulaPrefix}:${vlanHex net.vlanId}::/64";
+      prefixLength4 = 24;
+      prefixLength6 = 64;
       gateway4 = "${ipv4Prefix}.${toString net.vlanId}.1";
       gateway6 = "${ulaPrefix}:${vlanHex net.vlanId}::1";
     })
