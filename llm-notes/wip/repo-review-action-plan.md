@@ -56,20 +56,16 @@ and some gaps in test coverage and deployment automation.
       Removed `mkHostsFileEntries` (identical to `mkExtraHosts`). Updated all references
       and removed associated tests.
 
-- [ ] **2.3 Move display/formatting out of network.nix**
-      Lines 139-302 contain ~160 lines of `pad`, `summary`, `markdown`, `hostinfoPad`,
-      `hostinfoSummary`, `hostinfoMarkdown` etc. Move to a separate file
-      (`lib/common/data/network-display.nix`) or into the apps that consume them
-      (`apps/netinfo.nix`, `apps/hostinfo.nix`).
+- [x] **2.3 Move display/formatting out of network.nix**
+      Extracted all display helpers (pad, summary tables, markdown generators) to
+      `lib/common/data/network-display.nix`. network.nix re-exports the 4 display
+      attributes via `inherit (display)` so the flake lib path is unchanged.
 
-- [ ] **2.4 Document mkEgressFilter (lib/common) vs router6 egressPolicy split**
-      `lib/common/default.nix` has `mkEgressFilter` (raw nftables string template).
-      Router6 has `firewall.egressPolicy` + `egressRules` (structured DSL-based).
-      mkEgressFilter is actively used by 12 microVM guest configs across calvard,
-      erebonia, and remiferia, plus the egress-filter test. The two approaches serve
-      different contexts: mkEgressFilter for standalone microVM guests, router6's
-      egressPolicy for the router itself. Document this split clearly and consider
-      whether a lighter shared module could unify the interface.
+- [x] **2.4 Document mkEgressFilter (lib/common) vs router6 egressPolicy split**
+      Added cross-reference comments to both `lib/common/default.nix` (mkEgressFilter)
+      and `modules/router6/default.nix` (egressPolicy option) explaining the split:
+      mkEgressFilter for standalone microVM/container guests, egressPolicy for the
+      router's zone-integrated firewall.
 
 ### Phase 3: Test coverage
 
@@ -78,11 +74,13 @@ and some gaps in test coverage and deployment automation.
       (subnet/gateway derivation), mkHost (address fields), hosts (flattened lookup
       including hex encoding), forHost (structured lookup + error on unknown), allHostDomains.
 
-- [ ] **3.2 Add OpenWrt UCI rendering tests**
-      `tests/lib/openwrt-config.nix` already covers config builder functions
-      (mkDeviceConfig, mkSecretsMap, mkConfigFiles). What's missing is unit tests
-      for `lib/openwrt/uci.nix` (230 lines) — the UCI rendering layer itself.
-      Add pure eval tests for UCI attribute-to-string conversion and edge cases.
+- [x] **3.2 Add OpenWrt UCI rendering tests**
+      Added `tests/lib/uci-rendering.nix` with 27 pure eval tests covering:
+      escapeUCI, toUCIValue, isSecret, renderOption (string/bool/int/list/quoting),
+      renderSectionOptions (null/secret skipping), renderNamedSection,
+      renderAnonymousSection (index tracking), renderConfig (mixed named+anonymous),
+      renderConfigs (multi-config), mkUCIDefaultsScript, anonymous index
+      incrementing, and edge cases (empty list, bool list).
 
 ### Phase 4: Automation & cleanup
 

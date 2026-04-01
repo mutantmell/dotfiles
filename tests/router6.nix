@@ -41,4 +41,5 @@
   network-helpers = import ./lib/network-helpers.nix {inherit pkgs lib;};
   network-registry = import ./lib/network-registry.nix {inherit pkgs lib;};
   openwrt-config = import ./lib/openwrt-config.nix {inherit pkgs lib;};
+  uci-rendering = import ./lib/uci-rendering.nix {inherit pkgs lib;};
 }
