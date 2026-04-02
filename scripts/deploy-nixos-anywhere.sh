@@ -54,11 +54,6 @@ else
 fi
 echo "  Profile: $PROFILE"
 
-# Read pinned microvm UID from the Nix config (defined in modules/common/microvm.nix)
-NIXOS_CFG="$REPO_ROOT#nixosConfigurations.$HOSTNAME.config"
-MICROVM_UID=$(nix eval "$NIXOS_CFG.common.microvm.uid" 2>/dev/null) || MICROVM_UID=""
-KVM_GID=302 # Stable NixOS system GID for kvm group
-
 # Create temp directory for working copies of keys
 KEYFILE_DIR=$(mktemp -d)
 EXTRA_FILES_DIR=$(mktemp -d)
@@ -282,6 +277,13 @@ cp "$SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
 chmod 600 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key"
 chmod 644 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
 
+# Place LUKS keyfile in extra-files so it's installed with the system
+# (avoids post-install SSH which can fail in the kexec environment)
+mkdir -p "$EXTRA_FILES_DIR/boot/secrets"
+chmod 700 "$EXTRA_FILES_DIR/boot/secrets"
+cp "$KEYFILE" "$EXTRA_FILES_DIR/boot/secrets/disk.key"
+chmod 600 "$EXTRA_FILES_DIR/boot/secrets/disk.key"
+
 # ====================================================================
 # Deployment phases (profile-dependent)
 # ====================================================================
@@ -317,38 +319,9 @@ nix run github:nix-community/nixos-anywhere -- \
   --disk-encryption-keys /tmp/secret.key "$KEYFILE" \
   "${EXTRA_ARGS[@]}"
 
-if [[ $PROFILE == "tmpfs" ]]; then
-  # Phase 4 (tmpfs): Copy encryption keyfile to /boot on the target
-  echo "Phase 4: Copying encryption keyfile to target..."
-  ssh "$TARGET" 'mkdir -p /mnt/boot/secrets && chmod 700 /mnt/boot/secrets'
-  scp "$KEYFILE" "$TARGET:/mnt/boot/secrets/disk.key"
-  ssh "$TARGET" 'chmod 600 /mnt/boot/secrets/disk.key'
-
-elif [[ $PROFILE == "btrfs" ]]; then
-  # Phase 4 (btrfs): Copy LUKS keyfile + fix guest directory ownership
-  echo "Phase 4: Copying encryption keyfile to target..."
-  ssh "$TARGET" 'mkdir -p /mnt/boot/secrets && chmod 700 /mnt/boot/secrets'
-  scp "$KEYFILE" "$TARGET:/mnt/boot/secrets/disk.key"
-  ssh "$TARGET" 'chmod 600 /mnt/boot/secrets/disk.key'
-
-  if [[ -z $MICROVM_UID ]]; then
-    echo "ERROR: Could not determine microvm UID from Nix config."
-    echo "Falling back to default UID 300 (pinned in modules/common/microvm.nix)."
-    MICROVM_UID=300
-  fi
-  echo "Phase 4: Fixing guest directory ownership (microvm=$MICROVM_UID, kvm=$KVM_GID)..."
-  ssh "$TARGET" bash -c "'
-        for guest_dir in /mnt/persist/guests/*/; do
-            [ -d \"\$guest_dir/static\" ] && chown -R root:root \"\$guest_dir/static\"
-            [ -d \"\$guest_dir/images\" ] && chown ${MICROVM_UID}:${KVM_GID} \"\$guest_dir/images\"
-        done
-    '"
-fi
-
-# Phase 5: Fetch generated hardware-config
-echo "Phase 5: Fetching hardware-configuration.nix..."
-ssh "$TARGET" 'nixos-generate-config --no-filesystems --show-hardware-config > /tmp/hw.nix'
-scp "$TARGET:/tmp/hw.nix" "$REPO_ROOT/hosts/$HOSTNAME/hardware-configuration.nix"
+# Disk key and guest directory ownership are handled without post-install SSH:
+# - Disk key: placed via --extra-files at /boot/secrets/disk.key
+# - Guest dirs: systemd-tmpfiles rules in modules/common/microvm.nix
 
 echo ""
 echo "======================================"
@@ -356,10 +329,13 @@ echo "Deployment complete!"
 echo "======================================"
 echo ""
 echo "Next steps:"
-echo "  1. Review hosts/$HOSTNAME/hardware-configuration.nix"
-echo "  2. Commit .sops.yaml changes (age keys were updated)"
-echo "  3. Reboot and verify automatic LUKS unlock + sops secrets:"
+echo "  1. Reboot into the installed system:"
 echo "     ssh $TARGET 'reboot'"
+echo "  2. Fetch the hardware config from the running system:"
+echo "     ssh $TARGET 'nixos-generate-config --no-filesystems --show-hardware-config' > hosts/$HOSTNAME/hardware-configuration.nix"
+echo "  3. Review hosts/$HOSTNAME/hardware-configuration.nix"
+echo "  4. Commit .sops.yaml + hardware-configuration.nix changes"
+echo "  5. Verify automatic LUKS unlock + sops secrets:"
 echo "     ssh $TARGET 'systemctl status sops-nix && ls /run/secrets/'"
 if [[ ${#INCUS_GUESTS[@]} -gt 0 ]]; then
   echo "  Incus guests (${INCUS_GUESTS[*]}) have SSH keys pre-placed in /persist/guests/*/static/"
