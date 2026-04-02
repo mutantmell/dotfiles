@@ -82,6 +82,90 @@
   allDomainsThebeyondCount = assertEq "allHostDomains thebeyond count" (builtins.length net.allHostDomains.thebeyond) 5;
   allDomainsBaselCount = assertEq "allHostDomains basel count" (builtins.length net.allHostDomains.basel) 3;
 
+  # --- mkDualStackRules: dual-stack firewall rule expansion ---
+
+  tharbadHost = net.hosts.tharbad;
+  messeldamHost = net.hosts.messeldam;
+
+  dualBoth = net.mkDualStackRules {
+    saddr = tharbadHost;
+    daddr = messeldamHost;
+    tcp.dport = 443;
+    verdict = "accept";
+    comment = "test rule";
+  };
+  dualBothLen = assertEq "mkDualStackRules produces 2 rules" (builtins.length dualBoth) 2;
+  dualBothV4Saddr =
+    assertEq "mkDualStackRules v4 saddr"
+    (builtins.elemAt dualBoth 0).ip.saddr
+    tharbadHost.ipv4;
+  dualBothV4Daddr =
+    assertEq "mkDualStackRules v4 daddr"
+    (builtins.elemAt dualBoth 0).ip.daddr
+    messeldamHost.ipv4;
+  dualBothV6Saddr =
+    assertEq "mkDualStackRules v6 saddr"
+    (builtins.elemAt dualBoth 1).ip6.saddr
+    tharbadHost.ipv6;
+  dualBothV6Daddr =
+    assertEq "mkDualStackRules v6 daddr"
+    (builtins.elemAt dualBoth 1).ip6.daddr
+    messeldamHost.ipv6;
+  dualBothV4Comment =
+    assertEq "mkDualStackRules v4 comment"
+    (builtins.elemAt dualBoth 0).comment "test rule";
+  dualBothV6Comment =
+    assertEq "mkDualStackRules v6 comment"
+    (builtins.elemAt dualBoth 1).comment "test rule (v6)";
+  dualBothVerdict =
+    assertEq "mkDualStackRules preserves verdict"
+    (builtins.elemAt dualBoth 0).verdict "accept";
+  dualBothPort =
+    assertEq "mkDualStackRules preserves port"
+    (builtins.elemAt dualBoth 0).tcp.dport
+    443;
+
+  dualDstOnly = net.mkDualStackRules {
+    daddr = messeldamHost;
+    tcp.dport = 80;
+    verdict = "accept";
+  };
+  dualDstOnlyNoSrc =
+    assertEq "mkDualStackRules dst-only has no saddr in ip"
+    ((builtins.elemAt dualDstOnly 0).ip ? saddr)
+    false;
+  dualDstOnlyHasDaddr =
+    assertEq "mkDualStackRules dst-only has ip.daddr"
+    (builtins.elemAt dualDstOnly 0).ip.daddr
+    messeldamHost.ipv4;
+  dualDstOnlyNoComment =
+    assertEq "mkDualStackRules no comment when absent"
+    ((builtins.elemAt dualDstOnly 0) ? comment)
+    false;
+  dualDstOnlyNoCommentV6 =
+    assertEq "mkDualStackRules no comment v6 when absent"
+    ((builtins.elemAt dualDstOnly 1) ? comment)
+    false;
+
+  dualSrcOnly = net.mkDualStackRules {
+    saddr = tharbadHost;
+    tcp.dport = 9100;
+    verdict = "accept";
+    comment = "src only";
+  };
+  dualSrcOnlyV4Saddr =
+    assertEq "mkDualStackRules src-only v4 saddr"
+    (builtins.elemAt dualSrcOnly 0).ip.saddr
+    tharbadHost.ipv4;
+  dualSrcOnlyNoDaddr =
+    assertEq "mkDualStackRules src-only has no daddr in ip"
+    ((builtins.elemAt dualSrcOnly 0).ip ? daddr)
+    false;
+  dualSrcOnlyV6Saddr =
+    assertEq "mkDualStackRules src-only v6 saddr"
+    (builtins.elemAt dualSrcOnly 1).ip6.saddr
+    tharbadHost.ipv6;
+
   allTests = {
     # networks
     "management subnet4" = mgmtSubnet4;
@@ -127,6 +211,24 @@
     "allHostDomains contains thebeyond" = allDomainsHasThebeyond;
     "allHostDomains thebeyond has 5 domains" = allDomainsThebeyondCount;
     "allHostDomains basel has 3 domains" = allDomainsBaselCount;
+
+    # mkDualStackRules
+    "mkDualStackRules produces 2 rules" = dualBothLen;
+    "mkDualStackRules v4 saddr" = dualBothV4Saddr;
+    "mkDualStackRules v4 daddr" = dualBothV4Daddr;
+    "mkDualStackRules v6 saddr" = dualBothV6Saddr;
+    "mkDualStackRules v6 daddr" = dualBothV6Daddr;
+    "mkDualStackRules v4 comment" = dualBothV4Comment;
+    "mkDualStackRules v6 comment" = dualBothV6Comment;
+    "mkDualStackRules preserves verdict" = dualBothVerdict;
+    "mkDualStackRules preserves port" = dualBothPort;
+    "mkDualStackRules dst-only has no saddr" = dualDstOnlyNoSrc;
+    "mkDualStackRules dst-only has daddr" = dualDstOnlyHasDaddr;
+    "mkDualStackRules no comment when absent" = dualDstOnlyNoComment;
+    "mkDualStackRules no comment v6 when absent" = dualDstOnlyNoCommentV6;
+    "mkDualStackRules src-only v4 saddr" = dualSrcOnlyV4Saddr;
+    "mkDualStackRules src-only has no daddr" = dualSrcOnlyNoDaddr;
+    "mkDualStackRules src-only v6 saddr" = dualSrcOnlyV6Saddr;
   };
 
   failures = lib.filterAttrs (_: v: !v) allTests;

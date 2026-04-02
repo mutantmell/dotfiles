@@ -77,18 +77,97 @@
     };
   };
 
+  # --- Validation ---
+  # Catch structural errors in rawNetworks at eval time.
+
+  allVlanIds = lib.mapAttrsToList (_: net: net.vlanId) rawNetworks;
+  dupVlanIds = let
+    counts =
+      lib.foldl' (
+        acc: id:
+          acc // {${toString id} = (acc.${toString id} or 0) + 1;}
+      ) {}
+      allVlanIds;
+  in
+    lib.filterAttrs (_: c: c > 1) counts;
+
+  allHostnames =
+    lib.concatMap
+    (net: builtins.attrNames net.hosts)
+    (builtins.attrValues rawNetworks);
+  dupHostnames = let
+    counts =
+      lib.foldl' (
+        acc: name:
+          acc // {${name} = (acc.${name} or 0) + 1;}
+      ) {}
+      allHostnames;
+  in
+    lib.filterAttrs (_: c: c > 1) counts;
+
+  validate = let
+    # Duplicate VLAN IDs across zones
+    vlanCheck =
+      if dupVlanIds != {}
+      then throw "network registry: duplicate VLAN IDs: ${builtins.toJSON dupVlanIds}"
+      else true;
+
+    # Duplicate hostnames across zones
+    hostnameCheck =
+      if dupHostnames != {}
+      then throw "network registry: duplicate hostnames across zones: ${builtins.toJSON dupHostnames}"
+      else true;
+
+    # VLAN ID range (1-4094)
+    vlanRangeCheck = lib.pipe rawNetworks [
+      (lib.mapAttrsToList (zone: net:
+        if net.vlanId < 1 || net.vlanId > 4094
+        then throw "network registry: zone '${zone}' has invalid VLAN ID ${toString net.vlanId} (must be 1-4094)"
+        else true))
+      (builtins.all (x: x))
+    ];
+
+    # Host ID range (1-254 for /24 subnets)
+    hostRangeCheck = lib.pipe rawNetworks [
+      (lib.mapAttrsToList (zone: net:
+        lib.mapAttrsToList (
+          host: id:
+            if id < 1 || id > 254
+            then throw "network registry: host '${host}' in zone '${zone}' has invalid ID ${toString id} (must be 1-254)"
+            else true
+        )
+        net.hosts))
+      lib.flatten
+      (builtins.all (x: x))
+    ];
+
+    # Duplicate host IDs within a zone
+    dupHostIdCheck = lib.pipe rawNetworks [
+      (lib.mapAttrsToList (zone: net: let
+        ids = builtins.attrValues net.hosts;
+        unique = lib.unique ids;
+      in
+        if builtins.length ids != builtins.length unique
+        then throw "network registry: zone '${zone}' has duplicate host IDs"
+        else true))
+      (builtins.all (x: x))
+    ];
+  in
+    vlanCheck && hostnameCheck && vlanRangeCheck && hostRangeCheck && dupHostIdCheck;
+
   # Enhance each network with derived subnet and gateway addresses
-  networks = lib.mapAttrs (_: net:
-    net
-    // {
-      subnet4 = "${ipv4Prefix}.${toString net.vlanId}.0/24";
-      subnet6 = "${ulaPrefix}:${vlanHex net.vlanId}::/64";
-      prefixLength4 = 24;
-      prefixLength6 = 64;
-      gateway4 = "${ipv4Prefix}.${toString net.vlanId}.1";
-      gateway6 = "${ulaPrefix}:${vlanHex net.vlanId}::1";
-    })
-  rawNetworks;
+  networks = assert validate;
+    lib.mapAttrs (_: net:
+      net
+      // {
+        subnet4 = "${ipv4Prefix}.${toString net.vlanId}.0/24";
+        subnet6 = "${ulaPrefix}:${vlanHex net.vlanId}::/64";
+        prefixLength4 = 24;
+        prefixLength6 = 64;
+        gateway4 = "${ipv4Prefix}.${toString net.vlanId}.1";
+        gateway6 = "${ulaPrefix}:${vlanHex net.vlanId}::1";
+      })
+    rawNetworks;
 
   # Derive a full host record from network membership and host ID
   mkHost = zoneName: vlanId: hostId: {
@@ -194,6 +273,33 @@
       aliases)
     hostnames;
 
+  # mkDualStackRules: Expand a firewall rule template into IPv4 + IPv6 rule pairs.
+  # Takes a rule attrset where `saddr` and/or `daddr` are host records (with .ipv4/.ipv6).
+  # Returns a list of two rules: one using ip.saddr/ip.daddr, one using ip6.saddr/ip6.daddr.
+  # All other attributes are passed through unchanged (except comment gets " (v6)" suffix).
+  # Usage:
+  #   mkDualStackRules { saddr = tharbad; daddr = messeldam; tcp.dport = 443; verdict = "accept"; comment = "..."; }
+  mkDualStackRules = rule: let
+    hasSrc = rule ? saddr;
+    hasDst = rule ? daddr;
+    base = removeAttrs rule (["saddr" "daddr"] ++ lib.optional (rule ? comment) "comment");
+    commentV4 = lib.optionalAttrs (rule ? comment) {inherit (rule) comment;};
+    commentV6 = lib.optionalAttrs (rule ? comment) {comment = "${rule.comment} (v6)";};
+    v4Addrs = lib.optionalAttrs (hasSrc || hasDst) {
+      ip =
+        lib.optionalAttrs hasSrc {saddr = rule.saddr.ipv4;}
+        // lib.optionalAttrs hasDst {daddr = rule.daddr.ipv4;};
+    };
+    v6Addrs = lib.optionalAttrs (hasSrc || hasDst) {
+      ip6 =
+        lib.optionalAttrs hasSrc {saddr = rule.saddr.ipv6;}
+        // lib.optionalAttrs hasDst {daddr = rule.daddr.ipv6;};
+    };
+  in [
+    (base // v4Addrs // commentV4)
+    (base // v6Addrs // commentV6)
+  ];
+
   # Pre-computed /etc/hosts output for all registered hosts
   hostsFile = mkExtraHosts (builtins.attrNames hosts);
 
@@ -247,6 +353,7 @@ in {
     mkUnboundLocalData
     mkUnboundAliasData
     mkEgressRules
+    mkDualStackRules
     hostsFile
     ;
   inherit
