@@ -15,6 +15,7 @@
   ...
 }: let
   net = pkgs.mmell.lib.data.network;
+  ds = net.mkDualStackRules;
   inherit (net.forHost "thebeyond") host;
   inherit (net.hosts) phantasma;
   inherit (net.hosts) langport;
@@ -170,34 +171,18 @@ in {
         icmpEcho = "enable";
         accessTo = ["management" "trusted" "untrusted"];
         # tharbad → DMZ/lab for Prometheus scraping
-        forwardRules.dmz = [
-          {
-            ip.saddr = tharbad.ipv4;
-            tcp.dport = 9100;
-            verdict = "accept";
-            comment = "tharbad -> DMZ (node_exporter)";
-          }
-          {
-            ip6.saddr = tharbad.ipv6;
-            tcp.dport = 9100;
-            verdict = "accept";
-            comment = "tharbad -> DMZ (node_exporter v6)";
-          }
-        ];
-        forwardRules.lab = [
-          {
-            ip.saddr = tharbad.ipv4;
-            tcp.dport = 9100;
-            verdict = "accept";
-            comment = "tharbad -> lab (node_exporter)";
-          }
-          {
-            ip6.saddr = tharbad.ipv6;
-            tcp.dport = 9100;
-            verdict = "accept";
-            comment = "tharbad -> lab (node_exporter v6)";
-          }
-        ];
+        forwardRules.dmz = ds {
+          saddr = tharbad;
+          tcp.dport = 9100;
+          verdict = "accept";
+          comment = "tharbad -> DMZ (node_exporter)";
+        };
+        forwardRules.lab = ds {
+          saddr = tharbad;
+          tcp.dport = 9100;
+          verdict = "accept";
+          comment = "tharbad -> lab (node_exporter)";
+        };
         forwardRules.external = [
           {
             udp.dport = 53;
@@ -300,84 +285,49 @@ in {
             comment = "DNS over TCP";
           }
         ];
-        forwardRules.management = [
+        forwardRules.management =
           # langport → messeldam (OIDC token exchange)
-          {
-            ip.saddr = langport.ipv4;
-            ip.daddr = messeldam.ipv4;
+          (ds {
+            saddr = langport;
+            daddr = messeldam;
             tcp.dport = 443;
             verdict = "accept";
             comment = "langport -> messeldam (OIDC)";
-          }
-          {
-            ip6.saddr = langport.ipv6;
-            ip6.daddr = messeldam.ipv6;
-            tcp.dport = 443;
-            verdict = "accept";
-            comment = "langport -> messeldam (OIDC v6)";
-          }
+          })
           # DMZ → basel (ACME certificate issuance)
-          {
-            ip.daddr = basel.ipv4;
+          ++ (ds {
+            daddr = basel;
             tcp.dport = 443;
             verdict = "accept";
             comment = "DMZ -> basel (ACME)";
-          }
-          {
-            ip6.daddr = basel.ipv6;
-            tcp.dport = 443;
-            verdict = "accept";
-            comment = "DMZ -> basel (ACME v6)";
-          }
+          })
           # DMZ → tharbad (Loki log push)
-          {
-            ip.daddr = tharbad.ipv4;
+          ++ (ds {
+            daddr = tharbad;
             tcp.dport = 3100;
             verdict = "accept";
             comment = "DMZ -> tharbad (Loki)";
-          }
-          {
-            ip6.daddr = tharbad.ipv6;
-            tcp.dport = 3100;
-            verdict = "accept";
-            comment = "DMZ -> tharbad (Loki v6)";
-          }
+          })
           # saint-arkh → roer (deployd container deployment API)
-          {
-            ip.saddr = saint-arkh.ipv4;
-            ip.daddr = roer.ipv4;
+          ++ (ds {
+            saddr = saint-arkh;
+            daddr = roer;
             tcp.dport = 443;
             verdict = "accept";
             comment = "saint-arkh -> roer (deployd API)";
-          }
-          {
-            ip6.saddr = saint-arkh.ipv6;
-            ip6.daddr = roer.ipv6;
-            tcp.dport = 443;
-            verdict = "accept";
-            comment = "saint-arkh -> roer (deployd API v6)";
-          }
-        ];
+          });
       };
 
       ba-tunnel = {
         # wg-ba: mesh peer tunnel, locked down to trista SSH bastion only
         icmpEcho = "disable";
         accessTo = [];
-        forwardRules.dmz = [
-          {
-            ip.daddr = trista.ipv4;
-            tcp.dport = 22;
-            verdict = "accept";
-            comment = "wg-ba -> trista SSH (v4)";
-          }
-          {
-            ip6.daddr = trista.ipv6;
-            tcp.dport = 22;
-            verdict = "accept";
-            comment = "wg-ba -> trista SSH (v6)";
-          }
-        ];
+        forwardRules.dmz = ds {
+          daddr = trista;
+          tcp.dport = 22;
+          verdict = "accept";
+          comment = "wg-ba -> trista SSH";
+        };
         inputRules = [];
       };
 

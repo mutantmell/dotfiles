@@ -87,8 +87,9 @@ and some gaps in test coverage and deployment automation.
 - [x] **4.1 Auto-derive host eval checks from nixosConfigurations**
       Replaced hardcoded host list with `lib.mapAttrs'` over `self.nixosConfigurations`.
 
-- [ ] **4.2 Add deploy-rs nodes for calvard, erebonia, remiferia, kernviter, angbar**
-      Only thebeyond has a deploy-rs definition. Add the other five active hosts.
+- [x] **4.2 ~~Add deploy-rs nodes for other hosts~~ — Skipped**
+      deploy-rs will stay for thebeyond and future devices (Raspberry Pi, cloud hosts)
+      but other hosts are moving to a different deployment mechanism.
 
 - [x] **4.3 Remove commented-out hosts**
       Removed azoth (Raspberry Pi) and arcus (Steam Deck) NixOS configurations,
@@ -105,13 +106,17 @@ and some gaps in test coverage and deployment automation.
 
 ### Phase 5: Larger improvements (optional / future)
 
-- [ ] **5.1 Add network registry validation**
-      Check for duplicate VLAN IDs, duplicate host IDs within a zone, VLAN ID range (1-4094).
-      Surface errors at eval time with clear messages.
+- [x] **5.1 Add network registry validation**
+      Added eval-time assertions to `network.nix` (via `assert validate` on `networks`):
+      duplicate VLAN IDs across zones, duplicate hostnames across zones, VLAN ID
+      range (1-4094), host ID range (1-254), duplicate host IDs within a zone.
+      Fires on every evaluation that touches the registry.
 
-- [ ] **5.2 Dual-stack rule helper**
-      Add a helper to generate matching IPv4 + IPv6 firewall rules from a single template,
-      reducing the boilerplate of writing every rule twice in router configs.
+- [x] **5.2 Dual-stack rule helper**
+      Added `mkDualStackRules` to network registry. Takes a rule with `saddr`/`daddr`
+      host records and produces [v4Rule, v6Rule] with `ip.*`/`ip6.*` addresses.
+      Applied to `hosts/thebeyond/router.nix` — replaced 8 dual-stack rule pairs
+      (58 lines) with 6 `ds {}` calls (30 lines). 11 tests in network-registry.
 
 - [x] **5.3 Document OpenWrt secret marker pattern**
       Already documented at `lib/openwrt/default.nix:230-232` with examples.
