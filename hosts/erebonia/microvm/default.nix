@@ -46,6 +46,10 @@ in {
 
   systemd.network = {
     enable = true;
+    links."10-uplink" = {
+      matchConfig.Type = "ether";
+      linkConfig.Name = "uplink";
+    };
     netdevs."20-br11" = {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br11";
@@ -55,33 +59,33 @@ in {
       netdevConfig.Name = "br21";
     };
 
-    netdevs."20-eno1.11" = {
+    netdevs."20-uplink.11" = {
       netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.11";
+      netdevConfig.Name = "uplink.11";
       vlanConfig.Id = 11;
     };
-    netdevs."20-eno1.21" = {
+    netdevs."20-uplink.21" = {
       netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.21";
+      netdevConfig.Name = "uplink.21";
       vlanConfig.Id = 21;
     };
-    netdevs."20-eno1.100" = {
+    netdevs."20-uplink.100" = {
       netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "eno1.100";
+      netdevConfig.Name = "uplink.100";
       vlanConfig.Id = 100;
     };
-    networks."20-eno1" = {
-      matchConfig.Name = "eno1";
+    networks."20-uplink" = {
+      matchConfig.Name = "uplink";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       vlan = [
-        "eno1.11"
-        "eno1.21"
-        "eno1.100"
+        "uplink.11"
+        "uplink.21"
+        "uplink.100"
       ];
     };
     networks."20-vm11-bridge" = {
-      matchConfig.Name = ["eno1.11" "vm-11-*"];
+      matchConfig.Name = ["uplink.11" "vm-11-*"];
       networkConfig.Bridge = "br11";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
@@ -101,14 +105,14 @@ in {
       ];
     };
     networks."20-vm21-bridge" = {
-      matchConfig.Name = ["eno1.21" "vm-21-*"];
+      matchConfig.Name = ["uplink.21" "vm-21-*"];
       networkConfig.Bridge = "br21";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
-    networks."20-eno1.100" = {
-      matchConfig.Name = "eno1.100";
+    networks."20-uplink.100" = {
+      matchConfig.Name = "uplink.100";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
     };

@@ -27,7 +27,7 @@ in {
     kata.enable = true;
     bridge = {
       name = "deploy-dmz";
-      uplink = "eno1.100";
+      uplink = "uplink.100";
       subnet = "10.97.100.0/24";
       gateway = "10.97.100.1";
       poolStart = "10.97.100.128";

@@ -12,7 +12,7 @@
 
   incus-guest = {
     profile = "dmz-vm";
-    parent = "eno1.100";
+    parent = "uplink.100";
     nictype = "macvlan";
   };
 
