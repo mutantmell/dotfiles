@@ -46,7 +46,7 @@ in {
 
   systemd.network = {
     enable = true;
-    links."10-uplink" = {
+    links."01-uplink" = {
       matchConfig.Type = "ether";
       linkConfig.Name = "uplink";
     };
@@ -130,6 +130,12 @@ in {
     };
   };
   services.resolved.enable = true;
+
+  # Wait for VLAN 100 before setting up macvtap interfaces
+  systemd.services."microvm-macvtap-interfaces@saint-arkh" = {
+    after = ["sys-subsystem-net-devices-uplink.100.device"];
+    wants = ["sys-subsystem-net-devices-uplink.100.device"];
+  };
 
   # Host-based input firewall: restrict SSH to router + vHOME
   networking.firewall.extraInputRules = ''

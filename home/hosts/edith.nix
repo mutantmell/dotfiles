@@ -23,6 +23,8 @@
     registry = "creil.internal";
     caCert = builtins.toString pkgs.mmell.lib.data.pki.root;
     dnsServers = ["10.97.100.1"];
+    memoryLimit = "8g";
+    cpuLimit = "4";
     flakePath = "/home/mutantmell/git/dotfiles";
     forgejoTokenFile = config.sops.secrets."cc-sandbox-forgejo-token".path;
   };
