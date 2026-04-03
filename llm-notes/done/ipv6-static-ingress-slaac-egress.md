@@ -1,5 +1,7 @@
 # Plan: IPv6 Static Ingress + SLAAC Egress Addressing
 
+**Status: COMPLETE** (2026-04-03)
+
 ## Context
 
 Internal hosts currently use static ULA IPv6 addresses from the network registry
@@ -125,15 +127,13 @@ No `ip rule`, `gai.conf`, or other changes needed.
 
 ### 3. Handle forwarding hosts
 
-VM hosts (remiferia, calvard, erebonia) and the router itself have IP forwarding
-enabled. The Linux kernel ignores RAs when forwarding is enabled unless
-`accept_ra = 2`. For these hosts, add:
+**Finding:** VM hosts (remiferia, calvard, erebonia) do NOT have IPv6 forwarding
+enabled. They bridge guest traffic at L2 (via bridge devices), which does not
+require IP-level forwarding. Only the router (router6 module) enables
+`net.ipv6.conf.all.forwarding = 1`, and the router is not modified in this plan.
 
-```nix
-boot.kernel.sysctl."net.ipv6.conf.<iface>.accept_ra" = 2;
-```
-
-MicroVM guests and Incus guests generally don't forward, so they don't need this.
+Therefore, no `accept_ra = 2` sysctl is needed on any host. The default
+`accept_ra = 1` works for all hosts modified here.
 
 ### 4. Verify router6 RA configuration
 
@@ -165,11 +165,11 @@ Verify:
 
 Wire into `tests/router6.nix`.
 
-## Files to modify
+## Files modified
 
-Host configs — enable RA acceptance + privacy extensions:
+Host configs — enabled RA acceptance + privacy extensions (15 hosts):
 
-VM hosts (need `accept_ra = 2` — they forward traffic to guests):
+VM hosts (no `accept_ra = 2` needed — they bridge at L2, not IP forwarding):
 
 - `hosts/remiferia/default.nix`
 - `hosts/calvard/microvm/default.nix`
@@ -180,18 +180,24 @@ MicroVM guests:
 - `hosts/thebeyond/microvm/guests/phantasma/default.nix`
 - `hosts/calvard/microvm/guests/messeldam/default.nix`
 - `hosts/calvard/microvm/guests/langport/default.nix`
+- `hosts/calvard/microvm/guests/basel/default.nix`
+- `hosts/calvard/microvm/guests/creil/default.nix`
+- `hosts/calvard/microvm/guests/oracion/default.nix`
+- `hosts/calvard/microvm/guests/tharbad/default.nix`
 - `hosts/erebonia/microvm/guests/saint-arkh/default.nix`
+- `hosts/erebonia/microvm/guests/roer/default.nix`
+- `hosts/remiferia/microvm/guests/ardent/default.nix`
+- `hosts/remiferia/microvm/guests/monrain/default.nix`
 
 Incus guests:
 
 - `hosts/calvard/incus/guests/edith/default.nix`
-- `hosts/calvard/incus/guests/oracion/default.nix`
 - `hosts/erebonia/incus/guests/trista/default.nix`
 
 Test files:
 
-- `tests/modules/router6-ipv6-privacy.nix` (create)
-- `tests/router6.nix` (add entry)
+- `tests/modules/router6-ipv6-privacy.nix` (created)
+- `tests/router6.nix` (added entry)
 
 ## Follow-up: Stable GUA addresses + ULA address offset
 
