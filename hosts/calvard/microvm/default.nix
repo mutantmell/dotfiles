@@ -119,7 +119,8 @@ in {
     networks."20-br11" = {
       matchConfig.Name = "br11";
       networkConfig.DHCP = "no";
-      networkConfig.IPv6AcceptRA = false;
+      networkConfig.IPv6AcceptRA = true;
+      networkConfig.IPv6PrivacyExtensions = "yes";
       networkConfig.Address = [host.cidr4 host.cidr6];
       networkConfig.DNS = [zone.gateway4 zone.gateway6];
       networkConfig.Domains = ["internal"];

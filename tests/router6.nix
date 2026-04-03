@@ -9,6 +9,7 @@
 }: {
   # NixOS VM integration tests
   router6-ipv6 = import ./modules/router6-ipv6.nix {inherit pkgs lib;};
+  router6-ipv6-privacy = import ./modules/router6-ipv6-privacy.nix {inherit pkgs lib;};
   router6-firewall = import ./modules/router6-firewall.nix {inherit pkgs lib;};
   router6-firewall-zones = import ./modules/router6-firewall-zones.nix {inherit pkgs lib;};
   router6-bond-bridge = import ./modules/router6-bond-bridge.nix {inherit pkgs lib;};

@@ -37,7 +37,8 @@ in {
       Address = [host.cidr4 host.cidr6];
       Gateway = zone.gateway4;
       DNS = ["127.0.0.1"]; # Use local DNS (Adguard -> Unbound)
-      IPv6AcceptRA = false;
+      IPv6AcceptRA = true;
+      IPv6PrivacyExtensions = "yes";
       DHCP = "no";
     };
     routes = [
