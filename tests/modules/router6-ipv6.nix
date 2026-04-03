@@ -126,7 +126,8 @@ pkgs.testers.nixosTest {
 
     # Test 2: Verify router has auto-generated IPv6 address on VLAN
     # VLAN 10 -> fdc6:55f2:a5e:a::1/64 (kernel normalizes 0a5e to a5e)
-    router.succeed("ip -6 addr show vlan10 | grep 'fdc6:55f2:a5e:a::1'")
+    # wait-online is disabled for routers, so vlan10 may still be configuring
+    router.wait_until_succeeds("ip -6 addr show vlan10 | grep 'fdc6:55f2:a5e:a::1'", timeout=30)
 
     # Test 3: Verify Router Advertisements are configured
     # Check that IPv6SendRA is enabled in networkd

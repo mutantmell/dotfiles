@@ -59,11 +59,10 @@ in {
         };
 
         # Ensure virtiofs share directories exist before microVMs start
-        systemd.tmpfiles.rules =
-          builtins.concatMap (name: [
-            "d ${impCfg.persistDir}/guests/${name}/static 0755 root root -"
-            "d ${impCfg.persistDir}/guests/${name}/images 0750 microvm kvm -"
-          ]) (builtins.attrNames guestEntries);
+        systemd.tmpfiles.rules = builtins.concatMap (name: [
+          "d ${impCfg.persistDir}/guests/${name}/static 0755 root root -"
+          "d ${impCfg.persistDir}/guests/${name}/images 0750 microvm kvm -"
+        ]) (builtins.attrNames guestEntries);
 
         environment.systemPackages = [
           pkgs.mmell.mk-volume
