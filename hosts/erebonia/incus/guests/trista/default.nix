@@ -29,7 +29,8 @@
     matchConfig.Name = "enp5s0";
     networkConfig = {
       DHCP = "no";
-      IPv6AcceptRA = false;
+      IPv6AcceptRA = true;
+      IPv6PrivacyExtensions = "yes";
     };
     address = [
       "10.97.100.51/24"

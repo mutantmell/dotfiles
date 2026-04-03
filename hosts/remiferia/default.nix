@@ -91,7 +91,8 @@ in {
     networks."20-enp4s0.11" = {
       matchConfig.Name = "enp4s0.11";
       networkConfig.DHCP = "no";
-      networkConfig.IPv6AcceptRA = false;
+      networkConfig.IPv6AcceptRA = true;
+      networkConfig.IPv6PrivacyExtensions = "yes";
       networkConfig.Address = [host.cidr4 host.cidr6];
       networkConfig.MulticastDNS = true;
       networkConfig.LLMNR = true;

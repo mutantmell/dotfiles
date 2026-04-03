@@ -26,7 +26,8 @@ in {
       Address = [host.cidr4 host.cidr6];
       Gateway = zone.gateway4;
       DNS = [zone.gateway4 zone.gateway6];
-      IPv6AcceptRA = false;
+      IPv6AcceptRA = true;
+      IPv6PrivacyExtensions = "yes";
       DHCP = "no";
     };
     routes = [
