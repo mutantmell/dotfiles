@@ -91,6 +91,72 @@ Guest disk images and state do not need to be preserved — they will be recreat
 
 **Important:** Use a stable device path (`/dev/disk/by-id/...`) for the `disk` parameter in the disko profile, not `/dev/sdX` which can shift between boots.
 
+#### Pre-install: restructure ZFS datasets (run on live remiferia before reformatting)
+
+Currently the pool has a single `data` dataset with everything as plain directories. Create proper child datasets for independent snapshot/compression/tuning policies. The `data/media` dataset must remain a single dataset (no children) for hardlink support.
+
+- [ ] Verify current layout:
+  ```bash
+  zfs list -r -o name,mountpoint data
+  ```
+  Expected: only `data` at `/data`. If child datasets already exist, adapt the steps below accordingly.
+
+- [ ] Move existing data out of the way (temporary directories on pool root):
+  ```bash
+  # Move current contents to temporary locations so dataset mount points don't conflict
+  mv /data/media /data/_media_tmp
+  mv /data/backup /data/_backup_tmp
+  mv /data/drive /data/_drive_tmp
+  # Move anything else that will become a dataset
+  ```
+
+- [ ] Create child datasets with appropriate settings:
+  ```bash
+  # Media: large recordsize for video files, compression off (already-compressed media)
+  zfs create -o mountpoint=/data/media -o recordsize=1M -o compression=off data/media
+
+  # Backup: default recordsize, zstd compression
+  zfs create -o mountpoint=/data/backup -o compression=zstd data/backup
+
+  # General storage: default recordsize, zstd compression
+  zfs create -o mountpoint=/data/general -o compression=zstd data/general
+
+  # Drive (SMB share): default recordsize, zstd compression
+  zfs create -o mountpoint=/data/drive -o compression=zstd data/drive
+  ```
+
+- [ ] Move data into the new datasets:
+  ```bash
+  # Use rsync to preserve permissions, ownership, and hardlinks
+  rsync -aHAX --remove-source-files /data/_media_tmp/ /data/media/
+  rsync -aHAX --remove-source-files /data/_backup_tmp/ /data/backup/
+  rsync -aHAX --remove-source-files /data/_drive_tmp/ /data/drive/
+  # Clean up empty temp directories
+  find /data/_media_tmp /data/_backup_tmp /data/_drive_tmp -type d -empty -delete
+  ```
+
+- [ ] Verify the result:
+  ```bash
+  zfs list -r -o name,mountpoint,recordsize,compression data
+  ```
+  Expected:
+  ```
+  NAME          MOUNTPOINT     RECSIZE  COMPRESS
+  data          /data          128K     off
+  data/backup   /data/backup   128K     zstd
+  data/drive    /data/drive    128K     zstd
+  data/general  /data/general  128K     zstd
+  data/media    /data/media    1M       off
+  ```
+
+- [ ] Verify `data/media` has no child datasets (hardlink requirement):
+  ```bash
+  zfs list -r data/media
+  ```
+  Must show only one row.
+
+**Note:** Existing hardlinks within `/data/media` will be broken by the `rsync` move (they become separate files on the new dataset). This is acceptable — the arr stack will create new hardlinks going forward. If preserving existing hardlinks matters, use `mv` within the same dataset instead, but since we're moving across dataset boundaries that's not possible here.
+
 #### Pre-install: identify and verify disks
 
 - [ ] Boot from NixOS installer USB
@@ -183,7 +249,7 @@ Key changes from current config:
 - **RO enforced server-side** — calvard can see staging dirs but cannot write to them
 - **Remove unused non-media exports** (`/data/data`, `/export/rw/backup`, etc.)
 
-**SMB shares are left unchanged** — replacing them requires a broader change to the upload workflow.
+**SMB shares are left functionally unchanged** — replacing them requires a broader change to the upload workflow. The `drive` share path stays at `/data/drive`. Update the `backup` share path from `/export/rw/backup` to `/data/backup` (direct dataset mount, since the export tree bind mount is being removed).
 
 ### 2.3 Create media user/group
 
@@ -423,11 +489,18 @@ These are not NixOS config changes but required setup in service web UIs after d
    - Update Library: enabled
    - Send Notifications: disabled (broken in modern Jellyfin)
 
-2. **Jellyfin scheduled library scan**: Dashboard → Scheduled Tasks, set full library scan every 4-6 hours as inotify fallback (inotify does not work on NFS).
+2. **Jellyfin VAAPI setup**: Dashboard → Playback → Transcoding, set hardware acceleration to **VAAPI**, device to `/dev/dri/renderD128`. Verify with `intel_gpu_top` — activity on the `Video` row confirms hardware decode.
 
-3. **Media directory ownership**: `chown -R 1500:1500 /data/media`
+3. **Jellyfin library setup**: Dashboard → Libraries, add:
+   - Movies library → `/media/library/movies`
+   - TV library → `/media/library/tv`
+   - Music library → `/media/library/music` (if using Jellyfin for music)
 
-4. **Media directory structure**: Create the staging directories (`manual/`, `torrents/`, `usenet/`, `library/` with subdirectories)
+4. **Jellyfin scheduled library scan**: Dashboard → Scheduled Tasks, set full library scan every 4-6 hours as inotify fallback (inotify does not work on NFS).
+
+5. **Media directory ownership**: `chown -R 1500:1500 /data/media`
+
+6. **Media directory structure**: Create the staging directories (`manual/`, `torrents/`, `usenet/`, `library/` with subdirectories)
 
 ---
 
@@ -464,6 +537,8 @@ Services and capabilities deferred from this plan for follow-up work:
 - **Caddy**: Reverse proxy + TLS termination on calvard, fronting all client-facing services.
 - **Audiobookshelf / Kavita / Immich**: Optional media servers per the spec.
 - **SMB media share rework**: Current SMB config gives full RW access to `/data/media` from the trusted VLAN, contradicting the least-privilege model. Needs a broader upload workflow redesign.
+- **Optional denai enhancements**: Lidarr (music organization), Recyclarr (TRaSH Guide quality profile sync to Sonarr/Radarr). Add to denai when needed.
+- **One-time migration tools**: mnamer (bulk media renaming into `/media/manual/` for arr import), MusicBrainz Picard (music tag correction). Run once on denai when migrating an existing unorganized collection.
 
 ---
 
