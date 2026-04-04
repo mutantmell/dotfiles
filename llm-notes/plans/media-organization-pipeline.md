@@ -27,18 +27,18 @@ Add an optional `l2arcSize` parameter to `profiles/disko/btrfs.nix`. When set, d
 Current signature: `{disk ? "/dev/sda", ...}`
 New signature: `{disk ? "/dev/sda", l2arcSize ? null, ...}`
 
-When `l2arcSize` is non-null (e.g. `"32G"`), add a partition:
+When `l2arcSize` is non-null (e.g. `"32G"`), add a raw partition with no `content` block:
 ```nix
 l2arc = {
   name = "l2arc";
   size = l2arcSize;  # e.g. "32G"
-  content.type = "zfs_member";  # or just leave raw — ZFS manages it via zpool add
+  # No content — ZFS manages this partition via `zpool add data cache`
 };
 ```
 
 The L2ARC keeps frequently-accessed ZFS metadata and small files warm on the SSD, allowing HDD spindown between actual media operations (spec line 369). This must be done at initial partitioning time to avoid repartitioning later.
 
-**Note:** The actual `zpool add data cache /dev/sdXN` is a one-time manual step after first boot, not managed by disko. The partition just needs to exist. Consider whether to leave it raw (simplest) or use `content.type = "zfs_member"` for documentation purposes.
+**Note:** The actual `zpool add data cache /dev/sdXN` is a one-time manual step after first boot (see deployment checklist). Disko just creates the partition.
 
 ### 1.2 Update remiferia host config
 
@@ -85,17 +85,56 @@ Currently ardent/monrain use `/data/guests/{name}/` for static shares and disk i
 - `hosts/remiferia/microvm/guests/ardent/microvm.nix` — Update paths `/data/guests/` → `/persist/guests/`
 - `hosts/remiferia/microvm/guests/monrain/microvm.nix` — Update paths `/data/guests/` → `/persist/guests/`
 
-### 1.5 Deployment procedure (manual, not code changes)
+### 1.5 Deployment checklist (manual, not code changes)
 
-1. Backup remiferia config + guest static dirs + guest disk images
-2. Boot from NixOS installer USB
-3. `zpool export data` (safely detach ZFS pool)
-4. Run disko to partition the boot SSD (creates ESP + L2ARC + LUKS/btrfs)
-5. Install NixOS with new config
-6. `zpool import data` (re-import on first boot via `boot.zfs.extraPools`)
-7. `zpool add data cache /dev/sdXN` (add L2ARC partition — one-time)
-8. Restore guest static directories to `/persist/guests/`
-9. Verify services come up
+Guest disk images and state do not need to be preserved — they will be recreated on first boot.
+
+**Important:** Use a stable device path (`/dev/disk/by-id/...`) for the `disk` parameter in the disko profile, not `/dev/sdX` which can shift between boots.
+
+#### Pre-install: identify and verify disks
+
+- [ ] Boot from NixOS installer USB
+- [ ] Run `lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT,MODEL` to identify all disks
+- [ ] Identify the boot SSD (currently has ext4 root + vfat boot) — note its `/dev/disk/by-id/` path:
+  ```bash
+  ls -la /dev/disk/by-id/ | grep -v part
+  ```
+- [ ] Confirm which disks belong to the ZFS pool (will show `zfs_member` in FSTYPE)
+- [ ] Verify the `disk` parameter in the disko profile points to the correct boot SSD
+
+#### Detach ZFS pool
+
+- [ ] `zpool export data`
+- [ ] `zpool status` — should report no pools imported
+- [ ] Confirm ZFS disks still visible in `lsblk` but no longer mounted
+
+#### Preview disko (dry run)
+
+- [ ] Run disko dry-run to preview all operations:
+  ```bash
+  nix run github:nix-community/disko -- --mode disko --dry-run <path-to-config>
+  ```
+- [ ] **Verify the output only references the boot SSD** — no ZFS disk device paths should appear
+- [ ] Review the partition layout: ESP + L2ARC + LUKS/btrfs
+
+#### Run disko and install
+
+- [ ] Run disko for real:
+  ```bash
+  nix run github:nix-community/disko -- --mode disko <path-to-config>
+  ```
+- [ ] Install NixOS with the new configuration
+- [ ] Reboot into the new system
+
+#### Post-install: restore ZFS and bootstrap guests
+
+- [ ] Verify btrfs root is mounted and impermanence is working (`findmnt /`, `findmnt /persist`)
+- [ ] Confirm ZFS pool auto-imported: `zpool status data`
+  - If not: `zpool import data`
+- [ ] Add L2ARC cache: `zpool add data cache /dev/disk/by-id/<ssd-l2arc-partition>`
+- [ ] Verify L2ARC attached: `zpool status data` — should show cache device
+- [ ] Run `setup-guest.sh` to bootstrap guest SSH keys + sops age keys into `/persist/guests/`
+- [ ] Verify all services come up: NFS exports, SMB, microvm guests (ardent, monrain)
 
 ### 1.6 Add disko check
 
@@ -115,16 +154,16 @@ On remiferia host (one-time manual setup on the ZFS pool):
 ├── torrents/{movies,tv,music}/
 ├── usenet/complete/{movies,tv,music}/
 ├── manual/{movies,tv,music}/
-└── library/{movies,tv,music,roms/{gba,gbc,snes,n64,ps,ps2,gc}}/
+└── library/{movies,tv,music}/
 ```
 
 ### 2.2 Update NFS exports and bind mounts
 
 **File: `hosts/remiferia/nas.nix`**
 
-Change bind mounts:
-- `/export/rw/media` binds to `/data/media` (full tree, unchanged)
-- `/export/ro/media` binds to `/data/media/library` (**currently binds to `/data/media`** — this is the key security fix)
+Both bind mounts point to the same root for symmetry — the access level (RW vs RO) is the only difference:
+- `/export/rw/media` binds to `/data/media` (unchanged)
+- `/export/ro/media` binds to `/data/media` (unchanged — **currently already correct**)
 
 Remove unused exports and bind mounts:
 - Remove `/export/rw/data`, `/export/ro/data`, `/export/rw/backup` bind mounts
@@ -141,7 +180,7 @@ services.nfs.server.exports = ''
 Key changes from current config:
 - **Replace `no_root_squash` with `all_squash,anonuid=1500,anongid=1500`** — eliminates UID mismatches
 - **Per-host access instead of subnet-wide** — only specific hosts that need access
-- **RO export scoped to `library/`** — calvard can't see staging directories
+- **RO enforced server-side** — calvard can see staging dirs but cannot write to them
 - **Remove unused non-media exports** (`/data/data`, `/export/rw/backup`, etc.)
 
 **SMB shares are left unchanged** — replacing them requires a broader change to the upload workflow.
@@ -264,7 +303,7 @@ systemd.services.radarr.serviceConfig = { Nice = 19; IOSchedulingClass = "idle";
 - Egress filtering: DNS (gateway), Loki (tharbad), HTTP/HTTPS (gateway for metadata lookups — TVDB, TMDB, etc.), Jellyfin API (oracion on DMZ port 8096)
 - Impermanence: persist `/var/lib/sonarr`, `/var/lib/radarr`, `/var/lib/bazarr`, `/var/log`
 - Promtail + node-exporter enabled
-- **Swap: 4GB** as a pressure valve for Radarr's memory spikes during bulk imports (spec line 156). Configure via `swapDevices` on the persist volume or `zramSwap`.
+- **Swap: 4GB via `zramSwap`** as a pressure valve for Radarr's memory spikes during bulk imports (spec line 156). zramSwap is simplest in a microvm — no disk image space needed.
 
 ### 3.6 Router firewall — no changes needed
 
@@ -312,7 +351,7 @@ fileSystems."/mnt/media" = {
 };
 ```
 
-Key changes: `soft`→`hard`, `rw`→`ro`, scoped to `/export/ro/media` (library only), NFS 4.2.
+Key changes: `soft`→`hard`, `rw`→`ro`, use `/export/ro/media` (server-enforced read-only), NFS 4.2.
 
 ### 4.2 Fix erebonia NFS mount
 
@@ -345,20 +384,15 @@ fileSystems."/mnt/media" = {
 
 Key changes: `soft`→`hard`, NFS 4.2, proper buffer sizes, device changed from `/data/data` (removed export) to `/export/rw/media`.
 
-### 4.3 Update oracion virtiofs mount point
+### 4.3 Oracion virtiofs mount point — no change needed
 
-**File: `hosts/calvard/microvm/guests/oracion/microvm.nix`**
+**File: `hosts/calvard/microvm/guests/oracion/microvm.nix`** — unchanged.
 
-The host mount changes from `/mnt/media` (full tree) to `/mnt/media` (now library-only from NFS). The virtiofs share source stays `/mnt/media` but the guest mount point should be `/media/library` to match path equivalence:
+Since both the RW and RO exports bind the same root (`/data/media`), path equivalence is trivial:
+- **denai** (arr guest): virtiofs `/data/media` → `/media`. Radarr sees `/media/library/movies/...`
+- **oracion** (Jellyfin): virtiofs `/mnt/media` (NFS of `/data/media`) → `/media`. Jellyfin sees `/media/library/movies/...`
 
-```nix
-{
-  source = "/mnt/media";
-  mountPoint = "/media/library";  # was "/media"
-  tag = "media";
-  proto = "virtiofs";
-}
-```
+Both guests see identical paths. The existing virtiofs config (`source = "/mnt/media"`, `mountPoint = "/media"`) is already correct.
 
 ### 4.4 Fix Jellyfin configuration
 
@@ -391,11 +425,9 @@ These are not NixOS config changes but required setup in service web UIs after d
 
 2. **Jellyfin scheduled library scan**: Dashboard → Scheduled Tasks, set full library scan every 4-6 hours as inotify fallback (inotify does not work on NFS).
 
-3. **ZFS L2ARC**: `zpool add data cache /dev/sdXN` (one-time, after first boot)
+3. **Media directory ownership**: `chown -R 1500:1500 /data/media`
 
-4. **Media directory ownership**: `chown -R 1500:1500 /data/media`
-
-5. **Media directory structure**: Create the staging directories (`manual/`, `torrents/`, `usenet/`, `library/` with subdirectories)
+4. **Media directory structure**: Create the staging directories (`manual/`, `torrents/`, `usenet/`, `library/` with subdirectories)
 
 ---
 
@@ -413,12 +445,25 @@ nix build .#checks.x86_64-linux.disko-btrfs-l2arc  # if added as separate check
 
 ### Post-deployment verification
 1. **Remiferia boot**: Verify btrfs root, impermanence working, ZFS `data` pool imported, L2ARC attached
-2. **NFS exports**: `showmount -e remiferia` — verify RO export scoped to library, no `/data/data` exports
+2. **NFS exports**: `showmount -e remiferia` — verify symmetric RO/RW media exports, no `/data/data` exports
 3. **Arr guest**: Verify Sonarr/Radarr/Bazarr web UIs accessible, `/media` virtiofs mounted, swap active
 4. **Hardlink test**: Create test file in `/media/manual/movies/`, use Radarr manual import, verify hardlink (not copy)
 5. **Jellyfin**: Verify NFS mount is RO+hard, media visible at `/media/library/`, VAAPI working (`intel_gpu_top`)
-6. **Path equivalence**: Radarr reports `/media/library/movies/...`, Jellyfin resolves same path
+6. **Path equivalence**: Radarr (denai) and Jellyfin (oracion) both resolve `/media/library/movies/...` to the same data
 7. **Erebonia NFS**: Verify `/mnt/media` mounts with hard + RW to `/export/rw/media`
+
+---
+
+## Future Goals (out of scope)
+
+Services and capabilities deferred from this plan for follow-up work:
+
+- **Retro gaming**: [RetroM](https://github.com/JMBeresworthy/retrom) (publishes a Nix flake) replaces the originally-specced RomM. RetroM provides a library manager with metadata scraping and a web frontend. Use [Igir](https://github.com/smart-retro/igir) for ROM ingestion — it handles DAT-based verification, renaming, and deduplication into the `/media/library/roms/` directory structure. The spec's RomM-specific details (EmulatorJS, IGDB scraping, directory layout) should be revisited against RetroM's capabilities.
+- **Unmanic on erebonia**: SVT-AV1 background re-encoding. Erebonia's RW NFS mount is already prepared. Add dirty page tuning (`vm.dirty_bytes = 67108864`, `vm.dirty_background_bytes = 33554432`) when this is implemented.
+- **Navidrome**: Dedicated music streaming server on calvard (RO NFS).
+- **Caddy**: Reverse proxy + TLS termination on calvard, fronting all client-facing services.
+- **Audiobookshelf / Kavita / Immich**: Optional media servers per the spec.
+- **SMB media share rework**: Current SMB config gives full RW access to `/data/media` from the trusted VLAN, contradicting the least-privilege model. Needs a broader upload workflow redesign.
 
 ---
 
@@ -436,8 +481,8 @@ nix build .#checks.x86_64-linux.disko-btrfs-l2arc  # if added as separate check
 | `hosts/remiferia/microvm/guests/monrain/microvm.nix` | Update paths `/data/guests/` → `/persist/guests/` |
 | `hosts/remiferia/microvm/guests/denai/` | **New** — arr stack guest (4-5 files) |
 | `lib/common/data/network.nix` | Add denai to lab zone |
-| `hosts/calvard/default.nix` | Fix NFS mount (hard, RO, library-scoped) |
-| `hosts/calvard/microvm/guests/oracion/microvm.nix` | Fix virtiofs mount point → `/media/library` |
+| `hosts/calvard/default.nix` | Fix NFS mount (hard, RO, proper options) |
+| `hosts/calvard/microvm/guests/oracion/microvm.nix` | No change needed (path equivalence preserved by symmetric exports) |
 | `hosts/calvard/microvm/guests/oracion/modules/jellyfin.nix` | .NET file locking fix, render/video groups, media group |
 | `hosts/calvard/microvm/guests/tharbad/modules/prometheus.nix` | Add denai scrape target |
 | `hosts/calvard/microvm/guests/tharbad/modules/loki.nix` | Update host count |
