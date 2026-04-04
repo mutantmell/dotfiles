@@ -7,7 +7,7 @@ The spec at `llm-notes/specs/jellyfin-media-organization.md` defines a media pip
 | Spec Role | Host | Status |
 |-----------|------|--------|
 | NAS (arr stack, NFS) | **remiferia** | Needs disko reformat + new arr guest |
-| Serving node (Jellyfin, RomM) | **calvard** (oracion guest) | Partially done, needs fixes |
+| Serving node (Jellyfin) | **calvard** (oracion guest) | Partially done, needs fixes |
 | Encoding node (Unmanic) | **erebonia** | Future work (out of scope) |
 
 The core deliverable is: remiferia reformatted with btrfs/impermanence, a new arr stack microvm, hardened NFS exports, and Jellyfin configuration fixes on calvard.
@@ -531,7 +531,7 @@ nix build .#checks.x86_64-linux.disko-btrfs-l2arc  # if added as separate check
 
 Services and capabilities deferred from this plan for follow-up work:
 
-- **Retro gaming**: [RetroM](https://github.com/JMBeresworthy/retrom) (publishes a Nix flake) replaces the originally-specced RomM. RetroM provides a library manager with metadata scraping and a web frontend. Use [Igir](https://github.com/smart-retro/igir) for ROM ingestion — it handles DAT-based verification, renaming, and deduplication into the `/media/library/roms/` directory structure. The spec's RomM-specific details (EmulatorJS, IGDB scraping, directory layout) should be revisited against RetroM's capabilities.
+- **Retro gaming**: [Retrom](https://github.com/JMBeresford/retrom) (publishes a Nix flake) for ROM library management and metadata scraping. The original spec proposed RomM, but it's not packaged in nixpkgs and is limited to browser-based emulation. Retrom is a better fit. Use [Igir](https://github.com/emmercm/igir) for ROM ingestion — it handles DAT-based verification, renaming, and deduplication into the `/media/library/roms/` directory structure. The spec's RomM-specific details (EmulatorJS, IGDB scraping, directory layout) should be revisited against Retrom's capabilities.
 - **Unmanic on erebonia**: SVT-AV1 background re-encoding. Erebonia's RW NFS mount is already prepared. Add dirty page tuning (`vm.dirty_bytes = 67108864`, `vm.dirty_background_bytes = 33554432`) when this is implemented.
 - **Navidrome**: Dedicated music streaming server on calvard (RO NFS).
 - **Caddy**: Reverse proxy + TLS termination on calvard, fronting all client-facing services.
