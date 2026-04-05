@@ -91,7 +91,6 @@ in {
             # erebonia guests
             "saint-arkh"
             # liberl guests
-            "ruan"
             "bose"
           ];
         in

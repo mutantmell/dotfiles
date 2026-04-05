@@ -23,7 +23,7 @@
       autoCreate = true;
       mountPoint = "/persist";
       image = "/persist/guests/zeiss/images/persist.img";
-      size = 25 * 1024;
+      size = 15 * 1024;
     }
   ];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
