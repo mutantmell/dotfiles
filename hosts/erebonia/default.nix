@@ -1,14 +1,18 @@
 {
   pkgs,
   config,
+  lib,
   ...
 }: let
-  deployUid = pkgs.mmell.lib.data.deployd.uid;
+  inherit (pkgs.mmell.lib.data.users.deployd) uid gid;
 in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
-    (import ../../profiles/disko/btrfs.nix {disk = "/dev/sda";})
+    (import ../../profiles/disko/btrfs.nix {
+      disk = "/dev/sda";
+      inherit lib;
+    })
     ./sops.nix
     ./microvm
     ./incus
@@ -35,8 +39,8 @@ in {
     };
   };
   # Static UID — must match deployd-api UID in roer microVM for virtiofs socket access.
-  users.users.deployd-helper.uid = deployUid;
-  users.groups.deployd-helper.gid = deployUid;
+  users.users.deployd-helper.uid = uid;
+  users.groups.deployd-helper.gid = gid;
   common.btrfs.enable = true;
   common.btrfs.keyfileUnlock.enable = true;
   common.btrfs.impermanence.enable = true;
@@ -77,11 +81,24 @@ in {
 
   i18n.defaultLocale = "en_US.UTF-8";
 
-  # NFS share from remiferia (NAS)
-  fileSystems."/mnt/data" = {
-    device = "remiferia.internal:/data/data";
+  # NFS media share from liberl (NAS) — read-write
+  fileSystems."/mnt/media" = {
+    device = "liberl.internal:/export/rw/media";
     fsType = "nfs";
-    options = ["x-systemd.automount" "noauto" "_netdev" "nfsvers=4" "soft" "timeo=150"];
+    options = [
+      "nfsvers=4.2"
+      "hard"
+      "noatime"
+      "rsize=1048576"
+      "wsize=1048576"
+      "timeo=600"
+      "retrans=2"
+      "nofail"
+      "_netdev"
+      "x-systemd.automount"
+      "noauto"
+      "x-systemd.idle-timeout=0"
+    ];
   };
 
   users.mutableUsers = false;

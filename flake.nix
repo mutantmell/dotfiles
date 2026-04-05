@@ -307,13 +307,14 @@
           ./hosts/calvard
         ];
       };
-      remiferia = self.lib.mk-nixos {
+      liberl = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
         modules = [
+          disko.nixosModules.disko
           microvm.nixosModules.host
           home-manager.nixosModules.home-manager
-          ./hosts/remiferia
+          ./hosts/liberl
         ];
       };
       erebonia = self.lib.mk-nixos {

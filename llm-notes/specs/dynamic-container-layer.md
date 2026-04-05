@@ -1,4 +1,5 @@
 # Dynamic Container Deployment Service
+
 ## Design Specification and Implementation Plan
 
 ---
@@ -39,13 +40,13 @@ NixOS couples the update cadence of infrastructure and applications by design. A
 
 Existing approaches fail in specific ways:
 
-| Approach | Failure mode |
-|---|---|
-| `quadlet-nix` | Static only — every new container requires a rebuild |
-| `virtualisation.oci-containers` | Static only — same constraint |
-| k3s | Fights NixOS for ownership of networking, storage, and service lifecycle |
-| Nomad | BSL license, significant operational overhead, not NixOS-native |
-| Imperative `podman run` | No ingress management, no persistence, no audit trail |
+| Approach                        | Failure mode                                                             |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| `quadlet-nix`                   | Static only — every new container requires a rebuild                     |
+| `virtualisation.oci-containers` | Static only — same constraint                                            |
+| k3s                             | Fights NixOS for ownership of networking, storage, and service lifecycle |
+| Nomad                           | BSL license, significant operational overhead, not NixOS-native          |
+| Imperative `podman run`         | No ingress management, no persistence, no audit trail                    |
 
 `deployd` is the missing layer: a declarative platform configured once in NixOS, operated dynamically thereafter.
 
@@ -80,18 +81,14 @@ The service accepts a JSON container definition:
 {
   "name": "myapp",
   "image": "registry.internal/myapp@sha256:abc123",
-  "ports": [
-    { "host": 8080, "container": 80, "protocol": "tcp" }
-  ],
+  "ports": [{ "host": 8080, "container": 80, "protocol": "tcp" }],
   "ingress": {
     "hostname": "myapp.tailnet.example.com"
   },
   "env": {
     "ENV_VAR": "value"
   },
-  "volumes": [
-    { "host": "/var/lib/myapp", "container": "/data" }
-  ],
+  "volumes": [{ "host": "/var/lib/myapp", "container": "/data" }],
   "block_volume": "vol-a3f8c1",
   "persistent": true
 }
@@ -153,20 +150,21 @@ Three independent isolation layers stack to produce the security posture:
 
 **Endpoints:**
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/containers` | Deploy a new container |
-| `DELETE` | `/containers/:name` | Tear down a container |
-| `POST` | `/containers/:name/suspend` | Suspend a running container (iSCSI add-on) |
-| `POST` | `/containers/:name/resume` | Resume a suspended container (iSCSI add-on) |
-| `GET` | `/containers` | List deployed containers and their status |
-| `GET` | `/containers/:name` | Status of a single container |
-| `GET` | `/health` | Health check |
-| `POST` | `/volumes` | Allocate a volume from the storage pool (iSCSI add-on) |
-| `DELETE` | `/volumes/:id` | Release a volume back to the storage pool (iSCSI add-on) |
-| `GET` | `/volumes` | List allocated volumes and their attachment status (iSCSI add-on) |
+| Method   | Path                        | Description                                                       |
+| -------- | --------------------------- | ----------------------------------------------------------------- |
+| `POST`   | `/containers`               | Deploy a new container                                            |
+| `DELETE` | `/containers/:name`         | Tear down a container                                             |
+| `POST`   | `/containers/:name/suspend` | Suspend a running container (iSCSI add-on)                        |
+| `POST`   | `/containers/:name/resume`  | Resume a suspended container (iSCSI add-on)                       |
+| `GET`    | `/containers`               | List deployed containers and their status                         |
+| `GET`    | `/containers/:name`         | Status of a single container                                      |
+| `GET`    | `/health`                   | Health check                                                      |
+| `POST`   | `/volumes`                  | Allocate a volume from the storage pool (iSCSI add-on)            |
+| `DELETE` | `/volumes/:id`              | Release a volume back to the storage pool (iSCSI add-on)          |
+| `GET`    | `/volumes`                  | List allocated volumes and their attachment status (iSCSI add-on) |
 
 **Responsibilities:**
+
 - Validate incoming JSON against the container definition schema.
 - Validate image reference against the permitted registry allowlist (first line of defence, before the helper applies its own check).
 - Communicate with `deployd-helper` over the Unix socket using the typed command protocol — including `AddCaddyRoute` and `RemoveCaddyRoute` commands. The microVM has no direct network path to the host loopback, so all host-side side effects including Caddy route management go through the helper.
@@ -177,6 +175,7 @@ Three independent isolation layers stack to produce the security posture:
 - On startup, replay persistent definitions to restore state after a host reboot.
 
 **Rust crates:**
+
 - `axum` — HTTP server
 - `serde` / `serde_json` — serialisation
 - `tokio` — async runtime
@@ -187,6 +186,7 @@ Three independent isolation layers stack to produce the security posture:
 **Language:** Rust
 
 **Responsibilities:**
+
 - Listen on a Unix domain socket in a virtiofs-shared directory.
 - Verify `SO_PEERCRED` on every connection — refuse connections from unexpected UIDs.
 - Validate the capability token on every message.
@@ -271,12 +271,12 @@ WantedBy=default.target
 
 ### Trust boundary summary
 
-| Component | Trust level | Rationale |
-|---|---|---|
-| `deployd` API service | Untrusted relative to host | Runs in microVM, cannot reach host directly |
-| `deployd-helper` | Trusted, minimal | Runs on host, validates all inputs before acting |
-| Caller (CI, shell) | Authenticated | Bearer token on API, restricted to permitted registries |
-| Deployed containers | Untrusted | Kata VM boundary, isolated bridge network |
+| Component             | Trust level                | Rationale                                               |
+| --------------------- | -------------------------- | ------------------------------------------------------- |
+| `deployd` API service | Untrusted relative to host | Runs in microVM, cannot reach host directly             |
+| `deployd-helper`      | Trusted, minimal           | Runs on host, validates all inputs before acting        |
+| Caller (CI, shell)    | Authenticated              | Bearer token on API, restricted to permitted registries |
+| Deployed containers   | Untrusted                  | Kata VM boundary, isolated bridge network               |
 
 ### Socket authentication
 
@@ -288,12 +288,14 @@ WantedBy=default.target
 Validation occurs at two independent layers. Both must pass.
 
 **`deployd` (API service):**
+
 - JSON schema validation
 - Image registry prefix check against allowlist
 - Port range check
 - Hostname format check
 
 **`deployd-helper`:**
+
 - Command enum deserialisation (rejects anything malformed)
 - Independent registry allowlist check
 - Independent port range check (e.g., 1024–65535, excluding reserved ranges)
@@ -333,6 +335,7 @@ On container teardown, the helper stops the systemd unit, deletes the quadlet fi
 ### Atomicity
 
 Teardown and deployment are not atomically reversible at the OS level. The audit log provides a complete record for manual recovery. Partial failure handling:
+
 - If daemon-reload succeeds but the container fails to start, Podman's built-in rollback mechanism (requires `--sdnotify=container` in the quadlet) reverts the image. The Caddy route is not added until the container reports healthy.
 - If the Caddy API call fails after a successful container start, the container is torn down and the failure is logged.
 
@@ -362,10 +365,12 @@ POST /config/apps/http/servers/tailnet/routes
 {
   "@id": "deployd-myapp",
   "match": [{ "host": ["myapp.tailnet.example.com"] }],
-  "handle": [{
-    "handler": "reverse_proxy",
-    "upstreams": [{ "dial": "localhost:8080" }]
-  }],
+  "handle": [
+    {
+      "handler": "reverse_proxy",
+      "upstreams": [{ "dial": "localhost:8080" }]
+    }
+  ],
   "terminal": true
 }
 ```
@@ -421,6 +426,7 @@ Storage allocation and container deployment are separate capabilities and are ex
 This means a CI pipeline can be granted permission to deploy containers against existing volumes without being granted permission to allocate new storage. It also means the volume lifecycle is explicit and auditable independently of the container lifecycle — a volume can be inspected, snapshotted, or reassigned without touching the container definition.
 
 **Volume state:**
+
 - `free` — allocated from the pool, not attached to any container
 - `attached` — currently in use by a running or suspended container
 - `released` — returned to the pool (volume ID is invalidated)
@@ -500,6 +506,7 @@ stateDiagram-v2
 Containers without a `block_volume` can only transition between `running` and `torn_down`. The `suspended` state is only available when the iSCSI add-on is active and the container definition includes a `block_volume` ID. The service rejects `suspend` and `resume` calls on containers without block storage.
 
 **Suspend** (`POST /containers/:name/suspend`):
+
 1. `deployd` sends `RemoveCaddyRoute` to the helper — the service becomes unreachable on the tailnet immediately.
 2. `deployd` sends `RemoveFirewallPort` for each published port.
 3. `deployd` sends `Suspend` to the helper — the helper calls `systemctl stop <n>.service` and waits for clean shutdown. The Kata VM unmounts the block device as part of guest shutdown.
@@ -508,6 +515,7 @@ Containers without a `block_volume` can only transition between `running` and `t
 The container is now quiesced. The block device is cleanly unmounted and consistent. This is the correct moment to trigger a NAS snapshot.
 
 **Resume** (`POST /containers/:name/resume`):
+
 1. `deployd` sends `Resume` to the helper — the helper calls `systemctl start <n>.service`. The Kata VM re-attaches the block device on boot using the same resolved device path stored in `state.json`.
 2. `deployd` sends `AddFirewallPort` for each published port.
 3. `deployd` sends `AddCaddyRoute` — the service becomes reachable on the tailnet.
@@ -629,6 +637,7 @@ systemctl status proto.service
 ### Step 3: Bridge network with Kata
 
 Configure the bridge network in NixOS, attach the prototype container to it, publish a port, and confirm:
+
 - The container can reach external addresses (egress works).
 - A port published by the container is reachable from the host.
 - Netavark's automatic firewall rules do not conflict with the `container-deploy` nftables table.
@@ -670,6 +679,7 @@ The implementation is divided into five milestones. Each milestone produces a te
 **Goal:** Confirm all architectural assumptions before writing service code.
 
 **Tasks:**
+
 - Complete all five prototype validation steps above.
 - Document any deviations or workarounds discovered.
 - Make a go/no-go decision on the architecture before proceeding.
@@ -706,6 +716,7 @@ The implementation is divided into five milestones. Each milestone produces a te
 10. Configure NixOS systemd hardening as specified in the Component Design section.
 
 **Acceptance criteria:**
+
 - All commands validated and rejected correctly for out-of-allowlist inputs.
 - Audit log contains a complete record of all accepted and rejected commands.
 - A container deployed via the helper is visible in `systemctl status` and running under the Kata runtime.
@@ -732,6 +743,7 @@ The implementation is divided into five milestones. Each milestone produces a te
 11. Write integration tests against a mock helper.
 
 **Acceptance criteria:**
+
 - A container can be deployed and torn down via the HTTP API end to end.
 - Invalid inputs (bad registry, out-of-range port, malformed JSON) are rejected with clear error responses before reaching the helper.
 - Authentication rejects requests without a valid bearer token.
@@ -759,6 +771,7 @@ The implementation is divided into five milestones. Each milestone produces a te
 8. Write integration tests against a real Caddy instance with the helper making the API calls.
 
 **Acceptance criteria:**
+
 - A deployed container is reachable at its declared hostname within the tailnet immediately after the API call returns success.
 - Teardown removes the Caddy route cleanly.
 - Caddy API failure during deploy results in no deployed container and a clear error response.
@@ -779,6 +792,7 @@ The implementation is divided into five milestones. Each milestone produces a te
 5. Write integration tests that simulate service restart and confirm persistent containers are restored.
 
 **Acceptance criteria:**
+
 - A container deployed with `persistent: true` is running and reachable after a simulated service restart.
 - A container deployed with `persistent: false` is not present after a simulated service restart.
 - A failed replay does not prevent other containers from being restored.
@@ -811,6 +825,7 @@ The implementation is divided into five milestones. Each milestone produces a te
 4. Document the NixOS module options.
 
 **Acceptance criteria:**
+
 - The complete service is declared in NixOS configuration and requires no manual steps beyond `nixos-rebuild switch` to deploy.
 - The end-to-end integration test passes on a real NixOS host.
 - The audit log on the host contains a complete record of the integration test operations.
@@ -899,6 +914,7 @@ These are explicitly out of scope for the initial implementation but are compati
 On container deploy, register the container's service in the tailnet via the Headscale REST API, creating a pre-auth key and advertising the container's bridge IP as a route. On teardown, deregister. This would allow containers to appear as first-class tailnet nodes rather than being reachable only via Caddy proxy.
 
 **API interaction:**
+
 ```
 POST /api/v1/preauthkey   # create ephemeral reusable key
 POST /api/v1/routes       # approve advertised route

@@ -7,6 +7,7 @@ Date: 2026-04-05 (revised)
 **Hosts:** thebeyond (router), remiferia/liberl (NAS), calvard (primary VM host), erebonia (build/CI host), angbar (laptop)
 
 **Already deployed/planned:**
+
 - Networking: zone-based nftables firewall, systemd-networkd, VLANs, WireGuard
 - DNS: Unbound (split-horizon) + Adguard Home (filtering, not yet deployed — recommend Blocky instead)
 - Identity: Keycloak OIDC, step-ca PKI, SSH certificates, oauth2-proxy
@@ -31,12 +32,12 @@ Date: 2026-04-05 (revised)
 
 **The split:**
 
-| Current SMB share | Replacement | Why this tool |
-|-------------------|-------------|---------------|
-| `drive` (general storage) | **Seafile** | Web UI, share links, versioning, mobile app, OIDC via Keycloak. Remote access without VPN. Replaces the "extra drive space" use case with a proper personal cloud. |
-| `media` (upload staging) | **Syncthing** | Direct-to-filesystem sync. Windows has a local `media-staging/` folder that syncs to liberl's `/data/media/manual/`. Files land directly on ZFS — no intermediary, no chunked storage, hardlink-safe for the arr stack. Works remotely (Syncthing handles NAT traversal natively). Uses "Send Only" / "Receive Only" folder types for one-way upload. Handles partial uploads gracefully (temp files + atomic renames, so the arr stack won't see half-written files). |
-| `media` (library browse) | **Seafile** (optional, read-only) or just Jellyfin | Expose `/data/media/library/` as a read-only Seafile library for browsing the organized collection from web/mobile. Cosmetic, not functional — Jellyfin already serves this role for playback. |
-| `backup` | **Seafile** or keep SMB | Depends on whether remote access to backups is wanted. |
+| Current SMB share         | Replacement                                        | Why this tool                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `drive` (general storage) | **Seafile**                                        | Web UI, share links, versioning, mobile app, OIDC via Keycloak. Remote access without VPN. Replaces the "extra drive space" use case with a proper personal cloud.                                                                                                                                                                                                                                                                                                     |
+| `media` (upload staging)  | **Syncthing**                                      | Direct-to-filesystem sync. Windows has a local `media-staging/` folder that syncs to liberl's `/data/media/manual/`. Files land directly on ZFS — no intermediary, no chunked storage, hardlink-safe for the arr stack. Works remotely (Syncthing handles NAT traversal natively). Uses "Send Only" / "Receive Only" folder types for one-way upload. Handles partial uploads gracefully (temp files + atomic renames, so the arr stack won't see half-written files). |
+| `media` (library browse)  | **Seafile** (optional, read-only) or just Jellyfin | Expose `/data/media/library/` as a read-only Seafile library for browsing the organized collection from web/mobile. Cosmetic, not functional — Jellyfin already serves this role for playback.                                                                                                                                                                                                                                                                         |
+| `backup`                  | **Seafile** or keep SMB                            | Depends on whether remote access to backups is wanted.                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 **Deployment model:** Single microVM on liberl (vDMZ) running both Seafile and Syncthing. Both are user-facing services that accept inbound connections — vDMZ is the right zone for both. Co-locating avoids an extra VM while keeping inbound connections off the liberl host.
 
@@ -48,6 +49,7 @@ Date: 2026-04-05 (revised)
 **SMB retirement:** Once Seafile + Syncthing are operational, all three SMB shares can be removed. WSDD (Windows network discovery) can also be disabled. This simplifies the NAS firewall rules (remove ports 139, 445, 3702, 5357).
 
 **Alternatives considered:**
+
 - **Nextcloud** — Previously used, retired due to upgrade difficulty and high RAM usage. Not recommended.
 - **FileBrowser** — Extremely lightweight web file manager. Viable if Seafile feels too heavy, but no sync client, no versioning, no mobile app.
 - **SMB + Seafile without Syncthing** — Would require a webhook/script to extract files from Seafile's chunked storage to `/data/media/manual/`. Adds complexity; Syncthing is simpler for the direct-to-filesystem delivery.
@@ -84,6 +86,7 @@ Date: 2026-04-05 (revised)
 **Option B — GitHub Pages:** Woodpecker pushes the built site to a GitHub Pages repo. Zero infrastructure to maintain. Use this if you don't want to depend on deployd being operational, or if external access (without Headscale/cloud host) is a priority.
 
 **Recommendation for engine:**
+
 - **Zola** — single binary (Rust), fast, good Nix support, no npm/node dependency chain.
 - **Hugo** — most popular, largest theme ecosystem, also a single Go binary.
 
@@ -93,11 +96,11 @@ Date: 2026-04-05 (revised)
 
 **Current state:** Three layers cover distinct trust domains:
 
-| Layer | Tool | Access model | Scope |
-|-------|------|-------------|-------|
-| Service secrets | sops-nix | Decrypted at NixOS activation, per-host age keys | Static NixOS services |
-| Operational secrets | passage | CLI, encrypted in git, human-triggered | Operator tasks (manual deploys, API keys, break-glass credentials) |
-| Personal passwords | Cloud Bitwarden | Browser/mobile apps, cloud-hosted | Personal accounts, logins |
+| Layer               | Tool            | Access model                                     | Scope                                                              |
+| ------------------- | --------------- | ------------------------------------------------ | ------------------------------------------------------------------ |
+| Service secrets     | sops-nix        | Decrypted at NixOS activation, per-host age keys | Static NixOS services                                              |
+| Operational secrets | passage         | CLI, encrypted in git, human-triggered           | Operator tasks (manual deploys, API keys, break-glass credentials) |
+| Personal passwords  | Cloud Bitwarden | Browser/mobile apps, cloud-hosted                | Personal accounts, logins                                          |
 
 This covers the current infrastructure well. The gaps emerge with the planned CI/CD and deployd layers:
 
@@ -158,6 +161,7 @@ Option 1 is stronger if you want per-operation hardware attestation. Option 2 is
 **Deployment model:** Static config, runs on langport itself or a tiny container via deployd. Serves as the landing page for `home.mutantmell.net` or similar.
 
 **Alternatives:**
+
 - **Homarr** — more polished UI, heavier, more opinionated.
 - **Dashy** — extremely configurable, Vue-based, slightly heavier.
 
@@ -212,9 +216,10 @@ Blocky is a better architectural fit for this homelab:
 - **Per-client groups** — define device groups (e.g., by IP/MAC) with independent blocklist policies. Useful for household members with different filtering needs.
 
 **What Blocky does NOT have:**
+
 - No web UI — manage via config. Use Perses/Prometheus for DNS metrics, which is where your monitoring already lives.
 - No DHCP server — irrelevant, Kea on thebeyond handles this.
-- No built-in DoH/DoT *server* — can query upstream via DoH/DoT, but doesn't serve encrypted DNS to LAN clients. Irrelevant since DNS interception on the router handles client queries.
+- No built-in DoH/DoT _server_ — can query upstream via DoH/DoT, but doesn't serve encrypted DNS to LAN clients. Irrelevant since DNS interception on the router handles client queries.
 
 **Kill switch for non-technical users:** Blocky exposes a [REST API](https://0xerr0r.github.io/blocky/latest/interfaces/) for toggling blocking at runtime:
 
@@ -246,6 +251,7 @@ This enables several wife-friendly toggle approaches:
 **Deployment model:** Microvm on calvard or an Incus container. The network registry already has `azoth` (Raspberry Pi) on the trusted VLAN — Home Assistant would need a cross-zone firewall rule to reach the MQTT broker there. This is a future consideration — only deploy when the Pi/IoT layer is ready.
 
 **Alternatives:**
+
 - **Node-RED** — flow-based automation, lighter, but less polished for home automation specifically.
 - **Pure MQTT + Prometheus** — if you only want observability (temperature graphs) without automation, the Pi's Prometheus exporter + tharbad is already sufficient.
 
@@ -263,6 +269,7 @@ This enables several wife-friendly toggle approaches:
 **Deployment model:** Microvm on calvard or deployd container. Outline can share PostgreSQL with Keycloak (messeldam) if you want to consolidate, or run its own instance.
 
 **Alternatives:**
+
 - **Wiki.js** — Node.js, good git-backed storage option, OIDC support. Mid-weight.
 - **Keep using git** — if `llm-notes/` is working, no need to add infrastructure for documentation's sake.
 
@@ -270,18 +277,18 @@ This enables several wife-friendly toggle approaches:
 
 ## Priority Ranking
 
-| Priority | Section | Service | Effort | Value | Why this priority |
-|----------|---------|---------|--------|-------|-------------------|
-| **1** | §2 | Backups (Borg, complete existing) | Low | Critical | Partially configured, needs completion before liberl reformat. |
-| **2** | §1 | File sync (Seafile + Syncthing) | Medium | High | Replaces SMB entirely. Seafile for general storage, Syncthing for media upload. |
-| **3** | §3 | Blog (Zola/Hugo + Woodpecker CI) | Low | Medium | Low-effort with planned CI/CD pipeline. Content is the hard part. |
-| **4** | §5 | Dashboard (Homepage) | Low | Medium | Quality of life — single pane of glass for all services. |
-| **5** | §7 | Media companions (Navidrome, Retrom) | Low | Medium | Already decided in media spec. Deploy after arr stack is running. |
-| **6** | §8 | DNS filtering (Blocky) | Low | Medium | Better fit than Adguard Home — declarative, Prometheus-native, per-client groups. Deploy from the start. |
-| **7** | §4 | Bookmarks (Linkding) | Low | Medium | Good deployd candidate, lightweight, immediately useful. |
-| **8** | §6 | Recipes (Mealie) | Low | Low-Med | Fun, practical, good deployd test workload. |
-| **9** | §10 | Wiki (Outline) | Medium | Medium | Depends on whether git-based docs feel insufficient. |
-| **10** | §9 | Home Assistant | High | Medium | Blocked on Pi/IoT hardware deployment (azoth). |
+| Priority | Section | Service                              | Effort | Value    | Why this priority                                                                                        |
+| -------- | ------- | ------------------------------------ | ------ | -------- | -------------------------------------------------------------------------------------------------------- |
+| **1**    | §2      | Backups (Borg, complete existing)    | Low    | Critical | Partially configured, needs completion before liberl reformat.                                           |
+| **2**    | §1      | File sync (Seafile + Syncthing)      | Medium | High     | Replaces SMB entirely. Seafile for general storage, Syncthing for media upload.                          |
+| **3**    | §3      | Blog (Zola/Hugo + Woodpecker CI)     | Low    | Medium   | Low-effort with planned CI/CD pipeline. Content is the hard part.                                        |
+| **4**    | §5      | Dashboard (Homepage)                 | Low    | Medium   | Quality of life — single pane of glass for all services.                                                 |
+| **5**    | §7      | Media companions (Navidrome, Retrom) | Low    | Medium   | Already decided in media spec. Deploy after arr stack is running.                                        |
+| **6**    | §8      | DNS filtering (Blocky)               | Low    | Medium   | Better fit than Adguard Home — declarative, Prometheus-native, per-client groups. Deploy from the start. |
+| **7**    | §4      | Bookmarks (Linkding)                 | Low    | Medium   | Good deployd candidate, lightweight, immediately useful.                                                 |
+| **8**    | §6      | Recipes (Mealie)                     | Low    | Low-Med  | Fun, practical, good deployd test workload.                                                              |
+| **9**    | §10     | Wiki (Outline)                       | Medium | Medium   | Depends on whether git-based docs feel insufficient.                                                     |
+| **10**   | §9      | Home Assistant                       | High   | Medium   | Blocked on Pi/IoT hardware deployment (azoth).                                                           |
 
 **Not ranked separately:** Secrets management (cross-cutting section between §3 and §4) is an architectural concern, not a standalone service. The sops bridging work for Woodpecker and deployd should be done as part of those systems' implementation, not as an independent project.
 

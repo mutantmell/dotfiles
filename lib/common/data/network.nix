@@ -27,7 +27,7 @@
         messeldam = 6; # Keycloak OIDC (calvard)
         basel = 7; # step-ca / PKI (calvard)
         tharbad = 5; # Prometheus+Loki+Alertmanager+ntfy (calvard)
-        remiferia = 20; # NAS — before VM hosts
+        liberl = 20; # NAS — before VM hosts
         calvard = 30; # VM host
         erebonia = 31; # VM host
         roer = 32; # deployd API (erebonia)
@@ -43,6 +43,7 @@
       vlanId = 21;
       hosts = {
         edith = 42; # Dev environment / task runner (calvard Incus container)
+        bose = 43; # Arr stack — Sonarr, Radarr, Bazarr (liberl)
       };
     };
     untrusted = {
@@ -66,12 +67,12 @@
     dmz = {
       vlanId = 100;
       hosts = {
-        ardent = 31;
+        zeiss = 31; # Attic binary cache (liberl)
         trista = 51; # SSH bastion (erebonia Incus VM)
         langport = 41; # Reverse proxy (calvard)
         oracion = 52; # Jellyfin media server (calvard)
         creil = 53; # Forgejo git hosting (calvard)
-        monrain = 32; # cgit bare repository hosting (remiferia)
+        ruan = 32; # cgit bare repository hosting (liberl)
         "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia)
       };
     };
@@ -198,9 +199,23 @@
     ];
     messeldam = ["auth.mutantmell.net"];
     langport = ["mutantmell.net"];
-    ardent = [
+    # Transition aliases: keep old DNS names resolving during migration
+    liberl = [
+      "remiferia.internal.mutantmell.net"
+      "remiferia.internal"
+    ];
+    zeiss = [
+      "attic.zeiss.internal.mutantmell.net"
+      "attic.zeiss.internal"
+      # Transition aliases
+      "ardent.internal.mutantmell.net"
+      "ardent.internal"
       "attic.ardent.internal.mutantmell.net"
       "attic.ardent.internal"
+    ];
+    ruan = [
+      "monrain.internal.mutantmell.net"
+      "monrain.internal"
     ];
     tharbad = [
       "ntfy.internal.mutantmell.net"

@@ -26,7 +26,7 @@
     ];
   };
 
-  services.nginx.virtualHosts."attic.ardent.internal" = {
+  services.nginx.virtualHosts."attic.zeiss.internal" = {
     forceSSL = true;
     enableACME = true;
 

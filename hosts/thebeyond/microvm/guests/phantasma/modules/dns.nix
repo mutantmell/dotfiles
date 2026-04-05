@@ -67,10 +67,10 @@ in {
           registeredHosts = [
             "thebeyond"
             "phantasma"
-            "remiferia"
+            "liberl"
             "erebonia"
             "trista"
-            "ardent"
+            "zeiss"
             "azoth"
             "calvard"
             # network gear (OpenWrt)
@@ -90,8 +90,9 @@ in {
             "edith"
             # erebonia guests
             "saint-arkh"
-            # remiferia guests
-            "monrain"
+            # liberl guests
+            "ruan"
+            "bose"
           ];
         in
           # Standard host records (<name>.internal.mutantmell.net + <name>.internal)

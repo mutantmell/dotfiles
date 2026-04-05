@@ -1,20 +1,33 @@
 {
   config,
   pkgs,
+  lib,
   ...
 }: let
-  hostname = "remiferia";
+  hostname = "liberl";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
 in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
+    # TODO: replace /dev/sda with /dev/disk/by-id/... at deploy time
+    (import ../../profiles/disko/btrfs.nix {
+      disk = "/dev/sda";
+      l2arcSize = "32G";
+      inherit lib;
+    })
+    ./impermanence.nix
     ./sops.nix
     ./nas.nix
     ./monit.nix
     ./microvm
   ];
+
+  common.impermanence.enable = true;
+  common.btrfs.enable = true;
+  common.btrfs.keyfileUnlock.enable = true;
+  common.btrfs.impermanence.enable = true;
 
   boot.loader.systemd-boot.enable = true;
   boot.supportedFilesystems = ["zfs"];
@@ -59,6 +72,10 @@ in {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br20";
     };
+    netdevs."20-br21" = {
+      netdevConfig.Kind = "bridge";
+      netdevConfig.Name = "br21";
+    };
     netdevs."20-br100" = {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br100";
@@ -73,6 +90,11 @@ in {
       netdevConfig.Name = "enp4s0.20";
       vlanConfig.Id = 20;
     };
+    netdevs."20-enp4s0.21" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "enp4s0.21";
+      vlanConfig.Id = 21;
+    };
     netdevs."20-enp4s0.100" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "enp4s0.100";
@@ -85,6 +107,7 @@ in {
       vlan = [
         "enp4s0.11"
         "enp4s0.20"
+        "enp4s0.21"
         "enp4s0.100"
       ];
     };
@@ -110,6 +133,13 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
+    networks."20-vm21-bridge" = {
+      matchConfig.Name = ["enp4s0.21" "vm-21-*"];
+      networkConfig.Bridge = "br21";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
     networks."20-vm100-bridge" = {
       matchConfig.Name = ["enp4s0.100" "vm-100-*"];
       networkConfig.Bridge = "br100";
@@ -119,6 +149,12 @@ in {
     };
     networks."20-br20" = {
       matchConfig.Name = "br20";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+    networks."20-br21" = {
+      matchConfig.Name = "br21";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
@@ -172,5 +208,5 @@ in {
     };
   };
 
-  system.stateVersion = "22.11";
+  system.stateVersion = "25.11";
 }

@@ -65,8 +65,8 @@ sops --encrypt hosts/<host>/secrets/secrets.yaml > hosts/<host>/secrets/secrets.
 | `ad_denai`     | admin workstation                    | personal key                           | `age1mmqej3arlv2wx96m2gh9fgvqpkwaeselzfu4rqfn54artx058vys7g3ehq` |
 | `sv_thebeyond` | thebeyond                            | `/etc/ssh/ssh_host_ed25519_key`        | `age1xvkjw03zrcy38rxmlhawzqdzlm34cx98mc42v5caautaauj8dd5qddg9hm` |
 | `sv_phantasma` | phantasma                            | `/static/etc/ssh/ssh_host_ed25519_key` | `age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh` |
-| `sv_remiferia` | remiferia                            | `/etc/ssh/ssh_host_ed25519_key`        | `age1smvmkjl0csqh3wmx9744xqatghnrpnj0y8hmv88gy5llrpujmetqhu9l4g` |
-| `sv_ardent`    | ardent                               | `/static/etc/ssh/ssh_host_ed25519_key` | `age1t8499a2tna8pzn448ylnpwach59l6m38s33pzdmy4vhy492nevpqq7l6tc` |
+| `sv_liberl`    | liberl                               | `/etc/ssh/ssh_host_ed25519_key`        | `age18e698z5sf5twkc8vup4edc7nkaza2nquuzqja8lrv7r34mzx84js48jps0` |
+| `sv_zeiss`     | zeiss                                | `/static/etc/ssh/ssh_host_ed25519_key` | `age1dvk7gqyw4zwnnu6u3dwke94unlkw85kmlw6s5lfq59jw32s5zdks4c32ff` |
 | `sv_calvard`   | calvard                              | `/etc/ssh/ssh_host_ed25519_key`        | `age1jnpyg8chayw6l9wfx209hvkddq9cult3qdyuf7trljs6t5vf3czseu8qlm` |
 | `sv_erebonia`  | erebonia                             | `/etc/ssh/ssh_host_ed25519_key`        | `age1328qtjtudgc3zgg7su05ja20kckx50jehs0v3q3mw6k64j0dzefs752tu2` |
 | `sv_azoth`     | azoth                                | `/etc/ssh/ssh_host_ed25519_key`        | `age18qjk9pk7z7lyjkwlkthee3pcywupxs2jxdcczmngdrjwmxgytdnsakwks9` |
@@ -99,9 +99,8 @@ Keys must be retrieved after the first deployment of each guest.
 | ------------------------------------------- | ----------------------------------------------------- |
 | `hosts/thebeyond/secrets/`                  | `ad_denai`, `sv_thebeyond`                            |
 | `hosts/thebeyond/guests/phantasma/secrets/` | `ad_denai`, `sv_phantasma`                            |
-| `hosts/remiferia/secrets/`                  | `ad_denai`, `sv_remiferia`                            |
-| `hosts/remiferia/guests/ardent/secrets/`    | `ad_denai`, `sv_ardent`                               |
-| `hosts/remiferia/guests/denai/secrets/`     | `ad_denai`, `sv_denai`                                |
+| `hosts/liberl/secrets/`                     | `ad_denai`, `sv_liberl`                               |
+| `hosts/liberl/guests/zeiss/secrets/`        | `ad_denai`, `sv_zeiss`                                |
 | `hosts/erebonia/secrets/`                   | `ad_denai`, `sv_erebonia`                             |
 | `hosts/erebonia/guests/ordis/secrets/`      | `ad_denai`, `sv_ordis`                                |
 | `hosts/erebonia/guests/ymir/secrets/`       | `ad_denai`, `sv_ymir`                                 |
@@ -115,14 +114,14 @@ Keys must be retrieved after the first deployment of each guest.
 
 These paths have secrets files but no creation rule in `.sops.yaml`:
 
-| Path Pattern                                | Recipients Needed                                                 |
-| ------------------------------------------- | ----------------------------------------------------------------- |
-| `hosts/calvard/guests/messeldam/secrets/`   | `ad_denai`, `sv_messeldam` (TBD)                                  |
-| `hosts/calvard/guests/basel/secrets/`       | `ad_denai`, `sv_basel` (TBD)                                      |
-| `hosts/calvard/guests/langport/secrets/`    | `ad_denai`, `sv_langport` (TBD)                                   |
-| `hosts/calvard/guests/tharbad/secrets/`     | `ad_denai`, `sv_tharbad` (TBD)                                    |
-| `hosts/erebonia/guests/saint-arkh/secrets/` | `ad_denai`, `sv_saint_arkh` (TBD)                                 |
-| `hosts/remiferia/guests/monrain/secrets/`   | `ad_denai`, `sv_monrain` (TBD — monrain has no secrets currently) |
+| Path Pattern                                | Recipients Needed                                           |
+| ------------------------------------------- | ----------------------------------------------------------- |
+| `hosts/calvard/guests/messeldam/secrets/`   | `ad_denai`, `sv_messeldam` (TBD)                            |
+| `hosts/calvard/guests/basel/secrets/`       | `ad_denai`, `sv_basel` (TBD)                                |
+| `hosts/calvard/guests/langport/secrets/`    | `ad_denai`, `sv_langport` (TBD)                             |
+| `hosts/calvard/guests/tharbad/secrets/`     | `ad_denai`, `sv_tharbad` (TBD)                              |
+| `hosts/erebonia/guests/saint-arkh/secrets/` | `ad_denai`, `sv_saint_arkh` (TBD)                           |
+| `hosts/liberl/guests/ruan/secrets/`         | `ad_denai`, `sv_ruan` (TBD — ruan has no secrets currently) |
 
 ---
 
@@ -155,13 +154,13 @@ basel deployment (see the TODO comment). The secrets file currently holds a plac
 
 ---
 
-### remiferia — NAS
+### liberl — NAS
 
-| Secret            | Purpose                 | Status      |
-| ----------------- | ----------------------- | ----------- |
-| `upsmon.password` | UPS monitoring password | Encrypted ✓ |
+| Secret            | Purpose                 | Status                               |
+| ----------------- | ----------------------- | ------------------------------------ |
+| `upsmon.password` | UPS monitoring password | Encrypted ✓ (reusing remiferia keys) |
 
-`sops.nix`: `age.sshKeyPaths = ["/etc/ssh/ssh_host_ed25519_key"]` ✓
+`sops.nix`: `age.sshKeyPaths = ["/etc/ssh/ssh_host_ed25519_key"]` ✓ (reusing remiferia keys)
 
 ---
 
@@ -180,34 +179,19 @@ this is added. Secrets file `hosts/calvard/secrets/secrets.yaml` does not exist 
 
 ---
 
-### ardent — Attic Binary Cache (remiferia guest)
+### zeiss — Attic Binary Cache (liberl guest)
 
-| Secret      | Purpose                                                       | Status      |
-| ----------- | ------------------------------------------------------------- | ----------- |
-| `attic.env` | Attic server environment (token signing key, S3 config, etc.) | Encrypted ✓ |
+| Secret      | Purpose                                                       | Status                            |
+| ----------- | ------------------------------------------------------------- | --------------------------------- |
+| `attic.env` | Attic server environment (token signing key, S3 config, etc.) | Encrypted ✓ (reusing ardent keys) |
 
-`sops.nix`: **No `age.sshKeyPaths` set** — ardent cannot decrypt at runtime via
-sops-nix. The `sv_ardent` age key is in `.sops.yaml` for encryption purposes; the
-sops.nix file must be updated to specify the key path.
-
-**Action required:** Add `age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"]`
-to `hosts/remiferia/guests/ardent/sops.nix`.
+`sops.nix`: `age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"]` ✓ (reusing ardent keys)
 
 ---
 
-### monrain — cgit Repository Browser (remiferia guest)
+### ruan — cgit Repository Browser (liberl guest)
 
 No secrets currently. No `sops.nix` file needed unless secrets are added later.
-
----
-
-### denai — Dev Workstation (remiferia guest, slated for removal)
-
-| Secret            | Purpose                                | Status      |
-| ----------------- | -------------------------------------- | ----------- |
-| `smb-credentials` | Samba mount credentials for NAS shares | Encrypted ✓ |
-
-`sops.nix`: **No `age.sshKeyPaths` set**. `sv_denai` key is registered in `.sops.yaml`.
 
 ---
 
@@ -385,7 +369,7 @@ After deploying each new calvard/erebonia guest, add an age key alias and creati
 | Host       | Fix                                                                                                  |
 | ---------- | ---------------------------------------------------------------------------------------------------- |
 | `calvard`  | Add `age.sshKeyPaths = ["/etc/ssh/ssh_host_ed25519_key"]`; create and encrypt `secrets/secrets.yaml` |
-| `ardent`   | Add `age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"]`                                     |
+| `zeiss`    | Add `age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"]`                                     |
 | `denai`    | Add `age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"]` (if denai is kept)                  |
 | `langport` | Add `age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"]`                                     |
 

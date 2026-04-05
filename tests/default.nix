@@ -29,12 +29,25 @@
     '';
 
   disko-btrfs = let
-    profile = import ../profiles/disko/btrfs.nix {};
+    profile = import ../profiles/disko/btrfs.nix {inherit lib;};
   in
     pkgs.runCommand "disko-btrfs-check" {
       profileJson = builtins.toJSON profile;
     } ''
       echo "btrfs disko profile validated successfully"
+      echo "$profileJson" > $out
+    '';
+
+  disko-btrfs-l2arc = let
+    profile = import ../profiles/disko/btrfs.nix {
+      l2arcSize = "32G";
+      inherit lib;
+    };
+  in
+    pkgs.runCommand "disko-btrfs-l2arc-check" {
+      profileJson = builtins.toJSON profile;
+    } ''
+      echo "btrfs+l2arc disko profile validated successfully"
       echo "$profileJson" > $out
     '';
 

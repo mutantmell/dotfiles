@@ -4,11 +4,11 @@
   ...
 }: let
   # Number of hosts expected to be shipping logs (parent hosts + guests)
-  # thebeyond(1) + calvard(1) + erebonia(1) + remiferia(1) +
+  # thebeyond(1) + calvard(1) + erebonia(1) + liberl(1) +
   # tharbad(1) + phantasma(1) + basel(1) + messeldam(1) +
-  # langport(1) + creil(1) + oracion(1) + ardent(1) + monrain(1) +
-  # saint-arkh(1) + trista(1) + edith(1) = 16
-  expectedHosts = 16;
+  # langport(1) + creil(1) + oracion(1) + zeiss(1) + ruan(1) +
+  # saint-arkh(1) + trista(1) + edith(1) + bose(1) = 17
+  expectedHosts = 17;
 
   # Security alert rules evaluated by Loki's ruler against log streams
   securityRules = pkgs.writeText "security-alerts.yaml" (builtins.toJSON {

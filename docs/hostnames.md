@@ -24,28 +24,26 @@ VM HOSTS (Countries)
 │   ├── longlai       (microVM, planned) — Tailscale subnet router
 │   └── nemeth        (not allocated)
 │
-├── liberl            (GP host)
-│   ├── grancel       (VM guest)
-│   ├── bose          (VM guest)
-│   ├── ruan          (VM guest)
-│   ├── zeiss         (VM guest)
-│   ├── rolent        (VM guest)
-│   └── ravennue      (VM guest)
+├── liberl            (NAS host)
+│   ├── zeiss         (microVM) — Attic binary cache
+│   ├── ruan          (microVM) — cgit bare repository hosting
+│   ├── bose          (microVM) — Arr stack (Sonarr, Radarr, Bazarr)
+│   ├── grancel       (not allocated)
+│   ├── rolent        (not allocated)
+│   └── ravennue      (not allocated)
 │
-└── northambria       (GP host)
-    ├── haliask       (VM guest)
-    ├── difwa         (VM guest)
-    ├── szaborja      (VM guest)
-    ├── standza       (VM guest)
-    ├── yabori        (VM guest)
-    └── kilva         (VM guest)
-
-
-NAS HOSTS (Countries)
-└── remiferia         (NAS host)
-    ├── ardent        (microVM) — Attic binary cache
-    ├── monrain       (microVM) — cgit bare repository hosting
-    ├── denai         (microVM) — Dev workstation (slated for removal)
+├── northambria       (GP host)
+│   ├── haliask       (not allocated)
+│   ├── difwa         (not allocated)
+│   ├── szaborja      (not allocated)
+│   ├── standza       (not allocated)
+│   ├── yabori        (not allocated)
+│   └── kilva         (not allocated)
+│
+└── remiferia         (GP host)
+    ├── ardent        (not allocated)
+    ├── monrain       (not allocated)
+    ├── denai         (not allocated)
     ├── lucent        (not allocated)
     └── eyja          (not allocated)
 

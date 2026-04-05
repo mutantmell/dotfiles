@@ -37,8 +37,10 @@ in {
     ];
   };
 
+  users.groups.media.gid = pkgs.mmell.lib.data.users.media.gid;
+
   users.users = {
-    jellyfin.extraGroups = ["acme-cert"];
+    jellyfin.extraGroups = ["render" "video" "acme-cert"];
     nginx.extraGroups = ["acme-cert"];
   };
   users.groups."acme-cert" = {};
@@ -62,7 +64,11 @@ in {
 
   services.jellyfin = {
     enable = true;
+    group = "media";
   };
+
+  # NFS media is read-only — disable .NET file locking to avoid errors
+  systemd.services.jellyfin.environment.DOTNET_SYSTEM_IO_DISABLEFILELOCKING = "true";
 
   services.nginx = {
     enable = true;

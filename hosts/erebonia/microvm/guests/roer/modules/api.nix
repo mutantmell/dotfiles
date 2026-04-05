@@ -10,7 +10,7 @@
   keyFile = "${certDir}/key.pem";
   caUrl = "https://basel.internal";
   caRoot = "/etc/ssl/certs/ca-certificates.crt";
-  deployUid = pkgs.mmell.lib.data.deployd.uid;
+  deployUid = pkgs.mmell.lib.data.users.deployd.uid;
 in {
   # Static UID — pinned for consistency with deployd-helper UID on erebonia.
   # Originally required for virtiofs UID mapping; retained for stability.
