@@ -2,7 +2,7 @@
   "ssh": {
     "deploy": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO22svFtlML/J11VMlNmqBkHdXH+BCWj1DXJkw+K7vbi malaguy@gmail.com",
     "home": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDyEvg2vPwhxg72QgVjNzbzGd3eE0/ZjdoDawHoK24fR malaguy@gmail.com",
-    "remiferia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFc95ROxFt8eNrMdQrg01UXMYeJpKfWcIF7mSwWTD4+O malaguy@gmail.com",
+    "liberl": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFc95ROxFt8eNrMdQrg01UXMYeJpKfWcIF7mSwWTD4+O malaguy@gmail.com",
     "erebonia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJqOeAuTSDE4SAzqZGxAieyxL/4LIhwdkI3jt8aUNEBc root@muspelheim",
     "calvard": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPPrAJtcSgkYA6Lju5AOjYU+xBJipuczEJafpZs1yUSQ root@jotunheimr",
     "edith": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgpU3TfPTQS/+qf9wETOLFanwfQAh7xHsy6ZHCpyJYT malaguy@gmail.com"
@@ -16,9 +16,9 @@
     "oracion": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEaaLPQZ6atsE+apt01ISzAurrq64DL5uXRlvCHMnXD9 root@jotunheimr",
     "tharbad": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGziMhPVj+lMRwsRWQk4fZRKiq81YTFRx696qHkb2Fq3 root@jotunheimr",
     "edith": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAmgLa9DbGbXUziKw/apJ8DyBPl7cwgchHDfVlXrVvir root@jotunheimr",
-    "remiferia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA0D0YNUhSioMyjXQHZkIPlAklgdeUO162CNgeHJKaJQ root@jotunheimr",
-    "ardent": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF/MT68HBfJY9TBvgZV697v/T30F9X9AjfcZ1N9qmq25 root@remiferia",
-    "monrain": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMZHPlfg8G/1WnO2h7RYow/DZ5brdJ46neDg3It/3XRQ root@remiferia",
+    "liberl": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA0D0YNUhSioMyjXQHZkIPlAklgdeUO162CNgeHJKaJQ root@jotunheimr",
+    "zeiss": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF/MT68HBfJY9TBvgZV697v/T30F9X9AjfcZ1N9qmq25 root@remiferia",
+    "ruan": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMZHPlfg8G/1WnO2h7RYow/DZ5brdJ46neDg3It/3XRQ root@remiferia",
     "erebonia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICw8uO5pGbGYHbDv+0l/dj1dZrmVgfJFZmlvM1EmOKF6 root@remiferia",
     "saint-arkh": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDF77Oll4oxrE4kwnjJhBt3Q8MseggLoaPuSAEWw3Li6 root@remiferia",
     "trista": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBlvcscRzMVs7Lu12NC52kZuiql0Sv6dAU1sKo8Mt9B3 root@remiferia",

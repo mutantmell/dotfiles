@@ -3,17 +3,19 @@
   config,
   ...
 }: let
-  hostname = "monrain";
+  hostname = "bose";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
 in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./microvm.nix
-    ./modules/git.nix
+    ./modules/arr.nix
   ];
 
   networking.hostName = hostname;
+  networking.useNetworkd = true;
+  networking.useDHCP = false;
   common.openssh = {
     enable = true;
     keys = ["deploy" "edith"];
@@ -28,7 +30,8 @@ in {
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
-    matchConfig.MACAddress = "5E:A5:4D:A3:A0:20";
+    # VLAN 21 = 0x15, host ID 43 = 0x2B
+    matchConfig.MACAddress = "5E:15:00:2B:00:01";
     networkConfig = {
       Address = [host.cidr4 host.cidr6];
       Gateway = zone.gateway4;
@@ -42,38 +45,27 @@ in {
       {Gateway = zone.gateway6;}
     ];
   };
-  services.resolved.enable = true;
 
-  networking.extraHosts = net.mkExtraHosts ["basel" "tharbad"];
+  networking.extraHosts = net.mkExtraHosts ["tharbad" "oracion"];
 
   time.timeZone = "UTC";
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
-  networking.firewall.allowedTCPPorts = [80 443];
-  services.nginx = {
-    enable = true;
-    recommendedTlsSettings = true;
-    recommendedProxySettings = true;
-  };
-  security.acme = {
-    defaults = {
-      server = "https://basel.internal/acme/acme/directory";
-      email = "malaguy@gmail.com";
-    };
-    acceptTerms = true;
-  };
+  # Sonarr (8989), Radarr (7878), Bazarr (6767) web UIs
+  networking.firewall.allowedTCPPorts = [8989 7878 6767];
+
   environment.persistence."/persist" = {
     hideMounts = true;
     directories = [
-      {
-        directory = "/var/lib/acme";
-        user = "acme";
-        group = "acme";
-      }
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
     ];
+  };
+
+  # zramSwap as pressure valve for Radarr memory spikes during bulk imports
+  zramSwap = {
+    enable = true;
+    memoryPercent = 50; # ~4GB of 8GB
   };
 
   # Egress filtering — default-drop with explicit allowlist
@@ -92,27 +84,27 @@ in {
       }
       {
         gateway = true;
-        proto = "tcp";
-        port = [80 443];
-        comment = "HTTP/HTTPS for git mirror sync";
-      }
-      {
-        gateway = true;
         proto = "udp";
         port = 123;
         comment = "NTP";
       }
       {
-        host = "basel";
+        gateway = true;
         proto = "tcp";
-        port = 443;
-        comment = "ACME certs from basel";
+        port = [80 443];
+        comment = "HTTP/HTTPS for TVDB, TMDB metadata lookups";
       }
       {
         host = "tharbad";
         proto = "tcp";
         port = 3100;
         comment = "Loki log push";
+      }
+      {
+        host = "oracion";
+        proto = "tcp";
+        port = 8096;
+        comment = "Jellyfin API (library scan notifications)";
       }
     ]
   );

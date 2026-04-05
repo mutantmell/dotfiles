@@ -107,15 +107,15 @@ What a central coordinator would add: consensus-based fleet-wide rollback, healt
 
 **numtide/nits and numtide/nix-fleet** — The closest projects in the ecosystem to this design: pull-based, NATS-based, outbound-only agents. Not adopted because: nits/nix-fleet are pre-1.0 with actively changing architecture; the binary cache is built on NATS KV/Object stores rather than a dedicated cache (losing Attic's deduplication, retention policies, and signing model); nix-fleet uses a centralised coordinator model contrary to this design's distributed per-host policy approach. The blog posts by nits author Brian McGee on NATS permission modelling and NKey-per-host derivation from SSH host keys are directly useful reference material.
 
-| Property | autoUpgrade | comin | deploy-rs | This system |
-|---|---|---|---|---|
-| No local build required | ✅ | ✅ | ✅ | ✅ |
-| No inbound SSH | ✅ | ✅ | ❌ | ✅ |
-| Event-driven (no polling) | ❌ | ❌ | ✅ | ✅ |
-| Network-safe activation | ❌ | ❌ | ❌ | ✅ |
-| Staged test + revert | ❌ | ⚠️ | ❌ | ✅ |
-| Untrusted transport model | N/A | N/A | N/A | ✅ |
-| No prerequisite infrastructure | ✅ | ✅ | ✅ | ❌ |
+| Property                       | autoUpgrade | comin | deploy-rs | This system |
+| ------------------------------ | ----------- | ----- | --------- | ----------- |
+| No local build required        | ✅          | ✅    | ✅        | ✅          |
+| No inbound SSH                 | ✅          | ✅    | ❌        | ✅          |
+| Event-driven (no polling)      | ❌          | ❌    | ✅        | ✅          |
+| Network-safe activation        | ❌          | ❌    | ❌        | ✅          |
+| Staged test + revert           | ❌          | ⚠️    | ❌        | ✅          |
+| Untrusted transport model      | N/A         | N/A   | N/A       | ✅          |
+| No prerequisite infrastructure | ✅          | ✅    | ✅        | ❌          |
 
 ### 3.2 CI system alternatives
 
@@ -208,13 +208,13 @@ The 2021 NUC holds the CI signing key. The NAS holds the Attic signing key. Each
 
 **Summary of trust tiers:**
 
-| Component | Trust level | Compromise impact |
-|---|---|---|
-| CI signing key (2021 NUC) | Trusted — insufficient alone | Partial: CI-only paths rejected |
-| Attic signing key (NAS) | Trusted — insufficient alone | Partial: Attic-only paths rejected |
-| Both keys simultaneously | Full trust boundary | Fleet compromise |
-| NATS cluster | Untrusted | Deployment disruption only |
-| Network transport | Untrusted | Deployment disruption only |
+| Component                 | Trust level                  | Compromise impact                  |
+| ------------------------- | ---------------------------- | ---------------------------------- |
+| CI signing key (2021 NUC) | Trusted — insufficient alone | Partial: CI-only paths rejected    |
+| Attic signing key (NAS)   | Trusted — insufficient alone | Partial: Attic-only paths rejected |
+| Both keys simultaneously  | Full trust boundary          | Fleet compromise                   |
+| NATS cluster              | Untrusted                    | Deployment disruption only         |
+| Network transport         | Untrusted                    | Deployment disruption only         |
 
 ---
 
@@ -336,6 +336,7 @@ The `testRefPatterns` configuration in each host's coordinator uses glob matchin
 Forgejo's PR ref format should be verified against a real PR before the coordinator is deployed. The expected pattern is `refs/pull/*` but Forgejo may use `refs/pull/*/head`, `refs/pull/*/merge`, or similar variants depending on version and configuration. Confirm the exact format and update `testRefPatterns` accordingly before going live.
 
 **Notes:**
+
 - CI must push the **complete closure** to Attic. Use `nix path-info --recursive` to enumerate all paths.
 - All CI secrets (signing key, Attic token, NATS NKey) are managed via sops-nix on the 2021 NUC, not via Woodpecker's secrets store — see secrets management above.
 - If NATS is unavailable when CI tries to publish, CI fails the pipeline and alerts. A build that cannot announce itself is not a successful deployment.
@@ -536,8 +537,8 @@ receive builds.nixos.<configuration> event where source_ref matches productionRe
 
 **Two complementary rollback mechanisms:**
 
-- `rollbackOnFailure`: catches failures *during* activation — `nixos-rebuild switch` returns non-zero. Activation errors, service start failures. Information available locally as exit code.
-- `connectivityCheck`: catches failures *after* activation — switch succeeded but connectivity is broken. Bad firewall rules, routing changes. Detects what the exit code cannot.
+- `rollbackOnFailure`: catches failures _during_ activation — `nixos-rebuild switch` returns non-zero. Activation errors, service start failures. Information available locally as exit code.
+- `connectivityCheck`: catches failures _after_ activation — switch succeeded but connectivity is broken. Bad firewall rules, routing changes. Detects what the exit code cannot.
 
 Together these cover the same ground as deploy-rs's magic rollback, entirely locally, with no external actor.
 
@@ -702,14 +703,14 @@ Deploy it first on the router only. Validate that a merge to main causes the rou
 
 ### 8.2 Host Classification
 
-| Host type | Deployment path | Notes |
-|---|---|---|
-| LAN infrastructure (router, NAS) | NATS coordinator | Network-safe activation mandatory |
-| LAN workstations / servers | NATS coordinator | Standard |
-| IoT VLAN devices (Pi, etc.) | deploy-rs from build server | Cannot reach NATS cluster |
-| Cloud / remote edge hosts | deploy-rs over WireGuard/SSH | Minimal attack surface |
-| NATS microVMs | NATS coordinator (self-managed) | Rolling update via cluster quorum |
-| Woodpecker microVM | NATS coordinator (self-managed) | Agent drains before restart |
+| Host type                        | Deployment path                 | Notes                             |
+| -------------------------------- | ------------------------------- | --------------------------------- |
+| LAN infrastructure (router, NAS) | NATS coordinator                | Network-safe activation mandatory |
+| LAN workstations / servers       | NATS coordinator                | Standard                          |
+| IoT VLAN devices (Pi, etc.)      | deploy-rs from build server     | Cannot reach NATS cluster         |
+| Cloud / remote edge hosts        | deploy-rs over WireGuard/SSH    | Minimal attack surface            |
+| NATS microVMs                    | NATS coordinator (self-managed) | Rolling update via cluster quorum |
+| Woodpecker microVM               | NATS coordinator (self-managed) | Agent drains before restart       |
 
 ---
 
@@ -747,21 +748,21 @@ Both paths originate from the same build phase in Woodpecker. The deploy phase r
 
 ## 11. Companion Tools
 
-| Concern | Tool |
-|---|---|
-| Initial host provisioning | nixos-anywhere + disko |
-| Binary cache | Attic (on NAS) |
-| Secret management (runtime) | sops-nix |
-| Secret management (operator) | passage |
-| CI server | Woodpecker CI |
-| Flake pipeline generation | Woodpecker External Config Service (woodpecker-flake-pipeliner candidate) |
-| Event bus | NATS with JetStream (3-node Raft cluster) |
-| Microvm management | microvm.nix (cloud-hypervisor) |
-| Internal TLS certificates | step-ca |
-| Monitoring | Prometheus + Perses |
-| Multi-host flake organisation | flake-parts |
-| Dynamic container layer | deployd (future — see Section 9) |
-| Isolated / remote host deployment | deploy-rs (see Section 10) |
+| Concern                           | Tool                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------- |
+| Initial host provisioning         | nixos-anywhere + disko                                                    |
+| Binary cache                      | Attic (on NAS)                                                            |
+| Secret management (runtime)       | sops-nix                                                                  |
+| Secret management (operator)      | passage                                                                   |
+| CI server                         | Woodpecker CI                                                             |
+| Flake pipeline generation         | Woodpecker External Config Service (woodpecker-flake-pipeliner candidate) |
+| Event bus                         | NATS with JetStream (3-node Raft cluster)                                 |
+| Microvm management                | microvm.nix (cloud-hypervisor)                                            |
+| Internal TLS certificates         | step-ca                                                                   |
+| Monitoring                        | Prometheus + Perses                                                       |
+| Multi-host flake organisation     | flake-parts                                                               |
+| Dynamic container layer           | deployd (future — see Section 9)                                          |
+| Isolated / remote host deployment | deploy-rs (see Section 10)                                                |
 
 ---
 
@@ -769,17 +770,17 @@ Both paths originate from the same build phase in Woodpecker. The deploy phase r
 
 Forgejo is used as the git forge only — code storage, PR/merge events, container registry. Forgejo's built-in Actions runner infrastructure is not used. The comparison below covers the CI systems evaluated as the build execution layer.
 
-| Requirement | Woodpecker CI | buildbot-nix |
-|---|---|---|
-| Kata isolation | Native via containerd runtime config | Infrastructure-level (worker in VM) |
-| Attic integration | **Native plugin** | Systemd watcher service |
-| Flake pipeline generation | **External config service API** | Auto `.#checks` discovery |
-| NATS events | CLI step | Custom step |
-| Staggered deploys | DAG + multi-workflow | Buildbot scheduler |
-| Rebuild safety | Graceful drain + `no-schedule` | Worker drain |
-| Dev branch builds | Full PR/branch triggers | Auto PR + default branch |
-| Forgejo integration | Supported (Codeberg uses it) | Via Gitea-compatible API |
-| nixpkgs packaging | `woodpecker-server`, `woodpecker-agent` | Flake input (not in nixpkgs) |
+| Requirement               | Woodpecker CI                           | buildbot-nix                        |
+| ------------------------- | --------------------------------------- | ----------------------------------- |
+| Kata isolation            | Native via containerd runtime config    | Infrastructure-level (worker in VM) |
+| Attic integration         | **Native plugin**                       | Systemd watcher service             |
+| Flake pipeline generation | **External config service API**         | Auto `.#checks` discovery           |
+| NATS events               | CLI step                                | Custom step                         |
+| Staggered deploys         | DAG + multi-workflow                    | Buildbot scheduler                  |
+| Rebuild safety            | Graceful drain + `no-schedule`          | Worker drain                        |
+| Dev branch builds         | Full PR/branch triggers                 | Auto PR + default branch            |
+| Forgejo integration       | Supported (Codeberg uses it)            | Via Gitea-compatible API            |
+| nixpkgs packaging         | `woodpecker-server`, `woodpecker-agent` | Flake input (not in nixpkgs)        |
 
 Woodpecker CI was chosen for: native Attic plugin, External Configuration API for large flake target sets, Kata support via containerd runtime configuration (reusing existing containerd on the build server), and proven Forgejo integration at Codeberg scale.
 

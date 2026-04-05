@@ -4,11 +4,11 @@
 
 The spec at `llm-notes/specs/jellyfin-media-organization.md` defines a media pipeline architecture with least-privilege NFS separation: write-access services (arr stack) on the NAS, read-only serving (Jellyfin) on a separate node. This maps cleanly to the existing infrastructure:
 
-| Spec Role | Host | Status |
-|-----------|------|--------|
-| NAS (arr stack, NFS) | **liberl** (née remiferia) | Needs disko reformat + new arr guest |
-| Serving node (Jellyfin) | **calvard** (oracion guest) | Partially done, needs fixes |
-| Encoding node (Unmanic) | **erebonia** | Future work (out of scope) |
+| Spec Role               | Host                        | Status                               |
+| ----------------------- | --------------------------- | ------------------------------------ |
+| NAS (arr stack, NFS)    | **liberl** (née remiferia)  | Needs disko reformat + new arr guest |
+| Serving node (Jellyfin) | **calvard** (oracion guest) | Partially done, needs fixes          |
+| Encoding node (Unmanic) | **erebonia**                | Future work (out of scope)           |
 
 The core deliverable is: liberl (formerly remiferia) reformatted with btrfs/impermanence, a new arr stack microvm, hardened NFS exports, and Jellyfin configuration fixes on calvard.
 
@@ -24,12 +24,12 @@ Since we're reformatting from scratch (new SSH keys, new sops age keys, fresh gu
 
 **Name mapping:**
 
-| Old Name | New Name | Role |
-|----------|----------|------|
-| remiferia | **liberl** | NAS host |
-| ardent | **zeiss** | Attic binary cache |
-| monrain | **ruan** | cgit git hosting |
-| *(new)* denai | **bose** | Arr stack (Sonarr, Radarr, Bazarr) |
+| Old Name      | New Name   | Role                               |
+| ------------- | ---------- | ---------------------------------- |
+| remiferia     | **liberl** | NAS host                           |
+| ardent        | **zeiss**  | Attic binary cache                 |
+| monrain       | **ruan**   | cgit git hosting                   |
+| _(new)_ denai | **bose**   | Arr stack (Sonarr, Radarr, Bazarr) |
 
 **Codebase changes:**
 
@@ -45,6 +45,7 @@ Since we're reformatting from scratch (new SSH keys, new sops age keys, fresh gu
    - New arr guest: `bose = XX` in lab zone (instead of `denai`)
 
 3. **DNS aliases for transition** (`lib/common/data/network.nix` `hostAliases`):
+
    ```nix
    hostAliases = {
      # ... existing aliases ...
@@ -64,6 +65,7 @@ Since we're reformatting from scratch (new SSH keys, new sops age keys, fresh gu
      ];
    };
    ```
+
    These keep old DNS names working during the transition. Remove once all references are updated.
 
 4. **Host config** (`hosts/liberl/default.nix`):
@@ -76,7 +78,7 @@ Since we're reformatting from scratch (new SSH keys, new sops age keys, fresh gu
 6. **NFS consumers** — update device paths:
    - `hosts/calvard/default.nix` — `remiferia.internal` → `liberl.internal`
    - `hosts/erebonia/default.nix` — `remiferia.internal` → `liberl.internal`
-   (DNS aliases mean the old names still resolve, but update for correctness)
+     (DNS aliases mean the old names still resolve, but update for correctness)
 
 7. **Monitoring** (`hosts/calvard/microvm/guests/tharbad/`):
    - Prometheus scrape targets: rename remiferia → liberl, ardent → zeiss, monrain → ruan
@@ -105,6 +107,7 @@ Current signature: `{disk ? "/dev/sda", ...}`
 New signature: `{disk ? "/dev/sda", l2arcSize ? null, ...}`
 
 When `l2arcSize` is non-null (e.g. `"32G"`), add a raw partition with no `content` block:
+
 ```nix
 l2arc = {
   name = "l2arc";
@@ -120,11 +123,13 @@ The L2ARC keeps frequently-accessed ZFS metadata and small files warm on the SSD
 ### 1.2 Update liberl host config
 
 **Files to modify:**
+
 - `hosts/liberl/default.nix` — Replace `hardware-configuration.nix` filesystem declarations with disko profile import, enable impermanence + btrfs modules
 - `hosts/liberl/hardware-configuration.nix` — Strip filesystem declarations (keep kernel modules, CPU microcode, `nixpkgs.hostPlatform`, initrd modules)
 - `flake.nix` — Add `disko.nixosModules.disko` to liberl's module list
 
 **New config pattern (matching erebonia/calvard):**
+
 ```nix
 imports = [
   ./hardware-configuration.nix  # kernel modules, CPU microcode (stripped of FS decls)
@@ -147,9 +152,11 @@ common.btrfs.impermanence.enable = true;
 **New file: `hosts/liberl/impermanence.nix`**
 
 Standard persisted paths (matching other hosts):
+
 - `/var/log`, `/var/lib/nixos`, `/var/lib/systemd/coredump`
 
 NAS-specific:
+
 - `/var/lib/samba` (Samba state/databases)
 
 ZFS pool auto-imports via `boot.zfs.extraPools = ["data"]` (already in `default.nix`, unchanged). `networking.hostId` will need a new value generated for liberl.
@@ -159,6 +166,7 @@ ZFS pool auto-imports via `boot.zfs.extraPools = ["data"]` (already in `default.
 Currently zeiss/ruan (née ardent/monrain) use `/data/guests/{name}/` for static shares and disk images. After disko reformat, these should move to `/persist/guests/{name}/` (on btrfs SSD) to match the convention and keep VM boot off the HDDs.
 
 **Files:**
+
 - `hosts/liberl/microvm/guests/zeiss/microvm.nix` — Update paths `/data/guests/` → `/persist/guests/`
 - `hosts/liberl/microvm/guests/ruan/microvm.nix` — Update paths `/data/guests/` → `/persist/guests/`
 
@@ -173,12 +181,15 @@ Guest disk images and state do not need to be preserved — they will be recreat
 Currently the pool has a single `data` dataset with everything as plain directories. Create proper child datasets for independent snapshot/compression/tuning policies. The `data/media` dataset must remain a single dataset (no children) for hardlink support.
 
 - [ ] Verify current layout:
+
   ```bash
   zfs list -r -o name,mountpoint data
   ```
+
   Expected: only `data` at `/data`. If child datasets already exist, adapt the steps below accordingly.
 
 - [ ] Move existing data out of the way (temporary directories on pool root):
+
   ```bash
   # Move current contents to temporary locations so dataset mount points don't conflict
   mv /data/media /data/_media_tmp
@@ -188,6 +199,7 @@ Currently the pool has a single `data` dataset with everything as plain director
   ```
 
 - [ ] Create child datasets with appropriate settings:
+
   ```bash
   # Media: large recordsize for video files, compression off (already-compressed media)
   zfs create -o mountpoint=/data/media -o recordsize=1M -o compression=off data/media
@@ -203,6 +215,7 @@ Currently the pool has a single `data` dataset with everything as plain director
   ```
 
 - [ ] Move data into the new datasets:
+
   ```bash
   # Use rsync to preserve permissions, ownership, and hardlinks
   rsync -aHAX --remove-source-files /data/_media_tmp/ /data/media/
@@ -213,10 +226,13 @@ Currently the pool has a single `data` dataset with everything as plain director
   ```
 
 - [ ] Verify the result:
+
   ```bash
   zfs list -r -o name,mountpoint,recordsize,compression data
   ```
+
   Expected:
+
   ```
   NAME          MOUNTPOINT     RECSIZE  COMPRESS
   data          /data          128K     off
@@ -292,6 +308,7 @@ Update the `disko-btrfs` check in `tests/default.nix` to also test the `l2arcSiz
 ### 2.1 Create media directory structure
 
 On liberl host (one-time manual setup on the ZFS pool):
+
 ```
 /data/media/
 ├── torrents/{movies,tv,music}/
@@ -305,14 +322,17 @@ On liberl host (one-time manual setup on the ZFS pool):
 **File: `hosts/liberl/nas.nix`**
 
 Both bind mounts point to the same root for symmetry — the access level (RW vs RO) is the only difference:
+
 - `/export/rw/media` binds to `/data/media` (unchanged)
 - `/export/ro/media` binds to `/data/media` (unchanged — **currently already correct**)
 
 Remove unused exports and bind mounts:
+
 - Remove `/export/rw/data`, `/export/ro/data`, `/export/rw/backup` bind mounts
 - Remove `/data/data`, `/data/media` direct exports (replaced by `/export/` tree)
 
 New export config using per-host access and UID squashing:
+
 ```nix
 services.nfs.server.exports = ''
   /export/rw/media  erebonia-ip(rw,sync,no_subtree_check,all_squash,anonuid=1500,anongid=1500)
@@ -321,6 +341,7 @@ services.nfs.server.exports = ''
 ```
 
 Key changes from current config:
+
 - **Replace `no_root_squash` with `all_squash,anonuid=1500,anongid=1500`** — eliminates UID mismatches
 - **Per-host access instead of subnet-wide** — only specific hosts that need access
 - **RO enforced server-side** — calvard can see staging dirs but cannot write to them
@@ -354,11 +375,13 @@ Update NFS firewall in `nas.nix` to match the new per-host export pattern. Repla
 **Add VLAN 21 (lab) to liberl networking:**
 
 **File: `hosts/liberl/default.nix`** — Add:
+
 - `enp4s0.21` VLAN netdev
 - `br21` bridge
 - Network matching `vm-21-*` tap interfaces to `br21`
 
 **File: `lib/common/data/network.nix`** — Add host entry:
+
 ```nix
 lab = {
   vlanId = 21;
@@ -471,6 +494,7 @@ The lab zone already has `accessTo = ["management" "lab" "dmz" "external"]` in `
 **File: `hosts/calvard/default.nix`**
 
 Change from:
+
 ```nix
 fileSystems."/mnt/media" = {
   device = "liberl.internal:/data/media";
@@ -480,6 +504,7 @@ fileSystems."/mnt/media" = {
 ```
 
 To:
+
 ```nix
 fileSystems."/mnt/media" = {
   device = "liberl.internal:/export/ro/media";
@@ -501,6 +526,7 @@ Key changes: `soft`→`hard`, `rw`→`ro`, use `/export/ro/media` (server-enforc
 **File: `hosts/erebonia/default.nix`**
 
 Change from:
+
 ```nix
 fileSystems."/mnt/data" = {
   device = "liberl.internal:/data/data";
@@ -510,6 +536,7 @@ fileSystems."/mnt/data" = {
 ```
 
 To (RW mount for encoding — Unmanic will need this later):
+
 ```nix
 fileSystems."/mnt/media" = {
   device = "liberl.internal:/export/rw/media";
@@ -532,6 +559,7 @@ Key changes: `soft`→`hard`, NFS 4.2, proper buffer sizes, device changed from 
 **File: `hosts/calvard/microvm/guests/oracion/microvm.nix`** — unchanged.
 
 Since both the RW and RO exports bind the same root (`/data/media`), path equivalence is trivial:
+
 - **bose** (arr guest): virtiofs `/data/media` → `/media`. Radarr sees `/media/library/movies/...`
 - **oracion** (Jellyfin): virtiofs `/mnt/media` (NFS of `/data/media`) → `/media`. Jellyfin sees `/media/library/movies/...`
 
@@ -542,6 +570,7 @@ Both guests see identical paths. The existing virtiofs config (`source = "/mnt/m
 **File: `hosts/calvard/microvm/guests/oracion/modules/jellyfin.nix`**
 
 Add:
+
 ```nix
 # Disable .NET file locking (breaks on NFS)
 systemd.services.jellyfin.environment.DOTNET_SYSTEM_IO_DISABLEFILELOCKING = "true";
@@ -584,6 +613,7 @@ These are not NixOS config changes but required setup in service web UIs after d
 ## Phase 6: Verification
 
 ### Build checks
+
 ```bash
 # Verify all configs evaluate
 ./scripts/run-checks.sh host-eval-liberl host-eval-calvard host-eval-erebonia
@@ -594,6 +624,7 @@ nix build .#checks.x86_64-linux.disko-btrfs-l2arc  # if added as separate check
 ```
 
 ### Post-deployment verification
+
 1. **Liberl boot**: Verify btrfs root, impermanence working, ZFS `data` pool imported, L2ARC attached
 2. **NFS exports**: `showmount -e liberl` — verify symmetric RO/RW media exports, no `/data/data` exports
 3. **Arr guest**: Verify Sonarr/Radarr/Bazarr web UIs accessible, `/media` virtiofs mounted, swap active
@@ -622,25 +653,25 @@ Services and capabilities deferred from this plan for follow-up work:
 
 ## Files Modified (Summary)
 
-| File | Action |
-|------|--------|
-| `profiles/disko/btrfs.nix` | Add optional `l2arcSize` parameter |
-| `tests/default.nix` | Add disko-btrfs-l2arc check |
-| `hosts/remiferia/` → `hosts/liberl/` | **Rename** entire directory |
-| `hosts/liberl/default.nix` | Rename host, new hostId, disko import (with l2arcSize), impermanence, VLAN 21 bridge |
-| `hosts/liberl/hardware-configuration.nix` | Strip filesystem declarations (keep kernel/CPU/initrd) |
-| `hosts/liberl/impermanence.nix` | **New** — persistence declarations |
-| `hosts/liberl/nas.nix` | NFS export hardening, media user, bind mount fix, remove unused exports, Samba name → LIBERL |
-| `hosts/liberl/microvm/guests/zeiss/microvm.nix` | Update paths `/data/guests/` → `/persist/guests/` (née ardent) |
-| `hosts/liberl/microvm/guests/ruan/microvm.nix` | Update paths `/data/guests/` → `/persist/guests/` (née monrain) |
-| `hosts/liberl/microvm/guests/bose/` | **New** — arr stack guest (4-5 files) |
-| `lib/common/data/network.nix` | Rename hosts (remiferia→liberl, ardent→zeiss, monrain→ruan), add bose to lab zone, add hostAliases |
-| `hosts/calvard/default.nix` | Fix NFS mount (hard, RO, proper options, liberl.internal) |
-| `hosts/calvard/microvm/guests/oracion/microvm.nix` | No change needed (path equivalence preserved by symmetric exports) |
-| `hosts/calvard/microvm/guests/oracion/modules/jellyfin.nix` | .NET file locking fix, render/video groups, media group |
-| `hosts/calvard/microvm/guests/tharbad/modules/prometheus.nix` | Add bose scrape target, rename existing targets |
-| `hosts/calvard/microvm/guests/tharbad/modules/loki.nix` | Update host count |
-| `hosts/calvard/microvm/guests/tharbad/default.nix` | Add bose to extraHosts, rename existing entries |
-| `hosts/erebonia/default.nix` | Fix NFS mount (hard, RW media, proper options, liberl.internal) |
-| `flake.nix` | Rename nixosConfigurations.remiferia → .liberl, add disko module |
-| `docs/hostnames.md` | Move liberl to NAS host, update guest assignments, remove remiferia entry |
+| File                                                          | Action                                                                                             |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `profiles/disko/btrfs.nix`                                    | Add optional `l2arcSize` parameter                                                                 |
+| `tests/default.nix`                                           | Add disko-btrfs-l2arc check                                                                        |
+| `hosts/remiferia/` → `hosts/liberl/`                          | **Rename** entire directory                                                                        |
+| `hosts/liberl/default.nix`                                    | Rename host, new hostId, disko import (with l2arcSize), impermanence, VLAN 21 bridge               |
+| `hosts/liberl/hardware-configuration.nix`                     | Strip filesystem declarations (keep kernel/CPU/initrd)                                             |
+| `hosts/liberl/impermanence.nix`                               | **New** — persistence declarations                                                                 |
+| `hosts/liberl/nas.nix`                                        | NFS export hardening, media user, bind mount fix, remove unused exports, Samba name → LIBERL       |
+| `hosts/liberl/microvm/guests/zeiss/microvm.nix`               | Update paths `/data/guests/` → `/persist/guests/` (née ardent)                                     |
+| `hosts/liberl/microvm/guests/ruan/microvm.nix`                | Update paths `/data/guests/` → `/persist/guests/` (née monrain)                                    |
+| `hosts/liberl/microvm/guests/bose/`                           | **New** — arr stack guest (4-5 files)                                                              |
+| `lib/common/data/network.nix`                                 | Rename hosts (remiferia→liberl, ardent→zeiss, monrain→ruan), add bose to lab zone, add hostAliases |
+| `hosts/calvard/default.nix`                                   | Fix NFS mount (hard, RO, proper options, liberl.internal)                                          |
+| `hosts/calvard/microvm/guests/oracion/microvm.nix`            | No change needed (path equivalence preserved by symmetric exports)                                 |
+| `hosts/calvard/microvm/guests/oracion/modules/jellyfin.nix`   | .NET file locking fix, render/video groups, media group                                            |
+| `hosts/calvard/microvm/guests/tharbad/modules/prometheus.nix` | Add bose scrape target, rename existing targets                                                    |
+| `hosts/calvard/microvm/guests/tharbad/modules/loki.nix`       | Update host count                                                                                  |
+| `hosts/calvard/microvm/guests/tharbad/default.nix`            | Add bose to extraHosts, rename existing entries                                                    |
+| `hosts/erebonia/default.nix`                                  | Fix NFS mount (hard, RW media, proper options, liberl.internal)                                    |
+| `flake.nix`                                                   | Rename nixosConfigurations.remiferia → .liberl, add disko module                                   |
+| `docs/hostnames.md`                                           | Move liberl to NAS host, update guest assignments, remove remiferia entry                          |

@@ -3,15 +3,14 @@
   config,
   ...
 }: let
-  hostname = "ardent";
+  hostname = "ruan";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
 in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./microvm.nix
-    ./sops.nix
-    ./attic.nix
+    ./modules/git.nix
   ];
 
   networking.hostName = hostname;
@@ -29,7 +28,7 @@ in {
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
-    matchConfig.MACAddress = "5E:A5:4D:A3:A0:1A";
+    matchConfig.MACAddress = "5E:A5:4D:A3:A0:20";
     networkConfig = {
       Address = [host.cidr4 host.cidr6];
       Gateway = zone.gateway4;
@@ -37,29 +36,24 @@ in {
       IPv6AcceptRA = true;
       IPv6PrivacyExtensions = "yes";
       DHCP = "no";
-      MulticastDNS = false;
-      LLMNR = false;
     };
     routes = [
       {Gateway = zone.gateway4;}
       {Gateway = zone.gateway6;}
     ];
   };
-  networking.extraHosts = net.mkExtraHosts ["basel"];
+  services.resolved.enable = true;
+
+  networking.extraHosts = net.mkExtraHosts ["basel" "tharbad"];
 
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
-  # Shared nginx + ACME for attic vhost
   networking.firewall.allowedTCPPorts = [80 443];
   services.nginx = {
     enable = true;
     recommendedTlsSettings = true;
     recommendedProxySettings = true;
-  };
-  environment.etc."step-ca/data/intermediate_ca.crt" = {
-    source = pkgs.mmell.lib.data.pki.intermediate;
-    mode = "0444";
   };
   security.acme = {
     defaults = {
@@ -100,7 +94,13 @@ in {
         gateway = true;
         proto = "tcp";
         port = [80 443];
-        comment = "GitHub mirror, container image pulls";
+        comment = "HTTP/HTTPS for git mirror sync";
+      }
+      {
+        gateway = true;
+        proto = "udp";
+        port = 123;
+        comment = "NTP";
       }
       {
         host = "basel";

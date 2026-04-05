@@ -4,7 +4,7 @@
 
 This document consolidates the design decisions, rationale, tooling, and machine assignments for a self-hosted media and games homelab built on NixOS with microvms. The architecture is built around three physical nodes:
 
-- **NAS** — storage server; exports media over NFS, runs the *arr stack in a microvm
+- **NAS** — storage server; exports media over NFS, runs the \*arr stack in a microvm
 - **Old machine** — encoding node; runs Unmanic for background SVT-AV1 re-encoding
 - **New machine** — serving node; handles all latency-sensitive, client-facing services
 
@@ -12,7 +12,7 @@ The guiding principle is **least-privilege separation**: services that need writ
 
 ### Why Each Machine Does What It Does
 
-**NAS** has abundant RAM but slow CPU. The *arr stack (Sonarr, Radarr, Bazarr) is primarily a memory and I/O workload — loading, sorting, and cross-referencing metadata in SQLite databases — not a compute workload. Running it on the NAS also means hardlink operations (staging → library) happen via virtiofs as local kernel operations on the host filesystem rather than over NFS, which is the ideal configuration.
+**NAS** has abundant RAM but slow CPU. The \*arr stack (Sonarr, Radarr, Bazarr) is primarily a memory and I/O workload — loading, sorting, and cross-referencing metadata in SQLite databases — not a compute workload. Running it on the NAS also means hardlink operations (staging → library) happen via virtiofs as local kernel operations on the host filesystem rather than over NFS, which is the ideal configuration.
 
 **Old machine** has middling CPU and is not latency-sensitive. SVT-AV1 software encoding via Unmanic is compute-intensive but not time-sensitive — it runs as a background job for weeks. It reads source files and writes encoded output over the RW NFS mount, which is acceptable since large sequential file I/O over NFS is far less problematic than the random small I/O that makes NFS painful for databases.
 
@@ -38,7 +38,7 @@ This pattern makes the access inventory self-documenting — everything under `/
 
 The read-only export is scoped to just the `library/` subdirectory — the organized, triaged collection. The new machine has no visibility into staging, incoming, or download directories.
 
-The *arr stack microvm on the NAS accesses the media filesystem via **virtiofs** passthrough rather than NFS — the ZFS pool is mounted on the NAS host and shared directly into the microvm. The old machine and any other RW clients access it via the NFS RW export.
+The \*arr stack microvm on the NAS accesses the media filesystem via **virtiofs** passthrough rather than NFS — the ZFS pool is mounted on the NAS host and shared directly into the microvm. The old machine and any other RW clients access it via the NFS RW export.
 
 > **Bind mount caveat:** a plain `bind` mount does not cross filesystem boundaries. If your NAS uses nested ZFS datasets (e.g., `data/media` and `data/media/library` as separate datasets), the bind mount of the parent will not include the child dataset. Verify your NAS layout uses a single dataset with subdirectories, or use `rbind` and ensure NFS `subtree_check` behavior is as expected.
 
@@ -101,7 +101,7 @@ The TRaSH Guides convention uses `media/` for the organized directory, which pro
 
 When Radarr or Sonarr imports a file, it creates a hardlink from the staging area (e.g., `/media/manual/movies/`) to the organized library (`/media/library/movies/`). Hardlinks are inode aliases — they only work within a single filesystem. The kernel's `link()` syscall returns `EXDEV` if source and destination are on different devices.
 
-The *arr stack microvm on the NAS accesses the filesystem via virtiofs, which passes hardlink operations through to the host ZFS filesystem as local kernel calls. This is correct and efficient. The old machine performs no hardlink operations — it only reads source files and writes encoded output in place via Unmanic.
+The \*arr stack microvm on the NAS accesses the filesystem via virtiofs, which passes hardlink operations through to the host ZFS filesystem as local kernel calls. This is correct and efficient. The old machine performs no hardlink operations — it only reads source files and writes encoded output in place via Unmanic.
 
 ---
 
@@ -117,15 +117,15 @@ The bind mount export pattern reinforces this: the new machine is pointed at `na
 
 Each machine's workload matches its hardware profile:
 
-| Machine | Strength | Workload |
-|---------|----------|----------|
-| NAS | Abundant RAM | *arr stack — memory-heavy metadata/database operations |
+| Machine     | Strength                            | Workload                                                  |
+| ----------- | ----------------------------------- | --------------------------------------------------------- |
+| NAS         | Abundant RAM                        | \*arr stack — memory-heavy metadata/database operations   |
 | Old machine | Middling CPU, not latency-sensitive | Unmanic — SVT-AV1 software encoding, background batch job |
-| New machine | Best CPU, Intel Xe VAAPI AV1 decode | Jellyfin, RomM, Navidrome — latency-sensitive serving |
+| New machine | Best CPU, Intel Xe VAAPI AV1 decode | Jellyfin, RomM, Navidrome — latency-sensitive serving     |
 
 ### Alignment with Jellyfin's Architecture
 
-Jellyfin has no built-in file organization or renaming capability. It reads whatever directory structure it is given. The *arr stack produces exactly the directory layout Jellyfin's metadata plugins expect, so the two layers are cleanly separated by design.
+Jellyfin has no built-in file organization or renaming capability. It reads whatever directory structure it is given. The \*arr stack produces exactly the directory layout Jellyfin's metadata plugins expect, so the two layers are cleanly separated by design.
 
 ---
 
@@ -133,25 +133,25 @@ Jellyfin has no built-in file organization or renaming capability. It reads what
 
 ### NAS Microvm (Read-Write via virtiofs, Batch Library Management)
 
-| Service | Purpose | Notes |
-|---------|---------|-------|
-| **Sonarr** | TV show organization, renaming, import | Manages `/media/library/tv/` |
-| **Radarr** | Movie organization, renaming, import | Manages `/media/library/movies/` |
-| **Bazarr** | Subtitle downloading | Writes `.srt` files into `/media/library/` |
-| **Lidarr** | Music organization (optional) | Manages `/media/library/music/` |
-| **mnamer** | One-time bulk renaming of existing unorganized library | Run once during migration |
-| **MusicBrainz Picard** | Music tag correction (optional) | Run once during migration |
+| Service                | Purpose                                                | Notes                                      |
+| ---------------------- | ------------------------------------------------------ | ------------------------------------------ |
+| **Sonarr**             | TV show organization, renaming, import                 | Manages `/media/library/tv/`               |
+| **Radarr**             | Movie organization, renaming, import                   | Manages `/media/library/movies/`           |
+| **Bazarr**             | Subtitle downloading                                   | Writes `.srt` files into `/media/library/` |
+| **Lidarr**             | Music organization (optional)                          | Manages `/media/library/music/`            |
+| **mnamer**             | One-time bulk renaming of existing unorganized library | Run once during migration                  |
+| **MusicBrainz Picard** | Music tag correction (optional)                        | Run once during migration                  |
 
-The NAS microvm accesses the ZFS pool via virtiofs passthrough from the host. Persistent state (Radarr/Sonarr databases, configuration) is declared via microvm.nix impermanence and stored in a persistent btrfs subvolume on the NAS host, separate from the ZFS media pool. Guest images and NixOS store paths live on the btrfs root SSD, ensuring VM boot and *arr stack binary access never spin up the HDDs.
+The NAS microvm accesses the ZFS pool via virtiofs passthrough from the host. Persistent state (Radarr/Sonarr databases, configuration) is declared via microvm.nix impermanence and stored in a persistent btrfs subvolume on the NAS host, separate from the ZFS media pool. Guest images and NixOS store paths live on the btrfs root SSD, ensuring VM boot and \*arr stack binary access never spin up the HDDs.
 
 #### RAM Allocation for NAS Microvm
 
-| Service | Idle | Active peak | Trigger |
-|---------|------|-------------|---------|
-| Sonarr | 150–250 MB | 400–600 MB | RSS scan, import, rename batch |
-| Radarr | 500 MB–1.5 GB | 2–4 GB (small library) / 4–12 GB (large library) | List import, bulk rename |
-| Bazarr | 100–265 MB | 300–500 MB | Library-wide subtitle sync |
-| Lidarr | 200–400 MB | 500 MB–1 GB | Album import, metadata refresh |
+| Service | Idle          | Active peak                                      | Trigger                        |
+| ------- | ------------- | ------------------------------------------------ | ------------------------------ |
+| Sonarr  | 150–250 MB    | 400–600 MB                                       | RSS scan, import, rename batch |
+| Radarr  | 500 MB–1.5 GB | 2–4 GB (small library) / 4–12 GB (large library) | List import, bulk rename       |
+| Bazarr  | 100–265 MB    | 300–500 MB                                       | Library-wide subtitle sync     |
+| Lidarr  | 200–400 MB    | 500 MB–1 GB                                      | Album import, metadata refresh |
 
 **Recommended allocation: 8 GB minimum, 16 GB for large movie libraries.** Radarr is the dominant consumer and scales with library size. Provision swap on the microvm as a pressure valve for Radarr's infrequent bulk operation spikes — 4 GB of swap means Radarr operations complete slowly rather than failing outright when RAM is constrained.
 
@@ -187,7 +187,7 @@ This covers both migrating the old unorganized collection and ongoing uploads fr
 
 #### Bazarr
 
-Bazarr monitors Sonarr and Radarr's libraries via their APIs and automatically downloads subtitles from OpenSubtitles, Addic7ed, and others. It writes `.srt` files alongside media files in `/media/library/`, which requires write access — this is why it must be co-located with the *arr stack on the NAS microvm.
+Bazarr monitors Sonarr and Radarr's libraries via their APIs and automatically downloads subtitles from OpenSubtitles, Addic7ed, and others. It writes `.srt` files alongside media files in `/media/library/`, which requires write access — this is why it must be co-located with the \*arr stack on the NAS microvm.
 
 Jellyfin picks up subtitle files automatically when they appear in the same directory as the video file. No additional configuration is needed.
 
@@ -215,16 +215,16 @@ Run mnamer first to rough-organize files into Jellyfin-compatible naming, then u
 
 ### Old Machine (Read-Write NFS, Encoding)
 
-| Service | Purpose | Notes |
-|---------|---------|-------|
+| Service     | Purpose                        | Notes                                     |
+| ----------- | ------------------------------ | ----------------------------------------- |
 | **Unmanic** | Background SVT-AV1 re-encoding | Reads/writes `/media/library/` via RW NFS |
 
 Unmanic watches the library, re-encodes files to AV1 using SVT-AV1 software encoding, and replaces originals in place. It runs as a long-term background job — re-encoding a multi-terabyte library takes weeks on middling hardware, which is expected and acceptable.
 
 #### RAM Allocation for Old Machine
 
-| Service | Idle | Active peak | Trigger |
-|---------|------|-------------|---------|
+| Service | Idle       | Active peak       | Trigger                                                  |
+| ------- | ---------- | ----------------- | -------------------------------------------------------- |
 | Unmanic | 200–400 MB | 1–2 GB per worker | SVT-AV1 encode (scales with resolution and worker count) |
 
 Active figure is per worker thread. 1080p encodes sit toward the lower end; 4K toward the upper. Configure worker count based on available CPU cores and RAM headroom.
@@ -252,27 +252,27 @@ boot.kernel.sysctl = {
 
 ### New Machine (Read-Only NFS, Client-Facing)
 
-| Service | Purpose | Notes |
-|---------|---------|-------|
-| **Jellyfin** | Video/TV streaming server | Reads `/media/library` via RO NFS |
-| **RomM** | ROM library manager + EmulatorJS frontend | Reads `/media/library/roms` via RO NFS |
-| **Navidrome** (optional) | Dedicated music streaming | Reads `/media/library/music` via RO NFS |
-| **Audiobookshelf** (optional) | Audiobook and podcast server | Reads `/media/library/audiobooks` via RO NFS |
-| **Kavita** (optional) | Ebook, comic, and manga library | Reads `/media/library/books` via RO NFS |
-| **Immich** (optional) | Photo and video backup | Manages its own storage independently of the media library |
-| **Caddy** | Reverse proxy, TLS termination | Fronts all HTTP services |
+| Service                       | Purpose                                   | Notes                                                      |
+| ----------------------------- | ----------------------------------------- | ---------------------------------------------------------- |
+| **Jellyfin**                  | Video/TV streaming server                 | Reads `/media/library` via RO NFS                          |
+| **RomM**                      | ROM library manager + EmulatorJS frontend | Reads `/media/library/roms` via RO NFS                     |
+| **Navidrome** (optional)      | Dedicated music streaming                 | Reads `/media/library/music` via RO NFS                    |
+| **Audiobookshelf** (optional) | Audiobook and podcast server              | Reads `/media/library/audiobooks` via RO NFS               |
+| **Kavita** (optional)         | Ebook, comic, and manga library           | Reads `/media/library/books` via RO NFS                    |
+| **Immich** (optional)         | Photo and video backup                    | Manages its own storage independently of the media library |
+| **Caddy**                     | Reverse proxy, TLS termination            | Fronts all HTTP services                                   |
 
 #### RAM Allocation for New Machine
 
-| Service | Idle | Active peak | Trigger |
-|---------|------|-------------|---------|
-| Jellyfin | 300–500 MB | +200–400 MB per transcode stream; ~50 MB per direct play stream | Transcode or playback |
-| RomM | 100–200 MB | 300–500 MB | Library scan, metadata scrape |
-| Navidrome | 50–100 MB | 200–300 MB | Full library rescan |
-| Audiobookshelf | 100–200 MB | 300–500 MB | Library scan, chapter detection |
-| Kavita | 100–200 MB | 300–600 MB | Library scan, cover generation |
-| Immich | 300–600 MB | 1–2 GB | Initial import, face recognition, CLIP indexing |
-| Caddy | 20–50 MB | 50–100 MB | High concurrent connections |
+| Service        | Idle       | Active peak                                                     | Trigger                                         |
+| -------------- | ---------- | --------------------------------------------------------------- | ----------------------------------------------- |
+| Jellyfin       | 300–500 MB | +200–400 MB per transcode stream; ~50 MB per direct play stream | Transcode or playback                           |
+| RomM           | 100–200 MB | 300–500 MB                                                      | Library scan, metadata scrape                   |
+| Navidrome      | 50–100 MB  | 200–300 MB                                                      | Full library rescan                             |
+| Audiobookshelf | 100–200 MB | 300–500 MB                                                      | Library scan, chapter detection                 |
+| Kavita         | 100–200 MB | 300–600 MB                                                      | Library scan, cover generation                  |
+| Immich         | 300–600 MB | 1–2 GB                                                          | Initial import, face recognition, CLIP indexing |
+| Caddy          | 20–50 MB   | 50–100 MB                                                       | High concurrent connections                     |
 
 **Recommended allocation: 4 GB for core services (Jellyfin + RomM + Caddy), 8 GB with all optional services including Immich.**
 
@@ -307,6 +307,7 @@ users.users.jellyfin.extraGroups = [ "render" "video" ];
 Set hardware acceleration to **VAAPI** and device to `/dev/dri/renderD128` in Jellyfin's Dashboard → Playback → Transcoding. Verify with `intel_gpu_top` — activity on the `Video` row (not `Render/3D`) confirms hardware decode is active.
 
 **AV1 decode/encode capability on the Meerkat (meer8, Alder Lake):**
+
 - AV1 hardware **decode**: supported via Intel Xe / Gen 12 media engine
 - AV1 hardware **encode**: not supported — requires Arc A-series or Meteor Lake and newer
 
@@ -318,11 +319,11 @@ Set hardware acceleration to **VAAPI** and device to `/dev/dri/renderD128` in Je
 
 **Library structure Jellyfin expects:**
 
-| Media type | Expected path format |
-|-----------|---------------------|
-| Movies | `/media/library/movies/Movie Name (Year)/Movie Name (Year).mkv` |
-| TV | `/media/library/tv/Show Name/Season 01/Show Name - S01E01 - Title.mkv` |
-| Music | `/media/library/music/Artist/Album/track.flac` (reads embedded tags) |
+| Media type | Expected path format                                                   |
+| ---------- | ---------------------------------------------------------------------- |
+| Movies     | `/media/library/movies/Movie Name (Year)/Movie Name (Year).mkv`        |
+| TV         | `/media/library/tv/Show Name/Season 01/Show Name - S01E01 - Title.mkv` |
+| Music      | `/media/library/music/Artist/Album/track.flac` (reads embedded tags)   |
 
 **TV library subdivision** — Jellyfin supports multiple root folders per library type. For example, separating kids' content from general TV:
 
@@ -339,13 +340,13 @@ RomM is a self-hosted ROM library manager equivalent in role to Jellyfin but for
 
 **In-browser emulation coverage:**
 
-| Platform | Browser emulation | Notes |
-|----------|-------------------|-------|
-| GBA, SNES, NES, GB/GBC | Excellent | Full speed on any modern device |
-| N64 | Good | Most games playable |
-| PS1 | Good | Most games playable |
-| PS2 | Poor | Inconsistent; many games unplayable at speed |
-| GameCube | Poor | Not practically viable in browser today |
+| Platform               | Browser emulation | Notes                                        |
+| ---------------------- | ----------------- | -------------------------------------------- |
+| GBA, SNES, NES, GB/GBC | Excellent         | Full speed on any modern device              |
+| N64                    | Good              | Most games playable                          |
+| PS1                    | Good              | Most games playable                          |
+| PS2                    | Poor              | Inconsistent; many games unplayable at speed |
+| GameCube               | Poor              | Not practically viable in browser today      |
 
 **ROM directory structure RomM expects:**
 
@@ -366,7 +367,7 @@ RomM is a self-hosted ROM library manager equivalent in role to Jellyfin but for
 
 ### NAS Host: btrfs Root, ZFS Pool, Bind Mounts, NFS Server
 
-The NAS runs btrfs on the root partition (with impermanence) for better virtiofs integration. Microvm guest images and NixOS store paths live on the btrfs SSD, ensuring HDD spindown is not disrupted by VM boot or *arr stack binary access. The media pool runs ZFS on HDDs. A dedicated partition on the boot SSD serves as an L2ARC cache device, keeping frequently-accessed ZFS metadata and small files warm to allow HDD spindown between actual media operations.
+The NAS runs btrfs on the root partition (with impermanence) for better virtiofs integration. Microvm guest images and NixOS store paths live on the btrfs SSD, ensuring HDD spindown is not disrupted by VM boot or \*arr stack binary access. The media pool runs ZFS on HDDs. A dedicated partition on the boot SSD serves as an L2ARC cache device, keeping frequently-accessed ZFS metadata and small files warm to allow HDD spindown between actual media operations.
 
 ```nix
 # Bind mounts into the export tree
@@ -394,7 +395,7 @@ services.nfs.server = {
 
 `all_squash` maps all NFS access to a single UID/GID (1500 here), eliminating permission mismatches between services regardless of which microvm or user initiates the operation.
 
-### NAS Microvm: *arr Stack via virtiofs
+### NAS Microvm: \*arr Stack via virtiofs
 
 ```nix
 microvm.vms.arr = {
@@ -577,24 +578,24 @@ ROM files copied to /data/media/library/roms/ps/ (NAS host, direct or via RW NFS
 
 ## Tool Reference
 
-| Tool | Role | Machine | Source |
-|------|------|---------|--------|
-| Jellyfin | Video/TV media server | New | jellyfin.org |
-| RomM | ROM library & EmulatorJS frontend | New | github.com/rommapp/romm |
-| Navidrome | Music streaming (optional) | New | navidrome.org |
-| Audiobookshelf | Audiobook & podcast server (optional) | New | audiobookshelf.org |
-| Kavita | Ebook, comic & manga library (optional) | New | kavitareader.com |
-| Immich | Photo & video backup (optional) | New | immich.app |
-| Caddy | Reverse proxy + TLS | New | caddyserver.com |
-| Sonarr | TV organization & import | NAS microvm | servarr.com |
-| Radarr | Movie organization & import | NAS microvm | servarr.com |
-| Bazarr | Subtitle automation | NAS microvm | bazarr.media |
-| Lidarr | Music organization (optional) | NAS microvm | servarr.com |
-| Recyclarr | Syncs TRaSH Guide quality profiles to *arr | NAS microvm | recyclarr.dev |
-| Unmanic | Background AV1 re-encoding | Old | unmanic.app |
-| mnamer | One-time bulk media renaming | NAS microvm (run once) | pypi.org/project/mnamer |
-| MusicBrainz Picard | Music tag correction (optional) | NAS microvm (run once) | picard.musicbrainz.org |
-| Nixarr | NixOS modules for *arr stack | NAS microvm | nixarr.com |
+| Tool               | Role                                        | Machine                | Source                  |
+| ------------------ | ------------------------------------------- | ---------------------- | ----------------------- |
+| Jellyfin           | Video/TV media server                       | New                    | jellyfin.org            |
+| RomM               | ROM library & EmulatorJS frontend           | New                    | github.com/rommapp/romm |
+| Navidrome          | Music streaming (optional)                  | New                    | navidrome.org           |
+| Audiobookshelf     | Audiobook & podcast server (optional)       | New                    | audiobookshelf.org      |
+| Kavita             | Ebook, comic & manga library (optional)     | New                    | kavitareader.com        |
+| Immich             | Photo & video backup (optional)             | New                    | immich.app              |
+| Caddy              | Reverse proxy + TLS                         | New                    | caddyserver.com         |
+| Sonarr             | TV organization & import                    | NAS microvm            | servarr.com             |
+| Radarr             | Movie organization & import                 | NAS microvm            | servarr.com             |
+| Bazarr             | Subtitle automation                         | NAS microvm            | bazarr.media            |
+| Lidarr             | Music organization (optional)               | NAS microvm            | servarr.com             |
+| Recyclarr          | Syncs TRaSH Guide quality profiles to \*arr | NAS microvm            | recyclarr.dev           |
+| Unmanic            | Background AV1 re-encoding                  | Old                    | unmanic.app             |
+| mnamer             | One-time bulk media renaming                | NAS microvm (run once) | pypi.org/project/mnamer |
+| MusicBrainz Picard | Music tag correction (optional)             | NAS microvm (run once) | picard.musicbrainz.org  |
+| Nixarr             | NixOS modules for \*arr stack               | NAS microvm            | nixarr.com              |
 
 ---
 
@@ -624,4 +625,4 @@ ROM files copied to /data/media/library/roms/ps/ (NAS host, direct or via RW NFS
 
 **AV1 hardware encode is not available on the Meerkat (meer8).** The Alder Lake Xe GPU supports AV1 hardware decode but not encode. SVT-AV1 software encoding on the old machine is the correct approach — it is compute-intensive but not latency-sensitive.
 
-**Microvm guest images should live on the btrfs SSD, not the ZFS HDD pool.** This ensures VM boot, NixOS store access, and *arr stack binary execution never spin up the HDDs. Only deliberate media operations — imports, subtitle writes, encode reads/writes — should touch the spinning disks.
+**Microvm guest images should live on the btrfs SSD, not the ZFS HDD pool.** This ensures VM boot, NixOS store access, and \*arr stack binary execution never spin up the HDDs. Only deliberate media operations — imports, subtitle writes, encode reads/writes — should touch the spinning disks.

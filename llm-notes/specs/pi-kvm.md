@@ -18,15 +18,15 @@ Each strategy below provides full remote KVM including BIOS/UEFI access, virtual
 
 ## The single-port device landscape in early 2026
 
-| Device | Price | Resolution | Latency | Virtual media | ATX control | Open source | Network |
-|--------|-------|-----------|---------|--------------|-------------|-------------|---------|
-| **JetKVM** | $69 | 1080p@60fps | 30–60ms | Yes | Extension ~$20 | Yes (Go/TS) | 100Mbps |
-| **GL.iNet Comet** | $89 | 2K@60fps | 30–60ms | Yes | Extension | Yes (PiKVM-based) | Gigabit |
-| **BliKVM v4** | ~$100–150 | 1080p | ~100ms | Yes | Included | Yes (PiKVM-based) | 100Mbps PoE |
-| **PiKVM V4 Mini** | ~$270 | 1080p@60Hz | ~100ms | Yes | Included | Yes | Gigabit + WiFi |
-| **PiKVM V4 Plus** | ~$280–400 | 1080p@60Hz | ~100ms | Yes | Included | Yes | Gigabit + WiFi + LTE slot |
-| **TinyPilot Voyager 3** | $399 | 1080p@60Hz | ~140ms | Yes (Pro) | No | Community: MIT; Pro: proprietary | Dual Gigabit + WiFi |
-| **NanoKVM** | ~$25–50 | 1080p | ~100ms | Limited | Via board | Partially | 100Mbps |
+| Device                  | Price     | Resolution  | Latency | Virtual media | ATX control    | Open source                      | Network                   |
+| ----------------------- | --------- | ----------- | ------- | ------------- | -------------- | -------------------------------- | ------------------------- |
+| **JetKVM**              | $69       | 1080p@60fps | 30–60ms | Yes           | Extension ~$20 | Yes (Go/TS)                      | 100Mbps                   |
+| **GL.iNet Comet**       | $89       | 2K@60fps    | 30–60ms | Yes           | Extension      | Yes (PiKVM-based)                | Gigabit                   |
+| **BliKVM v4**           | ~$100–150 | 1080p       | ~100ms  | Yes           | Included       | Yes (PiKVM-based)                | 100Mbps PoE               |
+| **PiKVM V4 Mini**       | ~$270     | 1080p@60Hz  | ~100ms  | Yes           | Included       | Yes                              | Gigabit + WiFi            |
+| **PiKVM V4 Plus**       | ~$280–400 | 1080p@60Hz  | ~100ms  | Yes           | Included       | Yes                              | Gigabit + WiFi + LTE slot |
+| **TinyPilot Voyager 3** | $399      | 1080p@60Hz  | ~140ms  | Yes (Pro)     | No             | Community: MIT; Pro: proprietary | Dual Gigabit + WiFi       |
+| **NanoKVM**             | ~$25–50   | 1080p       | ~100ms  | Limited       | Via board      | Partially                        | 100Mbps                   |
 
 **NanoKVM deserves a special warning.** Despite its tempting $25–50 price, independent security audits found hardcoded root credentials, an undisclosed hardware microphone, passwords stored with a hardcoded AES key, and pre-installed network attack tools (tcpdump, aircrack). It received an **F security rating**. Avoid it on any network with sensitive data.
 

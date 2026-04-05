@@ -1,8 +1,15 @@
-{pkgs, ...}: {
+{
+  pkgs,
+  lib,
+  ...
+}: {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
-    (import ../../profiles/disko/btrfs.nix {disk = "/dev/nvme0n1";})
+    (import ../../profiles/disko/btrfs.nix {
+      disk = "/dev/nvme0n1";
+      inherit lib;
+    })
     ./microvm
     ./incus
   ];
@@ -34,11 +41,24 @@
     MaxFileSec=7day
   '';
 
-  # NFS media share from remiferia (NAS)
+  # NFS media share from liberl (NAS) — read-only
   fileSystems."/mnt/media" = {
-    device = "remiferia.internal:/data/media";
+    device = "liberl.internal:/export/ro/media";
     fsType = "nfs";
-    options = ["x-systemd.automount" "noauto" "_netdev" "nfsvers=4" "soft" "timeo=150"];
+    options = [
+      "nfsvers=4.2"
+      "hard"
+      "ro"
+      "noatime"
+      "rsize=1048576"
+      "timeo=600"
+      "retrans=2"
+      "nofail"
+      "_netdev"
+      "x-systemd.automount"
+      "noauto"
+      "x-systemd.idle-timeout=0"
+    ];
   };
 
   environment.systemPackages = [

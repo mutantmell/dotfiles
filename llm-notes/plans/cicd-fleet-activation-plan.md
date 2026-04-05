@@ -35,31 +35,32 @@ The system has two halves:
 
 ### Host Mapping
 
-| Spec reference        | Homelab host | Role                                               |
-| --------------------- | ------------ | -------------------------------------------------- |
-| "router"              | thebeyond    | Router, underpowered, network infrastructure       |
-| "NAS"                 | remiferia    | NAS, ZFS, hosts Attic (ardent)                     |
-| "2021 NUC" / build    | erebonia     | Build server, hosts Woodpecker (saint-arkh), Kata  |
-| "2023 NUC"            | calvard      | Primary VM host, hosts Forgejo (creil)             |
-| Forgejo               | creil        | MicroVM on calvard, git forge only                 |
-| Attic                 | ardent       | MicroVM on remiferia, binary cache                 |
-| step-ca               | basel        | MicroVM on calvard, TLS certificates               |
-| Monitoring            | tharbad      | MicroVM on calvard, Prometheus/Loki/Alertmanager   |
+| Spec reference     | Homelab host | Role                                              |
+| ------------------ | ------------ | ------------------------------------------------- |
+| "router"           | thebeyond    | Router, underpowered, network infrastructure      |
+| "NAS"              | remiferia    | NAS, ZFS, hosts Attic (ardent)                    |
+| "2021 NUC" / build | erebonia     | Build server, hosts Woodpecker (saint-arkh), Kata |
+| "2023 NUC"         | calvard      | Primary VM host, hosts Forgejo (creil)            |
+| Forgejo            | creil        | MicroVM on calvard, git forge only                |
+| Attic              | ardent       | MicroVM on remiferia, binary cache                |
+| step-ca            | basel        | MicroVM on calvard, TLS certificates              |
+| Monitoring         | tharbad      | MicroVM on calvard, Prometheus/Loki/Alertmanager  |
 
 ### Managed Hosts (NATS coordinators)
 
 These hosts receive deployments via the NATS fleet activation system:
 
-| Host      | NixOS configuration | dependsOnActivation | Notes                            |
-| --------- | ------------------- | ------------------- | -------------------------------- |
-| remiferia | remiferia           | null (first)        | NAS — hosts Attic, goes first    |
-| calvard   | calvard             | remiferia           | Primary VM host                  |
-| erebonia  | erebonia            | calvard             | Build server — agent drain last  |
+| Host      | NixOS configuration | dependsOnActivation | Notes                           |
+| --------- | ------------------- | ------------------- | ------------------------------- |
+| remiferia | remiferia           | null (first)        | NAS — hosts Attic, goes first   |
+| calvard   | calvard             | remiferia           | Primary VM host                 |
+| erebonia  | erebonia            | calvard             | Build server — agent drain last |
 
 Deployment order: `remiferia → calvard → erebonia` (strictly sequential,
 results-gated).
 
 **Why this order:**
+
 - **remiferia first** — hosts Attic (ardent). Must be confirmed stable before
   other hosts attempt pre-download of closures.
 - **calvard second** — general VM host. Activating while remiferia (Attic)
@@ -78,25 +79,25 @@ touching anything else. thebeyond also gets a NATS microVM at that point
 
 ### Hosts NOT Yet Managed by NATS
 
-| Host      | Deployment method     | Reason                                  |
-| --------- | --------------------- | --------------------------------------- |
-| thebeyond | deploy-rs / manual    | No hardware yet; joins fleet first when ready |
-| angbar    | deploy-rs / manual    | Workstation, intermittent               |
-| kernviter | deploy-rs / manual    | Laptop, intermittent                    |
-| OpenWrt   | `openwrt-deploy`      | Not NixOS                               |
+| Host      | Deployment method  | Reason                                        |
+| --------- | ------------------ | --------------------------------------------- |
+| thebeyond | deploy-rs / manual | No hardware yet; joins fleet first when ready |
+| angbar    | deploy-rs / manual | Workstation, intermittent                     |
+| kernviter | deploy-rs / manual | Laptop, intermittent                          |
+| OpenWrt   | `openwrt-deploy`   | Not NixOS                                     |
 
 ### What Already Exists
 
-| Component                | State                                  | Location                          |
-| ------------------------ | -------------------------------------- | --------------------------------- |
-| Forgejo (creil)          | Deployed                               | calvard, DMZ (10.97.100.53)       |
-| Attic (ardent)           | Deployed, 3-min GC (needs adjustment)  | remiferia, DMZ (10.97.100.31)     |
-| Forgejo Actions (saint-arkh) | Deployed — will be repurposed     | erebonia, DMZ (10.97.100.61)      |
-| step-ca (basel)          | Deployed                               | calvard, INFRA (10.97.11.7)       |
-| Monitoring (tharbad)     | Deployed                               | calvard, MGMT (10.97.20.41)      |
-| deploy-rs                | thebeyond only                         | flake.nix                         |
-| Nested KVM on erebonia   | Enabled                                | hosts/erebonia/default.nix        |
-| deployd + Kata           | Deployed on erebonia                   | modules/common/deployd.nix        |
+| Component                    | State                                 | Location                      |
+| ---------------------------- | ------------------------------------- | ----------------------------- |
+| Forgejo (creil)              | Deployed                              | calvard, DMZ (10.97.100.53)   |
+| Attic (ardent)               | Deployed, 3-min GC (needs adjustment) | remiferia, DMZ (10.97.100.31) |
+| Forgejo Actions (saint-arkh) | Deployed — will be repurposed         | erebonia, DMZ (10.97.100.61)  |
+| step-ca (basel)              | Deployed                              | calvard, INFRA (10.97.11.7)   |
+| Monitoring (tharbad)         | Deployed                              | calvard, MGMT (10.97.20.41)   |
+| deploy-rs                    | thebeyond only                        | flake.nix                     |
+| Nested KVM on erebonia       | Enabled                               | hosts/erebonia/default.nix    |
+| deployd + Kata               | Deployed on erebonia                  | modules/common/deployd.nix    |
 
 ---
 
@@ -165,6 +166,7 @@ backend against containerd with Kata.
 ### 1.5 Create Forgejo OAuth2 application for Woodpecker
 
 On creil (Forgejo), create an OAuth2 application that Woodpecker uses for:
+
 - User authentication (login to Woodpecker UI)
 - Webhook registration (push/PR/merge events trigger builds)
 - Repository access (checkout code)
@@ -178,6 +180,7 @@ pipeline builds all `checks.x86_64-linux.*` targets.
 
 The config service introspects the flake and generates a Woodpecker pipeline
 that:
+
 - Checks out the repo
 - Runs `nix build .#checks.x86_64-linux.<name>` for each check
 - Reports results back to Forgejo
@@ -207,22 +210,24 @@ document the safe parallelism level.
 ### 1.9 Egress rules
 
 Saint-arkh (Woodpecker server) needs:
+
 - creil TCP 443 (Forgejo OAuth2, webhooks, repo access)
 - tharbad TCP 3100 (Loki log push — already configured)
 - Gateway UDP 53, TCP 53 (DNS — already configured)
 
 Erebonia (agent, bare metal) needs:
+
 - Gateway TCP 80/443 (nix substitution from cache.nixos.org, container pulls)
 - Already has management zone access for these
 
 ### Network changes
 
-| Change                                   | Where                                         |
-| ---------------------------------------- | --------------------------------------------- |
-| Remove Forgejo runner config             | saint-arkh modules                            |
-| Add Woodpecker server config             | saint-arkh modules                            |
-| Add Woodpecker agent + containerd + Kata | hosts/erebonia/default.nix                    |
-| Forgejo OAuth2 app                       | creil (manual or via API)                     |
+| Change                                   | Where                      |
+| ---------------------------------------- | -------------------------- |
+| Remove Forgejo runner config             | saint-arkh modules         |
+| Add Woodpecker server config             | saint-arkh modules         |
+| Add Woodpecker agent + containerd + Kata | hosts/erebonia/default.nix |
+| Forgejo OAuth2 app                       | creil (manual or via API)  |
 
 ---
 
@@ -299,6 +304,7 @@ Every NixOS host in the flake benefits from cached builds.
 ### 2.6 Generate CI signing keypair
 
 Generate an Ed25519 keypair for CI signing:
+
 - Private key: sops secret on erebonia, decrypted to tmpfs
 - Public key: committed to `lib/common/data/` for all hosts to trust
 
@@ -306,12 +312,12 @@ This is separate from the Attic signing key (which Attic manages server-side).
 
 ### Network changes
 
-| Change                                 | Where                      |
-| -------------------------------------- | -------------------------- |
-| erebonia → ardent:443 forward rule     | thebeyond router config    |
-| erebonia egress → ardent:443           | hosts/erebonia/default.nix |
-| Attic substituter on all hosts         | modules/common/            |
-| CI public key in trusted-public-keys   | modules/common/            |
+| Change                               | Where                      |
+| ------------------------------------ | -------------------------- |
+| erebonia → ardent:443 forward rule   | thebeyond router config    |
+| erebonia egress → ardent:443         | hosts/erebonia/default.nix |
+| Attic substituter on all hosts       | modules/common/            |
+| CI public key in trusted-public-keys | modules/common/            |
 
 ---
 
@@ -329,6 +335,7 @@ Write a NixOS module for NATS JetStream nodes. This is a top-level module
 (`modules/nats/`) since it's extractable infrastructure, not project-specific.
 
 Configuration:
+
 - TLS mandatory (step-ca certificates, 30-day lifetime, 50% renewal)
 - WebSockets disabled (no browser clients; CVE-2026-27571 mitigation)
 - NKey authentication with JWT-based authorisation
@@ -339,11 +346,11 @@ Configuration:
 One microVM per infrastructure host, each allocated **1 vCPU / 128MB RAM /
 512MB disk**:
 
-| NATS node | Parent host | Zone         | IP             | Notes                         |
-| --------- | ----------- | ------------ | -------------- | ----------------------------- |
-| TBD-name  | remiferia   | management   | TBD            | Co-located with Attic host    |
-| TBD-name  | erebonia    | management   | TBD            | Co-located with build server  |
-| TBD-name  | calvard     | management   | TBD            | General infrastructure        |
+| NATS node | Parent host | Zone       | IP  | Notes                        |
+| --------- | ----------- | ---------- | --- | ---------------------------- |
+| TBD-name  | remiferia   | management | TBD | Co-located with Attic host   |
+| TBD-name  | erebonia    | management | TBD | Co-located with build server |
+| TBD-name  | calvard     | management | TBD | General infrastructure       |
 
 Names should follow the Trails naming convention for their respective hosts
 (remiferia = Crossbell cities, erebonia = Erebonian cities, calvard =
@@ -364,6 +371,7 @@ the most recent build event, then subsequent events.
 ### 3.4 Configure NKey permissions
 
 Per-client subject permissions:
+
 - **CI credentials** (erebonia/agent): publish to `builds.>`, subscribe to
   `activations.>`
 - **Host credentials** (per managed host): subscribe to
@@ -383,6 +391,7 @@ Egress rules needed: each NATS microVM → basel:443 (ACME).
 ### 3.6 Cross-node cluster routes
 
 The three NATS nodes need to reach each other for Raft consensus:
+
 - Cluster port (default 6222) between all three nodes
 - Client port (4222) from managed hosts to all three nodes
 
@@ -397,14 +406,14 @@ ports (management zone hosts already have some cross-host access).
 
 ### Network changes
 
-| Change                                     | Where                       |
-| ------------------------------------------ | --------------------------- |
-| 3 NATS microVM configs                     | hosts/{rem,ere,cal}/guests/ |
-| Network registry entries for NATS nodes    | lib/common/data/network.nix |
-| NATS node → NATS node cluster routes       | thebeyond router config     |
-| Managed hosts → NATS nodes client access   | thebeyond router config     |
-| NATS nodes → basel:443 (ACME)              | egress rules per node       |
-| Prometheus scrape targets                  | tharbad config              |
+| Change                                   | Where                       |
+| ---------------------------------------- | --------------------------- |
+| 3 NATS microVM configs                   | hosts/{rem,ere,cal}/guests/ |
+| Network registry entries for NATS nodes  | lib/common/data/network.nix |
+| NATS node → NATS node cluster routes     | thebeyond router config     |
+| Managed hosts → NATS nodes client access | thebeyond router config     |
+| NATS nodes → basel:443 (ACME)            | egress rules per node       |
+| Prometheus scrape targets                | tharbad config              |
 
 ---
 
@@ -439,7 +448,7 @@ The coordinator maintains two pieces of persistent state in
   restart. Updated atomically (write-tmp + rename) after each event is
   processed.
 
-The GC root symlink replaces generation number tracking — the symlink *is*
+The GC root symlink replaces generation number tracking — the symlink _is_
 the known-good reference, and it doubles as GC protection. Rollback is
 `<known-good-symlink>/bin/switch-to-configuration switch` directly from the
 symlink target, with no generation lookup needed.
@@ -609,7 +618,7 @@ services.fleetActivation = {
 
 The coordinator service must use `restartIfChanged = false`. During
 activation, `switch-to-configuration` may try to restart the coordinator
-if its binary changed — but the coordinator is the process *performing*
+if its binary changed — but the coordinator is the process _performing_
 the activation. It still needs to publish the result event and update
 the GC root after the switch completes.
 
@@ -666,6 +675,7 @@ fleetTopology = {
 ```
 
 **Order rationale:**
+
 - **remiferia first** — hosts Attic (ardent). Must be confirmed stable
   before other hosts attempt to pre-download closures from the cache.
 - **calvard second** — general VM host. Activates while Attic (remiferia)
@@ -681,6 +691,7 @@ Each host's coordinator config is derived from this map.
 
 remiferia is the first validation target since it leads the deployment order
 and hosts Attic:
+
 - Network-safe activation (pre-download mandatory)
 - Connectivity check (revert if network unreachable after switch)
 - No upstream dependency (first in current topology)
@@ -691,6 +702,7 @@ downloads closure → verifies dual signatures → switches → publishes succes
 ### 4.5 Deploy coordinator on remaining hosts
 
 After remiferia is validated:
+
 - calvard (dependsOn: remiferia)
 - erebonia (dependsOn: calvard)
 
@@ -740,13 +752,13 @@ erebonia) are in the management zone, so intra-zone routing covers this.
 
 ### Network changes
 
-| Change                                    | Where                       |
-| ----------------------------------------- | --------------------------- |
-| Coordinator module                        | modules/fleet-activation/   |
-| Fleet topology in common module           | modules/common/             |
-| Per-host coordinator config               | hosts/*/default.nix         |
-| NATS NKey credentials per host            | hosts/*/secrets/            |
-| Managed hosts → NATS nodes egress         | per-host egress rules       |
+| Change                            | Where                     |
+| --------------------------------- | ------------------------- |
+| Coordinator module                | modules/fleet-activation/ |
+| Fleet topology in common module   | modules/common/           |
+| Per-host coordinator config       | hosts/\*/default.nix      |
+| NATS NKey credentials per host    | hosts/\*/secrets/         |
+| Managed hosts → NATS nodes egress | per-host egress rules     |
 
 ---
 
@@ -760,6 +772,7 @@ Loki.
 ### 5.1 Evaluate Garage resource requirements
 
 Single-node Garage on remiferia (the NAS with ZFS). Estimate storage:
+
 - Attic NAR chunks (primary use case — deduplicated)
 - Loki log chunks (secondary — currently local on tharbad)
 - Budget for 6-12 months of growth
@@ -785,6 +798,7 @@ and GC policies now that storage is decoupled from tharbad's persist volume.
 ### 5.5 Cross-zone networking
 
 Firewall rules for:
+
 - DMZ → Garage (ardent/Attic needs to reach Garage)
 - Management → Garage (tharbad/Loki needs to reach Garage)
 
@@ -793,13 +807,13 @@ management-internal or DMZ → management.
 
 ### Network changes
 
-| Change                                   | Where                       |
-| ---------------------------------------- | --------------------------- |
-| Garage microVM or service                | hosts/remiferia/            |
-| Network registry entry                   | lib/common/data/network.nix |
-| ardent → Garage egress                   | ardent egress rules         |
-| tharbad → Garage egress                  | tharbad egress rules        |
-| Forward rules for cross-zone access      | thebeyond router config     |
+| Change                              | Where                       |
+| ----------------------------------- | --------------------------- |
+| Garage microVM or service           | hosts/remiferia/            |
+| Network registry entry              | lib/common/data/network.nix |
+| ardent → Garage egress              | ardent egress rules         |
+| tharbad → Garage egress             | tharbad egress rules        |
+| Forward rules for cross-zone access | thebeyond router config     |
 
 ---
 
@@ -850,6 +864,7 @@ scheduled flake update PR.
 ### 6.5 PR review automation
 
 Enhance PR check pipeline:
+
 - Affected-hosts summary comment (which NixOS configurations changed)
 - Build size delta reporting
 - Link to Attic cache entry for the PR's build artifacts
@@ -858,6 +873,7 @@ Enhance PR check pipeline:
 
 A service subscribing to `activations.>` that exposes Prometheus metrics.
 Dashboard on tharbad showing:
+
 - Last activation per host (timestamp, status, generation)
 - Deployment latency (event published → activation complete)
 - Rollback history
@@ -865,6 +881,7 @@ Dashboard on tharbad showing:
 ### 6.7 CI failure alerting
 
 Alertmanager rules for:
+
 - Failed CI on main branch (push builds)
 - Failed nightly breakage build (6.4)
 - Coordinator rollback events
@@ -873,6 +890,7 @@ Alertmanager rules for:
 ### 6.8 Secret rotation documentation
 
 Document rotation procedures for:
+
 - CI signing keypair
 - Attic push token
 - NATS NKey credentials per host
@@ -891,6 +909,7 @@ Can be done in parallel with Phases 3-6.
 
 Woodpecker config service generates a PR check pipeline triggered on
 `pull_request` events:
+
 - `nix fmt -- --check .`
 - `nix build .#checks.x86_64-linux.*` (all checks)
 
@@ -899,6 +918,7 @@ Forgejo reports status on the PR.
 ### 7.2 Branch protection on creil
 
 Configure the dotfiles repo on creil:
+
 - Protected branch: `main`
 - Required status checks: PR check pipeline must pass
 - Required reviews: at least 1 (human approval gate)
@@ -907,6 +927,7 @@ Configure the dotfiles repo on creil:
 ### 7.3 AI agent access
 
 AI agents (running on edith, angbar, or locally) need:
+
 - Git push access to creil (SSH key or access token for pushing branches)
 - Forgejo API access for PR creation (personal access token or OAuth2 via
   Keycloak)
@@ -939,13 +960,13 @@ builds).
 
 ## New Infrastructure Summary
 
-| Component            | Count | Resources each         | Host(s)                          |
-| -------------------- | ----- | ---------------------- | -------------------------------- |
-| Woodpecker server    | 1     | 2 vCPU, 1GB RAM, 25GB | saint-arkh (erebonia)            |
-| Woodpecker agent     | 1     | bare metal             | erebonia                         |
-| NATS microVMs        | 3     | 1 vCPU, 128MB, 512MB  | remiferia, erebonia, calvard     |
-| Coordinator daemon   | 3     | minimal (systemd svc)  | remiferia, calvard, erebonia            |
-| Garage               | 1     | TBD                    | remiferia                        |
+| Component          | Count | Resources each        | Host(s)                      |
+| ------------------ | ----- | --------------------- | ---------------------------- |
+| Woodpecker server  | 1     | 2 vCPU, 1GB RAM, 25GB | saint-arkh (erebonia)        |
+| Woodpecker agent   | 1     | bare metal            | erebonia                     |
+| NATS microVMs      | 3     | 1 vCPU, 128MB, 512MB  | remiferia, erebonia, calvard |
+| Coordinator daemon | 3     | minimal (systemd svc) | remiferia, calvard, erebonia |
+| Garage             | 1     | TBD                   | remiferia                    |
 
 Total new RAM: ~1.4GB (1GB Woodpecker server + 384MB NATS nodes). The
 Woodpecker server replaces the Forgejo runner (which was 4GB), so net RAM
@@ -955,16 +976,16 @@ on erebonia decreases.
 
 ## Secrets Inventory
 
-| Secret                | Managed by | Stored on  | Used by                     |
-| --------------------- | ---------- | ---------- | --------------------------- |
-| CI signing key        | sops-nix   | erebonia   | Woodpecker agent            |
-| Attic push token      | sops-nix   | erebonia   | Woodpecker agent            |
-| NATS CI NKey          | sops-nix   | erebonia   | Woodpecker agent            |
-| NATS host NKeys (×3)  | sops-nix   | per host   | Per-host coordinator        |
-| Woodpecker agent key  | sops-nix   | erebonia   | Woodpecker agent            |
-| Woodpecker OAuth2     | sops-nix   | saint-arkh | Woodpecker server           |
-| Attic public key      | git        | repo       | All hosts (trusted-public-keys) |
-| CI public key         | git        | repo       | All hosts (trusted-public-keys) |
+| Secret               | Managed by | Stored on  | Used by                         |
+| -------------------- | ---------- | ---------- | ------------------------------- |
+| CI signing key       | sops-nix   | erebonia   | Woodpecker agent                |
+| Attic push token     | sops-nix   | erebonia   | Woodpecker agent                |
+| NATS CI NKey         | sops-nix   | erebonia   | Woodpecker agent                |
+| NATS host NKeys (×3) | sops-nix   | per host   | Per-host coordinator            |
+| Woodpecker agent key | sops-nix   | erebonia   | Woodpecker agent                |
+| Woodpecker OAuth2    | sops-nix   | saint-arkh | Woodpecker server               |
+| Attic public key     | git        | repo       | All hosts (trusted-public-keys) |
+| CI public key        | git        | repo       | All hosts (trusted-public-keys) |
 
 All runtime secrets via sops-nix → tmpfs. Public keys committed to
 `lib/common/data/`. No secrets in Woodpecker's database-backed store.
@@ -998,8 +1019,8 @@ All runtime secrets via sops-nix → tmpfs. Public keys committed to
 ## Deferred Items (Separate Plans)
 
 - **Container registry / OCI image builds** — Forgejo container registry
-  + deployd integration. Deferred per spec Section 9; depends on deployd
-  Phase D3.
+  - deployd integration. Deferred per spec Section 9; depends on deployd
+    Phase D3.
 - **Central coordinator** — fleet-wide orchestration beyond per-host
   `dependsOnActivation`. Not needed until per-host model fails a real need.
 - **Coordinated fleet-wide rollback** — requires central coordinator.

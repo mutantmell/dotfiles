@@ -122,7 +122,7 @@ Topology defines devices (physical, bond, bridge, batman, wireguard) with VLANs,
 ### Primary Hosts
 
 - **thebeyond** — Router (router6 module, microvm host, impermanence, disko)
-- **remiferia** — NAS (ZFS, NFS, microvm host)
+- **liberl** — NAS (ZFS, NFS, microvm host)
 - **erebonia** — VM host (Incus, microvm host)
 
 ## Testing Patterns

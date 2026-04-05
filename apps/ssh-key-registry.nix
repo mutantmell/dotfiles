@@ -70,7 +70,7 @@
           echo ""
           echo "Examples:"
           echo "  nix run .#ssh-key-registry -- --backfill calvard"
-          echo "  nix run .#ssh-key-registry -- --backfill --guests-dir /data/guests remiferia"
+          echo "  nix run .#ssh-key-registry -- --backfill --guests-dir /persist/guests liberl"
           exit 1
         fi
 

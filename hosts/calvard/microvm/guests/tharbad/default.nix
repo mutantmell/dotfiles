@@ -57,18 +57,19 @@ in {
     "thebeyond"
     "calvard"
     "erebonia"
-    "remiferia"
+    "liberl"
     "phantasma"
     "basel"
     "messeldam"
     "langport"
     "creil"
     "oracion"
-    "ardent"
-    "monrain"
+    "zeiss"
+    "ruan"
     "saint-arkh"
     "trista"
     "edith"
+    "bose"
   ];
 
   time.timeZone = "UTC";
@@ -112,16 +113,17 @@ in {
           "langport"
           "creil"
           "oracion"
-          "ardent"
-          "monrain"
+          "zeiss"
+          "ruan"
           "saint-arkh"
           "trista"
           "edith"
+          "bose"
         ])
       ++ [
-        # Remiferia: non-standard exporter ports
+        # Liberl: non-standard exporter ports
         {
-          host = "remiferia";
+          host = "liberl";
           proto = "tcp";
           port = [9001 9002 9003];
           comment = "node/zfs/smartctl exporters";

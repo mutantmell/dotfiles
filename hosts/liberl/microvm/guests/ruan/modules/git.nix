@@ -5,7 +5,7 @@
 }: {
   environment.systemPackages = [pkgs.git];
 
-  services.cgit."monrain.internal" = {
+  services.cgit."ruan.internal" = {
     enable = true;
     scanPath = config.users.users.git.home;
     gitHttpBackend.checkExportOkFiles = false;
@@ -20,7 +20,7 @@
     openssh.authorizedKeys.keys = builtins.map (
       name:
         pkgs.mmell.lib.data.keys.ssh.${name}
-    ) ["deploy" "home" "remiferia" "erebonia" "calvard"];
+    ) ["deploy" "home" "liberl" "erebonia" "calvard"];
   };
   users.groups.git = {};
 

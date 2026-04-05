@@ -48,11 +48,9 @@ assistance is part of the maintenance workflow.
 ### Why TypeScript + Deno + Dax
 
 **Dax solves the core problem.** Dax provides bash-like process orchestration
-(the `$\`command\`` tagged template syntax) without delegating to the system
-shell. Unlike zx (the Google library that inspired it), dax uses
-`deno_task_shell` — a purpose-built cross-platform shell parser — which means
-shell builtins like `rm` and `cd` behave consistently regardless of what is on
-`$PATH`. This eliminates an entire class of environmental brittleness.
+(the `$\`command\``tagged template syntax) without delegating to the system
+shell. Unlike zx (the Google library that inspired it), dax uses`deno_task_shell`— a purpose-built cross-platform shell parser — which means
+shell builtins like`rm`and`cd`behave consistently regardless of what is on`$PATH`. This eliminates an entire class of environmental brittleness.
 
 **Deno provides the right runtime properties for scripting.** It runs
 TypeScript natively with no build step, has no `node_modules` or `package.json`

@@ -19,8 +19,10 @@
     "langport"
     "creil"
     "oracion"
-    "ardent"
-    "monrain"
+    "zeiss"
+    "ruan"
+    # Lab zone guests
+    "bose"
     "saint-arkh"
     "trista"
     # Lab zone guests
@@ -89,15 +91,15 @@ in {
       ]
       ++ (map (name: mkNodeScrape name 9100) nodeTargets)
       ++ [
-        # Remiferia: non-standard ports for multiple exporters
-        (mkNodeScrape "remiferia" 9001)
+        # Liberl: non-standard ports for multiple exporters
+        (mkNodeScrape "liberl" 9001)
         {
-          job_name = "remiferia_zfs";
-          static_configs = [{targets = ["remiferia.internal:9002"];}];
+          job_name = "liberl_zfs";
+          static_configs = [{targets = ["liberl.internal:9002"];}];
         }
         {
-          job_name = "remiferia_smartctl";
-          static_configs = [{targets = ["remiferia.internal:9003"];}];
+          job_name = "liberl_smartctl";
+          static_configs = [{targets = ["liberl.internal:9003"];}];
         }
       ];
   };

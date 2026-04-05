@@ -5,10 +5,19 @@ in {
   keys = builtins.fromJSON (
     builtins.readFile ./keys.json
   );
-  # Shared UID/GID for deployd services. The deployd-helper (host) and
-  # deployd-api (microVM guest) must share a UID so that virtiofs passthrough
-  # UID mapping allows socket access. Below the dynamic system range (400-999).
-  deployd.uid = 398;
+  # Static UID/GID registry — allocated in 400-499 (reserved via SYS_UID_MIN=500
+  # in modules/common/default.nix). nixpkgs static IDs stop at 326; dynamic system
+  # users start at 500. See: github.com/NixOS/nixpkgs/blob/master/nixos/modules/misc/ids.nix
+  users = {
+    media = {
+      uid = 400;
+      gid = 400;
+    };
+    deployd = {
+      uid = 401;
+      gid = 401;
+    };
+  };
   pki = {
     root = pki + "/root_ca.crt";
     intermediate = pki + "/intermediate_ca.crt";

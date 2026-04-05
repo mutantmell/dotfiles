@@ -42,6 +42,7 @@ The mental model for this device is a hardware-instantiated MicroVM. Physical is
 **MQTT over TLS note**: Client certificate authentication is the target end state, replacing username/password ACLs. Each client (scanner, exporter, HA) presents a certificate signed by the local CA. The broker maps the certificate common name to ACL permissions. Private keys for client certificates must live only in RAM, decrypted at boot via sops-nix. This removes passwords from the equation entirely.
 
 **Secrets required**:
+
 - `mqtt/server-cert` — broker TLS certificate
 - `mqtt/server-key` — broker TLS private key
 - `mqtt/ca-cert` — local CA certificate
@@ -64,7 +65,7 @@ The mental model for this device is a hardware-instantiated MicroVM. Physical is
 - Identify SwitchBot Meter Plus by device model code in advertisement payload (not MAC alone)
 - Publish to `switchbot/{MAC_without_colons}/state` with JSON payload:
   ```json
-  {"temperature": 22.5, "humidity": 55, "battery": 95}
+  { "temperature": 22.5, "humidity": 55, "battery": 95 }
   ```
 - Retain flag set on all published messages
 - Optionally publish HA MQTT discovery messages to `homeassistant/sensor/switchbot_{mac}_{field}/config` at startup, enabling auto-discovery in Home Assistant without manual YAML
@@ -108,9 +109,11 @@ Note: `MemoryDenyWriteExecute` cannot be applied — Python's runtime breaks it.
 **nftables egress restriction**: A kernel-level rule restricts this service's UID to outbound connections targeting only `{NAS_BRIDGE_IP}:1883` and `{NAS_BRIDGE_IP}:8883`. All other outbound TCP/UDP from this UID is dropped. This is the most meaningful network-level control available given Python's runtime limitations.
 
 **Secrets required**:
+
 - `mqtt/scanner-password` — MQTT password for switchbot-scanner user (or private key path for client cert auth)
 
 **Service dependencies**:
+
 - `After = [ "bluetooth.target" "mosquitto.service" "network-online.target" ]`
 - `Wants = [ "bluetooth.target" "network-online.target" ]`
 
@@ -160,9 +163,11 @@ This disables A2DP (audio), HID (keyboards/mice), and all other Bluetooth profil
 **Firewall rule**: Only the NAS Prometheus IP should be able to reach port 9000. All other sources dropped.
 
 **Secrets required**:
+
 - `mqtt/exporter-password` — MQTT password for exporter user
 
 **Expected metric output for SwitchBot sensors**:
+
 ```
 mqtt_temperature{topic="switchbot/AABBCCDDEE/state"} 22.5
 mqtt_humidity{topic="switchbot/AABBCCDDEE/state"} 55
@@ -174,11 +179,13 @@ mqtt_battery{topic="switchbot/AABBCCDDEE/state"} 95
 ### 5. Zigbee2MQTT (`services.zigbee2mqtt`) — DEFERRED
 
 **Status**: Deferred pending:
+
 1. Purchase and installation of Zigbee devices (smart curtains)
 2. Resolution of nixpkgs issue #439276 (evaluation failure in the zigbee2mqtt module on nixpkgs-unstable as of early 2026)
 3. USB passthrough of Zigbee coordinator dongle (MotionBlinds or equivalent; likely Silicon Labs EFR32 / Ember adapter)
 
 **When enabled, requirements**:
+
 - `homeassistant.enabled = true` in Z2M config (enables HA MQTT auto-discovery)
 - Discovery prefix must match HA (`homeassistant`)
 - `permit_join = false` (default; enable temporarily when adding new devices)
@@ -196,22 +203,22 @@ Full specification for the BLE scanner script. This must be stored in the flake 
 
 **Inputs (via environment variables)**:
 
-| Variable | Default | Description |
-|---|---|---|
-| `MQTT_HOST` | `127.0.0.1` | MQTT broker hostname or IP |
-| `MQTT_PORT` | `1883` | MQTT broker port |
-| `MQTT_USER` | `switchbot-scanner` | MQTT username |
-| `MQTT_PASS` | _(required)_ | MQTT password |
-| `MQTT_TLS` | `false` | Enable TLS (`true`/`false`) |
-| `MQTT_CA_CERT` | — | Path to CA certificate (if TLS enabled) |
-| `MQTT_CLIENT_CERT` | — | Path to client certificate (if mutual TLS) |
-| `MQTT_CLIENT_KEY` | — | Path to client private key (if mutual TLS) |
-| `SCAN_INTERVAL` | `60` | Seconds between BLE scans |
-| `TOPIC_PREFIX` | `switchbot` | MQTT topic prefix |
-| `KNOWN_SENSORS` | — | Comma-separated MAC addresses to accept; if unset, accept all SwitchBot Meter devices |
-| `HA_DISCOVERY` | `true` | Publish HA MQTT discovery messages at startup |
-| `HA_DISCOVERY_PREFIX` | `homeassistant` | HA discovery topic prefix |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
+| Variable              | Default             | Description                                                                           |
+| --------------------- | ------------------- | ------------------------------------------------------------------------------------- |
+| `MQTT_HOST`           | `127.0.0.1`         | MQTT broker hostname or IP                                                            |
+| `MQTT_PORT`           | `1883`              | MQTT broker port                                                                      |
+| `MQTT_USER`           | `switchbot-scanner` | MQTT username                                                                         |
+| `MQTT_PASS`           | _(required)_        | MQTT password                                                                         |
+| `MQTT_TLS`            | `false`             | Enable TLS (`true`/`false`)                                                           |
+| `MQTT_CA_CERT`        | —                   | Path to CA certificate (if TLS enabled)                                               |
+| `MQTT_CLIENT_CERT`    | —                   | Path to client certificate (if mutual TLS)                                            |
+| `MQTT_CLIENT_KEY`     | —                   | Path to client private key (if mutual TLS)                                            |
+| `SCAN_INTERVAL`       | `60`                | Seconds between BLE scans                                                             |
+| `TOPIC_PREFIX`        | `switchbot`         | MQTT topic prefix                                                                     |
+| `KNOWN_SENSORS`       | —                   | Comma-separated MAC addresses to accept; if unset, accept all SwitchBot Meter devices |
+| `HA_DISCOVERY`        | `true`              | Publish HA MQTT discovery messages at startup                                         |
+| `HA_DISCOVERY_PREFIX` | `homeassistant`     | HA discovery topic prefix                                                             |
+| `LOG_LEVEL`           | `INFO`              | Logging verbosity                                                                     |
 
 **Behaviour specification**:
 
@@ -226,6 +233,7 @@ Full specification for the BLE scanner script. This must be stored in the flake 
 5. Handle MQTT disconnect: reconnect with backoff, do not exit
 
 **HA discovery payload example** (temperature sensor for one device):
+
 ```json
 {
   "name": "SwitchBot Temperature AABBCCDDEE",
@@ -272,6 +280,7 @@ systemd.network.networks."10-lan" = {
 The Pi's firewall should be restrictive by default with explicit allowances:
 
 **Inbound**:
+
 - Port `1883` (MQTT): allow from LAN subnet only
 - Port `8883` (MQTT/TLS): allow from LAN subnet only
 - Port `9001` (MQTT WebSocket): allow from LAN subnet only (optional)
@@ -280,6 +289,7 @@ The Pi's firewall should be restrictive by default with explicit allowances:
 - All other inbound: drop
 
 **Outbound** (per-UID egress restrictions via nftables mark or owner match):
+
 - `switchbot-scanner` UID: allow TCP to `{NAS_IP}:1883` and `{NAS_IP}:8883` only; drop all else
 - `mosquitto` UID: allow outbound TCP on 1883/8883 for client connections from LAN; no arbitrary outbound
 - `mqtt-exporter` UID: allow TCP to `127.0.0.1:1883` only
@@ -324,16 +334,16 @@ creation_rules:
 
 ### `secrets/pi.yaml` Contents
 
-| Key | Description |
-|---|---|
-| `mqtt/server-cert` | Broker TLS certificate |
-| `mqtt/server-key` | Broker TLS private key |
-| `mqtt/ca-cert` | Local CA certificate |
-| `mqtt/hashed-password-scanner` | Mosquitto hashed password for scanner user |
-| `mqtt/hashed-password-exporter` | Mosquitto hashed password for exporter user |
-| `mqtt/hashed-password-homeassistant` | Mosquitto hashed password for HA user |
-| `mqtt/scanner-password` | Plaintext password for scanner MQTT client (or client cert key) |
-| `mqtt/exporter-password` | Plaintext password for exporter MQTT client |
+| Key                                  | Description                                                     |
+| ------------------------------------ | --------------------------------------------------------------- |
+| `mqtt/server-cert`                   | Broker TLS certificate                                          |
+| `mqtt/server-key`                    | Broker TLS private key                                          |
+| `mqtt/ca-cert`                       | Local CA certificate                                            |
+| `mqtt/hashed-password-scanner`       | Mosquitto hashed password for scanner user                      |
+| `mqtt/hashed-password-exporter`      | Mosquitto hashed password for exporter user                     |
+| `mqtt/hashed-password-homeassistant` | Mosquitto hashed password for HA user                           |
+| `mqtt/scanner-password`              | Plaintext password for scanner MQTT client (or client cert key) |
+| `mqtt/exporter-password`             | Plaintext password for exporter MQTT client                     |
 
 ### sops-nix Templates
 
@@ -362,6 +372,7 @@ Initial deployment uses an SD card. The netboot path is deferred until the SD ca
 **EEPROM configuration** (one-time, requires SD card):
 
 Set boot order to network-first, then USB, skip SD:
+
 ```
 BOOT_ORDER=0xf21  # SD → USB → Network (for testing with SD still present)
 BOOT_ORDER=0xf2   # USB → Network (production, no SD card)
@@ -371,25 +382,27 @@ Apply via `rpi-eeprom-config --apply` with a config file specifying the boot ord
 
 **NAS-side requirements**:
 
-| Service | Purpose | NixOS module |
-|---|---|---|
-| Kea DHCP | PXE options for Pi MAC address | `services.kea.dhcp4` |
-| TFTP server | Serves kernel, initrd, device tree | `services.atftpd` or `services.tftp-hpa` |
-| NFS export | Serves Pi's Nix store closure read-only | `services.nfs.server` |
-| Tang server | Network-bound secret decryption at boot | `services.tang` |
+| Service     | Purpose                                 | NixOS module                             |
+| ----------- | --------------------------------------- | ---------------------------------------- |
+| Kea DHCP    | PXE options for Pi MAC address          | `services.kea.dhcp4`                     |
+| TFTP server | Serves kernel, initrd, device tree      | `services.atftpd` or `services.tftp-hpa` |
+| NFS export  | Serves Pi's Nix store closure read-only | `services.nfs.server`                    |
+| Tang server | Network-bound secret decryption at boot | `services.tang`                          |
 
 **Kea DHCP client class** (add to existing Kea config, does not affect other clients):
 
 ```json
 {
-  "client-classes": [{
-    "name": "raspberry-pi-iot-hub",
-    "test": "hexstring(pkt4.mac, ':') == 'dc:a6:32:xx:xx:xx'",
-    "option-data": [
-      { "name": "tftp-server-name", "data": "192.168.x.nas" },
-      { "name": "boot-file-name", "data": "bootcode.bin" }
-    ]
-  }]
+  "client-classes": [
+    {
+      "name": "raspberry-pi-iot-hub",
+      "test": "hexstring(pkt4.mac, ':') == 'dc:a6:32:xx:xx:xx'",
+      "option-data": [
+        { "name": "tftp-server-name", "data": "192.168.x.nas" },
+        { "name": "boot-file-name", "data": "bootcode.bin" }
+      ]
+    }
+  ]
 }
 ```
 
@@ -412,6 +425,7 @@ boot.initrd.extraUtilsCommands = ''
 Or use the `boot.initrd.clevis` options if available in the nixpkgs version in use. The initrd script must contact Tang, reconstruct the age key, and make it available to sops-nix's activation script before services start.
 
 **State persistence**: Nothing on the Pi needs to survive a reboot. After a reboot:
+
 - Mosquitto repopulates retained messages within one scan interval (~60 seconds)
 - The scanner reconnects to the broker and resumes publishing
 - sops-nix re-decrypts secrets from the age key reconstructed by Clevis
@@ -492,30 +506,30 @@ path = [
 
 ## Known Issues and Deferred Items
 
-| Item | Status | Notes |
-|---|---|---|
-| nixpkgs #439276 (zigbee2mqtt eval failure) | Open as of early 2026 | Block on enabling Zigbee2MQTT; monitor for fix |
-| Clevis in NixOS initrd on aarch64 | Requires testing | Less community documentation than x86; validate before removing SD card |
-| nftables UID-based egress with DynamicUser | Requires static user | Switch scanner service to `User = "switchbot-scanner"` with a declared `users.users` entry |
-| MQTT over TLS with client certificates | Future | Replace username/password ACLs once local CA is established on NAS |
-| Zigbee2MQTT USB passthrough | Future | Requires Zigbee coordinator dongle and device purchase decision |
-| Home Assistant MQTT user ACLs | Future | HA connects as `homeassistant` user; ACL scope to be tightened once HA topics are fully known |
-| SD card → full netboot migration | Deferred | Boot from SD first; validate all services; then configure EEPROM and migrate to netboot |
+| Item                                       | Status                | Notes                                                                                         |
+| ------------------------------------------ | --------------------- | --------------------------------------------------------------------------------------------- |
+| nixpkgs #439276 (zigbee2mqtt eval failure) | Open as of early 2026 | Block on enabling Zigbee2MQTT; monitor for fix                                                |
+| Clevis in NixOS initrd on aarch64          | Requires testing      | Less community documentation than x86; validate before removing SD card                       |
+| nftables UID-based egress with DynamicUser | Requires static user  | Switch scanner service to `User = "switchbot-scanner"` with a declared `users.users` entry    |
+| MQTT over TLS with client certificates     | Future                | Replace username/password ACLs once local CA is established on NAS                            |
+| Zigbee2MQTT USB passthrough                | Future                | Requires Zigbee coordinator dongle and device purchase decision                               |
+| Home Assistant MQTT user ACLs              | Future                | HA connects as `homeassistant` user; ACL scope to be tightened once HA topics are fully known |
+| SD card → full netboot migration           | Deferred              | Boot from SD first; validate all services; then configure EEPROM and migrate to netboot       |
 
 ---
 
 ## Security Properties Summary
 
-| Property | Implementation |
-|---|---|
-| Physical isolation | Dedicated hardware; no shared kernel or filesystem with NAS |
-| No persistent writable storage | Netboot target: NFS read-only root, all writes to tmpfs |
-| Secret protection at rest | Tang/Clevis: secrets undecryptable without LAN access to Tang server |
-| Secret protection in memory | sops-nix: age key held in RAM only; decrypted secrets in tmpfs `/run/secrets/` |
-| Service confinement | systemd hardening on all services; DynamicUser; capability bounding sets |
-| Network egress restriction | nftables per-UID rules; each service limited to its required destinations only |
-| Bluetooth lockdown | BlueZ with `--noplugin=*`; passive scan only; `RestrictAddressFamilies` on scanner |
-| Blast radius | Full Pi compromise yields: MQTT credentials (sensor data access only); no path to NAS data or other LAN services |
+| Property                        | Implementation                                                                                                                                                                                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Physical isolation              | Dedicated hardware; no shared kernel or filesystem with NAS                                                                                                                                                                                    |
+| No persistent writable storage  | Netboot target: NFS read-only root, all writes to tmpfs                                                                                                                                                                                        |
+| Secret protection at rest       | Tang/Clevis: secrets undecryptable without LAN access to Tang server                                                                                                                                                                           |
+| Secret protection in memory     | sops-nix: age key held in RAM only; decrypted secrets in tmpfs `/run/secrets/`                                                                                                                                                                 |
+| Service confinement             | systemd hardening on all services; DynamicUser; capability bounding sets                                                                                                                                                                       |
+| Network egress restriction      | nftables per-UID rules; each service limited to its required destinations only                                                                                                                                                                 |
+| Bluetooth lockdown              | BlueZ with `--noplugin=*`; passive scan only; `RestrictAddressFamilies` on scanner                                                                                                                                                             |
+| Blast radius                    | Full Pi compromise yields: MQTT credentials (sensor data access only); no path to NAS data or other LAN services                                                                                                                               |
 | BLE sensor data confidentiality | Not provided — SwitchBot Meter Plus broadcasts unencrypted BLE advertisements. Physical proximity is the only barrier. Data is non-sensitive (ambient temperature/humidity). This is an accepted, intentional limitation of the device choice. |
 
 ## Correction — Section "EEPROM configuration"
