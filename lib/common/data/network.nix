@@ -72,7 +72,6 @@
         langport = 41; # Reverse proxy (calvard)
         oracion = 52; # Jellyfin media server (calvard)
         creil = 53; # Forgejo git hosting (calvard)
-        ruan = 32; # cgit bare repository hosting (liberl)
         "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia)
       };
     };
@@ -212,10 +211,6 @@
       "ardent.internal"
       "attic.ardent.internal.mutantmell.net"
       "attic.ardent.internal"
-    ];
-    ruan = [
-      "monrain.internal.mutantmell.net"
-      "monrain.internal"
     ];
     tharbad = [
       "ntfy.internal.mutantmell.net"

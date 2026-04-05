@@ -20,12 +20,10 @@
     "creil"
     "oracion"
     "zeiss"
-    "ruan"
-    # Lab zone guests
-    "bose"
     "saint-arkh"
     "trista"
     # Lab zone guests
+    "bose"
     "edith"
   ];
 in {

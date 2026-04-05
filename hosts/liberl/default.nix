@@ -11,9 +11,8 @@ in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
-    # TODO: replace /dev/sda with /dev/disk/by-id/... at deploy time
     (import ../../profiles/disko/btrfs.nix {
-      disk = "/dev/sda";
+      disk = "/dev/disk/by-id/ata-Samsung_SSD_860_EVO_250GB_S59WNJ0MC27735B";
       l2arcSize = "32G";
       inherit lib;
     })

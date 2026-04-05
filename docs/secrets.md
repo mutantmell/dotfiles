@@ -121,7 +121,6 @@ These paths have secrets files but no creation rule in `.sops.yaml`:
 | `hosts/calvard/guests/langport/secrets/`    | `ad_denai`, `sv_langport` (TBD)                             |
 | `hosts/calvard/guests/tharbad/secrets/`     | `ad_denai`, `sv_tharbad` (TBD)                              |
 | `hosts/erebonia/guests/saint-arkh/secrets/` | `ad_denai`, `sv_saint_arkh` (TBD)                           |
-| `hosts/liberl/guests/ruan/secrets/`         | `ad_denai`, `sv_ruan` (TBD — ruan has no secrets currently) |
 
 ---
 
@@ -186,12 +185,6 @@ this is added. Secrets file `hosts/calvard/secrets/secrets.yaml` does not exist 
 | `attic.env` | Attic server environment (token signing key, S3 config, etc.) | Encrypted ✓ (reusing ardent keys) |
 
 `sops.nix`: `age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"]` ✓ (reusing ardent keys)
-
----
-
-### ruan — cgit Repository Browser (liberl guest)
-
-No secrets currently. No `sops.nix` file needed unless secrets are added later.
 
 ---
 

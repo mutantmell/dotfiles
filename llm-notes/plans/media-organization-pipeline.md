@@ -28,7 +28,7 @@ Since we're reformatting from scratch (new SSH keys, new sops age keys, fresh gu
 | ------------- | ---------- | ---------------------------------- |
 | remiferia     | **liberl** | NAS host                           |
 | ardent        | **zeiss**  | Attic binary cache                 |
-| monrain       | **ruan**   | cgit git hosting                   |
+| monrain       | _(removed)_ | cgit git hosting — eliminated; all git repos are on creil (Forgejo) |
 | _(new)_ denai | **bose**   | Arr stack (Sonarr, Radarr, Bazarr) |
 
 **Codebase changes:**
@@ -36,12 +36,12 @@ Since we're reformatting from scratch (new SSH keys, new sops age keys, fresh gu
 1. **Directory renames:**
    - `hosts/remiferia/` → `hosts/liberl/`
    - `hosts/liberl/microvm/guests/ardent/` → `hosts/liberl/microvm/guests/zeiss/`
-   - `hosts/liberl/microvm/guests/monrain/` → `hosts/liberl/microvm/guests/ruan/`
+   - `hosts/liberl/microvm/guests/monrain/` → _(removed; see note below)_
 
 2. **Network registry** (`lib/common/data/network.nix`):
    - Rename `remiferia = 20` → `liberl = 20` in management zone
    - Rename `ardent = 31` → `zeiss = 31` in dmz zone
-   - Rename `monrain = 32` → `ruan = 32` in dmz zone
+   - Remove `monrain = 32` from dmz zone entirely (guest eliminated)
    - New arr guest: `bose = XX` in lab zone (instead of `denai`)
 
 3. **DNS aliases for transition** (`lib/common/data/network.nix` `hostAliases`):
@@ -59,12 +59,10 @@ Since we're reformatting from scratch (new SSH keys, new sops age keys, fresh gu
        "attic.ardent.internal.mutantmell.net"
        "attic.ardent.internal"
      ];
-     ruan = [
-       "monrain.internal.mutantmell.net"
-       "monrain.internal"
-     ];
    };
    ```
+
+   > **Note:** No transition alias was added for ruan/monrain — ruan was eliminated entirely.
 
    These keep old DNS names working during the transition. Remove once all references are updated.
 
@@ -81,13 +79,12 @@ Since we're reformatting from scratch (new SSH keys, new sops age keys, fresh gu
      (DNS aliases mean the old names still resolve, but update for correctness)
 
 7. **Monitoring** (`hosts/calvard/microvm/guests/tharbad/`):
-   - Prometheus scrape targets: rename remiferia → liberl, ardent → zeiss, monrain → ruan
+   - Prometheus scrape targets: rename remiferia → liberl, ardent → zeiss; remove monrain/ruan
    - Loki config: update host references
    - `default.nix` extraHosts: rename entries
 
 8. **Guest internals** — update `networking.hostName`, tap interface names, MAC addresses:
    - zeiss: `vm-100-zeiss`, update MAC
-   - ruan: `vm-100-ruan`, update MAC
 
 9. **Sops secrets** — host key paths change with new hostnames. Since we're regenerating all keys on reformat, just ensure `sops.nix` files reference the correct new paths.
 
@@ -163,12 +160,11 @@ ZFS pool auto-imports via `boot.zfs.extraPools = ["data"]` (already in `default.
 
 ### 1.4 Update microvm guest paths
 
-Currently zeiss/ruan (née ardent/monrain) use `/data/guests/{name}/` for static shares and disk images. After disko reformat, these should move to `/persist/guests/{name}/` (on btrfs SSD) to match the convention and keep VM boot off the HDDs.
+Currently zeiss (née ardent) uses `/data/guests/{name}/` for static shares and disk images. After disko reformat, these should move to `/persist/guests/{name}/` (on btrfs SSD) to match the convention and keep VM boot off the HDDs. ruan (née monrain) was eliminated entirely.
 
 **Files:**
 
 - `hosts/liberl/microvm/guests/zeiss/microvm.nix` — Update paths `/data/guests/` → `/persist/guests/`
-- `hosts/liberl/microvm/guests/ruan/microvm.nix` — Update paths `/data/guests/` → `/persist/guests/`
 
 ### 1.5 Deployment checklist (manual, not code changes)
 
@@ -293,7 +289,7 @@ Currently the pool has a single `data` dataset with everything as plain director
 - [ ] Add L2ARC cache: `zpool add data cache /dev/disk/by-id/<ssd-l2arc-partition>`
 - [ ] Verify L2ARC attached: `zpool status data` — should show cache device
 - [ ] Run `setup-guest.sh` to bootstrap guest SSH keys + sops age keys into `/persist/guests/`
-- [ ] Verify all services come up: NFS exports, SMB, microvm guests (zeiss, ruan)
+- [ ] Verify all services come up: NFS exports, SMB, microvm guests (zeiss, bose)
 
 ### 1.6 Add disko check
 
@@ -335,14 +331,16 @@ New export config using per-host access and UID squashing:
 
 ```nix
 services.nfs.server.exports = ''
-  /export/rw/media  erebonia-ip(rw,sync,no_subtree_check,all_squash,anonuid=1500,anongid=1500)
-  /export/ro/media  calvard-ip(ro,sync,no_subtree_check,all_squash,anonuid=1500,anongid=1500)
+  /export/rw/media  erebonia-ip(rw,sync,no_subtree_check,all_squash,anonuid=${uid},anongid=${gid})
+  /export/ro/media  calvard-ip(ro,sync,no_subtree_check,all_squash,anonuid=${uid},anongid=${gid})
 '';
 ```
 
+Where `uid`/`gid` are interpolated from `pkgs.mmell.lib.data.users.media` (UID/GID 400 — allocated in the centralized static registry at `lib/common/data/default.nix`). The spec used `1500` as an illustrative placeholder; the actual value comes from the registry to prevent cross-host collisions.
+
 Key changes from current config:
 
-- **Replace `no_root_squash` with `all_squash,anonuid=1500,anongid=1500`** — eliminates UID mismatches
+- **Replace `no_root_squash` with `all_squash,anonuid=<registry-uid>,anongid=<registry-gid>`** — eliminates UID mismatches; UID/GID sourced from centralized registry (400)
 - **Per-host access instead of subnet-wide** — only specific hosts that need access
 - **RO enforced server-side** — calvard can see staging dirs but cannot write to them
 - **Remove unused non-media exports** (`/data/data`, `/export/rw/backup`, etc.)
@@ -353,12 +351,16 @@ Key changes from current config:
 
 **File: `hosts/liberl/nas.nix`** (and arr guest config)
 
+The `media` user/group is allocated at UID/GID 400 in the centralized static registry (`lib/common/data/default.nix`). Reference it via `pkgs.mmell.lib.data.users.media` rather than hardcoding:
+
 ```nix
-users.groups.media.gid = 1500;
-users.users.media = { uid = 1500; group = "media"; isSystemUser = true; };
+inherit (pkgs.mmell.lib.data.users) media;
+
+users.groups.media.gid = media.gid;  # 400
+users.users.media = { inherit (media) uid; group = "media"; isSystemUser = true; };
 ```
 
-Ensure `/data/media` ownership is `media:media` (1500:1500) — one-time manual `chown -R 1500:1500 /data/media`.
+Ensure `/data/media` ownership is `media:media` (400:400) — one-time manual `chown -R 400:400 /data/media`.
 
 ### 2.4 Update firewall rules
 
@@ -450,8 +452,10 @@ microvm.interfaces = [{
 ### 3.4 modules/arr.nix
 
 ```nix
-users.groups.media.gid = 1500;
-users.users.media = { uid = 1500; group = "media"; isSystemUser = true; };
+inherit (pkgs.mmell.lib.data.users) media;
+
+users.groups.media.gid = media.gid;  # 400, from centralized registry
+users.users.media = { inherit (media) uid; group = "media"; isSystemUser = true; };
 
 services.sonarr = { enable = true; group = "media"; };
 services.radarr = { enable = true; group = "media"; };
@@ -477,7 +481,7 @@ The lab zone already has `accessTo = ["management" "lab" "dmz" "external"]` in `
 
 ### 3.7 Monitoring integration
 
-**File: `hosts/calvard/microvm/guests/tharbad/modules/prometheus.nix`** — Add bose to Prometheus scrape targets; rename remiferia→liberl, ardent→zeiss, monrain→ruan in existing targets.
+**File: `hosts/calvard/microvm/guests/tharbad/modules/prometheus.nix`** — Add bose to Prometheus scrape targets; rename remiferia→liberl, ardent→zeiss; remove monrain/ruan.
 
 **File: `hosts/calvard/microvm/guests/tharbad/modules/loki.nix`** — Update expected host count comment.
 
@@ -663,9 +667,9 @@ Services and capabilities deferred from this plan for follow-up work:
 | `hosts/liberl/impermanence.nix`                               | **New** — persistence declarations                                                                 |
 | `hosts/liberl/nas.nix`                                        | NFS export hardening, media user, bind mount fix, remove unused exports, Samba name → LIBERL       |
 | `hosts/liberl/microvm/guests/zeiss/microvm.nix`               | Update paths `/data/guests/` → `/persist/guests/` (née ardent)                                     |
-| `hosts/liberl/microvm/guests/ruan/microvm.nix`                | Update paths `/data/guests/` → `/persist/guests/` (née monrain)                                    |
+| `hosts/liberl/microvm/guests/ruan/`                           | **Deleted** — cgit guest eliminated; all git repos on creil (Forgejo)                              |
 | `hosts/liberl/microvm/guests/bose/`                           | **New** — arr stack guest (4-5 files)                                                              |
-| `lib/common/data/network.nix`                                 | Rename hosts (remiferia→liberl, ardent→zeiss, monrain→ruan), add bose to lab zone, add hostAliases |
+| `lib/common/data/network.nix`                                 | Rename hosts (remiferia→liberl, ardent→zeiss); remove monrain/ruan; add bose to lab zone, add hostAliases |
 | `hosts/calvard/default.nix`                                   | Fix NFS mount (hard, RO, proper options, liberl.internal)                                          |
 | `hosts/calvard/microvm/guests/oracion/microvm.nix`            | No change needed (path equivalence preserved by symmetric exports)                                 |
 | `hosts/calvard/microvm/guests/oracion/modules/jellyfin.nix`   | .NET file locking fix, render/video groups, media group                                            |

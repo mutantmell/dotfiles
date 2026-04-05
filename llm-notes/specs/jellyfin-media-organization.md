@@ -626,3 +626,46 @@ ROM files copied to /data/media/library/roms/ps/ (NAS host, direct or via RW NFS
 **AV1 hardware encode is not available on the Meerkat (meer8).** The Alder Lake Xe GPU supports AV1 hardware decode but not encode. SVT-AV1 software encoding on the old machine is the correct approach — it is compute-intensive but not latency-sensitive.
 
 **Microvm guest images should live on the btrfs SSD, not the ZFS HDD pool.** This ensures VM boot, NixOS store access, and \*arr stack binary execution never spin up the HDDs. Only deliberate media operations — imports, subtitle writes, encode reads/writes — should touch the spinning disks.
+
+---
+
+## Implementation Addendum: Intentional Deviations from This Spec
+
+The following choices were made during implementation and intentionally differ from the design described above. They are recorded here so future changes understand which parts of the spec are authoritative and which have been superseded.
+
+### RO Export Binds Full `/data/media`, Not Just `library/`
+
+The spec describes the RO NFS export as binding `/data/media/library`:
+
+```
+/export/ro/media  ← bind mount of /data/media/library
+```
+
+The implementation binds the full `/data/media` to both the RW and RO export trees:
+
+```nix
+fileSystems."/export/rw/media" = { device = "/data/media"; options = ["bind"]; };
+fileSystems."/export/ro/media" = { device = "/data/media"; options = ["bind"]; };
+```
+
+**Why:** Binding the same root to both exports produces trivial path equivalence — the arr stack guest (bose, virtiofs at `/media`) and the Jellyfin guest (oracion, virtiofs of the NFS mount at `/media`) both see `/media/library/...` for the same data with no compensating mount point offset needed. The narrower-scope-plus-offset design in the spec was more complex for no behavioral gain in this topology.
+
+**Consequence:** The serving node's NFS RO mount exposes staging directories (`manual/`, `torrents/`, `usenet/`) as read-only. The security boundary is unchanged — the NAS enforces read-only server-side — but Jellyfin has visibility into directories it doesn't use. This is acceptable; Jellyfin is only configured to scan `library/` subdirectories.
+
+### Serving Node NFS Mount Point Is `/mnt/media`, Not `/media/library`
+
+The spec describes the new machine mounting the RO export at `/media/library`. The implementation mounts it at `/mnt/media` on the calvard host (which then passes it via virtiofs to the oracion guest at `/media`).
+
+**Why:** The symmetric bind mount approach (above) means no offset is needed. Both bose and oracion see `/media` as the root and resolve `/media/library/...` identically. The mount point on the calvard host (`/mnt/media`) is an implementation detail of the virtiofs passthrough; from the guests' perspective the paths match the spec.
+
+### Jellyfin Runs in a MicroVM Guest (oracion), Not Directly on the Serving Node
+
+The spec describes Jellyfin running directly on the "new machine." In this infrastructure, the serving node is calvard (an Incus+microvm host). Jellyfin runs in a microvm guest (oracion) on calvard. The NFS RO mount lives on the calvard host at `/mnt/media` and is passed into the oracion guest via virtiofs at `/media`.
+
+**Why:** Consistent with the infrastructure convention of running services in isolated guests. The security properties are equivalent — oracion has read-only access to the media filesystem through the virtiofs passthrough of calvard's read-only NFS mount.
+
+### Media User UID/GID Is 400, Not 1500
+
+The spec's NixOS configuration examples use UID/GID 1500 for the `media` user and NFS squash target. The implementation uses UID/GID 400, allocated in the centralized static UID/GID registry at `lib/common/data/default.nix`.
+
+**Why:** The infrastructure maintains a static UID/GID registry for all cross-host system users to prevent collisions and ensure consistent identity across hosts and guests. The value 1500 in the spec was illustrative. The operative constraint is that the UID/GID is consistent everywhere the `media` user appears (NAS host, bose guest, NFS `anonuid`/`anongid`) — which the registry enforces.

@@ -26,7 +26,7 @@ VM HOSTS (Countries)
 │
 ├── liberl            (NAS host)
 │   ├── zeiss         (microVM) — Attic binary cache
-│   ├── ruan          (microVM) — cgit bare repository hosting
+│   ├── ruan          (not allocated)
 │   ├── bose          (microVM) — Arr stack (Sonarr, Radarr, Bazarr)
 │   ├── grancel       (not allocated)
 │   ├── rolent        (not allocated)
