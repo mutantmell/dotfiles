@@ -27,6 +27,9 @@ keys:
   - &sv_oracion age1r2f3qnzdlnu28kgg2zwzk44zm2qhjtq98x8l4vsrcdqtl845zsasp6shyj
   - &sv_creil age1zjslnd63kf2k000ahqxqudwmlrluszdg45dczlrxk50zjcujrc9qvwrq7g
 
+  # arcus
+  - &sv_arcus age1rc3vtysrzhjrd27evwzraanasxmg2z937h9epyhqmaegay5h3p8qcn4a76
+
   # users
   - &us_edith age1l9m5wxvev2w74u7hv4ayzc0e300686sagpcmsfr42mr258e5lsssv56tcw
 
@@ -113,6 +116,13 @@ creation_rules:
       - age:
           - *ad_denai
           - *sv_edith
+
+  # arcus
+  - path_regex: hosts/arcus/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+          - *ad_denai
+          - *sv_arcus
 
   # OpenWrt
   - path_regex: hosts/openwrt/secrets/[^/]+\.yaml$

@@ -24,12 +24,12 @@ Since we're reformatting from scratch (new SSH keys, new sops age keys, fresh gu
 
 **Name mapping:**
 
-| Old Name      | New Name   | Role                               |
-| ------------- | ---------- | ---------------------------------- |
-| remiferia     | **liberl** | NAS host                           |
-| ardent        | **zeiss**  | Attic binary cache                 |
+| Old Name      | New Name    | Role                                                                |
+| ------------- | ----------- | ------------------------------------------------------------------- |
+| remiferia     | **liberl**  | NAS host                                                            |
+| ardent        | **zeiss**   | Attic binary cache                                                  |
 | monrain       | _(removed)_ | cgit git hosting — eliminated; all git repos are on creil (Forgejo) |
-| _(new)_ denai | **bose**   | Arr stack (Sonarr, Radarr, Bazarr) |
+| _(new)_ denai | **bose**    | Arr stack (Sonarr, Radarr, Bazarr)                                  |
 
 **Codebase changes:**
 
@@ -657,25 +657,25 @@ Services and capabilities deferred from this plan for follow-up work:
 
 ## Files Modified (Summary)
 
-| File                                                          | Action                                                                                             |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `profiles/disko/btrfs.nix`                                    | Add optional `l2arcSize` parameter                                                                 |
-| `tests/default.nix`                                           | Add disko-btrfs-l2arc check                                                                        |
-| `hosts/remiferia/` → `hosts/liberl/`                          | **Rename** entire directory                                                                        |
-| `hosts/liberl/default.nix`                                    | Rename host, new hostId, disko import (with l2arcSize), impermanence, VLAN 21 bridge               |
-| `hosts/liberl/hardware-configuration.nix`                     | Strip filesystem declarations (keep kernel/CPU/initrd)                                             |
-| `hosts/liberl/impermanence.nix`                               | **New** — persistence declarations                                                                 |
-| `hosts/liberl/nas.nix`                                        | NFS export hardening, media user, bind mount fix, remove unused exports, Samba name → LIBERL       |
-| `hosts/liberl/microvm/guests/zeiss/microvm.nix`               | Update paths `/data/guests/` → `/persist/guests/` (née ardent)                                     |
-| `hosts/liberl/microvm/guests/ruan/`                           | **Deleted** — cgit guest eliminated; all git repos on creil (Forgejo)                              |
-| `hosts/liberl/microvm/guests/bose/`                           | **New** — arr stack guest (4-5 files)                                                              |
+| File                                                          | Action                                                                                                    |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `profiles/disko/btrfs.nix`                                    | Add optional `l2arcSize` parameter                                                                        |
+| `tests/default.nix`                                           | Add disko-btrfs-l2arc check                                                                               |
+| `hosts/remiferia/` → `hosts/liberl/`                          | **Rename** entire directory                                                                               |
+| `hosts/liberl/default.nix`                                    | Rename host, new hostId, disko import (with l2arcSize), impermanence, VLAN 21 bridge                      |
+| `hosts/liberl/hardware-configuration.nix`                     | Strip filesystem declarations (keep kernel/CPU/initrd)                                                    |
+| `hosts/liberl/impermanence.nix`                               | **New** — persistence declarations                                                                        |
+| `hosts/liberl/nas.nix`                                        | NFS export hardening, media user, bind mount fix, remove unused exports, Samba name → LIBERL              |
+| `hosts/liberl/microvm/guests/zeiss/microvm.nix`               | Update paths `/data/guests/` → `/persist/guests/` (née ardent)                                            |
+| `hosts/liberl/microvm/guests/ruan/`                           | **Deleted** — cgit guest eliminated; all git repos on creil (Forgejo)                                     |
+| `hosts/liberl/microvm/guests/bose/`                           | **New** — arr stack guest (4-5 files)                                                                     |
 | `lib/common/data/network.nix`                                 | Rename hosts (remiferia→liberl, ardent→zeiss); remove monrain/ruan; add bose to lab zone, add hostAliases |
-| `hosts/calvard/default.nix`                                   | Fix NFS mount (hard, RO, proper options, liberl.internal)                                          |
-| `hosts/calvard/microvm/guests/oracion/microvm.nix`            | No change needed (path equivalence preserved by symmetric exports)                                 |
-| `hosts/calvard/microvm/guests/oracion/modules/jellyfin.nix`   | .NET file locking fix, render/video groups, media group                                            |
-| `hosts/calvard/microvm/guests/tharbad/modules/prometheus.nix` | Add bose scrape target, rename existing targets                                                    |
-| `hosts/calvard/microvm/guests/tharbad/modules/loki.nix`       | Update host count                                                                                  |
-| `hosts/calvard/microvm/guests/tharbad/default.nix`            | Add bose to extraHosts, rename existing entries                                                    |
-| `hosts/erebonia/default.nix`                                  | Fix NFS mount (hard, RW media, proper options, liberl.internal)                                    |
-| `flake.nix`                                                   | Rename nixosConfigurations.remiferia → .liberl, add disko module                                   |
-| `docs/hostnames.md`                                           | Move liberl to NAS host, update guest assignments, remove remiferia entry                          |
+| `hosts/calvard/default.nix`                                   | Fix NFS mount (hard, RO, proper options, liberl.internal)                                                 |
+| `hosts/calvard/microvm/guests/oracion/microvm.nix`            | No change needed (path equivalence preserved by symmetric exports)                                        |
+| `hosts/calvard/microvm/guests/oracion/modules/jellyfin.nix`   | .NET file locking fix, render/video groups, media group                                                   |
+| `hosts/calvard/microvm/guests/tharbad/modules/prometheus.nix` | Add bose scrape target, rename existing targets                                                           |
+| `hosts/calvard/microvm/guests/tharbad/modules/loki.nix`       | Update host count                                                                                         |
+| `hosts/calvard/microvm/guests/tharbad/default.nix`            | Add bose to extraHosts, rename existing entries                                                           |
+| `hosts/erebonia/default.nix`                                  | Fix NFS mount (hard, RW media, proper options, liberl.internal)                                           |
+| `flake.nix`                                                   | Rename nixosConfigurations.remiferia → .liberl, add disko module                                          |
+| `docs/hostnames.md`                                           | Move liberl to NAS host, update guest assignments, remove remiferia entry                                 |

@@ -48,7 +48,9 @@
     };
     untrusted = {
       vlanId = 30;
-      hosts = {};
+      hosts = {
+        arcus = 10; # Steam Deck (guest WiFi)
+      };
     };
     adu = {
       vlanId = 31;
