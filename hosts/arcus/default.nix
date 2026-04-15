@@ -14,7 +14,11 @@
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  networking.networkmanager.enable = true;
+  networking.networkmanager = {
+    enable = true;
+    # Prevent NM from fighting systemd-networkd over the WireGuard interface
+    unmanaged = ["wg-media"];
+  };
 
   time.timeZone = "America/New_York";
   i18n.defaultLocale = "en_US.UTF-8";
@@ -116,7 +120,7 @@
         {Destination = "10.97.100.0/24";} # DMZ
         {Destination = "10.97.11.0/24";} # Management (for DNS)
       ];
-      dns = ["10.97.30.1"]; # Router DNS via untrusted gateway
+      dns = ["10.100.20.1"]; # Router DNS via WG tunnel
       domains = ["internal" "internal.mutantmell.net"];
     };
   };
@@ -124,6 +128,7 @@
   environment.systemPackages = with pkgs; [
     jellyfin-media-player # Jellyfin client
     moonlight-qt # Moonlight game streaming client (for future Sunshine host)
+    clonehero # Guitar Hero clone (add to Steam via "Add a Non-Steam Game" once)
   ];
 
   system.stateVersion = "25.11";
