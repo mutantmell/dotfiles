@@ -472,6 +472,17 @@
             autoRollback = true;
           };
         };
+
+        arcus = {
+          hostname = "10.100.20.10"; # WG tunnel IP
+          profiles.system = {
+            sshUser = "root";
+            user = "root";
+            path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.arcus;
+            magicRollback = true;
+            autoRollback = true;
+          };
+        };
       };
     };
 

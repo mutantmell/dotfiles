@@ -24,6 +24,7 @@
   inherit (net.hosts) basel;
   inherit (net.hosts) tharbad;
   inherit (net.hosts) roer;
+  inherit (net.hosts) oracion;
   saint-arkh = net.hosts."saint-arkh";
 
   # Helper to define a per-VLAN bridge with bond0 + bat0 members.
@@ -352,6 +353,26 @@ in {
         accessTo = [];
         inputRules = [];
       };
+
+      media = {
+        # Consumer media access: Jellyfin, Retrom (future), game streaming (future)
+        # Authenticated via WireGuard — only keyed devices reach this zone
+        icmpEcho = "enable";
+        accessTo = [];
+        forwardRules.dmz = ds {
+          daddr = oracion;
+          tcp.dport = 443;
+          verdict = "accept";
+          comment = "media -> oracion (Jellyfin)";
+        };
+        inputRules = [
+          {
+            udp.dport = 53;
+            verdict = "accept";
+            comment = "DNS";
+          }
+        ];
+      };
     };
 
     dns = {
@@ -428,7 +449,7 @@ in {
         }
         # WireGuard
         {
-          udp.dport = [38506 59362];
+          udp.dport = [38506 59362 51820];
           verdict = "accept";
           comment = "WireGuard";
         }
@@ -552,6 +573,31 @@ in {
               {
                 publicKey = "8g4r9czA23tS/XTOajuIa/BNfDE2x4GwdXXi+udE6gY=";
                 allowedIPs = ["10.100.10.21/32" "fdc6:55f2:0a5e:640a::15/128"];
+              }
+            ];
+          };
+        };
+
+        # WireGuard - media consumer access (Steam Deck, etc.)
+        "wg-media" = {
+          kind = "wireguard";
+          network = {
+            type = "static";
+            addresses = [
+              "10.100.20.1/24"
+              "fdc6:55f2:0a5e:6414::1/64"
+            ];
+            zone = "media";
+            required = false;
+          };
+          wireguard = {
+            privateKeyFile = config.sops.secrets."wg-media-privatekey".path;
+            port = 51820;
+            openFirewall = true;
+            peers = [
+              {
+                publicKey = "dB9PoHBScKhwWtJpZztxOLDCC6faUdKbCsy8M0iQKzU=";
+                allowedIPs = ["10.100.20.10/32" "fdc6:55f2:0a5e:6414::a/128"];
               }
             ];
           };

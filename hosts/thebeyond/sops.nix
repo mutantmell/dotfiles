@@ -11,6 +11,10 @@
         mode = "0440";
         inherit (config.users.users."systemd-network") group;
       };
+      "wg-media-privatekey" = {
+        mode = "0440";
+        inherit (config.users.users."systemd-network") group;
+      };
       "dyndns-host-domain" = {};
       "dyndns-host-password" = {};
     };

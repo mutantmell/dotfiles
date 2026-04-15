@@ -92,6 +92,8 @@ in {
             "saint-arkh"
             # liberl guests
             "bose"
+            # client devices
+            "arcus"
           ];
         in
           # Standard host records (<name>.internal.mutantmell.net + <name>.internal)

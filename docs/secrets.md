@@ -114,13 +114,13 @@ Keys must be retrieved after the first deployment of each guest.
 
 These paths have secrets files but no creation rule in `.sops.yaml`:
 
-| Path Pattern                                | Recipients Needed                                           |
-| ------------------------------------------- | ----------------------------------------------------------- |
-| `hosts/calvard/guests/messeldam/secrets/`   | `ad_denai`, `sv_messeldam` (TBD)                            |
-| `hosts/calvard/guests/basel/secrets/`       | `ad_denai`, `sv_basel` (TBD)                                |
-| `hosts/calvard/guests/langport/secrets/`    | `ad_denai`, `sv_langport` (TBD)                             |
-| `hosts/calvard/guests/tharbad/secrets/`     | `ad_denai`, `sv_tharbad` (TBD)                              |
-| `hosts/erebonia/guests/saint-arkh/secrets/` | `ad_denai`, `sv_saint_arkh` (TBD)                           |
+| Path Pattern                                | Recipients Needed                 |
+| ------------------------------------------- | --------------------------------- |
+| `hosts/calvard/guests/messeldam/secrets/`   | `ad_denai`, `sv_messeldam` (TBD)  |
+| `hosts/calvard/guests/basel/secrets/`       | `ad_denai`, `sv_basel` (TBD)      |
+| `hosts/calvard/guests/langport/secrets/`    | `ad_denai`, `sv_langport` (TBD)   |
+| `hosts/calvard/guests/tharbad/secrets/`     | `ad_denai`, `sv_tharbad` (TBD)    |
+| `hosts/erebonia/guests/saint-arkh/secrets/` | `ad_denai`, `sv_saint_arkh` (TBD) |
 
 ---
 

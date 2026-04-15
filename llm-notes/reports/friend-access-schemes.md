@@ -24,16 +24,16 @@ spin up or tear down VMs that "we already have X" should not be a tiebreaker.
 
 ## Confirmed requirements (from Q&A)
 
-| Question                       | Answer                                                                                                                                                            |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Cloud VPS (~$5/mo) acceptable? | **Yes**, primary path may use one. **But** the report must include a clean no-VPS alternative for comparison.                                                     |
-| Inbound on residential WAN?    | **No**, with a single exception: **WireGuard UDP** is acceptable. Nothing else (no HTTPS, no SSH, no game ports).                                                 |
-| Retro / broadcast games?       | **Real but rare.** Came up once with AI War II when Steam networking broke. Acceptable if it can't work — don't build a parallel system, do note any easy escape hatches. |
-| Desktop-hosted sessions?       | **Occasional, ad-hoc.** A small ceremony at the start of a session is fine. Should not be a primary use case the architecture is built around.                   |
+| Question                       | Answer                                                                                                                                                                                                     |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cloud VPS (~$5/mo) acceptable? | **Yes**, primary path may use one. **But** the report must include a clean no-VPS alternative for comparison.                                                                                              |
+| Inbound on residential WAN?    | **No**, with a single exception: **WireGuard UDP** is acceptable. Nothing else (no HTTPS, no SSH, no game ports).                                                                                          |
+| Retro / broadcast games?       | **Real but rare.** Came up once with AI War II when Steam networking broke. Acceptable if it can't work — don't build a parallel system, do note any easy escape hatches.                                  |
+| Desktop-hosted sessions?       | **Occasional, ad-hoc.** A small ceremony at the start of a session is fine. Should not be a primary use case the architecture is built around.                                                             |
 | Enrollment style?              | Initially "Discord bot or one-time link". **Resolved during the report to plain email + pre-authkeys** — no bot, blast radius is small enough that long-lived peer identities + key expiry are sufficient. |
 
 These narrow the design space substantially. In particular: the WAN-only-WG
-constraint forces *any* no-VPS design into a shape where the WireGuard
+constraint forces _any_ no-VPS design into a shape where the WireGuard
 listener itself is the only public-internet-reachable thing on the homelab,
 and the control/auth plane has to be reachable through that tunnel rather
 than directly. That's a real constraint and changes the option set.
@@ -45,14 +45,14 @@ than directly. That's a real constraint and changes the option set.
 Designed around the friend-account-compromise case, since it's already
 happened in your friend group:
 
-| Threat                                       | What "good" looks like                                                                                                            |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Friend's Steam/Discord stolen                | No direct path from those accounts to homelab access. Auth is decoupled from third-party gaming/chat identity.                    |
-| Friend's homelab credential phished          | Per-friend credential, optional MFA, instant central revocation, no shared secrets between friends.                               |
-| Friend's machine compromised                 | Attacker reaches **only** the IPs/ports you've explicitly opened, on the network position of game servers.                        |
-| Internet scanner finds your edge             | Edge listens for one well-known protocol and silently drops everything else. No banner-grab reveals what the homelab is running.  |
-| Auth service targeted from the internet      | Auth service is not directly internet-reachable; reached only via a throwaway proxy or via the same WG tunnel friends already use. |
-| Compromise of the relay/proxy/edge           | Edge holds no plaintext, no long-lived secrets, routes only to a small allowlist of internal targets, and can be rebuilt in minutes. |
+| Threat                                  | What "good" looks like                                                                                                               |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Friend's Steam/Discord stolen           | No direct path from those accounts to homelab access. Auth is decoupled from third-party gaming/chat identity.                       |
+| Friend's homelab credential phished     | Per-friend credential, optional MFA, instant central revocation, no shared secrets between friends.                                  |
+| Friend's machine compromised            | Attacker reaches **only** the IPs/ports you've explicitly opened, on the network position of game servers.                           |
+| Internet scanner finds your edge        | Edge listens for one well-known protocol and silently drops everything else. No banner-grab reveals what the homelab is running.     |
+| Auth service targeted from the internet | Auth service is not directly internet-reachable; reached only via a throwaway proxy or via the same WG tunnel friends already use.   |
+| Compromise of the relay/proxy/edge      | Edge holds no plaintext, no long-lived secrets, routes only to a small allowlist of internal targets, and can be rebuilt in minutes. |
 
 The most useful framing: **the friend access plane must not be the same
 trust plane as the admin plane.** Friend credentials should be unable to
@@ -72,10 +72,10 @@ The design space falls into four shapes; serious answers are hybrids.
    Examples: ZeroTier, n2n, tinc. Solves retro broadcast cases.
 3. **Identity-aware reverse proxy at the edge** — only HTTP services. The
    proxy authenticates the user before forwarding. Examples: oauth2-proxy
-   + nginx, Authelia, Pomerium, Pangolin. Useful for web services only.
+   - nginx, Authelia, Pomerium, Pangolin. Useful for web services only.
 4. **Out-of-band enrollment** — a side channel (Discord bot, one-time
    link) issues credentials that one of the above accepts. Not a
-   transport, just changes how friends *get* an account.
+   transport, just changes how friends _get_ an account.
 
 ---
 
@@ -176,7 +176,7 @@ use external; MFA-at-the-gateway.
 - **Otherwise:** Comparable to NetBird on most axes. Distinguishing
   feature is the periodic-reauth-on-the-tunnel itself, which is good for
   the compromise-blast-radius goal but bad for the friend-UX goal.
-- **Verdict:** Better as the path for *your own* devices than for friends.
+- **Verdict:** Better as the path for _your own_ devices than for friends.
 
 ### F. ZeroTier (with self-hosted controller)
 
@@ -215,7 +215,7 @@ upstream service.
 - **UX:** Lowest possible — browser, login, done. No install.
 - **Game traffic:** **Cannot carry it.** Showstopper for the primary
   use case.
-- **Verdict:** Necessary for *anything web-shaped* friends might touch
+- **Verdict:** Necessary for _anything web-shaped_ friends might touch
   (server browser, mod download, eventual media library), insufficient
   on its own. This is a complement to a transport, not a substitute.
 
@@ -232,7 +232,7 @@ policies. Supports TCP and UDP.
 - **Substitution risk:** Medium. Young project (2024-ish), promising,
   not yet "I'd bet the homelab on it."
 - **Verdict:** Not where I'd start, worth tracking. Most useful as the
-  *web* path on a cloud VPS, where nginx + oauth2-proxy already does
+  _web_ path on a cloud VPS, where nginx + oauth2-proxy already does
   the same job with less novelty.
 
 ### J. Plain email enrollment with setup keys / one-time invites
@@ -250,7 +250,7 @@ peer keys that rotate naturally on expiry.
   password rotation to manage.
 - **Compromise scenarios:** A stolen email at enrollment time only
   affects that single enrollment, not past or future ones. A stolen
-  *peer identity* later is bounded by the transport's ACLs (group →
+  _peer identity_ later is bounded by the transport's ACLs (group →
   port). Long-lived friend identities are acceptable because:
   (a) blast radius is small (game ports only, no admin paths),
   (b) peer key expiry forces re-auth every 90 days,
@@ -270,9 +270,9 @@ provisions credentials on demand. Documented here for completeness;
 worth revisiting only if friend-group scale grows past where manual
 email becomes annoying (perhaps 30+ active friends).
 
-- The bot's *advantages* over plain email are self-service and
+- The bot's _advantages_ over plain email are self-service and
   turnaround speed.
-- The bot's *costs* are: a service to maintain, Discord SaaS
+- The bot's _costs_ are: a service to maintain, Discord SaaS
   dependency at the enrollment layer, an allowlist datastore to keep
   in sync, and a "stolen Discord account on the allowlist" attack
   vector that plain email doesn't have.
@@ -295,19 +295,19 @@ channel, friend clicks it, gets an account. Dead after consumption.
 
 ## Comparison matrix
 
-| Option                          | Friend UX | Game traffic | Desktop host | Retro/broadcast | Blast radius | Substitution risk | WAN-only-WG fit |
-| ------------------------------- | --------- | ------------ | ------------ | --------------- | ------------ | ----------------- | --------------- |
-| A. Headscale                    | ★★★★★     | ★★★★★         | ★★★          | ✗                | ★★★★          | ★★★★★              | ★ (needs VPS)    |
-| B. NetBird                      | ★★★★      | ★★★★★         | ★★★          | ✗                | ★★★★          | ★★★★               | ★ (needs VPS)    |
-| C. innernet                     | ★★        | ★★★★          | ★★★          | ✗                | ★★★★          | ★★★★               | ★★★★★            |
-| D. Firezone 1.x                 | ★★★★      | ★★★★          | ★★★          | ✗                | ★★★★          | ★★ (declining)    | ★ (needs VPS)    |
-| E. Defguard                     | ★★★       | ★★★★          | ★★★          | ✗                | ★★★★★         | ★★★★               | ★ (needs VPS)    |
-| F. ZeroTier (self-host)         | ★★★       | ★★★★          | ★★★          | ★★★★★            | ★★★          | ★★★               | ✗ (non-WG UDP)   |
-| G. Manual WG + portal           | ★★        | ★★★          | ★★           | ✗                | ★★★          | ★★★★★              | ★★★★             |
-| H. oauth2-proxy / IAP           | ★★★★★     | ✗            | ✗            | ✗                | ★★★★★         | ★★★★★              | ★ (needs VPS)    |
-| I. Pangolin                     | ★★★★      | ★★ (UDP iffy)| ★★            | ✗                | ★★★★          | ★★★               | n/a (needs VPS)  |
-| J. Email setup keys / invites   | layer     | layer        | layer        | layer           | layer        | ★★★★★              | layer            |
-| J-alt. Discord bot enrollment   | layer     | layer        | layer        | layer           | layer        | ★★★ (Discord)     | layer            |
+| Option                        | Friend UX | Game traffic  | Desktop host | Retro/broadcast | Blast radius | Substitution risk | WAN-only-WG fit |
+| ----------------------------- | --------- | ------------- | ------------ | --------------- | ------------ | ----------------- | --------------- |
+| A. Headscale                  | ★★★★★     | ★★★★★         | ★★★          | ✗               | ★★★★         | ★★★★★             | ★ (needs VPS)   |
+| B. NetBird                    | ★★★★      | ★★★★★         | ★★★          | ✗               | ★★★★         | ★★★★              | ★ (needs VPS)   |
+| C. innernet                   | ★★        | ★★★★          | ★★★          | ✗               | ★★★★         | ★★★★              | ★★★★★           |
+| D. Firezone 1.x               | ★★★★      | ★★★★          | ★★★          | ✗               | ★★★★         | ★★ (declining)    | ★ (needs VPS)   |
+| E. Defguard                   | ★★★       | ★★★★          | ★★★          | ✗               | ★★★★★        | ★★★★              | ★ (needs VPS)   |
+| F. ZeroTier (self-host)       | ★★★       | ★★★★          | ★★★          | ★★★★★           | ★★★          | ★★★               | ✗ (non-WG UDP)  |
+| G. Manual WG + portal         | ★★        | ★★★           | ★★           | ✗               | ★★★          | ★★★★★             | ★★★★            |
+| H. oauth2-proxy / IAP         | ★★★★★     | ✗             | ✗            | ✗               | ★★★★★        | ★★★★★             | ★ (needs VPS)   |
+| I. Pangolin                   | ★★★★      | ★★ (UDP iffy) | ★★           | ✗               | ★★★★         | ★★★               | n/a (needs VPS) |
+| J. Email setup keys / invites | layer     | layer         | layer        | layer           | layer        | ★★★★★             | layer           |
+| J-alt. Discord bot enrollment | layer     | layer         | layer        | layer           | layer        | ★★★ (Discord)     | layer           |
 
 "Layer" entries are enrollment overlays on top of A–F.
 
@@ -356,7 +356,7 @@ shows no sign of doing).
 
 **Note on the headscale STUN/DERP awkwardness:** earlier drafts of
 this report flagged the embedded-DERP-needs-correct-STUN issue as a
-mark against Headscale. That concern was specific to the *previous*
+mark against Headscale. That concern was specific to the _previous_
 architecture, where DERP/STUN had to traverse a wg-tunnel from the
 cloud VPS into the homelab and STUN's reflected addresses would be
 wrong. In the **zero-inbound design** below, DERP and STUN run
@@ -403,7 +403,7 @@ Friends (Tailscale client)                     Cloud VPS (~$5/mo)
    on-demand desktop, etc.
 ```
 
-**Important: the open WG port on the residential WAN does *not* mean
+**Important: the open WG port on the residential WAN does _not_ mean
 friends configure WireGuard.** That port is purely a server-side
 listener. Friends install the Tailscale app, run one login command (or
 tap a button on mobile), and the app handles keypair generation, peer
@@ -418,7 +418,7 @@ Tailscale's.
 Important properties of this shape:
 
 - **Zero inbound traffic from the cloud VPS into the homelab.** The
-  homelab dials *outbound* HTTPS to the VPS for control plane. Friend
+  homelab dials _outbound_ HTTPS to the VPS for control plane. Friend
   traffic terminates directly on the homelab's residential WAN over
   WireGuard. The cloud VPS is in neither direction of the data path.
 - **One WireGuard UDP port is the entire residential WAN attack
@@ -430,19 +430,19 @@ Important properties of this shape:
   registry + ACL policy + embedded DERP relay + STUN). No plaintext
   friend traffic, no Keycloak database, no SSH keys, no homelab
   credentials. If it gets owned, you delete the VM, `nix run
-  .#deploy-cloud-host`, and the homelab subnet router reconnects to
+.#deploy-cloud-host`, and the homelab subnet router reconnects to
   the new instance on its next dial-in cycle.
 - **The cloud VPS is necessary but not sufficient for any attack on
   the homelab.** A hostile control server could push an ACL that
-  *says* "let attacker reach 10.97.x.y:22", but the homelab's own
+  _says_ "let attacker reach 10.97.x.y:22", but the homelab's own
   subnet-router host firewall and the router's nftables rules enforce
   the actual permitted IPs and ports. Defense in depth: control-plane-
   pushed ACL is one layer of three.
 - **Friend data flows direct WG whenever possible**, with headscale's
   embedded DERP on the VPS as fallback for friends behind aggressive
-  symmetric NATs. DERP relays *encrypted* WireGuard packets that it
+  symmetric NATs. DERP relays _encrypted_ WireGuard packets that it
   cannot decrypt — being in the data path doesn't compromise zero-
-  inbound, since "inbound" means inbound *to the homelab*, and
+  inbound, since "inbound" means inbound _to the homelab_, and
   DERP-relayed packets still arrive at the homelab over the same WG
   UDP port as direct ones.
 - **STUN sees real public IPs.** Because DERP and STUN run directly
@@ -450,9 +450,9 @@ Important properties of this shape:
   sees friends' actual public IPs and can give correct NAT-traversal
   hints. This was the awkwardness called out in earlier drafts of
   this report; the zero-inbound design happens to resolve it.
-- **Auth is fully internal.** Keycloak runs on vINFRA and is *not*
+- **Auth is fully internal.** Keycloak runs on vINFRA and is _not_
   internet-reachable at all in this design. Headscale's OIDC flow
-  *would* require Keycloak to be reachable to friends' browsers,
+  _would_ require Keycloak to be reachable to friends' browsers,
   which would re-introduce inbound traffic. **The zero-inbound design
   uses headscale pre-authkeys for friends instead of OIDC** — see
   "Authentication path" below.
@@ -460,7 +460,7 @@ Important properties of this shape:
 #### Authentication path (no inbound to Keycloak from internet)
 
 This is the trickiest sub-problem of the zero-inbound design.
-Headscale's OIDC flow requires that the friend's *browser* can reach
+Headscale's OIDC flow requires that the friend's _browser_ can reach
 the configured IdP for the login redirect. If Keycloak lives in the
 homelab, that means either:
 
@@ -507,18 +507,18 @@ rotate the underlying identity.
 **Keycloak is still useful**, just not for friend WG access. Keep
 Keycloak in the homelab for:
 
-- Admin SSO for *your* devices and the homelab admin UIs.
+- Admin SSO for _your_ devices and the homelab admin UIs.
 - The web-services-for-friends path (see "Future: web services" below).
 - SSH certificates (via the existing SSH cert plan).
 
 Friends end up with one credential (the headscale pre-authkey,
-consumed at enrollment) for game access, and *no* Keycloak account
+consumed at enrollment) for game access, and _no_ Keycloak account
 at all unless and until you decide to offer them web services.
 
 #### Friend onboarding UX
 
 1. You run an admin command (~50-line wrapper around `headscale
-   preauthkeys create`) that mints a tagged, single-use, 24h-TTL
+preauthkeys create`) that mints a tagged, single-use, 24h-TTL
    pre-authkey and emails it to the friend.
 2. They get an email containing the Tailscale app link, the headscale
    login URL, and the pre-authkey string.
@@ -554,7 +554,7 @@ service — just an admin command that produces an email.
   Per-node key expiry (90 days) limits how long a stolen key remains
   valid without re-auth.
 - **Friend's email account stolen (the channel that delivered the
-  pre-authkey).** Only impacts *future* enrollments. Past enrollments
+  pre-authkey).** Only impacts _future_ enrollments. Past enrollments
   rely on the persisted node identity, not the pre-authkey. Mitigation:
   short TTL on pre-authkeys (24h) means a stale email inbox doesn't
   contain a usable key.
@@ -620,7 +620,7 @@ enforcement layers** at the homelab side that headscale cannot
 override:
 
 1. **Host firewall on the homelab subnet router microVM** — an
-   nftables ruleset that only permits *forwarded* traffic to specific
+   nftables ruleset that only permits _forwarded_ traffic to specific
    destination IPs on specific ports, deployed via Nix and not
    configurable from headscale. The headscale ACL says "reach
    10.97.x.y:25565"; the host firewall says "I will only forward to
@@ -655,22 +655,22 @@ implementation plan must treat it as a non-negotiable component, not
 When you want to host from the workstation:
 
 1. Run `sudo tailscale up --login-server=https://vpn.<your-domain>
-   --shields-up` (or a hotkey/script). The client comes up with
+--shields-up` (or a hotkey/script). The client comes up with
    shields-up hardening so only ACL-permitted ports are reachable.
 2. Start the game.
 3. Tell friends the desktop's MagicDNS name (or it's already in their
    Tailscale client labeled "<your handle>-desktop").
 4. After the session, `sudo tailscale down`.
 
-The desktop is *not* on the friend trust plane outside of those active
+The desktop is _not_ on the friend trust plane outside of those active
 windows. The headscale ACL limits `tag:friend` to a small list of
 ports on the desktop (e.g., the common game-hosting port ranges) so
-even *during* a session a misbehaving friend client cannot poke
+even _during_ a session a misbehaving friend client cannot poke
 arbitrary services.
 
 If you'd rather avoid client-on-desktop entirely, the relay-VM
 alternative (a small vDMZ microVM that DNATs one port to the desktop
-when armed) is also available. For *occasional, ad-hoc* sessions the
+when armed) is also available. For _occasional, ad-hoc_ sessions the
 on-demand client approach has less standing infra and seems like the
 right tradeoff.
 
@@ -706,7 +706,7 @@ path. There is no need to decide now — the friend WG plane and the
 web-services plane are independent designs and can be built (or not)
 in either order.
 
-For the AI-War-II / direct-IP precedent: that's a *game* connection,
+For the AI-War-II / direct-IP precedent: that's a _game_ connection,
 not a web one, and works fine over the friend WG plane without any
 web-services path.
 
@@ -723,7 +723,7 @@ by IP" — that case works fine over the tailnet), the lightest fallback is:
 3. Tear it down after.
 
 This is hours of work to set up the first time and minutes thereafter.
-The cost of *not* having it standing is that the broadcast capability
+The cost of _not_ having it standing is that the broadcast capability
 isn't immediately available — but you confirmed that's acceptable for
 how rare the case is.
 
@@ -808,7 +808,7 @@ cloud VPS.
   reaches the web services". Friends end up with two pieces of state:
   a Keycloak account for web (oauth2-proxy still gates browser
   services), and an innernet membership for game traffic.
-- Web services *can't be reached the same way*. Without the cloud VPS,
+- Web services _can't be reached the same way_. Without the cloud VPS,
   there is no public HTTPS path. Friends would have to be on the
   innernet mesh to reach Jellyfin, etc. — which means starting the
   innernet client even just to browse, which defeats one of the things
@@ -830,21 +830,21 @@ cloud VPS.
 
 ### Side-by-side summary
 
-|                            | Primary (Headscale + cloud VPS)                  | Alternative (innernet, no VPS)                                    |
-| -------------------------- | ------------------------------------------------ | ----------------------------------------------------------------- |
-| Friend UX                  | ★★★★★ (install Tailscale, paste pre-authkey once)| ★★★ (paste invite into CLI/GUI; no real mobile story)             |
-| Cloud dependency           | ~$5/mo VPS, control plane only                   | None                                                              |
-| Inbound on WAN              | One WireGuard UDP port                           | One WireGuard UDP port                                            |
-| Inbound from VPS to homelab| **Zero**                                         | n/a (no VPS)                                                      |
-| Web services for friends   | Deferred decision (3 options, all viable)        | Either nothing, or "start the mesh client first"                  |
-| Mobile (iOS/Android)       | Full support (upstream Tailscale apps)           | Practically none                                                  |
-| Auth model                 | headscale pre-authkeys + node key expiry         | innernet invite + peer key expiry                                 |
-| Substitution risk          | Very low (headscale BSD-3, Tailscale BSD-3)      | Very low (innernet MIT, tiny)                                     |
-| Operational complexity     | Two services to maintain (VPS + subnet router)   | One service to maintain                                           |
-| Compromise blast radius    | Strong (tag → ACL → port-level)                  | Strong (group → CIDR association)                                 |
-| Retro broadcast            | Ad-hoc ZeroTier when needed                      | Ad-hoc ZeroTier when needed (same)                                |
-| Desktop hosting            | On-demand client                                 | On-demand client                                                  |
-| Enrollment                 | Email pre-authkey (no bot, no Keycloak needed)   | Email innernet invite                                             |
+|                             | Primary (Headscale + cloud VPS)                   | Alternative (innernet, no VPS)                        |
+| --------------------------- | ------------------------------------------------- | ----------------------------------------------------- |
+| Friend UX                   | ★★★★★ (install Tailscale, paste pre-authkey once) | ★★★ (paste invite into CLI/GUI; no real mobile story) |
+| Cloud dependency            | ~$5/mo VPS, control plane only                    | None                                                  |
+| Inbound on WAN              | One WireGuard UDP port                            | One WireGuard UDP port                                |
+| Inbound from VPS to homelab | **Zero**                                          | n/a (no VPS)                                          |
+| Web services for friends    | Deferred decision (3 options, all viable)         | Either nothing, or "start the mesh client first"      |
+| Mobile (iOS/Android)        | Full support (upstream Tailscale apps)            | Practically none                                      |
+| Auth model                  | headscale pre-authkeys + node key expiry          | innernet invite + peer key expiry                     |
+| Substitution risk           | Very low (headscale BSD-3, Tailscale BSD-3)       | Very low (innernet MIT, tiny)                         |
+| Operational complexity      | Two services to maintain (VPS + subnet router)    | One service to maintain                               |
+| Compromise blast radius     | Strong (tag → ACL → port-level)                   | Strong (group → CIDR association)                     |
+| Retro broadcast             | Ad-hoc ZeroTier when needed                       | Ad-hoc ZeroTier when needed (same)                    |
+| Desktop hosting             | On-demand client                                  | On-demand client                                      |
+| Enrollment                  | Email pre-authkey (no bot, no Keycloak needed)    | Email innernet invite                                 |
 
 **My pick: the primary path** (Headscale + cloud VPS), because the
 friend UX gap is large enough to be the difference between "friends
@@ -878,7 +878,7 @@ contradicts the project's substitution-risk goal — and at that point
 you're paying every month for something the self-hosted plan does
 once for $5/mo of VPS.
 
-There is no SaaS bootstrap path that fits the friend group size *and*
+There is no SaaS bootstrap path that fits the friend group size _and_
 preserves the no-lock-in goal. Skip directly to the self-hosted
 primary plan.
 
@@ -911,7 +911,7 @@ them is "swap the transport" not "redesign the friend trust model".
   friend-group scale. Reconsider only if scale grows past where manual
   email becomes annoying.
 - **Letting Discord be the credential** (or part of one). If Discord
-  is in the picture at all, it is for *out-of-band conversation*, not
+  is in the picture at all, it is for _out-of-band conversation_, not
   for delivering or holding credentials.
 - **A second WireGuard mesh in the wg-ba style for non-technical
   friends.** It didn't scale to one technical friend cleanly. wg-ba can
@@ -960,8 +960,8 @@ Items deferred to a future implementation plan:
 - **Email enrollment tool:** A small admin command (or systemd
   service) that shells out to `headscale preauthkeys create` (or hits
   the gRPC API), formats an enrollment email (Tailscale download link
-  + headscale login URL + pre-authkey), and sends it via your
-  existing SMTP path. ~50 lines of code total.
+  - headscale login URL + pre-authkey), and sends it via your
+    existing SMTP path. ~50 lines of code total.
 - **Web services for friends:** Deferred entirely. Pick from the three
   options listed in the primary recommendation when (and if) you
   decide to offer them.

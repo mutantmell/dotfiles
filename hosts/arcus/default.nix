@@ -6,6 +6,7 @@
 }: {
   imports = [
     ./disko.nix
+    ./sops.nix
   ];
 
   networking.hostName = "arcus";
@@ -74,6 +75,56 @@
 
   # Compressed swap — helps when gaming workloads push memory limits
   zramSwap.enable = true;
+
+  # SSH server required for deploy-rs remote deployments
+  common.openssh.enable = true;
+
+  # WireGuard tunnel for homelab service access.
+  # NetworkManager manages WiFi (guest SSID); systemd-networkd manages the WG tunnel.
+  # Use systemd.network.enable directly to avoid conflict with networking.useNetworkd
+  # (which would try to manage all interfaces including WiFi).
+  systemd.network = {
+    enable = true;
+    netdevs."30-wg-media" = {
+      netdevConfig = {
+        Name = "wg-media";
+        Kind = "wireguard";
+      };
+      wireguardConfig = {
+        PrivateKeyFile = config.sops.secrets."wg-media-privatekey".path;
+      };
+      wireguardPeers = [
+        {
+          PublicKey = "/CHzA3VNzlRoPJi8F3p2QVNIIxpmnjRdHRka7aj/BiY="; # Generated during setup
+          AllowedIPs = [
+            "10.100.20.0/24" # WG subnet
+            "10.97.100.0/24" # DMZ subnet (Jellyfin, etc.)
+            "10.97.11.0/24" # Management subnet (DNS resolution)
+            "fdc6:55f2:0a5e:6414::/64"
+            "fdc6:55f2:0a5e:64::/64"
+            "fdc6:55f2:0a5e:b::/64"
+          ];
+          Endpoint = "10.97.30.1:51820"; # Router's untrusted VLAN gateway
+          PersistentKeepalive = 25;
+        }
+      ];
+    };
+    networks."40-wg-media" = {
+      matchConfig.Name = "wg-media";
+      address = ["10.100.20.10/24" "fdc6:55f2:0a5e:6414::a/128"];
+      routes = [
+        {Destination = "10.97.100.0/24";} # DMZ
+        {Destination = "10.97.11.0/24";} # Management (for DNS)
+      ];
+      dns = ["10.97.30.1"]; # Router DNS via untrusted gateway
+      domains = ["internal" "internal.mutantmell.net"];
+    };
+  };
+
+  environment.systemPackages = with pkgs; [
+    jellyfin-media-player # Jellyfin client
+    moonlight-qt # Moonlight game streaming client (for future Sunshine host)
+  ];
 
   system.stateVersion = "25.11";
 }
