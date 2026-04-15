@@ -84,7 +84,9 @@
   networking.wg-quick.interfaces.wg-media = {
     address = ["10.100.20.10/24" "fdc6:55f2:0a5e:6414::a/128"];
     privateKeyFile = config.sops.secrets."wg-media-privatekey".path;
-    dns = ["10.100.20.1"]; # Router DNS via WG tunnel, for .internal names
+    # DNS server + routing domains: tells systemd-resolved to send .internal
+    # queries specifically through this interface rather than the default resolver.
+    dns = ["10.100.20.1" "~internal" "~internal.mutantmell.net"];
     peers = [
       {
         publicKey = "/CHzA3VNzlRoPJi8F3p2QVNIIxpmnjRdHRka7aj/BiY=";
