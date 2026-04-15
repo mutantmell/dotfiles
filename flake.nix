@@ -350,6 +350,16 @@
           ./hosts/angbar
         ];
       };
+
+      arcus = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          disko.nixosModules.disko
+          jovian.nixosModules.jovian
+          ./hosts/arcus
+        ];
+      };
     };
 
     homeConfigurations = {
