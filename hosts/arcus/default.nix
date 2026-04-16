@@ -43,6 +43,12 @@
       # Wayland clients — Qt auto-detects WAYLAND_DISPLAY and tries to connect
       # as a Wayland client, which fails silently and causes Steam to kill the app.
       QT_QPA_PLATFORM = "xcb";
+      # Disable Qt WebEngine's Chromium sandbox for jellyfin-media-player.
+      # The sandbox requires kernel namespaces and seccomp filters that don't
+      # work properly in gamescope's environment, causing slow startup (sandbox
+      # setup stalls) and unclean exit (sandbox teardown fails). Security impact
+      # is minimal — the content is a trusted local Jellyfin UI, not arbitrary web.
+      QTWEBENGINE_DISABLE_SANDBOX = "1";
     };
   };
 
