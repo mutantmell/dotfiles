@@ -42,7 +42,7 @@
   # Steam Deck hardware: kernel, firmware, TDP control, fan curve, vendor drivers
   jovian.devices.steamdeck = {
     enable = true;
-    autoUpdate = true;
+    autoUpdate = false; # hardwareupdater.py crash-loops without libhidapi; revisit later
     enableVendorDrivers = true;
   };
 
@@ -104,6 +104,16 @@
       }
     ];
   };
+
+  # Disable KDE screen lock — this is a gaming device, lock screen on resume is unwanted.
+  # Placed in /etc/xdg/ as a system-wide default; user config in ~/.config/ would override.
+  # TODO: migrate to home-manager nixosModule to manage mutantmell's KDE config directly,
+  # which would be explicit and not overridable via the KDE settings UI.
+  environment.etc."xdg/kscreenlockerrc".text = ''
+    [Daemon]
+    Autolock=false
+    LockOnResume=false
+  '';
 
   environment.systemPackages = with pkgs; [
     jellyfin-media-player # Jellyfin client
