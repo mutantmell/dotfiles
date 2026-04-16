@@ -37,6 +37,13 @@
     autoStart = true;
     user = "mutantmell";
     desktopSession = "plasma"; # used when switching to Desktop Mode
+    environment = {
+      # Force Qt apps (Jellyfin, Moonlight) to use X11/xcb instead of Wayland.
+      # Gamescope provides Xwayland for game windows but does not accept native
+      # Wayland clients — Qt auto-detects WAYLAND_DISPLAY and tries to connect
+      # as a Wayland client, which fails silently and causes Steam to kill the app.
+      QT_QPA_PLATFORM = "xcb";
+    };
   };
 
   # Steam Deck hardware: kernel, firmware, TDP control, fan curve, vendor drivers
