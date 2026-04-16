@@ -85,9 +85,9 @@
   networking.wg-quick.interfaces.wg-media = {
     address = ["10.100.20.10/24" "fdc6:55f2:0a5e:6414::a/128"];
     privateKeyFile = config.sops.secrets."wg-media-privatekey".path;
-    # DNS server + routing domains: tells systemd-resolved to send .internal
-    # queries specifically through this interface rather than the default resolver.
-    dns = ["10.100.20.1" "~internal" "~internal.mutantmell.net"];
+    # No DNS config here — resolved's DefaultRoute behaviour causes wg-media to
+    # intercept all queries when its DNS server is unreachable. .internal names
+    # resolve fine via the untrusted VLAN DHCP DNS (10.97.30.1), which kresd handles.
     peers = [
       {
         publicKey = "/CHzA3VNzlRoPJi8F3p2QVNIIxpmnjRdHRka7aj/BiY=";
