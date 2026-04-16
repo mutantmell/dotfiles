@@ -119,6 +119,7 @@
     jellyfin-media-player # Jellyfin client
     moonlight-qt # Moonlight game streaming client (for future Sunshine host)
     clonehero # Guitar Hero clone (add to Steam via "Add a Non-Steam Game" once)
+    (chromium.override {enableWideVine = true;}) # Browser with DRM for Netflix etc.
   ];
 
   system.stateVersion = "25.11";
