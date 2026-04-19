@@ -9,8 +9,8 @@ and providing a unified implementation guide.
 | ---------------- | ------------------------------- | --------------------------------------------------------------- |
 | Zone Refactor    | `zone-refactor-plan.md`         | Replace hardcoded trust enum with configurable zone system      |
 | Secure MGMT VLAN | `secure-mgmt-vlan-plan.md`      | Split vMGMT into vMGMT (network gear) + vINFRA (infrastructure) |
-| Keycloak OIDC    | `keycloak-oauth-oidc-plan.md`   | Centralized identity infrastructure with OAuth2/OIDC            |
-| SSH Certificates | `ssh-certificates-sso-plan.md`  | SSH certificate auth via Keycloak + step-ca                     |
+| Keycloak OIDC    | `keycloak-oauth-oidc-plan.md`   | Centralized identity infrastructure with OAuth2/OIDC (being replaced by Authelia — see `authelia-migration-plan.md`) |
+| SSH Certificates | `ssh-certificates-sso-plan.md`  | SSH certificate auth via OIDC + step-ca                         |
 | Headscale        | `headscale-integration-plan.md` | Self-hosted Tailscale for friend game server access             |
 
 ## MicroVM Inventory
@@ -40,7 +40,7 @@ by renaming the registry to match router6. Zone names are just strings — cheap
 (`headscale-integration-plan.md`) — DERP relay and STUN are embedded in the headscale
 binary and must be reachable from external users. No direct WAN path exists to vINFRA.
 Resolved by moving headscale to vDMZ, adding a cross-zone firewall rule for
-headscale → Keycloak (OIDC), and recommending standalone STUN on the cloud host.
+headscale → Authelia (OIDC), and recommending standalone STUN on the cloud host.
 
 ## Security Recommendations Applied
 
@@ -48,12 +48,12 @@ Four security recommendations were identified through ordis compromise analysis 
 have been applied to the source plans. The common thread: **defenses that live on ordis
 are useless after ordis is compromised.**
 
-| ID  | Summary                                                                | Applied to                                                                                                                       |
-| --- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| R1  | `hostname-admin` restricts Keycloak admin console to internal hostname | `keycloak-oauth-oidc-plan.md` Phase 1                                                                                            |
-| R2  | Native OIDC on vDMZ backends (Jellyfin) survives oauth2-proxy bypass   | `keycloak-oauth-oidc-plan.md` Phase 5 + architectural tension section                                                            |
-| R3  | Host-level egress filtering for all vDMZ hosts (nftables output chain) | `secure-mgmt-vlan-plan.md` Phase 4.4, `keycloak-oauth-oidc-plan.md` Phase 3, `headscale-integration-plan.md` interaction section |
-| R4  | Verify `oauth2-proxy` client has minimal Keycloak permissions          | `keycloak-oauth-oidc-plan.md` Phase 2 step 3                                                                                     |
+| ID  | Summary                                                                | Applied to                                                                                                                       | Status after Authelia migration |
+| --- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| R1  | `hostname-admin` restricts Keycloak admin console to internal hostname | `keycloak-oauth-oidc-plan.md` Phase 1                                                                                            | **Eliminated.** Authelia has no admin console — config is YAML managed via Nix. No admin UI to restrict. |
+| R2  | Native OIDC on vDMZ backends (Jellyfin) survives oauth2-proxy bypass   | `keycloak-oauth-oidc-plan.md` Phase 5 + architectural tension section                                                            | Still relevant — Authelia's centralized access control rules are the equivalent defense. |
+| R3  | Host-level egress filtering for all vDMZ hosts (nftables output chain) | `secure-mgmt-vlan-plan.md` Phase 4.4, `keycloak-oauth-oidc-plan.md` Phase 3, `headscale-integration-plan.md` interaction section | Unchanged — network-level control, independent of identity provider. |
+| R4  | Verify `oauth2-proxy` client has minimal Keycloak permissions          | `keycloak-oauth-oidc-plan.md` Phase 2 step 3                                                                                     | **Eliminated.** oauth2-proxy is removed. Authelia clients are declared in Nix config with explicit scopes — no runtime permission drift possible. |
 
 ---
 
@@ -67,7 +67,7 @@ flowchart TD
     VLAN["Step 2: MGMT VLAN Split\n(Phases 1-4, 6)"]
     REG["Step 3: Network Data Registry\n(Phase 7)"]
     DS["Step 3.5: Dual-Stack IPv6\n(Helpers + Migration)"]
-    KC["Step 4: Keycloak OIDC\n(Phases 1-3)"]
+    KC["Step 4: Authelia OIDC\n(replacing Keycloak)"]
     IP["Step 5: IP Migration\n(Phase 8)"]
     SSH["Step 6: SSH Certificates"]
     HS["Step 7: Headscale"]
@@ -103,15 +103,16 @@ current infrastructure and later plans replace it.
 
 **DNS naming (`.local` → `.mutantmell.net`):** The SSH Certificates plan uses
 `*.home.local` and the Secure MGMT VLAN plan uses `*.local` because both are
-written against the current DNS infrastructure. The Keycloak OIDC plan (Step 4)
+written against the current DNS infrastructure. The OIDC plan (Step 4)
 performs the bulk DNS migration to `*.internal.mutantmell.net` / `*.internal` /
 `*.mutantmell.net`. When the SSH Certificates plan (Step 6) is implemented, it
-will use the canonical names established by the already-completed Keycloak plan.
+will use the canonical names established by the already-completed OIDC plan.
 
-**Keycloak realm name (`home` vs `homelab`):** The SSH Certificates plan uses
-`home` as a placeholder realm name. The Keycloak OIDC plan (Step 4) defines the
-authoritative realm as `homelab`. When the SSH Certificates plan (Step 6) is
-implemented, it will reference the `homelab` realm that already exists.
+**OIDC realm/issuer URL:** The SSH Certificates plan uses `home` as a
+placeholder realm name. Keycloak used `homelab` (issuer:
+`https://auth.mutantmell.net/realms/homelab`). Authelia's issuer URL will be
+`https://auth.mutantmell.net` (no realm path component). Step-ca and other
+consumers will be updated to the new issuer URL during the Authelia migration.
 
 ---
 
@@ -186,14 +187,17 @@ egress filters, forward rules, chrony, NFS exports, and step-ca policy.
 - [x] Add IPv6 subnets to NFS exports (remiferia/nas.nix)
 - [x] Update `common/networking.nix` extraHosts to use `mkExtraHosts`
 
-### Step 4: Keycloak OIDC (Phases 1-3)
+### Step 4: OIDC Identity Infrastructure (Keycloak → Authelia migration)
 
-**Plan:** `keycloak-oauth-oidc-plan.md` Phases 1-3
+**Original plan:** `keycloak-oauth-oidc-plan.md` Phases 1-3
+**Migration plan:** `authelia-migration-plan.md`
 
-Provisions Keycloak + step-ca on vINFRA, creates `homelab` realm, implements
-split-horizon DNS, deploys SSH bastion, enables external access.
+Keycloak was provisioned on vINFRA (messeldam) as the OIDC provider for all
+services. It is now being replaced by Authelia — a lightweight Go-based
+alternative that also replaces oauth2-proxy on langport and phantasma. See
+`llm-notes/wip/authelia-migration-plan.md` for the full migration plan.
 
-**Phase 1: Infrastructure migration**
+**Keycloak deployment (complete):**
 
 - [x] Provision Keycloak microvm on vINFRA
 - [x] Configure `hostname-admin` for internal-only admin console (R1)
@@ -202,31 +206,28 @@ split-horizon DNS, deploys SSH bastion, enables external access.
 - [x] Apply security fixes S1 (cookie.secure), S2 (cookie.domain), S3 (skip-jwt-bearer-tokens)
 - [x] Apply S7 (passAccessToken removal)
 - [x] Migrate from gridr, decommission gridr
-
-**Phase 2: Realm restructuring**
-
-- [x] Create `homelab` realm
-- [x] Register clients: `oauth2-proxy`, `step-ca`, `cicd-deploy`
-- [x] Verify client scope restrictions — minimal permissions per client (R4). Audited: all clients get openid/profile/email/groups, which is the minimal useful set. Added `allowed-group = "admin"` to phantasma oauth2-proxy.
-- [x] Create groups: `admins`, `media-users`, `deploy`
-- [x] Add `groups` protocol mapper
-- [x] Configure conditional MFA for admins (Keycloak runtime config, no dotfiles changes needed)
-- [x] Update langport + phantasma oauth2-proxy configs to `homelab` realm
-- [x] Retire `external` realm — N/A, gridr was decommissioned; messeldam built fresh with only `homelab`
-
-**Phase 3: DNS, external access, hardening**
-
+- [x] Create `homelab` realm, register clients, create groups
+- [x] Verify client scope restrictions — minimal permissions per client (R4)
+- [x] Configure conditional MFA for admins
 - [x] Implement split-horizon DNS (`mutantmell.net` hierarchy)
 - [x] Add langport nginx rate limiting for `/auth/` and `/oauth2/` (S11)
-- [x] Tighten wg-ba firewall rules — mesh peer locked to trista SSH only
-- [x] External SSH entry point — wg-ba port forward pointed to trista (erebonia Incus VM). Trista is a lab/dev VM (future vLAB zone), not a dedicated bastion.
-- [x] Configure egress filtering (R3) — langport has egress rules; trista's egress policy deferred to vLAB zone design (laptop plan)
+- [x] Configure egress filtering (R3)
 
-Remaining items blocked or deferred:
+**Authelia migration (planned):**
+
+- [ ] Phase 0: Migrate cc-sandbox from device code to auth code + PKCE
+- [ ] Phase 1: Deploy Authelia alongside Keycloak on messeldam
+- [ ] Phase 2: Migrate consumers one at a time (Perses, deployd, cc-sandbox, phantasma, step-ca, langport)
+- [ ] Phase 3: Remove Keycloak, oauth2-proxy, boot-time workarounds; shrink messeldam
+- [ ] Phase 4: Documentation cleanup
+- [ ] Follow-up: MFA enrollment for admin accounts (Authelia TOTP/WebAuthn)
+- [ ] Follow-up: Auth audit trail via Loki
+- [ ] Follow-up: Token revocation / incident response runbook
+
+Remaining items blocked or deferred (unchanged by migration):
 
 - [ ] _(deferred)_ Deploy cloud host with nginx + WireGuard + Let's Encrypt
 - [ ] _(blocked: cloud host)_ Enable langport external proxy (proxy.nix disabled pending HTTP-01 domain validation)
-- [ ] _(blocked: thebeyond hardware)_ Enable phantasma internal oauth2-proxy
 - [ ] _(deferred)_ Remove SSH daemon from langport — egress filtering already prevents lateral movement, low priority
 - [ ] _(blocked: above items)_ Test end-to-end: internal + external auth flows + SSH bastion path
 
@@ -271,8 +272,9 @@ non-NixOS clients, but all NixOS hosts and guests now use only `10.97.x.x`.
 **Plan:** `ssh-certificates-sso-plan.md` (all phases)
 
 Deployed SSH certificate auth via step-ca's OIDC provisioner. User certificates
-via `step ssh login` → Keycloak → cert, and host certificates eliminating TOFU,
-are both operational.
+via `step ssh login` → OIDC → cert, and host certificates eliminating TOFU,
+are both operational. OIDC provisioner currently points at Keycloak; will be
+updated to Authelia as part of the Authelia migration (Phase 2e).
 
 - [x] Add OIDC provisioner to step-ca config
 - [x] Configure group → principal mapping (admins → admin, deploy → deploy)
@@ -295,14 +297,14 @@ STUN are unreachable from external users, and langport's external proxy
 (`vpn.mutantmell.net`) can't do HTTP-01 domain validation.
 
 - [ ] Phase 1: Provision headscale microvm on calvard (vDMZ)
-- [ ] Phase 1: Add headscale → Keycloak cross-zone firewall rule
+- [ ] Phase 1: Add headscale → Authelia cross-zone firewall rule
 - [ ] Phase 1: Configure egress filtering on headscale (R3)
 - [ ] Phase 1: Add langport vhost for `vpn.mutantmell.net`
 - [ ] Phase 1: Add DNS records for headscale + subnet router (TBD Calvard name)
 - [ ] Phase 2: Provision subnet router microvm on calvard (vDMZ) — TBD Calvard name (was fenrir)
 - [ ] Phase 2: Configure subnet router as Tailscale subnet router
 - [ ] Phase 2: Configure egress filtering on subnet router (R3)
-- [ ] Phase 3: Register `headscale` client in Keycloak, create `gamers` group
+- [ ] Phase 3: Register `headscale` client in Authelia, create `gamers` group
 - [ ] Phase 3: Enable OIDC in headscale, test auth flow
 - [ ] Phase 4: Write ACL policy, deploy test game server
 - [ ] Phase 4: Verify gamers restricted to game server ports only

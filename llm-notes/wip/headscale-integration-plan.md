@@ -1,7 +1,16 @@
 # Headscale Integration Plan — Game Server Access for Friends
 
-> **Status:** Planning. Depends on the [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) for
-> authentication infrastructure. Can be implemented incrementally alongside other plans.
+> **Status:** Planning. Depends on the OIDC infrastructure (Authelia, replacing Keycloak —
+> see [authelia-migration-plan](../wip/authelia-migration-plan.md)). Can be implemented
+> incrementally alongside other plans.
+>
+> **Note (2026-04-19):** This plan references Keycloak throughout. Keycloak is being
+> replaced by Authelia (see authelia-migration-plan.md). The OIDC flows are identical
+> (authorization code grant, groups claim, JWKS validation) — all Keycloak references
+> in this plan should be read as "Authelia" and will be updated when the migration is
+> complete. The friend-access report's recommendation of pre-authkeys for friend
+> enrollment means the OIDC integration only affects admin login to headscale, not
+> friend access.
 
 ## Motivation
 
