@@ -1,5 +1,11 @@
 # deployd Integration — Implementation Status
 
+> **Note (2026-04-19):** This plan references Keycloak as the OIDC provider. Keycloak
+> is being replaced by Authelia (see `llm-notes/wip/authelia-migration-plan.md`).
+> deployd-api's JWT validation is provider-agnostic — it validates tokens via JWKS and
+> checks the `groups` claim. The migration requires only changing the `oidc_issuer`
+> config value. No code changes to deployd-api are needed.
+
 ## Overview
 
 deployd is a lightweight Rust service for deploying OCI containers at runtime without NixOS rebuilds. It fills the gap between fully-static `oci-containers` (requires rebuild) and imperative `podman run` (no management/audit trail). The spec lives at `temp/dynamic-container-layer.md`.

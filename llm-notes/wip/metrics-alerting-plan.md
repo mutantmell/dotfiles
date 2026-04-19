@@ -180,7 +180,7 @@ Strict egress filter — tharbad should only talk to known targets:
 | ----------------------- | ------------------------------------------------- |
 | `ntfy-auth-token`       | ntfy access control                               |
 | `alertmanager-ntfy-url` | Alertmanager webhook config (includes topic auth) |
-| `perses-oidc-secret`    | Perses → Keycloak OIDC                            |
+| `perses-oidc-secret`    | Perses → Authelia OIDC (was Keycloak)             |
 
 ---
 
@@ -592,7 +592,7 @@ modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide �
 - [ ] Review existing Perses dashboards, identify coverage gaps (dashboards are declarative/code-managed — changes go through the repo and CI)
 - [ ] Build additional Perses dashboards (firewall overview, DNS stats)
 - [ ] Configure CI/CD webhook integration (Forgejo → ntfy)
-- [x] Configure Perses OIDC auth via Keycloak (messeldam)
+- [x] Configure Perses OIDC auth via Keycloak (messeldam) — migrating to Authelia, see authelia-migration-plan.md
 
 ---
 
@@ -634,7 +634,7 @@ is needed.
 2. **Retention**: 90 days for Prometheus metrics, 30 days for Loki logs.
    ~15-20 GB estimated disk usage. Tune down if needed.
 
-3. **Perses auth**: OIDC via Keycloak (messeldam) — configured and working.
+3. **Perses auth**: OIDC via Authelia (messeldam, replacing Keycloak) — configured and working.
 
 4. **Data migration**: Start fresh on VLAN migration. Prometheus history on the
    current VLAN 20 persist volume can be copied or discarded.

@@ -25,6 +25,79 @@ PostgreSQL stack requiring 2GB RAM and 100GB persistent storage.
 | Persistent disk | 100 GB (PostgreSQL)  | < 1 GB (SQLite)  |
 | Dependencies    | JVM, PostgreSQL      | None (Go binary) |
 
+### Complexity shed
+
+Beyond resource savings, Authelia eliminates several pieces of infrastructure
+that exist only to work around Keycloak's weight:
+
+- **oauth2-proxy sidecar on langport and phantasma.** Each host that needs
+  auth gating currently runs its own oauth2-proxy instance with its own sops
+  secrets, OIDC client registration, and systemd retry config. Authelia is
+  both the identity provider and the `auth_request` handler — nginx on
+  langport/phantasma sends `auth_request` directly to the central Authelia
+  instance. The per-host sidecar, its keyfile secret, and its client
+  registration all go away.
+
+- **Boot-time circular dependency hacks.** Keycloak's JVM takes long enough
+  to start that step-ca's OIDC provisioner fails on first boot, requiring
+  the `step-ca-oidc-retry` service on basel (checks Keycloak reachability,
+  then restarts step-ca). Similarly, oauth2-proxy on langport and phantasma
+  both have `RestartSec`/`StartLimitBurst` retry configs because they fail
+  OIDC discovery during Keycloak's boot window. Authelia starts in under a
+  second — all of these retry hacks become unnecessary.
+
+- **JVM heap tuning.** The `JAVA_OPTS_APPEND = "-Xms256m -Xmx768m"` cap on
+  messeldam's Keycloak service exists to prevent the JVM from consuming all
+  available RAM. Not applicable to a Go binary.
+
+- **PostgreSQL persistence and backups.** Keycloak requires PostgreSQL,
+  which needs a 100GB persist volume, backup consideration, and adds to the
+  mutable state surface. Authelia uses SQLite for session/OIDC state (tiny,
+  low-value, reconstructable).
+
+- **Admin console hardening.** Keycloak exposes a powerful admin console at
+  `/admin` and `/realms/master` that can create users, modify clients, change
+  auth policies, and extract secrets at runtime. Significant effort was spent
+  restricting access: langport blocks `/admin` and `/realms/master` from
+  external users (security recommendation R1), hostname-based admin
+  restriction was configured, and the ordis compromise analysis identified
+  the admin console as a high-value target. Authelia eliminates this entire
+  attack surface — there is no admin console, no admin API, no runtime
+  mutation path. All configuration is static YAML managed through Nix. An
+  attacker who compromises the auth server cannot escalate to creating users
+  or modifying OIDC clients without access to the Nix deployment pipeline.
+  Security recommendations R1 and R4 from the roadmap analysis become
+  structurally impossible rather than requiring active defense.
+
+### Capabilities unlocked
+
+Authelia's dual role as identity provider + auth gateway lowers the marginal
+cost of adding auth protection to new services:
+
+- **Zero-cost auth for new services.** Today, protecting a new web UI
+  requires deploying another oauth2-proxy instance (service, sops secret,
+  OIDC client registration, systemd config). With Authelia, it's an
+  `auth_request` directive in nginx plus one access control rule in the
+  central Authelia config. No new service, no new secrets, no new client
+  registration.
+
+- **Centralized access control as code.** Access control policy is currently
+  scattered across oauth2-proxy `--allowed-group` flags on different hosts.
+  With Authelia, a single `access_control.rules` block maps domains/paths to
+  policies and groups — reviewable, diffable, version-controlled in Nix.
+
+- **Candidates for auth protection.** Internal web UIs that currently lack
+  auth gating because the overhead of another oauth2-proxy was too high:
+  - Attic web UI on ardent
+  - Forgejo on creil (could add Authelia as external OIDC provider)
+  - Any future web service gets auth essentially for free
+
+- **Future: dynamic users via LDAP.** If the homelab ever needs runtime user
+  management (self-service signup, admin UI for adding users), the path is
+  adding a lightweight LDAP server like lldap (~30MB RAM) and pointing
+  Authelia's backend at it. Authelia's config and all its consumers stay
+  unchanged — only the authentication backend switches from file to LDAP.
+
 ## Current Keycloak consumers
 
 | Consumer                   | Host      | Auth flow              | What it checks            | Authelia support |
@@ -393,16 +466,31 @@ Once all consumers are on Authelia and validated:
 3. Remove Keycloak from messeldam:
    - Delete `modules/keycloak.nix`
    - Delete `homelab-realm.json`
-   - Remove PostgreSQL persistence
+   - Remove PostgreSQL persistence directory from `environment.persistence`
    - Remove `keycloak_password_file` and `keycloak_admin_password` from sops
-   - Remove `JAVA_OPTS_APPEND` environment
+   - Remove `JAVA_OPTS_APPEND` environment variable
+   - Remove `systemd.services.keycloak` overrides (before/requiredBy nginx,
+     EnvironmentFile for admin env)
+   - Remove `sops.templates."keycloak-admin-env"`
 4. Reduce messeldam resources:
    - `microvm.mem`: 2048 → 512
    - `microvm.vcpu`: 2 → 1
    - Shrink or recreate persist volume (100 GB → 1 GB)
-5. Remove `step-ca-oidc-retry` service on basel (Authelia starts instantly,
-   no circular dependency with the JVM boot time)
-6. Remove oauth2-proxy packages from phantasma and langport
+5. Remove boot-time workarounds that existed for Keycloak's slow JVM startup:
+   - `step-ca-oidc-retry` service on basel
+     (`hosts/calvard/microvm/guests/basel/modules/step-ca.nix`)
+   - `RestartSec`/`StartLimitBurst` retry config on oauth2-proxy in langport
+     (`hosts/calvard/microvm/guests/langport/proxy.nix`) — oauth2-proxy
+     itself is also removed in step 6
+   - `RestartSec`/`StartLimitBurst` retry config on oauth2-proxy in phantasma
+     (`hosts/thebeyond/microvm/guests/phantasma/modules/proxy.nix`) —
+     oauth2-proxy itself is also removed in step 6
+6. Remove oauth2-proxy entirely from phantasma and langport:
+   - `services.oauth2-proxy` config blocks
+   - `oauth2-proxy-internal-keyfile` sops secret on phantasma
+   - `oauth-2-proxy-keyfile` sops secret on langport
+   - All `oauth2/` nginx location blocks (replaced by `auth_request` to
+     Authelia in Phase 2d/2f)
 7. Update `lib/common/data/network.nix` comment:
    `messeldam = 6; # Authelia OIDC (calvard)`
 8. Update documentation and plan references
@@ -462,6 +550,78 @@ Secrets removed after migration:
 - `keycloak_admin_password`
 - oauth2-proxy keyfiles on langport and phantasma
 
+## Follow-up work (post-migration)
+
+These items are orthogonal to the migration itself but represent gaps in the
+homelab's overall AuthN/AuthZ story that Authelia makes easier to address.
+
+### F1. MFA enrollment for admin accounts
+
+MFA is planned but not deployed. Admin accounts accessing infrastructure UIs
+(Adguard, Perses, step-ca admin) should require a second factor. Authelia
+supports TOTP and WebAuthn natively with a self-service enrollment portal.
+
+After migration, configure `two_factor` policy on admin-only domains and
+complete TOTP or WebAuthn enrollment for all admin users. This is the single
+biggest remaining AuthN gap.
+
+### F2. Auth audit trail via Loki
+
+There is no centralized record of "user X authenticated at time T and accessed
+service Y." Authelia logs authentication events (successes, failures, MFA
+challenges) to stdout/file. Feed these to Loki via promtail — the same pattern
+every other service on messeldam already uses (`promtail-client.enable = true`).
+
+This becomes more important once friends are on the network (headscale plan)
+and the question "who accessed what, when" has real operational value. The
+friend-access report's threat model specifically calls out credential
+compromise scenarios where audit trails inform incident response.
+
+### F3. Headscale plan update (Keycloak → Authelia)
+
+The headscale integration plan (`llm-notes/wip/headscale-integration-plan.md`)
+references Keycloak throughout — OIDC client registration, cross-zone firewall
+rules to Keycloak, architecture diagrams. All Keycloak references should be
+updated to Authelia. The OIDC flows are identical (authorization code grant),
+so this is a terminology update, not an architectural change.
+
+Note: the friend-access report recommends pre-authkeys for friend enrollment
+(no OIDC for friends), so the headscale OIDC integration only affects *admin*
+login to headscale, not friend access.
+
+### F4. Token revocation and incident response procedure
+
+If a user's OIDC session or token is compromised, what's the response?
+Authelia supports session revocation (delete from SQLite session store), and
+short token lifetimes limit exposure window. But there is no documented
+incident response procedure.
+
+Document a runbook covering:
+- How to revoke a specific user's sessions (Authelia SQLite)
+- How to disable a user account (remove from sops user database, redeploy)
+- How to rotate OIDC signing keys (force all tokens to re-validate)
+- For headscale (future): how to revoke a friend's node identity
+
+This matters more once friends are on the network — the friend-access report's
+threat model is built around the credential-compromise case.
+
+### F5. Conscious decision: no mTLS for internal service communication
+
+Internal services (Prometheus scraping, Loki log ingestion, step-ca ACME)
+authenticate via TLS server certificates but not mutual TLS. Any host on the
+same VLAN can reach these services; the zone firewall is the primary access
+control.
+
+This is an acceptable tradeoff for a homelab — mTLS between every service
+would add significant complexity (client cert provisioning, rotation, trust
+store management) for marginal security gain when VLAN boundaries are already
+enforced by the router's nftables rules. Documenting this as a conscious
+decision rather than an oversight.
+
+If the threat model changes (e.g., multi-tenant VLANs, untrusted workloads
+on the same zone as infrastructure services), revisit mTLS. The step-ca
+infrastructure to support it already exists.
+
 ## Implementation sequence
 
 ```
@@ -479,7 +639,15 @@ Phase 2f ─── langport oauth2-proxy → Authelia auth_request
 Phase 3 ──── Remove Keycloak, shrink messeldam
               │
 Phase 4 ──── Documentation cleanup
+              │
+Follow-ups (independent, post-migration):
+F1 ────────── MFA enrollment for admin accounts
+F2 ────────── Auth audit trail via Loki
+F3 ────────── Headscale plan update (Keycloak → Authelia references)
+F4 ────────── Token revocation / incident response runbook
+F5 ────────── Document no-mTLS as conscious decision
 ```
 
 Phases 2a–2f are sequential (one consumer at a time, validate between each).
 Phase 0 is independent and can be done in parallel with Phase 1.
+Follow-ups F1–F5 are independent of each other and can be done in any order.
