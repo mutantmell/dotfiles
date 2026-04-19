@@ -98,8 +98,22 @@ scale (a handful of users), the file backend is the right choice.
 The user database is a YAML file declaring users, hashed passwords, groups,
 and email. Authelia hot-reloads on file changes.
 
+**The user database file must be sops-encrypted.** It contains password hashes
+and email addresses — not suitable for a public repo. The structural Authelia
+config (OIDC clients, access control rules, session settings) stays in Nix as
+normal public config, same as `homelab-realm.json` today. Only the file with
+actual user credentials is encrypted.
+
+```nix
+# In messeldam's Authelia module:
+services.authelia.instances.main.settings.authentication_backend.file.path =
+  config.sops.secrets."authelia-users".path;
+```
+
+The sops-encrypted user database YAML:
+
 ```yaml
-# Equivalent of the current homelab-realm.json users
+# hosts/calvard/microvm/guests/messeldam/secrets/authelia-users.yaml
 users:
   admin:
     displayname: "Admin"
@@ -107,7 +121,7 @@ users:
     groups:
       - admin
       - deploy
-    password: "$argon2id$..."   # managed via sops or generated at deploy time
+    password: "$argon2id$..."
   media-user:
     displayname: "Media User"
     email: "media@mutantmell.net"
@@ -117,7 +131,6 @@ users:
 ```
 
 Password hashes can be generated with `authelia crypto hash generate argon2`.
-For initial setup, generate hashes and store them in sops.
 
 ## OIDC client configuration
 
