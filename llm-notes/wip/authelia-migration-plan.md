@@ -92,11 +92,12 @@ cost of adding auth protection to new services:
   - Forgejo on creil (could add Authelia as external OIDC provider)
   - Any future web service gets auth essentially for free
 
-- **Future: dynamic users via LDAP.** If the homelab ever needs runtime user
-  management (self-service signup, admin UI for adding users), the path is
-  adding a lightweight LDAP server like lldap (~30MB RAM) and pointing
-  Authelia's backend at it. Authelia's config and all its consumers stay
-  unchanged — only the authentication backend switches from file to LDAP.
+- **Unified identity for LDAP-native services.** lldap provides a single
+  user directory that both Authelia (via LDAP backend) and services without
+  OIDC support (Jellyfin via official LDAP plugin) query directly. Users
+  get one set of credentials that works everywhere — Authelia handles
+  OIDC-capable services, Jellyfin authenticates against LDAP natively.
+  See "User database" section below.
 
 ## Current Keycloak consumers
 
@@ -108,6 +109,7 @@ cost of adding auth protection to new services:
 | Perses OIDC                | tharbad   | Auth Code              | OIDC groups               | Yes (standard OIDC client) |
 | deployd-api JWT validation | roer      | Bearer token (JWKS)    | Group `deploy`, issuer    | Yes (standard JWKS endpoint) |
 | cc-sandbox CLI             | client    | Device Code (RFC 8628) | Group `deploy`            | **No** — needs migration to Auth Code + PKCE |
+| Jellyfin (built-in auth)   | oracion   | Local accounts         | Jellyfin-internal users   | Migrated to lldap via official LDAP plugin |
 
 ### Consumer not affected by this migration
 
@@ -163,47 +165,100 @@ rather than mutable PostgreSQL state.
 **Status:** Not a gap. The homelab uses a single `homelab` realm. Authelia's
 single-domain model is sufficient.
 
-## User database
+## User database: lldap
 
-Authelia supports two backends: file-based (YAML) or LDAP. For this homelab's
-scale (a handful of users), the file backend is the right choice.
+Authelia supports two backends: file-based (YAML) or LDAP. Despite the small
+user count, we deploy **lldap** (lightweight LDAP server) from the start for
+one reason: **Jellyfin's OIDC support is an unofficial third-party plugin
+(AGPL, rough edges, poor mobile/TV client support), while its LDAP plugin is
+official and works with all clients.** Using lldap as the shared user directory
+lets both Authelia and Jellyfin authenticate against the same source of truth
+via their respective official/reliable integration paths.
 
-The user database is a YAML file declaring users, hashed passwords, groups,
-and email. Authelia hot-reloads on file changes.
+### Architecture
 
-**The user database file must be sops-encrypted.** It contains password hashes
-and email addresses — not suitable for a public repo. The structural Authelia
-config (OIDC clients, access control rules, session settings) stays in Nix as
-normal public config, same as `homelab-realm.json` today. Only the file with
-actual user credentials is encrypted.
+lldap is a Rust binary (~30MB RAM) with a SQLite database. It provides:
 
-```nix
-# In messeldam's Authelia module:
-services.authelia.instances.main.settings.authentication_backend.file.path =
-  config.sops.secrets."authelia-users".path;
+- **LDAP interface** (port 3890) — queried by Authelia and Jellyfin
+- **Web UI** (port 17170) — for user/group management, restricted to vMGMT/vHOME
+
+```
+lldap (data store)
+  ├── LDAP port 3890 ← Authelia (authentication + group lookup)
+  ├── LDAP port 3890 ← Jellyfin (official LDAP plugin, all clients)
+  └── Web UI port 17170 ← admin only (vMGMT/vHOME network restriction)
 ```
 
-The sops-encrypted user database YAML:
+The security boundary is clean: lldap's LDAP port is a read-only query
+interface (Authelia binds to verify passwords, Jellyfin looks up users).
+lldap's web UI is the mutation surface (create/delete users, change groups)
+and is network-restricted to trusted zones — a completely separate protocol
+on a separate port, unlike Keycloak's admin console which shared a port with
+user-facing auth.
+
+### Deployment: co-located on messeldam
+
+lldap runs on messeldam alongside Authelia. Both are lightweight Go/Rust
+binaries with SQLite — no need for a separate microVM.
+
+Authelia config:
 
 ```yaml
-# hosts/calvard/microvm/guests/messeldam/secrets/authelia-users.yaml
-users:
-  admin:
-    displayname: "Admin"
-    email: "admin@mutantmell.net"
-    groups:
-      - admin
-      - deploy
-    password: "$argon2id$..."
-  media-user:
-    displayname: "Media User"
-    email: "media@mutantmell.net"
-    groups:
-      - media-users
-    password: "$argon2id$..."
+authentication_backend:
+  ldap:
+    address: ldap://127.0.0.1:3890
+    implementation: lldap
+    base_dn: dc=mutantmell,dc=net
+    users_filter: "(&({username_attribute}={input})(objectClass=person))"
+    groups_filter: "(member={dn})"
+    user: uid=authelia,ou=people,dc=mutantmell,dc=net
+    password: # from sops
 ```
 
-Password hashes can be generated with `authelia crypto hash generate argon2`.
+Jellyfin LDAP plugin config (via Jellyfin admin dashboard):
+
+```
+LDAP Server: messeldam.internal
+Port: 3890
+Base DN: dc=mutantmell,dc=net
+User Filter: (objectClass=person)
+```
+
+### Users and groups
+
+Managed via lldap's web UI or its API. Groups mirror the current structure:
+
+| Group         | Purpose                     | Used by                              |
+| ------------- | --------------------------- | ------------------------------------ |
+| `admin`       | Full access to everything   | Authelia access control, step-ca SSH |
+| `deploy`      | CI/CD and deployment        | deployd-api JWT validation           |
+| `media-users` | Jellyfin and media services | Jellyfin LDAP, Authelia access control |
+
+### Secrets
+
+lldap needs:
+- Admin password (sops, for initial setup and lldap web UI login)
+- Authelia bind password (sops, for Authelia's LDAP queries)
+- Jellyfin bind password (sops, for Jellyfin's LDAP queries — can be a
+  read-only service account)
+
+### Persistence
+
+lldap's SQLite database stores users, groups, and password hashes. This is
+the **only mutable auth state** in the system and needs persistence +
+backup consideration. Small (< 1 MB for homelab scale).
+
+Added to messeldam's `environment.persistence."/persist"`:
+```nix
+{ directory = "/var/lib/lldap"; user = "lldap"; group = "lldap"; }
+```
+
+### Network restrictions
+
+- LDAP port (3890): accessible from messeldam localhost (Authelia) and
+  oracion (Jellyfin). Firewall rule: oracion → messeldam TCP 3890.
+- Web UI port (17170): restricted to vHOME (admin browser access).
+  Not exposed to vDMZ or the internet.
 
 ## OIDC client configuration
 
@@ -310,14 +365,15 @@ dramatically reduced resource footprint.
 ```
 messeldam (vINFRA, 10.97.11.6)
   ├── Authelia (OIDC provider + auth gateway backend)
+  ├── lldap (LDAP user directory — queried by Authelia and Jellyfin)
   ├── nginx (TLS termination, same step-ca ACME setup)
-  └── SQLite (session/OIDC state — tiny, no PostgreSQL)
+  └── SQLite ×2 (Authelia session/OIDC state + lldap user directory)
 ```
 
 Resource reduction:
-- `microvm.mem`: 2048 → 512
+- `microvm.mem`: 2048 → 512 (Authelia ~50MB + lldap ~30MB + nginx, well within 512MB)
 - `microvm.vcpu`: 2 → 1
-- Persist volume: 100 GB → 1 GB (drop PostgreSQL, keep small SQLite + Authelia state)
+- Persist volume: 100 GB → 1 GB (drop PostgreSQL, keep small SQLite databases)
 - Remove: JVM, PostgreSQL, `JAVA_OPTS_APPEND` tuning
 
 ### What stays the same
@@ -353,13 +409,21 @@ deployment before any Authelia work begins.
 **Validation:** cc-sandbox `login` command opens browser, completes auth,
 receives token with correct `groups` claim.
 
-### Phase 1: Deploy Authelia alongside Keycloak (coexistence)
+### Phase 1: Deploy Authelia + lldap alongside Keycloak (coexistence)
 
-Run Authelia on messeldam alongside Keycloak temporarily. Authelia listens on
-a different port. This allows testing each consumer migration individually
-without downtime.
+Run Authelia and lldap on messeldam alongside Keycloak temporarily. Authelia
+listens on a different port. This allows testing each consumer migration
+individually without downtime.
 
-1. Add Authelia NixOS module to messeldam:
+1. Deploy lldap on messeldam:
+   - Add lldap service (NixOS module or systemd service)
+   - Configure base DN (`dc=mutantmell,dc=net`)
+   - Create users and groups matching current Keycloak realm
+     (admin, media-users, deploy groups; same user accounts)
+   - Create read-only service accounts for Authelia and Jellyfin
+   - Restrict web UI port (17170) to vHOME via firewall
+   - Add lldap SQLite to persistence
+2. Add Authelia NixOS module to messeldam:
    ```nix
    services.authelia.instances.main = {
      enable = true;
@@ -367,19 +431,22 @@ without downtime.
      settings = { /* config as described above */ };
    };
    ```
-2. Configure Authelia with:
-   - User database (YAML, matching current Keycloak users/groups)
+3. Configure Authelia with:
+   - LDAP backend pointing at localhost lldap
    - OIDC clients (matching current Keycloak clients)
    - Access control rules
    - Session/storage configuration (SQLite)
-3. Expose Authelia on a secondary internal-only hostname (e.g., `authelia.internal`)
+4. Expose Authelia on a secondary internal-only hostname (e.g., `authelia.internal`)
    via a second nginx vhost on messeldam
-4. Keep Keycloak running on `auth.mutantmell.net` — all existing consumers
+5. Keep Keycloak running on `auth.mutantmell.net` — all existing consumers
    continue working unchanged
 
-**Validation:** Authelia responds to OIDC discovery at
-`https://authelia.internal/.well-known/openid-configuration` and JWKS at
-`https://authelia.internal/jwks.json`.
+**Validation:**
+- lldap web UI accessible from vHOME, users and groups created
+- Authelia responds to OIDC discovery at
+  `https://authelia.internal/.well-known/openid-configuration` and JWKS at
+  `https://authelia.internal/jwks.json`
+- Authelia login works with lldap-stored credentials
 
 ### Phase 2: Migrate consumers one at a time
 
@@ -442,7 +509,26 @@ receives a valid SSH certificate with correct principals.
 Note: This also requires updating `modules/common/ssh-cert-client.nix` to
 change `provisioner = "keycloak"` to `provisioner = "authelia"`.
 
-#### 2f. oauth2-proxy on langport — highest risk, external-facing
+#### 2f. Jellyfin LDAP (oracion) — moderate risk, media service
+
+Configure Jellyfin to authenticate against lldap via the official LDAP plugin.
+This replaces Jellyfin's built-in user management with the shared lldap
+directory, giving media users one set of credentials across all services.
+
+Update `hosts/calvard/microvm/guests/oracion/`:
+- Install the official `jellyfin-plugin-ldap` plugin
+- Configure LDAP connection to messeldam:3890
+- Map lldap `media-users` group to Jellyfin access
+- Add firewall rule: oracion → messeldam TCP 3890
+- Test with all client types (web, mobile, TV apps)
+
+**Validation:** Log into Jellyfin web UI and a mobile/TV app using lldap
+credentials. Verify group-based access (media-users group grants access).
+
+Note: Existing Jellyfin-local users may need migration or recreation in
+lldap. Plan for a brief transition where both auth methods are active.
+
+#### 2g. oauth2-proxy on langport — highest risk, external-facing
 
 Replace oauth2-proxy with Authelia's native nginx `auth_request` integration.
 
@@ -539,11 +625,17 @@ enrollment is self-service via its web portal.
 ## Secrets
 
 New sops secrets needed on messeldam:
+- lldap admin password
+- lldap Authelia bind password (read-only service account)
+- lldap Jellyfin bind password (read-only service account)
 - Authelia JWT secret (signs session tokens)
 - Authelia storage encryption key (encrypts SQLite data at rest)
 - Authelia OIDC HMAC secret
 - Authelia OIDC private key (RSA or ECDSA, for signing OIDC tokens)
 - Per-client secrets (hashed, embedded in config — or via sops templates)
+
+New sops secret on oracion:
+- Jellyfin LDAP bind password (for querying lldap)
 
 Secrets removed after migration:
 - `keycloak_password_file` (PostgreSQL password)
@@ -627,14 +719,15 @@ infrastructure to support it already exists.
 ```
 Phase 0 ──── cc-sandbox auth code migration (can start immediately)
               │
-Phase 1 ──── Deploy Authelia on messeldam alongside Keycloak
+Phase 1 ──── Deploy lldap + Authelia on messeldam alongside Keycloak
               │
 Phase 2a ─── Perses → Authelia
 Phase 2b ─── deployd-api → Authelia
 Phase 2c ─── cc-sandbox → Authelia
 Phase 2d ─── phantasma oauth2-proxy → Authelia auth_request
 Phase 2e ─── step-ca OIDC → Authelia
-Phase 2f ─── langport oauth2-proxy → Authelia auth_request
+Phase 2f ─── Jellyfin → lldap (official LDAP plugin)
+Phase 2g ─── langport oauth2-proxy → Authelia auth_request
               │
 Phase 3 ──── Remove Keycloak, shrink messeldam
               │
@@ -648,6 +741,6 @@ F4 ────────── Token revocation / incident response runbook
 F5 ────────── Document no-mTLS as conscious decision
 ```
 
-Phases 2a–2f are sequential (one consumer at a time, validate between each).
+Phases 2a–2g are sequential (one consumer at a time, validate between each).
 Phase 0 is independent and can be done in parallel with Phase 1.
 Follow-ups F1–F5 are independent of each other and can be done in any order.
