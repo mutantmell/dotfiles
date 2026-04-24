@@ -101,25 +101,25 @@ cost of adding auth protection to new services:
 
 ## Current Keycloak consumers
 
-| Consumer                   | Host      | Auth flow              | What it checks            | Authelia support |
-| -------------------------- | --------- | ---------------------- | ------------------------- | ---------------- |
-| oauth2-proxy (external)    | langport  | Auth Code              | Group membership          | Native (replaces oauth2-proxy entirely) |
-| oauth2-proxy (internal)    | phantasma | Auth Code              | Group `admin`             | Native (replaces oauth2-proxy entirely) |
-| step-ca OIDC provisioner   | basel     | Auth Code + localhost  | Token issuer, signature   | Yes (standard OIDC discovery + JWKS) |
-| Perses OIDC                | tharbad   | Auth Code              | OIDC groups               | Yes (standard OIDC client) |
-| deployd-api JWT validation | roer      | Bearer token (JWKS)    | Group `deploy`, issuer    | Yes (standard JWKS endpoint) |
-| cc-sandbox CLI             | client    | Device Code (RFC 8628) | Group `deploy`            | **No** — needs migration to Auth Code + PKCE |
-| Jellyfin (built-in auth)   | oracion   | Local accounts         | Jellyfin-internal users   | Migrated to lldap via official LDAP plugin |
+| Consumer                   | Host      | Auth flow              | What it checks          | Authelia support                             |
+| -------------------------- | --------- | ---------------------- | ----------------------- | -------------------------------------------- |
+| oauth2-proxy (external)    | langport  | Auth Code              | Group membership        | Native (replaces oauth2-proxy entirely)      |
+| oauth2-proxy (internal)    | phantasma | Auth Code              | Group `admin`           | Native (replaces oauth2-proxy entirely)      |
+| step-ca OIDC provisioner   | basel     | Auth Code + localhost  | Token issuer, signature | Yes (standard OIDC discovery + JWKS)         |
+| Perses OIDC                | tharbad   | Auth Code              | OIDC groups             | Yes (standard OIDC client)                   |
+| deployd-api JWT validation | roer      | Bearer token (JWKS)    | Group `deploy`, issuer  | Yes (standard JWKS endpoint)                 |
+| cc-sandbox CLI             | client    | Device Code (RFC 8628) | Group `deploy`          | **No** — needs migration to Auth Code + PKCE |
+| Jellyfin (built-in auth)   | oracion   | Local accounts         | Jellyfin-internal users | Migrated to lldap via official LDAP plugin   |
 
 ### Consumer not affected by this migration
 
-| Consumer                 | Why unaffected                                              |
-| ------------------------ | ----------------------------------------------------------- |
-| Woodpecker ↔ Forgejo     | Uses Forgejo-native OAuth2, not Keycloak                    |
-| NATS fleet activation    | Uses NKey credentials (Ed25519), no OIDC                    |
-| Attic binary cache       | Uses Attic tokens, no OIDC                                  |
-| AI agent Forgejo access  | Uses personal access tokens or Forgejo-native OAuth2        |
-| CI/CD SSH certificates   | Planned `client_credentials` path is obsolete — fleet activation uses NATS pull model, not SSH deploys |
+| Consumer                | Why unaffected                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| Woodpecker ↔ Forgejo   | Uses Forgejo-native OAuth2, not Keycloak                                                               |
+| NATS fleet activation   | Uses NKey credentials (Ed25519), no OIDC                                                               |
+| Attic binary cache      | Uses Attic tokens, no OIDC                                                                             |
+| AI agent Forgejo access | Uses personal access tokens or Forgejo-native OAuth2                                                   |
+| CI/CD SSH certificates  | Planned `client_credentials` path is obsolete — fleet activation uses NATS pull model, not SSH deploys |
 
 ## Gap analysis
 
@@ -228,15 +228,16 @@ User Filter: (objectClass=person)
 
 Managed via lldap's web UI or its API. Groups mirror the current structure:
 
-| Group         | Purpose                     | Used by                              |
-| ------------- | --------------------------- | ------------------------------------ |
-| `admin`       | Full access to everything   | Authelia access control, step-ca SSH |
-| `deploy`      | CI/CD and deployment        | deployd-api JWT validation           |
+| Group         | Purpose                     | Used by                                |
+| ------------- | --------------------------- | -------------------------------------- |
+| `admin`       | Full access to everything   | Authelia access control, step-ca SSH   |
+| `deploy`      | CI/CD and deployment        | deployd-api JWT validation             |
 | `media-users` | Jellyfin and media services | Jellyfin LDAP, Authelia access control |
 
 ### Secrets
 
 lldap needs:
+
 - Admin password (sops, for initial setup and lldap web UI login)
 - Authelia bind password (sops, for Authelia's LDAP queries)
 - Jellyfin bind password (sops, for Jellyfin's LDAP queries — can be a
@@ -249,6 +250,7 @@ the **only mutable auth state** in the system and needs persistence +
 backup consideration. Small (< 1 MB for homelab scale).
 
 Added to messeldam's `environment.persistence."/persist"`:
+
 ```nix
 { directory = "/var/lib/lldap"; user = "lldap"; group = "lldap"; }
 ```
@@ -270,7 +272,7 @@ identity_providers:
     clients:
       - client_id: step-ca
         client_name: "SSH Certificate CA"
-        client_secret: "$pbkdf2-sha512$..."  # from sops
+        client_secret: "$pbkdf2-sha512$..." # from sops
         redirect_uris:
           - "http://127.0.0.1:10000"
         scopes: [openid, profile, email, groups]
@@ -371,6 +373,7 @@ messeldam (vINFRA, 10.97.11.6)
 ```
 
 Resource reduction:
+
 - `microvm.mem`: 2048 → 512 (Authelia ~50MB + lldap ~30MB + nginx, well within 512MB)
 - `microvm.vcpu`: 2 → 1
 - Persist volume: 100 GB → 1 GB (drop PostgreSQL, keep small SQLite databases)
@@ -442,6 +445,7 @@ individually without downtime.
    continue working unchanged
 
 **Validation:**
+
 - lldap web UI accessible from vHOME, users and groups created
 - Authelia responds to OIDC discovery at
   `https://authelia.internal/.well-known/openid-configuration` and JWKS at
@@ -456,6 +460,7 @@ Order from lowest-risk to highest-risk:
 #### 2a. Perses (tharbad) — lowest risk, monitoring only
 
 Update `hosts/calvard/microvm/guests/tharbad/modules/perses.nix`:
+
 - Change `issuer` URL from `https://auth.mutantmell.net/realms/homelab` to
   `https://authelia.internal`
 - Change `slug_id` and `name` from `keycloak` to `authelia`
@@ -467,6 +472,7 @@ Update `hosts/calvard/microvm/guests/tharbad/modules/perses.nix`:
 #### 2b. deployd-api (roer) — low risk, JWT validation only
 
 Update `packages/deployd-api/src/config.rs` (or deployment config):
+
 - Change `oidc_issuer` to `https://authelia.internal`
 - JWKS URL auto-discovered from issuer
 
@@ -476,6 +482,7 @@ successfully, deployd-api validates the JWT and accepts the `deploy` group.
 #### 2c. cc-sandbox — moderate risk, user-facing CLI
 
 Update `home/modules/cc-sandbox.nix`:
+
 - Change `authBaseUrl` to the Authelia issuer URL
 
 **Validation:** Full cc-sandbox deploy cycle works end-to-end.
@@ -485,6 +492,7 @@ Update `home/modules/cc-sandbox.nix`:
 Replace oauth2-proxy with Authelia's native nginx `auth_request` integration.
 
 Update `hosts/thebeyond/microvm/guests/phantasma/modules/proxy.nix`:
+
 - Remove `services.oauth2-proxy` configuration
 - Replace with Authelia `auth_request` in nginx config
 - Authelia runs on messeldam; phantasma's nginx sends auth_request to
@@ -497,6 +505,7 @@ admin group users.
 #### 2e. step-ca OIDC provisioner (basel) — higher risk, SSH certs
 
 Update `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`:
+
 - Change OIDC provisioner `configurationEndpoint` to
   `https://authelia.internal/.well-known/openid-configuration`
 - Change provisioner `name` from `keycloak` to `authelia`
@@ -516,6 +525,7 @@ This replaces Jellyfin's built-in user management with the shared lldap
 directory, giving media users one set of credentials across all services.
 
 Update `hosts/calvard/microvm/guests/oracion/`:
+
 - Install the official `jellyfin-plugin-ldap` plugin
 - Configure LDAP connection to messeldam:3890
 - Map lldap `media-users` group to Jellyfin access
@@ -533,6 +543,7 @@ lldap. Plan for a brief transition where both auth methods are active.
 Replace oauth2-proxy with Authelia's native nginx `auth_request` integration.
 
 Update `hosts/calvard/microvm/guests/langport/proxy.nix`:
+
 - Remove `services.oauth2-proxy` configuration
 - Add Authelia `auth_request` to the `mutantmell.net` vhost
 - Switch `auth.mutantmell.net` vhost from proxying Keycloak to proxying Authelia
@@ -625,6 +636,7 @@ enrollment is self-service via its web portal.
 ## Secrets
 
 New sops secrets needed on messeldam:
+
 - lldap admin password
 - lldap Authelia bind password (read-only service account)
 - lldap Jellyfin bind password (read-only service account)
@@ -635,9 +647,11 @@ New sops secrets needed on messeldam:
 - Per-client secrets (hashed, embedded in config — or via sops templates)
 
 New sops secret on oracion:
+
 - Jellyfin LDAP bind password (for querying lldap)
 
 Secrets removed after migration:
+
 - `keycloak_password_file` (PostgreSQL password)
 - `keycloak_admin_password`
 - oauth2-proxy keyfiles on langport and phantasma
@@ -678,7 +692,7 @@ updated to Authelia. The OIDC flows are identical (authorization code grant),
 so this is a terminology update, not an architectural change.
 
 Note: the friend-access report recommends pre-authkeys for friend enrollment
-(no OIDC for friends), so the headscale OIDC integration only affects *admin*
+(no OIDC for friends), so the headscale OIDC integration only affects _admin_
 login to headscale, not friend access.
 
 ### F4. Token revocation and incident response procedure
@@ -689,6 +703,7 @@ short token lifetimes limit exposure window. But there is no documented
 incident response procedure.
 
 Document a runbook covering:
+
 - How to revoke a specific user's sessions (Authelia SQLite)
 - How to disable a user account (remove from sops user database, redeploy)
 - How to rotate OIDC signing keys (force all tokens to re-validate)
