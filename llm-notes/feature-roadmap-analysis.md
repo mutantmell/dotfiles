@@ -5,13 +5,13 @@ and providing a unified implementation guide.
 
 ## Plans Analyzed
 
-| Plan             | File                            | Summary                                                         |
-| ---------------- | ------------------------------- | --------------------------------------------------------------- |
-| Zone Refactor    | `zone-refactor-plan.md`         | Replace hardcoded trust enum with configurable zone system      |
-| Secure MGMT VLAN | `secure-mgmt-vlan-plan.md`      | Split vMGMT into vMGMT (network gear) + vINFRA (infrastructure) |
+| Plan             | File                            | Summary                                                                                                              |
+| ---------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Zone Refactor    | `zone-refactor-plan.md`         | Replace hardcoded trust enum with configurable zone system                                                           |
+| Secure MGMT VLAN | `secure-mgmt-vlan-plan.md`      | Split vMGMT into vMGMT (network gear) + vINFRA (infrastructure)                                                      |
 | Keycloak OIDC    | `keycloak-oauth-oidc-plan.md`   | Centralized identity infrastructure with OAuth2/OIDC (being replaced by Authelia — see `authelia-migration-plan.md`) |
-| SSH Certificates | `ssh-certificates-sso-plan.md`  | SSH certificate auth via OIDC + step-ca                         |
-| Headscale        | `headscale-integration-plan.md` | Self-hosted Tailscale for friend game server access             |
+| SSH Certificates | `ssh-certificates-sso-plan.md`  | SSH certificate auth via OIDC + step-ca                                                                              |
+| Headscale        | `headscale-integration-plan.md` | Self-hosted Tailscale for friend game server access                                                                  |
 
 ## MicroVM Inventory
 
@@ -48,11 +48,11 @@ Four security recommendations were identified through ordis compromise analysis 
 have been applied to the source plans. The common thread: **defenses that live on ordis
 are useless after ordis is compromised.**
 
-| ID  | Summary                                                                | Applied to                                                                                                                       | Status after Authelia migration |
-| --- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| R1  | `hostname-admin` restricts Keycloak admin console to internal hostname | `keycloak-oauth-oidc-plan.md` Phase 1                                                                                            | **Eliminated.** Authelia has no admin console — config is YAML managed via Nix. No admin UI to restrict. |
-| R2  | Native OIDC on vDMZ backends (Jellyfin) survives oauth2-proxy bypass   | `keycloak-oauth-oidc-plan.md` Phase 5 + architectural tension section                                                            | Still relevant — Authelia's centralized access control rules are the equivalent defense. |
-| R3  | Host-level egress filtering for all vDMZ hosts (nftables output chain) | `secure-mgmt-vlan-plan.md` Phase 4.4, `keycloak-oauth-oidc-plan.md` Phase 3, `headscale-integration-plan.md` interaction section | Unchanged — network-level control, independent of identity provider. |
+| ID  | Summary                                                                | Applied to                                                                                                                       | Status after Authelia migration                                                                                                                   |
+| --- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | `hostname-admin` restricts Keycloak admin console to internal hostname | `keycloak-oauth-oidc-plan.md` Phase 1                                                                                            | **Eliminated.** Authelia has no admin console — config is YAML managed via Nix. No admin UI to restrict.                                          |
+| R2  | Native OIDC on vDMZ backends (Jellyfin) survives oauth2-proxy bypass   | `keycloak-oauth-oidc-plan.md` Phase 5 + architectural tension section                                                            | Still relevant — Authelia's centralized access control rules are the equivalent defense.                                                          |
+| R3  | Host-level egress filtering for all vDMZ hosts (nftables output chain) | `secure-mgmt-vlan-plan.md` Phase 4.4, `keycloak-oauth-oidc-plan.md` Phase 3, `headscale-integration-plan.md` interaction section | Unchanged — network-level control, independent of identity provider.                                                                              |
 | R4  | Verify `oauth2-proxy` client has minimal Keycloak permissions          | `keycloak-oauth-oidc-plan.md` Phase 2 step 3                                                                                     | **Eliminated.** oauth2-proxy is removed. Authelia clients are declared in Nix config with explicit scopes — no runtime permission drift possible. |
 
 ---
