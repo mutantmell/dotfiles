@@ -233,8 +233,16 @@ class TestState:
 
 
 class TestTokenManagerCache:
-    def _make_manager(self, state_dir, mock_config):
-        return cc_sandbox.TokenManager(mock_config)
+    DISCOVERY = {
+        "authorization_endpoint": "https://auth.test/authorize",
+        "token_endpoint": "https://auth.test/token",
+    }
+
+    def _make_manager(self, state_dir, mock_config, with_endpoints=False):
+        mgr = cc_sandbox.TokenManager(mock_config)
+        if with_endpoints:
+            mgr._endpoints = self.DISCOVERY
+        return mgr
 
     def test_valid_cached_token(self, state_dir, mock_config):
         mgr = self._make_manager(state_dir, mock_config)
@@ -251,10 +259,12 @@ class TestTokenManagerCache:
             token = mgr.get_token()
 
         assert token == "cached-token"
+        # Neither OIDC discovery (GET) nor token exchange (POST) should be called
+        mock_http.get.assert_not_called()
         mock_http.post.assert_not_called()
 
     def test_expired_token_refreshes(self, state_dir, mock_config):
-        mgr = self._make_manager(state_dir, mock_config)
+        mgr = self._make_manager(state_dir, mock_config, with_endpoints=True)
         mgr.token_path.parent.mkdir(parents=True, exist_ok=True)
         cache = {
             "access_token": "expired",
@@ -338,7 +348,7 @@ class TestTokenManagerCache:
 
     def test_near_expiry_triggers_refresh(self, state_dir, mock_config):
         """Token with <30s remaining should not be treated as valid."""
-        mgr = self._make_manager(state_dir, mock_config)
+        mgr = self._make_manager(state_dir, mock_config, with_endpoints=True)
         mgr.token_path.parent.mkdir(parents=True, exist_ok=True)
         cache = {
             "access_token": "almost-expired",
@@ -390,6 +400,154 @@ class TestBrowserAvailable:
         mgr = self._make_manager(mock_config)
         with mock.patch.dict(os.environ, {}, clear=True):
             assert mgr._browser_available() is False
+
+
+# --- OIDC discovery ---
+
+
+class TestOidcDiscovery:
+    DISCOVERY_RESPONSE = {
+        "authorization_endpoint": "https://auth.test/authorize",
+        "token_endpoint": "https://auth.test/token",
+        "issuer": "https://auth.test",
+    }
+
+    def _make_manager(self, state_dir, mock_config):
+        return cc_sandbox.TokenManager(mock_config)
+
+    def test_discovery_lazy_not_called_on_init(self, state_dir, mock_config):
+        """Creating a TokenManager should NOT trigger OIDC discovery."""
+        with mock.patch("cc_sandbox.http_requests.get") as mock_get:
+            mgr = self._make_manager(state_dir, mock_config)
+        mock_get.assert_not_called()
+        assert mgr._endpoints is None
+
+    def test_discovery_called_on_endpoint_access(self, state_dir, mock_config):
+        mgr = self._make_manager(state_dir, mock_config)
+        mock_resp = mock.Mock()
+        mock_resp.json.return_value = self.DISCOVERY_RESPONSE
+
+        with mock.patch("cc_sandbox.http_requests.get", return_value=mock_resp) as mock_get:
+            url = mgr._authorize_url
+
+        mock_get.assert_called_once_with(
+            "https://auth.test/realms/test/.well-known/openid-configuration",
+            verify=True,
+        )
+        assert url == "https://auth.test/authorize"
+
+    def test_discovery_cached_after_first_call(self, state_dir, mock_config):
+        mgr = self._make_manager(state_dir, mock_config)
+        mock_resp = mock.Mock()
+        mock_resp.json.return_value = self.DISCOVERY_RESPONSE
+
+        with mock.patch("cc_sandbox.http_requests.get", return_value=mock_resp) as mock_get:
+            _ = mgr._authorize_url
+            _ = mgr._token_url
+
+        # Only one GET despite accessing two endpoints
+        assert mock_get.call_count == 1
+
+    def test_discovery_not_triggered_by_cached_token(self, state_dir, mock_config):
+        """Valid cached token should skip both discovery and token exchange."""
+        mgr = self._make_manager(state_dir, mock_config)
+        mgr.token_path.parent.mkdir(parents=True, exist_ok=True)
+        cache = {
+            "access_token": "cached",
+            "refresh_token": "refresh",
+            "expires_at": time.time() + 3600,
+        }
+        mgr.token_path.write_text(json.dumps(cache))
+
+        with mock.patch("cc_sandbox.http_requests") as mock_http:
+            token = mgr.get_token()
+
+        assert token == "cached"
+        mock_http.get.assert_not_called()
+
+
+class TestAuthCodePkce:
+    DISCOVERY_RESPONSE = {
+        "authorization_endpoint": "https://auth.test/authorize",
+        "token_endpoint": "https://auth.test/token",
+    }
+
+    def _make_manager(self, state_dir, mock_config):
+        return cc_sandbox.TokenManager(mock_config)
+
+    def test_scope_includes_groups(self, state_dir, mock_config):
+        """Auth request must include 'groups' scope for group-based access."""
+        mgr = self._make_manager(state_dir, mock_config)
+
+        discovery_resp = mock.Mock()
+        discovery_resp.json.return_value = self.DISCOVERY_RESPONSE
+
+        # Capture the auth URL that would be opened
+        captured_url = {}
+
+        def fake_open(url):
+            captured_url["url"] = url
+
+        token_resp = mock.Mock()
+        token_resp.status_code = 200
+        token_resp.json.return_value = {"access_token": "tok", "expires_in": 300}
+        token_resp.raise_for_status = mock.Mock()
+
+        with mock.patch("cc_sandbox.http_requests.get", return_value=discovery_resp), \
+             mock.patch("cc_sandbox.http_requests.post", return_value=token_resp), \
+             mock.patch("cc_sandbox.webbrowser.open", side_effect=fake_open), \
+             mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True), \
+             mock.patch("cc_sandbox.HTTPServer") as mock_server_cls:
+            # Simulate the callback server returning an auth code
+            server_instance = mock_server_cls.return_value
+            server_instance.server_address = ("127.0.0.1", 12345)
+
+            def handle_request_side_effect():
+                # Simulate callback by finding the handler and calling it
+                pass
+
+            server_instance.handle_request = mock.Mock()
+            server_instance.timeout = 120
+
+            # We need to actually trigger the callback — but since we mock
+            # HTTPServer, the handler never runs. Instead, patch _auth_code_pkce
+            # at a lower level: mock the server and manually set the result.
+            # Simpler approach: just check the URL parameters.
+            try:
+                mgr._authenticate()
+            except (RuntimeError, Exception):
+                pass  # Expected since the mock server doesn't produce a code
+
+        assert "url" in captured_url
+        assert "scope=openid+groups" in captured_url["url"] or "scope=openid%20groups" in captured_url["url"]
+
+    def test_headless_prints_url_instead_of_browser(self, state_dir, mock_config, capsys):
+        """Without a browser, auth should print URL with SSH forwarding instructions."""
+        mgr = self._make_manager(state_dir, mock_config)
+
+        discovery_resp = mock.Mock()
+        discovery_resp.json.return_value = self.DISCOVERY_RESPONSE
+
+        with mock.patch("cc_sandbox.http_requests.get", return_value=discovery_resp), \
+             mock.patch("cc_sandbox.webbrowser.open") as mock_browser, \
+             mock.patch.dict(os.environ, {"SSH_CONNECTION": "1.2.3.4 5678 5.6.7.8 22"}, clear=True), \
+             mock.patch("cc_sandbox.HTTPServer") as mock_server_cls:
+            server_instance = mock_server_cls.return_value
+            server_instance.server_address = ("127.0.0.1", 54321)
+            server_instance.handle_request = mock.Mock()
+            server_instance.timeout = 120
+
+            try:
+                mgr._authenticate()
+            except (RuntimeError, Exception):
+                pass
+
+        # Browser should NOT be opened
+        mock_browser.assert_not_called()
+        # URL and SSH instructions should be printed
+        output = capsys.readouterr().out
+        assert "Open this URL" in output
+        assert "ssh -L" in output
 
 
 # --- deployd API functions ---

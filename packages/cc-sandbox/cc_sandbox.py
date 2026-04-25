@@ -3,8 +3,8 @@
 
 A user-owned CLI tool for creating isolated Claude Code coding environments via deployd.
 Reads config from ~/.config/cc-sandbox/config.json, manages state in
-$XDG_STATE_HOME/cc-sandbox/, and authenticates via OAuth (auth code + PKCE with
-device grant fallback).
+$XDG_STATE_HOME/cc-sandbox/, and authenticates via OAuth (auth code + PKCE).
+OIDC endpoints are resolved via .well-known/openid-configuration discovery.
 
 Security notes:
   - Container name injection: the CLI prefixes all names with "cc-" and
@@ -227,17 +227,34 @@ def resolve_project(args_repo):
 # --- OAuth token management ---
 
 class TokenManager:
-    """OAuth token management with auth code + PKCE and device grant fallback.
+    """OAuth token management with auth code + PKCE via OIDC discovery.
 
+    Endpoints are resolved lazily from the provider's
+    .well-known/openid-configuration — no provider-specific URL paths.
     Token cache: $XDG_STATE_HOME/cc-sandbox/token.json (mode 0600)
     """
 
     def __init__(self, config):
         self.config = config
         self.token_path = Path(xdg_state_home()) / "cc-sandbox" / "token.json"
-        self._authorize_url = f"{config.auth_base_url}/protocol/openid-connect/auth"
-        self._token_url = f"{config.auth_base_url}/protocol/openid-connect/token"
-        self._device_url = f"{config.auth_base_url}/protocol/openid-connect/auth/device"
+        self._endpoints = None  # lazy OIDC discovery
+
+    @property
+    def _oidc_endpoints(self):
+        if self._endpoints is None:
+            url = f"{self.config.auth_base_url}/.well-known/openid-configuration"
+            resp = http_requests.get(url, verify=self.config.requests_verify())
+            resp.raise_for_status()
+            self._endpoints = resp.json()
+        return self._endpoints
+
+    @property
+    def _authorize_url(self):
+        return self._oidc_endpoints["authorization_endpoint"]
+
+    @property
+    def _token_url(self):
+        return self._oidc_endpoints["token_endpoint"]
 
     def get_token(self):
         """Get a valid access token, refreshing or re-authenticating as needed."""
@@ -293,10 +310,7 @@ class TokenManager:
         return None
 
     def _authenticate(self):
-        if self._browser_available():
-            return self._auth_code_pkce()
-        else:
-            return self._device_grant()
+        return self._auth_code_pkce()
 
     def _browser_available(self):
         # No browser if SSH session or no display
@@ -351,15 +365,21 @@ class TokenManager:
             "response_type": "code",
             "client_id": self.config.client_id,
             "redirect_uri": redirect_uri,
-            "scope": "openid",
+            "scope": "openid groups",
             "state": state,
             "code_challenge": code_challenge_b64,
             "code_challenge_method": "S256",
         })
         auth_url = f"{self._authorize_url}?{auth_params}"
 
-        print("Opening browser for authentication...", flush=True)
-        webbrowser.open(auth_url)
+        if self._browser_available():
+            print("Opening browser for authentication...", flush=True)
+            webbrowser.open(auth_url)
+        else:
+            print(f"\nOpen this URL in your browser to authenticate:\n  {auth_url}", flush=True)
+            print(f"\nIf connected via SSH, forward the callback port first:", flush=True)
+            print(f"  ssh -L {port}:localhost:{port} <this-host>", flush=True)
+            print("Waiting for authentication callback...", flush=True)
 
         # Handle one request (the callback)
         server.handle_request()
@@ -385,61 +405,6 @@ class TokenManager:
         resp.raise_for_status()
         return self._save_cache(resp.json())
 
-    def _device_grant(self):
-        """Device authorization grant (RFC 8628) for headless sessions."""
-        resp = http_requests.post(
-            self._device_url,
-            data={
-                "client_id": self.config.client_id,
-                "scope": "openid",
-            },
-            verify=self.config.requests_verify(),
-        )
-        resp.raise_for_status()
-        device = resp.json()
-
-        verification_uri = device.get("verification_uri_complete") or device.get("verification_uri")
-        user_code = device.get("user_code", "")
-
-        print(f"\nTo authenticate, open: {verification_uri}", flush=True)
-        if user_code:
-            print(f"And enter code: {user_code}", flush=True)
-        print("Waiting for authorization...", flush=True)
-
-        interval = device.get("interval", 5)
-        expires_in = device.get("expires_in", 600)
-        deadline = time.time() + expires_in
-        device_code = device["device_code"]
-
-        while time.time() < deadline:
-            time.sleep(interval)
-            resp = http_requests.post(
-                self._token_url,
-                data={
-                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                    "client_id": self.config.client_id,
-                    "device_code": device_code,
-                },
-                verify=self.config.requests_verify(),
-            )
-            if resp.status_code == 200:
-                return self._save_cache(resp.json())
-
-            try:
-                error = resp.json().get("error", "")
-            except (ValueError, KeyError):
-                raise RuntimeError(
-                    f"device authorization failed: HTTP {resp.status_code}"
-                )
-            if error == "authorization_pending":
-                continue
-            elif error == "slow_down":
-                interval += 5
-                continue
-            else:
-                raise RuntimeError(f"device authorization failed: {error}")
-
-        raise RuntimeError("device authorization timed out")
 
 
 # --- deployd API client ---

@@ -16,7 +16,7 @@ in {
 
     authBaseUrl = lib.mkOption {
       type = lib.types.str;
-      description = "Keycloak realm base URL (e.g. https://auth.example.com/realms/homelab)";
+      description = "OIDC issuer URL (e.g. https://auth.example.com/realms/homelab)";
     };
 
     registry = lib.mkOption {
@@ -64,7 +64,7 @@ in {
     clientId = lib.mkOption {
       type = lib.types.str;
       default = "cc-sandbox";
-      description = "OAuth client ID for Keycloak";
+      description = "OAuth client ID";
     };
 
     flakePath = lib.mkOption {
