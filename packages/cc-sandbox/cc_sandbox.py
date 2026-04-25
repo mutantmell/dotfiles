@@ -423,7 +423,12 @@ class TokenManager:
     @staticmethod
     def _auth_via_paste(auth_url, state):
         """Headless auth: user opens URL elsewhere, pastes the callback URL back."""
-        print("\nOpen this URL in your browser to authenticate:\n", flush=True)
+        port = 18472
+        host = socket.gethostname()
+        print(f"\nTip: for a smoother experience, forward the callback port first:", flush=True)
+        print(f"  ssh -L {port}:localhost:{port} {host}", flush=True)
+        print(f"Then re-run this command — authentication will complete automatically.\n", flush=True)
+        print("Otherwise, open this URL in your browser to authenticate:\n", flush=True)
         print(f"  {auth_url}\n", flush=True)
         print("After authenticating, your browser will redirect to a localhost URL", flush=True)
         print("that fails to load. Copy the full URL from your browser's address", flush=True)

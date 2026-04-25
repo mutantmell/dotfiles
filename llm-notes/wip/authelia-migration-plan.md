@@ -108,7 +108,7 @@ cost of adding auth protection to new services:
 | step-ca OIDC provisioner   | basel     | Auth Code + localhost  | Token issuer, signature | Yes (standard OIDC discovery + JWKS)         |
 | Perses OIDC                | tharbad   | Auth Code              | OIDC groups             | Yes (standard OIDC client)                   |
 | deployd-api JWT validation | roer      | Bearer token (JWKS)    | Group `deploy`, issuer  | Yes (standard JWKS endpoint)                 |
-| cc-sandbox CLI             | client    | Device Code (RFC 8628) | Group `deploy`          | **No** — needs migration to Auth Code + PKCE |
+| cc-sandbox CLI             | client    | Auth Code + PKCE       | Group `deploy`          | Yes (Phase 0 complete — OIDC discovery)      |
 | Jellyfin (built-in auth)   | oracion   | Local accounts         | Jellyfin-internal users | Migrated to lldap via official LDAP plugin   |
 
 ### Consumer not affected by this migration
@@ -125,21 +125,20 @@ cost of adding auth protection to new services:
 
 ### Device code flow (cc-sandbox)
 
-**Status:** Only real gap. cc-sandbox currently uses RFC 8628 device code flow.
-Authelia does not support this grant type.
+**Status:** Resolved. cc-sandbox has been migrated from RFC 8628 device code
+flow to Authorization Code + PKCE with OIDC discovery (Phase 0 complete).
 
-**Resolution:** Migrate cc-sandbox to Authorization Code + PKCE with localhost
-redirect. This is the standard pattern for CLI tools (it's what `step ssh login`,
-`gh auth login`, and `gcloud auth login` all use). The change:
+The current implementation uses two paths:
+- **Browser available:** localhost HTTP server on port 18472 + `webbrowser.open()`
+- **Headless (SSH):** prints the auth URL, user pastes the failed redirect URL
+  back into the terminal
 
-1. cc-sandbox starts a temporary HTTP listener on `127.0.0.1:<random-port>`
-2. Opens the user's browser to the Authelia authorization endpoint
-3. User authenticates in the browser
-4. Authelia redirects to `http://127.0.0.1:<port>/callback` with the auth code
-5. cc-sandbox exchanges the code for tokens
-
-This is a better UX than device code flow (no manual code entry, single browser
-interaction) and is more widely supported across OIDC providers.
+**Future improvement:** Authelia is adding RFC 8628 device code support in
+[authelia/authelia#8082](https://github.com/authelia/authelia/pull/8082)
+(targeting v4.39.0). Once available, cc-sandbox can re-enable device code flow
+for a better headless UX (short code entry instead of URL paste). The OIDC
+discovery response will advertise `device_authorization_endpoint` when
+supported, so detection can be automatic.
 
 ### Client credentials grant (cicd-deploy)
 
@@ -392,25 +391,22 @@ Resource reduction:
 
 ## Migration phases
 
-### Phase 0: cc-sandbox auth code migration (pre-requisite)
+### Phase 0: cc-sandbox auth code migration (pre-requisite) — COMPLETE
 
-Migrate cc-sandbox from device code flow to authorization code + PKCE with
-localhost redirect. This can be done and tested against the existing Keycloak
-deployment before any Authelia work begins.
+cc-sandbox migrated from device code flow to authorization code + PKCE with
+OIDC discovery. Changes:
 
-1. Register a new `cc-sandbox-v2` client in Keycloak with:
-   - `publicClient: true`
-   - `standardFlowEnabled: true` (authorization code)
-   - Redirect URIs: `http://127.0.0.1:*`
-   - PKCE required
-2. Update `packages/cc-sandbox/cc_sandbox.py` auth module:
-   - Replace device code flow with auth code + PKCE + localhost listener
-   - Keep token caching and refresh logic
-3. Test against Keycloak to verify the flow works
-4. Remove the old `cc-sandbox` client from `homelab-realm.json`
+- `packages/cc-sandbox/cc_sandbox.py`: OIDC discovery (lazy-loaded from
+  `.well-known/openid-configuration`), device code flow removed, scope
+  updated to `"openid groups"`, headless auth via URL paste fallback with
+  SSH port forwarding hint
+- `packages/cc-sandbox/test_cc_sandbox.py`: tests for OIDC discovery,
+  paste flow, scope, browser path
+- `home/modules/cc-sandbox.nix`: description updates (Keycloak → OIDC)
 
-**Validation:** cc-sandbox `login` command opens browser, completes auth,
-receives token with correct `groups` claim.
+The implementation is provider-agnostic (works with both Keycloak and
+Authelia). No Keycloak client changes needed — the existing client already
+supports authorization code flow.
 
 ### Phase 1: Deploy Authelia + lldap alongside Keycloak (coexistence)
 
