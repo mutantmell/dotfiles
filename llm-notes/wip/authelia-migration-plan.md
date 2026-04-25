@@ -101,15 +101,15 @@ cost of adding auth protection to new services:
 
 ## Current Keycloak consumers
 
-| Consumer                   | Host      | Auth flow              | What it checks          | Authelia support                             |
-| -------------------------- | --------- | ---------------------- | ----------------------- | -------------------------------------------- |
-| oauth2-proxy (external)    | langport  | Auth Code              | Group membership        | Native (replaces oauth2-proxy entirely)      |
-| oauth2-proxy (internal)    | phantasma | Auth Code              | Group `admin`           | Native (replaces oauth2-proxy entirely)      |
-| step-ca OIDC provisioner   | basel     | Auth Code + localhost  | Token issuer, signature | Yes (standard OIDC discovery + JWKS)         |
-| Perses OIDC                | tharbad   | Auth Code              | OIDC groups             | Yes (standard OIDC client)                   |
-| deployd-api JWT validation | roer      | Bearer token (JWKS)    | Group `deploy`, issuer  | Yes (standard JWKS endpoint)                 |
-| cc-sandbox CLI             | client    | Auth Code + PKCE       | Group `deploy`          | Yes (Phase 0 complete — OIDC discovery)      |
-| Jellyfin (built-in auth)   | oracion   | Local accounts         | Jellyfin-internal users | Migrated to lldap via official LDAP plugin   |
+| Consumer                   | Host      | Auth flow             | What it checks          | Authelia support                           |
+| -------------------------- | --------- | --------------------- | ----------------------- | ------------------------------------------ |
+| oauth2-proxy (external)    | langport  | Auth Code             | Group membership        | Native (replaces oauth2-proxy entirely)    |
+| oauth2-proxy (internal)    | phantasma | Auth Code             | Group `admin`           | Native (replaces oauth2-proxy entirely)    |
+| step-ca OIDC provisioner   | basel     | Auth Code + localhost | Token issuer, signature | Yes (standard OIDC discovery + JWKS)       |
+| Perses OIDC                | tharbad   | Auth Code             | OIDC groups             | Yes (standard OIDC client)                 |
+| deployd-api JWT validation | roer      | Bearer token (JWKS)   | Group `deploy`, issuer  | Yes (standard JWKS endpoint)               |
+| cc-sandbox CLI             | client    | Auth Code + PKCE      | Group `deploy`          | Yes (Phase 0 complete — OIDC discovery)    |
+| Jellyfin (built-in auth)   | oracion   | Local accounts        | Jellyfin-internal users | Migrated to lldap via official LDAP plugin |
 
 ### Consumer not affected by this migration
 
@@ -125,20 +125,20 @@ cost of adding auth protection to new services:
 
 ### Device code flow (cc-sandbox)
 
-**Status:** Resolved. cc-sandbox has been migrated from RFC 8628 device code
-flow to Authorization Code + PKCE with OIDC discovery (Phase 0 complete).
+**Status:** Resolved. cc-sandbox uses provider-agnostic OIDC discovery and
+dispatches to the best available flow at runtime:
 
-The current implementation uses two paths:
-- **Browser available:** localhost HTTP server on port 18472 + `webbrowser.open()`
-- **Headless (SSH):** prints the auth URL, user pastes the failed redirect URL
-  back into the terminal
+- **Browser available:** auth code + PKCE with localhost callback server
+- **Headless + provider supports RFC 8628:** device code grant (short code
+  entry on any device — best headless UX)
+- **Headless + no device support:** auth code + PKCE with URL paste fallback
 
-**Future improvement:** Authelia is adding RFC 8628 device code support in
-[authelia/authelia#8082](https://github.com/authelia/authelia/pull/8082)
-(targeting v4.39.0). Once available, cc-sandbox can re-enable device code flow
-for a better headless UX (short code entry instead of URL paste). The OIDC
-discovery response will advertise `device_authorization_endpoint` when
-supported, so detection can be automatic.
+Device code flow was re-added after Authelia v4.39.0 shipped RFC 8628 support
+([authelia/authelia#8082](https://github.com/authelia/authelia/pull/8082),
+released March 2025). Detection is automatic via the OIDC discovery response
+(`device_authorization_endpoint`), so cc-sandbox works without configuration
+changes against any provider — Keycloak, Authelia ≥4.39.0, or any future
+provider.
 
 ### Client credentials grant (cicd-deploy)
 
@@ -393,20 +393,22 @@ Resource reduction:
 
 ### Phase 0: cc-sandbox auth code migration (pre-requisite) — COMPLETE
 
-cc-sandbox migrated from device code flow to authorization code + PKCE with
-OIDC discovery. Changes:
+cc-sandbox refactored to be provider-agnostic via OIDC discovery, with
+runtime dispatch to the best available auth flow. Changes:
 
 - `packages/cc-sandbox/cc_sandbox.py`: OIDC discovery (lazy-loaded from
-  `.well-known/openid-configuration`), device code flow removed, scope
-  updated to `"openid groups"`, headless auth via URL paste fallback with
-  SSH port forwarding hint
-- `packages/cc-sandbox/test_cc_sandbox.py`: tests for OIDC discovery,
-  paste flow, scope, browser path
+  `.well-known/openid-configuration`), scope updated to `"openid groups"`,
+  three auth paths dispatched by `_authenticate()`:
+  - browser → auth code + PKCE with localhost server
+  - headless + RFC 8628 supported → device code grant
+  - headless + no device support → auth code + PKCE with URL paste fallback
+- `packages/cc-sandbox/test_cc_sandbox.py`: tests for OIDC discovery, all
+  three auth paths, scope, device grant polling/error handling
 - `home/modules/cc-sandbox.nix`: description updates (Keycloak → OIDC)
 
-The implementation is provider-agnostic (works with both Keycloak and
-Authelia). No Keycloak client changes needed — the existing client already
-supports authorization code flow.
+The implementation works against any OIDC provider — Keycloak (all flows),
+Authelia ≥4.39.0 (all flows), or older Authelia (paste fallback). No Keycloak
+client changes needed.
 
 ### Phase 1: Deploy Authelia + lldap alongside Keycloak (coexistence)
 

@@ -507,10 +507,10 @@ class TestAuthCodePkce:
         assert len(auth_line) > 0
         assert "scope=openid+groups" in auth_line[0] or "scope=openid%20groups" in auth_line[0]
 
-    def test_headless_uses_paste_flow(self, state_dir, mock_config, capsys):
-        """Without a browser, auth should use URL paste flow (no server)."""
+    def test_headless_falls_back_to_paste_when_no_device_support(self, state_dir, mock_config, capsys):
+        """Headless + no device_authorization_endpoint should use URL paste flow."""
         mgr = self._make_manager(state_dir, mock_config)
-        mgr._endpoints = self.DISCOVERY_RESPONSE
+        mgr._endpoints = self.DISCOVERY_RESPONSE  # No device endpoint advertised
 
         with mock.patch("cc_sandbox.webbrowser.open") as mock_browser, \
              mock.patch.dict(os.environ, {"SSH_CONNECTION": "1.2.3.4 5678 5.6.7.8 22"}, clear=True), \
@@ -585,6 +585,134 @@ class TestAuthViaPaste:
         with mock.patch("builtins.input", return_value=callback):
             with pytest.raises(RuntimeError, match="no authorization code"):
                 cc_sandbox.TokenManager._auth_via_paste("https://auth.test/authorize", "s")
+
+
+class TestDeviceGrant:
+    DISCOVERY_WITH_DEVICE = {
+        "authorization_endpoint": "https://auth.test/authorize",
+        "token_endpoint": "https://auth.test/token",
+        "device_authorization_endpoint": "https://auth.test/device",
+    }
+    DEVICE_INIT = {
+        "device_code": "dev-code-xyz",
+        "user_code": "ABCD-1234",
+        "verification_uri": "https://auth.test/device",
+        "verification_uri_complete": "https://auth.test/device?user_code=ABCD-1234",
+        "expires_in": 600,
+        "interval": 0,  # Zero so polling doesn't actually sleep in tests
+    }
+
+    def _make_manager(self, mock_config, with_device=True):
+        mgr = cc_sandbox.TokenManager(mock_config)
+        mgr._endpoints = self.DISCOVERY_WITH_DEVICE if with_device else {
+            k: v for k, v in self.DISCOVERY_WITH_DEVICE.items()
+            if k != "device_authorization_endpoint"
+        }
+        return mgr
+
+    def test_headless_with_device_support_uses_device_grant(self, state_dir, mock_config, capsys):
+        """Headless + provider supports RFC 8628 should use device grant, not paste."""
+        mgr = self._make_manager(mock_config, with_device=True)
+
+        init_resp = mock.Mock()
+        init_resp.json.return_value = self.DEVICE_INIT
+        init_resp.raise_for_status = mock.Mock()
+
+        token_resp = mock.Mock()
+        token_resp.status_code = 200
+        token_resp.json.return_value = {"access_token": "device-tok", "expires_in": 300}
+
+        with mock.patch.dict(os.environ, {"SSH_CONNECTION": "1.2.3.4 5678 5.6.7.8 22"}, clear=True), \
+             mock.patch("cc_sandbox.http_requests.post", side_effect=[init_resp, token_resp]) as mock_post, \
+             mock.patch("builtins.input") as mock_input:
+            token = mgr._authenticate()
+
+        assert token == "device-tok"
+        # Paste flow should NOT have been used
+        mock_input.assert_not_called()
+        # Two POSTs: device_authorization_endpoint, then token_endpoint
+        assert mock_post.call_count == 2
+        assert mock_post.call_args_list[0].args[0] == "https://auth.test/device"
+        assert mock_post.call_args_list[1].args[0] == "https://auth.test/token"
+
+        # User code should be displayed
+        output = capsys.readouterr().out
+        assert "ABCD-1234" in output
+
+    def test_polls_until_authorized(self, mock_config):
+        """Device grant should poll past authorization_pending until success."""
+        mgr = self._make_manager(mock_config, with_device=True)
+
+        init_resp = mock.Mock()
+        init_resp.json.return_value = self.DEVICE_INIT
+        init_resp.raise_for_status = mock.Mock()
+
+        pending_resp = mock.Mock()
+        pending_resp.status_code = 400
+        pending_resp.json.return_value = {"error": "authorization_pending"}
+
+        success_resp = mock.Mock()
+        success_resp.status_code = 200
+        success_resp.json.return_value = {"access_token": "got-it", "expires_in": 300}
+
+        with mock.patch("cc_sandbox.http_requests.post",
+                        side_effect=[init_resp, pending_resp, pending_resp, success_resp]):
+            token = mgr._device_grant()
+
+        assert token == "got-it"
+
+    def test_slow_down_increases_interval(self, mock_config):
+        """slow_down error should increase polling interval and continue."""
+        mgr = self._make_manager(mock_config, with_device=True)
+
+        init_resp = mock.Mock()
+        init_resp.json.return_value = self.DEVICE_INIT
+        init_resp.raise_for_status = mock.Mock()
+
+        slow_resp = mock.Mock()
+        slow_resp.status_code = 400
+        slow_resp.json.return_value = {"error": "slow_down"}
+
+        success_resp = mock.Mock()
+        success_resp.status_code = 200
+        success_resp.json.return_value = {"access_token": "tok", "expires_in": 300}
+
+        sleep_durations = []
+
+        def fake_sleep(d):
+            sleep_durations.append(d)
+
+        with mock.patch("cc_sandbox.http_requests.post",
+                        side_effect=[init_resp, slow_resp, success_resp]), \
+             mock.patch("cc_sandbox.time.sleep", side_effect=fake_sleep):
+            mgr._device_grant()
+
+        # First sleep is initial interval (0), second should be increased by 5
+        assert sleep_durations == [0, 5]
+
+    def test_access_denied_raises(self, mock_config):
+        mgr = self._make_manager(mock_config, with_device=True)
+
+        init_resp = mock.Mock()
+        init_resp.json.return_value = self.DEVICE_INIT
+        init_resp.raise_for_status = mock.Mock()
+
+        denied_resp = mock.Mock()
+        denied_resp.status_code = 400
+        denied_resp.json.return_value = {"error": "access_denied"}
+
+        with mock.patch("cc_sandbox.http_requests.post", side_effect=[init_resp, denied_resp]):
+            with pytest.raises(RuntimeError, match="access_denied"):
+                mgr._device_grant()
+
+    def test_no_device_endpoint_property(self, mock_config):
+        """When discovery doesn't advertise device endpoint, _device_endpoint is None."""
+        mgr = self._make_manager(mock_config, with_device=False)
+        assert mgr._device_endpoint is None
+
+    def test_device_endpoint_resolved_from_discovery(self, mock_config):
+        mgr = self._make_manager(mock_config, with_device=True)
+        assert mgr._device_endpoint == "https://auth.test/device"
 
 
 # --- deployd API functions ---
