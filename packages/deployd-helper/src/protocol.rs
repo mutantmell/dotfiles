@@ -44,6 +44,12 @@ pub struct ContainerDefinition {
     /// CPU limit (e.g. "2.0", "0.5"). Passed as --cpus to nerdctl.
     #[serde(default)]
     pub cpus: Option<String>,
+    /// Host devices to expose inside the container (e.g. "/dev/kvm" for nested
+    /// virtualization). Each entry becomes a `--device=PATH` flag. Restricted
+    /// by validation to a small allowlist; arbitrary device passthrough is not
+    /// permitted.
+    #[serde(default)]
+    pub devices: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
