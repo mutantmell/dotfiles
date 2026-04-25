@@ -321,16 +321,65 @@ class TokenManager:
         return True
 
     def _auth_code_pkce(self):
-        """Authorization code flow with PKCE (S256)."""
+        """Authorization code flow with PKCE (S256).
+
+        With a local browser: opens the auth URL, runs a localhost callback
+        server to receive the redirect automatically.
+
+        Without a browser (SSH/headless): prints the auth URL for the user to
+        open on another machine. The redirect to localhost will fail in the
+        browser (connection refused); the user pastes the failed URL back into
+        the terminal so we can extract the authorization code.
+        """
         # Generate PKCE challenge
         code_verifier = secrets.token_urlsafe(64)
         code_challenge = hashlib.sha256(code_verifier.encode()).digest()
         code_challenge_b64 = base64.urlsafe_b64encode(code_challenge).rstrip(b"=").decode()
 
         state = secrets.token_urlsafe(32)
+
+        # Use a fixed port for the redirect URI — the OIDC provider must see
+        # the same redirect_uri in both the authorize request and the token
+        # exchange.  In browser mode we bind a real server; in headless mode
+        # we just use the URI for matching (no server needed).
+        redirect_port = 18472
+        redirect_uri = f"http://localhost:{redirect_port}"
+
+        auth_params = urlencode({
+            "response_type": "code",
+            "client_id": self.config.client_id,
+            "redirect_uri": redirect_uri,
+            "scope": "openid groups",
+            "state": state,
+            "code_challenge": code_challenge_b64,
+            "code_challenge_method": "S256",
+        })
+        auth_url = f"{self._authorize_url}?{auth_params}"
+
+        if self._browser_available():
+            code = self._auth_via_browser(auth_url, state, redirect_port)
+        else:
+            code = self._auth_via_paste(auth_url, state)
+
+        # Exchange code for tokens
+        resp = http_requests.post(
+            self._token_url,
+            data={
+                "grant_type": "authorization_code",
+                "client_id": self.config.client_id,
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": code_verifier,
+            },
+            verify=self.config.requests_verify(),
+        )
+        resp.raise_for_status()
+        return self._save_cache(resp.json())
+
+    def _auth_via_browser(self, auth_url, state, port):
+        """Open browser and receive callback via localhost HTTP server."""
         result = {"code": None, "error": None}
 
-        # Start localhost callback server
         class CallbackHandler(BaseHTTPRequestHandler):
             def do_GET(self):
                 params = parse_qs(urlparse(self.path).query)
@@ -356,32 +405,12 @@ class TokenManager:
             def log_message(self, format, *args):
                 pass  # Suppress HTTP server logs
 
-        server = HTTPServer(("127.0.0.1", 0), CallbackHandler)
-        server.timeout = 120  # seconds — give up if browser auth not completed
-        port = server.server_address[1]
-        redirect_uri = f"http://localhost:{port}"
+        server = HTTPServer(("127.0.0.1", port), CallbackHandler)
+        server.timeout = 120
 
-        auth_params = urlencode({
-            "response_type": "code",
-            "client_id": self.config.client_id,
-            "redirect_uri": redirect_uri,
-            "scope": "openid groups",
-            "state": state,
-            "code_challenge": code_challenge_b64,
-            "code_challenge_method": "S256",
-        })
-        auth_url = f"{self._authorize_url}?{auth_params}"
+        print("Opening browser for authentication...", flush=True)
+        webbrowser.open(auth_url)
 
-        if self._browser_available():
-            print("Opening browser for authentication...", flush=True)
-            webbrowser.open(auth_url)
-        else:
-            print(f"\nOpen this URL in your browser to authenticate:\n  {auth_url}", flush=True)
-            print(f"\nIf connected via SSH, forward the callback port first:", flush=True)
-            print(f"  ssh -L {port}:localhost:{port} <this-host>", flush=True)
-            print("Waiting for authentication callback...", flush=True)
-
-        # Handle one request (the callback)
         server.handle_request()
         server.server_close()
 
@@ -389,21 +418,29 @@ class TokenManager:
             raise RuntimeError(f"authentication failed: {result['error']}")
         if not result["code"]:
             raise RuntimeError("authentication timed out or no authorization code received")
+        return result["code"]
 
-        # Exchange code for tokens
-        resp = http_requests.post(
-            self._token_url,
-            data={
-                "grant_type": "authorization_code",
-                "client_id": self.config.client_id,
-                "code": result["code"],
-                "redirect_uri": redirect_uri,
-                "code_verifier": code_verifier,
-            },
-            verify=self.config.requests_verify(),
-        )
-        resp.raise_for_status()
-        return self._save_cache(resp.json())
+    @staticmethod
+    def _auth_via_paste(auth_url, state):
+        """Headless auth: user opens URL elsewhere, pastes the callback URL back."""
+        print("\nOpen this URL in your browser to authenticate:\n", flush=True)
+        print(f"  {auth_url}\n", flush=True)
+        print("After authenticating, your browser will redirect to a localhost URL", flush=True)
+        print("that fails to load. Copy the full URL from your browser's address", flush=True)
+        print("bar and paste it here.\n", flush=True)
+
+        callback_url = input("Paste the callback URL: ").strip()
+        if not callback_url:
+            raise RuntimeError("no callback URL provided")
+
+        params = parse_qs(urlparse(callback_url).query)
+        if params.get("state", [None])[0] != state:
+            raise RuntimeError("authentication failed: state mismatch")
+        if "error" in params:
+            raise RuntimeError(f"authentication failed: {params['error'][0]}")
+        if "code" not in params:
+            raise RuntimeError("no authorization code in callback URL")
+        return params["code"][0]
 
 
 

@@ -478,76 +478,112 @@ class TestAuthCodePkce:
     def test_scope_includes_groups(self, state_dir, mock_config):
         """Auth request must include 'groups' scope for group-based access."""
         mgr = self._make_manager(state_dir, mock_config)
-
-        discovery_resp = mock.Mock()
-        discovery_resp.json.return_value = self.DISCOVERY_RESPONSE
-
-        # Capture the auth URL that would be opened
-        captured_url = {}
-
-        def fake_open(url):
-            captured_url["url"] = url
+        mgr._endpoints = self.DISCOVERY_RESPONSE
 
         token_resp = mock.Mock()
         token_resp.status_code = 200
         token_resp.json.return_value = {"access_token": "tok", "expires_in": 300}
         token_resp.raise_for_status = mock.Mock()
 
-        with mock.patch("cc_sandbox.http_requests.get", return_value=discovery_resp), \
-             mock.patch("cc_sandbox.http_requests.post", return_value=token_resp), \
-             mock.patch("cc_sandbox.webbrowser.open", side_effect=fake_open), \
-             mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True), \
-             mock.patch("cc_sandbox.HTTPServer") as mock_server_cls:
-            # Simulate the callback server returning an auth code
-            server_instance = mock_server_cls.return_value
-            server_instance.server_address = ("127.0.0.1", 12345)
-
-            def handle_request_side_effect():
-                # Simulate callback by finding the handler and calling it
-                pass
-
-            server_instance.handle_request = mock.Mock()
-            server_instance.timeout = 120
-
-            # We need to actually trigger the callback — but since we mock
-            # HTTPServer, the handler never runs. Instead, patch _auth_code_pkce
-            # at a lower level: mock the server and manually set the result.
-            # Simpler approach: just check the URL parameters.
-            try:
-                mgr._authenticate()
-            except (RuntimeError, Exception):
-                pass  # Expected since the mock server doesn't produce a code
-
-        assert "url" in captured_url
-        assert "scope=openid+groups" in captured_url["url"] or "scope=openid%20groups" in captured_url["url"]
-
-    def test_headless_prints_url_instead_of_browser(self, state_dir, mock_config, capsys):
-        """Without a browser, auth should print URL with SSH forwarding instructions."""
-        mgr = self._make_manager(state_dir, mock_config)
-
-        discovery_resp = mock.Mock()
-        discovery_resp.json.return_value = self.DISCOVERY_RESPONSE
-
-        with mock.patch("cc_sandbox.http_requests.get", return_value=discovery_resp), \
-             mock.patch("cc_sandbox.webbrowser.open") as mock_browser, \
+        with mock.patch("cc_sandbox.http_requests.post", return_value=token_resp), \
              mock.patch.dict(os.environ, {"SSH_CONNECTION": "1.2.3.4 5678 5.6.7.8 22"}, clear=True), \
-             mock.patch("cc_sandbox.HTTPServer") as mock_server_cls:
-            server_instance = mock_server_cls.return_value
-            server_instance.server_address = ("127.0.0.1", 54321)
-            server_instance.handle_request = mock.Mock()
-            server_instance.timeout = 120
+             mock.patch("builtins.input") as mock_input, \
+             mock.patch("builtins.print") as mock_print:
+            # Capture the auth URL from print calls, then provide matching state in paste
+            printed_lines = []
+            def capture_print(*args, **kwargs):
+                printed_lines.append(" ".join(str(a) for a in args))
+            mock_print.side_effect = capture_print
 
+            # We need state to match — extract it after the call starts.
+            # Easier: just let it fail on state mismatch and check the URL.
+            mock_input.return_value = "http://localhost:18472?code=c&state=wrong"
             try:
                 mgr._authenticate()
-            except (RuntimeError, Exception):
+            except RuntimeError:
                 pass
+
+        auth_line = [line for line in printed_lines if "auth.test/authorize" in line]
+        assert len(auth_line) > 0
+        assert "scope=openid+groups" in auth_line[0] or "scope=openid%20groups" in auth_line[0]
+
+    def test_headless_uses_paste_flow(self, state_dir, mock_config, capsys):
+        """Without a browser, auth should use URL paste flow (no server)."""
+        mgr = self._make_manager(state_dir, mock_config)
+        mgr._endpoints = self.DISCOVERY_RESPONSE
+
+        with mock.patch("cc_sandbox.webbrowser.open") as mock_browser, \
+             mock.patch.dict(os.environ, {"SSH_CONNECTION": "1.2.3.4 5678 5.6.7.8 22"}, clear=True), \
+             mock.patch("builtins.input", return_value="") as mock_input:
+            try:
+                mgr._authenticate()
+            except RuntimeError as e:
+                assert "no callback URL" in str(e)
 
         # Browser should NOT be opened
         mock_browser.assert_not_called()
-        # URL and SSH instructions should be printed
+        # Should have prompted for paste
+        mock_input.assert_called_once()
+        # URL should be printed
         output = capsys.readouterr().out
         assert "Open this URL" in output
-        assert "ssh -L" in output
+        assert "paste" in output.lower()
+
+    def test_browser_path_opens_browser(self, state_dir, mock_config):
+        """With a browser available, auth should open browser and start server."""
+        mgr = self._make_manager(state_dir, mock_config)
+        mgr._endpoints = self.DISCOVERY_RESPONSE
+
+        token_resp = mock.Mock()
+        token_resp.status_code = 200
+        token_resp.json.return_value = {"access_token": "tok", "expires_in": 300}
+        token_resp.raise_for_status = mock.Mock()
+
+        with mock.patch.dict(os.environ, {"DISPLAY": ":0"}, clear=True), \
+             mock.patch("cc_sandbox.webbrowser.open") as mock_browser, \
+             mock.patch("cc_sandbox.HTTPServer") as mock_server_cls, \
+             mock.patch("cc_sandbox.http_requests.post", return_value=token_resp):
+            server_instance = mock_server_cls.return_value
+            server_instance.handle_request = mock.Mock()
+            server_instance.server_close = mock.Mock()
+            try:
+                mgr._authenticate()
+            except RuntimeError:
+                pass
+
+        mock_browser.assert_called_once()
+
+
+class TestAuthViaPaste:
+    def test_extracts_code_from_callback(self):
+        """Paste flow should extract authorization code from callback URL."""
+        callback = "http://localhost:18472?code=auth-code-123&state=mystate"
+        with mock.patch("builtins.input", return_value=callback):
+            code = cc_sandbox.TokenManager._auth_via_paste("https://auth.test/authorize?...", "mystate")
+        assert code == "auth-code-123"
+
+    def test_state_mismatch_raises(self):
+        callback = "http://localhost:18472?code=c&state=wrong"
+        with mock.patch("builtins.input", return_value=callback):
+            with pytest.raises(RuntimeError, match="state mismatch"):
+                cc_sandbox.TokenManager._auth_via_paste("https://auth.test/authorize", "correct-state")
+
+    def test_empty_input_raises(self):
+        with mock.patch("builtins.input", return_value=""):
+            with pytest.raises(RuntimeError, match="no callback URL"):
+                cc_sandbox.TokenManager._auth_via_paste("https://auth.test/authorize", "state")
+
+    def test_error_in_callback_raises(self):
+        callback = "http://localhost:18472?error=access_denied&state=s"
+        with mock.patch("builtins.input", return_value=callback):
+            with pytest.raises(RuntimeError, match="access_denied"):
+                cc_sandbox.TokenManager._auth_via_paste("https://auth.test/authorize", "s")
+
+    def test_no_code_in_callback_raises(self):
+        callback = "http://localhost:18472?state=s"
+        with mock.patch("builtins.input", return_value=callback):
+            with pytest.raises(RuntimeError, match="no authorization code"):
+                cc_sandbox.TokenManager._auth_via_paste("https://auth.test/authorize", "s")
 
 
 # --- deployd API functions ---
