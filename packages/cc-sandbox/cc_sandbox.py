@@ -699,9 +699,13 @@ def build_dev_shell(profile):
 
     flake_ref = f"{checkout}#devShells.x86_64-linux.default"
 
-    # Build
+    # Build with an --out-link in the profile dir.  This serves as a GC root,
+    # keeping the dev shell closure alive between build and `nix copy` (which
+    # may take 60s+ while waiting for the container's SSH to come up).
+    env_script_path.parent.mkdir(parents=True, exist_ok=True)
+    result_link = env_script_path.parent / "dev-shell-result"
     result = subprocess.run(
-        ["nix", "build", flake_ref, "--print-out-paths", "--no-link"],
+        ["nix", "build", flake_ref, "--print-out-paths", "--out-link", str(result_link)],
         capture_output=True, text=True, check=True,
     )
     store_path = result.stdout.strip()
@@ -711,7 +715,6 @@ def build_dev_shell(profile):
         ["nix", "print-dev-env", flake_ref],
         capture_output=True, text=True, check=True,
     )
-    env_script_path.parent.mkdir(parents=True, exist_ok=True)
     env_script_path.write_text(result.stdout)
 
     return store_path, lock_hash, str(env_script_path)
