@@ -88,6 +88,9 @@
     pkgs.openssh
     pkgs.claude-code
     pkgs.nix
+    # /usr/bin/env for `#!/usr/bin/env ...` shebangs (and /bin/sh)
+    pkgs.dockerTools.usrBinEnv
+    pkgs.dockerTools.binSh
   ];
   closure = pkgs.closureInfo {rootPaths = imageContents;};
 
