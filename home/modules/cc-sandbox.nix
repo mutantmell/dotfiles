@@ -95,21 +95,29 @@ in {
   config = lib.mkIf cfg.enable {
     home.packages = [pkgs.mmell.cc-sandbox];
 
-    xdg.configFile."cc-sandbox/config.json".text = builtins.toJSON {
-      inherit (cfg) apiUrl;
-      inherit (cfg) authBaseUrl;
-      inherit (cfg) registry;
-      inherit (cfg) forgejoUrl;
-      inherit (cfg) imageName;
-      inherit (cfg) caCert;
-      dnsServers = builtins.concatStringsSep " " cfg.dnsServers;
-      inherit (cfg) memoryLimit;
-      inherit (cfg) cpuLimit;
-      inherit (cfg) clientId;
-      inherit (cfg) flakePath;
-      inherit (cfg) flakeAttr;
-      inherit (cfg) registryUser;
-      inherit (cfg) forgejoTokenFile;
+    xdg.configFile = {
+      "cc-sandbox/config.json".text = builtins.toJSON {
+        inherit (cfg) apiUrl;
+        inherit (cfg) authBaseUrl;
+        inherit (cfg) registry;
+        inherit (cfg) forgejoUrl;
+        inherit (cfg) imageName;
+        inherit (cfg) caCert;
+        dnsServers = builtins.concatStringsSep " " cfg.dnsServers;
+        inherit (cfg) memoryLimit;
+        inherit (cfg) cpuLimit;
+        inherit (cfg) clientId;
+        inherit (cfg) flakePath;
+        inherit (cfg) flakeAttr;
+        inherit (cfg) registryUser;
+        inherit (cfg) forgejoTokenFile;
+      };
+    } // lib.optionalAttrs (cfg.caCert != "") {
+      # containers/image (skopeo, podman, ...) auto-discovers per-registry CA
+      # certs at $HOME/.config/containers/certs.d/<host>/ca.crt. Path is
+      # hardcoded — not XDG_CONFIG_HOME-aware — but home-manager writes
+      # xdg.configFile to ~/.config by default, which matches.
+      "containers/certs.d/${cfg.registry}/ca.crt".source = cfg.caCert;
     };
   };
 }

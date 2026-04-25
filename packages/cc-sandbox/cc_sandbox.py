@@ -26,7 +26,6 @@ import secrets
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import webbrowser
 from datetime import datetime, timezone
@@ -118,9 +117,6 @@ class Config:
         self.forgejo_token_file = cfg.get("forgejoTokenFile", "")
         self._forgejo_token = None
 
-        # Combined CA bundle (system + ca_cert) for subprocess TLS, lazily built.
-        self._ssl_cert_file = None
-
     @property
     def forgejo_token(self):
         if self._forgejo_token is None:
@@ -133,42 +129,6 @@ class Config:
     def requests_verify(self):
         """Return the verify parameter for requests calls."""
         return self.ca_cert if self.ca_cert else True
-
-    def ssl_cert_file(self):
-        """Path to a combined CA bundle (system + self.ca_cert), or None.
-
-        Returns None if no extra CA is configured (callers should let the
-        subprocess inherit the parent SSL_CERT_FILE). Cached for the process
-        lifetime; the temp file is reaped on interpreter exit.
-        """
-        if not self.ca_cert:
-            return None
-        if self._ssl_cert_file is not None:
-            return self._ssl_cert_file
-
-        parts = []
-        system_bundle = os.environ.get("SSL_CERT_FILE")
-        if system_bundle and Path(system_bundle).exists():
-            parts.append(Path(system_bundle).read_text())
-        parts.append(Path(self.ca_cert).read_text())
-
-        fd, path = tempfile.mkstemp(prefix="cc-sandbox-cabundle-", suffix=".pem")
-        with os.fdopen(fd, "w") as f:
-            f.write("\n".join(parts))
-        self._ssl_cert_file = path
-        return path
-
-    def subprocess_env(self):
-        """Env dict for subprocesses needing the combined CA bundle.
-
-        Returns None when no override is needed (subprocess inherits parent env).
-        """
-        bundle = self.ssl_cert_file()
-        if bundle is None:
-            return None
-        env = os.environ.copy()
-        env["SSL_CERT_FILE"] = bundle
-        return env
 
 
 # --- State management ---
@@ -641,10 +601,9 @@ def push_image(config, image_path):
             "no Forgejo token found — check forgejoTokenFile in config"
         )
 
-    # TLS trust is via SSL_CERT_FILE on the subprocess (Go's crypto/tls honors it).
-    # --cert-dir / --dest-cert-dir are for *client* certificates (mTLS), not CA trust.
-    env = config.subprocess_env()
-
+    # TLS trust comes from ~/.config/containers/certs.d/<registry>/ca.crt,
+    # which is auto-discovered by containers/image. The home-manager module
+    # places the CA there. --cert-dir is for *client* certs (mTLS), not CA trust.
     dest = f"docker://{config.registry}/{config.image_name}:latest"
     skopeo_push = [
         "skopeo", "copy", "--insecure-policy",
@@ -653,7 +612,7 @@ def push_image(config, image_path):
     ]
     if not config.ca_cert:
         skopeo_push += ["--dest-tls-verify=false"]
-    subprocess.run(skopeo_push, check=True, env=env)
+    subprocess.run(skopeo_push, check=True)
 
     skopeo_inspect = [
         "skopeo", "inspect", "--insecure-policy",
@@ -661,9 +620,7 @@ def push_image(config, image_path):
     ]
     if not config.ca_cert:
         skopeo_inspect += ["--tls-verify=false"]
-    result = subprocess.run(
-        skopeo_inspect, capture_output=True, text=True, check=True, env=env,
-    )
+    result = subprocess.run(skopeo_inspect, capture_output=True, text=True, check=True)
     return json.loads(result.stdout)["Digest"]
 
 
