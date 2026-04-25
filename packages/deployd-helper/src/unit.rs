@@ -73,6 +73,10 @@ pub fn generate_unit(
         run_args.push(format!("--cpus={}", cpus));
     }
 
+    for dev in &def.devices {
+        run_args.push(format!("--device={}", dev));
+    }
+
     run_args.push(def.image.clone());
 
     format!(
@@ -144,6 +148,7 @@ mod tests {
             ingress: None,
             memory: None,
             cpus: None,
+            devices: vec![],
         };
 
         // ensure_volume_dirs creates the directories (called by executor before generate_unit)
@@ -184,10 +189,32 @@ mod tests {
             ingress: None,
             memory: None,
             cpus: None,
+            devices: vec![],
         };
 
         let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl(), "/tmp/vols");
         assert!(output.contains("\"--env=MSG=hello world\""));
+    }
+
+    #[test]
+    fn test_devices_emit_flag() {
+        let def = ContainerDefinition {
+            name: "myapp".into(),
+            image: "creil.internal/myapp@sha256:abc123".into(),
+            user: "testuser".into(),
+            ports: vec![],
+            env: HashMap::new(),
+            volumes: vec![],
+            persistent: false,
+            ingress: None,
+            memory: None,
+            cpus: None,
+            devices: vec!["/dev/kvm".into(), "/dev/net/tun".into()],
+        };
+
+        let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl(), "/tmp/vols");
+        assert!(output.contains("--device=/dev/kvm"));
+        assert!(output.contains("--device=/dev/net/tun"));
     }
 
     #[test]
@@ -203,6 +230,7 @@ mod tests {
             ingress: None,
             memory: None,
             cpus: None,
+            devices: vec![],
         };
 
         let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl(), "/tmp/vols");

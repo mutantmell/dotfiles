@@ -489,6 +489,19 @@ in {
     (mkIf cfg.kata.enable {
       environment.systemPackages = [pkgs.kata-runtime];
       boot.kernelModules = ["vhost" "vhost_net" "vhost_vsock" "kvm"];
+
+      # Enable nested KVM so workloads inside Kata VMs can themselves run
+      # KVM-accelerated VMs (e.g. NixOS test driver under qemu). Without this,
+      # inner QEMU silently falls back to TCG software emulation — 10-30x slower.
+      # Kata's default cpu_features = "pmu=off" does not disable vmx, and Kata
+      # passes -cpu host, so nested virt becomes available once the host KVM
+      # module has it enabled. Containers that want /dev/kvm visible inside the
+      # workload still need it requested via the protocol's `devices` field.
+      boot.extraModprobeConfig = ''
+        options kvm_intel nested=1
+        options kvm_amd nested=1
+      '';
+
       environment.etc."kata-containers/configuration.toml".source = "${pkgs.kata-runtime}/share/defaults/kata-containers/configuration-qemu.toml";
 
       # containerd resolves shim binaries via exec.LookPath, which searches the

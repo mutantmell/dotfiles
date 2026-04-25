@@ -9,6 +9,7 @@ pub fn validate_container(def: &ContainerDefinition, config: &Config) -> Result<
     validate_ports(def, config)?;
     validate_volumes(&def.volumes)?;
     validate_env(&def.env)?;
+    validate_devices(&def.devices)?;
     if let Some(ref ingress) = def.ingress {
         validate_hostname(&ingress.hostname, &config.hostname_allowlist)?;
         validate_port_range(ingress.upstream_port, config)?;
@@ -133,6 +134,30 @@ fn validate_hostname(hostname: &str, allowlist: &[String]) -> Result<(), String>
             "hostname '{}' does not match any permitted hostname suffix",
             hostname
         ));
+    }
+    Ok(())
+}
+
+/// Allowlist of host devices that may be exposed to containers.
+///
+/// Arbitrary device passthrough is a meaningful capability expansion (e.g.
+/// /dev/kvm grants the ability to run nested VMs). Adding a device to this
+/// list is an explicit, reviewed decision, not a per-deploy choice.
+const ALLOWED_DEVICES: &[&str] = &[
+    "/dev/kvm",      // nested KVM for inner VMs (e.g. NixOS test driver)
+    "/dev/net/tun",  // userspace TUN/TAP for VPN/networking workloads
+];
+
+/// Validate requested host devices against the allowlist.
+fn validate_devices(devices: &[String]) -> Result<(), String> {
+    for dev in devices {
+        if !ALLOWED_DEVICES.contains(&dev.as_str()) {
+            return Err(format!(
+                "device '{}' is not in the allowlist (permitted: {})",
+                dev,
+                ALLOWED_DEVICES.join(", ")
+            ));
+        }
     }
     Ok(())
 }
@@ -283,6 +308,7 @@ mod tests {
             ingress: None,
             memory: None,
             cpus: None,
+            devices: vec![],
         };
         assert!(validate_ports(&def, &config).is_ok());
 
@@ -452,6 +478,36 @@ mod tests {
         let mut env = std::collections::HashMap::new();
         env.insert("1FOO".into(), "value".into());
         assert!(validate_env(&env).is_err());
+    }
+
+    // --- Device validation ---
+
+    #[test]
+    fn test_devices_empty_ok() {
+        assert!(validate_devices(&[]).is_ok());
+    }
+
+    #[test]
+    fn test_devices_allowlist_kvm() {
+        assert!(validate_devices(&["/dev/kvm".into()]).is_ok());
+    }
+
+    #[test]
+    fn test_devices_allowlist_tun() {
+        assert!(validate_devices(&["/dev/net/tun".into()]).is_ok());
+    }
+
+    #[test]
+    fn test_devices_rejects_arbitrary_path() {
+        assert!(validate_devices(&["/dev/sda".into()]).is_err());
+        assert!(validate_devices(&["/dev/mem".into()]).is_err());
+        assert!(validate_devices(&["/etc/passwd".into()]).is_err());
+    }
+
+    #[test]
+    fn test_devices_rejects_traversal() {
+        assert!(validate_devices(&["/dev/../etc/passwd".into()]).is_err());
+        assert!(validate_devices(&["/dev/kvm/../sda".into()]).is_err());
     }
 
     #[test]

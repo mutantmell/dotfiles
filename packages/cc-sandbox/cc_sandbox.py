@@ -528,7 +528,7 @@ class TokenManager:
 
 # --- deployd API client ---
 
-def deployd_deploy(config, token, name, image, env=None, memory=None, cpus=None, volumes=None):
+def deployd_deploy(config, token, name, image, env=None, memory=None, cpus=None, volumes=None, devices=None):
     """Deploy a container via deployd-api. Returns the container IP."""
     payload = {"name": name, "image": image}
     if env:
@@ -539,6 +539,8 @@ def deployd_deploy(config, token, name, image, env=None, memory=None, cpus=None,
         payload["cpus"] = cpus
     if volumes:
         payload["volumes"] = volumes
+    if devices:
+        payload["devices"] = devices
     resp = http_requests.post(
         f"{config.api_url}/deploy",
         headers={
@@ -869,6 +871,9 @@ def cmd_up(args, config, state, token_mgr):
         memory=config.memory_limit or None,
         cpus=config.cpu_limit or None,
         volumes=volumes,
+        # /dev/kvm gives the inner NixOS test VMs KVM acceleration via nested
+        # virt — without it they fall back to TCG and effectively hang.
+        devices=["/dev/kvm"],
     )
 
     # Poll for IP
