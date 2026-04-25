@@ -21,7 +21,7 @@
     apiUrl = "https://roer.internal/api/v1";
     authBaseUrl = "https://auth.mutantmell.net/realms/homelab";
     registry = "creil.internal";
-    caCert = builtins.toString pkgs.mmell.lib.data.pki.root;
+    caCert = "${pkgs.mmell.lib.data.pki.root}";
     dnsServers = ["10.97.100.1"];
     memoryLimit = "8g";
     cpuLimit = "4";
