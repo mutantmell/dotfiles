@@ -256,6 +256,11 @@ class TokenManager:
     def _token_url(self):
         return self._oidc_endpoints["token_endpoint"]
 
+    @property
+    def _device_endpoint(self):
+        """RFC 8628 device authorization endpoint, or None if unsupported."""
+        return self._oidc_endpoints.get("device_authorization_endpoint")
+
     def get_token(self):
         """Get a valid access token, refreshing or re-authenticating as needed."""
         cached = self._load_cache()
@@ -310,7 +315,17 @@ class TokenManager:
         return None
 
     def _authenticate(self):
-        return self._auth_code_pkce()
+        """Dispatch to the best available auth flow.
+
+        - Local browser: auth code + PKCE with localhost callback
+        - Headless + provider supports RFC 8628: device code grant
+        - Headless + no device support: auth code + PKCE with paste fallback
+        """
+        if self._browser_available():
+            return self._auth_code_pkce(headless=False)
+        if self._device_endpoint:
+            return self._device_grant()
+        return self._auth_code_pkce(headless=True)
 
     def _browser_available(self):
         # No browser if SSH session or no display
@@ -320,16 +335,17 @@ class TokenManager:
             return False
         return True
 
-    def _auth_code_pkce(self):
+    def _auth_code_pkce(self, headless):
         """Authorization code flow with PKCE (S256).
 
-        With a local browser: opens the auth URL, runs a localhost callback
-        server to receive the redirect automatically.
+        Browser mode: opens the auth URL, runs a localhost callback server to
+        receive the redirect automatically.
 
-        Without a browser (SSH/headless): prints the auth URL for the user to
-        open on another machine. The redirect to localhost will fail in the
-        browser (connection refused); the user pastes the failed URL back into
-        the terminal so we can extract the authorization code.
+        Headless mode: prints the auth URL for the user to open on another
+        machine. The redirect to localhost will fail in the browser
+        (connection refused); the user pastes the failed URL back into the
+        terminal so we can extract the authorization code. Used as a fallback
+        when the OIDC provider does not support RFC 8628 device flow.
         """
         # Generate PKCE challenge
         code_verifier = secrets.token_urlsafe(64)
@@ -356,10 +372,10 @@ class TokenManager:
         })
         auth_url = f"{self._authorize_url}?{auth_params}"
 
-        if self._browser_available():
-            code = self._auth_via_browser(auth_url, state, redirect_port)
-        else:
+        if headless:
             code = self._auth_via_paste(auth_url, state)
+        else:
+            code = self._auth_via_browser(auth_url, state, redirect_port)
 
         # Exchange code for tokens
         resp = http_requests.post(
@@ -425,9 +441,9 @@ class TokenManager:
         """Headless auth: user opens URL elsewhere, pastes the callback URL back."""
         port = 18472
         host = socket.gethostname()
-        print(f"\nTip: for a smoother experience, forward the callback port first:", flush=True)
+        print("\nTip: for a smoother experience, forward the callback port first:", flush=True)
         print(f"  ssh -L {port}:localhost:{port} {host}", flush=True)
-        print(f"Then re-run this command — authentication will complete automatically.\n", flush=True)
+        print("Then re-run this command — authentication will complete automatically.\n", flush=True)
         print("Otherwise, open this URL in your browser to authenticate:\n", flush=True)
         print(f"  {auth_url}\n", flush=True)
         print("After authenticating, your browser will redirect to a localhost URL", flush=True)
@@ -447,6 +463,67 @@ class TokenManager:
             raise RuntimeError("no authorization code in callback URL")
         return params["code"][0]
 
+    def _device_grant(self):
+        """OAuth 2.0 Device Authorization Grant (RFC 8628).
+
+        Used when no local browser is available and the provider advertises
+        a device_authorization_endpoint. The user opens a URL on any device
+        and enters the displayed user code — no URL paste required.
+        """
+        init_resp = http_requests.post(
+            self._device_endpoint,
+            data={
+                "client_id": self.config.client_id,
+                "scope": "openid groups",
+            },
+            verify=self.config.requests_verify(),
+        )
+        init_resp.raise_for_status()
+        init = init_resp.json()
+
+        device_code = init["device_code"]
+        user_code = init["user_code"]
+        verification_uri = init["verification_uri"]
+        verification_uri_complete = init.get("verification_uri_complete")
+        expires_in = init.get("expires_in", 600)
+        interval = init.get("interval", 5)
+
+        print("\nTo authenticate, open this URL in any browser:", flush=True)
+        print(f"  {verification_uri}", flush=True)
+        print(f"\nAnd enter this code: {user_code}", flush=True)
+        if verification_uri_complete:
+            print("\nOr open this URL directly (code pre-filled):", flush=True)
+            print(f"  {verification_uri_complete}", flush=True)
+        print(f"\nWaiting for authentication... (expires in {expires_in}s)", flush=True)
+
+        deadline = time.time() + expires_in
+        while time.time() < deadline:
+            time.sleep(interval)
+            resp = http_requests.post(
+                self._token_url,
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    "device_code": device_code,
+                    "client_id": self.config.client_id,
+                },
+                verify=self.config.requests_verify(),
+            )
+            if resp.status_code == 200:
+                return self._save_cache(resp.json())
+
+            try:
+                err = resp.json().get("error")
+            except Exception:
+                err = None
+
+            if err == "authorization_pending":
+                continue
+            if err == "slow_down":
+                interval += 5
+                continue
+            raise RuntimeError(f"device authentication failed: {err or resp.status_code}")
+
+        raise RuntimeError("device authentication timed out")
 
 
 # --- deployd API client ---
