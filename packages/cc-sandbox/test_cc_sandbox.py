@@ -639,7 +639,7 @@ class TestDeviceGrant:
         output = capsys.readouterr().out
         assert "ABCD-1234" in output
 
-    def test_polls_until_authorized(self, mock_config):
+    def test_polls_until_authorized(self, state_dir, mock_config):
         """Device grant should poll past authorization_pending until success."""
         mgr = self._make_manager(mock_config, with_device=True)
 
@@ -661,7 +661,7 @@ class TestDeviceGrant:
 
         assert token == "got-it"
 
-    def test_slow_down_increases_interval(self, mock_config):
+    def test_slow_down_increases_interval(self, state_dir, mock_config):
         """slow_down error should increase polling interval and continue."""
         mgr = self._make_manager(mock_config, with_device=True)
 
@@ -885,8 +885,11 @@ class TestBuildDevShell:
         assert lock_hash != "oldhash"
         assert env_script_path.endswith("dev-env.sh")
         assert mock_run.call_count == 2
-        # First call: nix build
-        assert "devShells.x86_64-linux.default" in mock_run.call_args_list[0].args[0][2]
+        # First call: nix build with --out-link as GC root (not --no-link)
+        build_args = mock_run.call_args_list[0].args[0]
+        assert "devShells.x86_64-linux.default" in build_args[2]
+        assert "--out-link" in build_args
+        assert "--no-link" not in build_args
         # Second call: nix print-dev-env
         assert mock_run.call_args_list[1].args[0][0] == "nix"
         assert mock_run.call_args_list[1].args[0][1] == "print-dev-env"
