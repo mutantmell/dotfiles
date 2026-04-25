@@ -524,9 +524,10 @@ class TestAuthCodePkce:
         mock_browser.assert_not_called()
         # Should have prompted for paste
         mock_input.assert_called_once()
-        # URL should be printed
+        # URL and SSH forwarding hint should be printed
         output = capsys.readouterr().out
-        assert "Open this URL" in output
+        assert "open this url" in output.lower()
+        assert "ssh -L 18472:localhost:18472" in output
         assert "paste" in output.lower()
 
     def test_browser_path_opens_browser(self, state_dir, mock_config):
