@@ -61,6 +61,7 @@
     experimental-features = nix-command flakes
     build-users-group =
     require-sigs = false
+    extra-sandbox-paths = /dev/kvm
   '';
 
   # Git credential helper — reads token from a file at runtime.
@@ -104,6 +105,13 @@
 
     # Ensure required directories exist
     mkdir -p /var/empty /run
+
+    # Transfer /dev/kvm ownership to claude if passed in — host device is
+    # root:kvm mode 0660, but the container has no kvm group.  Keeping 0660
+    # and changing the owner is sufficient and avoids world-write.
+    if [ -e /dev/kvm ]; then
+      chown ${uid}:${gid} /dev/kvm
+    fi
 
     # Write /etc/resolv.conf from SANDBOX_DNS env var (space-separated IPs)
     if [ -n "''${SANDBOX_DNS:-}" ]; then
