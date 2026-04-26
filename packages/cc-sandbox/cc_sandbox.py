@@ -873,8 +873,7 @@ def cmd_up(args, config, state, token_mgr):
         memory=config.memory_limit or None,
         cpus=config.cpu_limit or None,
         volumes=volumes,
-        # runc gives the container direct access to /dev/kvm via cgroup device
-        # permissions; no explicit device passthrough needed.
+        devices=["/dev/kvm"],
         runtime="runc",
     )
 
