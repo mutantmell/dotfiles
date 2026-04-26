@@ -60,14 +60,6 @@ in {
         fi
       '';
     };
-    # TODO: Remove once all hosts use systemd stage 1 initrd (thebeyond uses scripted initrd with tmpfs profile)
-    boot.initrd.postMountCommands = lib.mkIf (!config.boot.initrd.systemd.enable) (lib.mkBefore ''
-      if [ -f /mnt-root${cfg.persistDir}/etc/machine-id ]; then
-        mkdir -p /mnt-root/etc
-        cp /mnt-root${cfg.persistDir}/etc/machine-id /mnt-root/etc/machine-id
-      fi
-    '');
-
     # On first boot, save the generated machine-id to persist for future boots.
     system.activationScripts.persist-machine-id = lib.stringAfter ["etc"] ''
       if [ ! -f ${cfg.persistDir}/etc/machine-id ] && [ -f /etc/machine-id ]; then

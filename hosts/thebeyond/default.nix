@@ -23,20 +23,15 @@ in {
   # update microcode to try and fix virtualization issues
   hardware.cpu.intel.updateMicrocode = true;
 
-  # LUKS automatic unlock: mount the ESP in initrd to access the keyfile,
-  # then unmount so NixOS can mount it normally later.
+  # LUKS automatic unlock via keyfile on ESP.
+  # systemd-cryptsetup-generator mounts the ESP, reads the keyfile, and unmounts it.
+  boot.initrd.systemd.enable = true;
   boot.initrd.supportedFilesystems = ["vfat"];
   boot.initrd.luks.devices."cryptroot" = {
     device = "/dev/disk/by-partlabel/disk-main-persist";
     allowDiscards = true;
-    keyFile = "/boot/secrets/disk.key";
-    preOpenCommands = ''
-      mkdir -p /boot
-      mount -t vfat /dev/disk/by-partlabel/disk-main-ESP /boot
-    '';
-    postOpenCommands = ''
-      umount /boot
-    '';
+    keyFile = "/secrets/disk.key:/dev/disk/by-partlabel/disk-main-ESP";
+    keyFileTimeout = 10;
   };
 
   # Ensure /boot/secrets directory exists

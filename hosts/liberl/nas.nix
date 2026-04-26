@@ -44,6 +44,7 @@ in {
   fileSystems = let
     media = {
       device = "/data/media";
+      fsType = "none";
       options = ["bind" "defaults" "nofail" "x-systemd.requires=zfs-mount.service"];
     };
   in {

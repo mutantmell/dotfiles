@@ -29,7 +29,7 @@
               name = "cryptroot";
               # initrdUnlock = false prevents disko from generating
               # boot.initrd.luks.devices — the host config manages that
-              # with preOpenCommands to mount the ESP for the keyfile.
+              # with keyFile = "path:device" for systemd-cryptsetup-generator.
               initrdUnlock = false;
               passwordFile = "/tmp/secret.key";
               settings.allowDiscards = true;
