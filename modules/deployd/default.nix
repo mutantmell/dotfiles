@@ -508,12 +508,16 @@ in {
         options kvm_amd nested=1
       '';
 
+      # Substitute the upstream @KERNELPATH@ placeholder before kata's Makefile
+      # renders the .toml. This uses kata's own designed override hook (KERNELPATH
+      # is in USER_VARS) rather than rewriting the post-build output, so it is
+      # robust to upstream changes in the rendered line's shape.
       environment.etc."kata-containers/configuration.toml".source = "${(pkgs.kata-runtime.overrideAttrs (old: {
-        postInstall =
-          (old.postInstall or "")
+        postPatch =
+          (old.postPatch or "")
           + ''
-            sed -i 's|^kernel = .*|kernel = "${cfg.kata.kernelPackage}/bzImage"|' \
-              $out/share/defaults/kata-containers/configuration-qemu.toml
+            substituteInPlace config/configuration-qemu.toml.in \
+              --replace-fail '@KERNELPATH@' '${cfg.kata.kernelPackage}/bzImage'
           '';
       }))}/share/defaults/kata-containers/configuration-qemu.toml";
 
