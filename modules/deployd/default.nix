@@ -105,6 +105,10 @@
         rm -f "/run/systemd/system/''${name}.service"
         rm -f "/etc/systemd/system/''${name}.service"
         ${systemctlPath} daemon-reload
+        # Remove the containerd entry, which triggers CNI DEL and releases
+        # the IP allocation. Best-effort: the entry may already be gone if
+        # the container never fully started.
+        ${nerdctlPath} rm -f "''${name}" 2>/dev/null || true
         ;;
 
       inspect)
