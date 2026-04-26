@@ -111,6 +111,7 @@
     # and changing the owner is sufficient and avoids world-write.
     if [ -e /dev/kvm ]; then
       chown ${uid}:${gid} /dev/kvm
+      chmod 600 /dev/kvm
     fi
 
     # Write /etc/resolv.conf from SANDBOX_DNS env var (space-separated IPs)
