@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::protocol::ContainerDefinition;
+use crate::protocol::{ContainerDefinition, Runtime};
 
 /// Validate a container definition against the configured policy.
 pub fn validate_container(def: &ContainerDefinition, config: &Config) -> Result<(), String> {
@@ -10,9 +10,24 @@ pub fn validate_container(def: &ContainerDefinition, config: &Config) -> Result<
     validate_volumes(&def.volumes)?;
     validate_env(&def.env)?;
     validate_devices(&def.devices)?;
+    validate_runtime(def.runtime, &config.allowed_runtimes)?;
     if let Some(ref ingress) = def.ingress {
         validate_hostname(&ingress.hostname, &config.hostname_allowlist)?;
         validate_port_range(ingress.upstream_port, config)?;
+    }
+    Ok(())
+}
+
+/// Validate the requested runtime against the host allowlist.
+/// None is always accepted — it resolves to the host default at execute time.
+pub fn validate_runtime(requested: Option<Runtime>, allowed: &[Runtime]) -> Result<(), String> {
+    if let Some(rt) = requested {
+        if !allowed.contains(&rt) {
+            return Err(format!(
+                "runtime '{}' is not permitted on this host",
+                rt.as_str()
+            ));
+        }
     }
     Ok(())
 }
@@ -211,7 +226,8 @@ mod tests {
             bridge_name: "br-deploy".into(),
             caddy_admin_url: "http://localhost:2019".into(),
             caddy_server_name: "deployd".into(),
-            runtime_class: "io.containerd.kata.v2".into(),
+            allowed_runtimes: vec![Runtime::Kata, Runtime::Runc],
+            default_runtime: Runtime::Kata,
             nerdctl_path: "/run/current-system/sw/bin/nerdctl".into(),
             deployd_exec_path: "/run/current-system/sw/bin/deployd-exec".into(),
             volume_root: "/tmp/deployd-test-volumes".into(),
@@ -309,6 +325,7 @@ mod tests {
             memory: None,
             cpus: None,
             devices: vec![],
+            runtime: None,
         };
         assert!(validate_ports(&def, &config).is_ok());
 
@@ -519,5 +536,27 @@ mod tests {
         let mut env = std::collections::HashMap::new();
         env.insert("FOO".into(), "bar\r\nExecStart=/bin/malicious".into());
         assert!(validate_env(&env).is_err());
+    }
+
+    // --- Runtime validation ---
+
+    #[test]
+    fn test_runtime_none_always_ok() {
+        assert!(validate_runtime(None, &[Runtime::Kata]).is_ok());
+        assert!(validate_runtime(None, &[Runtime::Runc]).is_ok());
+        assert!(validate_runtime(None, &[]).is_ok());
+    }
+
+    #[test]
+    fn test_runtime_requested_and_allowed() {
+        assert!(validate_runtime(Some(Runtime::Kata), &[Runtime::Kata, Runtime::Runc]).is_ok());
+        assert!(validate_runtime(Some(Runtime::Runc), &[Runtime::Runc]).is_ok());
+    }
+
+    #[test]
+    fn test_runtime_requested_but_not_allowed() {
+        assert!(validate_runtime(Some(Runtime::Kata), &[Runtime::Runc]).is_err());
+        assert!(validate_runtime(Some(Runtime::Runc), &[Runtime::Kata]).is_err());
+        assert!(validate_runtime(Some(Runtime::Kata), &[]).is_err());
     }
 }

@@ -51,32 +51,6 @@
       echo "$profileJson" > $out
     '';
 
-  # Kata kernel config drift check — verifies all required symbols are =y
-  kata-kernel-config = let
-    symbols = import ../packages/kata-kernel-nested/builtin-symbols.nix;
-    inherit (pkgs.mmell.kata-kernel-nested) configfile;
-  in
-    pkgs.runCommand "kata-kernel-config-check" {} ''
-      fail=0
-      ${lib.concatMapStrings (sym: ''
-        if ! grep -q '^CONFIG_${sym}=y$' ${configfile}; then
-          echo "FAIL: CONFIG_${sym} is not =y in $(realpath ${configfile})"
-          grep -E '^(# )?CONFIG_${sym}( |=)' ${configfile} || \
-            echo "  (symbol absent — kconfig deps may have changed)"
-          fail=1
-        fi
-      '') symbols}
-      if [ $fail -ne 0 ]; then
-        echo
-        echo "Kata kernel override drifted. Either some override silently"
-        echo "downgraded to =m/=n, or a parent symbol's deps changed."
-        echo "Re-run the verification in llm-notes/wip/kata-nested-kvm-plan.md"
-        echo "(section 4) and update builtin-symbols.nix."
-        exit 1
-      fi
-      echo ok > $out
-    '';
-
   # cc-sandbox unit tests
   cc-sandbox = let
     python = pkgs.python3.withPackages (ps: [ps.requests ps.pytest]);

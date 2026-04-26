@@ -26,6 +26,14 @@ pub enum HelperCommand {
     Status,
 }
 
+/// Mirrors deployd-helper's Runtime enum.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Runtime {
+    Kata,
+    Runc,
+}
+
 /// Mirrors deployd-helper's ContainerDefinition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerDefinition {
@@ -53,6 +61,9 @@ pub struct ContainerDefinition {
     /// Restricted by helper-side validation to a small allowlist.
     #[serde(default)]
     pub devices: Vec<String>,
+    /// Container runtime to use. None falls through to the host default.
+    #[serde(default)]
+    pub runtime: Option<Runtime>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

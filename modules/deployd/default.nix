@@ -269,22 +269,36 @@ in {
       };
     };
 
-    kata = {
-      enable = mkOption {
-        type = types.bool;
-        default = true;
-        description = "Enforce Kata Containers runtime for all managed containers.";
+    runtimes = {
+      allowed = mkOption {
+        type = types.listOf (types.enum ["kata" "runc"]);
+        default = ["runc"];
+        description = "Container runtimes permitted on this host. Clients may request any of these per-deploy.";
       };
-      kernelPackage = mkOption {
-        type = types.package;
-        default = pkgs.mmell.kata-kernel-nested;
-        defaultText = lib.literalExpression "pkgs.mmell.kata-kernel-nested";
-        description = "Kernel package to use inside Kata guest VMs. Must have KVM and virtio drivers compiled in (=y), not as modules, since the Kata rootfs module tree is version-locked to the upstream kernel.";
+      default = mkOption {
+        type = types.enum ["kata" "runc"];
+        default = builtins.head cfg.runtimes.allowed;
+        defaultText = lib.literalExpression "builtins.head config.deployd.runtimes.allowed";
+        description = "Runtime used when a deploy request omits the runtime field.";
+      };
+      kata.kernelPackage = mkOption {
+        type = types.nullOr types.package;
+        default = null;
+        description = "Kernel package for Kata guest VMs. When null, uses upstream Kata's bundled kernel via the unmodified configuration-qemu.toml.";
       };
     };
   };
 
   config = mkIf cfg.enable (mkMerge [
+    {
+      assertions = [
+        {
+          assertion = builtins.elem cfg.runtimes.default cfg.runtimes.allowed;
+          message = "deployd.runtimes.default (\"${cfg.runtimes.default}\") must be in deployd.runtimes.allowed (${builtins.concatStringsSep ", " cfg.runtimes.allowed})";
+        }
+      ];
+    }
+
     # Core: deployd-helper service, containerd, network config
     {
       # Container runtime: containerd + nerdctl.
@@ -412,10 +426,8 @@ in {
           DEPLOYD_BRIDGE_NAME = cfg.bridge.name;
           DEPLOYD_CADDY_ADMIN_URL = cfg.caddy.adminUrl;
           DEPLOYD_CADDY_SERVER_NAME = cfg.caddy.serverName;
-          DEPLOYD_RUNTIME_CLASS =
-            if cfg.kata.enable
-            then "io.containerd.kata.v2"
-            else "io.containerd.runc.v2";
+          DEPLOYD_ALLOWED_RUNTIMES = builtins.concatStringsSep "," cfg.runtimes.allowed;
+          DEPLOYD_DEFAULT_RUNTIME = cfg.runtimes.default;
           DEPLOYD_NERDCTL_PATH = nerdctlPath;
           DEPLOYD_EXEC_PATH = "${deployd-exec}";
           DEPLOYD_VOLUME_ROOT = "/var/lib/deployd/volumes";
@@ -492,7 +504,7 @@ in {
     # Kata runtime: install kata-runtime (provides containerd-shim-kata-v2),
     # load required kernel modules, create /etc/kata-containers/configuration.toml,
     # and set the containerd service PATH so it can find the shim binary.
-    (mkIf cfg.kata.enable {
+    (mkIf (lib.elem "kata" cfg.runtimes.allowed) {
       environment.systemPackages = [pkgs.kata-runtime];
       boot.kernelModules = ["vhost" "vhost_net" "vhost_vsock" "kvm"];
 
@@ -501,25 +513,27 @@ in {
       # inner QEMU silently falls back to TCG software emulation — 10-30x slower.
       # Kata's default cpu_features = "pmu=off" does not disable vmx, and Kata
       # passes -cpu host, so nested virt becomes available once the host KVM
-      # module has it enabled. Containers that want /dev/kvm visible inside the
-      # workload still need it requested via the protocol's `devices` field.
+      # module has it enabled.
       boot.extraModprobeConfig = ''
         options kvm_intel nested=1
         options kvm_amd nested=1
       '';
 
-      # Substitute the upstream @KERNELPATH@ placeholder before kata's Makefile
-      # renders the .toml. This uses kata's own designed override hook (KERNELPATH
-      # is in USER_VARS) rather than rewriting the post-build output, so it is
-      # robust to upstream changes in the rendered line's shape.
-      environment.etc."kata-containers/configuration.toml".source = "${(pkgs.kata-runtime.overrideAttrs (old: {
-        postPatch =
-          (old.postPatch or "")
-          + ''
-            substituteInPlace config/configuration-qemu.toml.in \
-              --replace-fail '@KERNELPATH@' '${cfg.kata.kernelPackage}/bzImage'
-          '';
-      }))}/share/defaults/kata-containers/configuration-qemu.toml";
+      # When a custom kernel is provided, substitute the upstream @KERNELPATH@
+      # placeholder in configuration-qemu.toml.in before kata's Makefile renders
+      # the .toml. When null, use the unmodified upstream configuration which
+      # references kata's bundled kernel.
+      environment.etc."kata-containers/configuration.toml".source =
+        if cfg.runtimes.kata.kernelPackage != null
+        then "${(pkgs.kata-runtime.overrideAttrs (old: {
+          postPatch =
+            (old.postPatch or "")
+            + ''
+              substituteInPlace config/configuration-qemu.toml.in \
+                --replace-fail '@KERNELPATH@' '${cfg.runtimes.kata.kernelPackage}/bzImage'
+            '';
+        }))}/share/defaults/kata-containers/configuration-qemu.toml"
+        else "${pkgs.kata-runtime}/share/defaults/kata-containers/configuration-qemu.toml";
 
       # containerd resolves shim binaries via exec.LookPath, which searches the
       # process's PATH.  Adding kata-runtime to the containerd service path
