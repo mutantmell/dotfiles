@@ -62,6 +62,8 @@
     build-users-group =
     require-sigs = false
     extra-sandbox-paths = /dev/kvm
+    system-features = kvm nixos-test big-parallel benchmark
+    max-jobs = auto
   '';
 
   # Git credential helper — reads token from a file at runtime.
