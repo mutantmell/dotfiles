@@ -275,6 +275,12 @@ in {
         default = true;
         description = "Enforce Kata Containers runtime for all managed containers.";
       };
+      kernelPackage = mkOption {
+        type = types.package;
+        default = pkgs.mmell.kata-kernel-nested;
+        defaultText = lib.literalExpression "pkgs.mmell.kata-kernel-nested";
+        description = "Kernel package to use inside Kata guest VMs. Must have KVM and virtio drivers compiled in (=y), not as modules, since the Kata rootfs module tree is version-locked to the upstream kernel.";
+      };
     };
   };
 
@@ -502,7 +508,14 @@ in {
         options kvm_amd nested=1
       '';
 
-      environment.etc."kata-containers/configuration.toml".source = "${pkgs.kata-runtime}/share/defaults/kata-containers/configuration-qemu.toml";
+      environment.etc."kata-containers/configuration.toml".source = "${(pkgs.kata-runtime.overrideAttrs (old: {
+        postInstall =
+          (old.postInstall or "")
+          + ''
+            sed -i 's|^kernel = .*|kernel = "${cfg.kata.kernelPackage}/bzImage"|' \
+              $out/share/defaults/kata-containers/configuration-qemu.toml
+          '';
+      }))}/share/defaults/kata-containers/configuration-qemu.toml";
 
       # containerd resolves shim binaries via exec.LookPath, which searches the
       # process's PATH.  Adding kata-runtime to the containerd service path
