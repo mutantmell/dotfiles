@@ -47,9 +47,10 @@ impl Executor {
             return HelperResponse::err(e);
         }
 
+        let runtime = def.runtime.unwrap_or(self.config.default_runtime);
         let unit = generate_unit(
             def,
-            &self.config.runtime_class,
+            runtime.runtime_class(),
             &self.config.bridge_name,
             &self.config.nerdctl_path,
             &self.config.volume_root,

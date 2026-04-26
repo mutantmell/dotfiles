@@ -1,5 +1,7 @@
 use serde::Deserialize;
 
+use crate::protocol::Runtime;
+
 /// Runtime configuration loaded from environment variables or config file.
 /// All paths are set by the NixOS module via environment variables.
 #[derive(Debug, Clone, Deserialize)]
@@ -15,8 +17,10 @@ pub struct Config {
     pub bridge_name: String,
     pub caddy_admin_url: String,
     pub caddy_server_name: String,
-    /// containerd runtime class name (e.g. "io.containerd.kata.v2" or "io.containerd.runc.v2").
-    pub runtime_class: String,
+    /// Runtimes permitted on this host. Clients may request any of these per-deploy.
+    pub allowed_runtimes: Vec<Runtime>,
+    /// Runtime used when a deploy request omits the runtime field.
+    pub default_runtime: Runtime,
     /// Path to nerdctl, embedded in generated systemd unit files (not called directly).
     pub nerdctl_path: String,
     /// Path to the deployd-exec privileged wrapper script (invoked via sudo).
@@ -44,7 +48,8 @@ impl Config {
             bridge_name: env_or("DEPLOYD_BRIDGE_NAME", "br-deploy"),
             caddy_admin_url: env_or("DEPLOYD_CADDY_ADMIN_URL", "http://localhost:2019"),
             caddy_server_name: env_or("DEPLOYD_CADDY_SERVER_NAME", "deployd"),
-            runtime_class: env_or("DEPLOYD_RUNTIME_CLASS", "io.containerd.kata.v2"),
+            allowed_runtimes: parse_runtime_list("DEPLOYD_ALLOWED_RUNTIMES")?,
+            default_runtime: parse_runtime("DEPLOYD_DEFAULT_RUNTIME")?,
             nerdctl_path: env_or(
                 "DEPLOYD_NERDCTL_PATH",
                 "/run/current-system/sw/bin/nerdctl",
@@ -53,6 +58,27 @@ impl Config {
             volume_root: env_or("DEPLOYD_VOLUME_ROOT", "/var/lib/deployd/volumes"),
         })
     }
+}
+
+fn parse_runtime(key: &str) -> Result<Runtime, String> {
+    let s = env_required(key)?;
+    match s.as_str() {
+        "kata" => Ok(Runtime::Kata),
+        "runc" => Ok(Runtime::Runc),
+        other => Err(format!("{}: unknown runtime '{}'", key, other)),
+    }
+}
+
+fn parse_runtime_list(key: &str) -> Result<Vec<Runtime>, String> {
+    let s = std::env::var(key).map_err(|_| format!("{} is required but not set", key))?;
+    s.split(',')
+        .filter(|x| !x.is_empty())
+        .map(|x| match x.trim() {
+            "kata" => Ok(Runtime::Kata),
+            "runc" => Ok(Runtime::Runc),
+            other => Err(format!("{}: unknown runtime '{}'", key, other)),
+        })
+        .collect()
 }
 
 fn env_required(key: &str) -> Result<String, String> {

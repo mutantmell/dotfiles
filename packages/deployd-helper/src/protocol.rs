@@ -3,6 +3,29 @@ use serde::{Deserialize, Serialize};
 /// Wire protocol between deployd API (microVM) and deployd-helper (host).
 /// Each message is a newline-delimited JSON object prefixed by a capability token.
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Runtime {
+    Kata,
+    Runc,
+}
+
+impl Runtime {
+    pub fn runtime_class(self) -> &'static str {
+        match self {
+            Runtime::Kata => "io.containerd.kata.v2",
+            Runtime::Runc => "io.containerd.runc.v2",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Runtime::Kata => "kata",
+            Runtime::Runc => "runc",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HelperMessage {
     pub token: String,
@@ -50,6 +73,9 @@ pub struct ContainerDefinition {
     /// permitted.
     #[serde(default)]
     pub devices: Vec<String>,
+    /// Container runtime to use. None falls through to the host default.
+    #[serde(default)]
+    pub runtime: Option<Runtime>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

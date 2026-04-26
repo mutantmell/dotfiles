@@ -51,9 +51,6 @@ in
           gateway = "10.100.0.1";
         };
 
-        # Disable Kata in test VM (no nested KVM)
-        kata.enable = false;
-
         # Disable Caddy in basic test
         caddy.enable = false;
       };

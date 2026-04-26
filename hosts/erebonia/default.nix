@@ -28,7 +28,10 @@ in {
     vsockHostSocket = "/var/lib/microvms/roer/notify.vsock_7000";
     vsockDirectoryService = "microvm@roer.service";
     caddy.listenAddress = (pkgs.mmell.lib.data.network.forHost "erebonia").host.ipv4;
-    kata.enable = true;
+    runtimes = {
+      allowed = ["kata" "runc"];
+      default = "kata";
+    };
     bridge = {
       name = "deploy-dmz";
       uplink = "uplink.100";

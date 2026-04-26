@@ -149,6 +149,7 @@ mod tests {
             memory: None,
             cpus: None,
             devices: vec![],
+            runtime: None,
         };
 
         // ensure_volume_dirs creates the directories (called by executor before generate_unit)
@@ -190,6 +191,7 @@ mod tests {
             memory: None,
             cpus: None,
             devices: vec![],
+            runtime: None,
         };
 
         let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl(), "/tmp/vols");
@@ -210,6 +212,7 @@ mod tests {
             memory: None,
             cpus: None,
             devices: vec!["/dev/kvm".into(), "/dev/net/tun".into()],
+            runtime: None,
         };
 
         let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl(), "/tmp/vols");
@@ -231,6 +234,7 @@ mod tests {
             memory: None,
             cpus: None,
             devices: vec![],
+            runtime: None,
         };
 
         let output = generate_unit(&def, "io.containerd.runc.v2", "br-deploy", nerdctl(), "/tmp/vols");
