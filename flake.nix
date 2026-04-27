@@ -214,6 +214,7 @@
         self.nixosModules.common
         self.nixosModules."promtail-client"
         self.nixosModules."node-exporter-client"
+        self.nixosModules."fluent-bit-agent"
       ];
       mk-nixos = args @ {
         nixpkgs,

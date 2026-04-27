@@ -18,6 +18,9 @@ in {
     ./modules/alertmanager.nix
     ./modules/ntfy.nix
     ./modules/perses.nix
+    ./modules/victoriametrics.nix
+    ./modules/blackbox.nix
+    ./modules/fluent-bit.nix
   ];
 
   networking.hostName = hostname;
@@ -95,37 +98,6 @@ in {
           port = 123;
           comment = "NTP";
         }
-      ]
-      # Prometheus scrape targets — node_exporter (port 9100)
-      ++ (map (name: {
-          host = name;
-          proto = "tcp";
-          port = 9100;
-          comment = "node_exporter scrape";
-        }) [
-          "thebeyond"
-          "calvard"
-          "erebonia"
-          "phantasma"
-          "basel"
-          "messeldam"
-          "langport"
-          "creil"
-          "oracion"
-          "zeiss"
-          "saint-arkh"
-          "trista"
-          "edith"
-          "bose"
-        ])
-      ++ [
-        # Liberl: non-standard exporter ports
-        {
-          host = "liberl";
-          proto = "tcp";
-          port = [9001 9002 9003];
-          comment = "node/zfs/smartctl exporters";
-        }
         # ACME certs from basel (for Perses TLS)
         {
           host = "basel";
@@ -141,6 +113,29 @@ in {
           comment = "Keycloak OIDC";
         }
       ]
+      # Blackbox SSH probes — blackbox_exporter initiates TCP connections to :22.
+      ++ (map (name: {
+          host = name;
+          proto = "tcp";
+          port = 22;
+          comment = "blackbox SSH probe";
+        }) [
+          "thebeyond"
+          "calvard"
+          "erebonia"
+          "liberl"
+          "phantasma"
+          "basel"
+          "messeldam"
+          "langport"
+          "creil"
+          "oracion"
+          "zeiss"
+          "saint-arkh"
+          "trista"
+          "bose"
+          "edith"
+        ])
     )
   );
 

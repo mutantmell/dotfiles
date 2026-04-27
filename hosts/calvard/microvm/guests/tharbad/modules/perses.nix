@@ -20,7 +20,8 @@
         kind = "PrometheusDatasource";
         spec.proxy = {
           kind = "HTTPProxy";
-          spec.url = "http://localhost:${toString config.services.prometheus.port}";
+          # vmsingle exposes a PromQL-compatible HTTP API (MetricsQL superset).
+          spec.url = "http://localhost:8428";
         };
       };
     };
