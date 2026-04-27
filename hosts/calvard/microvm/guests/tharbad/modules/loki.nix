@@ -77,7 +77,7 @@
               severity = "warning";
             };
             annotations = {
-              summary = "Fewer than ${toString expectedHosts} hosts shipping logs to Loki — check promtail fleet";
+              summary = "Fewer than ${toString expectedHosts} hosts shipping logs to Loki — check fluent-bit fleet";
             };
           }
         ];
@@ -150,7 +150,9 @@ in {
 
   # Reverse proxy: expose only the push API on port 3100 to the network.
   # Loki itself is bound to 127.0.0.1, so /metrics and query endpoints
-  # are only reachable locally (by Prometheus and Perses).
+  # are only reachable locally (by vmalert and Perses).
+  # Push endpoint is gated by HTTP basic auth (username=hostname, password=bearer token).
+  # The htpasswd file contains pre-bcrypt-hashed tokens; plaintext never lands on tharbad.
   services.nginx.virtualHosts."loki" = {
     listen = [
       {
@@ -159,17 +161,15 @@ in {
       }
     ];
     locations."/loki/api/v1/push" = {
+      extraConfig = ''
+        auth_basic "loki-push";
+        auth_basic_user_file ${config.sops.secrets."loki-htpasswd".path};
+      '';
       proxyPass = "http://127.0.0.1:${toString config.services.loki.configuration.server.http_listen_port}";
     };
     locations."/" = {
       return = "404";
     };
-  };
-
-  # Local Promtail — ship tharbad's own logs to localhost Loki
-  promtail-client = {
-    enable = true;
-    lokiUrl = "http://127.0.0.1:${toString config.services.loki.configuration.server.http_listen_port}/loki/api/v1/push";
   };
 
   environment.persistence."/persist".directories = [

@@ -18,8 +18,9 @@ in {
     services.prometheus.exporters.node = {
       enable = true;
       inherit (cfg) port;
+      listenAddress = "127.0.0.1";
       enabledCollectors = ["systemd"];
     };
-    networking.firewall.allowedTCPPorts = [cfg.port];
+    # No firewall opening — loopback-only source scraped locally by fluent-bit.
   };
 }
