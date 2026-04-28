@@ -1,31 +1,4 @@
-{
-  config,
-  pkgs,
-  lib,
-  ...
-}: let
-  # All fleet hosts that push metrics and logs to tharbad.
-  fleetHosts = [
-    "thebeyond"
-    "calvard"
-    "erebonia"
-    "liberl"
-    "tharbad"
-    "phantasma"
-    "basel"
-    "messeldam"
-    "langport"
-    "creil"
-    "oracion"
-    "zeiss"
-    "saint-arkh"
-    "trista"
-    "bose"
-    "edith"
-  ];
-
-  vmauthConfigPath = "/etc/vmauth/auth.yml";
-
+{pkgs, ...}: let
   alertRules = {
     groups = [
       {
@@ -33,13 +6,13 @@
         rules = [
           {
             alert = "HostUnreachable";
-            expr = ''probe_success{job="blackbox-ssh"} == 0'';
+            expr = "probe_success == 0";
             "for" = "2m";
             labels = {
               severity = "critical";
             };
             annotations = {
-              summary = "{{ $labels.host }}: SSH probe failing — host may be down";
+              summary = "{{ $labels.target }}: SSH probe failing — host may be down";
             };
           }
           {
@@ -145,71 +118,14 @@
     ];
   };
 in {
-  # vmsingle — metrics TSDB (loopback-only; vmauth is the external face).
   services.victoriametrics = {
     enable = true;
     listenAddress = "127.0.0.1:8428";
     retentionPeriod = "90d";
     extraOptions = [
-      # Reject samples older than 5 min or newer than 1 min (anti-replay).
-      "-search.maxStalenessInterval=5m"
       "-maxLabelsPerTimeseries=50"
     ];
   };
-
-  # vmauth — bearer-token auth gateway; maps token → identity via extra_label URL.
-  # Option A (tested in Phase 1): vmsingle's extra_label URL param overrides
-  # incoming host label, so no vmagent needed in the chain.
-  users.users.vmauth = {
-    isSystemUser = true;
-    group = "vmauth";
-    description = "vmauth metrics auth proxy";
-  };
-  users.groups.vmauth = {};
-
-  # Generate vmauth config from sops-decrypted per-host tokens.
-  sops.templates."vmauth-auth" = {
-    path = vmauthConfigPath;
-    owner = "vmauth";
-    mode = "0400";
-    content = let
-      mkEntry = host: ''
-        - bearer_token: "${config.sops.placeholder."host-tokens/${host}"}"
-          url_prefix: "http://127.0.0.1:8428/api/v1/write?extra_label=host=${host}"
-      '';
-    in ''
-      users:
-      ${lib.concatMapStrings mkEntry fleetHosts}
-    '';
-  };
-
-  systemd.tmpfiles.rules = [
-    "d /etc/vmauth 0750 vmauth vmauth -"
-  ];
-
-  systemd.services.vmauth = {
-    description = "vmauth metrics authentication proxy";
-    wantedBy = ["multi-user.target"];
-    after = ["network.target" "sops-nix.service" "victoriametrics.service"];
-    wants = ["sops-nix.service"];
-    requires = ["victoriametrics.service"];
-    serviceConfig = {
-      User = "vmauth";
-      Group = "vmauth";
-      Type = "simple";
-      Restart = "on-failure";
-      RestartSec = "5s";
-      ExecStart = "${pkgs.victoriametrics}/bin/vmauth -auth.config=${vmauthConfigPath} -httpListenAddr=:8427";
-      # Hardening
-      NoNewPrivileges = true;
-      PrivateTmp = true;
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      ReadWritePaths = [];
-    };
-  };
-
-  networking.firewall.allowedTCPPorts = [8427];
 
   # vmalert — rule evaluation against vmsingle; fires to Alertmanager.
   services.vmalert.instances."" = {
@@ -222,21 +138,6 @@ in {
     };
     rules = alertRules;
   };
-
-  # Sops secrets — host-token table for vmauth and Loki htpasswd.
-  # Plaintext tokens for vmauth live in host-tokens/<hostname>;
-  # htpasswd (pre-bcrypt-hashed) lives in loki-htpasswd.
-  sops.secrets =
-    lib.listToAttrs (
-      map (host: {
-        name = "host-tokens/${host}";
-        value = {};
-      })
-      fleetHosts
-    )
-    // {
-      "loki-htpasswd" = {};
-    };
 
   environment.persistence."/persist".directories = [
     {

@@ -4,25 +4,7 @@
   lib,
   ...
 }: let
-  # Fleet hosts to TCP-probe via blackbox_exporter.
-  fleetHosts = [
-    "thebeyond"
-    "calvard"
-    "erebonia"
-    "liberl"
-    "tharbad"
-    "phantasma"
-    "basel"
-    "messeldam"
-    "langport"
-    "creil"
-    "oracion"
-    "zeiss"
-    "saint-arkh"
-    "trista"
-    "bose"
-    "edith"
-  ];
+  fleetHosts = pkgs.mmell.lib.data.network.monitoredHosts;
 
   lokiPort = config.services.loki.configuration.server.http_listen_port;
 
@@ -36,21 +18,25 @@
       scrape_interval = "30";
     })
     fleetHosts;
+
+  blackboxFilters =
+    map (host: {
+      name = "modify";
+      match = "host.metric.blackbox.${host}";
+      add = {target = "${host}.internal:22";};
+    })
+    fleetHosts;
 in {
-  # Tharbad's own fluent-bit agent. Uses the fleet module but routes logs
-  # directly to local Loki (bypassing the nginx auth proxy at :3100)
-  # and metrics to local vmauth for label pinning.
   fluent-bit-agent = {
     enable = true;
-    # Direct to Loki's listen port — no nginx auth, Loki has auth_enabled=false.
+    # Local traffic goes directly to Loki and vmsingle — no mTLS needed.
     lokiUrl = "http://127.0.0.1:${toString lokiPort}/loki/api/v1/push";
-    # Route metrics through vmauth for host label enforcement.
-    metricsUrl = "http://127.0.0.1:8427/api/v1/write";
-    authTokenFile = config.sops.secrets."observability-token".path;
+    metricsUrl = "http://127.0.0.1:8428/api/v1/write";
+    tls.certFile = lib.mkForce null;
+    tls.keyFile = lib.mkForce null;
     extraInputs =
       blackboxInputs
       ++ [
-        # Loki self-metrics
         {
           name = "prometheus_scrape";
           tag = "host.metric.loki";
@@ -59,7 +45,6 @@ in {
           metrics_path = "/metrics";
           scrape_interval = "15";
         }
-        # vmsingle self-metrics
         {
           name = "prometheus_scrape";
           tag = "host.metric.vmsingle";
@@ -68,15 +53,7 @@ in {
           metrics_path = "/metrics";
           scrape_interval = "15";
         }
-        # vmauth self-metrics
-        {
-          name = "prometheus_scrape";
-          tag = "host.metric.vmauth";
-          host = "127.0.0.1";
-          port = 8427;
-          metrics_path = "/metrics";
-          scrape_interval = "15";
-        }
       ];
+    extraFilters = blackboxFilters;
   };
 }

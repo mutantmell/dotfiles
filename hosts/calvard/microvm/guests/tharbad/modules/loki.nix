@@ -1,6 +1,6 @@
 {
-  config,
   pkgs,
+  config,
   ...
 }: let
   # Number of hosts expected to be shipping logs (parent hosts + guests)
@@ -85,8 +85,6 @@
     ];
   });
 in {
-  networking.firewall.allowedTCPPorts = [3100];
-
   services.loki = {
     enable = true;
     configuration = {
@@ -147,30 +145,6 @@ in {
     "d /var/lib/loki/rules/fake 0750 loki loki -"
     "L+ /var/lib/loki/rules/fake/security-alerts.yaml - - - - ${securityRules}"
   ];
-
-  # Reverse proxy: expose only the push API on port 3100 to the network.
-  # Loki itself is bound to 127.0.0.1, so /metrics and query endpoints
-  # are only reachable locally (by vmalert and Perses).
-  # Push endpoint is gated by HTTP basic auth (username=hostname, password=bearer token).
-  # The htpasswd file contains pre-bcrypt-hashed tokens; plaintext never lands on tharbad.
-  services.nginx.virtualHosts."loki" = {
-    listen = [
-      {
-        addr = "0.0.0.0";
-        port = 3100;
-      }
-    ];
-    locations."/loki/api/v1/push" = {
-      extraConfig = ''
-        auth_basic "loki-push";
-        auth_basic_user_file ${config.sops.secrets."loki-htpasswd".path};
-      '';
-      proxyPass = "http://127.0.0.1:${toString config.services.loki.configuration.server.http_listen_port}";
-    };
-    locations."/" = {
-      return = "404";
-    };
-  };
 
   environment.persistence."/persist".directories = [
     {

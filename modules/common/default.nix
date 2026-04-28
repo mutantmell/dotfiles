@@ -3,12 +3,14 @@
     ./btrfs.nix
     ./deployd.nix
     ./firewall.nix
+    ./fluent-bit.nix
     ./impermanence.nix
     ./incus.nix
     ./microvm.nix
     ./networking.nix
     ./openssh.nix
     ./ssh-cert-client.nix
+    ./tls-cert-client.nix
   ];
 
   # Reserve 400-499 for project-static UIDs/GIDs (see lib/common/data/default.nix).

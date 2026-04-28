@@ -190,6 +190,33 @@
     )
     networks;
 
+  # Hosts that run fluent-bit-agent and push metrics/logs to tharbad.
+  # Add a host here when enabling fluent-bit-agent in its NixOS config.
+  monitoredHosts = let
+    listed = [
+      "thebeyond"
+      "calvard"
+      "erebonia"
+      "liberl"
+      "tharbad"
+      "phantasma"
+      "basel"
+      "messeldam"
+      "langport"
+      "creil"
+      "oracion"
+      "zeiss"
+      "saint-arkh"
+      "trista"
+      "bose"
+      "edith"
+    ];
+    unknown = lib.filter (name: !(hosts ? ${name})) listed;
+  in
+    if unknown != []
+    then throw "network registry: monitoredHosts: unknown hosts: ${lib.concatStringsSep ", " unknown}"
+    else listed;
+
   # Additional domain names per host, beyond the auto-derived
   # <name>.internal.mutantmell.net and <name>.internal.
   # These are the canonical source — dns.nix and mkExtraHosts reference this.
@@ -367,6 +394,7 @@ in {
     mkEgressRules
     mkDualStackRules
     hostsFile
+    monitoredHosts
     ;
   inherit
     (display)
