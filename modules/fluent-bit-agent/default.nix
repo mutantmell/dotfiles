@@ -21,30 +21,37 @@
 
   lokiParsed = parseUrl cfg.lokiUrl;
   metricsParsed = parseUrl cfg.metricsUrl;
+
+  hasTls = cfg.tls.certFile != null;
+  tlsConfig = lib.optionalAttrs hasTls {
+    tls = "on";
+    "tls.crt_file" = cfg.tls.certFile;
+    "tls.key_file" = cfg.tls.keyFile;
+  };
 in {
   options.fluent-bit-agent = {
     enable = lib.mkEnableOption "Fluent Bit agent (logs + metrics)";
 
     lokiUrl = lib.mkOption {
       type = lib.types.str;
-      default = "http://tharbad.internal:3100/loki/api/v1/push";
       description = "Loki push API endpoint URL";
     };
 
     metricsUrl = lib.mkOption {
       type = lib.types.str;
-      default = "http://tharbad.internal:8427/api/v1/write";
-      description = "vmauth remote_write endpoint URL";
+      description = "VictoriaMetrics remote_write endpoint URL";
     };
 
-    authTokenFile = lib.mkOption {
-      type = lib.types.path;
-      description = ''
-        Path to a file containing the per-host bearer token.
-        Used as Bearer auth on the metrics push output and as HTTP basic-auth
-        password (hostname as username) on the Loki push output. Typically a
-        sops-nix secret resolving to /run/secrets/observability-token.
-      '';
+    tls.certFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Path to TLS client certificate file for mTLS auth on push endpoints.";
+    };
+
+    tls.keyFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Path to TLS client private key file for mTLS auth on push endpoints.";
     };
 
     extraInputs = lib.mkOption {
@@ -56,6 +63,15 @@ in {
         should start with "host.metric." to route to vmsingle.
       '';
     };
+
+    extraFilters = lib.mkOption {
+      type = lib.types.listOf lib.types.attrs;
+      default = [];
+      description = ''
+        Additional Fluent Bit filters appended after the default modify filters.
+        Useful for injecting per-stream labels (e.g., target labels for blackbox probes).
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -63,6 +79,10 @@ in {
       {
         assertion = config.node-exporter-client.enable;
         message = "fluent-bit-agent requires node-exporter-client.enable = true";
+      }
+      {
+        assertion = (cfg.tls.certFile != null) == (cfg.tls.keyFile != null);
+        message = "fluent-bit-agent: tls.certFile and tls.keyFile must both be set or both be null";
       }
     ];
 
@@ -93,7 +113,6 @@ in {
                 name = "systemd";
                 tag = "host.log.*";
                 db = "/var/lib/fluent-bit/systemd.db";
-                # "db.sync" is a dotted flat key in fluent-bit; use string attr name.
                 "db.sync" = "normal";
                 read_from_tail = "off";
                 strip_underscores = "on";
@@ -113,91 +132,59 @@ in {
             ]
             ++ cfg.extraInputs;
 
-          filters = [
-            # Rename journald uppercase fields to lowercase Loki label names.
-            # strip_underscores on the input already removed the leading underscore.
-            {
-              name = "modify";
-              match = "host.log.*";
-              rename = {
-                SYSTEMD_UNIT = "unit";
-                COMM = "comm";
-                PRIORITY = "priority";
-              };
-            }
-            # Add job and host labels used by Loki ruler queries.
-            {
-              name = "modify";
-              match = "host.log.*";
-              add = {
-                job = "systemd-journal";
-                host = config.networking.hostName;
-              };
-            }
-          ];
+          filters =
+            [
+              {
+                name = "modify";
+                match = "host.log.*";
+                rename = {
+                  SYSTEMD_UNIT = "unit";
+                  COMM = "comm";
+                  PRIORITY = "priority";
+                };
+              }
+              {
+                name = "modify";
+                match = "host.log.*";
+                add = {
+                  job = "systemd-journal";
+                  host = config.networking.hostName;
+                };
+              }
+            ]
+            ++ cfg.extraFilters;
 
           outputs = [
-            {
-              name = "loki";
-              match = "host.log.*";
-              inherit (lokiParsed) host;
-              inherit (lokiParsed) port;
-              inherit (lokiParsed) uri;
-              label_keys = "$unit,$comm,$priority,$job,$host";
-              line_format = "json";
-              # Basic auth: username = hostname, password from token file via env var.
-              # Fluent-bit substitutes ${VAR} in config at runtime from the environment.
-              http_user = config.networking.hostName;
-              http_passwd = "\${FLUENT_BIT_TOKEN}";
-            }
-            {
-              name = "prometheus_remote_write";
-              match = "host.metric.*";
-              inherit (metricsParsed) host;
-              inherit (metricsParsed) port;
-              inherit (metricsParsed) uri;
-              # Client-side host label; server-side vmauth extra_label enforces it.
-              add_label = {host = config.networking.hostName;};
-              # Bearer auth from env var; vmauth maps token → host identity.
-              bearer_token = "\${FLUENT_BIT_TOKEN}";
-            }
+            ({
+                name = "loki";
+                match = "host.log.*";
+                inherit (lokiParsed) host port uri;
+                label_keys = "$unit,$comm,$priority,$job,$host";
+                line_format = "json";
+              }
+              // tlsConfig)
+            ({
+                name = "prometheus_remote_write";
+                match = "host.metric.*";
+                inherit (metricsParsed) host port uri;
+                # nginx's extra_label overrides this for mTLS hosts; needed for
+                # hosts writing directly to vmsingle without a proxy.
+                add_label = {host = config.networking.hostName;};
+              }
+              // tlsConfig)
           ];
         };
       };
     };
 
     systemd.services.fluent-bit = {
-      after = ["sops-nix.service"];
-      wants = ["sops-nix.service"];
       serviceConfig = {
         DynamicUser = lib.mkForce false;
         User = "fluent-bit";
         Group = "fluent-bit";
         StateDirectory = "fluent-bit";
         StateDirectoryMode = "0750";
-        RuntimeDirectory = "fluent-bit";
-        RuntimeDirectoryMode = "0750";
-        # Run with elevated privileges to read the root-owned sops secret,
-        # write the env file to RuntimeDirectory, then start as fluent-bit user.
-        ExecStartPre = [
-          "+${pkgs.writeShellScript "fluent-bit-env-setup" ''
-            printf 'FLUENT_BIT_TOKEN=%s\n' "$(< '${cfg.authTokenFile}')" \
-              > /run/fluent-bit/env
-            chmod 640 /run/fluent-bit/env
-            chown root:fluent-bit /run/fluent-bit/env
-          ''}"
-        ];
-        EnvironmentFile = "/run/fluent-bit/env";
       };
     };
-
-    environment.persistence."/persist".directories = [
-      {
-        directory = "/var/lib/fluent-bit";
-        user = "fluent-bit";
-        group = "fluent-bit";
-        mode = "0750";
-      }
-    ];
   };
 }

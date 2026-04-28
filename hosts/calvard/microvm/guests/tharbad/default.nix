@@ -7,6 +7,7 @@
   hostname = "tharbad";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
+  externalHosts = lib.filter (h: h != hostname) net.monitoredHosts;
 in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
 
@@ -21,6 +22,7 @@ in {
     ./modules/victoriametrics.nix
     ./modules/blackbox.nix
     ./modules/fluent-bit.nix
+    ./modules/ingress.nix
   ];
 
   networking.hostName = hostname;
@@ -56,23 +58,7 @@ in {
     ];
   };
 
-  networking.extraHosts = net.mkExtraHosts [
-    "thebeyond"
-    "calvard"
-    "erebonia"
-    "liberl"
-    "phantasma"
-    "basel"
-    "messeldam"
-    "langport"
-    "creil"
-    "oracion"
-    "zeiss"
-    "saint-arkh"
-    "trista"
-    "edith"
-    "bose"
-  ];
+  networking.extraHosts = net.mkExtraHosts externalHosts;
 
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
@@ -119,23 +105,8 @@ in {
           proto = "tcp";
           port = 22;
           comment = "blackbox SSH probe";
-        }) [
-          "thebeyond"
-          "calvard"
-          "erebonia"
-          "liberl"
-          "phantasma"
-          "basel"
-          "messeldam"
-          "langport"
-          "creil"
-          "oracion"
-          "zeiss"
-          "saint-arkh"
-          "trista"
-          "bose"
-          "edith"
-        ])
+        })
+        externalHosts)
     )
   );
 

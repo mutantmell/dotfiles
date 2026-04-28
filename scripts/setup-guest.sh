@@ -241,3 +241,4 @@ fi
 
 echo ""
 echo "Done. Guest '$GUEST' setup complete on parent '$PARENT'."
+echo "Note: run scripts/issue-fleet-certs.sh after the guest is running to provision its mTLS client cert."

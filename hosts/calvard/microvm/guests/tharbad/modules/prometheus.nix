@@ -31,14 +31,11 @@ in {
     config.services.prometheus.port
   ];
 
+  node-exporter-client.enable = true;
+
   services.prometheus = {
     enable = true;
     port = 9090;
-    exporters.node = {
-      enable = true;
-      enabledCollectors = ["systemd"];
-      port = 9100;
-    };
     scrapeConfigs =
       [
         # Self-scrape: node_exporter
@@ -46,13 +43,13 @@ in {
           job_name = "tharbad_node";
           static_configs = [
             {
-              targets = ["127.0.0.1:${toString config.services.prometheus.exporters.node.port}"];
+              targets = ["127.0.0.1:${toString config.node-exporter-client.port}"];
             }
           ];
           relabel_configs = [
             {
               target_label = "instance";
-              replacement = "tharbad.internal:${toString config.services.prometheus.exporters.node.port}";
+              replacement = "tharbad.internal:${toString config.node-exporter-client.port}";
             }
           ];
         }

@@ -49,9 +49,6 @@
     };
   };
 
-  # Alert rules and alertmanager wiring have moved to victoriametrics.nix (vmalert).
-  # Prometheus has no rules or notifier config after this migration.
-
   environment.persistence."/persist".directories = [
     "/var/lib/private/alertmanager"
   ];
