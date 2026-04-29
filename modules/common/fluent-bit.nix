@@ -32,11 +32,11 @@ in {
         tls.certFile = lib.mkDefault "/var/lib/fleet-tls/client.crt";
         tls.keyFile = lib.mkDefault "/var/lib/fleet-tls/client.key";
       };
+    }
 
-      # Only add impermanence entries when /persist is a real mount (microVMs and
-      # btrfs/tmpfs hypervisors). Incus VMs have a persistent XFS root and no
-      # /persist volume, so their state directories persist naturally.
-      environment.persistence."/persist".directories = lib.mkIf (config.fileSystems ? "/persist") [
+    # TODO: use the simple common persistence check when that's more pervasively used
+    (lib.mkIf (config.fileSystems ? "/persist") {
+      environment.persistence."/persist".directories = [
         {
           directory = "/var/lib/fluent-bit";
           user = "fluent-bit";
@@ -44,100 +44,106 @@ in {
           mode = "0750";
         }
       ];
-    }
+    })
 
     # Fleet TLS client cert — only provisioned when fluent-bit uses mTLS.
     # Hosts that override tls.certFile = null (e.g. tharbad, which talks to
     # Loki/vmsingle over localhost) skip cert management entirely.
-    (lib.mkIf hasTls {
-      users.groups.fleet-tls = {};
-
-      systemd.services.fleet-tls-bootstrap = {
-        description = "Bootstrap fleet TLS client certificate via SSHPOP";
-        wantedBy = ["fluent-bit.service"];
-        before = ["fluent-bit.service"];
-        after = ["network-online.target"];
-        wants = ["network-online.target"];
-        unitConfig.ConditionPathExists = "!/var/lib/fleet-tls/client.crt";
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-          Restart = "on-failure";
-          RestartSec = "30s";
-          # Creates /var/lib/fleet-tls owned by root:fleet-tls 0750. Files written
-          # by step inherit the fleet-tls primary group, so fluent-bit (in that
-          # group) can read the key after a chmod 640.
-          StateDirectory = "fleet-tls";
-          StateDirectoryMode = "0750";
-          Group = "fleet-tls";
-        };
-        script = ''
-          token=$(${pkgs.step-cli}/bin/step ca token "${hostname}.internal" \
-            --provisioner fleet-sshpop \
-            --ssh-pop \
-            --ssh-pop-cert /etc/ssh/ssh_host_ed25519_key-cert.pub \
-            --ssh-pop-key /etc/ssh/ssh_host_ed25519_key \
-            --ca-url ${caUrl} --root ${caRoot})
-          ${pkgs.step-cli}/bin/step ca certificate "${hostname}.internal" \
-            /var/lib/fleet-tls/client.crt /var/lib/fleet-tls/client.key \
-            --token "$token" \
-            --san "${hostname}" --san "${hostname}.internal" \
-            --ca-url ${caUrl} --root ${caRoot}
-          chmod 640 /var/lib/fleet-tls/client.key
-        '';
-      };
-
-      systemd.services.fleet-tls-renew = {
-        description = "Renew fleet TLS client certificate";
-        after = ["network-online.target"];
-        wants = ["network-online.target"];
-        serviceConfig = {
-          Type = "oneshot";
-          StateDirectory = "fleet-tls";
-          StateDirectoryMode = "0750";
-          Group = "fleet-tls";
-        };
-        script = ''
-          cert=/var/lib/fleet-tls/client.crt
-          key=/var/lib/fleet-tls/client.key
-          if [[ ! -f $cert ]]; then
-            echo "fleet-tls-renew: cert not found, waiting for bootstrap to issue"
-            exit 0
-          fi
-          ${pkgs.step-cli}/bin/step ca renew --force \
-            --ca-url ${caUrl} \
-            --root ${caRoot} \
-            "$cert" "$key"
-          chmod 640 "$key"
-        '';
-      };
-
-      systemd.timers.fleet-tls-renew = {
-        description = "Fleet TLS certificate renewal";
-        wantedBy = ["timers.target"];
-        timerConfig = {
-          OnCalendar = "daily";
-          RandomizedDelaySec = "6h";
-          Persistent = true;
-        };
-      };
-
-      # Order fluent-bit after bootstrap, but don't make it a hard requirement:
-      # if bootstrap is mid-retry, fluent-bit's own Restart=always (from upstream)
-      # will retry until bootstrap eventually writes the cert. With Requires=,
-      # systemd would not auto-start fluent-bit when bootstrap recovers.
-      systemd.services.fluent-bit.after = ["fleet-tls-bootstrap.service"];
-
-      users.users.fluent-bit.extraGroups = ["fleet-tls"];
-
-      environment.persistence."/persist".directories = lib.mkIf (config.fileSystems ? "/persist") [
+    (
+      lib.mkIf hasTls (lib.mkMerge [
         {
-          directory = "/var/lib/fleet-tls";
-          user = "root";
-          group = "fleet-tls";
-          mode = "0750";
+          users.groups.fleet-tls = {};
+
+          systemd.services.fleet-tls-bootstrap = {
+            description = "Bootstrap fleet TLS client certificate via SSHPOP";
+            wantedBy = ["fluent-bit.service"];
+            before = ["fluent-bit.service"];
+            after = ["network-online.target"];
+            wants = ["network-online.target"];
+            unitConfig.ConditionPathExists = "!/var/lib/fleet-tls/client.crt";
+            serviceConfig = {
+              Type = "oneshot";
+              RemainAfterExit = true;
+              Restart = "on-failure";
+              RestartSec = "30s";
+              # Creates /var/lib/fleet-tls owned by root:fleet-tls 0750. Files written
+              # by step inherit the fleet-tls primary group, so fluent-bit (in that
+              # group) can read the key after a chmod 640.
+              StateDirectory = "fleet-tls";
+              StateDirectoryMode = "0750";
+              Group = "fleet-tls";
+            };
+            script = ''
+              token=$(${pkgs.step-cli}/bin/step ca token "${hostname}.internal" \
+                --provisioner fleet-sshpop \
+                --ssh-pop \
+                --ssh-pop-cert /etc/ssh/ssh_host_ed25519_key-cert.pub \
+                --ssh-pop-key /etc/ssh/ssh_host_ed25519_key \
+                --ca-url ${caUrl} --root ${caRoot})
+              ${pkgs.step-cli}/bin/step ca certificate "${hostname}.internal" \
+                /var/lib/fleet-tls/client.crt /var/lib/fleet-tls/client.key \
+                --token "$token" \
+                --san "${hostname}" --san "${hostname}.internal" \
+                --ca-url ${caUrl} --root ${caRoot}
+              chmod 640 /var/lib/fleet-tls/client.key
+            '';
+          };
+
+          systemd.services.fleet-tls-renew = {
+            description = "Renew fleet TLS client certificate";
+            after = ["network-online.target"];
+            wants = ["network-online.target"];
+            serviceConfig = {
+              Type = "oneshot";
+              StateDirectory = "fleet-tls";
+              StateDirectoryMode = "0750";
+              Group = "fleet-tls";
+            };
+            script = ''
+              cert=/var/lib/fleet-tls/client.crt
+              key=/var/lib/fleet-tls/client.key
+              if [[ ! -f $cert ]]; then
+                echo "fleet-tls-renew: cert not found, waiting for bootstrap to issue"
+                exit 0
+              fi
+              ${pkgs.step-cli}/bin/step ca renew --force \
+                --ca-url ${caUrl} \
+                --root ${caRoot} \
+                "$cert" "$key"
+              chmod 640 "$key"
+            '';
+          };
+
+          systemd.timers.fleet-tls-renew = {
+            description = "Fleet TLS certificate renewal";
+            wantedBy = ["timers.target"];
+            timerConfig = {
+              OnCalendar = "daily";
+              RandomizedDelaySec = "6h";
+              Persistent = true;
+            };
+          };
+
+          # Order fluent-bit after bootstrap, but don't make it a hard requirement:
+          # if bootstrap is mid-retry, fluent-bit's own Restart=always (from upstream)
+          # will retry until bootstrap eventually writes the cert. With Requires=,
+          # systemd would not auto-start fluent-bit when bootstrap recovers.
+          systemd.services.fluent-bit.after = ["fleet-tls-bootstrap.service"];
+
+          users.users.fluent-bit.extraGroups = ["fleet-tls"];
         }
-      ];
-    })
+
+        (lib.mkIf (config.fileSystems ? "/persist") {
+          environment.persistence."/persist".directories = lib.mkIf (config.fileSystems ? "/persist") [
+            {
+              directory = "/var/lib/fleet-tls";
+              user = "root";
+              group = "fleet-tls";
+              mode = "0750";
+            }
+          ];
+        })
+      ])
+    )
   ]);
 }

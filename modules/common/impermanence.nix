@@ -30,19 +30,23 @@ in {
   config = lib.mkIf cfg.enable {
     environment.persistence.${cfg.persistDir} = {
       hideMounts = true;
-      directories = cfg.directories ++ [
-        "/etc/nixos"
-        "/var/log"
-        "/var/lib/nixos"
-        "/var/lib/systemd/coredump"
-      ];
-      files = cfg.files ++ [
-        "/etc/ssh/ssh_host_ed25519_key"
-        "/etc/ssh/ssh_host_ed25519_key.pub"
-        "/etc/ssh/ssh_host_rsa_key"
-        "/etc/ssh/ssh_host_rsa_key.pub"
-        "/root/.ssh/known_hosts"
-      ];
+      directories =
+        cfg.directories
+        ++ [
+          "/etc/nixos"
+          "/var/log"
+          "/var/lib/nixos"
+          "/var/lib/systemd/coredump"
+        ];
+      files =
+        cfg.files
+        ++ [
+          "/etc/ssh/ssh_host_ed25519_key"
+          "/etc/ssh/ssh_host_ed25519_key.pub"
+          "/etc/ssh/ssh_host_rsa_key"
+          "/etc/ssh/ssh_host_rsa_key.pub"
+          "/root/.ssh/known_hosts"
+        ];
     };
 
     # Copy persisted machine-id into place before systemd starts (which would
