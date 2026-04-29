@@ -74,10 +74,12 @@ in {
             mode = "0444";
           };
 
-          # Generate the enrollment Ed25519 keypair on first boot (analogous to sshd's
-          # ssh_host_ed25519_key). Runs exactly once: ConditionPathExists guards re-runs.
+          # Copy the fleet enrollment keypair from the static virtiofs share into the
+          # writable state dir on first boot. The key is placed there by setup-guest.sh
+          # before first deploy, so no on-host key generation is needed or desired.
+          # Runs exactly once: ConditionPathExists guards re-runs after first boot.
           systemd.services.fleet-enrollment-key = {
-            description = "Generate fleet enrollment keypair on first boot";
+            description = "Install fleet enrollment keypair from static share";
             wantedBy = ["fleet-tls-bootstrap.service"];
             before = ["fleet-tls-bootstrap.service"];
             after = ["local-fs.target"];
@@ -90,11 +92,23 @@ in {
               Group = "fleet-tls";
             };
             script = ''
-              ${pkgs.step-cli}/bin/step crypto keypair \
-                /var/lib/fleet-tls/enrollment.pub \
-                /var/lib/fleet-tls/enrollment.key \
-                --kty OKP --curve Ed25519 --no-password --insecure
-              chmod 640 /var/lib/fleet-tls/enrollment.key
+              if [ ! -f /static/fleet-tls/enrollment.key ]; then
+                echo "fleet-enrollment-key: enrollment key not found."
+                echo ""
+                echo "For microvm guests: run setup-guest.sh — it places the key in the"
+                echo "  static virtiofs share (/persist/guests/<guest>/static/fleet-tls/)."
+                echo ""
+                echo "For parent/bare-metal hosts: place the key at"
+                echo "  <extra-files>/persist/var/lib/fleet-tls/enrollment.key"
+                echo "  before deploy (nixos-anywhere --extra-files). Impermanence will"
+                echo "  bind-mount it to /var/lib/fleet-tls/ before this service starts,"
+                echo "  so ConditionPathExists will skip this service automatically."
+                exit 1
+              fi
+              install -m 640 /static/fleet-tls/enrollment.key /var/lib/fleet-tls/enrollment.key
+              ${pkgs.openssl}/bin/openssl pkey \
+                -in /var/lib/fleet-tls/enrollment.key \
+                -pubout -out /var/lib/fleet-tls/enrollment.pub 2>/dev/null
             '';
           };
 
