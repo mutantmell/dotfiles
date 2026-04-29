@@ -169,6 +169,38 @@ else
   echo "  To sign manually: nix run .#ssh-host-cert-sign -- --sign $GUEST"
 fi
 
+# --- Fleet enrollment key collection (--target mode only) ---
+# The enrollment keypair is generated on first boot by fleet-enrollment-key.service.
+# We can only collect it if the host is already running (--target mode).
+collect_fleet_enrollment_key() {
+  local ssh_target="$1"
+  local ENROLLMENT_PUB="/var/lib/fleet-tls/enrollment.pub"
+  local json_file="$REPO_ROOT/lib/common/data/keys.json"
+
+  local pubkey_pem
+  pubkey_pem=$(ssh root@"$ssh_target" "cat '$ENROLLMENT_PUB' 2>/dev/null" 2>/dev/null || true)
+  if [ -z "$pubkey_pem" ]; then
+    echo "Fleet enrollment key not yet present on $ssh_target (fleet-enrollment-key.service may not have run yet)."
+    echo "  After deploy, run: nix run .#fleet-enrollment-key-registry -- --register $GUEST"
+    return
+  fi
+
+  jq --arg name "$GUEST" --arg key "$pubkey_pem" \
+    '.fleetEnrollmentKeys[$name] = $key' "$json_file" >"$json_file.tmp" &&
+    mv "$json_file.tmp" "$json_file"
+  echo "  Updated keys.json: fleetEnrollmentKeys.$GUEST"
+  echo ""
+  echo "  Enrollment key registered. Sign the enrollment cert:"
+  echo "    nix run .#fleet-x5c-cert-sign -- --sign $GUEST"
+  echo "    git commit -m 'fleet: add enrollment cert for $GUEST'"
+  echo "  Then redeploy so the cert reaches the host."
+}
+
+if [[ -n $TARGET ]]; then
+  echo "Collecting fleet enrollment key from $TARGET..."
+  collect_fleet_enrollment_key "$TARGET"
+fi
+
 # --- Backup keys ---
 mkdir -p "$KEYS_DIR"
 if [[ ! -f "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key" ]]; then

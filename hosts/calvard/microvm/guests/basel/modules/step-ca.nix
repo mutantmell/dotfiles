@@ -1,8 +1,12 @@
 {
   config,
+  lib,
   pkgs,
   ...
-}: {
+}: let
+  data = pkgs.mmell.lib.data;
+  fleetX5cCAExists = data.pki.fleetX5cCA != null;
+in {
   # step-ca serves TLS directly on port 443 without an nginx reverse proxy.
   # Unlike most services, step-ca is a certificate authority — TLS is its core
   # competency. It uses Go's crypto/tls (memory-safe, no Heartbleed-class bugs),
@@ -91,18 +95,18 @@
               };
             };
           }
-          {
-            # SSHPOP: fleet hosts self-enroll for x.509 client certs using their
-            # pre-signed SSH host certificate as proof-of-possession. Trusts the
-            # ssh.hostKey CA configured above (matches lib/common/data/pki/ssh_host_ca.pub).
-            type = "SSHPOP";
-            name = "fleet-sshpop";
-            claims = {
-              defaultTLSCertDuration = "8760h";
-              maxTLSCertDuration = "8760h";
-            };
-          }
-        ];
+        ] ++ (lib.optional fleetX5cCAExists {
+          # X5C: fleet hosts self-enroll for x.509 client certs using their
+          # pre-signed enrollment cert (signed by the offline fleet_x5c_ca) as the
+          # X5C trust anchor. Provisioner activates once fleet_x5c_ca.crt is committed.
+          type = "X5C";
+          name = "fleet-x5c";
+          roots = [(builtins.readFile data.pki.fleetX5cCA)];
+          claims = {
+            defaultTLSCertDuration = "8760h";
+            maxTLSCertDuration = "8760h";
+          };
+        });
       };
     };
   };

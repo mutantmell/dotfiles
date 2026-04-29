@@ -32,6 +32,10 @@ in {
   ssh-key-registry = import ./ssh-key-registry.nix {inherit pkgs;};
   ssh-host-cert-sign = import ./ssh-host-cert-sign.nix {inherit pkgs;};
 
+  # Fleet X5C enrollment cert management
+  fleet-enrollment-key-registry = import ./fleet-enrollment-key-registry.nix {inherit pkgs;};
+  fleet-x5c-cert-sign = import ./fleet-x5c-cert-sign.nix {inherit pkgs;};
+
   # OpenWrt device management
   inherit
     (openwrt)
