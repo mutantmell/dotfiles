@@ -3,10 +3,15 @@
   config,
   ...
 }: let
-  caRoot = pkgs.mmell.lib.data.pki.root;
+  pki = pkgs.mmell.lib.data.pki;
   lokiPort = config.services.loki.configuration.server.http_listen_port;
+  # Fleet client certs are issued by the intermediate CA. nginx needs both
+  # intermediate and root in ssl_client_certificate to verify the full chain.
+  caBundle = pkgs.runCommand "internal-ca-bundle.crt" {} ''
+    cat ${pki.intermediate} ${pki.root} > $out
+  '';
   mTLSExtra = ''
-    ssl_client_certificate ${caRoot};
+    ssl_client_certificate ${caBundle};
     ssl_verify_client on;
   '';
 in {
