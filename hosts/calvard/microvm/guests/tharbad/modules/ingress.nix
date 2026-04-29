@@ -12,6 +12,15 @@
 in {
   networking.firewall.allowedTCPPorts = [3100 8427];
 
+  # nginx exposes $ssl_client_s_dn (the full subject DN) but not the bare CN.
+  # Extract it via a map so downstream configs can use $ssl_client_s_dn_cn.
+  services.nginx.appendHttpConfig = ''
+    map $ssl_client_s_dn $ssl_client_s_dn_cn {
+        default "";
+        ~CN=(?<cn>[^,]+) $cn;
+    }
+  '';
+
   services.nginx.virtualHosts = {
     # Issues and holds the ACME cert for tharbad.internal (shared by push endpoints below).
     "tharbad.internal" = {
