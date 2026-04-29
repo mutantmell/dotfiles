@@ -139,6 +139,7 @@ in {
                 --x5c-key /var/lib/fleet-tls/enrollment.key \
                 --san "${hostname}" --san "${hostname}.internal" \
                 --ca-url ${caUrl} --root ${caRoot}
+              chmod 640 /var/lib/fleet-tls/client.crt
               chmod 640 /var/lib/fleet-tls/client.key
             '';
           };
@@ -164,6 +165,7 @@ in {
                 --ca-url ${caUrl} \
                 --root ${caRoot} \
                 "$cert" "$key"
+              chmod 640 "$cert"
               chmod 640 "$key"
             '';
           };
