@@ -135,19 +135,19 @@ in {
               {
                 name = "modify";
                 match = "host.log.*";
-                rename = {
-                  SYSTEMD_UNIT = "unit";
-                  COMM = "comm";
-                  PRIORITY = "priority";
-                };
+                rename = [
+                  "SYSTEMD_UNIT unit"
+                  "COMM comm"
+                  "PRIORITY priority"
+                ];
               }
               {
                 name = "modify";
                 match = "host.log.*";
-                add = {
-                  job = "systemd-journal";
-                  host = config.networking.hostName;
-                };
+                add = [
+                  "job systemd-journal"
+                  "host ${config.networking.hostName}"
+                ];
               }
             ]
             ++ cfg.extraFilters;
@@ -167,7 +167,7 @@ in {
                 inherit (metricsParsed) host port uri;
                 # nginx's extra_label overrides this for mTLS hosts; needed for
                 # hosts writing directly to vmsingle without a proxy.
-                add_label = {host = config.networking.hostName;};
+                add_label = ["host ${config.networking.hostName}"];
               }
               // tlsConfig)
           ];
