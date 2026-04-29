@@ -101,7 +101,9 @@ in {
           # X5C trust anchor. Provisioner activates once fleet_x5c_ca.crt is committed.
           type = "X5C";
           name = "fleet-x5c";
-          roots = [(builtins.readFile data.pki.fleetX5cCA)];
+          roots = builtins.readFile (pkgs.runCommand "fleet-x5c-ca-b64" {} ''
+            ${pkgs.coreutils}/bin/base64 -w0 ${data.pki.fleetX5cCA} > $out
+          '');
           claims = {
             defaultTLSCertDuration = "8760h";
             maxTLSCertDuration = "8760h";
