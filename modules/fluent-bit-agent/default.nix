@@ -100,11 +100,9 @@ in {
         service = {
           flush = 5;
           log_level = "info";
-          storage = {
-            path = "/var/lib/fluent-bit/storage/";
-            sync = "normal";
-            "backlog.mem_limit" = "16M";
-          };
+          "storage.path" = "/var/lib/fluent-bit/storage/";
+          "storage.sync" = "normal";
+          "storage.backlog.mem_limit" = "16M";
         };
         pipeline = {
           inputs =
