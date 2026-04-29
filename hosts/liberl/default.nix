@@ -178,6 +178,11 @@ in {
     '';
   };
 
+  security.pki.certificateFiles = [
+    pkgs.mmell.lib.data.pki.root
+    pkgs.mmell.lib.data.pki.intermediate
+  ];
+
   fluent-bit-agent = {
     enable = true;
     extraInputs = [
