@@ -103,7 +103,7 @@ in {
           storage = {
             path = "/var/lib/fluent-bit/storage/";
             sync = "normal";
-            backlog.mem_limit = "16M";
+            "backlog.mem_limit" = "16M";
           };
         };
         pipeline = {
