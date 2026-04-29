@@ -75,6 +75,12 @@ in {
           "d ${impCfg.persistDir}/guests/${name}/static/etc 0755 root root -"
           "d ${impCfg.persistDir}/guests/${name}/static/etc/ssh 0700 root root -"
         ]) (builtins.attrNames guestEntries);
+
+        # TODO: remove this when nixpkgs incus modules don't need minio
+        #       because the CVEs here are pretty bad
+        nixpkgs.config.permittedInsecurePackages = [
+          "minio-2025-10-15T17-29-55Z"
+        ];
       }
     )))
 
