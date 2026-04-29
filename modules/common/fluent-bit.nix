@@ -43,6 +43,9 @@ in {
         metricsUrl = lib.mkDefault "https://tharbad.internal:8427/api/v1/write";
         tls.certFile = lib.mkDefault "/var/lib/fleet-tls/client.crt";
         tls.keyFile = lib.mkDefault "/var/lib/fleet-tls/client.key";
+        tls.caFile = lib.mkDefault (pkgs.runCommand "internal-ca-bundle.crt" {} ''
+          cat ${pki.root} ${pki.intermediate} > $out
+        '');
       };
     }
 

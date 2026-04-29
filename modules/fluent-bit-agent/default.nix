@@ -23,11 +23,16 @@
   metricsParsed = parseUrl cfg.metricsUrl;
 
   hasTls = cfg.tls.certFile != null;
-  tlsConfig = lib.optionalAttrs hasTls {
-    tls = "on";
-    "tls.crt_file" = cfg.tls.certFile;
-    "tls.key_file" = cfg.tls.keyFile;
-  };
+  tlsConfig = lib.optionalAttrs hasTls (
+    {
+      tls = "on";
+      "tls.crt_file" = cfg.tls.certFile;
+      "tls.key_file" = cfg.tls.keyFile;
+    }
+    // lib.optionalAttrs (cfg.tls.caFile != null) {
+      "tls.ca_file" = cfg.tls.caFile;
+    }
+  );
 in {
   options.fluent-bit-agent = {
     enable = lib.mkEnableOption "Fluent Bit agent (logs + metrics)";
@@ -52,6 +57,12 @@ in {
       type = lib.types.nullOr lib.types.path;
       default = null;
       description = "Path to TLS client private key file for mTLS auth on push endpoints.";
+    };
+
+    tls.caFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "Path to CA certificate file for verifying push endpoint TLS certificates.";
     };
 
     extraInputs = lib.mkOption {
