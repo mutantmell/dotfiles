@@ -72,6 +72,11 @@ in {
     dhcpcd.enable = false;
   };
 
+  security.pki.certificateFiles = [
+    pkgs.mmell.lib.data.pki.root
+    pkgs.mmell.lib.data.pki.intermediate
+  ];
+
   fluent-bit-agent.enable = true;
   node-exporter-client.enable = true;
 
