@@ -91,6 +91,17 @@
               };
             };
           }
+          {
+            # SSHPOP: fleet hosts self-enroll for x.509 client certs using their
+            # pre-signed SSH host certificate as proof-of-possession. Trusts the
+            # ssh.hostKey CA configured above (matches lib/common/data/pki/ssh_host_ca.pub).
+            type = "SSHPOP";
+            name = "fleet-sshpop";
+            claims = {
+              defaultTLSCertDuration = "8760h";
+              maxTLSCertDuration = "8760h";
+            };
+          }
         ];
       };
     };

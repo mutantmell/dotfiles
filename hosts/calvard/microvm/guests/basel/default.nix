@@ -90,10 +90,16 @@ in {
         port = 3100;
         comment = "Loki log push";
       }
+      {
+        host = "tharbad";
+        proto = "tcp";
+        port = 8427;
+        comment = "metrics push";
+      }
     ]
   );
 
-  promtail-client.enable = true;
+  fluent-bit-agent.enable = true;
   node-exporter-client.enable = true;
 
   system.stateVersion = "25.11";

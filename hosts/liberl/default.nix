@@ -178,7 +178,26 @@ in {
     '';
   };
 
-  promtail-client.enable = true;
+  fluent-bit-agent = {
+    enable = true;
+    extraInputs = [
+      {
+        name = "prometheus_scrape";
+        tag = "host.metric.zfs";
+        host = "127.0.0.1";
+        port = 9002;
+        scrape_interval = "60";
+      }
+      {
+        name = "prometheus_scrape";
+        tag = "host.metric.smartctl";
+        host = "127.0.0.1";
+        port = 9003;
+        scrape_interval = "60";
+      }
+    ];
+  };
+  node-exporter-client.enable = true;
 
   services.avahi.enable = true;
   services.avahi.publish.enable = true;

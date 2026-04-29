@@ -63,6 +63,7 @@
 
   time.timeZone = "UTC";
 
+  fluent-bit-agent.enable = true;
   node-exporter-client.enable = true;
 
   system.stateVersion = "25.11";

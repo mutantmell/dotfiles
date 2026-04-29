@@ -105,6 +105,12 @@ in {
         port = 3100;
         comment = "Loki log push";
       }
+      {
+        host = "tharbad";
+        proto = "tcp";
+        port = 8427;
+        comment = "metrics push";
+      }
     ]
   );
 
@@ -112,7 +118,7 @@ in {
   # Port 80 is needed for ACME HTTP-01 challenge from basel during cert bootstrap/renewal.
   networking.firewall.allowedTCPPorts = [80 443];
 
-  promtail-client.enable = true;
+  fluent-bit-agent.enable = true;
   node-exporter-client.enable = true;
 
   system.stateVersion = "25.11";
