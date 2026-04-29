@@ -210,6 +210,7 @@
       "trista"
       "bose"
       "edith"
+      "roer"
     ];
     unknown = lib.filter (name: !(hosts ? ${name})) listed;
   in

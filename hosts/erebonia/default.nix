@@ -72,15 +72,8 @@ in {
     dhcpcd.enable = false;
   };
 
-  networking.firewall.allowedTCPPorts = [9100];
-
-  promtail-client.enable = true;
-
-  services.prometheus.exporters.node = {
-    enable = true;
-    enabledCollectors = ["systemd"];
-    port = 9100;
-  };
+  fluent-bit-agent.enable = true;
+  node-exporter-client.enable = true;
 
   i18n.defaultLocale = "en_US.UTF-8";
 

@@ -72,14 +72,8 @@ in {
     ''
     + net.mkExtraHosts ["messeldam" "basel" "langport" "oracion" "trista"];
 
-  promtail-client.enable = true;
-
-  services.prometheus.exporters.node = {
-    enable = true;
-    enabledCollectors = ["systemd"];
-    port = 9100;
-    listenAddress = host.ipv4; # Bind to INFRA interface only
-  };
+  fluent-bit-agent.enable = true;
+  node-exporter-client.enable = true;
 
   system.stateVersion = "25.11";
 }
