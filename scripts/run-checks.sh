@@ -41,13 +41,27 @@ if [[ ${#CHECKS[@]} -eq 0 ]]; then
   mapfile -t CHECKS < <(echo "$CHECKS_JSON" | sed 's/[][]//g; s/,/\n/g; s/"//g; s/ //g' | grep -v '^$')
 fi
 
-TOTAL=${#CHECKS[@]}
-echo "Running ${TOTAL} checks (parallelism: ${MAX_PARALLEL})..."
-echo ""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PASSED=0
 FAILED=0
 FAILED_NAMES=()
+
+# Run cert expiry check before nix checks (shell-only, no nix build needed)
+echo "Running cert expiry check..."
+if "$SCRIPT_DIR/check-cert-expiry.sh" 2>&1 | sed 's/^/  /'; then
+  echo "  PASS  cert-expiry"
+  PASSED=$((PASSED + 1))
+else
+  echo "  FAIL  cert-expiry"
+  FAILED=$((FAILED + 1))
+  FAILED_NAMES+=("cert-expiry")
+fi
+echo ""
+
+TOTAL=${#CHECKS[@]}
+echo "Running ${TOTAL} nix checks (parallelism: ${MAX_PARALLEL})..."
+echo ""
 
 if [[ $MAX_PARALLEL -le 1 ]]; then
   # Sequential mode — simple and clear
@@ -101,7 +115,7 @@ else
 fi
 
 echo ""
-echo "Results: ${PASSED} passed, ${FAILED} failed (${TOTAL} total)"
+echo "Results: ${PASSED} passed, ${FAILED} failed ($((TOTAL + 1)) total)"
 
 if [[ $FAILED -gt 0 ]]; then
   echo ""
