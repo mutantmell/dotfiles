@@ -133,7 +133,7 @@ in {
     settings = {
       "datasource.url" = "http://127.0.0.1:8428";
       "notifier.url" = ["http://127.0.0.1:9093"];
-      "remoteWrite.url" = "http://127.0.0.1:8428/api/v1/write";
+      "remoteWrite.url" = "http://127.0.0.1:8428";
       "evaluationInterval" = "1m";
     };
     rules = alertRules;
