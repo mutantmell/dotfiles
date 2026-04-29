@@ -22,5 +22,14 @@
     "saint-arkh": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDF77Oll4oxrE4kwnjJhBt3Q8MseggLoaPuSAEWw3Li6 root@remiferia",
     "trista": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBlvcscRzMVs7Lu12NC52kZuiql0Sv6dAU1sKo8Mt9B3 root@remiferia",
     "roer": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPwErwavGmhpUEpJ1cl/d9VDCTjjsaaQrzbz6PPCbnEo mutantmell@edith"
+  },
+  "fleetEnrollmentKeys": {
+    "calvard": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAre97SFcEyaTWmzmJFsFE6FwuBFdoYb9p38yDrsEqtg0=\n-----END PUBLIC KEY-----",
+    "basel": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAONJifhwNbRe7iGTSlXOv68gxLNNvwmvnC1ARGWoD56A=\n-----END PUBLIC KEY-----",
+    "creil": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA41TgRGSf7aDyYL6pUOq3OqTBAfR1tbkRCgR3IyemD3Q=\n-----END PUBLIC KEY-----",
+    "langport": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAVln2DyRJvO/cN1m2LrpgmowFABgwyV9kbZFccjpADUE=\n-----END PUBLIC KEY-----",
+    "messeldam": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAICEXemEUwgCqXEHiNyQYkIsr4bYbysAE8bmd/iCEaRU=\n-----END PUBLIC KEY-----",
+    "oracion": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA1dFQKgaBo6MCfC1dk470mxXLjlIMxkKEgEZytu79fVs=\n-----END PUBLIC KEY-----",
+    "edith": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFxfTebqif+xgEmP2AcASqjhvuyUBh/FynPCfhhwky1U=\n-----END PUBLIC KEY-----"
   }
 }

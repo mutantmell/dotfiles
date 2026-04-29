@@ -23,7 +23,7 @@ EXTRA_ARGS=("$@")
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # --- Dependency checks ---
-for cmd in jq ssh-keygen ssh-to-age sops nix openssl; do
+for cmd in jq ssh-keygen ssh-to-age sops nix openssl passage; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Required command not found: $cmd"
     exit 1
@@ -60,7 +60,6 @@ EXTRA_FILES_DIR=$(mktemp -d)
 trap 'rm -rf "$KEYFILE_DIR" "$EXTRA_FILES_DIR"' EXIT
 
 SSH_KEY="$KEYFILE_DIR/ssh_host_ed25519_key"
-KEYS_DIR="$REPO_ROOT/.keys"
 
 # Update keys.json host key registry
 update_host_key_registry() {
@@ -78,10 +77,9 @@ update_host_key_registry() {
 
 # --- Encryption key setup ---
 KEYFILE="$KEYFILE_DIR/disk.key"
-if [[ -f "$KEYS_DIR/$HOSTNAME-disk.key" ]]; then
-  echo "Using existing LUKS keyfile from .keys/$HOSTNAME-disk.key"
-  cp "$KEYS_DIR/$HOSTNAME-disk.key" "$KEYFILE"
+if passage show "hosts/$HOSTNAME/disk.key" > "$KEYFILE" 2>/dev/null; then
   chmod 600 "$KEYFILE"
+  echo "Using existing LUKS keyfile from passage:hosts/$HOSTNAME/disk.key"
 else
   echo "Generating new LUKS encryption keyfile..."
   head -c 64 /dev/urandom | base64 -w0 >"$KEYFILE"
@@ -89,11 +87,10 @@ else
 fi
 
 # --- SSH host key setup ---
-if [[ -f "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" ]]; then
-  echo "Using existing SSH host key from .keys/$HOSTNAME-ssh_host_ed25519_key"
-  cp "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" "$SSH_KEY"
-  cp "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key.pub" "$SSH_KEY.pub"
+if passage show "hosts/$HOSTNAME/ssh_host_ed25519_key" > "$SSH_KEY" 2>/dev/null; then
   chmod 600 "$SSH_KEY"
+  ssh-keygen -y -f "$SSH_KEY" > "$SSH_KEY.pub"
+  echo "Using existing SSH host key from passage:hosts/$HOSTNAME/ssh_host_ed25519_key"
 else
   echo "Generating new SSH host key..."
   ssh-keygen -t ed25519 -f "$SSH_KEY" -q -N ""
@@ -203,29 +200,24 @@ if [[ -d $INCUS_GUEST_DIR ]]; then
   done
 fi
 
-# Save host keys to .keys/ for backup (gitignored)
-mkdir -p "$KEYS_DIR"
-if [[ ! -f "$KEYS_DIR/$HOSTNAME-disk.key" ]]; then
-  cp "$KEYFILE" "$KEYS_DIR/$HOSTNAME-disk.key"
-  chmod 600 "$KEYS_DIR/$HOSTNAME-disk.key"
-  echo "Saved new disk key to .keys/$HOSTNAME-disk.key"
+# --- Store new keys in passage ---
+if ! passage show "hosts/$HOSTNAME/disk.key" >/dev/null 2>&1; then
+  passage insert -m -f "hosts/$HOSTNAME/disk.key" < "$KEYFILE"
+  echo "Stored disk key in passage:hosts/$HOSTNAME/disk.key"
 fi
-if [[ ! -f "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" ]]; then
-  cp "$SSH_KEY" "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key"
-  cp "$SSH_KEY.pub" "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key.pub"
-  chmod 600 "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key"
-  echo "Saved new SSH key to .keys/$HOSTNAME-ssh_host_ed25519_key"
+if ! passage show "hosts/$HOSTNAME/ssh_host_ed25519_key" >/dev/null 2>&1; then
+  passage insert -m -f "hosts/$HOSTNAME/ssh_host_ed25519_key" < "$SSH_KEY"
+  echo "Stored SSH key in passage:hosts/$HOSTNAME/ssh_host_ed25519_key"
 fi
 
 # --- Fleet enrollment key setup ---
 ENROLLMENT_KEY="$KEYFILE_DIR/fleet_enrollment_key"
 ENROLLMENT_PUB="$KEYFILE_DIR/fleet_enrollment_key.pub"
 
-if [[ -f "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key" ]]; then
-  echo "Using existing fleet enrollment key from .keys/$HOSTNAME-fleet_enrollment_key"
-  cp "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key" "$ENROLLMENT_KEY"
+if passage show "hosts/$HOSTNAME/fleet_enrollment_key" > "$ENROLLMENT_KEY" 2>/dev/null; then
   chmod 600 "$ENROLLMENT_KEY"
   openssl pkey -in "$ENROLLMENT_KEY" -pubout -out "$ENROLLMENT_PUB" 2>/dev/null
+  echo "Using existing fleet enrollment key from passage:hosts/$HOSTNAME/fleet_enrollment_key"
 else
   echo "Generating new fleet enrollment key..."
   openssl genpkey -algorithm ED25519 -out "$ENROLLMENT_KEY"
@@ -239,14 +231,12 @@ jq --arg name "$HOSTNAME" --arg key "$(cat "$ENROLLMENT_PUB")" \
   mv "$REPO_ROOT/lib/common/data/keys.json.tmp" "$REPO_ROOT/lib/common/data/keys.json"
 echo "  Updated keys.json: fleetEnrollmentKeys.$HOSTNAME"
 
-if [[ ! -f "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key" ]]; then
-  cp "$ENROLLMENT_KEY" "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key"
-  chmod 600 "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key"
-  echo "Saved new enrollment key to .keys/$HOSTNAME-fleet_enrollment_key"
+if ! passage show "hosts/$HOSTNAME/fleet_enrollment_key" >/dev/null 2>&1; then
+  passage insert -m -f "hosts/$HOSTNAME/fleet_enrollment_key" < "$ENROLLMENT_KEY"
+  echo "Stored enrollment key in passage:hosts/$HOSTNAME/fleet_enrollment_key"
 fi
 
 # --- SSH host certificate signing ---
-CA_KEY="$KEYS_DIR/ssh_host_ca_key"
 CERTS_DIR="$REPO_ROOT/lib/common/data/host-certs"
 UNSIGNED_HOSTS=()
 ALL_HOST_DOMAINS=""
@@ -268,10 +258,15 @@ sign_host_cert() {
     return
   fi
 
+  if [[ -f "$CERTS_DIR/$name-cert.pub" ]]; then
+    echo "  $name: SSH host certificate already exists, skipping"
+    return
+  fi
+
   local tmpdir
   tmpdir=$(mktemp -d)
   cp "$pubkey_file" "$tmpdir/$name.pub"
-  if ssh-keygen -s "$CA_KEY" -I "$name" -h -n "$principals" -V "+731d" -z "$(date +%s)" "$tmpdir/$name.pub" 2>/dev/null; then
+  if ssh-keygen -s "$SSH_CA_KEY" -I "$name" -h -n "$principals" -V "+731d" -z "$(date +%s)" "$tmpdir/$name.pub" 2>/dev/null; then
     mkdir -p "$CERTS_DIR"
     mv "$tmpdir/$name-cert.pub" "$CERTS_DIR/$name-cert.pub"
     echo "  Signed host certificate: $name"
@@ -282,40 +277,44 @@ sign_host_cert() {
   rm -rf "$tmpdir"
 }
 
-if [[ -f $CA_KEY ]]; then
-  echo ""
+SSH_CA_KEY="$KEYFILE_DIR/ssh_host_ca_key"
+echo ""
+if passage show "pki/ssh_host_ca_key" > "$SSH_CA_KEY" 2>/dev/null; then
+  chmod 600 "$SSH_CA_KEY"
   echo "Signing SSH host certificate for $HOSTNAME..."
   sign_host_cert "$HOSTNAME" "$SSH_KEY.pub"
   # Guest certificates are signed by setup-guest.sh
 else
-  echo ""
-  echo "WARNING: SSH host CA key not found at $CA_KEY"
-  echo "Skipping automatic host certificate signing."
-  echo ""
-  echo "To sign host certificates manually after deployment, run:"
-  echo "  nix run .#ssh-host-cert-sign -- --sign $HOSTNAME"
+  echo "SSH host CA key not found in passage (pki/ssh_host_ca_key) — skipping certificate signing."
+  echo "  To sign manually: nix run .#ssh-host-cert-sign -- --sign $HOSTNAME"
   UNSIGNED_HOSTS+=("$HOSTNAME")
 fi
 
 # --- Fleet enrollment certificate signing ---
-X5C_CA_KEY="$KEYS_DIR/fleet_x5c_ca_key"
 X5C_CA_CRT="$REPO_ROOT/lib/common/data/pki/fleet_x5c_ca.crt"
 UNSIGNED_ENROLLMENT_HOSTS=()
 
-if [[ -f $X5C_CA_KEY && -f $X5C_CA_CRT ]]; then
+if [[ -f "$REPO_ROOT/lib/common/data/fleet-x5c-certs/$HOSTNAME.crt" ]]; then
   echo ""
-  echo "Signing fleet enrollment certificate for $HOSTNAME..."
-  if nix run "$REPO_ROOT#fleet-x5c-cert-sign" -- --sign "$HOSTNAME" --ca-key "$X5C_CA_KEY" 2>/dev/null; then
-    echo "  Signed enrollment certificate: $HOSTNAME"
+  echo "Fleet enrollment certificate already exists for $HOSTNAME, skipping."
+  echo "  To re-sign: nix run .#fleet-x5c-cert-sign -- --sign $HOSTNAME"
+else
+  X5C_CA_KEY="$KEYFILE_DIR/fleet_x5c_ca_key"
+  echo ""
+  if [[ -f $X5C_CA_CRT ]] && passage show "pki/fleet_x5c_ca_key" > "$X5C_CA_KEY" 2>/dev/null; then
+    chmod 600 "$X5C_CA_KEY"
+    echo "Signing fleet enrollment certificate for $HOSTNAME..."
+    if nix run "$REPO_ROOT#fleet-x5c-cert-sign" -- --sign "$HOSTNAME" --ca-key "$X5C_CA_KEY" 2>/dev/null; then
+      echo "  Signed enrollment certificate: $HOSTNAME"
+    else
+      echo "  fleet-x5c-cert-sign failed"
+      UNSIGNED_ENROLLMENT_HOSTS+=("$HOSTNAME")
+    fi
   else
-    echo "  fleet-x5c-cert-sign failed"
+    echo "Fleet X5C CA not yet available — skipping enrollment cert signing."
+    echo "  After generating the CA, run: nix run .#fleet-x5c-cert-sign -- --sign $HOSTNAME"
     UNSIGNED_ENROLLMENT_HOSTS+=("$HOSTNAME")
   fi
-else
-  echo ""
-  echo "Fleet X5C CA not yet available — skipping enrollment cert signing."
-  echo "  After generating the CA, run: nix run .#fleet-x5c-cert-sign -- --sign $HOSTNAME"
-  UNSIGNED_ENROLLMENT_HOSTS+=("$HOSTNAME")
 fi
 
 # Prepare extra-files directory with SSH host key for nixos-anywhere
@@ -401,11 +400,10 @@ if [[ ${#INCUS_GUESTS[@]} -gt 0 ]]; then
 fi
 
 echo ""
-echo "Keys in $REPO_ROOT/.keys/ (gitignored):"
-echo "  $HOSTNAME-disk.key                  — LUKS encryption key"
-echo "  $HOSTNAME-ssh_host_ed25519_key      — SSH host private key"
-echo "  $HOSTNAME-ssh_host_ed25519_key.pub  — SSH host public key"
-echo "  $HOSTNAME-fleet_enrollment_key      — fleet TLS enrollment private key"
+echo "Keys stored in passage store under hosts/$HOSTNAME/:"
+echo "  disk.key                  — LUKS encryption key"
+echo "  ssh_host_ed25519_key      — SSH host private key"
+echo "  fleet_enrollment_key      — fleet TLS enrollment private key"
 
 if [[ ${#UNSIGNED_ENROLLMENT_HOSTS[@]} -gt 0 ]]; then
   echo ""
