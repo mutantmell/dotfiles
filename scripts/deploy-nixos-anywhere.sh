@@ -23,7 +23,7 @@ EXTRA_ARGS=("$@")
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # --- Dependency checks ---
-for cmd in jq ssh-keygen ssh-to-age sops nix; do
+for cmd in jq ssh-keygen ssh-to-age sops nix openssl; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Required command not found: $cmd"
     exit 1
@@ -217,6 +217,34 @@ if [[ ! -f "$KEYS_DIR/$HOSTNAME-ssh_host_ed25519_key" ]]; then
   echo "Saved new SSH key to .keys/$HOSTNAME-ssh_host_ed25519_key"
 fi
 
+# --- Fleet enrollment key setup ---
+ENROLLMENT_KEY="$KEYFILE_DIR/fleet_enrollment_key"
+ENROLLMENT_PUB="$KEYFILE_DIR/fleet_enrollment_key.pub"
+
+if [[ -f "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key" ]]; then
+  echo "Using existing fleet enrollment key from .keys/$HOSTNAME-fleet_enrollment_key"
+  cp "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key" "$ENROLLMENT_KEY"
+  chmod 600 "$ENROLLMENT_KEY"
+  openssl pkey -in "$ENROLLMENT_KEY" -pubout -out "$ENROLLMENT_PUB" 2>/dev/null
+else
+  echo "Generating new fleet enrollment key..."
+  openssl genpkey -algorithm ED25519 -out "$ENROLLMENT_KEY"
+  openssl pkey -in "$ENROLLMENT_KEY" -pubout -out "$ENROLLMENT_PUB"
+  chmod 600 "$ENROLLMENT_KEY"
+fi
+
+jq --arg name "$HOSTNAME" --arg key "$(cat "$ENROLLMENT_PUB")" \
+  '.fleetEnrollmentKeys[$name] = $key' "$REPO_ROOT/lib/common/data/keys.json" \
+  >"$REPO_ROOT/lib/common/data/keys.json.tmp" &&
+  mv "$REPO_ROOT/lib/common/data/keys.json.tmp" "$REPO_ROOT/lib/common/data/keys.json"
+echo "  Updated keys.json: fleetEnrollmentKeys.$HOSTNAME"
+
+if [[ ! -f "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key" ]]; then
+  cp "$ENROLLMENT_KEY" "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key"
+  chmod 600 "$KEYS_DIR/$HOSTNAME-fleet_enrollment_key"
+  echo "Saved new enrollment key to .keys/$HOSTNAME-fleet_enrollment_key"
+fi
+
 # --- SSH host certificate signing ---
 CA_KEY="$KEYS_DIR/ssh_host_ca_key"
 CERTS_DIR="$REPO_ROOT/lib/common/data/host-certs"
@@ -269,6 +297,27 @@ else
   UNSIGNED_HOSTS+=("$HOSTNAME")
 fi
 
+# --- Fleet enrollment certificate signing ---
+X5C_CA_KEY="$KEYS_DIR/fleet_x5c_ca_key"
+X5C_CA_CRT="$REPO_ROOT/lib/common/data/pki/fleet_x5c_ca.crt"
+UNSIGNED_ENROLLMENT_HOSTS=()
+
+if [[ -f $X5C_CA_KEY && -f $X5C_CA_CRT ]]; then
+  echo ""
+  echo "Signing fleet enrollment certificate for $HOSTNAME..."
+  if nix run "$REPO_ROOT#fleet-x5c-cert-sign" -- --sign "$HOSTNAME" --ca-key "$X5C_CA_KEY" 2>/dev/null; then
+    echo "  Signed enrollment certificate: $HOSTNAME"
+  else
+    echo "  fleet-x5c-cert-sign failed"
+    UNSIGNED_ENROLLMENT_HOSTS+=("$HOSTNAME")
+  fi
+else
+  echo ""
+  echo "Fleet X5C CA not yet available — skipping enrollment cert signing."
+  echo "  After generating the CA, run: nix run .#fleet-x5c-cert-sign -- --sign $HOSTNAME"
+  UNSIGNED_ENROLLMENT_HOSTS+=("$HOSTNAME")
+fi
+
 # Prepare extra-files directory with SSH host key for nixos-anywhere
 # All parent hosts use impermanence with SSH keys persisted at /persist/etc/ssh/
 mkdir -p "$EXTRA_FILES_DIR/persist/etc/ssh"
@@ -276,6 +325,15 @@ cp "$SSH_KEY" "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key"
 cp "$SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
 chmod 600 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key"
 chmod 644 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
+
+# Fleet enrollment key — into impermanence persist path so it's available at
+# /var/lib/fleet-tls/enrollment.key on first boot (via impermanence bind mount).
+# fleet-enrollment-key.service skips via ConditionPathExists when key exists.
+mkdir -p "$EXTRA_FILES_DIR/persist/var/lib/fleet-tls"
+cp "$ENROLLMENT_KEY" "$EXTRA_FILES_DIR/persist/var/lib/fleet-tls/enrollment.key"
+cp "$ENROLLMENT_PUB" "$EXTRA_FILES_DIR/persist/var/lib/fleet-tls/enrollment.pub"
+chmod 600 "$EXTRA_FILES_DIR/persist/var/lib/fleet-tls/enrollment.key"
+chmod 644 "$EXTRA_FILES_DIR/persist/var/lib/fleet-tls/enrollment.pub"
 
 # Place LUKS keyfile in extra-files so it's installed with the system
 # (avoids post-install SSH which can fail in the kexec environment)
@@ -347,6 +405,16 @@ echo "Keys in $REPO_ROOT/.keys/ (gitignored):"
 echo "  $HOSTNAME-disk.key                  — LUKS encryption key"
 echo "  $HOSTNAME-ssh_host_ed25519_key      — SSH host private key"
 echo "  $HOSTNAME-ssh_host_ed25519_key.pub  — SSH host public key"
+echo "  $HOSTNAME-fleet_enrollment_key      — fleet TLS enrollment private key"
+
+if [[ ${#UNSIGNED_ENROLLMENT_HOSTS[@]} -gt 0 ]]; then
+  echo ""
+  echo "Unsigned fleet enrollment certificates:"
+  for h in "${UNSIGNED_ENROLLMENT_HOSTS[@]}"; do
+    echo "    nix run .#fleet-x5c-cert-sign -- --sign $h"
+  done
+  echo "  Commit certs and redeploy for fleet-tls-bootstrap to succeed."
+fi
 
 if [[ ${#UNSIGNED_HOSTS[@]} -gt 0 ]]; then
   echo ""

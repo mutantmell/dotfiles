@@ -50,7 +50,7 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # --- Dependency checks ---
-for cmd in jq ssh-keygen ssh-to-age sops; do
+for cmd in jq ssh-keygen ssh-to-age sops openssl; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Required command not found: $cmd"
     exit 1
@@ -169,36 +169,48 @@ else
   echo "  To sign manually: nix run .#ssh-host-cert-sign -- --sign $GUEST"
 fi
 
-# --- Fleet enrollment key collection (--target mode only) ---
-# The enrollment keypair is generated on first boot by fleet-enrollment-key.service.
-# We can only collect it if the host is already running (--target mode).
-collect_fleet_enrollment_key() {
-  local ssh_target="$1"
-  local ENROLLMENT_PUB="/var/lib/fleet-tls/enrollment.pub"
-  local json_file="$REPO_ROOT/lib/common/data/keys.json"
+# --- Fleet enrollment key generation/reuse ---
+# Generated offline here so the first deploy ships the key+cert together,
+# avoiding a two-pass bootstrap. The service copies from the static virtiofs
+# share (/static/fleet-tls/) if the key is present there; otherwise generates.
+# Only microvm guests have a static share, so incus guests still need two passes.
+GUEST_ENROLLMENT_KEY="$KEYFILE_DIR/${GUEST}-fleet_enrollment_key"
+GUEST_ENROLLMENT_PUB="$KEYFILE_DIR/${GUEST}-fleet_enrollment_key.pub"
 
-  local pubkey_pem
-  pubkey_pem=$(ssh root@"$ssh_target" "cat '$ENROLLMENT_PUB' 2>/dev/null" 2>/dev/null || true)
-  if [ -z "$pubkey_pem" ]; then
-    echo "Fleet enrollment key not yet present on $ssh_target (fleet-enrollment-key.service may not have run yet)."
-    echo "  After deploy, run: nix run .#fleet-enrollment-key-registry -- --register $GUEST"
-    return
+if [[ -f "$KEYS_DIR/${GUEST}-fleet_enrollment_key" ]]; then
+  echo "Using existing fleet enrollment key from .keys/${GUEST}-fleet_enrollment_key"
+  cp "$KEYS_DIR/${GUEST}-fleet_enrollment_key" "$GUEST_ENROLLMENT_KEY"
+  chmod 600 "$GUEST_ENROLLMENT_KEY"
+  openssl pkey -in "$GUEST_ENROLLMENT_KEY" -pubout -out "$GUEST_ENROLLMENT_PUB" 2>/dev/null
+else
+  echo "Generating new fleet enrollment key..."
+  openssl genpkey -algorithm ED25519 -out "$GUEST_ENROLLMENT_KEY"
+  openssl pkey -in "$GUEST_ENROLLMENT_KEY" -pubout -out "$GUEST_ENROLLMENT_PUB"
+  chmod 600 "$GUEST_ENROLLMENT_KEY"
+fi
+
+# Register enrollment pubkey in keys.json
+ENROLLMENT_PUB_PEM=$(cat "$GUEST_ENROLLMENT_PUB")
+jq --arg name "$GUEST" --arg key "$ENROLLMENT_PUB_PEM" \
+  '.fleetEnrollmentKeys[$name] = $key' "$REPO_ROOT/lib/common/data/keys.json" \
+  >"$REPO_ROOT/lib/common/data/keys.json.tmp" &&
+  mv "$REPO_ROOT/lib/common/data/keys.json.tmp" "$REPO_ROOT/lib/common/data/keys.json"
+echo "  Updated keys.json: fleetEnrollmentKeys.$GUEST"
+
+# Sign fleet enrollment certificate if X5C CA is available
+X5C_CA_KEY="$KEYS_DIR/fleet_x5c_ca_key"
+X5C_CA_CRT="$REPO_ROOT/lib/common/data/pki/fleet_x5c_ca.crt"
+
+if [[ -f $X5C_CA_KEY && -f $X5C_CA_CRT ]]; then
+  echo "Signing fleet enrollment certificate..."
+  if nix run "$REPO_ROOT#fleet-x5c-cert-sign" -- --sign "$GUEST" --ca-key "$X5C_CA_KEY" 2>/dev/null; then
+    echo "  Signed enrollment certificate: $GUEST"
+  else
+    echo "  fleet-x5c-cert-sign failed — check CA key/cert"
   fi
-
-  jq --arg name "$GUEST" --arg key "$pubkey_pem" \
-    '.fleetEnrollmentKeys[$name] = $key' "$json_file" >"$json_file.tmp" &&
-    mv "$json_file.tmp" "$json_file"
-  echo "  Updated keys.json: fleetEnrollmentKeys.$GUEST"
-  echo ""
-  echo "  Enrollment key registered. Sign the enrollment cert:"
-  echo "    nix run .#fleet-x5c-cert-sign -- --sign $GUEST"
-  echo "    git commit -m 'fleet: add enrollment cert for $GUEST'"
-  echo "  Then redeploy so the cert reaches the host."
-}
-
-if [[ -n $TARGET ]]; then
-  echo "Collecting fleet enrollment key from $TARGET..."
-  collect_fleet_enrollment_key "$TARGET"
+else
+  echo "Fleet X5C CA not yet available — skipping enrollment cert signing."
+  echo "  After generating the CA, run: nix run .#fleet-x5c-cert-sign -- --sign $GUEST"
 fi
 
 # --- Backup keys ---
@@ -209,10 +221,17 @@ if [[ ! -f "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key" ]]; then
   chmod 600 "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key"
   echo "Saved new SSH key to .keys/${GUEST}-ssh_host_ed25519_key"
 fi
+if [[ ! -f "$KEYS_DIR/${GUEST}-fleet_enrollment_key" ]]; then
+  cp "$GUEST_ENROLLMENT_KEY" "$KEYS_DIR/${GUEST}-fleet_enrollment_key"
+  chmod 600 "$KEYS_DIR/${GUEST}-fleet_enrollment_key"
+  echo "Saved new enrollment key to .keys/${GUEST}-fleet_enrollment_key"
+fi
 
 # --- Place files ---
-place_ssh_keys() {
+place_guest_keys() {
   local dest_dir="$1"
+
+  # SSH host key
   mkdir -p "$dest_dir/persist/guests/${GUEST}/static/etc/ssh"
   cp "$GUEST_SSH_KEY" "$dest_dir/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
   cp "$GUEST_SSH_KEY.pub" "$dest_dir/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
@@ -221,19 +240,27 @@ place_ssh_keys() {
 
   if [[ $GUEST_TYPE == "microvm" ]]; then
     mkdir -p "$dest_dir/persist/guests/${GUEST}/images"
+
+    # Fleet enrollment key — placed in static share so service copies it on first boot
+    # without needing to generate, allowing single-pass deploys.
+    mkdir -p "$dest_dir/persist/guests/${GUEST}/static/fleet-tls"
+    cp "$GUEST_ENROLLMENT_KEY" "$dest_dir/persist/guests/${GUEST}/static/fleet-tls/enrollment.key"
+    cp "$GUEST_ENROLLMENT_PUB" "$dest_dir/persist/guests/${GUEST}/static/fleet-tls/enrollment.pub"
+    chmod 600 "$dest_dir/persist/guests/${GUEST}/static/fleet-tls/enrollment.key"
+    chmod 644 "$dest_dir/persist/guests/${GUEST}/static/fleet-tls/enrollment.pub"
   fi
 }
 
 if [[ -n $OUTPUT_DIR ]]; then
   echo "Placing files in $OUTPUT_DIR..."
-  place_ssh_keys "$OUTPUT_DIR"
+  place_guest_keys "$OUTPUT_DIR"
 
 elif [[ -n $TARGET ]]; then
   echo "Deploying files to $TARGET..."
 
   # Place files in a temp dir, then scp to target
   DEPLOY_DIR=$(mktemp -d)
-  place_ssh_keys "$DEPLOY_DIR"
+  place_guest_keys "$DEPLOY_DIR"
 
   # Create directory structure on remote
   # shellcheck disable=SC2029 # Intentional client-side expansion for all SSH commands below
@@ -246,8 +273,6 @@ elif [[ -n $TARGET ]]; then
   ssh "$TARGET" "chmod 600 /persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
   # shellcheck disable=SC2029
   ssh "$TARGET" "chmod 644 /persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
-  # shellcheck disable=SC2029
-  ssh "$TARGET" "chown -R root:root /persist/guests/${GUEST}/static"
 
   if [[ $GUEST_TYPE == "microvm" ]]; then
     # Read microvm UID from nix config
@@ -262,7 +287,22 @@ elif [[ -n $TARGET ]]; then
 
     # shellcheck disable=SC2029
     ssh "$TARGET" "mkdir -p /persist/guests/${GUEST}/images && chown ${MICROVM_UID}:${KVM_GID} /persist/guests/${GUEST}/images"
+
+    # Fleet enrollment key
+    # shellcheck disable=SC2029
+    ssh "$TARGET" "mkdir -p /persist/guests/${GUEST}/static/fleet-tls"
+    scp "$DEPLOY_DIR/persist/guests/${GUEST}/static/fleet-tls/enrollment.key" \
+      "$TARGET:/persist/guests/${GUEST}/static/fleet-tls/enrollment.key"
+    scp "$DEPLOY_DIR/persist/guests/${GUEST}/static/fleet-tls/enrollment.pub" \
+      "$TARGET:/persist/guests/${GUEST}/static/fleet-tls/enrollment.pub"
+    # shellcheck disable=SC2029
+    ssh "$TARGET" "chmod 600 /persist/guests/${GUEST}/static/fleet-tls/enrollment.key"
+    # shellcheck disable=SC2029
+    ssh "$TARGET" "chmod 644 /persist/guests/${GUEST}/static/fleet-tls/enrollment.pub"
   fi
+
+  # shellcheck disable=SC2029
+  ssh "$TARGET" "chown -R root:root /persist/guests/${GUEST}/static"
 
   rm -rf "$DEPLOY_DIR"
   echo "Files deployed to $TARGET:/persist/guests/${GUEST}/"
