@@ -76,9 +76,8 @@ in {
             script = ''
               token=$(${pkgs.step-cli}/bin/step ca token "${hostname}.internal" \
                 --provisioner fleet-sshpop \
-                --ssh-pop \
-                --ssh-pop-cert /etc/ssh/ssh_host_ed25519_key-cert.pub \
-                --ssh-pop-key /etc/ssh/ssh_host_ed25519_key \
+                --sshpop-cert /etc/ssh/ssh_host_ed25519_key-cert.pub \
+                --sshpop-key /etc/ssh/ssh_host_ed25519_key \
                 --ca-url ${caUrl} --root ${caRoot})
               ${pkgs.step-cli}/bin/step ca certificate "${hostname}.internal" \
                 /var/lib/fleet-tls/client.crt /var/lib/fleet-tls/client.key \

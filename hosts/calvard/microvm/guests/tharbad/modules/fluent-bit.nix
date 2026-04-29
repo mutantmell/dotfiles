@@ -23,7 +23,7 @@
     map (host: {
       name = "modify";
       match = "host.metric.blackbox.${host}";
-      add = {target = "${host}.internal:22";};
+      add = ["target ${host}.internal:22"];
     })
     fleetHosts;
 in {
