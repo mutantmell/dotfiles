@@ -15,8 +15,33 @@
     CERTS_DIR="$FLAKE_ROOT/lib/common/data/host-certs"
     SSH_HOST_CA="$FLAKE_ROOT/lib/common/data/pki/ssh_host_ca.pub"
 
-    # Defaults
-    CA_KEY="$FLAKE_ROOT/.keys/ssh_host_ca_key"
+    TMPDIR_KEYS=$(mktemp -d)
+    trap 'rm -rf "$TMPDIR_KEYS"' EXIT
+
+    # Empty means: load from passage at signing time
+    CA_KEY=""
+
+    load_ca_key_from_passage() {
+      local tmp_key="$TMPDIR_KEYS/ssh_host_ca_key"
+      if passage show "pki/ssh_host_ca_key" > "$tmp_key" 2>/dev/null; then
+        chmod 600 "$tmp_key"
+        CA_KEY="$tmp_key"
+      else
+        echo "CA key not found in passage (pki/ssh_host_ca_key)"
+        echo "  Store it with: passage insert -m -f \"pki/ssh_host_ca_key\""
+        echo "  Or provide explicitly: --ca-key <path>"
+        exit 1
+      fi
+    }
+
+    ensure_ca_key() {
+      if [ -z "$CA_KEY" ]; then
+        load_ca_key_from_passage
+      elif [ ! -f "$CA_KEY" ]; then
+        echo "CA key not found: $CA_KEY"
+        exit 1
+      fi
+    }
 
     # Fetch all host domains in one nix eval
     ALL_DOMAINS=$(nix eval "$FLAKE_ROOT#lib.common.data.network.allHostDomains" --json)
@@ -120,11 +145,7 @@
               *) echo "Unknown option: $1"; exit 1 ;;
             esac
           done
-          if [ ! -f "$CA_KEY" ]; then
-            echo "CA key not found: $CA_KEY"
-            echo "Provide --ca-key or place the host CA key at .keys/ssh_host_ca_key"
-            exit 1
-          fi
+          ensure_ca_key
           echo "Signing all hosts with registered keys..."
           echo ""
           succeeded=0
@@ -157,11 +178,7 @@
               *) echo "Unknown option: $1"; exit 1 ;;
             esac
           done
-          if [ ! -f "$CA_KEY" ]; then
-            echo "CA key not found: $CA_KEY"
-            echo "Provide --ca-key or place the host CA key at .keys/ssh_host_ca_key"
-            exit 1
-          fi
+          ensure_ca_key
           echo "Signing host: $hostname"
           sign_host "$hostname"
           print_client_trust

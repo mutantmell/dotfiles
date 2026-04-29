@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Set up SSH keys, sops integration, and directory structure for a VM guest.
+# Set up SSH keys and fleet enrollment key for a VM guest.
+# Keys are read from and stored to the passage password store.
 # Can place files into a local directory (for nixos-anywhere --extra-files)
 # or deploy directly to a running host via SSH.
 #
@@ -50,7 +51,7 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # --- Dependency checks ---
-for cmd in jq ssh-keygen ssh-to-age sops openssl; do
+for cmd in jq ssh-keygen ssh-to-age sops openssl passage; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Required command not found: $cmd"
     exit 1
@@ -73,7 +74,6 @@ else
 fi
 echo "Guest type: $GUEST_TYPE"
 
-KEYS_DIR="$REPO_ROOT/.keys"
 SOPS_FILE="$REPO_ROOT/.sops.yaml"
 
 # Create temp directory for working copies of keys
@@ -97,11 +97,10 @@ update_host_key_registry() {
 # --- SSH key generation/reuse ---
 GUEST_SSH_KEY="$KEYFILE_DIR/${GUEST}-ssh_host_ed25519_key"
 
-if [[ -f "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key" ]]; then
-  echo "Using existing SSH key from .keys/${GUEST}-ssh_host_ed25519_key"
-  cp "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key" "$GUEST_SSH_KEY"
-  cp "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key.pub" "$GUEST_SSH_KEY.pub"
+if passage show "hosts/$GUEST/ssh_host_ed25519_key" > "$GUEST_SSH_KEY" 2>/dev/null; then
   chmod 600 "$GUEST_SSH_KEY"
+  ssh-keygen -y -f "$GUEST_SSH_KEY" > "$GUEST_SSH_KEY.pub"
+  echo "Using existing SSH key from passage:hosts/$GUEST/ssh_host_ed25519_key"
 else
   echo "Generating new SSH key..."
   ssh-keygen -t ed25519 -f "$GUEST_SSH_KEY" -q -N ""
@@ -143,45 +142,46 @@ if [[ -d $GUEST_SECRET_DIR ]]; then
 fi
 
 # --- SSH host certificate signing ---
-CA_KEY="$KEYS_DIR/ssh_host_ca_key"
 CERTS_DIR="$REPO_ROOT/lib/common/data/host-certs"
 
-if [[ -f $CA_KEY ]]; then
-  echo "Signing SSH host certificate..."
-  ALL_HOST_DOMAINS=$(nix eval "$REPO_ROOT#lib.common.data.network.allHostDomains" --json)
-  principals=$(echo "$ALL_HOST_DOMAINS" | jq -r --arg h "$GUEST" '.[$h] // [] | join(",")')
-  if [[ -n $principals ]]; then
-    tmpdir=$(mktemp -d)
-    cp "$GUEST_SSH_KEY.pub" "$tmpdir/$GUEST.pub"
-    if ssh-keygen -s "$CA_KEY" -I "$GUEST" -h -n "$principals" -V "+731d" -z "$(date +%s)" "$tmpdir/$GUEST.pub" 2>/dev/null; then
-      mkdir -p "$CERTS_DIR"
-      mv "$tmpdir/$GUEST-cert.pub" "$CERTS_DIR/$GUEST-cert.pub"
-      echo "  Signed host certificate: $GUEST"
-    else
-      echo "  ssh-keygen signing failed"
-    fi
-    rm -rf "$tmpdir"
-  else
-    echo "  $GUEST: not in network registry, skipping certificate"
-  fi
+if [[ -f "$CERTS_DIR/$GUEST-cert.pub" ]]; then
+  echo "SSH host certificate already exists, skipping signing."
+  echo "  To re-sign: nix run .#ssh-host-cert-sign -- --sign $GUEST"
 else
-  echo "SSH host CA key not found at $CA_KEY — skipping certificate signing."
-  echo "  To sign manually: nix run .#ssh-host-cert-sign -- --sign $GUEST"
+  SSH_CA_KEY="$KEYFILE_DIR/ssh_host_ca_key"
+  if passage show "pki/ssh_host_ca_key" > "$SSH_CA_KEY" 2>/dev/null; then
+    chmod 600 "$SSH_CA_KEY"
+    echo "Signing SSH host certificate..."
+    ALL_HOST_DOMAINS=$(nix eval "$REPO_ROOT#lib.common.data.network.allHostDomains" --json)
+    principals=$(echo "$ALL_HOST_DOMAINS" | jq -r --arg h "$GUEST" '.[$h] // [] | join(",")')
+    if [[ -n $principals ]]; then
+      tmpdir=$(mktemp -d)
+      cp "$GUEST_SSH_KEY.pub" "$tmpdir/$GUEST.pub"
+      if ssh-keygen -s "$SSH_CA_KEY" -I "$GUEST" -h -n "$principals" -V "+731d" -z "$(date +%s)" "$tmpdir/$GUEST.pub" 2>/dev/null; then
+        mkdir -p "$CERTS_DIR"
+        mv "$tmpdir/$GUEST-cert.pub" "$CERTS_DIR/$GUEST-cert.pub"
+        echo "  Signed host certificate: $GUEST"
+      else
+        echo "  ssh-keygen signing failed"
+      fi
+      rm -rf "$tmpdir"
+    else
+      echo "  $GUEST: not in network registry, skipping certificate"
+    fi
+  else
+    echo "SSH host CA key not found in passage (pki/ssh_host_ca_key) — skipping certificate signing."
+    echo "  To sign manually: nix run .#ssh-host-cert-sign -- --sign $GUEST"
+  fi
 fi
 
 # --- Fleet enrollment key generation/reuse ---
-# Generated offline here so the first deploy ships the key+cert together,
-# avoiding a two-pass bootstrap. The service copies from the static virtiofs
-# share (/static/fleet-tls/) if the key is present there; otherwise generates.
-# Only microvm guests have a static share, so incus guests still need two passes.
 GUEST_ENROLLMENT_KEY="$KEYFILE_DIR/${GUEST}-fleet_enrollment_key"
 GUEST_ENROLLMENT_PUB="$KEYFILE_DIR/${GUEST}-fleet_enrollment_key.pub"
 
-if [[ -f "$KEYS_DIR/${GUEST}-fleet_enrollment_key" ]]; then
-  echo "Using existing fleet enrollment key from .keys/${GUEST}-fleet_enrollment_key"
-  cp "$KEYS_DIR/${GUEST}-fleet_enrollment_key" "$GUEST_ENROLLMENT_KEY"
+if passage show "hosts/$GUEST/fleet_enrollment_key" > "$GUEST_ENROLLMENT_KEY" 2>/dev/null; then
   chmod 600 "$GUEST_ENROLLMENT_KEY"
   openssl pkey -in "$GUEST_ENROLLMENT_KEY" -pubout -out "$GUEST_ENROLLMENT_PUB" 2>/dev/null
+  echo "Using existing fleet enrollment key from passage:hosts/$GUEST/fleet_enrollment_key"
 else
   echo "Generating new fleet enrollment key..."
   openssl genpkey -algorithm ED25519 -out "$GUEST_ENROLLMENT_KEY"
@@ -197,34 +197,37 @@ jq --arg name "$GUEST" --arg key "$ENROLLMENT_PUB_PEM" \
   mv "$REPO_ROOT/lib/common/data/keys.json.tmp" "$REPO_ROOT/lib/common/data/keys.json"
 echo "  Updated keys.json: fleetEnrollmentKeys.$GUEST"
 
-# Sign fleet enrollment certificate if X5C CA is available
-X5C_CA_KEY="$KEYS_DIR/fleet_x5c_ca_key"
+# --- Fleet enrollment certificate signing ---
+X5C_CERTS_DIR="$REPO_ROOT/lib/common/data/fleet-x5c-certs"
 X5C_CA_CRT="$REPO_ROOT/lib/common/data/pki/fleet_x5c_ca.crt"
 
-if [[ -f $X5C_CA_KEY && -f $X5C_CA_CRT ]]; then
-  echo "Signing fleet enrollment certificate..."
-  if nix run "$REPO_ROOT#fleet-x5c-cert-sign" -- --sign "$GUEST" --ca-key "$X5C_CA_KEY" 2>/dev/null; then
-    echo "  Signed enrollment certificate: $GUEST"
-  else
-    echo "  fleet-x5c-cert-sign failed — check CA key/cert"
-  fi
+if [[ -f "$X5C_CERTS_DIR/$GUEST.crt" ]]; then
+  echo "Fleet enrollment certificate already exists, skipping signing."
+  echo "  To re-sign: nix run .#fleet-x5c-cert-sign -- --sign $GUEST"
 else
-  echo "Fleet X5C CA not yet available — skipping enrollment cert signing."
-  echo "  After generating the CA, run: nix run .#fleet-x5c-cert-sign -- --sign $GUEST"
+  X5C_CA_KEY="$KEYFILE_DIR/fleet_x5c_ca_key"
+  if [[ -f $X5C_CA_CRT ]] && passage show "pki/fleet_x5c_ca_key" > "$X5C_CA_KEY" 2>/dev/null; then
+    chmod 600 "$X5C_CA_KEY"
+    echo "Signing fleet enrollment certificate..."
+    if nix run "$REPO_ROOT#fleet-x5c-cert-sign" -- --sign "$GUEST" --ca-key "$X5C_CA_KEY" 2>/dev/null; then
+      echo "  Signed enrollment certificate: $GUEST"
+    else
+      echo "  fleet-x5c-cert-sign failed — check CA key/cert"
+    fi
+  else
+    echo "Fleet X5C CA not yet available — skipping enrollment cert signing."
+    echo "  After generating the CA, run: nix run .#fleet-x5c-cert-sign -- --sign $GUEST"
+  fi
 fi
 
-# --- Backup keys ---
-mkdir -p "$KEYS_DIR"
-if [[ ! -f "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key" ]]; then
-  cp "$GUEST_SSH_KEY" "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key"
-  cp "$GUEST_SSH_KEY.pub" "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key.pub"
-  chmod 600 "$KEYS_DIR/${GUEST}-ssh_host_ed25519_key"
-  echo "Saved new SSH key to .keys/${GUEST}-ssh_host_ed25519_key"
+# --- Store new keys in passage ---
+if ! passage show "hosts/$GUEST/ssh_host_ed25519_key" >/dev/null 2>&1; then
+  passage insert -m -f "hosts/$GUEST/ssh_host_ed25519_key" < "$GUEST_SSH_KEY"
+  echo "Stored SSH key in passage:hosts/$GUEST/ssh_host_ed25519_key"
 fi
-if [[ ! -f "$KEYS_DIR/${GUEST}-fleet_enrollment_key" ]]; then
-  cp "$GUEST_ENROLLMENT_KEY" "$KEYS_DIR/${GUEST}-fleet_enrollment_key"
-  chmod 600 "$KEYS_DIR/${GUEST}-fleet_enrollment_key"
-  echo "Saved new enrollment key to .keys/${GUEST}-fleet_enrollment_key"
+if ! passage show "hosts/$GUEST/fleet_enrollment_key" >/dev/null 2>&1; then
+  passage insert -m -f "hosts/$GUEST/fleet_enrollment_key" < "$GUEST_ENROLLMENT_KEY"
+  echo "Stored enrollment key in passage:hosts/$GUEST/fleet_enrollment_key"
 fi
 
 # --- Place files ---
@@ -242,7 +245,6 @@ place_guest_keys() {
     mkdir -p "$dest_dir/persist/guests/${GUEST}/images"
 
     # Fleet enrollment key — placed in static share so service copies it on first boot
-    # without needing to generate, allowing single-pass deploys.
     mkdir -p "$dest_dir/persist/guests/${GUEST}/static/fleet-tls"
     cp "$GUEST_ENROLLMENT_KEY" "$dest_dir/persist/guests/${GUEST}/static/fleet-tls/enrollment.key"
     cp "$GUEST_ENROLLMENT_PUB" "$dest_dir/persist/guests/${GUEST}/static/fleet-tls/enrollment.pub"
@@ -258,12 +260,10 @@ if [[ -n $OUTPUT_DIR ]]; then
 elif [[ -n $TARGET ]]; then
   echo "Deploying files to $TARGET..."
 
-  # Place files in a temp dir, then scp to target
   DEPLOY_DIR=$(mktemp -d)
   place_guest_keys "$DEPLOY_DIR"
 
-  # Create directory structure on remote
-  # shellcheck disable=SC2029 # Intentional client-side expansion for all SSH commands below
+  # shellcheck disable=SC2029
   ssh "$TARGET" "mkdir -p /persist/guests/${GUEST}/static/etc/ssh"
   scp "$DEPLOY_DIR/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key" \
     "$TARGET:/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
@@ -275,20 +275,16 @@ elif [[ -n $TARGET ]]; then
   ssh "$TARGET" "chmod 644 /persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
 
   if [[ $GUEST_TYPE == "microvm" ]]; then
-    # Read microvm UID from nix config
     NIXOS_CFG="$REPO_ROOT#nixosConfigurations.$PARENT.config"
     MICROVM_UID=$(nix eval "$NIXOS_CFG.common.microvm.uid" 2>/dev/null) || MICROVM_UID=""
     KVM_GID=302
-
     if [[ -z $MICROVM_UID ]]; then
-      echo "WARNING: Could not determine microvm UID from Nix config, using default 300."
+      echo "WARNING: Could not determine microvm UID, using default 300."
       MICROVM_UID=300
     fi
-
     # shellcheck disable=SC2029
     ssh "$TARGET" "mkdir -p /persist/guests/${GUEST}/images && chown ${MICROVM_UID}:${KVM_GID} /persist/guests/${GUEST}/images"
 
-    # Fleet enrollment key
     # shellcheck disable=SC2029
     ssh "$TARGET" "mkdir -p /persist/guests/${GUEST}/static/fleet-tls"
     scp "$DEPLOY_DIR/persist/guests/${GUEST}/static/fleet-tls/enrollment.key" \

@@ -1,4 +1,4 @@
-# Fleet X5C enrollment certificate signing via step certificate create
+# Fleet X5C enrollment certificate signing via openssl
 #
 # Usage:
 #   nix run .#fleet-x5c-cert-sign -- --list
@@ -7,6 +7,9 @@
 #
 # Signs enrollment public keys from keys.json:fleetEnrollmentKeys using the
 # offline X5C CA private key and writes certs to lib/common/data/fleet-x5c-certs/.
+#
+# Uses openssl x509 -force_pubkey (OpenSSL 3+) to sign a cert from a raw public
+# key without requiring a CSR from the subject's private key.
 {pkgs}: let
   script = pkgs.writeShellScript "fleet-x5c-cert-sign" ''
     set -euo pipefail
@@ -15,8 +18,33 @@
     CERTS_DIR="$FLAKE_ROOT/lib/common/data/fleet-x5c-certs"
     CA_CRT="$FLAKE_ROOT/lib/common/data/pki/fleet_x5c_ca.crt"
 
-    # Defaults
-    CA_KEY="$FLAKE_ROOT/.keys/fleet_x5c_ca_key"
+    TMPDIR_KEYS=$(mktemp -d)
+    trap 'rm -rf "$TMPDIR_KEYS"' EXIT
+
+    # Empty means: load from passage at signing time
+    CA_KEY=""
+
+    load_ca_key_from_passage() {
+      local tmp_key="$TMPDIR_KEYS/fleet_x5c_ca_key"
+      if passage show "pki/fleet_x5c_ca_key" > "$tmp_key" 2>/dev/null; then
+        chmod 600 "$tmp_key"
+        CA_KEY="$tmp_key"
+      else
+        echo "CA key not found in passage (pki/fleet_x5c_ca_key)"
+        echo "  Store it with: passage insert -m -f \"pki/fleet_x5c_ca_key\""
+        echo "  Or provide explicitly: --ca-key <path>"
+        exit 1
+      fi
+    }
+
+    ensure_ca_key() {
+      if [ -z "$CA_KEY" ]; then
+        load_ca_key_from_passage
+      elif [ ! -f "$CA_KEY" ]; then
+        echo "CA key not found: $CA_KEY"
+        exit 1
+      fi
+    }
 
     # Fetch all host domains in one nix eval
     ALL_DOMAINS=$(nix eval "$FLAKE_ROOT#lib.common.data.network.allHostDomains" --json)
@@ -45,46 +73,64 @@
 
       echo "$pubkey_pem" > "$tmpdir/$hostname.pub"
 
-      # Build --san args from all registered domains
-      local san_args=()
-      while IFS= read -r san; do
-        san_args+=("--san" "$san")
-      done < <(echo "$domains_json" | ${pkgs.jq}/bin/jq -r '.[]')
-
       # Assert: leaf cert Not After must be < CA cert Not After (X5C validity-ordering rule).
-      # We check that the CA cert has more than 5 years remaining so our 5y leaf fits inside it.
-      local ca_end_epoch
+      local ca_end_epoch ca_end_sec leaf_end_sec
       ca_end_epoch=$(${pkgs.openssl}/bin/openssl x509 -enddate -noout -in "$CA_CRT" 2>/dev/null \
         | sed 's/notAfter=//')
-      local ca_end_sec
-      ca_end_sec=$(date -d "$ca_end_epoch" +%s 2>/dev/null || date -jf "%b %e %H:%M:%S %Y %Z" "$ca_end_epoch" +%s 2>/dev/null)
-      local leaf_end_sec
-      leaf_end_sec=$(( $(date +%s) + 43800 * 3600 ))
+      ca_end_sec=$(date -d "$ca_end_epoch" +%s 2>/dev/null \
+        || date -jf "%b %e %H:%M:%S %Y %Z" "$ca_end_epoch" +%s 2>/dev/null)
+      leaf_end_sec=$(( $(date +%s) + 1825 * 86400 ))
       if [ "$leaf_end_sec" -ge "$ca_end_sec" ]; then
         echo "  $hostname: ERROR: CA cert expires before the 5y leaf cert would. Rotate CA first."
         return 1
       fi
 
+      # Build SAN string for openssl extensions config
+      local san_items=() san
+      while IFS= read -r san; do
+        san_items+=("DNS:$san")
+      done < <(echo "$domains_json" | ${pkgs.jq}/bin/jq -r '.[]')
+      local san_str
+      san_str=$(printf '%s,' "''${san_items[@]}" | sed 's/,$//')
+
+      # Write openssl extensions config
+      cat > "$tmpdir/ext.cnf" <<EOF
+[v3_ext]
+subjectAltName = ''${san_str}
+keyUsage = critical,digitalSignature
+extendedKeyUsage = clientAuth
+basicConstraints = CA:FALSE
+EOF
+
+      # A throw-away keypair is needed only to produce a structurally valid CSR.
+      # -force_pubkey replaces its public key with the enrollment key before signing,
+      # so the dummy private key is never used for anything meaningful.
+      ${pkgs.openssl}/bin/openssl genpkey -algorithm ED25519 \
+        -out "$tmpdir/dummy.key" 2>/dev/null
+      ${pkgs.openssl}/bin/openssl req -new \
+        -key "$tmpdir/dummy.key" \
+        -subj "/CN=''${hostname}.internal" \
+        -out "$tmpdir/$hostname.csr" 2>/dev/null
+
       echo "  $hostname: signing..."
-      if ! ${pkgs.step-cli}/bin/step certificate create "${hostname}.internal" \
-          "$CERTS_DIR/$hostname.crt" \
-          "$tmpdir/$hostname-unused.key" \
-          --profile leaf \
-          --public-key "$tmpdir/$hostname.pub" \
-          --ca "$CA_CRT" \
-          --ca-key "$CA_KEY" \
-          --not-after "43800h" \
-          "''${san_args[@]}" \
-          --no-password --insecure 2>&1; then
-        echo "  $hostname: ERROR: step certificate create failed"
+      if ! ${pkgs.openssl}/bin/openssl x509 -req \
+          -in "$tmpdir/$hostname.csr" \
+          -force_pubkey "$tmpdir/$hostname.pub" \
+          -CA "$CA_CRT" \
+          -CAkey "$CA_KEY" \
+          -CAcreateserial \
+          -days 1825 \
+          -extfile "$tmpdir/ext.cnf" \
+          -extensions v3_ext \
+          -out "$CERTS_DIR/$hostname.crt" 2>/dev/null; then
+        echo "  $hostname: ERROR: openssl signing failed"
         return 1
       fi
 
       echo "  $hostname: signed -> $CERTS_DIR/$hostname.crt"
 
-      # Show cert details
-      ${pkgs.step-cli}/bin/step certificate inspect "$CERTS_DIR/$hostname.crt" 2>/dev/null \
-        | grep -E "Subject:|Not After|DNS:" | head -6 | sed 's/^/    /'
+      ${pkgs.openssl}/bin/openssl x509 -in "$CERTS_DIR/$hostname.crt" \
+        -noout -subject -enddate -ext subjectAltName 2>/dev/null | sed 's/^/    /'
     }
 
     list_hosts() {
@@ -98,7 +144,7 @@
       local all_hosts
       all_hosts=$(echo "$ALL_DOMAINS" | ${pkgs.jq}/bin/jq -r 'keys[]')
       for h in $all_hosts; do
-        local domains has_key has_cert cert_expiry
+        local domains has_key has_cert cert_expiry cert_file
         domains=$(echo "$ALL_DOMAINS" | ${pkgs.jq}/bin/jq -r --arg h "$h" '.[$h] | join(", ")')
         has_key=$(echo "$ALL_ENROLLMENT_KEYS" | ${pkgs.jq}/bin/jq -r --arg h "$h" 'if .[$h] then "key" else "no-key" end')
         cert_file="$CERTS_DIR/$h.crt"
@@ -138,11 +184,7 @@
             echo "Generate the fleet X5C CA first (see plan for instructions)"
             exit 1
           fi
-          if [ ! -f "$CA_KEY" ]; then
-            echo "CA key not found: $CA_KEY"
-            echo "Provide --ca-key or place the CA key at .keys/fleet_x5c_ca_key"
-            exit 1
-          fi
+          ensure_ca_key
           echo "Signing all hosts with registered fleet enrollment keys..."
           echo ""
           mkdir -p "$CERTS_DIR"
@@ -179,11 +221,7 @@
             echo "Generate the fleet X5C CA first (see plan for instructions)"
             exit 1
           fi
-          if [ ! -f "$CA_KEY" ]; then
-            echo "CA key not found: $CA_KEY"
-            echo "Provide --ca-key or place the CA key at .keys/fleet_x5c_ca_key"
-            exit 1
-          fi
+          ensure_ca_key
           mkdir -p "$CERTS_DIR"
           echo "Signing host: $hostname"
           sign_host "$hostname"
