@@ -28,7 +28,8 @@
     fleetHosts;
 in {
   fluent-bit-agent = {
-    enable = true;
+    # TODO: enable later
+    # enable = true;
     # Local traffic goes directly to Loki and vmsingle — no mTLS needed.
     lokiUrl = "http://127.0.0.1:${toString lokiPort}/loki/api/v1/push";
     metricsUrl = "http://127.0.0.1:8428/api/v1/write";

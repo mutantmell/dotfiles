@@ -141,7 +141,7 @@ in {
 
   environment.persistence."/persist".directories = [
     {
-      directory = "/var/lib/victoriametrics";
+      directory = "/var/lib/private/victoriametrics";
       user = "victoriametrics";
       group = "victoriametrics";
       mode = "0700";
