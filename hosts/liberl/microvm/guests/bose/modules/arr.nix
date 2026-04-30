@@ -15,6 +15,10 @@ in {
   services.radarr = {
     enable = true;
     group = "media";
+    # Flatten dataDir to avoid nested .config parent getting root:root from
+    # tmpfiles intermediate-parent creation (upstream module is asymmetric
+    # vs sonarr, which uses StateDirectory).
+    dataDir = "/var/lib/radarr";
   };
   services.bazarr = {
     enable = true;
