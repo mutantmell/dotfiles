@@ -284,6 +284,10 @@ if passage show "pki/ssh_host_ca_key" > "$SSH_CA_KEY" 2>/dev/null; then
   echo "Signing SSH host certificate for $HOSTNAME..."
   sign_host_cert "$HOSTNAME" "$SSH_KEY.pub"
   # Guest certificates are signed by setup-guest.sh
+  # Stage new cert so flake eval (git-tracked only) picks it up before install.
+  if [[ -f "$CERTS_DIR/$HOSTNAME-cert.pub" ]]; then
+    git -C "$REPO_ROOT" add "$CERTS_DIR/$HOSTNAME-cert.pub" 2>/dev/null || true
+  fi
 else
   echo "SSH host CA key not found in passage (pki/ssh_host_ca_key) — skipping certificate signing."
   echo "  To sign manually: nix run .#ssh-host-cert-sign -- --sign $HOSTNAME"
@@ -306,6 +310,8 @@ else
     echo "Signing fleet enrollment certificate for $HOSTNAME..."
     if nix run "$REPO_ROOT#fleet-x5c-cert-sign" -- --sign "$HOSTNAME" --ca-key "$X5C_CA_KEY" 2>/dev/null; then
       echo "  Signed enrollment certificate: $HOSTNAME"
+      # Stage new cert so flake eval (git-tracked only) picks it up before install.
+      git -C "$REPO_ROOT" add "$REPO_ROOT/lib/common/data/fleet-x5c-certs/$HOSTNAME.crt" 2>/dev/null || true
     else
       echo "  fleet-x5c-cert-sign failed"
       UNSIGNED_ENROLLMENT_HOSTS+=("$HOSTNAME")
