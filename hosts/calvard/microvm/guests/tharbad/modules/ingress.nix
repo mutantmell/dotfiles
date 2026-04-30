@@ -19,10 +19,12 @@ in {
 
   # nginx exposes $ssl_client_s_dn (the full subject DN) but not the bare CN.
   # Extract it via a map so downstream configs can use $ssl_client_s_dn_cn.
+  # Strip the .internal suffix so host labels match the bare-hostname form
+  # used by fluent-bit's local add_label on tharbad itself.
   services.nginx.appendHttpConfig = ''
     map $ssl_client_s_dn $ssl_client_s_dn_cn {
         default "";
-        ~CN=(?<cn>[^,]+) $cn;
+        ~CN=(?<cn>[^,]+?)(\.internal)?(,|$) $cn;
     }
   '';
 
