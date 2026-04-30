@@ -63,6 +63,11 @@ in {
           port = 3100;
           ssl = true;
         }
+        {
+          addr = "[::]";
+          port = 3100;
+          ssl = true;
+        }
       ];
       onlySSL = true;
       useACMEHost = "tharbad.internal";
@@ -80,6 +85,11 @@ in {
       listen = [
         {
           addr = "0.0.0.0";
+          port = 8427;
+          ssl = true;
+        }
+        {
+          addr = "[::]";
           port = 8427;
           ssl = true;
         }
