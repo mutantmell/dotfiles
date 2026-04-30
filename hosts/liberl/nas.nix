@@ -52,6 +52,26 @@ in {
     "/export/ro/media" = media;
   };
 
+  # Media tree permissions: 2775 (setgid + group-writable) so the arr stack
+  # (sonarr/radarr/bazarr run as their own user with group=media) can write,
+  # and so new subdirs created by any writer inherit group=media regardless
+  # of the writer's primary group.
+  systemd.tmpfiles.rules = let
+    uid = toString media.uid;
+    gid = toString media.gid;
+    dir = path: "d ${path} 2775 ${uid} ${gid} -";
+  in [
+    (dir "/data/media")
+    (dir "/data/media/library")
+    (dir "/data/media/library/movies")
+    (dir "/data/media/library/tv")
+    (dir "/data/media/library/music")
+    (dir "/data/media/manual")
+    (dir "/data/media/manual/movies")
+    (dir "/data/media/manual/tv")
+    (dir "/data/media/manual/music")
+  ];
+
   services.nfs.server = {
     enable = true;
     # Per-host exports with UID squashing — no subnet-wide access, no root_squash bypass
