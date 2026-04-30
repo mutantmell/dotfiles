@@ -89,10 +89,10 @@ in {
         comment = "NTP";
       }
       {
-        gateway = true;
+        any = true;
         proto = "tcp";
         port = [80 443];
-        comment = "HTTP/HTTPS for TVDB, TMDB metadata lookups";
+        comment = "HTTP/HTTPS for TVDB/TMDB metadata, *arr update checks, future indexers";
       }
       {
         host = "basel";

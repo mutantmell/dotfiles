@@ -97,7 +97,7 @@ in {
         port = 53;
       }
       {
-        gateway = true;
+        any = true;
         proto = "tcp";
         port = [80 443];
         comment = "GitHub mirror, container image pulls";
