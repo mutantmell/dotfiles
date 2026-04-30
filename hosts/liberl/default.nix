@@ -220,6 +220,7 @@ in {
   };
   users.groups.mutantmell = {};
 
+  home-manager.backupFileExtension = "bak";
   home-manager.users.root = {
     home.stateVersion = "23.11";
     programs.git = {
