@@ -21,7 +21,8 @@
     "erebonia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICw8uO5pGbGYHbDv+0l/dj1dZrmVgfJFZmlvM1EmOKF6 root@remiferia",
     "saint-arkh": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDF77Oll4oxrE4kwnjJhBt3Q8MseggLoaPuSAEWw3Li6 root@remiferia",
     "trista": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBlvcscRzMVs7Lu12NC52kZuiql0Sv6dAU1sKo8Mt9B3 root@remiferia",
-    "roer": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPwErwavGmhpUEpJ1cl/d9VDCTjjsaaQrzbz6PPCbnEo mutantmell@edith"
+    "roer": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPwErwavGmhpUEpJ1cl/d9VDCTjjsaaQrzbz6PPCbnEo mutantmell@edith",
+    "bose": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMZHPlfg8G/1WnO2h7RYow/DZ5brdJ46neDg3It/3XRQ root@remiferia"
   },
   "fleetEnrollmentKeys": {
     "calvard": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAre97SFcEyaTWmzmJFsFE6FwuBFdoYb9p38yDrsEqtg0=\n-----END PUBLIC KEY-----",
@@ -31,6 +32,9 @@
     "messeldam": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAICEXemEUwgCqXEHiNyQYkIsr4bYbysAE8bmd/iCEaRU=\n-----END PUBLIC KEY-----",
     "oracion": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA1dFQKgaBo6MCfC1dk470mxXLjlIMxkKEgEZytu79fVs=\n-----END PUBLIC KEY-----",
     "edith": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFxfTebqif+xgEmP2AcASqjhvuyUBh/FynPCfhhwky1U=\n-----END PUBLIC KEY-----",
-    "tharbad": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAc6kDl6dFmN317DTwA7Xgk3wvtZBqevrI5jEBRtEiKq8=\n-----END PUBLIC KEY-----"
+    "tharbad": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAc6kDl6dFmN317DTwA7Xgk3wvtZBqevrI5jEBRtEiKq8=\n-----END PUBLIC KEY-----",
+    "bose": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAxqzmyRnZ/BmlsiXKGtwgIO30MNTS2KX/Ht0hgqKwQnQ=\n-----END PUBLIC KEY-----",
+    "zeiss": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHjaB/cuBfZxzv00f0B2PdrBjV9SBwY2VAUTne6rTPRs=\n-----END PUBLIC KEY-----",
+    "liberl": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAzioIaLweK5TuwC8LyScAro0Ve5XvF2ny02X5e8gN+T4=\n-----END PUBLIC KEY-----"
   }
 }
