@@ -35,6 +35,10 @@
     "tharbad": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAc6kDl6dFmN317DTwA7Xgk3wvtZBqevrI5jEBRtEiKq8=\n-----END PUBLIC KEY-----",
     "bose": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAxqzmyRnZ/BmlsiXKGtwgIO30MNTS2KX/Ht0hgqKwQnQ=\n-----END PUBLIC KEY-----",
     "zeiss": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHjaB/cuBfZxzv00f0B2PdrBjV9SBwY2VAUTne6rTPRs=\n-----END PUBLIC KEY-----",
-    "liberl": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAzioIaLweK5TuwC8LyScAro0Ve5XvF2ny02X5e8gN+T4=\n-----END PUBLIC KEY-----"
+    "liberl": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAzioIaLweK5TuwC8LyScAro0Ve5XvF2ny02X5e8gN+T4=\n-----END PUBLIC KEY-----",
+    "roer": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEALr0CxT2wBuPHJfL21evbenT1LSZFxtoifynWyCqZDFY=\n-----END PUBLIC KEY-----",
+    "saint-arkh": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAtO69B/zGvRD70f99zpG3VCLfTnCVCA1jW+3Xt8d4HZc=\n-----END PUBLIC KEY-----",
+    "trista": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA9ke3YGSo2yZ9Ri32O32b+qiLxvXeVcPevGsyfihLK3I=\n-----END PUBLIC KEY-----",
+    "erebonia": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAxoL9vE5wUzl6xSl//H2TY6B0N0pyU3lopdtsoA9+ZZA=\n-----END PUBLIC KEY-----"
   }
 }
