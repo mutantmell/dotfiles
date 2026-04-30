@@ -552,6 +552,7 @@ in {
         enable = true;
         globalConfig = ''
           admin localhost:2019
+          skip_install_trust
         '';
         # Minimal config — routes are managed dynamically via admin API.
         # The server block name (default "deployd") is configurable via
