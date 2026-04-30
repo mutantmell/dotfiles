@@ -1,10 +1,25 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }: {
   microvm.hypervisor = "cloud-hypervisor";
   microvm.vsock.cid = 7;
+
+  # microvm.nix hardcodes --posix-acl --xattr in the virtiofsd runner; both
+  # return EOPNOTSUPP on NFS sources (the /media share), making the guest see
+  # the directory as unreadable. Wrap virtiofsd to drop those two flags.
+  microvm.virtiofsd.package = pkgs.writeShellScriptBin "virtiofsd" ''
+    args=()
+    for arg in "$@"; do
+      case "$arg" in
+        --posix-acl|--xattr) ;;
+        *) args+=("$arg") ;;
+      esac
+    done
+    exec ${lib.getExe pkgs.virtiofsd} "''${args[@]}"
+  '';
 
   microvm.shares = [
     {
