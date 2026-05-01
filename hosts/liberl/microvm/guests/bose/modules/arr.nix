@@ -25,6 +25,8 @@ in {
     group = "media";
   };
 
+  environment.systemPackages = [pkgs.mnamer];
+
   # Deprioritize arr operations to avoid starving NAS workloads
   systemd.services.sonarr.serviceConfig = {
     Nice = 19;
