@@ -167,6 +167,7 @@ let
     nix-store = "${pkgs.nix}/bin/nix-store";
     # Guest-side paths — NixOS puts binaries in /run/current-system/sw/bin/,
     # not in /usr/bin or /bin, so incus exec's default PATH won't find them.
+    guest-nix-env = "/run/current-system/sw/bin/nix-env";
     guest-nix-store = "/run/current-system/sw/bin/nix-store";
     guest-readlink = "/run/current-system/sw/bin/readlink";
     guest-xargs = "/run/current-system/sw/bin/xargs";
@@ -187,10 +188,11 @@ let
       fi
 
       # Skip if the system profile already points at the target generation.
-      # `/nix/var/nix/profiles/system` is updated by both `switch` and `boot`,
-      # so this is idempotent across a previous boot-mode install that hasn't
-      # been rebooted into yet.
-      CURRENT=$(${incus} exec "$INSTANCE" -- ${guest-readlink} /nix/var/nix/profiles/system 2>/dev/null) || true
+      # We update the profile ourselves below, so this is idempotent across
+      # a previous run that staged a generation but hasn't been rebooted yet.
+      # `readlink -f` resolves all the way to the toplevel store path; plain
+      # readlink would only return the relative `system-N-link`.
+      CURRENT=$(${incus} exec "$INSTANCE" -- ${guest-readlink} -f /nix/var/nix/profiles/system 2>/dev/null) || true
       if [ "$CURRENT" = "${toplevel}" ]; then
         echo "Instance $INSTANCE already at target generation, skipping"
         exit 0
@@ -236,6 +238,16 @@ let
       else
         echo "All store paths already present in $INSTANCE"
       fi
+
+      # Update the system profile so a new `/nix/var/nix/profiles/system-N-link`
+      # is created for the target generation. The bootloader installer enumerates
+      # generations from these symlinks — without this step, calling
+      # `switch-to-configuration` directly (rather than via nixos-rebuild) leaves
+      # the profile stale, no new BLS entry is written to /boot, and the guest
+      # reverts to the previous generation on reboot. nixos-rebuild does this
+      # same step before invoking switch-to-configuration.
+      ${incus} exec "$INSTANCE" -- ${guest-nix-env} \
+        -p /nix/var/nix/profiles/system --set ${toplevel}
 
       # Activate the new configuration.
       # In `auto` mode, attempt switch first; if NixOS' pre-switch checks
