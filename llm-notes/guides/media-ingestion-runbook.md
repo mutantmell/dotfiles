@@ -387,9 +387,11 @@ to Jellyfin on changes, and Bazarr won't see them. Always: drop in
 
 ### Running mnamer
 
+mnamer is provided as a system package on bose (via `arr.nix`), so it's
+on `$PATH` directly — no `nix-shell` needed.
+
 ```bash
 ssh root@bose.internal
-nix-shell -p mnamer
 
 # Movies — dry run first
 mnamer --movie-directory=/media/manual/movies \
