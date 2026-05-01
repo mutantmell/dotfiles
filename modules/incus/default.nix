@@ -156,6 +156,11 @@ let
   # Uses incus exec instead of SSH to avoid key management issues and work even
   # when guest networking is broken. Differential transfer: only missing store
   # paths are exported.
+  #
+  # Activation mode is passed as the first argument:
+  #   auto   — (default) try switch, fall back to boot if inhibited
+  #   switch — only switch (fails on inhibited transitions)
+  #   boot   — stage as the boot default; reboot the guest to apply
   mkInstanceUpdateScript = name: guestCfg: let
     inherit (guestCfg.system.config.system.build) toplevel;
     incus = "${pkgs.incus}/bin/incus";
@@ -163,25 +168,35 @@ let
     # Guest-side paths — NixOS puts binaries in /run/current-system/sw/bin/,
     # not in /usr/bin or /bin, so incus exec's default PATH won't find them.
     guest-nix-store = "/run/current-system/sw/bin/nix-store";
+    guest-readlink = "/run/current-system/sw/bin/readlink";
     guest-xargs = "/run/current-system/sw/bin/xargs";
   in
     pkgs.writeShellScript "incus-update-${name}" ''
       set -e
       INSTANCE="${name}"
 
+      MODE="''${1:-auto}"
+      case "$MODE" in
+        auto|switch|boot) ;;
+        *) echo "Error: invalid mode '$MODE' (expected: auto, switch, boot)" >&2; exit 1 ;;
+      esac
+
       if ! ${incus} list --format=csv -c ns | grep -q "^$INSTANCE,RUNNING"; then
         echo "Instance $INSTANCE is not running, skipping update"
         exit 0
       fi
 
-      # Skip if already at the target configuration
-      CURRENT=$(${incus} exec "$INSTANCE" -- /run/current-system/sw/bin/readlink /run/current-system 2>/dev/null) || true
+      # Skip if the system profile already points at the target generation.
+      # `/nix/var/nix/profiles/system` is updated by both `switch` and `boot`,
+      # so this is idempotent across a previous boot-mode install that hasn't
+      # been rebooted into yet.
+      CURRENT=$(${incus} exec "$INSTANCE" -- ${guest-readlink} /nix/var/nix/profiles/system 2>/dev/null) || true
       if [ "$CURRENT" = "${toplevel}" ]; then
-        echo "Instance $INSTANCE already at target configuration, skipping"
+        echo "Instance $INSTANCE already at target generation, skipping"
         exit 0
       fi
 
-      echo "Updating instance: $INSTANCE"
+      echo "Updating instance: $INSTANCE (mode=$MODE)"
 
       # Apply resource limits (non-fatal — live resizing can fail under memory
       # pressure or other transient conditions; the config switch should still proceed
@@ -222,10 +237,43 @@ let
         echo "All store paths already present in $INSTANCE"
       fi
 
-      # Activate the new configuration
-      ${incus} exec "$INSTANCE" -- ${toplevel}/bin/switch-to-configuration switch
-
-      echo "Instance $INSTANCE updated successfully"
+      # Activate the new configuration.
+      # In `auto` mode, attempt switch first; if NixOS' pre-switch checks
+      # (e.g. switchInhibitors triggered by dbus/systemd transitions that
+      # cannot be applied live) reject it, fall back to `boot` so the new
+      # generation is installed as the systemd-boot default. The user must
+      # reboot the guest to actually apply.
+      case "$MODE" in
+        switch)
+          ${incus} exec "$INSTANCE" -- ${toplevel}/bin/switch-to-configuration switch
+          echo "Instance $INSTANCE updated successfully"
+          ;;
+        boot)
+          ${incus} exec "$INSTANCE" -- ${toplevel}/bin/switch-to-configuration boot
+          echo ""
+          echo "*** $INSTANCE: new generation staged for next boot. Reboot to apply: incus restart $INSTANCE ***"
+          ;;
+        auto)
+          SWITCH_LOG=$(mktemp)
+          trap 'rm -f "$SWITCH_LOG"' EXIT
+          set +e
+          ${incus} exec "$INSTANCE" -- ${toplevel}/bin/switch-to-configuration switch 2>&1 | tee "$SWITCH_LOG"
+          SWITCH_RC=''${PIPESTATUS[0]}
+          set -e
+          if [ "$SWITCH_RC" -eq 0 ]; then
+            echo "Instance $INSTANCE updated successfully"
+          elif grep -qE 'Pre-switch check|switchInhibitors' "$SWITCH_LOG"; then
+            echo ""
+            echo "Switch inhibited for $INSTANCE — staging for next boot..."
+            ${incus} exec "$INSTANCE" -- ${toplevel}/bin/switch-to-configuration boot
+            echo ""
+            echo "*** $INSTANCE: switch was inhibited; new generation staged for next boot. Reboot to apply: incus restart $INSTANCE ***"
+          else
+            echo "Error: switch-to-configuration failed for $INSTANCE (rc=$SWITCH_RC)" >&2
+            exit "$SWITCH_RC"
+          fi
+          ;;
+      esac
     '';
 
   # Aggregate scripts
@@ -389,14 +437,26 @@ in {
         '')
         (pkgs.writeScriptBin "incus-update-instance" ''
           #!${pkgs.bash}/bin/bash
+          set -e
+          MODE="auto"
+          while [ $# -gt 0 ]; do
+            case "$1" in
+              --boot) MODE="boot"; shift ;;
+              --switch) MODE="switch"; shift ;;
+              --auto) MODE="auto"; shift ;;
+              --) shift; break ;;
+              -*) echo "Unknown flag: $1" >&2; exit 1 ;;
+              *) break ;;
+            esac
+          done
           if [ $# -ne 1 ]; then
-            echo "Usage: incus-update-instance <instance-name>"
+            echo "Usage: incus-update-instance [--boot|--switch|--auto] <instance-name>"
             exit 1
           fi
           INSTANCE="$1"
           case "$INSTANCE" in
             ${concatStringsSep "\n            " (mapAttrsToList (
-              name: guestCfg: "${name}) exec ${mkInstanceUpdateScript name guestCfg} ;;"
+              name: guestCfg: "${name}) exec ${mkInstanceUpdateScript name guestCfg} \"$MODE\" ;;"
             )
             cfg.guests)}
             *)
