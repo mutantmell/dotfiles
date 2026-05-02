@@ -50,8 +50,8 @@ in {
 
   time.timeZone = "UTC";
 
-  # Sonarr (8989), Radarr (7878) — no Bazarr on this guest
-  networking.firewall.allowedTCPPorts = [8989 7878];
+  # Sonarr (8989), Radarr (7878), Bazarr (6767)
+  networking.firewall.allowedTCPPorts = [8989 7878 6767];
 
   environment.persistence."/persist" = {
     hideMounts = true;
