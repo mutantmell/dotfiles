@@ -28,7 +28,9 @@ in {
     fleetX5cCA = let
       path = pki + "/fleet_x5c_ca.crt";
     in
-      if builtins.pathExists path then path else null;
+      if builtins.pathExists path
+      then path
+      else null;
   };
   fleetEnrollmentCerts = let
     certDir = ./fleet-x5c-certs;

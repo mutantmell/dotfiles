@@ -97,9 +97,9 @@ update_host_key_registry() {
 # --- SSH key generation/reuse ---
 GUEST_SSH_KEY="$KEYFILE_DIR/${GUEST}-ssh_host_ed25519_key"
 
-if passage show "hosts/$GUEST/ssh_host_ed25519_key" > "$GUEST_SSH_KEY" 2>/dev/null; then
+if passage show "hosts/$GUEST/ssh_host_ed25519_key" >"$GUEST_SSH_KEY" 2>/dev/null; then
   chmod 600 "$GUEST_SSH_KEY"
-  ssh-keygen -y -f "$GUEST_SSH_KEY" > "$GUEST_SSH_KEY.pub"
+  ssh-keygen -y -f "$GUEST_SSH_KEY" >"$GUEST_SSH_KEY.pub"
   echo "Using existing SSH key from passage:hosts/$GUEST/ssh_host_ed25519_key"
 else
   echo "Generating new SSH key..."
@@ -149,7 +149,7 @@ if [[ -f "$CERTS_DIR/$GUEST-cert.pub" ]]; then
   echo "  To re-sign: nix run .#ssh-host-cert-sign -- --sign $GUEST"
 else
   SSH_CA_KEY="$KEYFILE_DIR/ssh_host_ca_key"
-  if passage show "pki/ssh_host_ca_key" > "$SSH_CA_KEY" 2>/dev/null; then
+  if passage show "pki/ssh_host_ca_key" >"$SSH_CA_KEY" 2>/dev/null; then
     chmod 600 "$SSH_CA_KEY"
     echo "Signing SSH host certificate..."
     ALL_HOST_DOMAINS=$(nix eval "$REPO_ROOT#lib.common.data.network.allHostDomains" --json)
@@ -178,7 +178,7 @@ fi
 GUEST_ENROLLMENT_KEY="$KEYFILE_DIR/${GUEST}-fleet_enrollment_key"
 GUEST_ENROLLMENT_PUB="$KEYFILE_DIR/${GUEST}-fleet_enrollment_key.pub"
 
-if passage show "hosts/$GUEST/fleet_enrollment_key" > "$GUEST_ENROLLMENT_KEY" 2>/dev/null; then
+if passage show "hosts/$GUEST/fleet_enrollment_key" >"$GUEST_ENROLLMENT_KEY" 2>/dev/null; then
   chmod 600 "$GUEST_ENROLLMENT_KEY"
   openssl pkey -in "$GUEST_ENROLLMENT_KEY" -pubout -out "$GUEST_ENROLLMENT_PUB" 2>/dev/null
   echo "Using existing fleet enrollment key from passage:hosts/$GUEST/fleet_enrollment_key"
@@ -206,7 +206,7 @@ if [[ -f "$X5C_CERTS_DIR/$GUEST.crt" ]]; then
   echo "  To re-sign: nix run .#fleet-x5c-cert-sign -- --sign $GUEST"
 else
   X5C_CA_KEY="$KEYFILE_DIR/fleet_x5c_ca_key"
-  if [[ -f $X5C_CA_CRT ]] && passage show "pki/fleet_x5c_ca_key" > "$X5C_CA_KEY" 2>/dev/null; then
+  if [[ -f $X5C_CA_CRT ]] && passage show "pki/fleet_x5c_ca_key" >"$X5C_CA_KEY" 2>/dev/null; then
     chmod 600 "$X5C_CA_KEY"
     echo "Signing fleet enrollment certificate..."
     if nix run "$REPO_ROOT#fleet-x5c-cert-sign" -- --sign "$GUEST" --ca-key "$X5C_CA_KEY" 2>/dev/null; then
@@ -222,11 +222,11 @@ fi
 
 # --- Store new keys in passage ---
 if ! passage show "hosts/$GUEST/ssh_host_ed25519_key" >/dev/null 2>&1; then
-  passage insert -m -f "hosts/$GUEST/ssh_host_ed25519_key" < "$GUEST_SSH_KEY"
+  passage insert -m -f "hosts/$GUEST/ssh_host_ed25519_key" <"$GUEST_SSH_KEY"
   echo "Stored SSH key in passage:hosts/$GUEST/ssh_host_ed25519_key"
 fi
 if ! passage show "hosts/$GUEST/fleet_enrollment_key" >/dev/null 2>&1; then
-  passage insert -m -f "hosts/$GUEST/fleet_enrollment_key" < "$GUEST_ENROLLMENT_KEY"
+  passage insert -m -f "hosts/$GUEST/fleet_enrollment_key" <"$GUEST_ENROLLMENT_KEY"
   echo "Stored enrollment key in passage:hosts/$GUEST/fleet_enrollment_key"
 fi
 

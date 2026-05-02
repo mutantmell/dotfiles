@@ -6,7 +6,7 @@
 }: let
   net = pkgs.mmell.lib.data.network;
   inherit (pkgs.mmell.lib.data) hostCerts fleetEnrollmentCerts;
-  pki = pkgs.mmell.lib.data.pki;
+  inherit (pkgs.mmell.lib.data) pki;
   caUrl = "https://basel.internal";
   caRoot = pki.root;
   hasTls = config.fluent-bit-agent.tls.certFile != null;

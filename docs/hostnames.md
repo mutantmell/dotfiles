@@ -27,10 +27,10 @@ VM HOSTS (Countries)
 ├── liberl            (NAS host)
 │   ├── zeiss         (microVM) — Attic binary cache
 │   ├── ruan          (not allocated)
-│   ├── bose          (microVM) — Arr stack (Sonarr, Radarr, Bazarr)
+│   ├── bose          (microVM) — Arr stack — UHD/4K (Sonarr, Radarr, Bazarr)
 │   ├── grancel       (not allocated)
 │   ├── rolent        (not allocated)
-│   └── ravennue      (not allocated)
+│   └── ravennue      (microVM) — Arr stack — SD/1080p (Sonarr, Radarr)
 │
 ├── northambria       (GP host)
 │   ├── haliask       (not allocated)

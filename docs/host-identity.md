@@ -24,12 +24,12 @@ Each host carries up to **four** distinct cryptographic identities, each with
 its own trust root, lifetime, and purpose. They are conceptually independent —
 the failure or rotation of one does not require rotating the others.
 
-| Material            | Trust root                          | Used for                                | Generated      | Distributed via             |
-| ------------------- | ----------------------------------- | --------------------------------------- | -------------- | --------------------------- |
-| SSH host key + cert | Offline SSH host CA                 | Authenticating SSH connections          | On host        | Pubkey + cert in repo       |
-| X5C enrollment cert | Offline fleet X5C CA                | Bootstrapping mTLS client certs         | On host        | Pubkey + cert in repo       |
-| step-ca web certs   | Online intermediate CA (basel)      | TLS for HTTP services (ACME)            | On step-ca     | Issued at runtime via ACME  |
-| PQC age key         | None (self-asserted; pubkey in cfg) | Decrypting sops secrets (post-quantum)  | On host        | Pubkey in `.sops.yaml`      |
+| Material            | Trust root                          | Used for                               | Generated  | Distributed via            |
+| ------------------- | ----------------------------------- | -------------------------------------- | ---------- | -------------------------- |
+| SSH host key + cert | Offline SSH host CA                 | Authenticating SSH connections         | On host    | Pubkey + cert in repo      |
+| X5C enrollment cert | Offline fleet X5C CA                | Bootstrapping mTLS client certs        | On host    | Pubkey + cert in repo      |
+| step-ca web certs   | Online intermediate CA (basel)      | TLS for HTTP services (ACME)           | On step-ca | Issued at runtime via ACME |
+| PQC age key         | None (self-asserted; pubkey in cfg) | Decrypting sops secrets (post-quantum) | On host    | Pubkey in `.sops.yaml`     |
 
 The first two are signed by **offline CAs** whose private keys never live
 on any networked host — they are held in operator-only offline storage and
@@ -81,7 +81,7 @@ issue x509.
 private key (`/var/lib/fleet-tls/enrollment.key`) never leaves the host.
 
 **Signed by.** A separate offline fleet X5C CA, held in operator-only
-storage alongside the SSH host CA. This CA is *only* trusted by step-ca's
+storage alongside the SSH host CA. This CA is _only_ trusted by step-ca's
 X5C provisioner — it has no other authority in the system.
 
 **Distributed.** Public keys registered in `lib/common/data/keys.json` under
@@ -123,7 +123,7 @@ no per-host long-lived material here — services request certs as needed.
 reasons:
 
 1. **Bootstrap dependency.** step-ca runs as a microvm on calvard. Hosts
-   that need to identify themselves *to start fluent-bit* cannot wait for
+   that need to identify themselves _to start fluent-bit_ cannot wait for
    step-ca to be up — and step-ca itself has to be reachable to issue
    certs. Out-of-band offline-CA-signed certs avoid the runtime
    dependency.
@@ -188,14 +188,14 @@ matches age's design and keeps the layer simple.
 Each material has a distinct trust root, a distinct compromise scope, and
 a distinct rotation cadence:
 
-| Compromise of...       | What an attacker can do                                  | What they cannot do                       |
-| ---------------------- | -------------------------------------------------------- | ----------------------------------------- |
-| One host's SSH key     | Impersonate that host to SSH clients                     | Decrypt that host's sops secrets, mint mTLS certs |
-| The SSH host CA        | Impersonate any host to SSH clients                      | Decrypt sops secrets, mint mTLS certs     |
-| One host's age key     | Decrypt that host's sops secrets                         | Impersonate that host to SSH or step-ca   |
-| One host's X5C cert    | Bootstrap mTLS client certs for that host                | Authenticate as that host to SSH, decrypt sops secrets |
-| The fleet X5C CA       | Bootstrap mTLS client certs for any host                 | Decrypt sops secrets, impersonate over SSH |
-| step-ca (online)       | Issue web certs, request mTLS bootstrap                  | Decrypt sops secrets, impersonate over SSH directly |
+| Compromise of...    | What an attacker can do                   | What they cannot do                                    |
+| ------------------- | ----------------------------------------- | ------------------------------------------------------ |
+| One host's SSH key  | Impersonate that host to SSH clients      | Decrypt that host's sops secrets, mint mTLS certs      |
+| The SSH host CA     | Impersonate any host to SSH clients       | Decrypt sops secrets, mint mTLS certs                  |
+| One host's age key  | Decrypt that host's sops secrets          | Impersonate that host to SSH or step-ca                |
+| One host's X5C cert | Bootstrap mTLS client certs for that host | Authenticate as that host to SSH, decrypt sops secrets |
+| The fleet X5C CA    | Bootstrap mTLS client certs for any host  | Decrypt sops secrets, impersonate over SSH             |
+| step-ca (online)    | Issue web certs, request mTLS bootstrap   | Decrypt sops secrets, impersonate over SSH directly    |
 
 If a single key were re-used for all four roles, **any** compromise would
 collapse the entire system into "attacker has full control." The current

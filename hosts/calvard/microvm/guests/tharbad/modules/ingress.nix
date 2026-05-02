@@ -3,7 +3,7 @@
   config,
   ...
 }: let
-  pki = pkgs.mmell.lib.data.pki;
+  inherit (pkgs.mmell.lib.data) pki;
   lokiPort = config.services.loki.configuration.server.http_listen_port;
   # Fleet client certs are issued by the intermediate CA. nginx needs both
   # intermediate and root in ssl_client_certificate to verify the full chain.
