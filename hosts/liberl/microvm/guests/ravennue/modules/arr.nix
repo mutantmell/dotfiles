@@ -20,6 +20,10 @@ in {
     # vs sonarr, which uses StateDirectory).
     dataDir = "/var/lib/radarr";
   };
+  services.bazarr = {
+    enable = true;
+    group = "media";
+  };
 
   environment.systemPackages = [
     pkgs.mnamer
@@ -49,6 +53,11 @@ in {
       {
         directory = "/var/lib/radarr";
         user = "radarr";
+        group = "media";
+      }
+      {
+        directory = "/var/lib/bazarr";
+        user = "bazarr";
         group = "media";
       }
     ];
