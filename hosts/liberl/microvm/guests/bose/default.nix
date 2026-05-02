@@ -59,7 +59,11 @@ in {
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
-      "/root/.filebot"
+      {
+        directory = "/home/mediaops";
+        user = "mediaops";
+        group = "media";
+      }
     ];
   };
 

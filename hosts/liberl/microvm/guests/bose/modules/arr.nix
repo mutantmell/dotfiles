@@ -1,5 +1,5 @@
 {pkgs, ...}: let
-  inherit (pkgs.mmell.lib.data.users) media;
+  inherit (pkgs.mmell.lib.data.users) media mediaops;
 
   # Wrapper that forces umask 0002 so dirs/files filebot creates under
   # /media/library/<type>/ (setgid 2775, group=media via tmpfiles in nas.nix)
@@ -20,6 +20,19 @@ in {
     inherit (media) uid;
     group = "media";
     isSystemUser = true;
+  };
+
+  # Role account for media-ingest tooling (FileBot, future beets/picard).
+  # FileBot refuses to run as root by design, and tools that touch
+  # /media/library/ need group=media for write access. su from root to
+  # this account; no SSH keys (root SSH already gates entry). uid is
+  # registry-coordinated so file ownership stays coherent if this user
+  # is ever instantiated on additional ingest hosts.
+  users.users.mediaops = {
+    inherit (mediaops) uid;
+    isNormalUser = true;
+    group = "media";
+    shell = pkgs.bashInteractive;
   };
 
   services.sonarr = {
