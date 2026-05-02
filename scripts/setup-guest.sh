@@ -102,6 +102,9 @@ if passage show "hosts/$GUEST/ssh_host_ed25519_key" >"$GUEST_SSH_KEY" 2>/dev/nul
   ssh-keygen -y -f "$GUEST_SSH_KEY" >"$GUEST_SSH_KEY.pub"
   echo "Using existing SSH key from passage:hosts/$GUEST/ssh_host_ed25519_key"
 else
+  # Shell creates (truncates) the redirect target before passage runs, so on
+  # failure an empty file is left behind that ssh-keygen will refuse to overwrite.
+  rm -f "$GUEST_SSH_KEY"
   echo "Generating new SSH key..."
   ssh-keygen -t ed25519 -f "$GUEST_SSH_KEY" -q -N ""
 fi
