@@ -388,6 +388,11 @@ in {
   config = mkIf cfg.enable (mkMerge [
     {
       virtualisation.incus.enable = true;
+      # Workaround for upstream nixpkgs bug: virtualisation.incus.bucketSupport
+      # has option type `bool` but the module's own default is null, causing an
+      # eval error. Set explicitly to false (we don't use S3 buckets / minio).
+      # Remove once nixpkgs ships a fix.
+      virtualisation.incus.bucketSupport = false;
       networking.nftables.enable = true;
 
       # Incus loads br_netfilter, which forces bridge traffic through nftables.
