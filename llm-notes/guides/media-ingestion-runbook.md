@@ -542,9 +542,41 @@ previous tool) couldn't:
   releases), FileBot produces the same `Title (Year)/Title (Year).ext`
   that mnamer did.
 
-A FileBot license is required for full lookup functionality. License
-activation lives at `/root/.filebot/` on bose, persisted via
-`environment.persistence` in the bose `default.nix`.
+A FileBot license is required for full lookup functionality.
+
+### Run as `mediaops`, not root
+
+FileBot refuses to run as root by design (file operations as root are a
+real foot-gun). bose has a dedicated `mediaops` role account
+(`isNormalUser`, member of `media` group, no SSH keys) for ingest
+tooling — `su` to it from the root SSH session before running
+FileBot. The same account avoids EPERM/EACCES surprises with
+`/media/library/...`: it's in the `media` group with the right umask
+inherited from `filebot-ingest`, so FileBot creates files
+group-writable and group=media (matching the setgid 2775 parent dirs
+from `nas.nix`).
+
+License activation lives at `/home/mediaops/.filebot/`, persisted via
+`environment.persistence` in bose's `default.nix`.
+
+**One-time activation** (after first deploying with the `mediaops`
+user in place):
+
+```bash
+# Stage the .psm from passage on your workstation
+passage show filebot/license > /tmp/filebot.psm
+scp /tmp/filebot.psm root@bose.internal:/tmp/
+shred -u /tmp/filebot.psm
+
+# Activate as mediaops on bose
+ssh root@bose.internal
+chown mediaops:media /tmp/filebot.psm
+su - mediaops
+filebot --license /tmp/filebot.psm
+filebot -script fn:sysinfo | grep -i license   # confirms active license
+exit                                            # back to root
+shred -u /tmp/filebot.psm
+```
 
 ### What FileBot owns vs. what Radarr owns
 
@@ -557,14 +589,12 @@ produce the final TRaSH name — that's what step 3 is for.
 
 ### Running FileBot
 
-FileBot is provided as a system package on **both** bose and ravennue
-(via their respective `arr.nix`), exposed as `filebot-ingest` (a
-wrapper that forces `umask 0002` so the directories FileBot creates
-are group-writable). Default to running it **from bose** for
-consistency; both guests see the same `/data/media` tree via virtiofs
-and produce identical output. What matters is the `--output` flag,
-which sets the destination, and that must match the tier of the input
-directory:
+FileBot lives on bose only (the license is per-user, and both arr
+guests see the same `/data/media` tree via virtiofs — single-host
+ingest is sufficient). It's exposed as `filebot-ingest` (a wrapper
+that forces `umask 0002` so the directories FileBot creates are
+group-writable). What matters is the `--output` flag, which sets the
+destination, and must match the tier of the input directory:
 
 | Source                     | Output flag                          | Then import on |
 | -------------------------- | ------------------------------------ | -------------- |
@@ -573,8 +603,12 @@ directory:
 | `/media/manual/tv/`        | `--output /media/library/tv`         | ravennue       |
 | `/media/manual/tv-4k/`     | `--output /media/library/tv-4k`      | bose           |
 
+Always run as `mediaops`, never as root (FileBot refuses root, and
+running as `mediaops` keeps file ownership/group correct end-to-end):
+
 ```bash
 ssh root@bose.internal
+su - mediaops
 
 # Movies — SD/1080p batch (→ ravennue's Radarr in §4.1). Dry run first.
 filebot-ingest -rename /media/manual/movies/ \

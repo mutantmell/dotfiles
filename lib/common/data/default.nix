@@ -5,10 +5,17 @@ in {
   keys = builtins.fromJSON (
     builtins.readFile ./keys.json
   );
-  # Static UID/GID registry — allocated in 400-499 (reserved via SYS_UID_MIN=500
-  # in modules/common/default.nix). nixpkgs static IDs stop at 326; dynamic system
-  # users start at 500. See: github.com/NixOS/nixpkgs/blob/master/nixos/modules/misc/ids.nix
+  # Static UID/GID registry, two ranges:
+  #   - System users / groups (400-499): service-shaped, allocated in the
+  #     reserved system range (SYS_UID_MIN=500 in modules/common/default.nix).
+  #     nixpkgs static IDs stop at 326; dynamic system users start at 500.
+  #     See: github.com/NixOS/nixpkgs/blob/master/nixos/modules/misc/ids.nix
+  #   - Normal users (1000+): interactive role accounts (shell, home dir,
+  #     used by humans via su/ssh). Coordinated here so file ownership
+  #     stays coherent across any host that mounts shared media (virtiofs
+  #     today, NFS RW if it ever ships).
   users = {
+    # System users
     media = {
       uid = 400;
       gid = 400;
@@ -16,6 +23,12 @@ in {
     deployd = {
       uid = 401;
       gid = 401;
+    };
+    # Normal users (interactive role accounts).
+    # Allocated at 1100+ to leave 1000-1099 free for personal accounts
+    # (e.g., mutantmell is uid 1000 on edith).
+    mediaops = {
+      uid = 1100;
     };
   };
   pki = {
