@@ -26,7 +26,6 @@ in {
   };
 
   environment.systemPackages = [
-    pkgs.mnamer
     pkgs.mediainfo
     pkgs.ffmpeg-headless
   ];

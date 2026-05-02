@@ -651,7 +651,7 @@ Services and capabilities deferred from this plan for follow-up work:
 - **Dedicated backup service**: Remiferia's root user currently holds an SSH key for manual off-site backups. With the reformat, root's key is removed (liberl uses the host key for internal SSH, matching erebonia/calvard). The backup key needs to migrate to a dedicated `backup` system user with its SSH key managed via sops (decrypted to `/run/secrets/backup-ssh-key`). Scope the key to the backup provider via `programs.ssh.extraConfig`. The backup user needs read access to `/data/` datasets (group membership or ZFS ACLs). This is a fast follow-up — the reformat is the forcing function, but the backup service design (scheduling, tool choice, monitoring) deserves its own plan.
 - **SMB media share rework**: Current SMB config gives full RW access to `/data/media` from the trusted VLAN, contradicting the least-privilege model. Needs a broader upload workflow redesign.
 - **Optional bose enhancements**: Lidarr (music organization), Recyclarr (TRaSH Guide quality profile sync to Sonarr/Radarr). Add to bose when needed.
-- **One-time migration tools**: mnamer (bulk media renaming into `/media/manual/` for arr import), MusicBrainz Picard (music tag correction). Run once on bose when migrating an existing unorganized collection.
+- **One-time migration tools**: FileBot (bulk media renaming into `/media/library/<type>/` for arr Library Import; supports multi-episode files and DVD/absolute orderings, requires paid license), MusicBrainz Picard (music tag correction). Run on bose during migration.
 
 ---
 

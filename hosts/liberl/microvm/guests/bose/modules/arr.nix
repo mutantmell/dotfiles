@@ -1,17 +1,17 @@
 {pkgs, ...}: let
   inherit (pkgs.mmell.lib.data.users) media;
 
-  # Wrapper that forces umask 0002 so dirs/files mnamer creates under
+  # Wrapper that forces umask 0002 so dirs/files filebot creates under
   # /media/library/<type>/ (setgid 2775, group=media via tmpfiles in nas.nix)
-  # are group-writable. Without this, mnamer inherits the operator's default
+  # are group-writable. Without this, filebot inherits the operator's default
   # umask 0022 and produces group-readable-but-not-writable subdirs, which
   # then break Radarr/Sonarr's later Rename Files step with EACCES.
-  mnamer-ingest = pkgs.writeShellApplication {
-    name = "mnamer-ingest";
-    runtimeInputs = [pkgs.mnamer];
+  filebot-ingest = pkgs.writeShellApplication {
+    name = "filebot-ingest";
+    runtimeInputs = [pkgs.filebot];
     text = ''
       umask 0002
-      exec mnamer "$@"
+      exec filebot "$@"
     '';
   };
 in {
@@ -40,8 +40,8 @@ in {
   };
 
   environment.systemPackages = [
-    pkgs.mnamer
-    mnamer-ingest
+    pkgs.filebot
+    filebot-ingest
     pkgs.mediainfo
     pkgs.ffmpeg-headless
   ];

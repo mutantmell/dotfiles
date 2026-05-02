@@ -42,7 +42,7 @@ Key paths:
 
 - **Staging zone (NAS host):** `/data/media/manual/{movies,movies-4k,tv,tv-4k,music}/`
   — temporary holding area for raw uploads (SMB, rsync). Tier-sort here
-  before running mnamer (`-4k` for 2160p/UHD, plain for everything else).
+  before running FileBot (`-4k` for 2160p/UHD, plain for everything else).
 - **Same paths inside bose / ravennue:** `/media/manual/...` (both
   guests see the full tree via virtiofs; each only operates on its own tier).
 - **Libraries inside bose:** `/media/library/{movies-4k,tv-4k}/`
@@ -50,7 +50,7 @@ Key paths:
 - **Library inside oracion (RO NFS):** `/media/library/...` (all tiers).
 - **Old collection on liberl:** `/data/old/` (root dataset, plain dirs)
 
-All ingestion goes staging (tier-sorted) → mnamer (writes into the matching
+All ingestion goes staging (tier-sorted) → FileBot (writes into the matching
 `library/` subdir) → arr Library Import on the matching instance
 (adopt-in-place) → Mass Edit Rename → Connect notification → Jellyfin scan.
 
@@ -212,12 +212,12 @@ for the root folder and the quality profile**, called out at the end.
    - Import Extra Files: **ON** (`srt,sub,nfo`)
    - Analyze video files: **ON** — required so MediaInfo tokens
      (`{Mediainfo VideoCodec}` etc.) populate during Rename Files.
-     Without it, Sonarr falls back to filename guessing, which
-     mnamer's outputs don't carry.
+     Without it, Sonarr falls back to filename guessing, which the
+     pre-rename tool's scaffold filenames don't carry.
    - Set Permissions: **OFF** — the filesystem layer already enforces
-     the right modes (`mnamer-ingest`'s `umask 0002` + the setgid 2775
+     the right modes (`filebot-ingest`'s `umask 0002` + the setgid 2775
      parents from `nas.nix`). With Set Permissions ON, Sonarr's
-     `chown()` and `chmod()` after rename fail with EPERM: mnamer
+     `chown()` and `chmod()` after rename fail with EPERM: FileBot
      creates files owned by the operator's user (not `media`),
      `rename(2)` preserves owner, and Sonarr-as-`media` can't chown
      to a different uid (no CAP_CHOWN) or chmod a file it doesn't
@@ -275,11 +275,12 @@ identical.
    - Analyze video files: **ON** — required so MediaInfo tokens
      (`{Mediainfo VideoCodec}`, `{MediaInfo VideoDynamicRangeType}`,
      etc.) populate during Rename Files. Without it, Radarr falls
-     back to filename guessing, which mnamer's outputs don't carry.
+     back to filename guessing, which the pre-rename tool's scaffold
+     filenames don't carry.
    - Set Permissions: **OFF** — same rationale as §1.2: the filesystem
-     layer (`mnamer-ingest` umask + setgid parents) already produces
+     layer (`filebot-ingest` umask + setgid parents) already produces
      the right modes, and Radarr's `chown`/`chmod` attempt fails with
-     EPERM since mnamer-created files are owned by the operator, not
+     EPERM since FileBot-created files are owned by the operator, not
      `media`.
 3. **Settings → Media Management → Movie Naming:**
    - Rename Movies: **ON**
@@ -394,7 +395,7 @@ ssh root@bose.internal -- 'mediainfo /media/manual/movies/<file>.mkv | grep -E "
 `mediainfo` and `ffprobe` are installed on both guests for exactly
 this check.
 
-`manual/` is **staging**, not the ingestion target. Phase 3 (mnamer)
+`manual/` is **staging**, not the ingestion target. Phase 3 (FileBot)
 reads from here and writes the renamed/nested output into the matching
 `/media/library/...` subdir. Phase 4 then runs Library Import + Mass Edit
 Rename **on the matching instance's UI** (bose for `-4k`, ravennue for
@@ -496,7 +497,7 @@ ssh root@liberl '
 '
 ```
 
-## Phase 3: Required — pre-rename with mnamer
+## Phase 3: Required — pre-rename with FileBot
 
 This is **not optional** for a bulk migration. Radarr's Library Import
 scans for _per-movie subdirectories_ shaped like
@@ -508,7 +509,7 @@ _not_ a confirmation that anything was actually imported. Sonarr's
 Library Import has the same shape requirement for
 `Series Title (Year)/Season NN/...`.
 
-mnamer's job here is to do two things in one pass:
+FileBot's job here is to do two things in one pass:
 
 1. **Rename** files to a parseable `Title (Year).ext` (Radarr's parser
    needs both title and year — a year-less filename like `Big Hero 6.mkv`
@@ -516,100 +517,148 @@ mnamer's job here is to do two things in one pass:
 2. **Nest** each file into a `Title (Year)/` subdirectory, which is
    what Library Import actually scans for.
 
-The format string below does both jobs. mnamer **writes directly into
+The format strings below do both jobs. FileBot **writes directly into
 `/media/library/`**, not `/media/manual/`, because the workflow shape is
 "pre-rename → Library Import (adopt-in-place) → Mass Edit Rename" — see
 §4 for the why.
 
-### What mnamer owns vs. what Radarr owns
+### Why FileBot
 
-mnamer produces a _parseable scaffold_ in `library/`: enough name to
-match TMDB and pass Library Import. The canonical TRaSH naming scheme
-from §1.3 (quality/codec/HDR/audio/release-group) is applied later by
-Radarr in §4 via Mass Edit → Rename Files, once Radarr has analyzed the
-actual video stream. mnamer doesn't know about MediaInfo, and it
-doesn't have to.
+FileBot is the pre-rename tool because it handles cases mnamer (the
+previous tool) couldn't:
 
-The previous boundary ("mnamer writes to manual/, Radarr writes to
-library/") was a leftover from the broken Library Import workflow that
-adopted from `manual/` in place. The new shape collapses the two writes
-into one: mnamer writes the scaffold to `library/`, Radarr renames in
-place. End state is identical.
+- **Multi-episode files** — single `.mkv` covering several aired
+  episodes (common with DVD rips). FileBot's `{e.pad(2)}` binding
+  expands to ranges like `S01E05-E07` automatically; mnamer can't model
+  this case at all. Without correct multi-episode naming, Sonarr marks
+  the covered episodes as missing.
+- **DVD/absolute episode order** — for shows whose physical media uses
+  a non-aired order (Futurama is the canonical case), FileBot exposes
+  the alternate orderings via format bindings (`{dvd.s}`, `{absolute}`).
+- **Anime, foreign titles, ambiguous matches** — FileBot's matching is
+  hash-aware (OpenSubtitles / AniDB hash lookups) with richer per-DB
+  settings than mnamer offered.
+- **Same scaffold output** — for the 95% case (modern, well-named
+  releases), FileBot produces the same `Title (Year)/Title (Year).ext`
+  that mnamer did.
 
-### Running mnamer
+A FileBot license is required for full lookup functionality. License
+activation lives at `/root/.filebot/` on bose, persisted via
+`environment.persistence` in the bose `default.nix`.
 
-mnamer is provided as a system package on **both** bose and ravennue
-(via their respective `arr.nix`), so it's on `$PATH` directly — no
-`nix-shell` needed. Default to running it **from bose** for consistency;
-both guests see the same `/data/media` tree via virtiofs and produce
-identical output. What matters is the `--movie-directory` /
-`--episode-directory` flag, which sets the **output** location, and that
-must match the tier of the input directory:
+### What FileBot owns vs. what Radarr owns
 
-| Source                     | Output flag                                  | Then import on |
-| -------------------------- | -------------------------------------------- | -------------- |
-| `/media/manual/movies/`    | `--movie-directory=/media/library/movies`    | ravennue       |
-| `/media/manual/movies-4k/` | `--movie-directory=/media/library/movies-4k` | bose           |
-| `/media/manual/tv/`        | `--episode-directory=/media/library/tv`      | ravennue       |
-| `/media/manual/tv-4k/`     | `--episode-directory=/media/library/tv-4k`   | bose           |
+FileBot produces a _parseable scaffold_ in `library/`: enough name to
+match TMDB/TVDB and pass Library Import. The canonical TRaSH naming
+scheme from §1.2/§1.3 (quality/codec/HDR/audio/release-group) is applied
+later by Radarr/Sonarr in §4 via Mass Edit → Rename Files, once the
+arr has analyzed the actual video stream. FileBot doesn't need to
+produce the final TRaSH name — that's what step 3 is for.
+
+### Running FileBot
+
+FileBot is provided as a system package on **both** bose and ravennue
+(via their respective `arr.nix`), exposed as `filebot-ingest` (a
+wrapper that forces `umask 0002` so the directories FileBot creates
+are group-writable). Default to running it **from bose** for
+consistency; both guests see the same `/data/media` tree via virtiofs
+and produce identical output. What matters is the `--output` flag,
+which sets the destination, and that must match the tier of the input
+directory:
+
+| Source                     | Output flag                          | Then import on |
+| -------------------------- | ------------------------------------ | -------------- |
+| `/media/manual/movies/`    | `--output /media/library/movies`     | ravennue       |
+| `/media/manual/movies-4k/` | `--output /media/library/movies-4k`  | bose           |
+| `/media/manual/tv/`        | `--output /media/library/tv`         | ravennue       |
+| `/media/manual/tv-4k/`     | `--output /media/library/tv-4k`      | bose           |
 
 ```bash
 ssh root@bose.internal
 
 # Movies — SD/1080p batch (→ ravennue's Radarr in §4.1). Dry run first.
-mnamer --movie-directory=/media/library/movies \
-       --movie-format='{name} ({year})/{name} ({year}).{extension}' \
-       --test \
-       /media/manual/movies/
+filebot-ingest -rename /media/manual/movies/ \
+  --db TheMovieDB \
+  --output /media/library/movies \
+  --action test \
+  --conflict skip \
+  -non-strict \
+  --format "{n} ({y})/{n} ({y})"
 
-# Real run
-mnamer --movie-directory=/media/library/movies \
-       --movie-format='{name} ({year})/{name} ({year}).{extension}' \
-       /media/manual/movies/
+# Real run — switch --action to move
+filebot-ingest -rename /media/manual/movies/ \
+  --db TheMovieDB \
+  --output /media/library/movies \
+  --action move \
+  --conflict skip \
+  -non-strict \
+  --format "{n} ({y})/{n} ({y})"
 
-# Movies — 4K batch (→ bose's Radarr in §4.1).
-mnamer --movie-directory=/media/library/movies-4k \
-       --movie-format='{name} ({year})/{name} ({year}).{extension}' \
-       /media/manual/movies-4k/
+# Movies — 4K batch (→ bose's Radarr). Same shape, swap paths.
+filebot-ingest -rename /media/manual/movies-4k/ \
+  --db TheMovieDB \
+  --output /media/library/movies-4k \
+  --action move \
+  --conflict skip \
+  -non-strict \
+  --format "{n} ({y})/{n} ({y})"
 
 # TV — SD/1080p batch (→ ravennue's Sonarr).
-mnamer --episode-directory=/media/library/tv \
-       --episode-format='{series} ({year})/Season {season:02}/{series} - S{season:02}E{episode:02} - {title}.{extension}' \
-       --test \
-       /media/manual/tv/
+filebot-ingest -rename /media/manual/tv/ \
+  --db TheTVDB \
+  --output /media/library/tv \
+  --action move \
+  --conflict skip \
+  -non-strict \
+  --format "{n} ({y})/Season {s.pad(2)}/{n} - S{s.pad(2)}E{e.pad(2)} - {t}"
 
 # TV — 4K batch (→ bose's Sonarr).
-mnamer --episode-directory=/media/library/tv-4k \
-       --episode-format='{series} ({year})/Season {season:02}/{series} - S{season:02}E{episode:02} - {title}.{extension}' \
-       /media/manual/tv-4k/
+filebot-ingest -rename /media/manual/tv-4k/ \
+  --db TheTVDB \
+  --output /media/library/tv-4k \
+  --action move \
+  --conflict skip \
+  -non-strict \
+  --format "{n} ({y})/Season {s.pad(2)}/{n} - S{s.pad(2)}E{e.pad(2)} - {t}"
 ```
 
-After mnamer runs, each movie sits in its own
-`/media/library/<movies|movies-4k>/Title (Year)/` directory — exactly
-what Library Import expects. The matching arr instance adopts these in
-§4.1, then Mass Edit → Rename Files applies the full TRaSH name in place.
+`-non-strict` allows fuzzy matching when the exact title isn't found in
+the DB; without it, FileBot bails on anything it can't match
+unambiguously. `--conflict skip` leaves an existing destination file
+alone rather than overwriting (safe default; switch to `override` if
+you're intentionally re-ingesting).
 
-### When mnamer can't identify a file
+After FileBot runs, each movie sits in its own
+`/media/library/<movies|movies-4k>/Title (Year)/` directory and each
+TV file sits in `Series (Year)/Season NN/Series - SnnEnn - Title.ext`
+— exactly what Library Import expects. The matching arr instance
+adopts these in §4, then Mass Edit → Rename Files applies the full
+TRaSH name in place.
 
-mnamer needs _some_ signal in the original filename — a real title, ideally
-a year — to do TMDB lookups. For genuinely opaque names (`movie01.mkv`,
-`disc1.mkv`), it'll fail too. Two fallbacks:
+### Edge cases
 
-- **FileBot** — stronger heuristics than mnamer, including hash-based
-  matching against OpenSubtitles / AcoustID / TheTVDB. It can identify a
-  movie even from `disc1.mkv` if the file's hash is in the database. Not
-  in nixpkgs (proprietary, paid for current versions); available as
-  AppImage. Worth running once over a really messy library.
-- **Hand-rename the holdouts.** For the few survivors after mnamer +
-  FileBot, just `mv` them into `Title (Year)/Title (Year).ext` by hand.
-  After mnamer, the residual count is usually small.
+- **Multi-episode files** — when FileBot matches one file to multiple
+  episodes, `{e.pad(2)}` automatically expands to a range
+  (e.g. `S01E05-E07`). Sonarr's Library Import recognizes the range
+  and links the file to all covered episodes. No special invocation
+  needed.
+- **DVD / absolute order** — for shows using non-aired ordering, swap
+  `{s.pad(2)}E{e.pad(2)}` for `{dvd.s.pad(2)}E{dvd.e.pad(2)}` (or
+  `{absolute}` for absolute-ordered anime) in the TV format. Always
+  use `--action test` first to verify the new numbering before
+  committing.
+- **Genuinely unidentifiable files** (`movie01.mkv`, `disc1.mkv`) —
+  FileBot can sometimes match these via hash (OpenSubtitles /
+  AcoustID); use `--db OpenSubtitles` for a hash-driven retry pass.
+  For the residue, hand-rename: `mv` into
+  `Title (Year)/Title (Year).ext` directly.
 
 ## Phase 4: The actual ingestion (per-app workflow)
 
 The shape is uniform across every arr-supported media type:
 
 ```
-1. Pre-rename tool (mnamer for video) writes into /media/library/<type>[-4k]/
+1. Pre-rename tool (FileBot) writes into /media/library/<type>[-4k]/
 2. arr Library Import wizard adopts in place    ←── on the matching instance
 3. arr Mass Edit → Rename Files applies the canonical TRaSH name
 ```
@@ -620,7 +669,7 @@ ravennue for plain. Picking the wrong UI gets you the empty-state
 message because that instance's root folder doesn't see the files.
 
 **Library Import is adopt-in-place** — it does not move, hardlink, or
-rename. That's why we point it at `/media/library/...`, where mnamer has
+rename. That's why we point it at `/media/library/...`, where FileBot has
 already written the files: Library Import attaches the arr's database
 record to the existing on-disk file. The MediaInfo-rich TRaSH name
 comes from the Rename Files step, which is a rename within the same
@@ -638,7 +687,7 @@ folder.
 
 **Prerequisite:** Phase 3 must be complete for the tier you're
 importing. Each movie under `<root>` should sit in its own
-`Title (Year)/` subdirectory containing the file mnamer wrote there.
+`Title (Year)/` subdirectory containing the file FileBot wrote there.
 If you skipped Phase 3, the Library Import wizard will say "All movies
 in `<root>` have been imported" and show nothing — see Troubleshooting.
 
@@ -659,7 +708,7 @@ in `<root>` have been imported" and show nothing — see Troubleshooting.
      clicking the title and searching TMDB.
 4. Select all → **Import** (top right).
 5. Radarr now tracks each file in its DB but the on-disk filenames
-   are still mnamer's (`Foo (2024).mkv`, no MediaInfo tokens).
+   are still FileBot's scaffold (`Foo (2024).mkv`, no MediaInfo tokens).
 
 **Step 2: Apply canonical TRaSH naming.**
 
@@ -797,7 +846,7 @@ force a sweep:
 
 4. Future ingestion is the same workflow without the old-collection
    rsync: tier-sort new files into the matching `manual/` subdir
-   (plain or `-4k`), run mnamer pointed at the matching `library/`
+   (plain or `-4k`), run FileBot pointed at the matching `library/`
    subdir, then Library Import + Mass Edit Rename on the matching
    instance (bose for 4K, ravennue for SD/1080p).
 
@@ -823,8 +872,8 @@ ls /media/library/movies/      # ravennue's tier; should be Title (Year)/ subdir
 ls /media/library/movies-4k/   # bose's tier; same
 ```
 
-Fix by running Phase 3 (mnamer with the folder-creating format
-string). To smoke-test before re-running mnamer over the whole tree,
+Fix by running Phase 3 (FileBot with the folder-creating format
+string). To smoke-test before re-running FileBot over the whole tree,
 hand-create one folder:
 
 ```bash
@@ -841,9 +890,9 @@ issue.
 `Foo (2024) [Unknown].mkv`** (no codec, no resolution, no HDR token).
 **Analyze video files** is OFF in Settings → Media Management → File
 Management. Without it, Radarr/Sonarr take quality/codec/HDR from the
-filename — and mnamer's filenames don't carry that. Toggle it ON
-(see §1.2 / §1.3), then **Mass Editor → Rename Files** again. The
-second pass picks up the now-populated MediaInfo tokens.
+filename — and FileBot's scaffold filenames don't carry that. Toggle
+it ON (see §1.2 / §1.3), then **Mass Editor → Rename Files** again.
+The second pass picks up the now-populated MediaInfo tokens.
 
 **Movies page shows "No movies found, to get started you'll want to add
 a new movie or import some existing ones."** This is Radarr's default
@@ -867,7 +916,7 @@ filesystem boundaries. The whole `data/media` tree must be one ZFS
 dataset — verify with `zfs list -r data/media`, must show exactly one
 row. If there are children, they need to be merged. (Relevant for
 future download-client integration; not currently an active path now
-that mnamer writes directly into `library/`.)
+that FileBot writes directly into `library/`.)
 
 **Permission errors during import.** The arr services run as their service
 user but with `group = "media"` (gid 400). Files in `manual/` must be group
