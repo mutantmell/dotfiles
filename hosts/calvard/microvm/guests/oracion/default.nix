@@ -94,6 +94,12 @@ in {
         port = 8427;
         comment = "metrics push";
       }
+      {
+        any = true;
+        proto = "tcp";
+        port = [80 443];
+        comment = "HTTP/HTTPS for TMDB/TVDB/fanart.tv metadata fetch";
+      }
     ]
     ++ [
       "ip daddr 224.0.0.251 udp dport 5353 accept" # mDNS IPv4
