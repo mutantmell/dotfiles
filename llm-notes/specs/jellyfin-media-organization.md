@@ -139,7 +139,7 @@ Jellyfin has no built-in file organization or renaming capability. It reads what
 | **Radarr**             | Movie organization, renaming, import                   | Manages `/media/library/movies/`           |
 | **Bazarr**             | Subtitle downloading                                   | Writes `.srt` files into `/media/library/` |
 | **Lidarr**             | Music organization (optional)                          | Manages `/media/library/music/`            |
-| **mnamer**             | One-time bulk renaming of existing unorganized library | Run once during migration                  |
+| **FileBot**            | Pre-rename for migration ingest (multi-episode, DVD-order support); requires paid license | Run on bose during migration         |
 | **MusicBrainz Picard** | Music tag correction (optional)                        | Run once during migration                  |
 
 The NAS microvm accesses the ZFS pool via virtiofs passthrough from the host. Persistent state (Radarr/Sonarr databases, configuration) is declared via microvm.nix impermanence and stored in a persistent btrfs subvolume on the NAS host, separate from the ZFS media pool. Guest images and NixOS store paths live on the btrfs root SSD, ensuring VM boot and \*arr stack binary access never spin up the HDDs.
@@ -191,25 +191,40 @@ Bazarr monitors Sonarr and Radarr's libraries via their APIs and automatically d
 
 Jellyfin picks up subtitle files automatically when they appear in the same directory as the video file. No additional configuration is needed.
 
-#### Migration: mnamer
+#### Migration: FileBot
 
-For the one-time migration of an existing unorganized collection:
+For the one-time migration of an existing unorganized collection,
+FileBot writes a parseable scaffold directly into `/media/library/<type>/`,
+which the matching arr instance then adopts via Library Import + Mass
+Edit Rename. FileBot is the chosen pre-rename tool because it handles
+multi-episode files (`S01E05-E07`) and non-aired orderings (DVD,
+absolute) — both common with self-sourced physical media that mnamer
+couldn't model. Requires a paid license; see the runbook for
+activation details.
 
 ```bash
 # Movies
-mnamer -b -r \
-  --movie-directory="/media/manual/movies" \
-  --movie-format="{name} ({year})/{name} ({year})" \
-  /old-library/movies/
+filebot-ingest -rename /old-library/movies/ \
+  --db TheMovieDB \
+  --output /media/library/movies \
+  --action move \
+  --conflict skip \
+  -non-strict \
+  --format "{n} ({y})/{n} ({y})"
 
 # TV
-mnamer -b -r \
-  --episode-directory="/media/manual/tv" \
-  --episode-format="{series} ({year})/Season {season:02}/{series} - S{season:02}E{episode:02} - {title}" \
-  /old-library/tv/
+filebot-ingest -rename /old-library/tv/ \
+  --db TheTVDB \
+  --output /media/library/tv \
+  --action move \
+  --conflict skip \
+  -non-strict \
+  --format "{n} ({y})/Season {s.pad(2)}/{n} - S{s.pad(2)}E{e.pad(2)} - {t}"
 ```
 
-Run mnamer first to rough-organize files into Jellyfin-compatible naming, then use Sonarr/Radarr Manual Import to ingest them into the managed library. FileBot is a more accurate alternative but is no longer open source (requires a license).
+See `llm-notes/guides/media-ingestion-runbook.md` §3 for the full
+operational workflow including tier-split (4K vs SD/1080p) and
+edge cases.
 
 ---
 
@@ -540,9 +555,9 @@ Desktop machine
 
 ```
 Old unorganized library
-  → mnamer renames files into /media/manual/ (NAS microvm)
-  → Radarr/Sonarr Manual Import → bulk ingest
-  → hardlink to /media/library/ (virtiofs, local kernel op on host)
+  → FileBot renames into /media/library/<type>/ scaffold (bose microvm)
+  → Radarr/Sonarr Library Import (adopt-in-place)
+  → Mass Edit → Rename Files applies TRaSH naming (in-place rename)
   → Jellyfin API notification → appears in library
 ```
 
@@ -593,7 +608,7 @@ ROM files copied to /data/media/library/roms/ps/ (NAS host, direct or via RW NFS
 | Lidarr             | Music organization (optional)               | NAS microvm            | servarr.com             |
 | Recyclarr          | Syncs TRaSH Guide quality profiles to \*arr | NAS microvm            | recyclarr.dev           |
 | Unmanic            | Background AV1 re-encoding                  | Old                    | unmanic.app             |
-| mnamer             | One-time bulk media renaming                | NAS microvm (run once) | pypi.org/project/mnamer |
+| FileBot            | Pre-rename for migration ingest             | bose microvm           | filebot.net             |
 | MusicBrainz Picard | Music tag correction (optional)             | NAS microvm (run once) | picard.musicbrainz.org  |
 | Nixarr             | NixOS modules for \*arr stack               | NAS microvm            | nixarr.com              |
 

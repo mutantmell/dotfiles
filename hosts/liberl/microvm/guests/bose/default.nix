@@ -59,6 +59,7 @@ in {
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
+      "/root/.filebot"
     ];
   };
 
