@@ -38,8 +38,7 @@ ssh_cert_end_epoch() {
     echo "0"
     return
   fi
-  local end_str
-  end_str=$(echo "$valid_line" | sed 's/.*to //')
+  local end_str="${valid_line##*to }"
   date -d "$end_str" +%s 2>/dev/null || date -jf "%Y-%m-%dT%H:%M:%S" "$end_str" +%s 2>/dev/null || echo "0"
 }
 
@@ -95,7 +94,7 @@ fi
 
 echo ""
 echo "=== Fleet X5C enrollment certificate expiry ==="
-if [ ! -d "$X5C_CERTS_DIR" ] || [ -z "$(ls -A "$X5C_CERTS_DIR" 2>/dev/null | grep '\.crt$' || true)" ]; then
+if [ ! -d "$X5C_CERTS_DIR" ] || ! compgen -G "$X5C_CERTS_DIR/*.crt" >/dev/null; then
   echo "  (no X5C enrollment certs found — skipping X5C checks)"
 else
   for host in $all_hosts; do
