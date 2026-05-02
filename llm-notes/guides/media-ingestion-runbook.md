@@ -214,9 +214,15 @@ for the root folder and the quality profile**, called out at the end.
      (`{Mediainfo VideoCodec}` etc.) populate during Rename Files.
      Without it, Sonarr falls back to filename guessing, which
      mnamer's outputs don't carry.
-   - Set Permissions: **ON**
-   - chmod Folder: `755`, chmod File: `644`
-   - chown User: `media`, chown Group: `media`
+   - Set Permissions: **OFF** — the filesystem layer already enforces
+     the right modes (`mnamer-ingest`'s `umask 0002` + the setgid 2775
+     parents from `nas.nix`). With Set Permissions ON, Sonarr's
+     `chown()` and `chmod()` after rename fail with EPERM: mnamer
+     creates files owned by the operator's user (not `media`),
+     `rename(2)` preserves owner, and Sonarr-as-`media` can't chown
+     to a different uid (no CAP_CHOWN) or chmod a file it doesn't
+     own. The previously-recommended `chmod 755/644` would also
+     strip group-write, re-breaking the next rename.
 3. **Settings → Media Management → Episode Naming:**
    - Rename Episodes: **ON**
    - Use the recommended TRaSH naming token, e.g.:
@@ -248,6 +254,13 @@ for the root folder and the quality profile**, called out at the end.
    up indexers.
 8. **Settings → General → Security:** record the **API Key** — you'll need it
    in Bazarr (one per instance, so two keys total).
+9. **Settings → Metadata:** leave **all providers OFF** (the default).
+   Sonarr writes metadata for Kodi-style consumers; Jellyfin fetches its
+   own from TMDB/TVDB and is the more capable pipeline (richer provider
+   ordering, lockable fields, UI-driven match fixing). NFO sidecars in
+   the library tree fight Jellyfin's own fetch and make refresh-from-
+   source unpredictable. Community consensus (TRaSH, Servarr wiki, r/
+   jellyfin) is to let Jellyfin own metadata in *arr+Jellyfin setups.
 
 ### 1.3 — Radarr first-run (do on **both** bose and ravennue)
 
@@ -263,7 +276,11 @@ identical.
      (`{Mediainfo VideoCodec}`, `{MediaInfo VideoDynamicRangeType}`,
      etc.) populate during Rename Files. Without it, Radarr falls
      back to filename guessing, which mnamer's outputs don't carry.
-   - Set Permissions: **ON**, chmod 755/644, chown `media:media`
+   - Set Permissions: **OFF** — same rationale as §1.2: the filesystem
+     layer (`mnamer-ingest` umask + setgid parents) already produces
+     the right modes, and Radarr's `chown`/`chmod` attempt fails with
+     EPERM since mnamer-created files are owned by the operator, not
+     `media`.
 3. **Settings → Media Management → Movie Naming:**
    - Rename Movies: **ON**
    - Standard Movie Format (TRaSH): `{Movie CleanTitle} ({Release Year}) {edition-{Edition Tags}} [{Custom Formats}]{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}[{Mediainfo VideoBitDepth}bit]{[Mediainfo VideoCodec]}{-Release Group}`
@@ -275,6 +292,9 @@ identical.
    bose 2160p-only, ravennue ≤1080p only.
 6. **Indexers / Download Clients:** leave empty.
 7. **Settings → General:** record the **API Key** (one per instance).
+8. **Settings → Metadata:** leave **all providers OFF** (default). Same
+   rationale as §1.2 step 9 — Jellyfin owns metadata; NFO sidecars from
+   Radarr would fight its fetch.
 
 ### 1.4 — Jellyfin API key (on oracion)
 
@@ -665,12 +685,21 @@ in `<root>` have been imported" and show nothing — see Troubleshooting.
    ls /media/library/movies-4k/'Foo (2024)/'
    ```
 
-**Step 3: Verify Connect fired.**
+**Step 3: Trigger a Jellyfin scan.**
 
-Jellyfin should pick up the new file via the Connect notification (set
-up in §1.5 on this instance). Check the Activity log on oracion's
-Jellyfin dashboard, or just browse the Movies / Movies 4K section
-there (whichever matches the tier).
+In practice, Connect (set up in §1.5) does **not** fire reliably for
+Mass Edit → Rename Files. The `On Rename` event is sent for per-movie
+renames triggered from the movie page, but bulk renames via Mass Edit
+silently skip the notification in current Radarr versions. The Test
+button only verifies auth/reachability, not that events fire.
+
+So after Step 2, manually kick a scan: oracion → Jellyfin Dashboard →
+**Scheduled Tasks → Scan Media Library → Run**. Then verify under the
+Movies / Movies 4K section (whichever matches the tier). Connect
+remains useful as a best-effort signal for the cases where it does
+fire (per-movie organize, future download-client imports), and
+Jellyfin's 4-hour scheduled scan from Phase 5 is the no-click
+fallback if you forget the manual run.
 
 **Note:** Renames within `/media/library/...` are link-preserving on
 the same ZFS dataset — the inode survives. If you previously had
@@ -704,8 +733,10 @@ for 4K (`/media/library/tv-4k`).
 4. **Rename Files** action. Sonarr renames every episode to the §1.2
    format, including all MediaInfo tokens.
 
-**Step 3: Verify Connect fired** — same as movies, check oracion's
-Jellyfin Activity log under TV / TV 4K.
+**Step 3: Trigger a Jellyfin scan** — same caveat as movies (§4.1
+Step 3): Mass Edit Rename doesn't reliably fire Connect. Run
+**Dashboard → Scheduled Tasks → Scan Media Library** on oracion, then
+verify under TV / TV 4K.
 
 For lone episodes (not full seasons in their own folders), Sonarr may
 want **Wanted → Manual Import** pointed at the same root folder

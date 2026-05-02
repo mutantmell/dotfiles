@@ -1,5 +1,19 @@
 {pkgs, ...}: let
   inherit (pkgs.mmell.lib.data.users) media;
+
+  # Wrapper that forces umask 0002 so dirs/files mnamer creates under
+  # /media/library/<type>/ (setgid 2775, group=media via tmpfiles in nas.nix)
+  # are group-writable. Without this, mnamer inherits the operator's default
+  # umask 0022 and produces group-readable-but-not-writable subdirs, which
+  # then break Radarr/Sonarr's later Rename Files step with EACCES.
+  mnamer-ingest = pkgs.writeShellApplication {
+    name = "mnamer-ingest";
+    runtimeInputs = [pkgs.mnamer];
+    text = ''
+      umask 0002
+      exec mnamer "$@"
+    '';
+  };
 in {
   users.groups.media.gid = media.gid;
   users.users.media = {
@@ -27,6 +41,7 @@ in {
 
   environment.systemPackages = [
     pkgs.mnamer
+    mnamer-ingest
     pkgs.mediainfo
     pkgs.ffmpeg-headless
   ];
