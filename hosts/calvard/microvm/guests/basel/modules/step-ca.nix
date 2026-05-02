@@ -4,7 +4,7 @@
   pkgs,
   ...
 }: let
-  data = pkgs.mmell.lib.data;
+  inherit (pkgs.mmell.lib) data;
   fleetX5cCAExists = data.pki.fleetX5cCA != null;
 in {
   # step-ca serves TLS directly on port 443 without an nginx reverse proxy.
@@ -71,44 +71,46 @@ in {
         userKey = config.sops.secrets."ssh_user_ca_key".path;
       };
       authority = {
-        provisioners = [
-          {
-            type = "ACME";
-            name = "acme";
-            claims = {
-              defaultTLSCertDuration = "1080h";
-              maxTLSCertDuration = "2160h";
-            };
-          }
-          {
-            type = "OIDC";
-            name = "keycloak";
-            clientID = "step-ca";
-            configurationEndpoint = "https://auth.mutantmell.net/realms/homelab/.well-known/openid-configuration";
-            listenAddress = "127.0.0.1:10000";
-            claims = {
-              enableSSHCA = true;
-            };
-            options = {
-              ssh = {
-                templateFile = "/etc/step-ca/templates/ssh/oidc.tpl";
+        provisioners =
+          [
+            {
+              type = "ACME";
+              name = "acme";
+              claims = {
+                defaultTLSCertDuration = "1080h";
+                maxTLSCertDuration = "2160h";
               };
+            }
+            {
+              type = "OIDC";
+              name = "keycloak";
+              clientID = "step-ca";
+              configurationEndpoint = "https://auth.mutantmell.net/realms/homelab/.well-known/openid-configuration";
+              listenAddress = "127.0.0.1:10000";
+              claims = {
+                enableSSHCA = true;
+              };
+              options = {
+                ssh = {
+                  templateFile = "/etc/step-ca/templates/ssh/oidc.tpl";
+                };
+              };
+            }
+          ]
+          ++ (lib.optional fleetX5cCAExists {
+            # X5C: fleet hosts self-enroll for x.509 client certs using their
+            # pre-signed enrollment cert (signed by the offline fleet_x5c_ca) as the
+            # X5C trust anchor. Provisioner activates once fleet_x5c_ca.crt is committed.
+            type = "X5C";
+            name = "fleet-x5c";
+            roots = builtins.readFile (pkgs.runCommand "fleet-x5c-ca-b64" {} ''
+              ${pkgs.coreutils}/bin/base64 -w0 ${data.pki.fleetX5cCA} > $out
+            '');
+            claims = {
+              defaultTLSCertDuration = "8760h";
+              maxTLSCertDuration = "8760h";
             };
-          }
-        ] ++ (lib.optional fleetX5cCAExists {
-          # X5C: fleet hosts self-enroll for x.509 client certs using their
-          # pre-signed enrollment cert (signed by the offline fleet_x5c_ca) as the
-          # X5C trust anchor. Provisioner activates once fleet_x5c_ca.crt is committed.
-          type = "X5C";
-          name = "fleet-x5c";
-          roots = builtins.readFile (pkgs.runCommand "fleet-x5c-ca-b64" {} ''
-            ${pkgs.coreutils}/bin/base64 -w0 ${data.pki.fleetX5cCA} > $out
-          '');
-          claims = {
-            defaultTLSCertDuration = "8760h";
-            maxTLSCertDuration = "8760h";
-          };
-        });
+          });
       };
     };
   };

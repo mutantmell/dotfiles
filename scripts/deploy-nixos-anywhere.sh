@@ -77,7 +77,7 @@ update_host_key_registry() {
 
 # --- Encryption key setup ---
 KEYFILE="$KEYFILE_DIR/disk.key"
-if passage show "hosts/$HOSTNAME/disk.key" > "$KEYFILE" 2>/dev/null; then
+if passage show "hosts/$HOSTNAME/disk.key" >"$KEYFILE" 2>/dev/null; then
   chmod 600 "$KEYFILE"
   echo "Using existing LUKS keyfile from passage:hosts/$HOSTNAME/disk.key"
 else
@@ -87,9 +87,9 @@ else
 fi
 
 # --- SSH host key setup ---
-if passage show "hosts/$HOSTNAME/ssh_host_ed25519_key" > "$SSH_KEY" 2>/dev/null; then
+if passage show "hosts/$HOSTNAME/ssh_host_ed25519_key" >"$SSH_KEY" 2>/dev/null; then
   chmod 600 "$SSH_KEY"
-  ssh-keygen -y -f "$SSH_KEY" > "$SSH_KEY.pub"
+  ssh-keygen -y -f "$SSH_KEY" >"$SSH_KEY.pub"
   echo "Using existing SSH host key from passage:hosts/$HOSTNAME/ssh_host_ed25519_key"
 else
   echo "Generating new SSH host key..."
@@ -202,11 +202,11 @@ fi
 
 # --- Store new keys in passage ---
 if ! passage show "hosts/$HOSTNAME/disk.key" >/dev/null 2>&1; then
-  passage insert -m -f "hosts/$HOSTNAME/disk.key" < "$KEYFILE"
+  passage insert -m -f "hosts/$HOSTNAME/disk.key" <"$KEYFILE"
   echo "Stored disk key in passage:hosts/$HOSTNAME/disk.key"
 fi
 if ! passage show "hosts/$HOSTNAME/ssh_host_ed25519_key" >/dev/null 2>&1; then
-  passage insert -m -f "hosts/$HOSTNAME/ssh_host_ed25519_key" < "$SSH_KEY"
+  passage insert -m -f "hosts/$HOSTNAME/ssh_host_ed25519_key" <"$SSH_KEY"
   echo "Stored SSH key in passage:hosts/$HOSTNAME/ssh_host_ed25519_key"
 fi
 
@@ -214,7 +214,7 @@ fi
 ENROLLMENT_KEY="$KEYFILE_DIR/fleet_enrollment_key"
 ENROLLMENT_PUB="$KEYFILE_DIR/fleet_enrollment_key.pub"
 
-if passage show "hosts/$HOSTNAME/fleet_enrollment_key" > "$ENROLLMENT_KEY" 2>/dev/null; then
+if passage show "hosts/$HOSTNAME/fleet_enrollment_key" >"$ENROLLMENT_KEY" 2>/dev/null; then
   chmod 600 "$ENROLLMENT_KEY"
   openssl pkey -in "$ENROLLMENT_KEY" -pubout -out "$ENROLLMENT_PUB" 2>/dev/null
   echo "Using existing fleet enrollment key from passage:hosts/$HOSTNAME/fleet_enrollment_key"
@@ -232,7 +232,7 @@ jq --arg name "$HOSTNAME" --arg key "$(cat "$ENROLLMENT_PUB")" \
 echo "  Updated keys.json: fleetEnrollmentKeys.$HOSTNAME"
 
 if ! passage show "hosts/$HOSTNAME/fleet_enrollment_key" >/dev/null 2>&1; then
-  passage insert -m -f "hosts/$HOSTNAME/fleet_enrollment_key" < "$ENROLLMENT_KEY"
+  passage insert -m -f "hosts/$HOSTNAME/fleet_enrollment_key" <"$ENROLLMENT_KEY"
   echo "Stored enrollment key in passage:hosts/$HOSTNAME/fleet_enrollment_key"
 fi
 
@@ -279,7 +279,7 @@ sign_host_cert() {
 
 SSH_CA_KEY="$KEYFILE_DIR/ssh_host_ca_key"
 echo ""
-if passage show "pki/ssh_host_ca_key" > "$SSH_CA_KEY" 2>/dev/null; then
+if passage show "pki/ssh_host_ca_key" >"$SSH_CA_KEY" 2>/dev/null; then
   chmod 600 "$SSH_CA_KEY"
   echo "Signing SSH host certificate for $HOSTNAME..."
   sign_host_cert "$HOSTNAME" "$SSH_KEY.pub"
@@ -305,7 +305,7 @@ if [[ -f "$REPO_ROOT/lib/common/data/fleet-x5c-certs/$HOSTNAME.crt" ]]; then
 else
   X5C_CA_KEY="$KEYFILE_DIR/fleet_x5c_ca_key"
   echo ""
-  if [[ -f $X5C_CA_CRT ]] && passage show "pki/fleet_x5c_ca_key" > "$X5C_CA_KEY" 2>/dev/null; then
+  if [[ -f $X5C_CA_CRT ]] && passage show "pki/fleet_x5c_ca_key" >"$X5C_CA_KEY" 2>/dev/null; then
     chmod 600 "$X5C_CA_KEY"
     echo "Signing fleet enrollment certificate for $HOSTNAME..."
     if nix run "$REPO_ROOT#fleet-x5c-cert-sign" -- --sign "$HOSTNAME" --ca-key "$X5C_CA_KEY" 2>/dev/null; then

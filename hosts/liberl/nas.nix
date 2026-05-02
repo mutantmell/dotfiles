@@ -64,11 +64,15 @@ in {
     (dir "/data/media")
     (dir "/data/media/library")
     (dir "/data/media/library/movies")
+    (dir "/data/media/library/movies-4k")
     (dir "/data/media/library/tv")
+    (dir "/data/media/library/tv-4k")
     (dir "/data/media/library/music")
     (dir "/data/media/manual")
     (dir "/data/media/manual/movies")
+    (dir "/data/media/manual/movies-4k")
     (dir "/data/media/manual/tv")
+    (dir "/data/media/manual/tv-4k")
     (dir "/data/media/manual/music")
   ];
 

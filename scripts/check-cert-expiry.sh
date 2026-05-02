@@ -26,7 +26,7 @@ warn_x5c_days=450
 
 days_until() {
   local end_sec="$1"
-  echo $(( (end_sec - now_sec) / 86400 ))
+  echo $(((end_sec - now_sec) / 86400))
 }
 
 # Parse SSH cert expiry from "Valid: from ... to YYYY-MM-DDTHH:MM:SS" line
@@ -34,7 +34,10 @@ ssh_cert_end_epoch() {
   local cert="$1"
   local valid_line
   valid_line=$(ssh-keygen -L -f "$cert" 2>/dev/null | grep "Valid:" || true)
-  if [ -z "$valid_line" ]; then echo "0"; return; fi
+  if [ -z "$valid_line" ]; then
+    echo "0"
+    return
+  fi
   local end_str
   end_str=$(echo "$valid_line" | sed 's/.*to //')
   date -d "$end_str" +%s 2>/dev/null || date -jf "%Y-%m-%dT%H:%M:%S" "$end_str" +%s 2>/dev/null || echo "0"
@@ -45,7 +48,10 @@ x509_cert_end_epoch() {
   local cert="$1"
   local end_str
   end_str=$(openssl x509 -enddate -noout -in "$cert" 2>/dev/null | sed 's/notAfter=//' || true)
-  if [ -z "$end_str" ]; then echo "0"; return; fi
+  if [ -z "$end_str" ]; then
+    echo "0"
+    return
+  fi
   date -d "$end_str" +%s 2>/dev/null || date -jf "%b %e %H:%M:%S %Y %Z" "$end_str" +%s 2>/dev/null || echo "0"
 }
 

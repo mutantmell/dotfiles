@@ -10,6 +10,7 @@ keys:
   # liberl (reusing remiferia keys)
   - &sv_liberl age18e698z5sf5twkc8vup4edc7nkaza2nquuzqja8lrv7r34mzx84js48jps0
   - &sv_bose age16hu3zrv7ncxl4f3tcddeptcqj3azjrj44gamwtakgl9yp723092sgcakqk
+  - &sv_ravennue age1ffxsuhgqnx0ztxm7jghnn5pjzv5j2d6atcm8v40xh573gv0pc90qlpllnc # placeholder; replace after setup-guest.sh
   - &sv_zeiss age1dvk7gqyw4zwnnu6u3dwke94unlkw85kmlw6s5lfq59jw32s5zdks4c32ff
 
   # erebonia
@@ -58,6 +59,11 @@ creation_rules:
       - age:
           - *ad_denai
           - *sv_bose
+  - path_regex: hosts/liberl/microvm/guests/ravennue/secrets/[^/]+\.yaml$
+    key_groups:
+      - age:
+          - *ad_denai
+          - *sv_ravennue
   - path_regex: hosts/liberl/microvm/guests/zeiss/secrets/[^/]+\.yaml$
     key_groups:
       - age:

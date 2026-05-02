@@ -43,7 +43,8 @@
       vlanId = 21;
       hosts = {
         edith = 42; # Dev environment / task runner (calvard Incus container)
-        bose = 43; # Arr stack — Sonarr, Radarr, Bazarr (liberl)
+        bose = 43; # Arr stack — UHD/4K — Sonarr, Radarr, Bazarr (liberl)
+        ravennue = 44; # Arr stack — SD/1080p — Sonarr, Radarr (liberl)
       };
     };
     untrusted = {
