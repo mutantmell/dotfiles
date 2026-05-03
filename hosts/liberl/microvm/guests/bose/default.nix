@@ -50,8 +50,8 @@ in {
 
   time.timeZone = "UTC";
 
-  # Sonarr (8989), Radarr (7878), Bazarr (6767) web UIs
-  networking.firewall.allowedTCPPorts = [8989 7878 6767];
+  # Sonarr (8989), Radarr (7878), Bazarr (6767), Lidarr (8686) web UIs
+  networking.firewall.allowedTCPPorts = [8989 7878 6767 8686];
 
   environment.persistence."/persist" = {
     hideMounts = true;
