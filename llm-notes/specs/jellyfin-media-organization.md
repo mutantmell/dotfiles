@@ -77,9 +77,10 @@ All directories live under a single root on a **single server-side filesystem** 
 │   ├── movies/
 │   ├── tv/
 │   └── music/
-├── manual-4k/                 ← staging inbox — 4K tier (→ bose)
+├── manual-hq/                 ← staging inbox — HQ tier (→ bose)
 │   ├── movies/
-│   └── tv/
+│   ├── tv/
+│   └── music/
 ├── library/                   ← organized library — default tier; RO export
 │   ├── movies/
 │   ├── tv/                    ← canonical airdate-order TV (owned by ravennue's Sonarr)
@@ -96,18 +97,21 @@ All directories live under a single root on a **single server-side filesystem** 
 │       ├── ps/
 │       ├── ps2/
 │       └── gc/
-└── library-4k/                ← organized library — 4K tier; RO export
+└── library-hq/                ← organized library — HQ tier; RO export
     ├── movies/
-    └── tv/
+    ├── tv/
+    └── music/
 ```
 
-The tier split is done at the **library level** (`library/` vs `library-4k/`,
-mirrored in `manual/` vs `manual-4k/`) rather than as a `-4k` suffix
-inside a single tree. This keeps each Sonarr/Radarr instance's
-ownership boundary unambiguous (each owns one top-level dir and never
-traverses the other's), and leaves room for derived views per tier
-(`library/tv-curated/`, future `library-4k/tv-curated/`) without
-colliding with the suffix.
+The tier split is done at the **library level** (`library/` vs `library-hq/`,
+mirrored in `manual/` vs `manual-hq/`) rather than as a suffix inside a
+single tree. This keeps each arr instance's ownership boundary
+unambiguous (each owns one top-level dir and never traverses the
+other's), and leaves room for derived views per tier
+(`library/tv-curated/`, future `library-hq/tv-curated/`) without
+colliding with the suffix. The name `-hq` (rather than `-4k`)
+generalizes across video (4K) and audio (lossless) — and any future
+media type — without ever needing another rename.
 
 The name `library/` distinguishes the organized, triaged collection from the staging areas above it. The export name `media` describes the purpose of the share at the NAS level. These are two separate naming concerns at two different levels — the internal directory name reflects pipeline stage, the export name reflects the share's domain.
 
@@ -151,14 +155,14 @@ Jellyfin has no built-in file organization or renaming capability. It reads what
 
 ### NAS Microvm (Read-Write via virtiofs, Batch Library Management)
 
-| Service                | Purpose                                                | Notes                                      |
-| ---------------------- | ------------------------------------------------------ | ------------------------------------------ |
-| **Sonarr**             | TV show organization, renaming, import                 | Per-tier instances: ravennue manages `/media/library/tv/`, bose manages `/media/library-4k/tv/` |
-| **Radarr**             | Movie organization, renaming, import                   | Per-tier instances: ravennue manages `/media/library/movies/`, bose manages `/media/library-4k/movies/` |
-| **Bazarr**             | Subtitle downloading                                   | Single instance on bose, configured against all four arrs (both tiers); writes `.srt` files into the matching `/media/library*/` subdir |
-| **Lidarr**             | Music organization (optional)                          | Manages `/media/library/music/`            |
-| **FileBot**            | Pre-rename for migration ingest (multi-episode, DVD-order support); requires paid license | Run on bose during migration; output flag picks the tier (`/media/library/...` or `/media/library-4k/...`) |
-| **MusicBrainz Picard** | Music tag correction (optional)                        | Run once during migration                  |
+| Service                | Purpose                                                                                   | Notes                                                                                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Sonarr**             | TV show organization, renaming, import                                                    | Per-tier instances: ravennue manages `/media/library/tv/`, bose manages `/media/library-hq/tv/`                                         |
+| **Radarr**             | Movie organization, renaming, import                                                      | Per-tier instances: ravennue manages `/media/library/movies/`, bose manages `/media/library-hq/movies/`                                 |
+| **Bazarr**             | Subtitle downloading                                                                      | Single instance on bose, configured against all four arrs (both tiers); writes `.srt` files into the matching `/media/library*/` subdir |
+| **Lidarr**             | Music organization                                                                        | Per-tier instances: ravennue manages `/media/library/music/` (MP3), bose manages `/media/library-hq/music/` (FLAC)                      |
+| **FileBot**            | Pre-rename for migration ingest (multi-episode, DVD-order support); requires paid license | Run on bose during migration; output flag picks the tier (`/media/library/...` or `/media/library-hq/...`)                              |
+| **MusicBrainz Picard** | Music tag correction (optional)                                                           | Run once during migration                                                                                                               |
 
 The NAS microvm accesses the ZFS pool via virtiofs passthrough from the host. Persistent state (Radarr/Sonarr databases, configuration) is declared via microvm.nix impermanence and stored in a persistent btrfs subvolume on the NAS host, separate from the ZFS media pool. Guest images and NixOS store paths live on the btrfs root SSD, ensuring VM boot and \*arr stack binary access never spin up the HDDs.
 
@@ -241,7 +245,7 @@ filebot-ingest -rename /old-library/tv/ \
 ```
 
 See `llm-notes/guides/media-ingestion-runbook.md` §3 for the full
-operational workflow including tier-split (4K vs SD/1080p) and
+operational workflow including tier-split (HQ vs default tier) and
 edge cases.
 
 ---
@@ -362,7 +366,7 @@ Set hardware acceleration to **VAAPI** and device to `/dev/dri/renderD128` in Je
 
 ```
 /media/library/tv/        ← default tier (SD/1080p, ravennue's Sonarr)
-/media/library-4k/tv/     ← 4K tier (bose's Sonarr)
+/media/library-hq/tv/     ← HQ tier (2160p, bose's Sonarr)
 /media/library/tv-curated/  ← derived view for non-aired-order shows (TBD)
 ```
 
@@ -708,17 +712,17 @@ The spec's NixOS configuration examples use UID/GID 1500 for the `media` user an
 
 The spec describes a single arr stack on the NAS microvm. The implementation runs **two parallel arr microvms**:
 
-- **bose** — UHD/4K Sonarr + Radarr + Bazarr. Root folders: `/media/library-4k/{movies,tv}/`. Quality profiles 2160p-only.
-- **ravennue** — SD/1080p Sonarr + Radarr. Root folders: `/media/library/{movies,tv}/`. Quality profiles ≤1080p only.
+- **bose** — HQ tier Sonarr + Radarr + Bazarr + Lidarr. Root folders: `/media/library-hq/{movies,tv,music}/`. Quality profiles: 2160p video, lossless audio.
+- **ravennue** — Default tier Sonarr + Radarr + Lidarr. Root folders: `/media/library/{movies,tv,music}/`. Quality profiles: ≤1080p video, lossy audio.
 
 Both guests share the same `/data/media` virtiofs passthrough so they see the full tree, but each instance is locked to its own tier via root folder configuration and quality profile restriction.
 
-**Why:** Sonarr and Radarr each track a single file per record, so multiple encodings of the same title (a 1080p version and a 2160p version of the same movie) cannot coexist within one instance. Splitting by tier lets both encodings be tracked simultaneously without database collisions, and Jellyfin can present them as separate libraries.
+**Why:** Sonarr, Radarr, and Lidarr each track a single file per record, so multiple encodings of the same title (a 1080p version and a 2160p version of the same movie; an MP3 copy and a FLAC copy of the same album) cannot coexist within one instance. Splitting by tier lets both encodings be tracked simultaneously without database collisions, and Jellyfin can present them as separate libraries.
 
-The library tier split (`library/` vs `library-4k/`, `manual/` vs `manual-4k/`) flows from this — it puts the ownership boundary at the top level rather than as a `-4k` suffix inside a shared tree, which keeps each instance's root folder a clean parent dir and leaves room for future per-tier derived views (`library/tv-curated/` for shows whose physical media follows a non-aired ordering).
+The library tier split (`library/` vs `library-hq/`, `manual/` vs `manual-hq/`) flows from this — it puts the ownership boundary at the top level rather than as a suffix inside a shared tree, which keeps each instance's root folder a clean parent dir and leaves room for future per-tier derived views (`library/tv-curated/` for shows whose physical media follows a non-aired ordering). The name `-hq` (rather than `-4k`) generalizes the tier label across video and audio.
 
 ### Curated TV Derived View
 
 The implementation includes a `library/tv-curated/` directory as a sibling to `library/tv/`. The intent is for a derive script (TBD) to populate it with hardlinks from `library/tv/` reorganized into the alternate ordering (DVD, absolute) that Jellyfin needs for shows like Futurama where the physical media doesn't follow airdate order. Sonarr stays in canonical airdate order (which it requires for matching), and the curated tree presents the user-facing layout.
 
-**Status:** the directory exists in `nas.nix`'s tmpfiles config; the derive script and Jellyfin library wiring are not yet built. No 4K equivalent (`library-4k/tv-curated/`) is created yet — add when a 4K title needs it.
+**Status:** the directory exists in `nas.nix`'s tmpfiles config; the derive script and Jellyfin library wiring are not yet built. No HQ equivalent (`library-hq/tv-curated/`) is created yet — add when an HQ title needs it.
