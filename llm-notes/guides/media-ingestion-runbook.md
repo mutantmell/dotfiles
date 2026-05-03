@@ -11,28 +11,36 @@ encodings of the same title can coexist (Radarr/Sonarr each track exactly
 one file per record):
 
 - **bose** — UHD/4K arrs (Sonarr, Radarr) + Bazarr. Root folders:
-  `/media/library/{movies-4k,tv-4k}`. Quality profiles **2160p-only**.
+  `/media/library-4k/{movies,tv}`. Quality profiles **2160p-only**.
 - **ravennue** — SD/1080p arrs (Sonarr, Radarr). Root folders:
-  `/media/library/{movies,tv}` (the unsuffixed paths). Quality profiles
+  `/media/library/{movies,tv}` (the default tier). Quality profiles
   **≤1080p only**.
+
+The tier split is done at the **library level** (`library/` vs `library-4k/`)
+rather than as a `-4k` suffix inside a single tree. This keeps the
+ownership boundary unambiguous — each Sonarr/Radarr instance owns one
+top-level dir and never traverses the other — and leaves room for future
+curated/derived trees per tier without colliding with the suffix.
 
 ```
 liberl (NAS host)                          calvard host
-├── /data/old/                ←── old collection sitting on root dataset
-├── /data/media/              ←── ZFS dataset, single fs (hardlink scope)
-│   ├── manual/{movies,movies-4k,tv,tv-4k,music}/    ←── DROP ZONES (tier-sorted)
-│   ├── torrents/{...}/                               ←── future download client output
-│   ├── usenet/complete/{...}/                        ←── future download client output
-│   └── library/{movies,movies-4k,tv,tv-4k,music}/    ←── arr-managed organized library
-│        │                                │
-│        └── virtiofs → bose, ravennue ──┐         │
-│        └── NFS RO ─────────────────────┼────► oracion guest (Jellyfin)
-│                                        │       /media/library/
-│        bose guest (4K arrs + Bazarr)   │
-│        /media → /data/media            │
-│        Sonarr 8989, Radarr 7878,       │
-│        Bazarr 6767                     │
-│                                        │
+├── /data/old/                  ←── old collection sitting on root dataset
+├── /data/media/                ←── ZFS dataset, single fs (hardlink scope)
+│   ├── manual/{movies,tv,music}/      ←── DROP ZONE — default tier (→ ravennue)
+│   ├── manual-4k/{movies,tv}/         ←── DROP ZONE — 4K tier   (→ bose)
+│   ├── torrents/{...}/                ←── future download client output
+│   ├── usenet/complete/{...}/         ←── future download client output
+│   ├── library/{movies,tv,music}/     ←── arr-managed library — default tier
+│   └── library-4k/{movies,tv}/        ←── arr-managed library — 4K tier
+│        │                                 │
+│        └── virtiofs → bose, ravennue ───┐
+│        └── NFS RO ──────────────────────┼──► oracion guest (Jellyfin)
+│                                         │    /media/{library,library-4k}/
+│        bose guest (4K arrs + Bazarr)    │
+│        /media → /data/media             │
+│        Sonarr 8989, Radarr 7878,        │
+│        Bazarr 6767                      │
+│                                         │
 │        ravennue guest (SD/1080p arrs)
 │        /media → /data/media
 │        Sonarr 8989, Radarr 7878
@@ -40,18 +48,21 @@ liberl (NAS host)                          calvard host
 
 Key paths:
 
-- **Staging zone (NAS host):** `/data/media/manual/{movies,movies-4k,tv,tv-4k,music}/`
-  — temporary holding area for raw uploads (SMB, rsync). Tier-sort here
-  before running FileBot (`-4k` for 2160p/UHD, plain for everything else).
-- **Same paths inside bose / ravennue:** `/media/manual/...` (both
-  guests see the full tree via virtiofs; each only operates on its own tier).
-- **Libraries inside bose:** `/media/library/{movies-4k,tv-4k}/`
+- **Staging zones (NAS host):**
+  - `/data/media/manual/{movies,tv,music}/` — default tier (→ ravennue)
+  - `/data/media/manual-4k/{movies,tv}/` — 4K tier (→ bose)
+  - Tier-sort at drop time; the parent dir is the tier signal.
+- **Same paths inside bose / ravennue:** `/media/manual/...` and
+  `/media/manual-4k/...` (both guests see every staging tree via virtiofs;
+  each only operates on its own tier).
+- **Libraries inside bose:** `/media/library-4k/{movies,tv}/`
 - **Libraries inside ravennue:** `/media/library/{movies,tv}/`
-- **Library inside oracion (RO NFS):** `/media/library/...` (all tiers).
+- **Libraries inside oracion (RO NFS):** `/media/library/...` and
+  `/media/library-4k/...` (both tiers, read-only).
 - **Old collection on liberl:** `/data/old/` (root dataset, plain dirs)
 
 All ingestion goes staging (tier-sorted) → FileBot (writes into the matching
-`library/` subdir) → arr Library Import on the matching instance
+tier's `library*/` subdir) → arr Library Import on the matching instance
 (adopt-in-place) → Mass Edit Rename → Connect notification → Jellyfin scan.
 
 ## Phase 0: Pre-flight
@@ -69,12 +80,14 @@ systemctl status nfs-server
 zpool status data
 zfs list -r data
 ls /data/old/                                                    # should show the old collection
-ls /data/media/manual/{movies,movies-4k,tv,tv-4k,music}          # all should exist, owned 400:400, mode 2775
-ls /data/media/library/{movies,movies-4k,tv,tv-4k,music}         # all should exist, owned 400:400, mode 2775
-stat -c '%a %u:%g %n' /data/media /data/media/manual /data/media/library
+ls /data/media/manual/{movies,tv,music}                          # default-tier staging — all should exist, owned 400:400, mode 2775
+ls /data/media/manual-4k/{movies,tv}                             # 4K-tier staging
+ls /data/media/library/{movies,tv,music} /data/media/library/tv-curated  # default-tier library + Jellyfin-facing curated TV
+ls /data/media/library-4k/{movies,tv}                            # 4K-tier library
+stat -c '%a %u:%g %n' /data/media /data/media/{manual,manual-4k,library,library-4k}
 ```
 
-The `manual/` and `library/` subdirs are created and enforced declaratively
+The `manual*/` and `library*/` subdirs are created and enforced declaratively
 by `systemd.tmpfiles.rules` in `hosts/liberl/nas.nix` (mode `2775`,
 owner/group `media:media`). If anything looks off (wrong mode, wrong owner,
 missing subdir), trigger a re-apply rather than fixing by hand:
@@ -95,8 +108,8 @@ virtiofs of `/data/media`, but each independently mounts it:
 ```bash
 for guest in bose ravennue; do
   ssh root@$guest.internal -- bash <<'EOF'
-    ls -la /media/                               # manual, library, torrents, usenet, ...
-    stat -c '%a %u:%g' /media/manual             # 2775 400:400 (setgid, media uid:gid)
+    ls -la /media/                               # manual, manual-4k, library, library-4k, torrents, usenet, ...
+    stat -c '%a %u:%g' /media/manual /media/manual-4k   # 2775 400:400 (setgid, media uid:gid)
     stat -f -c '%T' /media                       # fuseblk / virtiofs — single namespace
 EOF
 done
@@ -109,9 +122,12 @@ sees the same inodes):
 ssh root@bose.internal
 touch /media/manual/movies/.hltest
 ln /media/manual/movies/.hltest /media/library/movies/.hltest
-ls -li /media/manual/movies/.hltest /media/library/movies/.hltest
-# Both lines must show the same inode and link count 2.
-rm /media/manual/movies/.hltest /media/library/movies/.hltest
+ln /media/manual/movies/.hltest /media/library-4k/movies/.hltest
+ls -li /media/manual/movies/.hltest /media/library/movies/.hltest /media/library-4k/movies/.hltest
+# All three lines must show the same inode and link count 3 — confirms
+# `library/` and `library-4k/` are siblings inside the same dataset and
+# hardlinks span both tiers.
+rm /media/manual/movies/.hltest /media/library/movies/.hltest /media/library-4k/movies/.hltest
 ```
 
 If `ln` fails with `EXDEV`, you have nested datasets — stop and fix the ZFS
@@ -234,7 +250,7 @@ for the root folder and the quality profile**, called out at the end.
    - Delete empty folders: **ON**
 5. **Add Root Folder** (Settings → Media Management → Root Folders, or
    when adding a series) — **per-instance**:
-   - **bose**: `/media/library/tv-4k`
+   - **bose**: `/media/library-4k/tv`
    - **ravennue**: `/media/library/tv`
 6. **Settings → Profiles → Quality Profiles** — **per-instance, lock
    the tier**:
@@ -287,7 +303,7 @@ identical.
    - Standard Movie Format (TRaSH): `{Movie CleanTitle} ({Release Year}) {edition-{Edition Tags}} [{Custom Formats}]{[Quality Full]}{[MediaInfo 3D]}{[MediaInfo VideoDynamicRangeType]}[{Mediainfo VideoBitDepth}bit]{[Mediainfo VideoCodec]}{-Release Group}`
    - Movie Folder Format: `{Movie CleanTitle} ({Release Year})`
 4. **Add Root Folder** — **per-instance**:
-   - **bose**: `/media/library/movies-4k`
+   - **bose**: `/media/library-4k/movies`
    - **ravennue**: `/media/library/movies`
 5. **Quality Profile** — same per-instance rule as §1.2 step 6:
    bose 2160p-only, ravennue ≤1080p only.
@@ -368,38 +384,39 @@ the SD/1080p library (ravennue's arrs).
 
 ## Phase 2: Where files go for ingestion
 
-The staging zone has **five** subdirectories, tier-split:
+The staging zones are split per tier at the top level:
 
 ```
 /data/media/manual/movies/        ← SD / 1080p (→ ravennue)
-/data/media/manual/movies-4k/     ← 2160p / UHD (→ bose)
 /data/media/manual/tv/            ← SD / 1080p (→ ravennue)
-/data/media/manual/tv-4k/         ← 2160p / UHD (→ bose)
 /data/media/manual/music/         ← (Lidarr is future work)
+/data/media/manual-4k/movies/     ← 2160p / UHD (→ bose)
+/data/media/manual-4k/tv/         ← 2160p / UHD (→ bose)
 ```
 
-This is the same directory whether you stage from the liberl host
-shell, either guest, an SMB share, or rsync over SSH — they all
-converge on the same inode tree (the `data/media` ZFS dataset).
+The parent dir (`manual` vs `manual-4k`) is the tier signal. Whether
+you stage from the liberl host shell, either guest, an SMB share, or
+rsync over SSH, they all converge on the same inode tree (the
+`data/media` ZFS dataset).
 
 **Tier decision (the moment you stage a file):** does the filename
-contain `2160p`, `UHD`, or `4K`? Drop it in the `-4k` variant. If the
+contain `2160p`, `UHD`, or `4K`? Drop it under `manual-4k/`. If the
 filename is ambiguous, probe the file:
 
 ```bash
 ssh root@bose.internal -- 'mediainfo /media/manual/movies/<file>.mkv | grep -E "^(Width|Height)"'
-# Width >= 3840 (or Height >= 2160) → 4K → put it in the -4k subdir.
-# Otherwise → plain subdir.
+# Width >= 3840 (or Height >= 2160) → 4K → put it under manual-4k/.
+# Otherwise → manual/.
 ```
 
 `mediainfo` and `ffprobe` are installed on both guests for exactly
 this check.
 
-`manual/` is **staging**, not the ingestion target. Phase 3 (FileBot)
+`manual*/` is **staging**, not the ingestion target. Phase 3 (FileBot)
 reads from here and writes the renamed/nested output into the matching
-`/media/library/...` subdir. Phase 4 then runs Library Import + Mass Edit
-Rename **on the matching instance's UI** (bose for `-4k`, ravennue for
-plain).
+tier's `/media/library*/<type>/` subdir. Phase 4 then runs Library Import
++ Mass Edit Rename **on the matching instance's UI** (bose for the 4K
+tier, ravennue for the default tier).
 
 Three ways to put files into the staging zone:
 
@@ -432,23 +449,23 @@ rsync -aHAX --info=progress2 --remove-source-files \
 # Tier-sort by filename hint — anything with 2160p / UHD / 4K in the name:
 find /data/media/manual/movies -maxdepth 2 -type f \
   \( -iname '*2160p*' -o -iname '*UHD*' -o -iname '*4K*' \) \
-  -exec mv {} /data/media/manual/movies-4k/ \;
+  -exec mv {} /data/media/manual-4k/movies/ \;
 
 # TV is more often organized as Series/Season/episodes — move whole series
 # directories whose names match, plus loose files matching the same pattern:
 find /data/media/manual/tv -mindepth 1 -maxdepth 1 -type d \
   \( -iname '*2160p*' -o -iname '*UHD*' -o -iname '*4K*' \) \
-  -exec mv {} /data/media/manual/tv-4k/ \;
+  -exec mv {} /data/media/manual-4k/tv/ \;
 
 # For files without obvious filename markers, probe from a guest:
 #   ssh root@bose.internal -- 'mediainfo /media/manual/movies/somefile.mkv | grep -E "^(Width|Height)"'
-# Width >= 3840 → 4K → move into the -4k subdir by hand.
+# Width >= 3840 → 4K → move into the matching manual-4k/<type>/ by hand.
 
 # Fix ownership and mode for the arr stack. rsync preserves the source
 # uid/gid/mode, which won't match what the arr stack expects.
-chown -R 400:400 /data/media/manual
-find /data/media/manual -type d -exec chmod 2775 {} +
-find /data/media/manual -type f -exec chmod 664  {} +
+chown -R 400:400 /data/media/manual /data/media/manual-4k
+find /data/media/manual /data/media/manual-4k -type d -exec chmod 2775 {} +
+find /data/media/manual /data/media/manual-4k -type f -exec chmod 664  {} +
 
 # Clean up empty directories left by --remove-source-files
 find /data/old/media -type d -empty -delete
@@ -472,12 +489,12 @@ Liberl exposes the media share over SMB to the trusted VLAN:
 After uploading, run on liberl to fix permissions:
 
 ```bash
-chown -R 400:400 /data/media/manual
-find /data/media/manual -type d -exec chmod 2775 {} +
-find /data/media/manual -type f -exec chmod 664  {} +
+chown -R 400:400 /data/media/manual /data/media/manual-4k
+find /data/media/manual /data/media/manual-4k -type d -exec chmod 2775 {} +
+find /data/media/manual /data/media/manual-4k -type f -exec chmod 664  {} +
 ```
 
-(Samba writes files as the SMB user. New _directories_ under `manual/`
+(Samba writes files as the SMB user. New _directories_ under `manual*/`
 inherit `group=media` from the setgid bit, but the _uid_ will be the SMB
 user's, and _files_ keep the SMB user's umask — so a `chown` and a mode
 sweep is still required after a batch upload. Or set `force user = media`
@@ -488,12 +505,12 @@ sweep is still required after a batch upload. Or set `force user = media`
 ```bash
 rsync -aHAX --info=progress2 \
   ./local-pile/ \
-  root@liberl.internal:/data/media/manual/movies/
+  root@liberl.internal:/data/media/manual/movies/   # or manual-4k/movies/ for 4K
 
 ssh root@liberl '
-  chown -R 400:400 /data/media/manual
-  find /data/media/manual -type d -exec chmod 2775 {} +
-  find /data/media/manual -type f -exec chmod 664  {} +
+  chown -R 400:400 /data/media/manual /data/media/manual-4k
+  find /data/media/manual /data/media/manual-4k -type d -exec chmod 2775 {} +
+  find /data/media/manual /data/media/manual-4k -type f -exec chmod 664  {} +
 '
 ```
 
@@ -518,9 +535,9 @@ FileBot's job here is to do two things in one pass:
    what Library Import actually scans for.
 
 The format strings below do both jobs. FileBot **writes directly into
-`/media/library/`**, not `/media/manual/`, because the workflow shape is
-"pre-rename → Library Import (adopt-in-place) → Mass Edit Rename" — see
-§4 for the why.
+the matching tier's `/media/library*/` tree**, not `/media/manual*/`,
+because the workflow shape is "pre-rename → Library Import
+(adopt-in-place) → Mass Edit Rename" — see §4 for the why.
 
 ### Why FileBot
 
@@ -580,7 +597,7 @@ shred -u /tmp/filebot.psm
 
 ### What FileBot owns vs. what Radarr owns
 
-FileBot produces a _parseable scaffold_ in `library/`: enough name to
+FileBot produces a _parseable scaffold_ in `library*/`: enough name to
 match TMDB/TVDB and pass Library Import. The canonical TRaSH naming
 scheme from §1.2/§1.3 (quality/codec/HDR/audio/release-group) is applied
 later by Radarr/Sonarr in §4 via Mass Edit → Rename Files, once the
@@ -596,12 +613,12 @@ that forces `umask 0002` so the directories FileBot creates are
 group-writable). What matters is the `--output` flag, which sets the
 destination, and must match the tier of the input directory:
 
-| Source                     | Output flag                          | Then import on |
-| -------------------------- | ------------------------------------ | -------------- |
-| `/media/manual/movies/`    | `--output /media/library/movies`     | ravennue       |
-| `/media/manual/movies-4k/` | `--output /media/library/movies-4k`  | bose           |
-| `/media/manual/tv/`        | `--output /media/library/tv`         | ravennue       |
-| `/media/manual/tv-4k/`     | `--output /media/library/tv-4k`      | bose           |
+| Source                       | Output flag                            | Then import on |
+| ---------------------------- | -------------------------------------- | -------------- |
+| `/media/manual/movies/`      | `--output /media/library/movies`       | ravennue       |
+| `/media/manual-4k/movies/`   | `--output /media/library-4k/movies`    | bose           |
+| `/media/manual/tv/`          | `--output /media/library/tv`           | ravennue       |
+| `/media/manual-4k/tv/`       | `--output /media/library-4k/tv`        | bose           |
 
 Always run as `mediaops`, never as root (FileBot refuses root, and
 running as `mediaops` keeps file ownership/group correct end-to-end):
@@ -629,9 +646,9 @@ filebot-ingest -rename /media/manual/movies/ \
   --format "{n} ({y})/{n} ({y})"
 
 # Movies — 4K batch (→ bose's Radarr). Same shape, swap paths.
-filebot-ingest -rename /media/manual/movies-4k/ \
+filebot-ingest -rename /media/manual-4k/movies/ \
   --db TheMovieDB \
-  --output /media/library/movies-4k \
+  --output /media/library-4k/movies \
   --action move \
   --conflict skip \
   -non-strict \
@@ -647,9 +664,9 @@ filebot-ingest -rename /media/manual/tv/ \
   --format "{n} ({y})/Season {s.pad(2)}/{n} - S{s.pad(2)}E{e.pad(2)} - {t}"
 
 # TV — 4K batch (→ bose's Sonarr).
-filebot-ingest -rename /media/manual/tv-4k/ \
+filebot-ingest -rename /media/manual-4k/tv/ \
   --db TheTVDB \
-  --output /media/library/tv-4k \
+  --output /media/library-4k/tv \
   --action move \
   --conflict skip \
   -non-strict \
@@ -663,8 +680,8 @@ alone rather than overwriting (safe default; switch to `override` if
 you're intentionally re-ingesting).
 
 After FileBot runs, each movie sits in its own
-`/media/library/<movies|movies-4k>/Title (Year)/` directory and each
-TV file sits in `Series (Year)/Season NN/Series - SnnEnn - Title.ext`
+`/media/library{,-4k}/movies/Title (Year)/` directory and each TV file
+sits in `library{,-4k}/tv/Series (Year)/Season NN/Series - SnnEnn - Title.ext`
 — exactly what Library Import expects. The matching arr instance
 adopts these in §4, then Mass Edit → Rename Files applies the full
 TRaSH name in place.
@@ -692,18 +709,19 @@ TRaSH name in place.
 The shape is uniform across every arr-supported media type:
 
 ```
-1. Pre-rename tool (FileBot) writes into /media/library/<type>[-4k]/
+1. Pre-rename tool (FileBot) writes into /media/library{,-4k}/<type>/
 2. arr Library Import wizard adopts in place    ←── on the matching instance
 3. arr Mass Edit → Rename Files applies the canonical TRaSH name
 ```
 
 Step 1 is Phase 3. Steps 2 and 3 happen inside the arr UI, **on the
-instance whose root folder matches the tier** — bose for `-4k`,
-ravennue for plain. Picking the wrong UI gets you the empty-state
-message because that instance's root folder doesn't see the files.
+instance whose root folder matches the tier** — bose for the 4K tier
+(`library-4k/`), ravennue for the default tier (`library/`). Picking
+the wrong UI gets you the empty-state message because that instance's
+root folder doesn't see the files.
 
 **Library Import is adopt-in-place** — it does not move, hardlink, or
-rename. That's why we point it at `/media/library/...`, where FileBot has
+rename. That's why we point it at `/media/library*/`, where FileBot has
 already written the files: Library Import attaches the arr's database
 record to the existing on-disk file. The MediaInfo-rich TRaSH name
 comes from the Rename Files step, which is a rename within the same
@@ -715,7 +733,7 @@ actual stream rather than from filename guessing.
 
 Run this on **ravennue's Radarr** for the SD/1080p batch (root folder
 `/media/library/movies`), or on **bose's Radarr** for the 4K batch
-(root folder `/media/library/movies-4k`). The steps are identical
+(root folder `/media/library-4k/movies`). The steps are identical
 otherwise; the path substitution below uses `<root>` for the matching
 folder.
 
@@ -731,7 +749,7 @@ in `<root>` have been imported" and show nothing — see Troubleshooting.
    for 4K). Sidebar → **Movies** → **Library Import** (top button, also
    reachable from Add New → Import Movies; URL is `/add/import`).
 2. Folder: `<root>` — `/media/library/movies` for ravennue,
-   `/media/library/movies-4k` for bose.
+   `/media/library-4k/movies` for bose.
 3. Radarr scans subdirectories and shows matched movies. Inspect:
    - Each row has the matched TMDB title, monitored status, quality
      profile, root folder.
@@ -754,7 +772,7 @@ in `<root>` have been imported" and show nothing — see Troubleshooting.
    (because Analyze video files is ON) and rewrites the filename to
    the §1.3 TRaSH format, e.g. on bose:
    ```
-   /media/library/movies-4k/Foo (2024)/
+   /media/library-4k/movies/Foo (2024)/
      Foo (2024) [Bluray-2160p][HDR][HEVC]-RG.mkv
    ```
    or on ravennue:
@@ -765,7 +783,7 @@ in `<root>` have been imported" and show nothing — see Troubleshooting.
 5. Verify on disk:
    ```bash
    ssh root@bose.internal     # or ravennue.internal — both see both trees
-   ls /media/library/movies-4k/'Foo (2024)/'
+   ls /media/library-4k/movies/'Foo (2024)/'
    ```
 
 **Step 3: Trigger a Jellyfin scan.**
@@ -784,22 +802,23 @@ fire (per-movie organize, future download-client imports), and
 Jellyfin's 4-hour scheduled scan from Phase 5 is the no-click
 fallback if you forget the manual run.
 
-**Note:** Renames within `/media/library/...` are link-preserving on
+**Note:** Renames within `/media/library*/` are link-preserving on
 the same ZFS dataset — the inode survives. If you previously had
-hardlinks pointing into here (e.g., from a future download client),
-they remain valid after the Mass Edit Rename.
+hardlinks pointing into here (e.g., from a future download client,
+or from the curated TV view at `library/tv-curated/`), they remain
+valid after the Mass Edit Rename.
 
 ### 4.2 — Sonarr workflow (TV)
 
 Same three-step shape as §4.1, run on the matching instance:
 ravennue's Sonarr for SD/1080p (`/media/library/tv`), bose's Sonarr
-for 4K (`/media/library/tv-4k`).
+for 4K (`/media/library-4k/tv`).
 
 **Step 1: Library Import.**
 
 1. Open the matching instance's Sonarr UI. Sidebar → **Series** →
    **Import** (top button).
-2. Folder: `/media/library/tv` (ravennue) or `/media/library/tv-4k`
+2. Folder: `/media/library/tv` (ravennue) or `/media/library-4k/tv`
    (bose).
 3. Sonarr scans for series and lists each detected show.
 4. For each show, set **Monitor**, **Quality Profile** (per-instance:
@@ -853,16 +872,23 @@ force a sweep:
    collections:
    - Dashboard → Libraries → Add Media Library
    - **Movies** library, folder `/media/library/movies`
-   - **Movies 4K** library, folder `/media/library/movies-4k`
+   - **Movies 4K** library, folder `/media/library-4k/movies`
    - **TV Shows** library, folder `/media/library/tv`
-   - **TV Shows 4K** library, folder `/media/library/tv-4k`
+   - **TV Shows 4K** library, folder `/media/library-4k/tv`
    - **Music** library, folder `/media/library/music`
    - Real-time monitoring: **OFF** (no inotify on NFS).
 
+   `library/tv-curated/` exists as a sibling tree for shows whose
+   physical media follows a non-aired ordering (Futurama is the
+   driving case) — out of scope for this runbook. The
+   curated-view ownership model and Jellyfin wiring are TBD; see
+   `llm-notes/specs/jellyfin-media-organization.md`.
+
 ## Phase 6: When the ingestion is done
 
-1. Verify everything you wanted is in `/data/media/library/`. Compare
-   against an inventory of `/data/old/media/` (if it still exists).
+1. Verify everything you wanted is in `/data/media/library/` and
+   `/data/media/library-4k/`. Compare against an inventory of
+   `/data/old/media/` (if it still exists).
 2. Once satisfied, retire `/data/old/`:
 
    ```bash
@@ -879,10 +905,12 @@ force a sweep:
    ```
 
 4. Future ingestion is the same workflow without the old-collection
-   rsync: tier-sort new files into the matching `manual/` subdir
-   (plain or `-4k`), run FileBot pointed at the matching `library/`
-   subdir, then Library Import + Mass Edit Rename on the matching
-   instance (bose for 4K, ravennue for SD/1080p).
+   rsync: tier-sort new files into the matching staging dir
+   (`manual/<type>/` for default, `manual-4k/<type>/` for 4K), run
+   FileBot pointed at the matching library tier
+   (`library/<type>/` or `library-4k/<type>/`), then Library Import
+   + Mass Edit Rename on the matching instance (bose for 4K,
+   ravennue for SD/1080p).
 
 ## Troubleshooting
 
@@ -892,7 +920,7 @@ common confusing failure. The message is a vacuously-true empty state,
 _not_ an import confirmation. Two possible causes:
 
 1. **You're on the wrong instance.** ravennue's Radarr only sees
-   `/media/library/movies`; bose's only sees `/media/library/movies-4k`.
+   `/media/library/movies`; bose's only sees `/media/library-4k/movies`.
    Pointing bose's Library Import at `/media/library/movies` will show
    the empty state because that path isn't its root folder. Switch
    browsers to the matching instance for the tier.
@@ -903,7 +931,7 @@ _not_ an import confirmation. Two possible causes:
 ```bash
 ssh root@bose.internal
 ls /media/library/movies/      # ravennue's tier; should be Title (Year)/ subdirs
-ls /media/library/movies-4k/   # bose's tier; same
+ls /media/library-4k/movies/   # bose's tier; same
 ```
 
 Fix by running Phase 3 (FileBot with the folder-creating format
@@ -953,22 +981,23 @@ future download-client integration; not currently an active path now
 that FileBot writes directly into `library/`.)
 
 **Permission errors during import.** The arr services run as their service
-user but with `group = "media"` (gid 400). Files in `manual/` must be group
+user but with `group = "media"` (gid 400). Files in `manual*/` must be group
 `400` and group-readable; directories must additionally be group-writable
 (mode `2775`) so arr can hardlink/move into and out of them. The library
-tree is enforced at `2775` by `systemd.tmpfiles.rules` in
+trees are enforced at `2775` by `systemd.tmpfiles.rules` in
 `hosts/liberl/nas.nix` — but external writers (SMB, scp, rsync from
 elsewhere) can introduce files with the wrong owner or mode. After any
-non-arr write into `manual/`:
+non-arr write into `manual*/`:
 
 ```bash
-chown -R 400:400 /data/media/manual
-find /data/media/manual -type d -exec chmod 2775 {} +
-find /data/media/manual -type f -exec chmod 664  {} +
+chown -R 400:400 /data/media/manual /data/media/manual-4k
+find /data/media/manual /data/media/manual-4k -type d -exec chmod 2775 {} +
+find /data/media/manual /data/media/manual-4k -type f -exec chmod 664  {} +
 ```
 
-If even `library/` itself looks wrong (e.g. someone manually `mkdir`'d a
-subdir without setgid), re-apply tmpfiles: `systemd-tmpfiles --create`.
+If even `library*/` themselves look wrong (e.g. someone manually
+`mkdir`'d a subdir without setgid), re-apply tmpfiles:
+`systemd-tmpfiles --create`.
 
 **Radarr OOM during bulk import.** Each guest has 8 GB + zramSwap. If
 Radarr still OOMs, work in smaller batches (≤200 movies at a time), or
@@ -987,7 +1016,7 @@ just for the migration, then drop it back.
    calls (the `User-Agent` header identifies the source instance).
 4. Trigger a manual scan via Dashboard → Scheduled Tasks.
 
-**`/media/library/` looks wrong from oracion's side but right from a
+**`/media/library*/` looks wrong from oracion's side but right from a
 guest.** The NFS RO mount on oracion (or calvard) is stale. From
 oracion: `umount /media; ls /media` (the automount will remount it).
 Or restart the microvm.
@@ -1013,26 +1042,27 @@ routine.
 
 ## Reference: which path means what
 
-| Where you are             | Drop / staging                                    | Library                                            |
-| ------------------------- | ------------------------------------------------- | -------------------------------------------------- |
-| liberl host               | `/data/media/manual/{movies,movies-4k,tv,tv-4k}/` | `/data/media/library/{movies,movies-4k,tv,tv-4k}/` |
-| bose guest (virtiofs)     | `/media/manual/...` (all tiers visible)           | `/media/library/{movies-4k,tv-4k}/` (its own tier) |
-| ravennue guest (virtiofs) | `/media/manual/...` (all tiers visible)           | `/media/library/{movies,tv}/` (its own tier)       |
-| oracion guest (NFS RO)    | _(not visible)_                                   | `/media/library/...` (all tiers, read-only)        |
-| Desktop via SMB           | `\\LIBERL\media\manual\`                          | _(visible, but don't write)_                       |
+| Where you are             | Drop / staging                                                    | Library                                                                |
+| ------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| liberl host               | `/data/media/manual/{movies,tv,music}/` and `manual-4k/{movies,tv}/` | `/data/media/library/{movies,tv,music,tv-curated}/` and `library-4k/{movies,tv}/` |
+| bose guest (virtiofs)     | `/media/manual*/...` (all tiers visible)                          | `/media/library-4k/{movies,tv}/` (its own tier)                        |
+| ravennue guest (virtiofs) | `/media/manual*/...` (all tiers visible)                          | `/media/library/{movies,tv}/` (its own tier)                           |
+| oracion guest (NFS RO)    | _(not visible)_                                                   | `/media/library*/...` (both tiers, read-only)                          |
+| Desktop via SMB           | `\\LIBERL\media\manual\` and `\\LIBERL\media\manual-4k\`          | _(visible, but don't write)_                                           |
 
-Both arr guests _see_ every tier under `/media/library/` via virtiofs,
+Both arr guests _see_ every tier under `/media/library*/` via virtiofs,
 but each only **operates** on its own root folders (configured in §1.2 /
 §1.3). The asymmetric visibility on oracion is the security boundary:
 Jellyfin literally cannot see the staging directories.
 
-| Tier     | Staging                         | Library                          | Operated by       |
-| -------- | ------------------------------- | -------------------------------- | ----------------- |
-| SD/1080p | `/data/media/manual/movies/`    | `/data/media/library/movies/`    | ravennue (Radarr) |
-| 4K       | `/data/media/manual/movies-4k/` | `/data/media/library/movies-4k/` | bose (Radarr)     |
-| SD/1080p | `/data/media/manual/tv/`        | `/data/media/library/tv/`        | ravennue (Sonarr) |
-| 4K       | `/data/media/manual/tv-4k/`     | `/data/media/library/tv-4k/`     | bose (Sonarr)     |
-| Music    | `/data/media/manual/music/`     | `/data/media/library/music/`     | _(future Lidarr)_ |
+| Tier     | Staging                          | Library                            | Operated by       |
+| -------- | -------------------------------- | ---------------------------------- | ----------------- |
+| SD/1080p | `/data/media/manual/movies/`     | `/data/media/library/movies/`      | ravennue (Radarr) |
+| 4K       | `/data/media/manual-4k/movies/`  | `/data/media/library-4k/movies/`   | bose (Radarr)     |
+| SD/1080p | `/data/media/manual/tv/`         | `/data/media/library/tv/`          | ravennue (Sonarr) |
+| 4K       | `/data/media/manual-4k/tv/`      | `/data/media/library-4k/tv/`       | bose (Sonarr)     |
+| Music    | `/data/media/manual/music/`      | `/data/media/library/music/`       | _(future Lidarr)_ |
+| Curated TV (derived view) | _(none — no staging)_  | `/data/media/library/tv-curated/`  | _(derive script — TBD)_ |
 
 Subtitles for all four video tiers come from Bazarr on bose, which has
 all four arrs (bose Sonarr/Radarr + ravennue Sonarr/Radarr) configured

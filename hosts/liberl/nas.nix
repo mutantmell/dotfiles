@@ -62,18 +62,32 @@ in {
     dir = path: "d ${path} 2775 ${uid} ${gid} -";
   in [
     (dir "/data/media")
+    # Default tier (SD/1080p): managed by ravennue's sonarr/radarr
     (dir "/data/media/library")
     (dir "/data/media/library/movies")
-    (dir "/data/media/library/movies-4k")
     (dir "/data/media/library/tv")
-    (dir "/data/media/library/tv-4k")
+    # Derived view of TV for shows whose physical media follows a non-aired
+    # ordering (Futurama: DVD order). Sonarr keeps `library/tv/` in canonical
+    # airdate order; a derive script (TBD) hardlinks files into here under
+    # the alternate ordering for Jellyfin to surface. No 4K equivalent yet
+    # since no driving title needs it; add `library-4k/tv-curated/` when one
+    # appears.
+    (dir "/data/media/library/tv-curated")
     (dir "/data/media/library/music")
     (dir "/data/media/manual")
     (dir "/data/media/manual/movies")
-    (dir "/data/media/manual/movies-4k")
     (dir "/data/media/manual/tv")
-    (dir "/data/media/manual/tv-4k")
     (dir "/data/media/manual/music")
+    # 4K tier: managed by bose's sonarr/radarr. Split at the library level
+    # (rather than `library/tv-4k/`) so per-tier ownership and Jellyfin library
+    # boundaries are unambiguous, and so future curated/derived trees can
+    # branch per-tier without colliding with the 4k suffix.
+    (dir "/data/media/library-4k")
+    (dir "/data/media/library-4k/movies")
+    (dir "/data/media/library-4k/tv")
+    (dir "/data/media/manual-4k")
+    (dir "/data/media/manual-4k/movies")
+    (dir "/data/media/manual-4k/tv")
   ];
 
   services.nfs.server = {
