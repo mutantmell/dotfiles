@@ -73,23 +73,41 @@ All directories live under a single root on a **single server-side filesystem** 
 │       ├── movies/
 │       ├── tv/
 │       └── music/
-├── manual/                    ← manually uploaded files (staging inbox)
+├── manual/                    ← staging inbox — default tier (SD/1080p, → ravennue)
 │   ├── movies/
 │   ├── tv/
 │   └── music/
-└── library/                   ← organized library; RO export root
+├── manual-4k/                 ← staging inbox — 4K tier (→ bose)
+│   ├── movies/
+│   └── tv/
+├── library/                   ← organized library — default tier; RO export
+│   ├── movies/
+│   ├── tv/                    ← canonical airdate-order TV (owned by ravennue's Sonarr)
+│   ├── tv-curated/            ← derived view: hardlinks reorganized for shows
+│   │                            using a non-aired ordering (e.g. Futurama
+│   │                            in DVD order). Read-only from arr's POV;
+│   │                            populated by a derive script (TBD).
+│   ├── music/
+│   └── roms/
+│       ├── gba/
+│       ├── gbc/
+│       ├── snes/
+│       ├── n64/
+│       ├── ps/
+│       ├── ps2/
+│       └── gc/
+└── library-4k/                ← organized library — 4K tier; RO export
     ├── movies/
-    ├── tv/
-    ├── music/
-    └── roms/
-        ├── gba/
-        ├── gbc/
-        ├── snes/
-        ├── n64/
-        ├── ps/
-        ├── ps2/
-        └── gc/
+    └── tv/
 ```
+
+The tier split is done at the **library level** (`library/` vs `library-4k/`,
+mirrored in `manual/` vs `manual-4k/`) rather than as a `-4k` suffix
+inside a single tree. This keeps each Sonarr/Radarr instance's
+ownership boundary unambiguous (each owns one top-level dir and never
+traverses the other's), and leaves room for derived views per tier
+(`library/tv-curated/`, future `library-4k/tv-curated/`) without
+colliding with the suffix.
 
 The name `library/` distinguishes the organized, triaged collection from the staging areas above it. The export name `media` describes the purpose of the share at the NAS level. These are two separate naming concerns at two different levels — the internal directory name reflects pipeline stage, the export name reflects the share's domain.
 
@@ -135,11 +153,11 @@ Jellyfin has no built-in file organization or renaming capability. It reads what
 
 | Service                | Purpose                                                | Notes                                      |
 | ---------------------- | ------------------------------------------------------ | ------------------------------------------ |
-| **Sonarr**             | TV show organization, renaming, import                 | Manages `/media/library/tv/`               |
-| **Radarr**             | Movie organization, renaming, import                   | Manages `/media/library/movies/`           |
-| **Bazarr**             | Subtitle downloading                                   | Writes `.srt` files into `/media/library/` |
+| **Sonarr**             | TV show organization, renaming, import                 | Per-tier instances: ravennue manages `/media/library/tv/`, bose manages `/media/library-4k/tv/` |
+| **Radarr**             | Movie organization, renaming, import                   | Per-tier instances: ravennue manages `/media/library/movies/`, bose manages `/media/library-4k/movies/` |
+| **Bazarr**             | Subtitle downloading                                   | Single instance on bose, configured against all four arrs (both tiers); writes `.srt` files into the matching `/media/library*/` subdir |
 | **Lidarr**             | Music organization (optional)                          | Manages `/media/library/music/`            |
-| **FileBot**            | Pre-rename for migration ingest (multi-episode, DVD-order support); requires paid license | Run on bose during migration         |
+| **FileBot**            | Pre-rename for migration ingest (multi-episode, DVD-order support); requires paid license | Run on bose during migration; output flag picks the tier (`/media/library/...` or `/media/library-4k/...`) |
 | **MusicBrainz Picard** | Music tag correction (optional)                        | Run once during migration                  |
 
 The NAS microvm accesses the ZFS pool via virtiofs passthrough from the host. Persistent state (Radarr/Sonarr databases, configuration) is declared via microvm.nix impermanence and stored in a persistent btrfs subvolume on the NAS host, separate from the ZFS media pool. Guest images and NixOS store paths live on the btrfs root SSD, ensuring VM boot and \*arr stack binary access never spin up the HDDs.
@@ -340,14 +358,15 @@ Set hardware acceleration to **VAAPI** and device to `/dev/dri/renderD128` in Je
 | TV         | `/media/library/tv/Show Name/Season 01/Show Name - S01E01 - Title.mkv` |
 | Music      | `/media/library/music/Artist/Album/track.flac` (reads embedded tags)   |
 
-**TV library subdivision** — Jellyfin supports multiple root folders per library type. For example, separating kids' content from general TV:
+**TV library subdivision** — Jellyfin supports multiple root folders per library type. The deployment splits TV by quality tier:
 
 ```
-/media/library/tv/
-/media/library/tv-kids/
+/media/library/tv/        ← default tier (SD/1080p, ravennue's Sonarr)
+/media/library-4k/tv/     ← 4K tier (bose's Sonarr)
+/media/library/tv-curated/  ← derived view for non-aired-order shows (TBD)
 ```
 
-Configure two separate TV libraries in Jellyfin, each pointing at its own root. Assign series to the appropriate root folder in Sonarr during import.
+Configure separate Jellyfin TV libraries per tier. Within Sonarr, the per-instance root folder lock (each instance only knows its own tier's path) means you don't pick the tier in the import dialog — you pick the matching instance.
 
 #### RomM
 
@@ -684,3 +703,22 @@ The spec describes Jellyfin running directly on the "new machine." In this infra
 The spec's NixOS configuration examples use UID/GID 1500 for the `media` user and NFS squash target. The implementation uses UID/GID 400, allocated in the centralized static UID/GID registry at `lib/common/data/default.nix`.
 
 **Why:** The infrastructure maintains a static UID/GID registry for all cross-host system users to prevent collisions and ensure consistent identity across hosts and guests. The value 1500 in the spec was illustrative. The operative constraint is that the UID/GID is consistent everywhere the `media` user appears (NAS host, bose guest, NFS `anonuid`/`anongid`) — which the registry enforces.
+
+### Sonarr/Radarr Are Split Across Two MicroVMs by Quality Tier
+
+The spec describes a single arr stack on the NAS microvm. The implementation runs **two parallel arr microvms**:
+
+- **bose** — UHD/4K Sonarr + Radarr + Bazarr. Root folders: `/media/library-4k/{movies,tv}/`. Quality profiles 2160p-only.
+- **ravennue** — SD/1080p Sonarr + Radarr. Root folders: `/media/library/{movies,tv}/`. Quality profiles ≤1080p only.
+
+Both guests share the same `/data/media` virtiofs passthrough so they see the full tree, but each instance is locked to its own tier via root folder configuration and quality profile restriction.
+
+**Why:** Sonarr and Radarr each track a single file per record, so multiple encodings of the same title (a 1080p version and a 2160p version of the same movie) cannot coexist within one instance. Splitting by tier lets both encodings be tracked simultaneously without database collisions, and Jellyfin can present them as separate libraries.
+
+The library tier split (`library/` vs `library-4k/`, `manual/` vs `manual-4k/`) flows from this — it puts the ownership boundary at the top level rather than as a `-4k` suffix inside a shared tree, which keeps each instance's root folder a clean parent dir and leaves room for future per-tier derived views (`library/tv-curated/` for shows whose physical media follows a non-aired ordering).
+
+### Curated TV Derived View
+
+The implementation includes a `library/tv-curated/` directory as a sibling to `library/tv/`. The intent is for a derive script (TBD) to populate it with hardlinks from `library/tv/` reorganized into the alternate ordering (DVD, absolute) that Jellyfin needs for shows like Futurama where the physical media doesn't follow airdate order. Sonarr stays in canonical airdate order (which it requires for matching), and the curated tree presents the user-facing layout.
+
+**Status:** the directory exists in `nas.nix`'s tmpfiles config; the derive script and Jellyfin library wiring are not yet built. No 4K equivalent (`library-4k/tv-curated/`) is created yet — add when a 4K title needs it.
