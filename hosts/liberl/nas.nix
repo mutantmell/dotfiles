@@ -29,12 +29,12 @@ in {
     # NFS from specific VM hosts only
     ip saddr { ${h.calvard.ipv4}, ${h.erebonia.ipv4} } tcp dport 2049 accept
     ip6 saddr { ${h.calvard.ipv6}, ${h.erebonia.ipv6} } tcp dport 2049 accept
-    # SMB from vHOME only
-    ip saddr ${trusted.subnet4} tcp dport { 139, 445 } accept
+    # SMB from vHOME and legacy 10.0.0.0/16 subnet (TODO: remove 10.0.0.0/16 once Windows PC migrates to vHOME)
+    ip saddr { ${trusted.subnet4}, 10.0.0.0/16 } tcp dport { 139, 445 } accept
     ip6 saddr ${trusted.subnet6} tcp dport { 139, 445 } accept
-    # WSDD from vHOME only
-    ip saddr ${trusted.subnet4} tcp dport 5357 accept
-    ip saddr ${trusted.subnet4} udp dport 3702 accept
+    # WSDD from vHOME and legacy 10.0.0.0/16 subnet
+    ip saddr { ${trusted.subnet4}, 10.0.0.0/16 } tcp dport 5357 accept
+    ip saddr { ${trusted.subnet4}, 10.0.0.0/16 } udp dport 3702 accept
     ip6 saddr ${trusted.subnet6} tcp dport 5357 accept
     ip6 saddr ${trusted.subnet6} udp dport 3702 accept
   '';
@@ -92,6 +92,8 @@ in {
     (dir "/data/media/manual-hq")
     (dir "/data/media/manual-hq/movies")
     (dir "/data/media/manual-hq/tv")
+    (dir "/data/media/manual-hq/music")
+    (dir "/data/media/library-hq/music")
   ];
 
   services.nfs.server = {

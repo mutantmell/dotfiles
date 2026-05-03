@@ -24,6 +24,10 @@ in {
     enable = true;
     group = "media";
   };
+  services.lidarr = {
+    enable = true;
+    group = "media";
+  };
 
   environment.systemPackages = [
     pkgs.mediainfo
@@ -37,6 +41,11 @@ in {
     CPUWeight = 10;
   };
   systemd.services.radarr.serviceConfig = {
+    Nice = 19;
+    IOSchedulingClass = "idle";
+    CPUWeight = 10;
+  };
+  systemd.services.lidarr.serviceConfig = {
     Nice = 19;
     IOSchedulingClass = "idle";
     CPUWeight = 10;
@@ -57,6 +66,11 @@ in {
       {
         directory = "/var/lib/bazarr";
         user = "bazarr";
+        group = "media";
+      }
+      {
+        directory = "/var/lib/lidarr";
+        user = "lidarr";
         group = "media";
       }
     ];

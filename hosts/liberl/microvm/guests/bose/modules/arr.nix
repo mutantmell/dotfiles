@@ -14,6 +14,17 @@
       exec filebot "$@"
     '';
   };
+
+  # beets defaults to umask 0022; wrap it so files written into the setgid
+  # /media/library-hq/music tree are group-writable (matching tmpfiles 2775).
+  beets-ingest = pkgs.writeShellApplication {
+    name = "beets-ingest";
+    runtimeInputs = [pkgs.beets];
+    text = ''
+      umask 0002
+      exec beet "$@"
+    '';
+  };
 in {
   users.groups.media.gid = media.gid;
   users.users.media = {
@@ -51,12 +62,19 @@ in {
     enable = true;
     group = "media";
   };
+  services.lidarr = {
+    enable = true;
+    group = "media";
+  };
 
   environment.systemPackages = [
     pkgs.filebot
     filebot-ingest
     pkgs.mediainfo
     pkgs.ffmpeg-headless
+    pkgs.picard
+    pkgs.beets
+    beets-ingest
   ];
 
   # Deprioritize arr operations to avoid starving NAS workloads
@@ -66,6 +84,11 @@ in {
     CPUWeight = 10;
   };
   systemd.services.radarr.serviceConfig = {
+    Nice = 19;
+    IOSchedulingClass = "idle";
+    CPUWeight = 10;
+  };
+  systemd.services.lidarr.serviceConfig = {
     Nice = 19;
     IOSchedulingClass = "idle";
     CPUWeight = 10;
@@ -86,6 +109,11 @@ in {
       {
         directory = "/var/lib/bazarr";
         user = "bazarr";
+        group = "media";
+      }
+      {
+        directory = "/var/lib/lidarr";
+        user = "lidarr";
         group = "media";
       }
     ];
