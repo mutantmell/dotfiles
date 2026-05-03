@@ -10,6 +10,7 @@ in {
   imports = [
     ./microvm.nix
     ./modules/jellyfin.nix
+    ./modules/navidrome.nix
   ];
 
   networking.hostName = hostname;
