@@ -250,6 +250,12 @@
       "perses.internal.mutantmell.net"
       "perses.internal"
     ];
+    oracion = [
+      "jellyfin.internal.mutantmell.net"
+      "jellyfin.internal"
+      "navidrome.internal.mutantmell.net"
+      "navidrome.internal"
+    ];
   };
 
   # All domains a host is reachable by (bare hostname + FQDNs + aliases)
