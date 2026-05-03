@@ -62,15 +62,16 @@ in {
     dir = path: "d ${path} 2775 ${uid} ${gid} -";
   in [
     (dir "/data/media")
-    # Default tier (SD/1080p): managed by ravennue's sonarr/radarr
+    # Default tier (SD/1080p video, MP3 audio): managed by ravennue's
+    # sonarr/radarr/lidarr.
     (dir "/data/media/library")
     (dir "/data/media/library/movies")
     (dir "/data/media/library/tv")
     # Derived view of TV for shows whose physical media follows a non-aired
     # ordering (Futurama: DVD order). Sonarr keeps `library/tv/` in canonical
     # airdate order; a derive script (TBD) hardlinks files into here under
-    # the alternate ordering for Jellyfin to surface. No 4K equivalent yet
-    # since no driving title needs it; add `library-4k/tv-curated/` when one
+    # the alternate ordering for Jellyfin to surface. No HQ equivalent yet
+    # since no driving title needs it; add `library-hq/tv-curated/` when one
     # appears.
     (dir "/data/media/library/tv-curated")
     (dir "/data/media/library/music")
@@ -78,16 +79,19 @@ in {
     (dir "/data/media/manual/movies")
     (dir "/data/media/manual/tv")
     (dir "/data/media/manual/music")
-    # 4K tier: managed by bose's sonarr/radarr. Split at the library level
-    # (rather than `library/tv-4k/`) so per-tier ownership and Jellyfin library
+    # HQ tier (2160p video, FLAC audio): managed by bose's
+    # sonarr/radarr/lidarr. Split at the library level (rather than
+    # `library/tv-hq/`) so per-tier ownership and Jellyfin library
     # boundaries are unambiguous, and so future curated/derived trees can
-    # branch per-tier without colliding with the 4k suffix.
-    (dir "/data/media/library-4k")
-    (dir "/data/media/library-4k/movies")
-    (dir "/data/media/library-4k/tv")
-    (dir "/data/media/manual-4k")
-    (dir "/data/media/manual-4k/movies")
-    (dir "/data/media/manual-4k/tv")
+    # branch per-tier without colliding with the suffix. Name is `-hq`
+    # rather than `-4k` so the same convention generalizes across video
+    # (4K), audio (lossless), and any future media type.
+    (dir "/data/media/library-hq")
+    (dir "/data/media/library-hq/movies")
+    (dir "/data/media/library-hq/tv")
+    (dir "/data/media/manual-hq")
+    (dir "/data/media/manual-hq/movies")
+    (dir "/data/media/manual-hq/tv")
   ];
 
   services.nfs.server = {
