@@ -217,6 +217,7 @@ in {
     isNormalUser = true;
     description = "samba client user";
     group = "mutantmell";
+    extraGroups = ["media"];
   };
   users.groups.mutantmell = {};
 
