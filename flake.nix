@@ -1,9 +1,4 @@
 {
-  nixConfig = {
-    extra-substituters = ["https://retrom.cachix.org"];
-    extra-trusted-public-keys = ["retrom.cachix.org-1:6fjezFeBSDzHkUvpyLMe58wfi99V4RO8M5Iod4sMxFE="];
-  };
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-24.11";
