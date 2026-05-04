@@ -255,6 +255,8 @@
       "jellyfin.internal"
       "navidrome.internal.mutantmell.net"
       "navidrome.internal"
+      "retrom.internal.mutantmell.net"
+      "retrom.internal"
     ];
   };
 

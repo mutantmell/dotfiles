@@ -11,6 +11,7 @@ in {
     ./microvm.nix
     ./modules/jellyfin.nix
     ./modules/navidrome.nix
+    ./modules/retrom.nix
   ];
 
   networking.hostName = hostname;

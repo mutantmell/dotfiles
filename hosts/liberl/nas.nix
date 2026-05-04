@@ -94,6 +94,10 @@ in {
     (dir "/data/media/manual-hq/tv")
     (dir "/data/media/manual-hq/music")
     (dir "/data/media/library-hq/music")
+    (dir "/data/media/manual/games")
+    (dir "/data/media/library/games")
+    (dir "/data/media/mister")
+    (dir "/data/media/mister/games")
   ];
 
   services.nfs.server = {
