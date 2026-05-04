@@ -411,12 +411,12 @@ Library scan content roots are declared in the Nix `settings.content_directories
 (see module above) — Retrom does not require post-deploy UI steps for content
 roots, only for admin signup + initial scan trigger.
 
-| Content directory               | storage_type / definition                    | Platform model                                     |
-| ------------------------------- | -------------------------------------------- | -------------------------------------------------- |
-| `/media/library/games/windows`  | `MULTI_FILE_GAME`                            | One implicit platform (the directory itself)       |
-| `/media/library/games/linux`    | `MULTI_FILE_GAME`                            | One implicit platform                              |
+| Content directory               | storage_type / definition                    | Platform model                                                                |
+| ------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------- |
+| `/media/library/games/windows`  | `MULTI_FILE_GAME`                            | One implicit platform (the directory itself)                                  |
+| `/media/library/games/linux`    | `MULTI_FILE_GAME`                            | One implicit platform                                                         |
 | `/media/library/games/consoles` | `CUSTOM` w/ `{library}/{platform}/{gameDir}` | First-level subdir = platform (DAT name, e.g. `Nintendo - Game Boy Advance/`) |
-| `/media/library/games/mister`   | _not declared_                               | Derived hardlink view, intentionally unscanned                                 |
+| `/media/library/games/mister`   | _not declared_                               | Derived hardlink view, intentionally unscanned                                |
 
 The console platform names come from Igir's `--dir-dat-name` output —
 the DAT's own name becomes the directory and Retrom surfaces it as the
@@ -654,13 +654,13 @@ The work splits cleanly into two PRs.
    - Drop one small no-intro-verifiable ROM into
      `/data/media/manual/games/<platform>/`, run the §4.1
      `igir copy extract test clean --dir-dat-name
-     --dir-game-subdir always ...` invocation. Verify the file
+--dir-game-subdir always ...` invocation. Verify the file
      lands at e.g.
      `library/games/Nintendo - Game Boy Advance/<game>/<canonical>.gba`,
      mode 664, owned `media:media`.
    - Run the link pass: `igir link --link-mode hardlink
-     --dat ... --input /media/library/games
-     --output '/media/mister/games/{mister}'`.
+--dat ... --input /media/library/games
+--output '/media/mister/games/{mister}'`.
      Verify the hardlink at e.g.
      `mister/games/GBA/<canonical>.gba` shares an
      inode with the canonical file (`stat -c '%i' <both>` matches).
@@ -730,7 +730,7 @@ Operational, no NixOS test harness. Per-PR checks:
      (or the appropriate core dir; `{mister}` produces names like
      `Gameboy`, `GBA`, `SNES`, `MegaDrive`, `PSX`).
    - `stat -c '%i %h' /media/library/games/consoles/gba/<game>/<file>
-                  /media/library/games/mister/games/GBA/<file>`
+             /media/library/games/mister/games/GBA/<file>`
      — both should report the same inode and link count ≥2.
    - Negative case: `rm` the canonical file → MISTer hardlink
      still resolves (inode persists until last name unlinked).

@@ -21,7 +21,6 @@
 
   jellyfinVhost = {
     forceSSL = true;
-    enableACME = true;
 
     extraConfig = ''
       proxy_read_timeout 604800;
@@ -118,8 +117,10 @@ in {
     recommendedProxySettings = true;
 
     virtualHosts = {
-      "${config.networking.hostName}.internal" = jellyfinVhost;
-      "jellyfin.internal" = jellyfinVhost;
+      "${config.networking.hostName}.internal" =
+        jellyfinVhost // {enableACME = true;};
+      "jellyfin.internal" =
+        jellyfinVhost // {enableACME = true;};
     };
   };
 
