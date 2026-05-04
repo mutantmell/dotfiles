@@ -1,4 +1,9 @@
 {
+  nixConfig = {
+    extra-substituters = ["https://retrom.cachix.org"];
+    extra-trusted-public-keys = ["retrom.cachix.org-1:6fjezFeBSDzHkUvpyLMe58wfi99V4RO8M5Iod4sMxFE="];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-24.11";
@@ -49,6 +54,10 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    retrom = {
+      url = "github:JMBeresford/retrom";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
   outputs = {
     self,
@@ -67,6 +76,7 @@
     deploy-rs,
     treefmt-nix,
     rust-overlay,
+    retrom,
   }: let
     pkgsFor = basepkgs: system:
       import basepkgs {
@@ -215,6 +225,7 @@
         self.nixosModules."promtail-client"
         self.nixosModules."node-exporter-client"
         self.nixosModules."fluent-bit-agent"
+        retrom.nixosModules.retrom
       ];
       mk-nixos = args @ {
         nixpkgs,

@@ -1,13 +1,12 @@
 {pkgs, ...}: let
   inherit (pkgs.mmell.lib.data.users) media mediaops;
 
-  # Wrapper that forces umask 0002 so dirs/files filebot creates under
-  # /media/library/<type>/ (setgid 2775, group=media via tmpfiles in nas.nix)
-  # are group-writable. Without this, filebot inherits the operator's default
-  # umask 0022 and produces group-readable-but-not-writable subdirs, which
-  # then break Radarr/Sonarr's later Rename Files step with EACCES.
-  filebot-ingest = pkgs.writeShellApplication {
-    name = "filebot-ingest";
+  # Wrappers force umask 0002 so files/dirs written into the setgid 2775
+  # media trees are group-writable. Without this, tools inherit the operator's
+  # default umask 0022, producing group-readable-but-not-writable output that
+  # breaks later re-ingestion or Radarr/Sonarr rename steps with EACCES.
+  filebot = pkgs.writeShellApplication {
+    name = "filebot";
     runtimeInputs = [pkgs.filebot];
     text = ''
       umask 0002
@@ -15,14 +14,21 @@
     '';
   };
 
-  # beets defaults to umask 0022; wrap it so files written into the setgid
-  # /media/library-hq/music tree are group-writable (matching tmpfiles 2775).
-  beets-ingest = pkgs.writeShellApplication {
-    name = "beets-ingest";
+  beet = pkgs.writeShellApplication {
+    name = "beet";
     runtimeInputs = [pkgs.beets];
     text = ''
       umask 0002
       exec beet "$@"
+    '';
+  };
+
+  igir = pkgs.writeShellApplication {
+    name = "igir";
+    runtimeInputs = [pkgs.igir];
+    text = ''
+      umask 0002
+      exec igir "$@"
     '';
   };
 in {
@@ -68,13 +74,12 @@ in {
   };
 
   environment.systemPackages = [
-    pkgs.filebot
-    filebot-ingest
+    filebot
     pkgs.mediainfo
     pkgs.ffmpeg-headless
     pkgs.picard
-    pkgs.beets
-    beets-ingest
+    beet
+    igir
   ];
 
   # Deprioritize arr operations to avoid starving NAS workloads
