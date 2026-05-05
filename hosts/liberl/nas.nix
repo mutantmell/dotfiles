@@ -75,10 +75,25 @@ in {
     # appears.
     (dir "/data/media/library/tv-curated")
     (dir "/data/media/library/music")
-    (dir "/data/media/manual")
-    (dir "/data/media/manual/movies")
-    (dir "/data/media/manual/tv")
-    (dir "/data/media/manual/music")
+    # Software: three-peer games tree under a common parent. Per-platform
+    # leaf dirs are created on demand by Igir / operator mkdir and inherit
+    # the parent's 2775 setgid mode.
+    (dir "/data/media/library/software")
+    (dir "/data/media/library/software/console")
+    (dir "/data/media/library/software/romhacks")
+    (dir "/data/media/library/software/pc")
+    # Staging: incoming/unverified source material, nested under a method
+    # layer. `staging/manual/` replaces the former flat `manual/` tree;
+    # future siblings (staging/torrents/, staging/usenet/) land here when
+    # a downloader is wired up.
+    (dir "/data/media/staging")
+    (dir "/data/media/staging/manual")
+    (dir "/data/media/staging/manual/movies")
+    (dir "/data/media/staging/manual/tv")
+    (dir "/data/media/staging/manual/music")
+    (dir "/data/media/staging/manual/console")
+    (dir "/data/media/staging/manual/romhacks")
+    (dir "/data/media/staging/manual/pc")
     # HQ tier (2160p video, FLAC audio): managed by bose's
     # sonarr/radarr/lidarr. Split at the library level (rather than
     # `library/tv-hq/`) so per-tier ownership and Jellyfin library
@@ -89,13 +104,15 @@ in {
     (dir "/data/media/library-hq")
     (dir "/data/media/library-hq/movies")
     (dir "/data/media/library-hq/tv")
-    (dir "/data/media/manual-hq")
-    (dir "/data/media/manual-hq/movies")
-    (dir "/data/media/manual-hq/tv")
-    (dir "/data/media/manual-hq/music")
     (dir "/data/media/library-hq/music")
-    (dir "/data/media/manual/games")
-    (dir "/data/media/library/games")
+    # HQ-tier staging: `staging-hq/manual/` replaces the former flat
+    # `manual-hq/` tree. Inner dir is `manual/` (no `-hq` suffix — the
+    # parent already signals tier).
+    (dir "/data/media/staging-hq")
+    (dir "/data/media/staging-hq/manual")
+    (dir "/data/media/staging-hq/manual/movies")
+    (dir "/data/media/staging-hq/manual/tv")
+    (dir "/data/media/staging-hq/manual/music")
     (dir "/data/media/mister")
     (dir "/data/media/mister/games")
   ];
