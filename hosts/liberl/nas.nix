@@ -75,12 +75,11 @@ in {
     # appears.
     (dir "/data/media/library/tv-curated")
     (dir "/data/media/library/music")
-    # Software: three-peer games tree under a common parent. Per-platform
-    # leaf dirs are created on demand by Igir / operator mkdir and inherit
-    # the parent's 2775 setgid mode.
+    # Software: games tree. console/ uses a platform/{type}/{gameDir} layout
+    # where {type} comes from Igir (e.g. Retail, Hacks). Per-platform and
+    # per-type dirs are created on demand by Igir / operator mkdir.
     (dir "/data/media/library/software")
     (dir "/data/media/library/software/console")
-    (dir "/data/media/library/software/romhacks")
     (dir "/data/media/library/software/pc")
     # Staging: incoming/unverified source material, nested under a method
     # layer. `staging/manual/` replaces the former flat `manual/` tree;
@@ -159,6 +158,9 @@ in {
         browseable = "yes";
         "guest ok" = "no";
         "read only" = "no";
+        # Required for MISTer (Linux CIFS client) to follow Unix symlinks —
+        # used for mister/games/<Core> → library/software/console/<platform>/
+        "mfs symlinks" = "yes";
       };
       backup = {
         path = "/data/backup";

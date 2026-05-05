@@ -4,9 +4,10 @@ Successor to `llm-notes/done/retrom-game-pipeline.md`. That plan
 established the games pipeline (Retrom on oracion, Igir on bose, MISTer
 hardlink view). This plan does two things at once:
 
-1. Reshapes the on-disk games layout to mirror the real distinction in
-   the pipeline: **DAT-verified canonical content** vs **manually-curated
-   content**.
+1. Reshapes the on-disk games layout to use a single `console/` tree
+   with Igir's `{type}` token as an intermediate directory level
+   (e.g. `Retail/`, `Hacks/`, `Translated/`), keeping official and
+   community-modified ROMs visually distinct without separate content roots.
 2. Introduces a `staging/` (and `staging-hq/`) parent directory for all
    source material — manual rips today, future downloader output
    (Syncthing, torrents, usenet) tomorrow. This is a top-level tree
@@ -22,12 +23,14 @@ hardlink view). This plan does two things at once:
 │   ├── tv-curated/                # unchanged
 │   ├── music/                     # unchanged
 │   └── software/                  # NEW parent for all games content
-│       ├── console/               # NEW — Igir-canonical, DAT-verified ROMs
-│       │   ├── gba/, snes/, …
-│       ├── romhacks/              # NEW — operator-curated patched ROMs
-│       │   ├── snes/, gba/, …
+│       ├── console/               # NEW — all ROMs; type subdirs per platform
+│       │   └── Nintendo - Super Nintendo Entertainment System/
+│       │       ├── Retail/        # DAT-verified, Igir-canonical
+│       │       │   └── <game>/
+│       │       └── Hacks/         # operator-curated patched ROMs
+│       │           └── <game>/
 │       └── pc/                    # NEW — operator-curated PC games (folder-per-game)
-│           ├── <Title>/, …
+│           └── <Title>/
 ├── library-hq/                    # HQ tier — canonical (unchanged)
 │   ├── movies/, tv/, music/
 ├── staging/                       # NEW parent for default-tier source material
@@ -45,7 +48,9 @@ hardlink view). This plan does two things at once:
 │       └── music/                 # preserved contents
 └── mister/                        # unchanged (peer of library/)
     └── games/
-        ├── SNES/, Gameboy/, …
+        ├── SNES -> ../../library/software/console/Nintendo - Super Nintendo Entertainment System/
+        ├── GBA  -> ../../library/software/console/Nintendo - Game Boy Advance/
+        └── …    # operator-maintained symlinks; MISTer follows via mfsymlinks over SMB
 ```
 
 Future siblings under `staging/` (e.g. `staging/torrents/`, `staging/usenet/`)
@@ -97,32 +102,26 @@ layer where the tier suffix is redundant.
 
 ### The split is honest about lifecycle
 
-The existing layout collapsed two genuinely different ingest pipelines
-into one tree. The new layout makes the distinction operationally
-visible:
+The new layout makes ingest-pipeline distinctions operationally visible:
 
 | Tree         | Source                  | Verifiable     | Reproducible from inputs?      | IGDB metadata likely?    |
 | ------------ | ----------------------- | -------------- | ------------------------------ | ------------------------ |
 | `console/`   | DAT-driven (Igir)       | yes (DAT hash) | yes — re-run Igir              | yes (commercial titles)  |
-| `romhacks/`  | Manual (community hack) | no             | no — operator-curated artifact | rarely (derivative work) |
 | `pc/`        | Manual (installer/dump) | no             | no — operator-curated artifact | sometimes                |
 
 That table maps directly to "can I delete this and re-derive it?"
 backups, audit, and replay questions. Mirroring it in storage keeps the
 distinction load-bearing instead of relying on operator memory.
 
-### Why romhacks get their own peer, not a tag
-
-Retrom doesn't have first-class user tags; metadata is IGDB-driven and
-romhacks are derivative works that IGDB won't index well. A separate
-content directory keeps the canonical-vs-derivative distinction
-visible at scan time and avoids polluting the canonical platform's
-game list with patched variants of the same title (which would
-otherwise collide on metadata lookup). Same-named platform dirs across
-content directories (e.g. `console/snes` and `romhacks/snes`) register
-as **two distinct Retrom platforms** — confirmed by Retrom's
-content-directory scan model where platform identity is scoped per
-content root. That's the desirable outcome here.
+Romhacks (patched / community ROMs) live inside `console/` under
+Igir's `{type}` token (e.g. `Hacks/`, `Translated/`) rather than in a
+separate content root. This collapses the canonical-vs-derivative
+distinction into one platform tree, which is accurate: a fan
+translation of a SNES game belongs alongside the retail SNES library,
+not in a separate namespace that breaks emulator configuration and
+MISTer core selection. The `{type}` subdir makes the distinction
+visible without requiring a separate Retrom content root or platform
+identity split.
 
 ### Why PC is folder-per-game
 
@@ -163,7 +162,10 @@ as deployed.
 
 Replace the flat `manual/` and `manual-hq/` entries with their new
 nested form, and replace the single `library/games` entry with the
-three-peer console/romhacks/pc tree.
+software/console + software/pc tree. Note: no `library/software/romhacks`
+— romhacks live under `console/<platform>/Hacks/` via Igir's `{type}` token.
+Also add `mfs symlinks = yes` to the Samba `media` share for MISTer
+symlink support.
 
 Diff against current:
 
@@ -180,7 +182,7 @@ Diff against current:
 (dir "/data/media/manual/games")
 (dir "/data/media/library/games")
 
-# Add (staging/manual + staging-hq/manual; library games tree split)
+# Add (staging/manual + staging-hq/manual; library software tree)
 (dir "/data/media/staging")
 (dir "/data/media/staging/manual")
 (dir "/data/media/staging/manual/movies")
@@ -196,7 +198,6 @@ Diff against current:
 (dir "/data/media/staging-hq/manual/music")
 (dir "/data/media/library/software")
 (dir "/data/media/library/software/console")
-(dir "/data/media/library/software/romhacks")
 (dir "/data/media/library/software/pc")
 
 # Unchanged
@@ -213,54 +214,45 @@ Diff against current:
 (dir "/data/media/mister/games")
 ```
 
-Per-platform leaf dirs under `console/`, `romhacks/`, `pc/` are not
-declared — Igir + operator `mkdir` create them on demand, inheriting
-the parent's `2775 media:media` setgid mode (same convention as the
-rest of the media tree).
+Per-platform and per-type dirs under `console/` are not declared —
+Igir creates them on demand, inheriting the parent's `2775 media:media`
+setgid mode. `staging/manual/romhacks/` is retained as the operator
+drop zone; content moves from there to `console/<platform>/Hacks/`.
 
 ### Why split the staging tree too
 
 `manual/games/` was a single bucket. Splitting to
-`staging/manual/{console,romhacks,pc}/` mirrors the library tree, keeps
-each ingest workflow visually distinct (Igir reads from
-`staging/manual/console/`, operator-organizes from
-`staging/manual/romhacks/` and `staging/manual/pc/`), and makes "is
-this verified yet?" answerable by directory.
+`staging/manual/{console,romhacks,pc}/` keeps each ingest workflow
+visually distinct and makes "is this verified yet?" answerable by
+directory. The staging side retains `romhacks/` as a named drop zone
+even though the library side folds hacks into `console/` via `{type}`.
 
 ## §4 — Retrom configuration
 
 ### `hosts/calvard/microvm/guests/oracion/modules/retrom.nix`
 
-Replace the single `contentDirectories` entry with three. NFS mount
-point on oracion is `/media/library/`, matching the existing
+Two `contentDirectories` entries: one for `console/` (CUSTOM, 4-level
+definition) and one for `pc/` (MULTI_FILE_GAME). No separate romhacks
+root — romhacks live inside `console/` under the Igir-assigned `{type}`
+subdir. NFS mount point on oracion is `/media/`, matching the existing
 convention. Retrom only sees the canonical `library/` tree; staging is
-not exposed to Retrom (and shouldn't be — staging is unverified).
+not exposed to Retrom.
 
 ```nix
 contentDirectories = [
-  # Console ROMs: DAT-verified, Igir-canonical. Each first-level subdir
-  # is a platform (gba/, snes/, …); each game gets its own directory.
+  # Console ROMs: platform/{type}/{gameDir} layout. {type} comes from
+  # Igir's DAT metadata (e.g. "Retail", "Hacks", "Translated"). All
+  # game types — official and romhacks — live under one content root;
+  # the type level keeps them distinct within each platform.
   {
     path = "/media/library/software/console";
     storageType = 2; # CUSTOM
     customLibraryDefinition = {
-      definition = "{library}/{platform}/{gameDir}";
+      definition = "{library}/{platform}/{type}/{gameDir}";
     };
   }
-  # Romhacks: operator-curated patched ROMs. Same shape as console — a
-  # platform layer, then per-hack directories. Distinct content dir
-  # so romhacks register as separate Retrom platforms (e.g.
-  # "snes" appears twice: once under console, once under romhacks).
-  {
-    path = "/media/library/software/romhacks";
-    storageType = 2; # CUSTOM
-    customLibraryDefinition = {
-      definition = "{library}/{platform}/{gameDir}";
-    };
-  }
-  # PC games: folder-per-game, no platform layer. The content directory
-  # itself is the implicit platform; OS is resolved at launch by
-  # Emulator.operating_systems.
+  # PC games: folder-per-game, no platform layer. OS is resolved at
+  # launch by Emulator.operating_systems, not by directory layout.
   {
     path = "/media/library/software/pc";
     storageType = 1; # MULTI_FILE_GAME
@@ -268,17 +260,18 @@ contentDirectories = [
 ];
 ```
 
-mister/ remains unscanned — outside all `contentDirectories` roots, no
-`ignorePatterns` entry needed.
+mister/ is a sibling of library/ at `/media/mister`, outside all
+scanned roots — no `ignorePatterns` entry needed.
 
-### Platform identity across content directories
+### Why a 4-level definition works
 
-Retrom scopes platforms per content root (see proto: `Platform.path`),
-so `console/snes` and `romhacks/snes` create two Retrom platforms.
-That's the intended UX: the user sees a "SNES" section for canonical
-games and a "SNES" (romhacks) section, separately. **First-scan
-verification** is on the operator's checklist (§8) — if Retrom merges
-them, fall back to disambiguating directory names (`snes-rh/` etc.).
+Retrom's custom path parser tokenises any `{name}` in curly braces at
+each `/`-delimited level and assigns the last token `{gameDir}`. The
+`games_as_grandchildren()` test in `crates/core/src/game_scanner/`
+confirms that depth-4 definitions resolve correctly. `{type}` is an
+arbitrary token name — Retrom passes its value through as a string and
+uses it only to populate `Platform.path` metadata; it does not need to
+match a reserved keyword.
 
 ## §5 — Ingestion workflow updates
 
@@ -298,48 +291,63 @@ igir copy extract test clean \
 igir copy extract test clean \
     --input  /media/staging/manual/console/<platform>/ \
     --output /media/library/software/console \
+    --dat    <path-to-dat> \
     ...
 ```
 
-The MISTer link pass:
+Igir writes each game into
+`/media/library/software/console/<platform>/<type>/<gameDir>/`
+where `<type>` (e.g. `Retail`, `Hacks`, `Translated`) comes from the
+DAT category for that ROM. No extra flags needed — the output template
+uses `{type}` automatically.
 
+The MISTer workflow changes from an Igir link pass to operator-maintained
+symlinks. Instead of running `igir link`, the operator creates one symlink
+per core in `mister/games/` pointing at the platform dir:
+
+```bash
+# One-time setup per platform, run on liberl (or bose as mediaops)
+ln -s ../../library/software/console/Nintendo\ -\ Super\ Nintendo\ Entertainment\ System \
+      /data/media/mister/games/SNES
+ln -s ../../library/software/console/Nintendo\ -\ Game\ Boy\ Advance \
+      /data/media/mister/games/GBA
+# … etc for each core
 ```
-# Before
-igir link \
-    --input  /media/library/games \
-    --output '/media/library/games/mister/games/{mister}' \
-    ...
 
-# After
-igir link \
-    --input  /media/library/software/console \
-    --output '/media/mister/games/{mister}' \
-    ...
+MISTer follows these symlinks over SMB (the `media` share has
+`"mfs symlinks" = "yes"` in `nas.nix`). The MISTer CIFS client must
+also have `mfsymlinks` in its `cifs_mount.ini`:
+
+```ini
+[share]
+server=liberl
+share=media
+mountpoint=/media/fat
+options=mfsymlinks
 ```
 
-(The `--output` was already pointing inside `library/games/mister/` in
-the original plan but the deployed reality was `/data/media/mister/`.
-This plan codifies the deployed reality.)
+MISTer then sees `mister/games/SNES/` containing `Retail/`,
+`Hacks/`, etc. — all navigable from its file browser.
 
-### Romhacks (manual, no DAT)
+### Romhacks (manual, operator-curated)
 
-New workflow, mirrors PC games:
+Romhacks now go into `console/<platform>/Hacks/<HackTitle>/` rather
+than a separate library tree. Workflow:
 
-1. Operator drops patched ROM (or IPS-applied output) under
+1. Operator drops patched ROM (IPS-applied output) under
    `/media/staging/manual/romhacks/<platform>/<HackTitle>/`.
 2. On bose, as `mediaops`:
+   ```bash
+   mv /media/staging/manual/romhacks/snes/<HackTitle> \
+      /media/library/software/console/Nintendo\ -\ Super\ Nintendo\ Entertainment\ System/Hacks/
    ```
-   mv /media/staging/manual/romhacks/snes/<incoming> \
-      /media/library/software/romhacks/snes/<HackTitle>/
-   ```
-3. Retrom rescan picks it up. Metadata will be sparse (IGDB doesn't
-   know about most hacks); the operator can edit names/cover art in
-   the Retrom UI per game.
+3. Retrom rescan picks it up under the SNES platform's `Hacks` type.
+   Metadata will be sparse (IGDB doesn't index most hacks); operator
+   can edit names/cover art in the Retrom UI per game.
 
-If a romhack DAT (e.g. SMW Central, Hardcore Romhacks) is ever in
-scope, Igir can be pointed at it the same way as commercial DATs but
-output to `/media/library/software/romhacks/<platform>/`. Out of scope for this
-plan; document if/when it becomes a real workflow.
+`staging/manual/romhacks/` is retained as the named drop zone even
+though the library side folds hacks into `console/` — it keeps the
+ingest workflow visually distinct from DAT-verified ROMs.
 
 ### PC games (manual) — staging + library paths both change
 
@@ -408,7 +416,7 @@ if [ -d manual-hq ]; then
 fi
 
 # ── Stage 2: split games subtree under library/software/
-mkdir -p library/software/{console,romhacks,pc}
+mkdir -p library/software/{console,pc}
 # Console — straight rename
 if [ -d library/games/consoles ]; then
   mv library/games/consoles/* library/software/console/ 2>/dev/null || true
@@ -423,7 +431,6 @@ if [ -d library/games/linux ]; then
   mv library/games/linux/* library/software/pc/ 2>/dev/null || true
   rmdir library/games/linux
 fi
-# Romhacks tree starts empty — nothing to move
 # library/games/ should now be empty (mister was always at /data/media/mister)
 rmdir library/games 2>/dev/null || true
 
@@ -454,7 +461,7 @@ automatically — no guest-side migration needed.
 Old `contentDirectories` produced a "games" content-root in Retrom's
 DB. After the new config deploys, Retrom on first scan will:
 
-- Discover three new content roots (software/console/, software/romhacks/, software/pc/).
+- Discover two new content roots (software/console/, software/pc/).
 - Mark games under the old `games/` root as missing (because that path
   no longer exists).
 
@@ -549,28 +556,28 @@ Operational, no test harness. Per-PR checks after deploy:
 1. **Liberl**:
    - `ls /data/media/staging/manual/{movies,tv,music,console,romhacks,pc}/` — all exist, mode `2775`, owned `media:media`.
    - `ls /data/media/staging-hq/manual/{movies,tv,music}/` — all exist, mode `2775`, owned `media:media`.
-   - `ls /data/media/library/software/{console,romhacks,pc}/` — all exist, mode `2775`, owned `media:media`.
+   - `ls /data/media/library/software/{console,pc}/` — both exist, mode `2775`, owned `media:media`. No `romhacks/` sibling.
    - `/data/media/{manual,manual-hq,library/games}` do not exist.
-   - `mister/games/` unchanged.
+   - `mister/games/` has the operator-created symlinks; verify one: `readlink /data/media/mister/games/SNES` → `../../library/software/console/Nintendo - Super Nintendo Entertainment System`.
 2. **Bose / ravennue**: from `mediaops`, write to
-   `/media/library/software/{console,romhacks,pc}/` and
+   `/media/library/software/{console,pc}/` and
    `/media/staging/manual/...` and `/media/staging-hq/manual/...`
    succeeds (NFS RW path).
 3. **Oracion**: `systemctl status retrom postgresql` healthy. Retrom's
-   logs show successful scan of three new content roots.
+   logs show successful scan of two new content roots.
 4. **Retrom UI**: browse to `https://retrom.internal/`, confirm:
-   - Three new content roots present in server config.
+   - Two new content roots present in server config (console/, pc/).
    - Old `games/` root is absent (or marked for cleanup).
-   - Console games surface under their platform names.
+   - Console games surface under their platform names, with type subdirs
+     (`Retail/`, `Hacks/`, etc.) visible per platform.
    - PC games surface as one platform (the implicit `pc` content root).
-   - If any romhacks were placed, they surface under a separate
-     "snes/gba/…" platform distinct from the console one.
 5. **Arr stack**: in each Sonarr/Radarr/Lidarr instance, Manual Import
    from the new staging path succeeds; library hardlink still works
    (verify cross-tree inode sharing with `ls -li`).
-6. **MISTer**: re-run the Igir link pass per §5 with the new input
-   path. Verify `mister/games/<Core>/` hardlinks still resolve and
-   share inodes with `library/software/console/<platform>/` files.
+6. **MISTer over SMB**: from MISTer, confirm `mister/games/SNES/`
+   resolves the symlink and lists the platform contents (both `Retail/`
+   and `Hacks/` are visible). Confirm `mfsymlinks` is present in
+   MISTer's `cifs_mount.ini` before testing.
 7. **Cross-VLAN**: from a workstation, `getent hosts retrom.internal`
    resolves; web client loads, scans new tree.
 
@@ -584,17 +591,22 @@ Operational, no test harness. Per-PR checks after deploy:
   boundary.
 - **Romhack DAT support.** If romhack scenes ever produce usable DATs
   (rare — the SMW Central / Hardcore community tools mostly produce
-  patches, not DATs), Igir can ingest into `library/software/romhacks/` the
-  same way it ingests into `library/software/console/`. Worth revisiting in 1-2
-  years; not in scope here.
-- **Genre/tag overhauls in Retrom.** If Retrom adds first-class user
-  tags, the romhacks split could collapse back into one library with
-  a `romhack` tag. The directory split survives that change without
-  cost — tags would just become an additional axis. No need to
-  pre-empt.
+  patches, not DATs), Igir can ingest into `console/<platform>/Hacks/`
+  the same way it ingests commercial DATs, just pointing at a different
+  DAT file. The type token handles it — no directory restructuring
+  needed. Worth revisiting if/when a specific hack scene ships a DAT.
+- **MISTer symlink maintenance.** The `mister/games/<Core>/` symlinks
+  are operator-maintained. When a new platform is added to the console
+  library, the operator creates a new symlink in `mister/games/` using
+  the MISTer core name. No Igir link pass is needed. The `mfsymlinks`
+  Samba option (already set in `nas.nix`) is required for MISTer to
+  follow these symlinks; the MISTer client also needs `mfsymlinks` in
+  `cifs_mount.ini` (see §5).
 - **Liberl SMB share.** SMB share `media` exposes `/data/media/`
-  unchanged; Windows clients see the renamed top-level dirs
-  automatically. No SMB-side change.
+  with `"mfs symlinks" = "yes"` (added in this plan). Windows clients
+  see the renamed top-level dirs automatically; the mfsymlinks option
+  is a no-op for Windows (which uses its own symlink protocol) but
+  required for MISTer's Linux CIFS client.
 - **Original plan's `games/` naming.** `done/retrom-game-pipeline.md`
   remains as a historical record of how the games pipeline was first
   built. After this plan ships, add a postscript pointing to this
