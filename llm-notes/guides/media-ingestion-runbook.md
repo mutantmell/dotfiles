@@ -31,7 +31,7 @@ liberl (NAS host)                          calvard host
 │   ├── staging/manual/{console,romhacks,pc}/  ←── games staging — default tier
 │   ├── staging-hq/manual/{movies,tv}/    ←── DROP ZONE — HQ tier   (→ bose)
 │   ├── library/{movies,tv,music}/        ←── arr-managed library — default tier
-│   ├── library/{console,romhacks,pc}/    ←── games library (Igir/operator-managed)
+│   ├── library/software/{console,pc}/   ←── games library (Igir/operator-managed)
 │   └── library-hq/{movies,tv}/           ←── arr-managed library — HQ tier
 │        │                                 │
 │        └── virtiofs → bose, ravennue ───┐
@@ -1065,9 +1065,9 @@ Jellyfin literally cannot see the staging directories.
 | Default                   | `/data/media/staging/manual/tv/`           | `/data/media/library/tv/`           | ravennue (Sonarr)       |
 | HQ                        | `/data/media/staging-hq/manual/tv/`        | `/data/media/library-hq/tv/`        | bose (Sonarr)           |
 | Music                     | `/data/media/staging/manual/music/`        | `/data/media/library/music/`        | _(future Lidarr)_       |
-| Console ROMs              | `/data/media/staging/manual/console/`      | `/data/media/library/software/console/`      | Igir                    |
-| Romhacks                  | `/data/media/staging/manual/romhacks/`     | `/data/media/library/software/romhacks/`     | operator (manual mv)    |
-| PC games                  | `/data/media/staging/manual/pc/`           | `/data/media/library/software/pc/`           | operator (manual mv)    |
+| Console ROMs              | `/data/media/staging/manual/console/`      | `/data/media/library/software/console/<platform>/Retail/`  | Igir                    |
+| Romhacks                  | `/data/media/staging/manual/romhacks/`     | `/data/media/library/software/console/<platform>/Hacks/`   | operator (manual mv)    |
+| PC games                  | `/data/media/staging/manual/pc/`           | `/data/media/library/software/pc/`                         | operator (manual mv)    |
 | Curated TV (derived view) | _(none — no staging)_                      | `/data/media/library/tv-curated/`   | _(derive script — TBD)_ |
 
 Subtitles for all four video tiers come from Bazarr on bose, which has

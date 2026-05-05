@@ -12,24 +12,15 @@ in {
       # has no alias — snake_case is silently dropped, leaving the
       # definition empty and tripping the web UI validator.
       contentDirectories = [
-        # Console ROMs: DAT-verified, Igir-canonical. Each first-level subdir
-        # is a platform (gba/, snes/, …); each game gets its own directory.
+        # Console ROMs: platform/{type}/{gameDir} layout. {type} comes from
+        # Igir's DAT metadata (e.g. "Retail", "Hacks", "Translated"). All
+        # game types — official and romhacks — live under one content root;
+        # the type level keeps them distinct within each platform.
         {
           path = "/media/library/software/console";
           storageType = 2; # CUSTOM
           customLibraryDefinition = {
-            definition = "{library}/{platform}/{gameDir}";
-          };
-        }
-        # Romhacks: operator-curated patched ROMs. Same shape as console — a
-        # platform layer, then per-hack directories. Distinct content dir so
-        # romhacks register as separate Retrom platforms (e.g. "snes" appears
-        # twice: once under console, once under romhacks).
-        {
-          path = "/media/library/software/romhacks";
-          storageType = 2; # CUSTOM
-          customLibraryDefinition = {
-            definition = "{library}/{platform}/{gameDir}";
+            definition = "{library}/{platform}/{type}/{gameDir}";
           };
         }
         # PC games: folder-per-game, no platform layer. OS is resolved at

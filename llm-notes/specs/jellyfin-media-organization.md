@@ -86,11 +86,14 @@ All directories live under a single root on a **single server-side filesystem** 
 │   │                            populated by a derive script (TBD).
 │   ├── music/
 │   └── software/              ← all games content
-│       ├── console/           ← DAT-verified ROMs, Igir-canonical; platform/game layout
-│       │   ├── gba/
-│       │   ├── snes/
-│       │   └── …
-│       ├── romhacks/          ← operator-curated patched ROMs; same platform/game shape
+│       ├── console/           ← all ROMs; platform/{type}/game layout
+│       │   ├── Nintendo - Game Boy Advance/
+│       │   │   ├── Retail/    ← DAT-verified, Igir-canonical
+│       │   │   └── Hacks/     ← operator-curated patched ROMs
+│       │   ├── Nintendo - Super Nintendo Entertainment System/
+│       │   │   ├── Retail/
+│       │   │   ├── Hacks/
+│       │   │   └── Translated/
 │       │   └── …
 │       └── pc/                ← operator-curated PC games; folder-per-game (MULTI_FILE_GAME)
 │           └── …
@@ -98,11 +101,11 @@ All directories live under a single root on a **single server-side filesystem** 
 │   ├── movies/
 │   ├── tv/
 │   └── music/
-└── mister/                    ← MISTer hardlink view; peer of library/ (case-sensitive core dirs)
+└── mister/                    ← MISTer symlink view; peer of library/ (case-sensitive core dirs)
     └── games/
-        ├── SNES/
-        ├── Gameboy/
-        └── …
+        ├── SNES -> ../../library/software/console/Nintendo - Super Nintendo Entertainment System/
+        ├── Gameboy -> ../../library/software/console/Nintendo - Game Boy/
+        └── …   (operator-maintained symlinks; MISTer follows via mfsymlinks over SMB)
 ```
 
 The tier split is done at the **library level** (`library/` vs `library-hq/`,
@@ -382,20 +385,22 @@ Retrom is a self-hosted game library manager with a desktop client. It scrapes m
 
 ```
 /media/library/software/
-├── console/    ← DAT-verified ROMs; platform/game layout ({platform}/{gameDir})
-│   ├── gba/
-│   │   └── <game>/
-│   ├── snes/
-│   │   └── <game>/
-│   └── …
-├── romhacks/   ← operator-curated patched ROMs; same platform/game shape
+├── console/    ← all ROMs; {platform}/{type}/{gameDir} layout (CUSTOM storageType)
+│   ├── Nintendo - Game Boy Advance/
+│   │   ├── Retail/
+│   │   │   └── <game>/
+│   │   └── Hacks/
+│   │       └── <game>/
 │   └── …
 └── pc/         ← PC games; folder-per-game (MULTI_FILE_GAME)
     └── <Game Title>/
         └── …
 ```
 
-See `retrom.nix` for the `contentDirectories` configuration and §4 of the games-library-restructure plan for rationale.
+Romhacks live inside `console/` under the Igir-assigned `{type}` subdir
+(e.g. `Hacks/`, `Translated/`) — no separate content root. See
+`retrom.nix` for the `contentDirectories` configuration and §4 of the
+games-library-restructure plan for rationale.
 
 ---
 
@@ -610,7 +615,7 @@ ROM dumps staged at /data/media/staging/manual/console/<platform>/ (NAS host)
   → DAT-verified ROMs land in /media/library/software/console/<platform>/<game>/
   → Retrom periodic scan detects new games (RO NFS, oracion)
   → Retrom scrapes IGDB metadata → game appears in Retrom web/desktop UI
-  → Igir link pass hardlinks console/ → mister/games/<Core>/ for MISTer
+  → MISTer follows operator symlinks mister/games/<Core>/ → console/<platform>/ via SMB (mfsymlinks)
 ```
 
 ---
