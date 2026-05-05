@@ -730,7 +730,7 @@ Operational, no NixOS test harness. Per-PR checks:
      (or the appropriate core dir; `{mister}` produces names like
      `Gameboy`, `GBA`, `SNES`, `MegaDrive`, `PSX`).
    - `stat -c '%i %h' /media/library/games/consoles/gba/<game>/<file>
-             /media/library/games/mister/games/GBA/<file>`
+        /media/library/games/mister/games/GBA/<file>`
      — both should report the same inode and link count ≥2.
    - Negative case: `rm` the canonical file → MISTer hardlink
      still resolves (inode persists until last name unlinked).
