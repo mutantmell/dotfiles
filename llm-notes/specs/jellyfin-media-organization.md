@@ -16,7 +16,7 @@ The guiding principle is **least-privilege separation**: services that need writ
 
 **Old machine** has middling CPU and is not latency-sensitive. SVT-AV1 software encoding via Unmanic is compute-intensive but not time-sensitive — it runs as a background job for weeks. It reads source files and writes encoded output over the RW NFS mount, which is acceptable since large sequential file I/O over NFS is far less problematic than the random small I/O that makes NFS painful for databases.
 
-**New machine** (System76 Meerkat, 2023, 12th gen Intel Alder Lake) has the best CPU and Intel Xe integrated graphics with VAAPI AV1 hardware decode. It handles all latency-sensitive serving: Jellyfin, RomM, Navidrome, Caddy. Hardware-accelerated AV1 decode via VAAPI means direct playback of re-encoded content uses the GPU rather than burning CPU cycles.
+**New machine** (System76 Meerkat, 2023, 12th gen Intel Alder Lake) has the best CPU and Intel Xe integrated graphics with VAAPI AV1 hardware decode. It handles all latency-sensitive serving: Jellyfin, Retrom, Navidrome, Caddy. Hardware-accelerated AV1 decode via VAAPI means direct playback of re-encoded content uses the GPU rather than burning CPU cycles.
 
 ---
 
@@ -54,7 +54,7 @@ New machine:  /data/media/library → mounted at /media/library  (RO subtree onl
 
 Sonarr and Radarr on the NAS microvm report paths like `/media/library/tv/Show/...` to Jellyfin when triggering a scan. Jellyfin on the new machine mounts the RO export at `/media/library`, so it resolves `/media/library/tv/Show/...` to the same underlying data. The paths match without any remote path mapping configuration.
 
-The narrower bind mount scope on the RO export (scoped to `library/` rather than the full `media/` tree) is what prevents the new machine from seeing staging directories like `manual/`, `torrents/`, and `usenet/`. The mount point offset on the new machine (`/media/library` rather than `/media`) compensates exactly for this narrower scope. The two asymmetries cancel out, producing consistent paths across all machines while preserving the security boundary.
+The narrower bind mount scope on the RO export (scoped to `library/` rather than the full `media/` tree) is what prevents the new machine from seeing staging directories like `staging/`, `staging-hq/`. The mount point offset on the new machine (`/media/library` rather than `/media`) compensates exactly for this narrower scope. The two asymmetries cancel out, producing consistent paths across all machines while preserving the security boundary.
 
 If both exports were bound to the same root (`/data/media`) and both machines mounted at `/media`, path equivalence would be even more explicit — but the new machine would gain visibility into staging directories, which is undesirable. The current design is intentional.
 
@@ -64,23 +64,19 @@ All directories live under a single root on a **single server-side filesystem** 
 
 ```
 /data/media/                   ← single ZFS dataset (data/media); virtiofs root (NAS microvm) + RW export root
-├── torrents/                  ← download client output (if used)
-│   ├── movies/
-│   ├── tv/
-│   └── music/
-├── usenet/                    ← alternative download client output
-│   └── complete/
+├── staging/                   ← default-tier staging; anything here is unverified until moved to library/
+│   └── manual/                ← staging inbox — default tier (SD/1080p, → ravennue); future siblings: torrents/, usenet/, …
+│       ├── movies/
+│       ├── tv/
+│       ├── music/
+│       ├── console/           ← raw ROM dumps before Igir processing
+│       ├── romhacks/          ← patched / community ROM hacks
+│       └── pc/                ← incoming PC installers / extracted dirs
+├── staging-hq/                ← HQ-tier staging
+│   └── manual/                ← staging inbox — HQ tier (→ bose)
 │       ├── movies/
 │       ├── tv/
 │       └── music/
-├── manual/                    ← staging inbox — default tier (SD/1080p, → ravennue)
-│   ├── movies/
-│   ├── tv/
-│   └── music/
-├── manual-hq/                 ← staging inbox — HQ tier (→ bose)
-│   ├── movies/
-│   ├── tv/
-│   └── music/
 ├── library/                   ← organized library — default tier; RO export
 │   ├── movies/
 │   ├── tv/                    ← canonical airdate-order TV (owned by ravennue's Sonarr)
@@ -89,22 +85,28 @@ All directories live under a single root on a **single server-side filesystem** 
 │   │                            in DVD order). Read-only from arr's POV;
 │   │                            populated by a derive script (TBD).
 │   ├── music/
-│   └── roms/
-│       ├── gba/
-│       ├── gbc/
-│       ├── snes/
-│       ├── n64/
-│       ├── ps/
-│       ├── ps2/
-│       └── gc/
-└── library-hq/                ← organized library — HQ tier; RO export
-    ├── movies/
-    ├── tv/
-    └── music/
+│   └── software/              ← all games content
+│       ├── console/           ← DAT-verified ROMs, Igir-canonical; platform/game layout
+│       │   ├── gba/
+│       │   ├── snes/
+│       │   └── …
+│       ├── romhacks/          ← operator-curated patched ROMs; same platform/game shape
+│       │   └── …
+│       └── pc/                ← operator-curated PC games; folder-per-game (MULTI_FILE_GAME)
+│           └── …
+├── library-hq/                ← organized library — HQ tier; RO export
+│   ├── movies/
+│   ├── tv/
+│   └── music/
+└── mister/                    ← MISTer hardlink view; peer of library/ (case-sensitive core dirs)
+    └── games/
+        ├── SNES/
+        ├── Gameboy/
+        └── …
 ```
 
 The tier split is done at the **library level** (`library/` vs `library-hq/`,
-mirrored in `manual/` vs `manual-hq/`) rather than as a suffix inside a
+mirrored in `staging/` vs `staging-hq/`) rather than as a suffix inside a
 single tree. This keeps each arr instance's ownership boundary
 unambiguous (each owns one top-level dir and never traverses the
 other's), and leaves room for derived views per tier
@@ -117,11 +119,11 @@ The name `library/` distinguishes the organized, triaged collection from the sta
 
 ### Why `library/` and Not `media/`
 
-The TRaSH Guides convention uses `media/` for the organized directory, which produces a redundant `/media/media/` path when the export itself is named `media`. Renaming the internal directory to `library/` resolves this without any behavioral impact on the tools — Sonarr, Radarr, Jellyfin, and RomM all operate against configurable root paths.
+The TRaSH Guides convention uses `media/` for the organized directory, which produces a redundant `/media/media/` path when the export itself is named `media`. Renaming the internal directory to `library/` resolves this without any behavioral impact on the tools — Sonarr, Radarr, Jellyfin, and Retrom all operate against configurable root paths.
 
 ### Why Hardlinks Require a Single Filesystem
 
-When Radarr or Sonarr imports a file, it creates a hardlink from the staging area (e.g., `/media/manual/movies/`) to the organized library (`/media/library/movies/`). Hardlinks are inode aliases — they only work within a single filesystem. The kernel's `link()` syscall returns `EXDEV` if source and destination are on different devices.
+When Radarr or Sonarr imports a file, it creates a hardlink from the staging area (e.g., `/media/staging/manual/movies/`) to the organized library (`/media/library/movies/`). Hardlinks are inode aliases — they only work within a single filesystem. The kernel's `link()` syscall returns `EXDEV` if source and destination are on different devices.
 
 The \*arr stack microvm on the NAS accesses the filesystem via virtiofs, which passes hardlink operations through to the host ZFS filesystem as local kernel calls. This is correct and efficient. The old machine performs no hardlink operations — it only reads source files and writes encoded output in place via Unmanic.
 
@@ -131,7 +133,7 @@ The \*arr stack microvm on the NAS accesses the filesystem via virtiofs, which p
 
 ### Security Boundary
 
-External-facing services (Jellyfin, RomM) run on the new machine with read-only NFS access. Even if these services are compromised, they cannot modify the media filesystem. All write operations are confined to the NAS microvm (library management) and old machine (encoding), neither of which is externally accessible.
+External-facing services (Jellyfin, Retrom) run on the new machine with read-only NFS access. Even if these services are compromised, they cannot modify the media filesystem. All write operations are confined to the NAS microvm (library management) and old machine (encoding), neither of which is externally accessible.
 
 The bind mount export pattern reinforces this: the new machine is pointed at `nas:/export/ro/media`, which the NAS kernel enforces as read-only at the export level — not just via mount options on the client.
 
@@ -143,7 +145,7 @@ Each machine's workload matches its hardware profile:
 | ----------- | ----------------------------------- | --------------------------------------------------------- |
 | NAS         | Abundant RAM                        | \*arr stack — memory-heavy metadata/database operations   |
 | Old machine | Middling CPU, not latency-sensitive | Unmanic — SVT-AV1 software encoding, background batch job |
-| New machine | Best CPU, Intel Xe VAAPI AV1 decode | Jellyfin, RomM, Navidrome — latency-sensitive serving     |
+| New machine | Best CPU, Intel Xe VAAPI AV1 decode | Jellyfin, Retrom, Navidrome — latency-sensitive serving   |
 
 ### Alignment with Jellyfin's Architecture
 
@@ -184,7 +186,7 @@ Note: Radarr's largest spikes occur during initial library import of a large exi
 These are the core of the organization layer. They handle:
 
 - Renaming files into Jellyfin-compatible directory structures
-- Hardlinking files from staging areas (`/media/manual/`, `/media/torrents/`) into the organized library
+- Hardlinking files from staging areas (`/media/staging/manual/`, `/media/staging/torrents/`) into the organized library
 - Notifying Jellyfin via HTTP API when new media is imported
 - Managing upgrades and deletions
 
@@ -200,12 +202,12 @@ This triggers a targeted per-path scan on Jellyfin rather than a full library re
 
 **Manual Import workflow** for the two upload use cases:
 
-1. Copy files into `/media/manual/movies/` or `/media/manual/tv/` via rsync/scp to the NAS
+1. Copy files into `/media/staging/manual/movies/` or `/media/staging/manual/tv/` via rsync/scp to the NAS
 2. Open Radarr → Movies → Manual Import (or Sonarr equivalent)
-3. Point at `/media/manual/`
+3. Point at `/media/staging/manual/`
 4. Review and confirm matches, then import
 
-This covers both migrating the old unorganized collection and ongoing uploads from a desktop machine. The `manual/` directory lives above the `library/` subtree and is never visible to Jellyfin or RomM via their read-only mount.
+This covers both migrating the old unorganized collection and ongoing uploads from a desktop machine. The `staging/` tree lives above the `library/` subtree and is never visible to Jellyfin or Retrom via their read-only mount.
 
 #### Bazarr
 
@@ -292,7 +294,7 @@ boot.kernel.sysctl = {
 | Service                       | Purpose                                   | Notes                                                      |
 | ----------------------------- | ----------------------------------------- | ---------------------------------------------------------- |
 | **Jellyfin**                  | Video/TV streaming server                 | Reads `/media/library` via RO NFS                          |
-| **RomM**                      | ROM library manager + EmulatorJS frontend | Reads `/media/library/roms` via RO NFS                     |
+| **Retrom**                    | Game library manager + desktop client     | Reads `/media/library/software/{console,romhacks,pc}` via RO NFS |
 | **Navidrome** (optional)      | Dedicated music streaming                 | Reads `/media/library/music` via RO NFS                    |
 | **Audiobookshelf** (optional) | Audiobook and podcast server              | Reads `/media/library/audiobooks` via RO NFS               |
 | **Kavita** (optional)         | Ebook, comic, and manga library           | Reads `/media/library/books` via RO NFS                    |
@@ -304,14 +306,14 @@ boot.kernel.sysctl = {
 | Service        | Idle       | Active peak                                                     | Trigger                                         |
 | -------------- | ---------- | --------------------------------------------------------------- | ----------------------------------------------- |
 | Jellyfin       | 300–500 MB | +200–400 MB per transcode stream; ~50 MB per direct play stream | Transcode or playback                           |
-| RomM           | 100–200 MB | 300–500 MB                                                      | Library scan, metadata scrape                   |
+| Retrom         | 100–200 MB | 300–500 MB                                                      | Library scan, metadata scrape                   |
 | Navidrome      | 50–100 MB  | 200–300 MB                                                      | Full library rescan                             |
 | Audiobookshelf | 100–200 MB | 300–500 MB                                                      | Library scan, chapter detection                 |
 | Kavita         | 100–200 MB | 300–600 MB                                                      | Library scan, cover generation                  |
 | Immich         | 300–600 MB | 1–2 GB                                                          | Initial import, face recognition, CLIP indexing |
 | Caddy          | 20–50 MB   | 50–100 MB                                                       | High concurrent connections                     |
 
-**Recommended allocation: 4 GB for core services (Jellyfin + RomM + Caddy), 8 GB with all optional services including Immich.**
+**Recommended allocation: 4 GB for core services (Jellyfin + Retrom + Caddy), 8 GB with all optional services including Immich.**
 
 Since the target state is direct play of VAAPI-decoded AV1 content, Jellyfin transcoding should rarely trigger. The main exception is clients that don't support AV1 natively — any such client falls back to a software transcode stream adding 200–400 MB per session.
 
@@ -372,32 +374,28 @@ Set hardware acceleration to **VAAPI** and device to `/dev/dri/renderD128` in Je
 
 Configure separate Jellyfin TV libraries per tier. Within Sonarr, the per-instance root folder lock (each instance only knows its own tier's path) means you don't pick the tier in the import dialog — you pick the matching instance.
 
-#### RomM
+#### Retrom
 
-RomM is a self-hosted ROM library manager equivalent in role to Jellyfin but for retro games. It scrapes metadata from IGDB and MobyGames, presents a web UI for browsing, and launches games in-browser via EmulatorJS — no client-side install required.
+Retrom is a self-hosted game library manager with a desktop client. It scrapes metadata from IGDB, presents a web UI for browsing, and launches games via configured emulators on the desktop client.
 
-**In-browser emulation coverage:**
-
-| Platform               | Browser emulation | Notes                                        |
-| ---------------------- | ----------------- | -------------------------------------------- |
-| GBA, SNES, NES, GB/GBC | Excellent         | Full speed on any modern device              |
-| N64                    | Good              | Most games playable                          |
-| PS1                    | Good              | Most games playable                          |
-| PS2                    | Poor              | Inconsistent; many games unplayable at speed |
-| GameCube               | Poor              | Not practically viable in browser today      |
-
-**ROM directory structure RomM expects:**
+**Library structure Retrom expects** (configured via `contentDirectories` in retrom.nix):
 
 ```
-/media/library/roms/
-├── gba/
-├── gbc/
-├── snes/
-├── n64/
-├── ps/
-├── ps2/
-└── gc/
+/media/library/software/
+├── console/    ← DAT-verified ROMs; platform/game layout ({platform}/{gameDir})
+│   ├── gba/
+│   │   └── <game>/
+│   ├── snes/
+│   │   └── <game>/
+│   └── …
+├── romhacks/   ← operator-curated patched ROMs; same platform/game shape
+│   └── …
+└── pc/         ← PC games; folder-per-game (MULTI_FILE_GAME)
+    └── <Game Title>/
+        └── …
 ```
+
+See `retrom.nix` for the `contentDirectories` configuration and §4 of the games-library-restructure plan for rationale.
 
 ---
 
@@ -567,8 +565,8 @@ systemd.services.jellyfin.environment = {
 
 ```
 Desktop machine
-  → rsync/scp → /data/media/manual/movies/ (NAS host, direct or via RW NFS)
-  → Radarr Manual Import (NAS microvm, sees /media/manual/) → reviews match
+  → rsync/scp → /data/media/staging/manual/movies/ (NAS host, direct or via RW NFS)
+  → Radarr Manual Import (NAS microvm, sees /media/staging/manual/) → reviews match
   → hardlink to /media/library/movies/Movie Name (2024)/ (virtiofs, local kernel op on host)
   → Radarr notifies Jellyfin API (HTTP POST to new machine)
   → Jellyfin targeted scan of /media/library/movies/Movie Name (2024)/ → media appears
@@ -602,14 +600,17 @@ Unmanic (old machine) reads source file from /media/library/ (RW NFS)
   → Jellyfin detects updated file on next scan
 ```
 
-### ROM Management
+### Console ROM Ingest (Igir)
 
 ```
-ROM files copied to /data/media/library/roms/ps/ (NAS host, direct or via RW NFS)
-  → RomM periodic scan detects new files (RO NFS, new machine, sees /media/library/roms/)
-  → RomM scrapes IGDB/MobyGames metadata
-  → game appears in RomM web UI
-  → user launches in browser via EmulatorJS
+ROM dumps staged at /data/media/staging/manual/console/<platform>/ (NAS host)
+  → Igir copy extract test clean (on bose as mediaops)
+    --input  /media/staging/manual/console/<platform>/
+    --output /media/library/software/console
+  → DAT-verified ROMs land in /media/library/software/console/<platform>/<game>/
+  → Retrom periodic scan detects new games (RO NFS, oracion)
+  → Retrom scrapes IGDB metadata → game appears in Retrom web/desktop UI
+  → Igir link pass hardlinks console/ → mister/games/<Core>/ for MISTer
 ```
 
 ---
@@ -619,7 +620,7 @@ ROM files copied to /data/media/library/roms/ps/ (NAS host, direct or via RW NFS
 | Tool               | Role                                        | Machine                | Source                  |
 | ------------------ | ------------------------------------------- | ---------------------- | ----------------------- |
 | Jellyfin           | Video/TV media server                       | New                    | jellyfin.org            |
-| RomM               | ROM library & EmulatorJS frontend           | New                    | github.com/rommapp/romm |
+| Retrom             | Game library manager + desktop client       | calvard/oracion        | github.com/JMBeresford/retrom |
 | Navidrome          | Music streaming (optional)                  | New                    | navidrome.org           |
 | Audiobookshelf     | Audiobook & podcast server (optional)       | New                    | audiobookshelf.org      |
 | Kavita             | Ebook, comic & manga library (optional)     | New                    | kavitareader.com        |
@@ -688,7 +689,7 @@ fileSystems."/export/ro/media" = { device = "/data/media"; options = ["bind"]; }
 
 **Why:** Binding the same root to both exports produces trivial path equivalence — the arr stack guest (bose, virtiofs at `/media`) and the Jellyfin guest (oracion, virtiofs of the NFS mount at `/media`) both see `/media/library/...` for the same data with no compensating mount point offset needed. The narrower-scope-plus-offset design in the spec was more complex for no behavioral gain in this topology.
 
-**Consequence:** The serving node's NFS RO mount exposes staging directories (`manual/`, `torrents/`, `usenet/`) as read-only. The security boundary is unchanged — the NAS enforces read-only server-side — but Jellyfin has visibility into directories it doesn't use. This is acceptable; Jellyfin is only configured to scan `library/` subdirectories.
+**Consequence:** The serving node's NFS RO mount exposes staging directories (`staging/`, `staging-hq/`) as read-only. The security boundary is unchanged — the NAS enforces read-only server-side — but Jellyfin has visibility into directories it doesn't use. This is acceptable; Jellyfin is only configured to scan `library/` subdirectories.
 
 ### Serving Node NFS Mount Point Is `/mnt/media`, Not `/media/library`
 
@@ -719,7 +720,7 @@ Both guests share the same `/data/media` virtiofs passthrough so they see the fu
 
 **Why:** Sonarr, Radarr, and Lidarr each track a single file per record, so multiple encodings of the same title (a 1080p version and a 2160p version of the same movie; an MP3 copy and a FLAC copy of the same album) cannot coexist within one instance. Splitting by tier lets both encodings be tracked simultaneously without database collisions, and Jellyfin can present them as separate libraries.
 
-The library tier split (`library/` vs `library-hq/`, `manual/` vs `manual-hq/`) flows from this — it puts the ownership boundary at the top level rather than as a suffix inside a shared tree, which keeps each instance's root folder a clean parent dir and leaves room for future per-tier derived views (`library/tv-curated/` for shows whose physical media follows a non-aired ordering). The name `-hq` (rather than `-4k`) generalizes the tier label across video and audio.
+The library tier split (`library/` vs `library-hq/`, `staging/` vs `staging-hq/`) flows from this — it puts the ownership boundary at the top level rather than as a suffix inside a shared tree, which keeps each instance's root folder a clean parent dir and leaves room for future per-tier derived views (`library/tv-curated/` for shows whose physical media follows a non-aired ordering). The name `-hq` (rather than `-4k`) generalizes the tier label across video and audio.
 
 ### Curated TV Derived View
 
