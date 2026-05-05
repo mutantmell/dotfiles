@@ -6,20 +6,25 @@ in {
     enableDatabase = true;
     port = 5101;
     settings = {
-      content_directories = [
+      # Field names must be camelCase: Retrom's serde config sets
+      # rename_all=camelCase across the .retrom namespace and only adds
+      # snake_case aliases for a handful of fields. customLibraryDefinition
+      # has no alias — snake_case is silently dropped, leaving the
+      # definition empty and tripping the web UI validator.
+      contentDirectories = [
         # All game platforms live under library/games/ as first-level subdirs.
         # Operator creates platform dirs (gba/, snes/, windows/, linux/, etc.)
         # on demand; Retrom surfaces each as a platform.
         {
           path = "/media/library/games";
-          storage_type = 2; # CUSTOM
-          custom_library_definition = {
+          storageType = 2; # CUSTOM
+          customLibraryDefinition = {
             definition = "{library}/{platform}/{gameDir}";
           };
         }
       ];
       # mister/ is a sibling of library/ at /media/mister, outside all scanned
-      # roots, so no ignore_patterns entry is needed.
+      # roots, so no ignorePatterns entry is needed.
     };
   };
 

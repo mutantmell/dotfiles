@@ -128,7 +128,7 @@ re-open the old one — write a new plan and link to the predecessor).
 ## Other directories
 
 - **`specs/`** — target-state architecture documents. Specs describe
-  *what we want*; plans describe *how we'll get there*. Specs change
+  _what we want_; plans describe _how we'll get there_. Specs change
   rarely; they don't have a state lifecycle.
 - **`guides/`** — operator-facing runbooks and how-tos for living
   systems. Update as the system evolves.
