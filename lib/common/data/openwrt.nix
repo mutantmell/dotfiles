@@ -63,7 +63,6 @@ in {
     ADU = {tag = 31;};
     IOT = {tag = 40;};
     GAME = {tag = 41;};
-    MEDIA = {tag = 42;};
     DMZ = {tag = 100;};
   };
 
