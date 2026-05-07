@@ -1,7 +1,7 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
 **Status:** Drafted (not started)
-**Last updated:** 2026-05-06
+**Last updated:** 2026-05-07
 **Related:**
 - `done/secure-mgmt-vlan-plan.md` — established INFRA/MGMT split this plan extends
 - `done/openwrt-python-builder.md` — Image Builder pipeline this plan adds device types to
@@ -352,7 +352,7 @@ still owned by `thebeyond`). Pattern mirrors `bt8gw-transit = 2`:
 
 ```nix
 app.hosts.bt8gw        = 2;   # 10.97.50.2
-management.hosts.bt8gw = 2;   # 10.97.11.2 (phantasma vacates .2 in Phase 1)
+management.hosts.bt8gw = 2;   # 10.97.11.2 (free; phantasma vacated to network in Phase 0)
 trusted.hosts.bt8gw    = 2;   # 10.97.20.2
 lab.hosts.bt8gw        = 2;   # 10.97.21.2
 untrusted.hosts.bt8gw  = 2;   # 10.97.30.2 (GUEST)
@@ -499,6 +499,16 @@ Each phase ends in a state where the network is functional. Plans that touch
 the same files (Authelia, x5c, ipv6-gua-stable-ingress) should sequence around
 this plan, not against it.
 
+### Pre-flight cleanups
+
+Independent of the phased work; commit as standalone changes before starting
+Phase 0:
+
+- Drop the `MEDIA = {tag = 42;}` entry from `switchVlans` in
+  `lib/common/data/openwrt.nix`. There is no media VLAN; the `media`
+  firewall zone exists only to gate what `wg-media` peers can reach,
+  and the stale switch tag is misleading.
+
 ### Phase 0 — Bring `thebeyond` online; current BT8 stays as office gateway temporarily
 
 **Goal:** `thebeyond` replaces the current BT8 as the primary internet
@@ -566,11 +576,32 @@ Steps:
    nothing else can connect to that wire as a plain VLAN trunk. That's
    fine for this topology; flag it in operator handover.
 
-   Stage `nixos-anywhere` from a build that includes both the bond0
-   removal *and* the existing 9-zone configuration so the first boot
-   comes up with a working router. Deploy `thebeyond` with **no other
-   router config changes yet** — APP/transit are added in Phase 1, so
-   the existing zones still gate everything on `thebeyond`.
+   **Same first-deploy: move phantasma from VLAN 11 (INFRA) to VLAN 10
+   (`network`)** so its IP changes once at deploy time. Concretely:
+   - In `lib/common/data/network.nix`, move `phantasma = 2` from
+     `management.hosts` to `network.hosts`.
+   - In `hosts/thebeyond/microvm/guests/phantasma/microvm.nix`, rename
+     the tap from `vm-11-phantasma` to `vm-10-phantasma`
+     (`microvm.interfaces[].id`) and update the MAC from
+     `5E:11:AD:01:00:02` to `5E:0A:AD:01:00:02`. The second octet
+     encodes the VLAN ID in hex (`0x0A` = 10) per existing convention;
+     the last octet (`02`) keeps phantasma's host ID unchanged.
+   - In `hosts/thebeyond/router.nix`, replace
+     `systemd.network.networks."10-vm-infra"` with a `10-vm-network`
+     rule that matches `vm-10-*` and bridges to `brMGMT`. Keep the
+     `vm-11-*` → `brINFRA` rule for any future INFRA-resident microvms.
+   - Add `udp dport 53` and `tcp dport 53` input rules to the `network`
+     zone in `router6.zones` so phantasma can serve DNS on its new
+     segment. (NTP is already permitted on `network`.)
+   - Update phantasma's microvm config if it pins its own IP, to
+     `10.97.10.2`. Otherwise the registry-derived helpers
+     (`mkExtraHosts`, `mkUnboundLocalData`) regenerate automatically.
+
+   Stage `nixos-anywhere` from a build that includes the bond0 removal,
+   the phantasma migration, and the existing 9-zone configuration. Deploy
+   `thebeyond` with **no other router config changes yet** — APP/transit
+   are added in Phase 1, so the existing zones still gate everything on
+   `thebeyond`.
 4. Physically move `thebeyond` to the modem closet. Connect WAN to modem.
 
    **Physical location of BT8-bridge (the current production BT8) — also
@@ -635,8 +666,8 @@ Steps:
    forward, we'll call this device **BT8-bridge**.
 
 After Phase 0: single-gateway model on new hardware in the right physical
-locations, with IPv6 delegation size known and downstream plan adjusted
-accordingly.
+locations, phantasma on its final IP (`10.97.10.2`), IPv6 delegation
+size known.
 
 ### Phase 1 — Add APP and transit VLANs to the registry and `thebeyond`
 
@@ -664,75 +695,30 @@ Steps:
 2. Add `app` (VLAN 50, default prefixes) and `transit` (VLAN 99,
    `prefixLength4 = 30`) to `lib/common/data/network.nix`.
 3. Add corresponding `mkVlanBridge` entries in `hosts/thebeyond/router.nix`
-   for both VLANs. APP gets a thebeyond-side gateway IP for now (will move
-   to BT8-gateway in Phase 2 once BT8-gateway is online); transit gets
+   for both VLANs. APP is added as a member-only bridge with no IP on
+   `thebeyond`; BT8-gateway becomes APP's gateway in Phase 2. Transit gets
    `10.97.99.1/30` (point-to-point — registry now models it correctly).
 4. Add `app` and `transit` zones to `router6.zones`. Conservative defaults:
    APP behaves like DMZ (no `accessTo`, restricted egress, selective forwards
-   to management services); transit accepts ICMP and nothing else.
+   to management services); transit accepts ICMP and nothing else. Extend
+   the `network` zone with `accessTo = [ "transit" ]` so phantasma's DNS
+   replies to office-side clients pass forward policy after Phase 3.
 5. Update `lib/common/data/openwrt.nix` `switchVlans` to add APP and transit
    tags so `arseille` (the managed switch in the office, between
    BT8-gateway and the homelab gear) trunks them.
+6. Redeploy `thebeyond` (deploy-rs with magic rollback) and stage VLAN
+   tag updates for `arseille`.
 
-   *(Pre-Phase-1 cleanup, already staged uncommitted: drop the
-   `MEDIA = {tag = 42;}` entry from `switchVlans` — there is no media VLAN;
-   the `media` firewall zone exists only to gate what `wg-media` peers can
-   reach, and the stale switch tag was misleading. Commit this as a
-   standalone change before starting Phase 1.)*
-6. Rebuild and redeploy `arseille` and `thebeyond` (deploy-rs with magic
-   rollback for `thebeyond`).
+   **Arseille update path.** Add the new VLAN tags via runtime UCI on
+   `arseille` first (no flash, just a reload), confirm trunking works
+   end-to-end, then bake the tags into the next image rebuild so the
+   declared state matches runtime. This avoids the ~1–2 minute homelab
+   outage that a sysupgrade flash would cause; the small drift window
+   between runtime and declared state is operationally acceptable.
 
-   **Arseille reflash risk.** Adding VLANs to `arseille` requires a
-   sysupgrade flash, which drops the homelab off the network for the
-   duration of the reflash + reboot (~1–2 minutes). The outage is
-   homelab-only — `thebeyond`, `BT8-bridge`, the BT8 mesh, and clients
-   not behind `arseille` are unaffected — and is acceptable per
-   operator confirmation. Mitigation options:
-   - Schedule the reflash during a low-traffic window.
-   - **Or** add the new VLAN tags via runtime UCI on `arseille` first
-     (no flash, just a reload), confirm trunking works end-to-end,
-     *then* bake the tags into the next image rebuild so the runtime
-     state matches the declared state. This avoids the outage entirely
-     during Phase 1 at the cost of a small drift window.
-7. **Migrate phantasma from `management` (INFRA) to `network` (MGMT).**
-   This move is independent of the dual-gateway cutover but lands
-   cleanly here: it changes phantasma's IP from `10.97.11.2` to
-   `10.97.10.2` and reattaches the microVM tap to `brMGMT` instead of
-   `brINFRA`. Concretely:
-   - Move `phantasma = 2` in `lib/common/data/network.nix` from
-     `management.hosts` to `network.hosts`.
-   - **Rename phantasma's microvm tap from `vm-11-phantasma` to
-     `vm-10-phantasma`** in
-     `hosts/thebeyond/microvm/guests/phantasma/microvm.nix` (the
-     `microvm.interfaces[].id` field). The current tap name embeds
-     VLAN 11 by convention, and the rename keeps the convention
-     consistent with phantasma's new VLAN.
-   - **Update phantasma's MAC** in the same file from
-     `5E:11:AD:01:00:02` to `5E:0A:AD:01:00:02`. The second octet
-     encodes the VLAN ID in hex (`0x0A` = 10) per existing convention;
-     the last octet (`02`) keeps phantasma's host ID unchanged.
-   - Replace the existing `systemd.network.networks."10-vm-infra"` rule
-     in `hosts/thebeyond/router.nix` with a `10-vm-network` rule that
-     matches `vm-10-*` and bridges to `brMGMT`, and keep the existing
-     `vm-11-*` → `brINFRA` rule for any future INFRA-resident microvms.
-   - Add `udp/tcp dport 53` and `udp dport 123` (NTP) input rules to
-     the `network` zone in `router6.zones` (per the [zone wiring
-     section](#zone-wiring)), and add `accessTo = [ "transit" ]` so
-     phantasma's DNS replies to office-side clients pass forward
-     policy after Phase 3.
-   - Update phantasma's microvm config (if it pins its own IP) to
-     `10.97.10.2`. Otherwise the registry-derived helpers
-     (`mkExtraHosts`, `mkUnboundLocalData`) regenerate automatically.
-   - Verify: from `thebeyond`, `dig @10.97.10.2 phantasma.internal`
-     succeeds; from a HOME client, the same query through BT8-gateway's
-     dnsmasq forwarder succeeds (note: at this point BT8-gateway
-     doesn't exist yet, so this verification step waits until Phase 2).
-8. Smoke test: stand up a throwaway VM on APP VLAN, confirm DHCP, DNS,
-   internet egress.
-
-After Phase 1: APP and transit exist; phantasma is on its final IP
-(`10.97.10.2`). APP is gatewayed by `thebeyond`. Hosts can be migrated
-into APP one-by-one without depending on Phase 2/3.
+After Phase 1: APP and transit zones exist on `thebeyond`; APP is
+member-only, awaiting BT8-gateway in Phase 2. The `network` zone forwards
+to `transit`.
 
 ### Phase 2 — Manual proof: BT8-bridge and BT8-gateway
 
@@ -773,13 +759,10 @@ Steps:
    (`tests/lib/router6-routes.nix`) asserts the generated config for a
    representative `routes` declaration. By Phase 3, the office-side
    subnets are configured the same way — one entry per migrated VLAN.
-3. Remove `thebeyond`'s gateway IP from the APP VLAN bridge — the APP
-   gateway is now BT8-gateway. Keep the bridge as a member-only bridge so
-   the L2 trunks correctly to the mesh.
-4. On BT8-gateway, configure DHCP for APP VLAN (odhcpd). Connect
-   a test device to APP VLAN (via `arseille` access port or directly via
-   wifi if a test SSID is bound to APP).
-5. Verify:
+3. On BT8-gateway, configure DHCP for APP VLAN (odhcpd). Connect a test
+   device to APP VLAN (via `arseille` access port or directly via wifi if
+   a test SSID is bound to APP).
+4. Verify:
    - **DMZ L2 passthrough is not subject to fw4.** OpenWrt's
      `br-netfilter` is sometimes enabled by default, which would push
      bridge-only traffic through the L3 firewall and drop DMZ frames
@@ -796,7 +779,7 @@ Steps:
    - Test device → DMZ host (e.g., `langport`): traffic must flow
      APP-host → BT8-gateway → transit → `thebeyond` → DMZ. Confirm via
      `traceroute` and `tcpdump` on the transit VLAN.
-6. Document any UCI snippets or kernel-tuning that turned out to be needed
+5. Document any UCI snippets or kernel-tuning that turned out to be needed
    in the [Phase 4 implementation notes](#phase-4--codify-bt8-gateway-and-bt8-bridge-in-image-builder).
 
 After Phase 2: we know the model works for one VLAN. Manual config exists on
