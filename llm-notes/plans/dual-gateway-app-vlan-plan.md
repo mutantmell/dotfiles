@@ -4,7 +4,9 @@
 **Last updated:** 2026-05-07 (revised: Phase 0 split into 0a/0b/0c; transit→hostile forward rules
 to permit HOME→IoT (HA) and the wider trust-boundary policy; ULA-only runbook fixes; DMZ
 exception route on BT8-gw during the override window; kresd transit binding via input rules;
-NAT-rule verification resolved; misc. minor fixes)
+NAT-rule verification resolved; misc. minor fixes; arseille deferred — `netmgmt` zone stays
+as the architectural placeholder, with the existing OpenWRT homelab L2 switch documented as
+its first consumer in a follow-up plan)
 **Related:**
 - `done/secure-mgmt-vlan-plan.md` — established INFRA/MGMT split this plan extends
 - `done/openwrt-python-builder.md` — Image Builder pipeline this plan adds device types to
@@ -119,7 +121,7 @@ Worked examples:
 |----------------------------|--------------------------------|--------------------|--------------------------|
 | `BT8-bridge`               | wired to `thebeyond`           | `network` / 10     | 0                        |
 | Office BT8 dumb APs        | 802.11s mesh (office side)     | `network` / 10     | 1 (via mesh → BT8-bridge → thebeyond) |
-| `arseille` (homelab L2 sw) | wired to `BT8-gateway`         | `netmgmt` / 12     | 0                        |
+| Future wired-to-BT8-gw gear | wired to `BT8-gateway`        | `netmgmt` / 12     | 0                        |
 | `BT8-gateway` (admin SSH)  | wired to office mesh + transit | `transit` / 99     | 0 (transit IP)           |
 
 Counterexamples that would violate the invariant:
@@ -210,7 +212,7 @@ Trade-offs of keeping `batman-adv` on `thebeyond`:
                             └──┬──────────────┘
                                │ wired (trunk, plain 802.1Q — not batman)
                                │
-                              arseille (managed switch) ─── homelab gear
+                              homelab gear (wired trunk)
 
 Only BT8-bridge and BT8-gateway are configured by this plan; both are
 assumed to be in hand.
@@ -229,9 +231,9 @@ VLAN. It exists only to fan the batman fabric out to the office mesh.
 `BT8-gateway` runs OpenWrt with proper firewall zones, DHCP, and routing
 for the office-side VLANs. It is *also* a mesh node (so the office
 wireless mesh isn't dependent on a separate device for its uplink). Its
-wired side toward `arseille` is a plain 802.1Q trunk — `arseille` does
-not speak batman. The batman fabric terminates at the per-VLAN bridges
-inside `BT8-gateway`.
+wired side toward downstream homelab gear is a plain 802.1Q trunk —
+that gear does not speak batman. The batman fabric terminates at the
+per-VLAN bridges inside `BT8-gateway`.
 
 ### Routing model
 
@@ -493,11 +495,6 @@ no L3 interface on `network` (hermetic east/west isolation). Its
 admin-reachable address is its transit IP (`10.255.255.2`), not a
 network-VLAN address.
 
-`arseille` (homelab L2 switch) is also *absent* from `network.hosts`:
-it lives on `netmgmt`/12 instead, since it's wired to BT8-gateway and
-admin-from-BT8-gw-side hits 0 mesh hops on netmgmt vs. 2 on network.
-See the [placement principle](#network-device-placement-zero-or-one-mesh-hop).
-
 This 1–9 / 10+ convention is `network`-specific. Other zones either
 have no transport role (DMZ, APP, HOME, etc.) or are already constrained
 (`transit` is `/30`), so the reservation only applies here. `netmgmt`/12
@@ -517,10 +514,8 @@ app = {
 netmgmt = {
   vlanId = 12;            # BT8-gw-side parallel of thebeyond's network/10
   gateway = "bt8gw";
-  hosts = {
-    arseille = 2;         # homelab L2 switch (wired to BT8-gw)
-    # other wired-to-BT8-gw network gear (PDUs, BMC, future switches)
-  };
+  hosts = {};             # populated when wired-to-BT8-gw network gear
+                          # (managed switches, PDUs, BMC) lands here
 };
 transit = {
   vlanId = 99;
@@ -773,16 +768,6 @@ Phase 0:
   `lib/common/data/openwrt.nix`. There is no media VLAN; the `media`
   firewall zone exists only to gate what `wg-media` peers can reach,
   and the stale switch tag is misleading.
-- **Reclassify `arseille`** in `lib/common/data/network.nix`. It currently
-  lives at `network.hosts.arseille = 12` (line 14). Per the
-  [placement principle](#network-device-placement-zero-or-one-mesh-hop)
-  it belongs on `netmgmt`/12 with host ID 2 (wired to BT8-gateway,
-  zero mesh hops). The registry move happens in **Phase 2** at the
-  same time arseille's mgmt-VLAN UCI is flipped — that way the
-  registry-derived addresses (`mkExtraHosts`, `mkUnboundLocalData`,
-  egress rules) match what the device actually responds at, with no
-  transient inconsistency. Listed here so it isn't forgotten; the
-  actual edit lands in Phase 2.
 
 ### Phase 0 — Bring `thebeyond` online; current BT8 stays as office gateway temporarily
 
@@ -920,11 +905,26 @@ Steps:
        (`mkExtraHosts`, `mkUnboundLocalData`) regenerate automatically.
 
    Other thebeyond-owned zones (`network`, `ba-tunnel`, `external`,
-   `media`) re-derive at the new `10.91` prefix. Of those, only
-   `network` has a host (phantasma, just moved); the rest are
-   wireguard- or WAN-bound and don't have registry hosts that change
-   IP. BT8-gateway-owned zones stay at `10.97` (no IP change for any
-   existing host).
+   `media`) re-derive at the new `10.91` prefix. Of those, `network`
+   has phantasma (just moved); the rest are wireguard- or WAN-bound
+   and don't have registry hosts that change IP. BT8-gateway-owned
+   zones stay at `10.97` (no IP change for any existing host).
+
+   - **Reconcile stale `network.hosts` entries.** Today's registry
+     carries five E8450 mesh-AP entries (`merkabah = 20`,
+     `derfflinger = 21`, `pantagruel = 22`, `bobcat = 23`,
+     `lusitania = 24`) and an `arseille = 12` entry. Per the
+     [non-goals](#non-goals), four of five E8450s have already been
+     physically pulled, and `arseille` is being deferred to a
+     follow-up plan. As part of the registry refactor, drop the four
+     pulled E8450 entries from `network.hosts` so post-refactor
+     `mkExtraHosts` / `mkUnboundLocalData` don't keep emitting DNS
+     and `/etc/hosts` records for hardware that no longer exists.
+     Identify the four pulled units against current physical
+     inventory; leave the surviving one in place for now (it can
+     be renumbered or removed by whichever follow-up plan owns the
+     final E8450 decommission). `arseille` likewise stays in the
+     registry until its follow-up plan reclassifies or removes it.
 
    ULA addresses on BT8-gateway-owned zones do shift (e.g.,
    `:0014::<host>` → `:1014::<host>` for HOME) — automatic via the
@@ -1034,11 +1034,10 @@ Steps:
 1. Add `app`, `netmgmt`, and `transit` zones to `lib/common/data/network.nix`:
    - `app` — `vlanId = 50`, `gateway = "bt8gw"` (no host IPs assigned
      yet; populated as services migrate in Phase 5).
-   - `netmgmt` — `vlanId = 12`, `gateway = "bt8gw"`, `hosts = {}` (the
-     `arseille` move from `network.hosts` to `netmgmt.hosts.arseille =
-     2` happens in Phase 2 — see
-     [pre-flight cleanups](#pre-flight-cleanups) — to keep the
-     registry consistent with the device's actual mgmt IP).
+   - `netmgmt` — `vlanId = 12`, `gateway = "bt8gw"`, `hosts = {}`. No
+     consumers in this plan; the zone exists as the BT8-gw-side
+     architectural mirror of `network`/10 and gets populated by a
+     follow-up plan when wired-to-BT8-gw network gear lands here.
    - `transit` — `vlanId = 99`, explicit `prefix4 = "10.255.255"`,
      `prefix6 = "${ulaPrefix}:ffff"`, `prefixLength4 = 30`, hosts =
      `{ thebeyond = 1; bt8gw = 2; }`.
@@ -1090,18 +1089,13 @@ Steps:
    The option exists but is unused on `thebeyond` until Phase 3 — Phase 1
    only ships the option + test. Phase 2 uses it manually for the
    APP-only smoke test.
-5. Update `lib/common/data/openwrt.nix` `switchVlans` to add APP and transit
-   tags so `arseille` (the managed switch in the office, between
-   BT8-gateway and the homelab gear) trunks them.
-6. Redeploy `thebeyond` (deploy-rs with magic rollback) and stage VLAN
-   tag updates for `arseille`.
-
-   **Arseille update path.** Add the new VLAN tags via runtime UCI on
-   `arseille` first (no flash, just a reload), confirm trunking works
-   end-to-end, then bake the tags into the next image rebuild so the
-   declared state matches runtime. This avoids the ~1–2 minute homelab
-   outage that a sysupgrade flash would cause; the small drift window
-   between runtime and declared state is operationally acceptable.
+5. Redeploy `thebeyond` (deploy-rs with magic rollback). The
+   downstream OpenWRT homelab L2 switch (managed out-of-flake — see
+   [Reference D](#d-reference-openwrt-homelab-l2-switch-out-of-flake))
+   needs APP/transit VLANs trunked on its uplink to BT8-gateway and an
+   address on `netmgmt`/12 once that VLAN is stood up; the operator
+   updates its UCI directly. A follow-up plan will fold this switch
+   into the flake.
 
 After Phase 1: APP and transit zones exist on `thebeyond`; APP is
 member-only, awaiting BT8-gateway in Phase 2. The transit zone listens
@@ -1138,30 +1132,22 @@ Steps:
    ];
    ```
 
-3. **On BT8-gateway, add a more-specific DMZ exception route until Phase
-   6.** While the `prefix4 = "10.97.100"` override on `dmz` is in
-   place, BT8-gateway lives at `10.255.255.2` *and* sits inside its own
-   `10.97.0.0/16` slice — so a packet destined for `10.97.100.x` (DMZ)
-   would otherwise match the connected `10.97.0.0/16` aggregate and be
-   ARP'd locally rather than routed through transit. Add an explicit
-   higher-priority route:
-
-   ```uci
-   # /etc/config/network — append to the transit interface block:
-   list route '10.97.100.0/24'
-   list route_via '10.255.255.1'
-   list route_dev 'br-v99'
-   ```
-
-   (Equivalent runtime: `ip route add 10.97.100.0/24 via 10.255.255.1
-   dev br-v99`.) Drop this route in Phase 6 when DMZ renumbers to
-   `10.91.100.0/24` and falls under the default route via transit
-   automatically. **Verify with `traceroute 10.97.100.41` from a
-   BT8-gw-side host** that the path is `host → BT8-gw → 10.255.255.1 →
-   thebeyond → langport`, not a direct ARP on the BT8-gw side.
+3. **Verify DMZ reachability via transit.** BT8-gateway's connected
+   routes are the per-VLAN `/24`s for its own bridges (br-v11/12/20/
+   21/50/99) — there is no `10.97.0.0/16` aggregate, so the default
+   route via `10.255.255.1` already covers `10.97.100.x` (DMZ) without
+   any extra static route. Confirm with `traceroute 10.97.100.41`
+   from a BT8-gw-side host that the path is `host → BT8-gw →
+   10.255.255.1 → thebeyond → langport`, and double-check with
+   `ip route get 10.97.100.41` on BT8-gateway that the selected
+   nexthop is `10.255.255.1` via `br-v99`. If the routing table
+   somehow disagrees (unexpected aggregate from a DHCP option, manual
+   misconfiguration, etc.), a more-specific `10.97.100.0/24 via
+   10.255.255.1 dev br-v99` route forces the right nexthop — but it
+   shouldn't be necessary.
 4. On BT8-gateway, configure DHCP for APP VLAN (odhcpd). Connect a test
-   device to APP VLAN (via `arseille` access port or directly via wifi if
-   a test SSID is bound to APP).
+   device to APP VLAN (via the homelab L2 switch's access port or
+   directly via wifi if a test SSID is bound to APP).
 5. Verify:
    - **DMZ L2 passthrough is not subject to fw4.** OpenWrt's
      `br-netfilter` is sometimes enabled by default, which would push
@@ -1184,21 +1170,12 @@ Steps:
      the transit zone's input rules).
    - Test device → DMZ host (e.g., `langport`): traffic must flow
      APP-host → BT8-gateway → transit → `thebeyond` → DMZ. Confirm via
-     `traceroute` and `tcpdump` on the transit VLAN. The DMZ exception
-     route from step 3 is what keeps this from short-circuiting at
-     BT8-gateway.
+     `traceroute` and `tcpdump` on the transit VLAN. BT8-gateway has
+     no `10.97.0.0/16` aggregate (only per-VLAN `/24`s), so the
+     default route via `10.255.255.1` reaches DMZ without any
+     special handling — step 3 verifies this.
 6. Document any UCI snippets or kernel-tuning that turned out to be needed
    in the [Phase 4 implementation notes](#phase-4--codify-bt8-gateway-and-bt8-bridge-in-image-builder).
-7. **Flip `arseille`'s mgmt VLAN to `netmgmt`/12 and update the
-   registry in the same commit.** On `arseille` (vendor CLI), change
-   the management interface VLAN from 10 to 12 and the address from
-   `10.97.10.12` (current) to `10.97.12.2` (per
-   [Manual setup D](#d-manual-setup-homelab-l2-switch-arseille)). On
-   the trunk port to BT8-gateway, add VLAN 12 tagged. In the registry
-   (`lib/common/data/network.nix`), remove `network.hosts.arseille =
-   12` and add `netmgmt.hosts.arseille = 2`. Verify SSH from the
-   operator workstation reaches `10.97.12.2` after the change before
-   moving on.
 
 After Phase 2: we know the model works for one VLAN. Manual config exists on
 BT8-gateway but is not yet image-built.
@@ -1206,10 +1183,13 @@ BT8-gateway but is not yet image-built.
 ### Phase 3 — Production cutover of office-side VLAN gateways
 
 **Goal:** move the trusted office-side VLAN gateways (INFRA/11,
-HOME/20, LAB/21, APP/50) from `thebeyond` to BT8-gateway. Hostile
-zones (GUEST/30, ADU/31, IOT/40, GAME/41) stay terminated on
-`thebeyond` per the hostile-zone convergence decision and don't cut
-over. The per-gateway IP-space split makes the cutover simpler than
+HOME/20, LAB/21) from `thebeyond` to BT8-gateway. APP/50 is already
+gatewayed by BT8-gateway from Phase 2 onward (`thebeyond` only ever
+had a member-only APP bridge for `bat0.50` termination, no L3) so
+it doesn't cut over — it just stays in its no-op-by-design shape on
+`thebeyond`. Hostile zones (GUEST/30, ADU/31, IOT/40, GAME/41) stay
+terminated on `thebeyond` per the hostile-zone convergence decision
+and don't cut over either. The per-gateway IP-space split makes the cutover simpler than
 it would otherwise be: BT8-gateway holds `10.97.x.1` natively from
 the moment it comes up — no `.2` transition address, no two-step
 DHCP migration. Each migrated VLAN sees a single cutover event (a
@@ -1275,10 +1255,27 @@ Steps:
      option introduced in Phase 2 (single entry per protocol —
      `10.97.0.0/16 via 10.255.255.2` and
      `fdc6:55f2:0a5e:1000::/52 via fdc6:55f2:0a5e:ffff::2`).
-   - Remove the migrated zones (`management`, `trusted`, `lab`) from
-     `router6.zones`. Keep everything else — `network`, `dmz`, `transit`,
-     `external`, `ba-tunnel`, `media`, and the *entire* `untrusted`
-     family (`untrusted`, `iot`, `game`, `adu`) which now stays on
+   - Remove the migrated *trusted* zones (`management`, `trusted`,
+     `lab`) from `router6.zones`. Their bridges have no further role
+     on `thebeyond` — frames for those VLANs are L3-terminated on
+     BT8-gateway, and `thebeyond` doesn't need to host the bat0.<tag>
+     termination for VLANs that no thebeyond-resident host consumes.
+     Drop the zone definitions and the corresponding `mkVlanBridge`
+     entries together.
+   - **Keep `app` in `router6.zones` as a no-op-by-design zone.**
+     Even though APP's L3 gateway lives on BT8-gateway, `thebeyond`
+     still needs the `brVAPP` bridge for `bat0.50` termination on
+     its side of the batman fabric (mirror of how GUEST/ADU/IOT/GAME
+     exist as L2-only passthrough on *BT8-gateway* per the
+     hostile-zone convergence decision). The bridge stays
+     member-only with no IP, no DHCP, no `inputRules`, and no
+     `forwardRules`; the zone exists purely so the topology system
+     has a home to bind the bridge to. If a thebeyond-resident
+     service ever needs to reach APP directly, that motion lives
+     in a follow-up plan, not here.
+   - Keep everything else — `network`, `dmz`, `transit`, `external`,
+     `ba-tunnel`, `media`, and the *entire* `untrusted` family
+     (`untrusted`, `iot`, `game`, `adu`) which now stays on
      `thebeyond` per the hostile-zone convergence decision.
    - Remove DHCP definitions for migrated VLANs from Kea.
    - Update IPv6: stop running DHCPv6-PD server on the migrated VLANs.
@@ -1689,8 +1686,9 @@ config device
 #### 3. Wired ports + per-VLAN bridges
 
 ```uci
-# lan1, lan2, lan3 act as VLAN-tagged trunk ports for arseille / direct
-# clients. Tag the appropriate VLANs per port (varies per deployment).
+# lan1, lan2, lan3 act as VLAN-tagged trunk ports for the homelab L2
+# switch / direct clients. Tag the appropriate VLANs per port (varies
+# per deployment).
 config device
     option name 'lan1.50'
     option type '8021q'
@@ -1717,14 +1715,17 @@ config interface 'app'
     # add `option ip6assign '64'` here.
     list ip6addr 'fdc6:55f2:0a5e:1032::1/64'   # APP ULA gateway
 
-# netmgmt — for the homelab L2 switch (arseille) and any other
-# wired-to-BT8-gw network gear. Locked down separately from
-# management/11 so VM hosts and network gear don't share a plane.
+# netmgmt — for wired-to-BT8-gw network gear. Locked down separately
+# from management/11 so VM hosts and network gear don't share a plane.
+# Concrete consumer in this plan: the existing OpenWRT-configured
+# homelab L2 switch (managed out-of-flake) needs an address on this
+# VLAN. Bringing that switch into the flake is a non-goal here — the
+# operator updates its UCI directly once netmgmt is available.
 config device
     option name 'br-v12'
     option type 'bridge'
     list ports 'bat0.12'
-    list ports 'lan1.12'              # arseille trunk port
+    list ports 'lan1.12'              # homelab L2 switch trunk port
 
 config interface 'netmgmt'
     option device 'br-v12'
@@ -1941,7 +1942,7 @@ config zone 'trusted'
 
 config zone 'netmgmt'
     option name 'netmgmt'
-    list network 'netmgmt'           # br-v12: arseille + future net gear
+    list network 'netmgmt'           # br-v12: homelab L2 switch + future net gear
     option input 'REJECT'             # locked-down infra plane —
     option output 'ACCEPT'             # admin SSH gated by explicit rule below
     option forward 'REJECT'
@@ -2000,21 +2001,19 @@ config rule
 
 #### 6. Static routes for DMZ and `network` VLANs
 
-`network` is gatewayed by `thebeyond` and lives in `10.91.0.0/16`,
-which is not part of BT8-gateway's connected `10.97.0.0/16`, so the
-default route via transit covers it without a more-specific entry.
-
-**DMZ is special until Phase 6.** While the `prefix4 = "10.97.100"`
-override is in place on the `dmz` zone, `10.97.100.0/24` falls inside
-BT8-gateway's connected `10.97.0.0/16` aggregate and would otherwise be
-ARP'd locally rather than routed through transit. Add an explicit
-more-specific route on BT8-gateway (a `list route` block under the
-transit interface, or runtime: `ip route add 10.97.100.0/24 via
-10.255.255.1 dev br-v99`). Verify with `traceroute 10.97.100.41` from
-a BT8-gw-side host that the path is `host → BT8-gw → 10.255.255.1 →
-thebeyond → langport`. **Drop this route in Phase 6** when DMZ
-renumbers to `10.91.100.0/24` and falls under the default-via-transit
-automatically.
+No static routes required. BT8-gateway's connected routes are the
+per-VLAN `/24`s for its own bridges (br-v11/12/20/21/50/99) — there
+is no `10.97.0.0/16` aggregate. `network` (`10.91.0.0/16`) and DMZ
+(`10.97.100.0/24` until Phase 6, then `10.91.100.0/24`) are both
+covered by the default route via `10.255.255.1`. Verify with
+`traceroute 10.97.100.41` from a BT8-gw-side host that the path is
+`host → BT8-gw → 10.255.255.1 → thebeyond → langport`, and with
+`ip route get 10.97.100.41` on BT8-gateway that the selected nexthop
+is `10.255.255.1` via `br-v99`. If something unexpected (a stray
+DHCP route option, manual misconfiguration) injects a `10.97.0.0/16`
+aggregate, a more-specific `10.97.100.0/24 via 10.255.255.1 dev
+br-v99` static route forces the right nexthop — but it shouldn't
+be necessary.
 
 #### 7. NTP, DNS resolver, and management
 
@@ -2037,8 +2036,8 @@ config timeserver 'ntp'
 ip route
 ip -6 route
 # Should see: default via 10.255.255.1 dev transit; per-VLAN /24s as connected.
-# Also expect the more-specific DMZ exception route until Phase 6:
-#   `10.97.100.0/24 via 10.255.255.1 dev br-v99` (added in Phase 2 step 3).
+# No /16 aggregate, so DMZ (10.97.100.0/24) and network (10.91.0.0/16) both
+# follow the default via transit without needing a more-specific route.
 # IPv6: per-VLAN ULA /64s as connected; default v6 route via
 # fdc6:55f2:0a5e:ffff::1 dev br-v99.
 
@@ -2052,7 +2051,7 @@ ip -6 addr show dev br-v99
 ping 10.91.10.1                  # thebeyond MGMT (via transit)
 ping 1.1.1.1                     # internet egress through thebeyond NAT
 traceroute 10.97.100.41          # langport (DMZ) - should hop through 10.255.255.1
-                                 # via the more-specific exception route.
+                                 # via the default route (no /16 aggregate to short-circuit it).
                                  # (DMZ stays at .97.100 until Phase 6 renumbers it to .91.100)
 ```
 
@@ -2170,53 +2169,36 @@ DHCP lease (from thebeyond for hostile zones, from BT8-gateway for
 trusted zones) — the AP's tagging plus batman's delivery do all the
 work.
 
-### D. Manual setup: homelab L2 switch (`arseille`)
+### D. Reference: OpenWRT homelab L2 switch (out-of-flake)
 
 **Role:** primary switch for homelab gear (VM hosts, NAS, etc.) wired
-to BT8-gateway. Carries trunks for whatever VLANs the homelab needs
-(typically `management`/11, `lab`/21, `app`/50; possibly `trusted`/20
-and others over time). Holds a single management address on
-`netmgmt`/12.
+to BT8-gateway. Runs OpenWRT but is managed outside this flake; bringing
+it into the flake is a non-goal of this plan. Listed here only so the
+plan's network design accounts for its existence and the operator
+knows what to update on the device once `netmgmt` is stood up.
 
-**Why `netmgmt`/12 for management** (and not `network`/10): the switch
-is *wired* to BT8-gateway. Admin from the BT8-gw side hits 0 mesh hops
-on netmgmt (BT8-gw routes 10.97.12.x directly), but 2 mesh hops on
-network (BT8-gw can't route VLAN 10, so it has to hairpin via
-thebeyond). See the
-[placement principle](#network-device-placement-zero-or-one-mesh-hop).
+**Requirements imposed by this plan:**
 
-**Configuration shape** (vendor-specific syntax — generic outline):
-
-- **Mgmt interface:** VLAN 12, address `10.97.12.2/24` (`arseille` per
-  registry), gateway `10.97.12.1` (BT8-gateway), DNS `10.255.255.1`
-  (thebeyond's local resolver via transit, same upstream BT8-gateway
-  uses).
-- **Trunk port to BT8-gateway:** tagged for every VLAN the homelab
+- **Management address on `netmgmt`/12.** Admin from the BT8-gw side
+  hits 0 mesh hops on netmgmt; placing it on `network`/10 would force
+  a 2-mesh-hop hairpin via thebeyond. See the
+  [placement principle](#network-device-placement-zero-or-one-mesh-hop).
+- **Trunk port to BT8-gateway** tagged for every VLAN the homelab
   needs (`management`/11, `netmgmt`/12, `lab`/21, `app`/50, plus
   others as services migrate). Native/untagged: nothing — keep all
   membership explicit.
-- **Access ports for homelab gear:** untagged on the host's primary
-  zone (typically `management` for VM hosts, `lab` for experimental
-  machines).
-- **No L3 elsewhere:** the switch's only IP is the netmgmt mgmt
-  interface. No SVIs on data VLANs.
+- **Default route via BT8-gateway** (`10.97.12.1`) and DNS via
+  thebeyond's transit address (`10.255.255.1`) — same upstream
+  BT8-gateway itself uses.
+- **No batman, no mesh.** Pure 802.1Q on a wire to BT8-gateway; the
+  batman fabric terminates at BT8-gateway's per-VLAN bridges and
+  becomes a plain VLAN trunk on the wire.
 
-**No batman, no mesh.** The switch is a pure 802.1Q device on a wire to
-BT8-gateway. It does not participate in the batman fabric — that
-fabric terminates at BT8-gateway's per-VLAN bridges, which then trunk
-plain VLAN-tagged frames out the wire to the switch.
-
-**Verify:**
-
-```sh
-# From a host on the homelab — typically on management/11
-ping 10.97.12.2                     # arseille mgmt
-ssh admin@10.97.12.2                # admin login
-# From the switch CLI:
-ping 10.97.12.1                     # BT8-gateway (default route)
-ping 10.255.255.1                   # thebeyond via transit (DNS upstream)
-ping 10.91.10.10                    # phantasma — 1 mesh hop, confirms transit routing works
-```
+The switch's UCI is updated by the operator directly; the address it
+ends up at on netmgmt is documented in the follow-up plan that brings
+the switch into the flake (which will also add a `netmgmt.hosts` entry
+for it). Until then, the switch is a known consumer of `netmgmt`/12
+but has no registry entry.
 
 ## Resolved decisions
 
