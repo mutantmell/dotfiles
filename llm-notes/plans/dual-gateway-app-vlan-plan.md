@@ -1,28 +1,39 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
 **Status:** Drafted (not started)
-**Last updated:** 2026-05-07 (revised: added security verification, layered —
-Phase 0a gains three small universal eval-time assertions in
-`modules/router6/default.nix` (WAN inputRules accept WG only; no DHCP server
-on NAT interfaces; `icmpEcho = "disable"` on NAT zones) plus a small generic
-module-level VM test (`router6-listening-sockets`) closing the wildcard-bind
-gap in the existing suite; Phase 0b gains a post-cutover external scan as a
-required step before declaring Phase 0 done; new "External security scan"
-runbook (Reference E) documents the off-network scan procedure as the
-empirical thebeyond-specific audit; Phase 3 re-runs the runbook (largest
-zone-topology change). Deliberately omitted: a fourth WG-port-uniqueness
-assertion (runtime service-start failure is loud enough), a UDP-stealth VM
-test (assertion (a) catches the regression class structurally; the runbook
-covers the residual gap empirically), and trust-level taxonomies in router6
-(project-policy layering — would live in a project-side wrapper if pursued
-later).
+**Last updated:** 2026-05-07 (revised: review-pass fixes — Phase 2 now
+explicitly stands up the L2-only passthrough bridges (DMZ/100,
+GUEST/30, ADU/31, IOT/40, GAME/41, network/10) alongside APP and
+transit, so the hostile-zone SSIDs broadcast from BT8-gateway have
+somewhere to land and Phase 3's "passthrough bridges already exist
+from Phase 2" assumption is honest; office-side BT8 mesh AP rollout
+folded into Phase 2 step 1 (concurrent with BT8-gateway); Phase 2
+step 4 now correctly says "dnsmasq + odhcpd" rather than just odhcpd;
+Phase 0b step numbering renumbered to continue cleanly from 0a (now
+7–13 instead of starting at 6); stale "MEDIA = {tag = 42}" cleanup
+item dropped from Phase 0a (no such entry exists in `switchVlans`).
+
+Earlier: added security verification, layered — Phase 0a gains three
+small universal eval-time assertions in `modules/router6/default.nix`
+(WAN inputRules accept WG only; no DHCP server on NAT interfaces;
+`icmpEcho = "disable"` on NAT zones) plus a small generic module-level
+VM test (`router6-listening-sockets`) closing the wildcard-bind gap in
+the existing suite; Phase 0b gains a post-cutover external scan as a
+required step before declaring Phase 0 done; new "External security
+scan" runbook (Reference E) documents the off-network scan procedure
+as the empirical thebeyond-specific audit; Phase 3 re-runs the runbook
+(largest zone-topology change). Deliberately omitted: a fourth
+WG-port-uniqueness assertion (runtime service-start failure is loud
+enough), a UDP-stealth VM test (assertion (a) catches the regression
+class structurally; the runbook covers the residual gap empirically),
+and trust-level taxonomies in router6 (project-policy layering — would
+live in a project-side wrapper if pursued later).
 
 Earlier: simplification pass — Phase 6 folded into Phase 5
 (DMZ renumber happens once the only remaining DMZ residents are langport/trista);
 `router6.routes` option introduction moved from Phase 1 to Phase 2 (paired with first
-use); pre-flight `switchVlans` cleanup folded into Phase 0a step 1; per-prefix-length
-test committed to Phase 0a with a synthetic fixture; assorted optional/conditional
-hedges resolved.
+use); per-prefix-length test committed to Phase 0a with a synthetic fixture; assorted
+optional/conditional hedges resolved.
 
 Earlier: Phase 0 split into 0a/0b; transit→hostile forward rules to permit HOME→IoT
 (HA) and the wider trust-boundary policy; ULA-only runbook fixes; DMZ exception route
@@ -806,13 +817,7 @@ one no-deploy commit; 0b is the cutover proper.
 #### Phase 0a — Validation in code (no deploy)
 
 Steps:
-1. **Incidental cleanup: drop the stale `MEDIA = {tag = 42;}` entry**
-   from `switchVlans` in `lib/common/data/openwrt.nix`. There is no
-   media VLAN; the `media` firewall zone exists only to gate what
-   `wg-media` peers can reach, and the stale switch tag is misleading.
-   Independent of the rest of Phase 0a, but lands in the same no-deploy
-   commit.
-2. **Pre-flight: pin the OpenWrt release for BT8.** BT8 hardware is
+1. **Pre-flight: pin the OpenWrt release for BT8.** BT8 hardware is
    already in production as the existing prod gateway and as 4 mesh APs
    (per resolved decision #2), so target support exists. The question is
    only which release to pin. Verify against the OpenWrt support matrix
@@ -822,7 +827,7 @@ Steps:
    Run `nix run .#openwrt-build -- <bt8-mesh-device> --update-pins` to
    confirm hash availability. If support has regressed, defer to a
    stable release.
-3. **Pre-flight: enable PD client on thebeyond's WAN.** The current
+2. **Pre-flight: enable PD client on thebeyond's WAN.** The current
    `hosts/thebeyond/router.nix` WAN block is plain `type = "dhcp"` with
    no `ipv6PrefixDelegation` set, which means thebeyond would request
    no delegated prefix at all. Add the PD client (we expect `/64` per
@@ -850,7 +855,7 @@ Steps:
    so the DHCPv6 client will send solicits even if the ISP's RA doesn't set
    the M flag.
 
-4. **Drop `bond0` from `thebeyond`'s topology** in the source tree (no
+3. **Drop `bond0` from `thebeyond`'s topology** in the source tree (no
    deploy yet — this lands as part of Phase 0a's no-deploy commit). The
    new hardware uses a single wired NIC as `bat0`'s hard interface
    (instead of `bond0` over `lan` + `opt1`). Update
@@ -949,7 +954,7 @@ Steps:
    `:0014::<host>` → `:1014::<host>` for HOME) — automatic via the
    registry. Internal-only, no GUA, no inbound v6, so the operational
    impact is essentially zero.
-5. **VM-level validation of the new topology before any hardware
+4. **VM-level validation of the new topology before any hardware
    moves.** Add (or extend) a `tests/modules/router6-batman-wired-only.nix`
    NixOS test that mirrors the post-refactor `mkVlanBridge` shape on a
    stub network. Asserts:
@@ -962,12 +967,12 @@ Steps:
    Also run the existing test suite (`./scripts/run-checks.sh`) and a
    pure-eval test for the per-prefix-length helpers. **0a does not
    merge until all checks pass.**
-6. **Generic router6 listening-socket audit test.** No existing test
+5. **Generic router6 listening-socket audit test.** No existing test
    runs `ss -tlnp`/`ulnp` to catch services accidentally bound
    wildcard (`0.0.0.0` / `[::]`). A wildcard-bound kresd/kea is
    still firewall-blocked, but defense-in-depth prefers explicit
    interface bind so a firewall mistake doesn't immediately mean
-   exposure — and the assertions in step 7 don't cover this class
+   exposure — and the assertions in step 6 don't cover this class
    of mistake.
 
    Add `tests/modules/router6-listening-sockets.nix` that boots a
@@ -987,7 +992,7 @@ Steps:
    `router6-firewall.nix` Test 3), ICMP echo dropped (Test 4), drop
    policy active (Test 1), inter-zone forward matrix (covered by
    `router6-firewall-zones.nix`), UDP-stealth empirical scan (the
-   step 7 assertions catch the regression class structurally; the
+   step 6 assertions catch the regression class structurally; the
    Phase 0b runbook's UDP scan covers the residual gap empirically —
    a third synthetic-network layer adds little), the external-zone
    accept set on thebeyond specifically (better caught by Phase 0b's
@@ -996,7 +1001,7 @@ Steps:
 
    Run `./scripts/run-checks.sh router6-listening-sockets` alongside
    the full suite.
-7. **Eval-time security assertions in router6.** Cheaper and earlier
+6. **Eval-time security assertions in router6.** Cheaper and earlier
    than the VM tests — fire at flake evaluation, no build needed.
    Add three small universal assertions to `modules/router6/default.nix`'s
    existing `assertions` list. All three are scoped to the router6
@@ -1048,12 +1053,12 @@ Steps:
    - **Assertions (this step)** — structural, eval-time. Cheapest
      possible signal. Catches the three classes of mistake above
      before any build.
-   - **External scan runbook (Phase 0b step 12)** — empirical, real
+   - **External scan runbook (Phase 0b step 13)** — empirical, real
      hardware. Catches CPE/ISP-side surprises and any runtime gap
      between what the assertion proved structurally and what the
      kernel actually drops.
 
-   **0a does not merge until (5), (6), (7), and the existing suite
+   **0a does not merge until (4), (5), (6), and the existing suite
    all pass.**
 
 After Phase 0a: source tree is in the post-refactor shape, validated
@@ -1064,12 +1069,12 @@ gateway, unchanged.
 
 Steps (continuing the numbering):
 
-6. Stage `nixos-anywhere` from the Phase 0a build (bond0 removal,
+7. Stage `nixos-anywhere` from the Phase 0a build (bond0 removal,
    registry refactor, phantasma migration). Deploy `thebeyond` with
    **no other router config changes yet** — APP/transit are added in
    Phase 1, so the existing zones still gate everything on `thebeyond`.
-7. Physically move `thebeyond` to the modem closet. Connect WAN to modem.
-   `BT8-bridge` (the current production BT8 reconfigured in step 8)
+8. Physically move `thebeyond` to the modem closet. Connect WAN to modem.
+   `BT8-bridge` (the current production BT8 reconfigured in step 9)
    needs to end up alongside `thebeyond` in the modem closet so the
    inter-device wired link is short and the 802.11s "fat pipe" handles
    the long hop to the office; relocate it during this same maintenance
@@ -1082,17 +1087,17 @@ Steps (continuing the numbering):
    **Bootstrapping note.** `thebeyond`'s NIC is `bat0`'s hard interface
    from first boot, so the cable carries batman frames. The current
    production BT8 doesn't speak batman on its wired port yet, so the
-   link is dead between step 7 and step 8. **During this gap the entire
+   link is dead between step 8 and step 9. **During this gap the entire
    household loses internet egress and inter-VLAN routing**: NAT lives
    on `thebeyond`, and the office-side mesh has no path to it until the
    current BT8 is reconfigured into the wireless-bridge role. Same-VLAN,
    same-side traffic continues to work (the office mesh stays internally
    connected over `802.11s`), but everything else is offline. Execute
-   steps 7 and 8 in close succession with the operator on-site at both
+   steps 8 and 9 in close succession with the operator on-site at both
    devices, and schedule the cutover in a maintenance window
    (announce/expect ~10–30 min of internet downtime, +relocation time
    if the BT8 is moving rooms).
-8. Reconfigure the current production BT8 (manually):
+9. Reconfigure the current production BT8 (manually):
    - Remove its WAN interface (no longer the gateway).
    - Make it a "dumb AP" / wireless-bridge (effectively the
      [BT8-bridge config](#a-manual-setup-bt8-as-dumb-ap--wireless-bridge)).
@@ -1100,9 +1105,9 @@ Steps (continuing the numbering):
    - Keep its 802.11s mesh and AP radios so other office BT8s still
      associate.
    - Give it a single management IP on `network` VLAN.
-9. Cutover: bring up `thebeyond`'s WAN; verify NAT, DHCP, DNS, internet
-   reachability from each existing zone.
-10. **Sanity-check IPv6 delegation size.** On `thebeyond`:
+10. Cutover: bring up `thebeyond`'s WAN; verify NAT, DHCP, DNS, internet
+    reachability from each existing zone.
+11. **Sanity-check IPv6 delegation size.** On `thebeyond`:
 
     ```sh
     networkctl status wan
@@ -1117,16 +1122,16 @@ Steps (continuing the numbering):
     to the GUA-enabled posture in the
     [IPv6 — if the ISP ever enlarges the delegation](#ipv6--if-the-isp-ever-enlarges-the-delegation)
     section, but don't pivot Phase 1 work in flight.
-11. The current production BT8 is now physically a dumb-AP-with-mesh.
+12. The current production BT8 is now physically a dumb-AP-with-mesh.
     Going forward, we'll call this device **BT8-bridge**.
-12. **External security scan against the live WAN edge.** Even with the
+13. **External security scan against the live WAN edge.** Even with the
     Phase 0a tests green, the synthetic test network is not the real
     ISP edge — the CPE in front of the modem may bridge or NAT-traverse
     in unexpected ways, and the real WAN address is what matters. Run
     the [external scan runbook](#e-external-security-scan) from an
     off-network host (mobile hotspot or short-lived VPS) against
     `thebeyond`'s real WAN IPv4 (and IPv6 link address if the ISP
-    delegated one in step 10). Expected result: TCP all-filtered, UDP
+    delegated one in step 11). Expected result: TCP all-filtered, UDP
     no-port-closed signal anywhere, ICMP echo unanswered, only the
     three wireguard UDP ports reachable for an authenticated handshake.
 
@@ -1196,9 +1201,28 @@ forwards office-side traffic into DMZ + hostile zones per
 
 Steps:
 1. Configure BT8-gateway by hand using the
-   [BT8-gateway manual setup](#b-manual-setup-bt8-as-secondary-gateway). For
-   this phase, only configure APP VLAN and transit VLAN — leave other VLANs
-   for Phase 3.
+   [BT8-gateway manual setup](#b-manual-setup-bt8-as-secondary-gateway).
+   For this phase, configure:
+   - **APP (50) and transit (99) as L3-terminated** — bridges with IPs,
+     fw4 zones, dnsmasq + odhcpd. This is the production traffic for
+     Phase 2's proof.
+   - **DMZ (100), GUEST/untrusted (30), ADU (31), IOT (40), GAME (41),
+     and network (10) as L2-only batman passthrough** — bridges with
+     `proto 'none'`, no IP, no fw4 zone, no DHCP. These are needed
+     immediately so (a) hostile-zone client SSIDs broadcast from
+     BT8-gateway's APs (per runbook B §3a) have somewhere to land
+     frames, (b) DMZ frames transiting BT8-gateway between thebeyond
+     and the homelab switch reach their destination, and (c) Phase 3's
+     "passthrough bridges already exist from Phase 2" assumption holds.
+   - **Trusted-side VLANs (INFRA/11, HOME/20, LAB/21, NETMGMT/12)** —
+     leave their bridges and zones unconfigured for now; they're added
+     in Phase 3 when their L3 gateways move from thebeyond to BT8-gateway.
+   Concurrent with this step: deploy the office-side BT8 mesh APs from
+   [runbook C](#c-manual-setup-bt8-as-office-side-dumb-ap-mesh-resident).
+   They share the mesh fabric with BT8-gateway and are required for
+   wireless coverage of the trusted SSIDs once Phase 3 lands; bringing
+   them up alongside BT8-gateway gives the operator a working office
+   wireless mesh without waiting for cutover.
 2. **Introduce the `router6.routes` option** in `modules/router6/default.nix`
    and use it on `thebeyond` for the cross-gateway static routes.
    Translation to systemd-networkd is mechanical — group routes by
@@ -1257,9 +1281,10 @@ Steps:
    misconfiguration, etc.), a more-specific `10.97.100.0/24 via
    10.255.255.1 dev br-v99` route forces the right nexthop — but it
    shouldn't be necessary.
-4. On BT8-gateway, configure DHCP for APP VLAN (odhcpd). Connect a test
-   device to APP VLAN (via the homelab L2 switch's access port or
-   directly via wifi if a test SSID is bound to APP).
+4. On BT8-gateway, configure DHCP for APP VLAN (dnsmasq for v4 +
+   odhcpd for v6/RA, per the firewall-split table and runbook B §4).
+   Connect a test device to APP VLAN (via the homelab L2 switch's
+   access port or directly via wifi if a test SSID is bound to APP).
 5. Verify:
    - **DMZ L2 passthrough is not subject to fw4.** OpenWrt's
      `br-netfilter` is sometimes enabled by default, which would push
@@ -2303,7 +2328,7 @@ applying the policy as expected).
 
 **When to run:**
 
-- Phase 0b step 12 — first deploy of `thebeyond` as the gateway. **Required
+- Phase 0b step 13 — first deploy of `thebeyond` as the gateway. **Required
   before declaring Phase 0 done.**
 - Phase 3 deploy — trusted-zone migration. The largest single change
   to `thebeyond`'s zone topology in this plan; the rule re-derivation
@@ -2333,7 +2358,7 @@ positions:
   myip.opendns.com @resolver1.opendns.com` from inside the network,
   or from `networkctl status wan` on `thebeyond`).
 - `WAN_V6` — `thebeyond`'s WAN-interface global IPv6 if the ISP
-  delegated anything beyond link-local (Phase 0b step 10's PD result
+  delegated anything beyond link-local (Phase 0b step 11's PD result
   determines whether this is in scope).
 
 #### 1. TCP scan
