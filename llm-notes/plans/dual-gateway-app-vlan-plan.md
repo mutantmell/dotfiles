@@ -53,6 +53,43 @@ deploys via the operator's workstation handle Phases 0–4.
   (covered by their own plans). Where they touch the same files, this plan
   notes it but does not subsume them.
 
+## Design principle: trust-boundary north/south, intra-trusted east/west
+
+The two gateways have distinct, complementary roles. Read "north/south"
+broadly as **any trust-boundary crossing** — not just the WAN edge:
+
+- **`thebeyond` is the trust-boundary chokepoint (north/south).** All
+  traffic that crosses a trust boundary terminates here: WAN ingress/
+  egress (NAT, ISP-facing), trusted ↔ hostile (HOME → IoT, etc.),
+  wireguard concentration (`media`, future `wg-iot`), and the
+  high-trust core itself (`network` MGMT VLAN, where router/switch
+  admin and DNS infrastructure live).
+- **`BT8-gateway` is the intra-trusted east/west router.** It owns
+  L3 termination for the trusted office zones (`management`/INFRA,
+  `trusted`/HOME, `lab`, `app`) — flows that don't cross a trust
+  boundary, just zones-of-similar-trust talking to each other.
+- **The transit VLAN** is plumbing between the two roles, not a zone
+  in its own right.
+
+Practical implication for placement decisions: when adding a new VLAN
+or service, ask "does traffic to/from this cross a trust boundary?"
+If yes, it lands on `thebeyond`. If it's intra-trusted east/west, it
+lands on `BT8-gateway`. Hostile zones (`untrusted`, `iot`, `game`,
+`adu`, `dmz`) are "north of trusted" in the classic enterprise sense
+even though they're physically internal — same as how a DMZ has
+always been treated.
+
+`BT8-gateway` is hermetically east/west: it holds *no* L3 interface
+on `network` or any other thebeyond-terminated zone. Admin SSH lands
+on its transit address (`10.255.255.2`), and it queries
+`thebeyond`'s local resolver at `10.255.255.1` rather than reaching
+into `network` for phantasma directly. The cost is that emergency
+admin access depends on the transit link being healthy — a USB
+serial console on the BT8-gateway is the recovery path of last
+resort, and worth keeping pre-staged. The benefit is that an
+attacker who compromises BT8-gateway has no L2 foothold in the
+high-trust plane.
+
 ## Mesh L2 layer: `batman-adv` over `802.11s` (and over wire to `thebeyond`)
 
 The wireless underlay is `802.11s` (it carries the encrypted mesh frames),
@@ -170,35 +207,22 @@ inside `BT8-gateway`.
   fabric. `BT8-bridge` participates in transit only as a passthrough
   L2 bridge with no IP on it; the actual peers are `thebeyond`
   (`10.255.255.1`) and `BT8-gateway` (`10.255.255.2`).
-- **Asymmetric routing for `network ↔ office-side-zone` is expected
-  and benign.** The `network` (MGMT) VLAN keeps its gateway on
-  `thebeyond` while client-zone gateways move to `BT8-gateway`. A DNS
-  query from a HOME host to `phantasma` (now on `network`) takes
-  these paths:
-  - **Forward:** `HOME-host → BT8-gateway` (its default GW, since
-    `network` is a different subnet) `→ br-v10` (BT8-gateway has a
-    directly-connected route, since it holds `10.91.10.3` on `network`)
-    `→ bat0.10 → mesh → BT8-bridge → wired → bat0.10 →` phantasma.
-    No transit hop on the forward direction.
-  - **Reverse:** `phantasma → thebeyond` (default GW for `network`,
-    since HOME is a different subnet) `→ static route 10.97.0.0/16
-    via 10.255.255.2 → brTRANSIT → mesh → BT8-gateway → br-v20 →`
-    HOME-host. The reverse traverses `transit`.
-
-  This works because `BT8-gateway` sees *both* directions of the flow
-  (forward in `br-v20`/out `br-v10`; reverse in `br-v99`/out `br-v20`),
-  so conntrack state on `BT8-gateway` matches and `ct state
-  established,related accept` covers the reverse without an explicit
-  rule. `thebeyond` sees only the reverse direction, originating from
-  `phantasma → transit`. The `network` zone's outbound rules (added
-  below) explicitly allow phantasma's DNS responses to leave via the
-  `transit` zone, so the firewall passes it without depending on
-  forward-direction state. The asymmetry is therefore operationally
-  fine.
-
-  Cross-zone forwards that originate on `thebeyond`'s side
-  (`network → trusted`, etc.) similarly route via transit in both
-  directions and remain symmetric end-to-end.
+- **All cross-gateway flows are symmetric via transit.** `BT8-gateway`
+  has no L3 interface on `network` (or any other thebeyond-terminated
+  zone), so any flow between BT8-side trusted zones and thebeyond-side
+  zones traverses the transit VLAN in both directions. Example: a DNS
+  query from a HOME host to phantasma takes
+  `HOME-host → BT8-gateway → transit → thebeyond → brMGMT → phantasma`
+  on the forward direction, and the mirror path on the reverse. Both
+  gateways see both directions of the flow, so conntrack and zone
+  forwards match cleanly without the asymmetric-routing edge cases
+  the prior plan worked around.
+- **BT8-gateway's own DNS / NTP point at thebeyond's transit IP.**
+  BT8-gateway does not reach into the `network` segment; its dnsmasq
+  upstream is `10.255.255.1` (thebeyond's local kresd, which forwards
+  to phantasma) and its NTP source is the same. This avoids the need
+  for a `transit → network` forward rule scoped to BT8-gateway as a
+  source.
 
 ### IPv6
 
@@ -367,9 +391,10 @@ on `thebeyond` itself.
 After the move:
 - `thebeyond` reaches phantasma directly across `brMGMT` (`10.91.10.1/24`
   stays on `thebeyond` per resolved decision: `network` gateway location).
-- `BT8-gateway` reaches phantasma directly across its `network`-bound
-  interface (`10.91.10.3` — in thebeyond's space, but a regular L3
-  interface on the shared L2 segment) — same L2 segment, no L3 hop.
+- `BT8-gateway` reaches phantasma via the transit link by querying
+  thebeyond's local resolver at `10.255.255.1` — *not* by holding an
+  L3 address on `network`. BT8-gateway has no foot in the high-trust
+  plane (see resolved decision on hard east/west isolation below).
 - The microvm bridge in `hosts/thebeyond/router.nix`
   (`systemd.network.networks."10-vm-infra"`) needs to retarget to `brMGMT`
   for phantasma's tap; INFRA-resident microvms (none today, but the
@@ -395,15 +420,19 @@ wireless-bridge mgmt, future managed-switch mgmt IPs) with a service
 
 ```nix
 network.hosts = {
-  thebeyond = 1;     # primary gateway
-  bt8gw     = 3;     # secondary gateway — direct-connected route to
-                     #   phantasma's subnet; no transit hop on forward
-                     #   direction for HOME → phantasma flows
+  thebeyond = 1;     # primary gateway (only L3 host on `network`)
   bt8bridge = 4;     # wireless-bridge mgmt (single mgmt IP on bat0.10)
-  # 2, 5–9 reserved for future transport (more BT8s, switch mgmt, etc.)
+                     #   BT8-bridge is a pure-L2 device with no other
+                     #   trust-boundary role; mgmt-on-network is fine.
+  # 2, 3, 5–9 reserved for future transport (more BT8s, switch mgmt, etc.)
   phantasma = 10;
 };
 ```
+
+`bt8gw` is deliberately *absent* from `network.hosts`: BT8-gateway has
+no L3 interface on `network` (hermetic east/west isolation). Its
+admin-reachable address is its transit IP (`10.255.255.2`), not a
+network-VLAN address.
 
 This convention is `network`-specific. Other zones either have no
 transport role (DMZ, APP, HOME, etc.) or are already constrained
@@ -458,13 +487,13 @@ app        = { vlanId = 50;  gateway = "bt8gw"; hosts = { ... }; };
 
 Because `BT8-gateway` holds `.1` directly in its own slice, no `bt8gw =
 2` transition host-IDs are needed — there's no "shared `.1`" cutover
-flap to step around. The only `bt8gw` entries that remain are:
+flap to step around. The only `bt8gw` entry that remains is:
 
-- `network.hosts.bt8gw = 3` — BT8-gateway's L3 management interface on
-  the shared MGMT segment (in thebeyond's `10.91.10.0/24` space, but
-  the address belongs to BT8-gateway's interface). Same shape as
-  `bt8bridge = 4` for BT8-bridge's mgmt IP.
-- `transit.hosts.bt8gw = 2` — BT8-gateway's transit interface (above).
+- `transit.hosts.bt8gw = 2` — BT8-gateway's transit interface, the
+  *only* L3 address it holds outside its own `10.97.0.0/16` slice.
+  Admin SSH targets this address; there is no `network.hosts.bt8gw`
+  entry by design (hermetic east/west isolation — BT8-gateway has
+  no foot in the high-trust plane).
 
 `transit` gets its own zone in both router6 and BT8 fw4. On `thebeyond`,
 transit is the entry point for *all* office-side traffic destined for
@@ -715,8 +744,9 @@ Steps:
      Concretely:
      - In `lib/common/data/network.nix`, remove `phantasma = 2` from
        `management.hosts` and add `phantasma = 10` to `network.hosts`
-       (alongside the permanent `bt8gw = 3` and `bt8bridge = 4`
-       entries per the [host-ID convention](#network-host-id-convention)).
+       (alongside the permanent `bt8bridge = 4` entry per the
+       [host-ID convention](#network-host-id-convention); BT8-gateway
+       deliberately has no `network.hosts` entry).
      - In `hosts/thebeyond/microvm/guests/phantasma/microvm.nix`,
        rename the tap from `vm-11-phantasma` to `vm-10-phantasma`
        (`microvm.interfaces[].id`) and update the MAC from
@@ -1465,7 +1495,8 @@ config interface 'transit'
     option ipaddr '10.255.255.2'
     option netmask '255.255.255.252'  # /30
     option gateway '10.255.255.1'      # thebeyond — default route
-    list dns '10.91.10.10'             # phantasma (in thebeyond's space)
+    list dns '10.255.255.1'            # thebeyond's local resolver
+                                       # (forwards to phantasma)
 
 config interface 'transit6'
     option device 'br-v99'
@@ -1523,23 +1554,21 @@ config interface 'game'
     option proto 'none'
 ```
 
-`network` (10) is a special case — passthrough at L2 for the segment
-overall, but BT8-gateway holds an L3 management IP on it (in
-thebeyond's `10.91.10.0/24` space):
+`network` (10) is L2-only passthrough on this device. Future managed
+switches and additional BT8 mesh APs need VLAN 10 trunked to them,
+so the bridge exists; BT8-gateway itself holds *no* L3 address on it
+(hermetic east/west isolation — admin reachability and DNS go via
+transit instead, configured in section 7 below).
 
 ```uci
 config device
-    option name 'br-v10'
+    option name 'br-v10'                 # network: L2 passthrough only
     option type 'bridge'
     list ports 'bat0.10'
     list ports 'lan1.10'
-config interface 'mgmt'
+config interface 'v10'
     option device 'br-v10'
-    option proto 'static'
-    option ipaddr '10.91.10.3'          # bt8gw per registry (network.hosts.bt8gw)
-    option netmask '255.255.255.0'
-    option gateway '10.91.10.1'         # thebeyond owns network gateway
-    list dns '10.91.10.10'              # phantasma (now on network)
+    option proto 'none'
 ```
 
 #### 3a. Client AP SSIDs (per-VLAN, optional in early phases)
@@ -1587,7 +1616,9 @@ config dnsmasq
     option local '/internal/'
     option domain 'internal'
     option authoritative '1'
-    list server '10.91.10.10'        # phantasma upstream (in thebeyond's space)
+    list server '10.255.255.1'       # thebeyond's local resolver
+                                      # (forwards to phantasma — no
+                                      # transit→network forward needed)
 
 config dhcp 'app'
     option interface 'app'
@@ -1702,9 +1733,10 @@ config system
     option timezone 'UTC'
     option hostname 'bt8gateway'
 
-# ntpd
+# ntpd — point at thebeyond's transit IP, not its network IP, so
+# BT8-gateway never has to reach into the high-trust plane.
 config timeserver 'ntp'
-    list server '10.91.10.1'         # thebeyond NTP
+    list server '10.255.255.1'       # thebeyond NTP via transit
 ```
 
 #### 8. Verify
@@ -1806,11 +1838,6 @@ reasoning is traceable from the plan rather than from the conversation log.
    DNS, `/etc/hosts`, and dnsmasq/odhcpd reservations regenerate
    automatically. ULA is internal-only (no GUA, no inbound v6) so the
    operational impact of the v6 churn is small.
-
-   Cross-gateway interface addresses (e.g., BT8-gateway holding
-   `10.91.10.3` for management on `network`) are an inherent property
-   of shared-L2 segments — an L3 interface on a subnet must hold an
-   address in that subnet — and apply equally under either model.
 
    Resolved decision #5's `/64`-vs-`/127` wrinkle for transit IPv6
    stops mattering once transit lives in its own ULA slice: the host
