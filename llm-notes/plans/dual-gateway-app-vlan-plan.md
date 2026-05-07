@@ -833,11 +833,12 @@ Steps:
    no delegated prefix at all. Add the PD client (we expect `/64` per
    the [IPv6 baseline](#ipv6) — the request is for visibility and to
    stamp the delegated prefix on the WAN interface, not for
-   subdivision):
+   subdivision). At the same time, switch the WAN block to match by
+   `hardwareName` rather than `mac` — see step 3 for why:
 
    ```nix
    wan = {
-     mac = "00:e0:67:1b:70:34";
+     hardwareName = "enp1s0";   # placeholder; confirm against `ip link` on the VP2440
      network = {
        type = "dhcp";
        zone = "external";
@@ -855,20 +856,51 @@ Steps:
    so the DHCPv6 client will send solicits even if the ISP's RA doesn't set
    the M flag.
 
-3. **Drop `bond0` from `thebeyond`'s topology** in the source tree (no
-   deploy yet — this lands as part of Phase 0a's no-deploy commit). The
-   new hardware uses a single wired NIC as `bat0`'s hard interface
-   (instead of `bond0` over `lan` + `opt1`). Update
-   `hosts/thebeyond/router.nix`:
-   - Remove the `lan` + `opt1` MAC entries' role as bond members.
+3. **Drop `bond0` from `thebeyond`'s topology and move to stable
+   identifier matching** in the source tree (no deploy yet — this lands
+   as part of Phase 0a's no-deploy commit). The new hardware (Protectli
+   VP2440) uses one ethernet port as WAN and a second port as `bat0`'s
+   hard interface (instead of `bond0` over `lan` + `opt1`). Two changes
+   compose here:
+
+   **(a) Switch from `mac` to `hardwareName` matching.** All existing
+   physical-interface entries in `hosts/thebeyond/router.nix` (`wan`,
+   `lan`, `opt1`) match by `mac` against the *old* thebeyond hardware.
+   On the VP2440 those MACs no longer exist, so the entries have to
+   change anyway. Rather than transcribing the new VP2440's MACs into
+   the topology, match by `hardwareName` against systemd's stable
+   predictable interface name (e.g., `enp1s0`, `enp2s0`) — already
+   supported by router6 (see `modules/router6/networking.nix` lines
+   103–127, where a non-null `hardwareName` becomes
+   `matchConfig.OriginalName` in the link unit). Two operational wins:
+   the names are stable across kernel boots without depending on
+   per-NIC MAC bookkeeping, and replacing a failed NIC in the same
+   PCIe slot keeps the same `enpXsY` name with no config change.
+
+   **(b) Remove `bond0`.**
+   - Drop the `lan` + `opt1` blocks entirely — there is no second
+     wired NIC member to bond.
    - Remove the `bond0` block entirely.
-   - Make the chosen NIC (e.g., `lan`) the sole member of `bat0`.
-   - **Move `mtu = 1536` from the (deleted) `bond0` block onto the chosen
-     NIC's `network` block.** `bond0` carried the 25-byte batman headroom
-     today; with bond0 gone, that MTU has to land on the wired hard
-     interface directly or batman frames will fragment.
+   - Add a single physical-NIC block for the wired link to BT8-bridge
+     (e.g., `lanBat = { hardwareName = "enp2s0"; ... }`, exact
+     `enpXsY` confirmed against `ip link` on the booted VP2440), and
+     make it the sole member of `bat0`.
+   - **Move `mtu = 1536` from the (deleted) `bond0` block onto the
+     wired NIC's `network` block.** `bond0` carried the 25-byte
+     batman headroom today; with bond0 gone, that MTU has to land on
+     the wired hard interface directly or batman frames will
+     fragment.
    - Simplify `mkVlanBridge` to drop the `bond0Vlans` attribute and the
      `v${name}.bond0` member — bridges become `bat0`-only.
+
+   **Note on confirming `hardwareName` values.** The exact `enpXsY`
+   strings are determined by PCIe topology and only knowable once the
+   VP2440 is booted. Land Phase 0a with placeholder values plus a
+   comment, then in the maintenance window (Phase 0b, before the
+   nixos-anywhere deploy) boot the VP2440 from a live medium or the
+   installer's rescue shell, run `ip -br link`, and amend the
+   `hardwareName` entries to the observed names. This is a small
+   amendment to the Phase 0a commit, not a separate phase.
 
    **Note:** since the wired link to `BT8-bridge` is now batman-encapsulated,
    nothing else can connect to that wire as a plain VLAN trunk. That's
