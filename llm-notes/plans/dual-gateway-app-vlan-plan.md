@@ -1,7 +1,7 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
 **Status:** Drafted (not started)
-**Last updated:** 2026-05-07 (revised: split IP-space model + hostile-zone convergence)
+**Last updated:** 2026-05-07 (revised: split IP-space model + hostile-zone convergence; network-device placement principle + `netmgmt` zone + dumb-AP / L2-switch runbooks)
 **Related:**
 - `done/secure-mgmt-vlan-plan.md` — established INFRA/MGMT split this plan extends
 - `done/openwrt-python-builder.md` — Image Builder pipeline this plan adds device types to
@@ -90,6 +90,52 @@ resort, and worth keeping pre-staged. The benefit is that an
 attacker who compromises BT8-gateway has no L2 foothold in the
 high-trust plane.
 
+## Network-device placement: zero-or-one mesh hop
+
+The trust-boundary principle decides which gateway terminates *user-facing*
+zones (DMZ, hostile zones to thebeyond; trusted office zones to BT8-gw).
+A separate question is where the *infrastructure devices themselves*
+(network gear: switches, dumb APs, mesh bridges) hold their management
+addresses. The single-mesh-traversal invariant gives a clean rule:
+
+> A network device's management VLAN should terminate at the gateway it
+> is **physically closest to** — measured in mesh hops, not in trust
+> level. Wired-to-X means terminate at X (zero mesh hops). Mesh-resident
+> means terminate at whichever gateway is one mesh hop away.
+
+This is independent from trust-boundary placement: data VLANs follow the
+trust-boundary principle (a hostile SSID's L3 still terminates at
+`thebeyond` even when broadcast from a BT8-gw-side AP), while the AP's
+*own* management address follows the placement principle (one mesh hop
+toward `BT8-bridge` and out to `thebeyond` is shorter than one toward
+`BT8-gw` and then *another* mesh hop onward).
+
+Worked examples:
+
+| Device                     | Physical attachment            | Mgmt VLAN          | Mesh hops to its gateway |
+|----------------------------|--------------------------------|--------------------|--------------------------|
+| `BT8-bridge`               | wired to `thebeyond`           | `network` / 10     | 0                        |
+| Office BT8 dumb APs        | 802.11s mesh (office side)     | `network` / 10     | 1 (via mesh → BT8-bridge → thebeyond) |
+| `arseille` (homelab L2 sw) | wired to `BT8-gateway`         | `netmgmt` / 12     | 0                        |
+| `BT8-gateway` (admin SSH)  | wired to office mesh + transit | `transit` / 99     | 0 (transit IP)           |
+
+Counterexamples that would violate the invariant:
+
+- Dumb AP mgmt on `netmgmt` / 12 → AP needs to talk to phantasma, ends
+  up `AP → mesh → BT8-gw L3 → mesh → BT8-bridge → thebeyond` = **2 mesh
+  hops**.
+- L2 switch mgmt on `network` / 10 → admin from a BT8-gw-side workstation
+  goes `host → BT8-gw → transit → thebeyond → BT8-bridge → mesh → BT8-gw
+  → switch` = **2 mesh hops** (because BT8-gw can't route VLAN 10 itself,
+  so it must hairpin via thebeyond).
+
+Practical consequence: VLAN 10 must be carried at L2 across the batman
+fabric (mesh + wired BT8-bridge↔thebeyond hop) so the dumb APs can
+participate, but BT8-gateway holds *no L3* on it — VLAN 10 joins the
+hostile-zone passthrough list on BT8-gw (bridge membership only,
+`proto 'none'`, no fw4 zone). Hermetic east/west isolation is an L3
+claim and is preserved.
+
 ## Mesh L2 layer: `batman-adv` over `802.11s` (and over wire to `thebeyond`)
 
 The wireless underlay is `802.11s` (it carries the encrypted mesh frames),
@@ -150,11 +196,14 @@ Trade-offs of keeping `batman-adv` on `thebeyond`:
                             ┌──────┴──────────┐
                             │  BT8-gateway    │  (office — secondary gateway)
                             │  L3: app, mgmt, │
-                            │      trusted,   │  + 802.11s mesh node
-                            │      lab        │  + AP radios for ALL VLANs
-                            │  L2 only:       │    (incl. iot/game/guest —
-                            │   iot/game/     │    SSIDs broadcast here, but
-                            │   guest/adu     │    L3 lives on thebeyond)
+                            │      netmgmt,   │  + 802.11s mesh node
+                            │      trusted,   │  + AP radios for ALL VLANs
+                            │      lab        │    (incl. iot/game/guest —
+                            │  L2 only:       │    SSIDs broadcast here, but
+                            │   iot/game/     │    L3 lives on thebeyond)
+                            │   guest/adu/    │
+                            │   network       │  network/10 is L2-passthrough
+                            │                 │    so dumb APs reach thebeyond
                             └──┬──────────────┘
                                │ wired (trunk, plain 802.1Q — not batman)
                                │
@@ -196,12 +245,16 @@ inside `BT8-gateway`.
   `network` (and anything else thebeyond-side), since both live in
   thebeyond's `10.91.0.0/16` / `fdc6:55f2:0a5e:0000::/52` slice.
 - **L2-only passthrough on `BT8-gateway`**: every hostile-zone VLAN
-  (`untrusted`/30, `iot`/40, `game`/41, `adu`/31) plus DMZ (100) is
-  bridged through `BT8-gateway` with no IP — frames cross batman to
-  `thebeyond` where the L3 gateway and firewall live. SSIDs for these
-  VLANs are still broadcast from BT8 APs (BT8-gateway and any other
-  mesh AP), but client traffic terminates on `thebeyond`. This is the
-  hostile-zone convergence model — see resolved decision below.
+  (`untrusted`/30, `iot`/40, `game`/41, `adu`/31), DMZ (100), and
+  `network` (10) are bridged through `BT8-gateway` with no IP — frames
+  cross batman to `thebeyond` where the L3 gateway and firewall live.
+  SSIDs for the hostile zones are still broadcast from BT8 APs
+  (BT8-gateway and any other mesh AP), but client traffic terminates
+  on `thebeyond`. `network`/10 is carried only so the office-side dumb
+  APs can reach their L3 home (`thebeyond`); see the
+  [network-device placement](#network-device-placement-zero-or-one-mesh-hop)
+  section. This is the hostile-zone convergence model for the data
+  VLANs — see resolved decision below.
 - **Transit VLAN passes through `BT8-bridge`**: like every other VLAN,
   the transit VLAN (99) is carried as `bat0.99` across the batman
   fabric. `BT8-bridge` participates in transit only as a passthrough
@@ -293,6 +346,7 @@ Image Builder).
 | `ba-tunnel`    | `thebeyond`    | wireguard           | yes (masq) |
 | `app` *(new)*  | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
 | `management`   | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
+| `netmgmt` *(new)* | `BT8-gateway` | dnsmasq + odhcpd    | no  |
 | `trusted`      | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
 | `lab`          | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
 | `untrusted`*   | `thebeyond`    | `thebeyond` Kea     | no  |
@@ -369,6 +423,7 @@ Concrete addresses produced by this scheme:
 | network     | 10   | thebeyond | `10.91.10.0/24`   | `fdc6:55f2:0a5e:000a::/64`      |
 | dmz         | 100  | thebeyond | `10.91.100.0/24`  | `fdc6:55f2:0a5e:0064::/64`      |
 | management  | 11   | bt8gw     | `10.97.11.0/24`   | `fdc6:55f2:0a5e:100b::/64`      |
+| netmgmt     | 12   | bt8gw     | `10.97.12.0/24`   | `fdc6:55f2:0a5e:100c::/64`      |
 | trusted     | 20   | bt8gw     | `10.97.20.0/24`   | `fdc6:55f2:0a5e:1014::/64`      |
 | lab         | 21   | bt8gw     | `10.97.21.0/24`   | `fdc6:55f2:0a5e:1015::/64`      |
 | untrusted   | 30   | thebeyond | `10.91.30.0/24`   | `fdc6:55f2:0a5e:001e::/64`      |
@@ -420,12 +475,13 @@ wireless-bridge mgmt, future managed-switch mgmt IPs) with a service
 
 ```nix
 network.hosts = {
-  thebeyond = 1;     # primary gateway (only L3 host on `network`)
-  bt8bridge = 4;     # wireless-bridge mgmt (single mgmt IP on bat0.10)
-                     #   BT8-bridge is a pure-L2 device with no other
-                     #   trust-boundary role; mgmt-on-network is fine.
-  # 2, 3, 5–9 reserved for future transport (more BT8s, switch mgmt, etc.)
-  phantasma = 10;
+  thebeyond  = 1;    # primary gateway (only L3 host on `network`)
+  bt8bridge  = 4;    # wireless-bridge mgmt (wired to thebeyond — 0 mesh hops)
+  # office-side dumb APs land in 5–9 (mesh-resident network gear,
+  # placed here per the placement principle: 1 mesh hop to thebeyond
+  # via BT8-bridge, vs. 2 if they lived on netmgmt/12).
+  # 2, 3 reserved for future transport.
+  phantasma  = 10;
 };
 ```
 
@@ -434,19 +490,34 @@ no L3 interface on `network` (hermetic east/west isolation). Its
 admin-reachable address is its transit IP (`10.255.255.2`), not a
 network-VLAN address.
 
-This convention is `network`-specific. Other zones either have no
-transport role (DMZ, APP, HOME, etc.) or are already constrained
-(`transit` is `/30`), so the 1–9 reservation only applies here.
+`arseille` (homelab L2 switch) is also *absent* from `network.hosts`:
+it lives on `netmgmt`/12 instead, since it's wired to BT8-gateway and
+admin-from-BT8-gw-side hits 0 mesh hops on netmgmt vs. 2 on network.
+See the [placement principle](#network-device-placement-zero-or-one-mesh-hop).
+
+This 1–9 / 10+ convention is `network`-specific. Other zones either
+have no transport role (DMZ, APP, HOME, etc.) or are already constrained
+(`transit` is `/30`), so the reservation only applies here. `netmgmt`/12
+has only network-gear residents by definition, so no transport/service
+split is needed.
 
 ### New zones
 
-Two new zones in `lib/common/data/network.nix`:
+Three new zones in `lib/common/data/network.nix`:
 
 ```nix
 app = {
   vlanId = 50;            # picked: between LAB (21) and DMZ (100)
   gateway = "bt8gw";
   hosts = {};             # populated as services migrate
+};
+netmgmt = {
+  vlanId = 12;            # BT8-gw-side parallel of thebeyond's network/10
+  gateway = "bt8gw";
+  hosts = {
+    arseille = 2;         # homelab L2 switch (wired to BT8-gw)
+    # other wired-to-BT8-gw network gear (PDUs, BMC, future switches)
+  };
 };
 transit = {
   vlanId = 99;
@@ -462,6 +533,14 @@ transit = {
   };
 };
 ```
+
+`netmgmt` exists for the same reason as `network`/VLAN 10: a locked-down
+zone for *network gear* management, kept separate from VM hosts and
+NAS (`management`/VLAN 11). Both gateways have one — they live on
+opposite sides because the right placement for any given device depends
+on which gateway it's physically closest to (see the
+[network-device placement principle](#network-device-placement-zero-or-one-mesh-hop)
+section). `netmgmt` is BT8-gw-side; `network` is thebeyond-side.
 
 Existing zones gain an explicit `gateway` field. The split moves
 `network` and `dmz` into `thebeyond`'s slice, everything else into
@@ -480,6 +559,7 @@ iot        = { vlanId = 40;  gateway = "thebeyond"; hosts = { ... }; };
 game       = { vlanId = 41;  gateway = "thebeyond"; hosts = { ... }; };
 
 management = { vlanId = 11;  gateway = "bt8gw"; hosts = { ... }; };
+netmgmt    = { vlanId = 12;  gateway = "bt8gw"; hosts = { ... }; };
 trusted    = { vlanId = 20;  gateway = "bt8gw"; hosts = { ... }; };
 lab        = { vlanId = 21;  gateway = "bt8gw"; hosts = { ... }; };
 app        = { vlanId = 50;  gateway = "bt8gw"; hosts = { ... }; };
@@ -1757,6 +1837,168 @@ ping 10.91.10.1                  # thebeyond MGMT (via transit)
 ping 1.1.1.1                     # internet egress through thebeyond NAT
 traceroute 10.97.100.41          # langport (DMZ) - should hop through 10.255.255.1
                                  # (DMZ stays at .97.100 until Phase 6 renumbers it to .91.100)
+```
+
+### C. Manual setup: BT8 as office-side "dumb AP" (mesh-resident)
+
+**Role:** mesh-resident access point. Joins `batman-adv` over `802.11s`,
+broadcasts SSIDs for whatever zones the office side needs (typically
+GUEST/IOT/GAME on the hostile side, plus a HOME/trusted SSID), tags
+each SSID's frames into batman with the right VID. Pure L2 forwarding;
+holds a single management IP on `network`/VLAN 10. No DHCP, no
+firewall, no routing.
+
+**Why VLAN 10 for management** (and not `netmgmt`/12): the AP is
+mesh-resident, so its mgmt-traffic destination matters. Reaching
+phantasma/thebeyond infra via `network`/10 takes one mesh hop
+(AP → mesh → BT8-bridge → wire → thebeyond). Via `netmgmt`/12 it
+would take two (AP → mesh → BT8-gw L3 → mesh → BT8-bridge →
+thebeyond), violating the single-mesh-traversal invariant. See the
+[placement principle](#network-device-placement-zero-or-one-mesh-hop).
+
+**Assumptions:** OpenWrt 24.10+ flashed. Mesh PSK already in operator's
+hands. Same package set as BT8-bridge (kmod-batman-adv, etc.).
+
+#### 1. Initial setup, services off
+
+Same shape as BT8-bridge §1–2: install packages, then disable
+firewall/dnsmasq/odhcpd. The AP is L2-only — no services it can host.
+
+#### 2. 802.11s mesh radio
+
+Same as BT8-bridge §3: pick the 5GHz radio for `mesh0`, identical mesh
+ID and PSK so it joins the existing fabric. `mesh_fwding 0` hands
+forwarding to `batman-adv`.
+
+#### 3. `batman-adv` virtual device
+
+Like BT8-bridge but with only one hardif (`mesh0`) — no wired uplink:
+
+```uci
+config interface 'bat0'
+    option proto 'batadv'
+    option routing_algo 'BATMAN_V'
+    option gw_mode 'off'
+
+# Per-VLAN sub-devices on bat0 — one per SSID's tag, plus mgmt.
+config device
+    option name 'bat0.10'    # network — for our own mgmt
+    option type '8021q'
+    option ifname 'bat0'
+    option vid '10'
+
+config device
+    option name 'bat0.30'    # untrusted (GUEST SSID)
+    option type '8021q'
+    option ifname 'bat0'
+    option vid '30'
+
+# Repeat for vid 40 (iot), 41 (game), and any trusted VID (e.g. 20).
+```
+
+#### 4. Management interface on `network`/VLAN 10
+
+DHCP from thebeyond's Kea — phantasma and gateway resolve via
+registry-derived DNS records once DHCP lands the lease.
+
+```uci
+config interface 'mgmt'
+    option device 'bat0.10'
+    option proto 'dhcp'
+```
+
+Reserve a `network.hosts.<ap-name>` entry in the registry (host ID
+in 5–9 range — see network host-ID convention) and pin it via Kea
+host-reservation so the address is stable.
+
+#### 5. SSIDs bound to per-VLAN sub-devices
+
+Each AP-mode `wifi-iface` is bound directly to its `bat0.<vid>` device
+via a matching `network` block — that injects client frames into
+batman tagged with the right VID. Repeat per SSID:
+
+```uci
+# Network record per VID — pure L2, no IP, no proto
+config interface 'guest_l2'
+    option device 'bat0.30'
+    option proto 'none'
+```
+
+```uci
+config wifi-iface 'guest'
+    option device 'radio0'           # 2.4GHz client AP, for example
+    option mode 'ap'
+    option network 'guest_l2'        # tags frames into VID 30
+    option ssid 'GuestNet'
+    option encryption 'sae'
+    option key '<GUEST_PSK>'
+```
+
+Repeat for IOT (vid 40), GAME (vid 41), HOME/trusted (vid 20), and any
+others. The AP doesn't care which gateway terminates each VLAN — it
+just tags and lets batman deliver.
+
+#### 6. Verify
+
+```sh
+batctl if                            # mesh0 listed as the only hardif
+batctl n                             # neighbours include BT8-bridge + BT8-gateway
+ip -4 addr show dev bat0.10          # DHCP lease from thebeyond's Kea
+ping 10.91.10.10                     # phantasma — confirms 1-mesh-hop path
+ping 10.91.10.1                      # thebeyond MGMT
+```
+
+Connect a client to each broadcast SSID and confirm it gets the right
+DHCP lease (from thebeyond for hostile zones, from BT8-gateway for
+trusted zones) — the AP's tagging plus batman's delivery do all the
+work.
+
+### D. Manual setup: homelab L2 switch (`arseille`)
+
+**Role:** primary switch for homelab gear (VM hosts, NAS, etc.) wired
+to BT8-gateway. Carries trunks for whatever VLANs the homelab needs
+(typically `management`/11, `lab`/21, `app`/50; possibly `trusted`/20
+and others over time). Holds a single management address on
+`netmgmt`/12.
+
+**Why `netmgmt`/12 for management** (and not `network`/10): the switch
+is *wired* to BT8-gateway. Admin from the BT8-gw side hits 0 mesh hops
+on netmgmt (BT8-gw routes 10.97.12.x directly), but 2 mesh hops on
+network (BT8-gw can't route VLAN 10, so it has to hairpin via
+thebeyond). See the
+[placement principle](#network-device-placement-zero-or-one-mesh-hop).
+
+**Configuration shape** (vendor-specific syntax — generic outline):
+
+- **Mgmt interface:** VLAN 12, address `10.97.12.2/24` (`arseille` per
+  registry), gateway `10.97.12.1` (BT8-gateway), DNS `10.255.255.1`
+  (thebeyond's local resolver via transit, same upstream BT8-gateway
+  uses).
+- **Trunk port to BT8-gateway:** tagged for every VLAN the homelab
+  needs (`management`/11, `netmgmt`/12, `lab`/21, `app`/50, plus
+  others as services migrate). Native/untagged: nothing — keep all
+  membership explicit.
+- **Access ports for homelab gear:** untagged on the host's primary
+  zone (typically `management` for VM hosts, `lab` for experimental
+  machines).
+- **No L3 elsewhere:** the switch's only IP is the netmgmt mgmt
+  interface. No SVIs on data VLANs.
+
+**No batman, no mesh.** The switch is a pure 802.1Q device on a wire to
+BT8-gateway. It does not participate in the batman fabric — that
+fabric terminates at BT8-gateway's per-VLAN bridges, which then trunk
+plain VLAN-tagged frames out the wire to the switch.
+
+**Verify:**
+
+```sh
+# From a host on the homelab — typically on management/11
+ping 10.97.12.2                     # arseille mgmt
+ssh admin@10.97.12.2                # admin login
+# From the switch CLI:
+ping 10.97.12.1                     # BT8-gateway (default route)
+ping 10.255.255.1                   # thebeyond via transit (DNS upstream)
+ping 10.91.10.10                    # phantasma — 1 mesh hop, confirms transit routing works
 ```
 
 ## Resolved decisions
