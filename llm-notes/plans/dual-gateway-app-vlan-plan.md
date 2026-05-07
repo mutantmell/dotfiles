@@ -1,7 +1,23 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
 **Status:** Drafted (not started)
-**Last updated:** 2026-05-07 (revised: simplification pass — Phase 6 folded into Phase 5
+**Last updated:** 2026-05-07 (revised: added security verification, layered —
+Phase 0a gains three small universal eval-time assertions in
+`modules/router6/default.nix` (WAN inputRules accept WG only; no DHCP server
+on NAT interfaces; `icmpEcho = "disable"` on NAT zones) plus a small generic
+module-level VM test (`router6-listening-sockets`) closing the wildcard-bind
+gap in the existing suite; Phase 0b gains a post-cutover external scan as a
+required step before declaring Phase 0 done; new "External security scan"
+runbook (Reference E) documents the off-network scan procedure as the
+empirical thebeyond-specific audit; Phase 3 re-runs the runbook (largest
+zone-topology change). Deliberately omitted: a fourth WG-port-uniqueness
+assertion (runtime service-start failure is loud enough), a UDP-stealth VM
+test (assertion (a) catches the regression class structurally; the runbook
+covers the residual gap empirically), and trust-level taxonomies in router6
+(project-policy layering — would live in a project-side wrapper if pursued
+later).
+
+Earlier: simplification pass — Phase 6 folded into Phase 5
 (DMZ renumber happens once the only remaining DMZ residents are langport/trista);
 `router6.routes` option introduction moved from Phase 1 to Phase 2 (paired with first
 use); pre-flight `switchVlans` cleanup folded into Phase 0a step 1; per-prefix-length
@@ -946,6 +962,99 @@ Steps:
    Also run the existing test suite (`./scripts/run-checks.sh`) and a
    pure-eval test for the per-prefix-length helpers. **0a does not
    merge until all checks pass.**
+6. **Generic router6 listening-socket audit test.** No existing test
+   runs `ss -tlnp`/`ulnp` to catch services accidentally bound
+   wildcard (`0.0.0.0` / `[::]`). A wildcard-bound kresd/kea is
+   still firewall-blocked, but defense-in-depth prefers explicit
+   interface bind so a firewall mistake doesn't immediately mean
+   exposure — and the assertions in step 7 don't cover this class
+   of mistake.
+
+   Add `tests/modules/router6-listening-sockets.nix` that boots a
+   minimal router6 with the typical service set the module wires up
+   (kresd as DNS resolver, plus whatever else the module enables by
+   default — kea is enabled per-zone, so configure it on at least one
+   zone) and asserts via `ss -tlnp` and `ss -ulnp` that no service
+   binds to `0.0.0.0` or `[::]`. Each module-managed service should
+   be bound to a specific internal interface, never wildcard.
+
+   This is the smallest possible test (one VM, no attacker peer
+   needed) and is generic to the module. If `router6` ever wires up
+   a new service, this test forces the author to think about the
+   bind interface upfront.
+
+   Skip duplicating: TCP-stealth-on-closed-port (covered by
+   `router6-firewall.nix` Test 3), ICMP echo dropped (Test 4), drop
+   policy active (Test 1), inter-zone forward matrix (covered by
+   `router6-firewall-zones.nix`), UDP-stealth empirical scan (the
+   step 7 assertions catch the regression class structurally; the
+   Phase 0b runbook's UDP scan covers the residual gap empirically —
+   a third synthetic-network layer adds little), the external-zone
+   accept set on thebeyond specifically (better caught by Phase 0b's
+   empirical scan than by a VM test that re-imports thebeyond's full
+   config with all its microvm/sops dependencies).
+
+   Run `./scripts/run-checks.sh router6-listening-sockets` alongside
+   the full suite.
+7. **Eval-time security assertions in router6.** Cheaper and earlier
+   than the VM tests — fire at flake evaluation, no build needed.
+   Add three small universal assertions to `modules/router6/default.nix`'s
+   existing `assertions` list. All three are scoped to the router6
+   module itself (extractable; not project-specific). Trust-level
+   taxonomies and project-specific zone-policy enforcement are
+   deliberately *not* added here — those belong in a project-side
+   layer (e.g., on top of `lib/common/data/network.nix`) if needed
+   later. WG listen-port uniqueness is also deliberately omitted:
+   the runtime service-start failure is loud enough that an
+   eval-time assertion adds little.
+
+   The three assertions:
+
+   **(a) WAN zones accept wireguard only.** Derive `wanZones`
+   (zones bound to interfaces with `nat.enable = true`, via the
+   existing `natInterfaces` helper in `lib.nix:131`) and `wgPorts`
+   (listen ports of configured wireguard interfaces,
+   `cfg.topology.*.wireguard.port`). Assert every rule in each WAN
+   zone's `inputRules` is "wireguard-shaped" — `verdict = "accept"`,
+   `udp.dport` set, every port in `wgPorts`. Anything else (TCP
+   accept, UDP on a non-WG port, missing verdict) fails evaluation
+   with a message naming the zone, rule index, and the legitimate
+   escape hatch (`extraInputRules`). ~30 lines. **This is the
+   load-bearing one** — it catches the regression class the operator
+   is most worried about.
+
+   **(b) No DHCP server on a NAT (WAN) interface.** Direct
+   counterpart to the existing dhcp6 assertion at `default.nix:770-779`,
+   just keying off `dhcp.enable` on a NAT-flagged interface instead
+   of `dhcp6.enable` on a DHCP-client interface. Catches "Kea
+   accidentally enabled on WAN" — would advertise the router as a
+   DHCP server to the ISP segment. ~5 lines, mirrors the existing
+   pattern exactly. Cheap addition alongside (a).
+
+   **(c) `icmpEcho = "disable"` on NAT zones.** A NAT-enabled zone
+   with `icmpEcho = "enable"` means the router answers pings from
+   the public internet — info leak plus a (small) amplification
+   surface. ~5 lines, reuses the same `wanZones` derivation as (a).
+   Cheap addition alongside (a).
+
+   ~40 lines total in the existing assertion block; the patterns to
+   mirror are already in `default.nix` lines 770 (per-interface
+   condition) and 821 (per-zone iteration). Cover with pure-eval
+   tests under `tests/lib/` — one positive and one negative case per
+   assertion — constructed against minimal synthetic configs. No VM
+   tests needed for the assertions themselves.
+
+   Layered defense for the WAN attack surface:
+   - **Assertions (this step)** — structural, eval-time. Cheapest
+     possible signal. Catches the three classes of mistake above
+     before any build.
+   - **External scan runbook (Phase 0b step 12)** — empirical, real
+     hardware. Catches CPE/ISP-side surprises and any runtime gap
+     between what the assertion proved structurally and what the
+     kernel actually drops.
+
+   **0a does not merge until (5), (6), (7), and the existing suite
+   all pass.**
 
 After Phase 0a: source tree is in the post-refactor shape, validated
 by tests, with no hardware change. Network is still on the existing
@@ -1010,6 +1119,24 @@ Steps (continuing the numbering):
     section, but don't pivot Phase 1 work in flight.
 11. The current production BT8 is now physically a dumb-AP-with-mesh.
     Going forward, we'll call this device **BT8-bridge**.
+12. **External security scan against the live WAN edge.** Even with the
+    Phase 0a tests green, the synthetic test network is not the real
+    ISP edge — the CPE in front of the modem may bridge or NAT-traverse
+    in unexpected ways, and the real WAN address is what matters. Run
+    the [external scan runbook](#e-external-security-scan) from an
+    off-network host (mobile hotspot or short-lived VPS) against
+    `thebeyond`'s real WAN IPv4 (and IPv6 link address if the ISP
+    delegated one in step 10). Expected result: TCP all-filtered, UDP
+    no-port-closed signal anywhere, ICMP echo unanswered, only the
+    three wireguard UDP ports reachable for an authenticated handshake.
+
+    **Phase 0b is not declared done until this scan passes.** If the
+    scan turns up an unexpected open port, the most likely culprits
+    (in rough order of likelihood) are: ISP CPE forwarding traffic to
+    a stale internal address, a service accidentally bound to
+    `0.0.0.0` instead of an internal bridge, or an `external` zone
+    input rule that wasn't pruned during the per-gateway-split
+    refactor. Diagnose before relying on the system.
 
 After Phase 0: single-gateway model on new hardware in the right physical
 locations, registry refactored for the per-gateway split, phantasma on its
@@ -1056,7 +1183,6 @@ Steps:
    address on `netmgmt`/12 once that VLAN is stood up; the operator
    updates its UCI directly. A follow-up plan will fold this switch
    into the flake.
-
 After Phase 1: APP and transit zones exist on `thebeyond`; APP is
 member-only, awaiting BT8-gateway in Phase 2. The transit zone listens
 for DNS/NTP (kresd auto-binds via the `dnsInterfaces` derivation) and
@@ -1260,6 +1386,14 @@ Steps:
 5. Verify: every existing host reaches its expected peers (DMZ ↔ APP ↔
    GUEST ↔ INFRA paths through the right gateway); operator workstation
    can SSH to `thebeyond`, `BT8-bridge`, and `BT8-gateway`.
+6. **Re-run the [external scan runbook](#e-external-security-scan).**
+   Phase 3 is the largest single change to `thebeyond`'s zone topology
+   in this plan (trusted zones removed, transit zone now active). Re-
+   scan to confirm the WAN surface is unchanged. Pay particular
+   attention to step 5 (internal listening-socket spot-check) and
+   step 6 (rendered ruleset review) — the rule re-derivation is what
+   most plausibly leaks something inadvertently, and those steps are
+   the ones that catch it.
 
 After Phase 3: dual-gateway model is production. Manual UCI on
 `BT8-gateway` and `BT8-bridge`. DMZ residents still at `10.97.100.x`
@@ -2156,6 +2290,165 @@ ends up at on netmgmt is documented in the follow-up plan that brings
 the switch into the flake (which will also add a `netmgmt.hosts` entry
 for it). Until then, the switch is a known consumer of `netmgmt`/12
 but has no registry entry.
+
+### E. External security scan
+
+**Role:** empirically verify, from outside our network, that
+`thebeyond` exposes only the documented surface (three wireguard UDP
+ports). Complements the Phase 0a eval-time WG-only assertion, which
+proves the *config* is shaped right structurally — this runbook
+proves the live ISP edge actually behaves accordingly (CPE quirks,
+public-IP reachability, IPv6 if delegated, kernel/nftables actually
+applying the policy as expected).
+
+**When to run:**
+
+- Phase 0b step 12 — first deploy of `thebeyond` as the gateway. **Required
+  before declaring Phase 0 done.**
+- Phase 3 deploy — trusted-zone migration. The largest single change
+  to `thebeyond`'s zone topology in this plan; the rule re-derivation
+  is the most plausible regression vector. Re-scan after deploy.
+- After any change to `hosts/thebeyond/router.nix`'s `firewall` block
+  or `external` zone definition (operator's call — phases that don't
+  touch the external zone, like Phase 1 or Phase 5's APP service
+  moves on the BT8-gateway side, can rely on the eval-time assertion
+  + CI tests rather than re-running the live scan).
+
+**Off-network position.** The scan must originate from outside our
+network, not from inside any of our zones (an internal scan only
+proves zone-to-zone policy, not WAN exposure). Two reasonable
+positions:
+
+- **Mobile hotspot** — laptop tethered to phone's cellular data,
+  Wi-Fi disabled. Easiest; gives a residential-like external
+  viewpoint. Use this for routine re-runs.
+- **Short-lived VPS** — a $5/month VPS spun up just for the scan
+  window, terminated after. Best for fully off-ISP scans (in case the
+  cellular carrier and home ISP share infrastructure that masks
+  something). Use for the Phase 0b initial scan.
+
+**Inputs:**
+
+- `WAN_V4` — `thebeyond`'s public IPv4 (read it off `dig +short
+  myip.opendns.com @resolver1.opendns.com` from inside the network,
+  or from `networkctl status wan` on `thebeyond`).
+- `WAN_V6` — `thebeyond`'s WAN-interface global IPv6 if the ISP
+  delegated anything beyond link-local (Phase 0b step 10's PD result
+  determines whether this is in scope).
+
+#### 1. TCP scan
+
+```sh
+# All-ports stealth check. -Pn skips host discovery (we know it's
+# there); --max-retries 1 keeps the scan time bounded; -T3 is the
+# default polite timing.
+sudo nmap -sS -Pn -p- --max-retries 1 -T3 -oN /tmp/thebeyond-tcp.txt \
+    "${WAN_V4}"
+```
+
+**Expected:** every port reports `filtered` (or the summary line
+"All 65535 scanned ports on … are in ignored states. Not shown:
+65535 filtered tcp ports"). No `open`, no `closed`. Anything else
+is a finding.
+
+If `WAN_V6` is reachable, repeat with `-6`:
+
+```sh
+sudo nmap -6 -sS -Pn -p- --max-retries 1 -oN /tmp/thebeyond-tcp6.txt \
+    "${WAN_V6}"
+```
+
+#### 2. UDP scan (top 1000 + explicit WG ports)
+
+```sh
+# UDP is slow; scope to the top 1000 plus the WG ports we expect.
+sudo nmap -sU -Pn --top-ports 1000 --max-retries 2 \
+    -p "U:38506,59362,51820,T:" \
+    -oN /tmp/thebeyond-udp.txt "${WAN_V4}"
+# (the empty T: is just a guard against accidental TCP fall-through;
+# the -sU flag is what controls the scan type.)
+```
+
+**Expected:**
+
+- Wireguard ports (`38506`, `59362`, `51820`): `open|filtered`. WG
+  silently absorbs unauthenticated packets, which nmap can't
+  distinguish from filtered. This is correct.
+- All other ports: `open|filtered` *or* `filtered`. **The disqualifier
+  is `closed`** — that means the host responded with ICMP-port-
+  unreachable, which would mean we're answering instead of dropping.
+  Anything reporting `open` (a real UDP application replied) is a
+  hard fail.
+
+Repeat with `-6` against `WAN_V6` if applicable.
+
+#### 3. ICMP
+
+```sh
+ping -c 5 -W 2 "${WAN_V4}"        # expect: 100% loss
+ping6 -c 5 -W 2 "${WAN_V6}"       # expect: 100% loss (if applicable)
+```
+
+#### 4. Wireguard handshake (sanity-check the WG ports actually work)
+
+A WG-keyed peer (operator's wg-vpn or wg-ba laptop) should still
+complete a handshake against `WAN_V4:38506` (or 59362 / 51820 per
+config). This is "we didn't accidentally lock ourselves out", not
+part of the security verification proper.
+
+```sh
+# From the wg-keyed peer, against the relevant tunnel:
+sudo wg-quick up wg-vpn
+ping -c 3 10.91.10.1              # thebeyond's network gateway via tunnel
+sudo wg-quick down wg-vpn
+```
+
+#### 5. Internal listening-socket spot-check
+
+From an SSH session on `thebeyond` (post-deploy):
+
+```sh
+ss -tlnp | grep -vE '127\.0\.0\.1|\[::1\]'   # services bound externally
+ss -ulnp | grep -vE '127\.0\.0\.1|\[::1\]'
+
+# Should show only:
+#   - wireguard UDP 38506 / 59362 / 51820 on the WAN-facing UDP socket
+#     (or wildcard, since wireguard binds globally and the firewall
+#     scopes exposure)
+#   - kresd UDP/TCP 53 bound to internal bridges (brMGMT, brTRANSIT,
+#     brDMZ, etc.) — *not* to 0.0.0.0 / [::]
+#   - kea UDP 67 / 547 on the bridges it serves
+#   - sshd TCP 22 (operator policy decides whether this is internal-
+#     only or wildcard; record either way in the inventory)
+```
+
+Anything bound wildcard that isn't in the documented inventory is a
+finding even if the firewall blocks it externally — defense-in-depth
+prefers explicit bind-to-interface.
+
+#### 6. Rendered ruleset review
+
+```sh
+nft list ruleset > /tmp/thebeyond-nft.txt
+# Inspect the input chain on the external zone — should match the
+# `inputRules` block in hosts/thebeyond/router.nix. The only accepts
+# in the external→input path should be UDP 38506/59362/51820 plus
+# whatever ICMPv6 ND/PMTUD the router6 module always installs.
+grep -A 50 'chain.*input.*external' /tmp/thebeyond-nft.txt
+```
+
+Compare against `git show HEAD:hosts/thebeyond/router.nix` for the
+expected accept set. Any extra accept rule is a finding to investigate
+before declaring the scan passed.
+
+#### 7. Record the result
+
+Save the four scan outputs (`thebeyond-tcp.txt`, `thebeyond-tcp6.txt`,
+`thebeyond-udp.txt`, `thebeyond-nft.txt`) to a private location with
+the date and the deploy SHA. These are the audit artifacts — the
+operator's own record that on $date, the live system exposed only the
+documented surface. A follow-up investigation a year out will thank
+past-you for keeping them.
 
 ## Resolved decisions
 
