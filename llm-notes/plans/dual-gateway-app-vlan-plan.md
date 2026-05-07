@@ -291,10 +291,35 @@ After the move:
   pattern remains) keep targeting `brINFRA`. A pure rename or a per-VM
   match is fine — operator's call.
 
-Registry change: in `lib/common/data/network.nix`, move
-`phantasma = 2` from `management.hosts` to `network.hosts` (host ID 2 stays
-free in `management`). DNS records, `/etc/hosts`, and egress rules
-regenerate from the registry, so no other call-site changes are required.
+Registry change: in `lib/common/data/network.nix`, move `phantasma` from
+`management.hosts` to `network.hosts` and re-number it to host ID `10`
+(see [Network host-ID convention](#network-host-id-convention) below for
+why phantasma lands at `.10` rather than `.2`). Host ID `2` stays free in
+`management`. DNS records, `/etc/hosts`, and egress rules regenerate from
+the registry, so no other call-site changes are required.
+
+### Network host-ID convention
+
+`network` is the only zone that mixes transport infrastructure (gateways,
+wireless-bridge mgmt, future managed-switch mgmt IPs) with a service
+(`phantasma`). To keep that distinction legible in the registry, host IDs
+1–9 are reserved for transport and 10+ for services:
+
+```nix
+network.hosts = {
+  thebeyond = 1;     # primary gateway
+  bt8gw     = 3;     # secondary gateway — direct-connected route to
+                     #   phantasma's subnet; no transit hop on forward
+                     #   direction for HOME → phantasma flows
+  bt8bridge = 4;     # wireless-bridge mgmt (single mgmt IP on bat0.10)
+  # 2, 5–9 reserved for future transport (more BT8s, switch mgmt, etc.)
+  phantasma = 10;
+};
+```
+
+This convention is `network`-specific. Other zones either have no
+transport role (DMZ, APP, HOME, etc.) or are already constrained
+(`transit` is `/30`), so the 1–9 reservation only applies here.
 
 ### New zones
 
@@ -346,9 +371,11 @@ prefix-length-aware (`hostId` must fit in `2^(32-prefixLength4) - 2`).
 
 ### BT8-gateway transition host IDs
 
-Each migrated zone needs a `bt8gw` entry in `hosts` so BT8-gateway can
-hold a real registry-allocated IP during Phase 2 testing (when `.1` is
-still owned by `thebeyond`). Pattern mirrors `bt8gw-transit = 2`:
+Each migrated zone (other than `network`, which gets a permanent `bt8gw`
+entry per the [convention above](#network-host-id-convention)) needs a
+`bt8gw` entry in `hosts` so BT8-gateway can hold a real registry-allocated
+IP during Phase 2 testing (when `.1` is still owned by `thebeyond`).
+Pattern mirrors `bt8gw-transit = 2`:
 
 ```nix
 app.hosts.bt8gw        = 2;   # 10.97.50.2
@@ -577,15 +604,18 @@ Steps:
    fine for this topology; flag it in operator handover.
 
    **Same first-deploy: move phantasma from VLAN 11 (INFRA) to VLAN 10
-   (`network`)** so its IP changes once at deploy time. Concretely:
-   - In `lib/common/data/network.nix`, move `phantasma = 2` from
-     `management.hosts` to `network.hosts`.
+   (`network`) and re-number to host ID 10** so its addressing changes
+   once at deploy time. Concretely:
+   - In `lib/common/data/network.nix`, remove `phantasma = 2` from
+     `management.hosts` and add `phantasma = 10` to `network.hosts`
+     (alongside the permanent `bt8gw = 3` and `bt8bridge = 4` entries
+     per the [host-ID convention](#network-host-id-convention)).
    - In `hosts/thebeyond/microvm/guests/phantasma/microvm.nix`, rename
      the tap from `vm-11-phantasma` to `vm-10-phantasma`
      (`microvm.interfaces[].id`) and update the MAC from
-     `5E:11:AD:01:00:02` to `5E:0A:AD:01:00:02`. The second octet
+     `5E:11:AD:01:00:02` to `5E:0A:AD:01:00:0A`. The second octet
      encodes the VLAN ID in hex (`0x0A` = 10) per existing convention;
-     the last octet (`02`) keeps phantasma's host ID unchanged.
+     the last octet (`0A`) encodes the new host ID 10.
    - In `hosts/thebeyond/router.nix`, replace
      `systemd.network.networks."10-vm-infra"` with a `10-vm-network`
      rule that matches `vm-10-*` and bridges to `brMGMT`. Keep the
@@ -594,7 +624,7 @@ Steps:
      zone in `router6.zones` so phantasma can serve DNS on its new
      segment. (NTP is already permitted on `network`.)
    - Update phantasma's microvm config if it pins its own IP, to
-     `10.97.10.2`. Otherwise the registry-derived helpers
+     `10.97.10.10`. Otherwise the registry-derived helpers
      (`mkExtraHosts`, `mkUnboundLocalData`) regenerate automatically.
 
    Stage `nixos-anywhere` from a build that includes the bond0 removal,
@@ -1110,10 +1140,10 @@ batman will not interoperate.
 config interface 'mgmt'
     option device 'bat0.10'
     option proto 'static'
-    option ipaddr '10.97.10.<HOST_ID>'   # pick an unused host ID per registry
+    option ipaddr '10.97.10.4'            # bt8bridge per registry (network.hosts.bt8bridge)
     option netmask '255.255.255.0'
     option gateway '10.97.10.1'           # thebeyond
-    list dns '10.97.10.2'                 # phantasma (now on network)
+    list dns '10.97.10.10'                # phantasma (now on network)
 ```
 
 No other VLAN bridges or sub-interfaces are needed on BT8-bridge.
@@ -1269,7 +1299,7 @@ config interface 'transit'
     option ipaddr '10.97.99.2'
     option netmask '255.255.255.252'  # /30
     option gateway '10.97.99.1'        # thebeyond — default route
-    list dns '10.97.10.2'              # phantasma (now on network)
+    list dns '10.97.10.10'             # phantasma (now on network)
 
 config interface 'transit6'
     option device 'br-v99'
@@ -1298,10 +1328,10 @@ config device
 config interface 'mgmt'
     option device 'br-v10'
     option proto 'static'
-    option ipaddr '10.97.10.<HOST_ID>'
+    option ipaddr '10.97.10.3'          # bt8gw per registry (network.hosts.bt8gw)
     option netmask '255.255.255.0'
     option gateway '10.97.10.1'         # thebeyond owns network gateway
-    list dns '10.97.10.2'               # phantasma (now on network)
+    list dns '10.97.10.10'              # phantasma (now on network)
 ```
 
 #### 3a. Client AP SSIDs (per-VLAN, optional in early phases)
@@ -1344,7 +1374,7 @@ config dnsmasq
     option local '/internal/'
     option domain 'internal'
     option authoritative '1'
-    list server '10.97.10.2'         # phantasma upstream (now on network)
+    list server '10.97.10.10'        # phantasma upstream (now on network)
 
 config dhcp 'app'
     option interface 'app'
