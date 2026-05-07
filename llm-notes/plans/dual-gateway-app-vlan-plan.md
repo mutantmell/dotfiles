@@ -1518,15 +1518,17 @@ config interface 'bat0'
     option gw_mode 'off'
 
 # Per-VLAN sub-interfaces of bat0 (one per carried VLAN).
-# Required for both L3-terminating VLANs (10, 11, 20, 21, 50, 99) AND
-# L2-only passthrough VLANs (30, 31, 40, 41, 100) — without bat0.<tag>,
-# frames for those VLANs have nowhere to land on this device.
+# Required for both L3-terminating VLANs (11, 12, 20, 21, 50, 99) AND
+# L2-only passthrough VLANs (10, 30, 31, 40, 41, 100) — without
+# bat0.<tag>, frames for those VLANs have nowhere to land on this device.
+# VLAN 10 (network) is passthrough so office-side dumb APs reach
+# thebeyond via batman; BT8-gateway holds no L3 on it (Option 2).
 config device
     option name 'bat0.50'
     option type '8021q'
     option ifname 'bat0'
     option vid '50'
-# ... repeat for 10, 11, 20, 21, 30, 31, 40, 41, 99, 100 ...
+# ... repeat for 10, 11, 12, 20, 21, 30, 31, 40, 41, 99, 100 ...
 ```
 
 #### 3. Wired ports + per-VLAN bridges
@@ -1555,9 +1557,25 @@ config interface 'app'
     option netmask '255.255.255.0'
     option ip6assign '64'              # auto-assign GUA /64 from delegated prefix
 
-# ... repeat for INFRA (11), HOME (20), LAB (21) — these are
-# BT8-gateway-terminated. GUEST/30, ADU/31, IOT/40, GAME/41 are
-# L2-only passthrough on this device (see below).
+# netmgmt — for the homelab L2 switch (arseille) and any other
+# wired-to-BT8-gw network gear. Locked down separately from
+# management/11 so VM hosts and network gear don't share a plane.
+config device
+    option name 'br-v12'
+    option type 'bridge'
+    list ports 'bat0.12'
+    list ports 'lan1.12'              # arseille trunk port
+
+config interface 'netmgmt'
+    option device 'br-v12'
+    option proto 'static'
+    option ipaddr '10.97.12.1'
+    option netmask '255.255.255.0'
+    option ip6assign '64'
+
+# ... repeat for INFRA/management (11), HOME/trusted (20), LAB (21)
+# — these are BT8-gateway-terminated. GUEST/30, ADU/31, IOT/40,
+# GAME/41 are L2-only passthrough on this device (see below).
 ```
 
 Transit VLAN (`/30` point-to-point with `thebeyond`):
@@ -1712,9 +1730,10 @@ config dhcp 'app'
 
 # Repeat per VLAN — but only for BT8-gateway-terminated VLANs
 # (trusted/20, lab/21, app/50). DHCP/RA for the L2-passthrough VLANs
-# (guest/30, adu/31, iot/40, game/41, dmz/100) runs on thebeyond's Kea,
-# not here.
-# For management/INFRA, keep DHCP disabled — INFRA hosts use static IPs.
+# (network/10, guest/30, adu/31, iot/40, game/41, dmz/100) runs on
+# thebeyond's Kea, not here.
+# For management/INFRA and netmgmt, keep DHCP disabled — both planes
+# use static IPs (registry-derived) so addresses are stable.
 ```
 
 Static reservations matching the registry should be added per VLAN. The
@@ -1755,10 +1774,17 @@ config zone 'trusted'
     option output 'ACCEPT'
     option forward 'REJECT'
 
+config zone 'netmgmt'
+    option name 'netmgmt'
+    list network 'netmgmt'           # br-v12: arseille + future net gear
+    option input 'REJECT'             # locked-down infra plane —
+    option output 'ACCEPT'             # admin SSH gated by explicit rule below
+    option forward 'REJECT'
+
 # ... mgmt (binds br-v11), lab (binds br-v21) ...
-# No `untrusted` fw4 zone here — guest/iot/game/adu are L2-only on this
-# device. Their fw enforcement runs on thebeyond's `untrusted`/`iot`/
-# `game`/`adu` zones in router6.
+# No fw4 zone for `network`/10 — VLAN 10 is L2-only passthrough on this
+# device, no L3 interface to bind. Same for guest/iot/game/adu/dmz —
+# their fw enforcement runs on thebeyond's router6 zones.
 
 # Forwarding pairs (mirrors router6 accessTo / forwardRules):
 config forwarding
@@ -1772,6 +1798,18 @@ config forwarding
 config forwarding
     option src 'trusted'
     option dest 'mgmt'
+
+# Admin from management/INFRA can reach netmgmt for switch CLI etc.
+config forwarding
+    option src 'mgmt'
+    option dest 'netmgmt'
+
+# netmgmt → transit for outbound NTP/DNS only — no inbound from netmgmt
+# to anywhere else. Network gear initiates updates; nothing needs to
+# initiate connections *from* the switch into the rest of the network.
+config forwarding
+    option src 'netmgmt'
+    option dest 'transit'
 
 # ... etc ...
 
