@@ -1,7 +1,7 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
 **Status:** Drafted (not started)
-**Last updated:** 2026-05-07 (revised: split IP-space model)
+**Last updated:** 2026-05-07 (revised: split IP-space model + hostile-zone convergence)
 **Related:**
 - `done/secure-mgmt-vlan-plan.md` — established INFRA/MGMT split this plan extends
 - `done/openwrt-python-builder.md` — Image Builder pipeline this plan adds device types to
@@ -45,7 +45,10 @@ deploys via the operator's workstation handle Phases 0–4.
 - Reflashing/decommissioning the last remaining E8450 mesh AP. Four of five
   have already been pulled in advance of this plan; the final one is
   optional and tracked separately.
-- Migrating `glorious` (ADU) routing. ADU keeps its current model.
+- Decommissioning `glorious`'s role beyond ADU's L3 gateway. ADU's
+  L3 gateway moves to `thebeyond` as part of the gateway split (along
+  with the other untrusted-family zones); any remaining glorious-side
+  responsibilities are out of scope here.
 - Headscale, IPv6 GUA stable ingress, and other in-flight zone work
   (covered by their own plans). Where they touch the same files, this plan
   notes it but does not subsume them.
@@ -109,9 +112,12 @@ Trade-offs of keeping `batman-adv` on `thebeyond`:
                                    │
                             ┌──────┴──────────┐
                             │  BT8-gateway    │  (office — secondary gateway)
-                            │  app, mgmt,     │
-                            │  trusted, lab,  │  + 802.11s mesh node
-                            │  untrusted...   │  + AP radios (clients)
+                            │  L3: app, mgmt, │
+                            │      trusted,   │  + 802.11s mesh node
+                            │      lab        │  + AP radios for ALL VLANs
+                            │  L2 only:       │    (incl. iot/game/guest —
+                            │   iot/game/     │    SSIDs broadcast here, but
+                            │   guest/adu     │    L3 lives on thebeyond)
                             └──┬──────────────┘
                                │ wired (trunk, plain 802.1Q — not batman)
                                │
@@ -152,9 +158,13 @@ inside `BT8-gateway`.
 - **Static routes on `BT8-gateway`**: default route covers both DMZ and
   `network` (and anything else thebeyond-side), since both live in
   thebeyond's `10.91.0.0/16` / `fdc6:55f2:0a5e:0000::/52` slice.
-- **DMZ passthrough**: DMZ VLAN is L2-bridged across the mesh through
-  `BT8-gateway`, but `BT8-gateway` has *no IP* on DMZ. DMZ frames are
-  transparently forwarded to/from `thebeyond` where the DMZ gateway lives.
+- **L2-only passthrough on `BT8-gateway`**: every hostile-zone VLAN
+  (`untrusted`/30, `iot`/40, `game`/41, `adu`/31) plus DMZ (100) is
+  bridged through `BT8-gateway` with no IP — frames cross batman to
+  `thebeyond` where the L3 gateway and firewall live. SSIDs for these
+  VLANs are still broadcast from BT8 APs (BT8-gateway and any other
+  mesh AP), but client traffic terminates on `thebeyond`. This is the
+  hostile-zone convergence model — see resolved decision below.
 - **Transit VLAN passes through `BT8-bridge`**: like every other VLAN,
   the transit VLAN (99) is carried as `bat0.99` across the batman
   fabric. `BT8-bridge` participates in transit only as a passthrough
@@ -261,14 +271,17 @@ Image Builder).
 | `management`   | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
 | `trusted`      | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
 | `lab`          | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
-| `untrusted`*   | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
-| `media`        | `BT8-gateway`  | (wg-keyed only)     | no  |
+| `untrusted`*   | `thebeyond`    | `thebeyond` Kea     | no  |
+| `media`        | `thebeyond`    | (wg-keyed only)     | no  |
 
 (BT8-gateway DHCP is dnsmasq for v4 + odhcpd for v6/RA, configured under
 the unified OpenWrt `/etc/config/dhcp` UCI tree.)
 
-\* `untrusted` here covers GUEST, IOT, GAME. ADU (`untrusted` zone, VLAN 31)
-stays with `glorious` per current setup; routing for it is unchanged.
+\* `untrusted` here covers GUEST, IOT, GAME, and ADU. All four converge on
+`thebeyond` per the hostile-zone convergence resolved decision below;
+BT8-gateway passes their VLAN frames as L2-only batman traffic without
+terminating L3 on those bridges. ADU's L3 gateway moves from `glorious`
+to `thebeyond`; any remaining glorious-specific behavior is out of scope.
 
 ## Network registry changes
 
@@ -334,17 +347,12 @@ Concrete addresses produced by this scheme:
 | management  | 11   | bt8gw     | `10.97.11.0/24`   | `fdc6:55f2:0a5e:100b::/64`      |
 | trusted     | 20   | bt8gw     | `10.97.20.0/24`   | `fdc6:55f2:0a5e:1014::/64`      |
 | lab         | 21   | bt8gw     | `10.97.21.0/24`   | `fdc6:55f2:0a5e:1015::/64`      |
-| untrusted   | 30   | bt8gw     | `10.97.30.0/24`   | `fdc6:55f2:0a5e:101e::/64`      |
-| iot         | 40   | bt8gw     | `10.97.40.0/24`   | `fdc6:55f2:0a5e:1028::/64`      |
-| game        | 41   | bt8gw     | `10.97.41.0/24`   | `fdc6:55f2:0a5e:1029::/64`      |
+| untrusted   | 30   | thebeyond | `10.91.30.0/24`   | `fdc6:55f2:0a5e:001e::/64`      |
+| iot         | 40   | thebeyond | `10.91.40.0/24`   | `fdc6:55f2:0a5e:0028::/64`      |
+| game        | 41   | thebeyond | `10.91.41.0/24`   | `fdc6:55f2:0a5e:0029::/64`      |
 | app         | 50   | bt8gw     | `10.97.50.0/24`   | `fdc6:55f2:0a5e:1032::/64`      |
+| adu         | 31   | thebeyond | `10.91.31.0/24`   | `fdc6:55f2:0a5e:001f::/64`      |
 | transit     | 99   | (special) | `10.255.255.0/30` | `fdc6:55f2:0a5e:ffff::/64`      |
-| adu         | 31   | bt8gw\*   | `10.97.31.0/24`   | `fdc6:55f2:0a5e:101f::/64`      |
-
-\* `adu` is gatewayed by `glorious` per current setup, not by either of
-the two gateways this plan introduces. Listed in the BT8-gateway slice
-because that's the IPv4 prefix it sits in numerically; the actual
-gatewaying device is unchanged.
 
 ### Move phantasma from `management` (INFRA) to `network` (MGMT)
 
@@ -431,16 +439,20 @@ Existing zones gain an explicit `gateway` field. The split moves
 `bt8gw`'s slice:
 
 ```nix
+# All hostile/untrusted zones converge on thebeyond — see resolved decision
+# on hostile-zone convergence below. BT8-gateway only terminates the
+# trusted "office work" zones; iot/untrusted/game pass through it as
+# L2-only batman frames.
 network    = { vlanId = 10;  gateway = "thebeyond"; hosts = { ... }; };
 dmz        = { vlanId = 100; gateway = "thebeyond"; hosts = { ... }; };
+untrusted  = { vlanId = 30;  gateway = "thebeyond"; hosts = { ... }; };
+adu        = { vlanId = 31;  gateway = "thebeyond"; hosts = { ... }; };
+iot        = { vlanId = 40;  gateway = "thebeyond"; hosts = { ... }; };
+game       = { vlanId = 41;  gateway = "thebeyond"; hosts = { ... }; };
 
 management = { vlanId = 11;  gateway = "bt8gw"; hosts = { ... }; };
 trusted    = { vlanId = 20;  gateway = "bt8gw"; hosts = { ... }; };
 lab        = { vlanId = 21;  gateway = "bt8gw"; hosts = { ... }; };
-untrusted  = { vlanId = 30;  gateway = "bt8gw"; hosts = { ... }; };
-adu        = { vlanId = 31;  gateway = "bt8gw"; hosts = { ... }; };  # see note above
-iot        = { vlanId = 40;  gateway = "bt8gw"; hosts = { ... }; };
-game       = { vlanId = 41;  gateway = "bt8gw"; hosts = { ... }; };
 app        = { vlanId = 50;  gateway = "bt8gw"; hosts = { ... }; };
 ```
 
@@ -553,32 +565,39 @@ specific source zones. If it gates on source, extend it to include
 `thebeyond`'s existing `dmz`, `ba-tunnel`, `external` zones stay as they
 are. The `network` zone's character changes (see above) — what was
 "AP/switch lockdown" becomes "router-adjacent infrastructure", which
-includes phantasma. Importantly, the office-side zones (`management`,
-`trusted`, `lab`, `untrusted`) are **removed from `thebeyond`'s zone list**
-in Phase 3 when their gateways move — they become `BT8-gateway`'s problem.
-(Until that phase, they remain on `thebeyond`.)
+includes phantasma. Importantly, the office-side trusted zones (`management`,
+`trusted`, `lab`) are **removed from `thebeyond`'s zone list** in Phase 3
+when their gateways move — they become `BT8-gateway`'s problem. The
+hostile zones (`untrusted`, `iot`, `game`, `adu`) stay on `thebeyond`
+per the hostile-zone convergence decision; only their L2 fabric
+passes through the BT8 mesh.
 
 On `BT8-gateway` (OpenWrt fw4 zone semantics, named to mirror router6):
 
 | fw4 zone     | networks bound        | input    | forward | masq | output |
 |--------------|-----------------------|----------|---------|------|--------|
-| `transit`| `transit` interface   | REJECT   | REJECT  | no   | ACCEPT |
+| `transit`    | `transit` interface   | REJECT   | REJECT  | no   | ACCEPT |
 | `app`        | APP VLAN (50)         | REJECT   | REJECT  | no   | ACCEPT |
 | `management` | INFRA VLAN (11)       | ACCEPT (services as needed) | REJECT | no | ACCEPT |
 | `trusted`    | HOME VLAN (20)        | ACCEPT   | REJECT  | no   | ACCEPT |
 | `lab`        | LAB VLAN (21)         | ACCEPT (services) | REJECT | no | ACCEPT |
-| `untrusted`  | GUEST/IOT/GAME VLANs  | REJECT (DNS/DHCP only) | REJECT | no | ACCEPT |
+
+`untrusted` (GUEST/IOT/GAME/ADU) is *not* a fw4 zone on BT8-gateway —
+those VLANs are L2-only batman passthrough on this device. Their L3
+firewall enforcement happens on `thebeyond` (the existing `untrusted`
+zone in `router6`).
 
 Forward rules between zones are configured per-pair in OpenWrt's
 `firewall.@forwarding[…]` UCI, mirroring the router6 `accessTo` semantics:
-- `trusted → app, management, lab, untrusted, transit` (mirrors current
-  trusted `accessTo`).
+- `trusted → app, management, lab, transit` (mirrors current
+  trusted `accessTo` minus untrusted; trusted→untrusted now traverses
+  transit and is governed by `thebeyond`'s `transit → untrusted` policy).
 - `lab → management, lab, transit`.
-- `untrusted → transit` only.
 - `app → transit` and selective forwards to `management` (mirrors what
   DMZ has on `thebeyond` today: ACME, Loki, Authelia OIDC).
-- `management → management, trusted, untrusted, app, transit` (mirrors
-  current management `accessTo`).
+- `management → management, trusted, app, transit` (mirrors current
+  management `accessTo` minus untrusted; same caveat as `trusted` —
+  any management→untrusted access lands on `thebeyond` via transit).
 
 ## Phases
 
@@ -890,8 +909,9 @@ Steps:
    { Route = { Destination = ...; Gateway = ...; Metric? = ...; }; } ]`
    list in `modules/router6/networking.nix`. A pure-Nix evaluation test
    (`tests/lib/router6-routes.nix`) asserts the generated config for a
-   representative `routes` declaration. By Phase 3, the office-side
-   subnets are configured the same way — one entry per migrated VLAN.
+   representative `routes` declaration. With the per-gateway address-
+   space split, only the two supernet entries above are needed — no
+   per-VLAN routes.
 3. On BT8-gateway, configure DHCP for APP VLAN (odhcpd). Connect a test
    device to APP VLAN (via `arseille` access port or directly via wifi if
    a test SSID is bound to APP).
@@ -920,23 +940,31 @@ BT8-gateway but is not yet image-built.
 
 ### Phase 3 — Production cutover of office-side VLAN gateways
 
-**Goal:** move all office-side VLAN gateways from `thebeyond` to
-BT8-gateway. The per-gateway IP-space split makes this simpler than it
-would otherwise be: BT8-gateway holds `10.97.x.1` natively from the
-moment it comes up — no `.2` transition address, no two-step DHCP
-migration. Each office VLAN sees a single cutover event (a sub-second
-ARP flip + gratuitous ARP).
+**Goal:** move the trusted office-side VLAN gateways (INFRA/11,
+HOME/20, LAB/21, APP/50) from `thebeyond` to BT8-gateway. Hostile
+zones (GUEST/30, ADU/31, IOT/40, GAME/41) stay terminated on
+`thebeyond` per the hostile-zone convergence decision and don't cut
+over. The per-gateway IP-space split makes the cutover simpler than
+it would otherwise be: BT8-gateway holds `10.97.x.1` natively from
+the moment it comes up — no `.2` transition address, no two-step
+DHCP migration. Each migrated VLAN sees a single cutover event (a
+sub-second ARP flip + gratuitous ARP).
 
 Steps:
 1. Physically install BT8-gateway in its production location in the
    office.
 2. On BT8-gateway (manually, building on Phase 2 config), add the
-   remaining office-side VLANs: INFRA (11), HOME (20), LAB (21),
-   GUEST (30), IOT (40), GAME (41). For each: bridge, fw4 zone
-   binding, odhcpd config — all in place, but **leave the bridge
-   without an IP and odhcpd disabled for now**. BT8-gateway is fully
-   provisioned but inert on these VLANs; thebeyond still holds `.1`
-   and Kea still serves leases.
+   remaining BT8-gateway-terminated VLANs: INFRA (11), HOME (20),
+   LAB (21). For each: bridge, fw4 zone binding, odhcpd config — all
+   in place, but **leave the bridge without an IP and odhcpd disabled
+   for now**. BT8-gateway is fully provisioned but inert on these
+   VLANs; thebeyond still holds `.1` and Kea still serves leases.
+
+   GUEST (30), ADU (31), IOT (40), GAME (41) are *not* migrating —
+   they stay terminated on thebeyond per the hostile-zone convergence
+   decision. On BT8-gateway, those bridges already exist as L2-only
+   passthrough from Phase 2 (`proto 'none'`). No cutover work needed
+   for them in this phase.
 
    *Optional pre-cutover validation:* if you want to confirm
    BT8-gateway routes correctly for a VLAN before committing, assign a
@@ -982,10 +1010,11 @@ Steps:
      option introduced in Phase 2 (single entry per protocol —
      `10.97.0.0/16 via 10.255.255.2` and
      `fdc6:55f2:0a5e:1000::/52 via fdc6:55f2:0a5e:ffff::2`).
-   - Remove the migrated zones (`management`, `trusted`, `lab`,
-     `untrusted` *for the moved VLANs*) from `router6.zones`. Keep the
-     subset that still terminates on `thebeyond` (e.g., `network`, `dmz`,
-     `transit`, `external`, `ba-tunnel`, `media`).
+   - Remove the migrated zones (`management`, `trusted`, `lab`) from
+     `router6.zones`. Keep everything else — `network`, `dmz`, `transit`,
+     `external`, `ba-tunnel`, `media`, and the *entire* `untrusted`
+     family (`untrusted`, `iot`, `game`, `adu`) which now stays on
+     `thebeyond` per the hostile-zone convergence decision.
    - Remove DHCP definitions for migrated VLANs from Kea.
    - Update IPv6: stop running DHCPv6-PD server on the migrated VLANs.
 5. Verify: every existing host reaches its expected peers (DMZ ↔ APP ↔
@@ -1379,12 +1408,15 @@ config interface 'bat0'
     option gw_mode 'off'
 
 # Per-VLAN sub-interfaces of bat0 (one per carried VLAN).
+# Required for both L3-terminating VLANs (10, 11, 20, 21, 50, 99) AND
+# L2-only passthrough VLANs (30, 31, 40, 41, 100) — without bat0.<tag>,
+# frames for those VLANs have nowhere to land on this device.
 config device
     option name 'bat0.50'
     option type '8021q'
     option ifname 'bat0'
     option vid '50'
-# ... repeat for 10, 11, 20, 21, 30, 40, 41, 99, 100 ...
+# ... repeat for 10, 11, 20, 21, 30, 31, 40, 41, 99, 100 ...
 ```
 
 #### 3. Wired ports + per-VLAN bridges
@@ -1413,8 +1445,9 @@ config interface 'app'
     option netmask '255.255.255.0'
     option ip6assign '64'              # auto-assign GUA /64 from delegated prefix
 
-# ... repeat for INFRA (11), HOME (20), LAB (21), GUEST (30),
-#     IOT (40), GAME (41) ...
+# ... repeat for INFRA (11), HOME (20), LAB (21) — these are
+# BT8-gateway-terminated. GUEST/30, ADU/31, IOT/40, GAME/41 are
+# L2-only passthrough on this device (see below).
 ```
 
 Transit VLAN (`/30` point-to-point with `thebeyond`):
@@ -1441,7 +1474,11 @@ config interface 'transit6'
     option reqprefix '60'              # request /60 to carve /64s
 ```
 
-DMZ (100) and `network` (10) bridges exist but have no IP:
+L2-only passthrough bridges — DMZ (100), GUEST/UNTRUSTED (30), ADU (31),
+IOT (40), GAME (41). All are gatewayed by `thebeyond`; BT8-gateway is
+just a fan-out point. Each bridge exists so SSIDs can bind to `network
+'<name>'` and so `bat0.<tag>` has somewhere to land, but no IP is
+configured on this device:
 
 ```uci
 config device
@@ -1454,7 +1491,45 @@ config interface 'v100'
     option proto 'none'
 
 config device
-    option name 'br-v10'               # network (MGMT): bridges only
+    option name 'br-v30'               # GUEST/UNTRUSTED: passthrough
+    option type 'bridge'
+    list ports 'bat0.30'
+config interface 'guest'
+    option device 'br-v30'
+    option proto 'none'
+
+config device
+    option name 'br-v31'               # ADU: passthrough
+    option type 'bridge'
+    list ports 'bat0.31'
+config interface 'adu'
+    option device 'br-v31'
+    option proto 'none'
+
+config device
+    option name 'br-v40'               # IOT: passthrough
+    option type 'bridge'
+    list ports 'bat0.40'
+config interface 'iot'
+    option device 'br-v40'
+    option proto 'none'
+
+config device
+    option name 'br-v41'               # GAME: passthrough
+    option type 'bridge'
+    list ports 'bat0.41'
+config interface 'game'
+    option device 'br-v41'
+    option proto 'none'
+```
+
+`network` (10) is a special case — passthrough at L2 for the segment
+overall, but BT8-gateway holds an L3 management IP on it (in
+thebeyond's `10.91.10.0/24` space):
+
+```uci
+config device
+    option name 'br-v10'
     option type 'bridge'
     list ports 'bat0.10'
     list ports 'lan1.10'
@@ -1471,13 +1546,18 @@ config interface 'mgmt'
 
 If the BT8-gateway is also broadcasting client SSIDs (it should — we want
 the mesh to do double duty as the office wifi for clients on HOME, GUEST,
-etc.), bind each SSID to the matching network. `batman-adv` over `802.11s`
-ensures frames carry the right VLAN tag across the mesh.
+IOT, GAME, etc.), bind each SSID to the matching network. `batman-adv`
+over `802.11s` ensures frames carry the right VLAN tag across the mesh.
+
+The SSID-to-network binding works identically for L3-terminated VLANs
+(home → trusted on this device) and for L2-only passthrough VLANs
+(guest/iot/game → bridges with `proto 'none'`); in the latter case
+client traffic flows straight through to `thebeyond` over batman.
 
 ```uci
 config wifi-iface 'home_5g'
     option device 'radio1'             # same radio as mesh, or radio2 (6GHz)
-    option network 'home'              # corresponds to br-v20
+    option network 'home'              # corresponds to br-v20 (L3 here)
     option mode 'ap'
     option encryption 'sae-mixed'
     option ssid '<home-ssid>'
@@ -1485,13 +1565,13 @@ config wifi-iface 'home_5g'
 
 config wifi-iface 'guest_5g'
     option device 'radio1'
-    option network 'guest'
+    option network 'guest'             # br-v30 (L2-only — L3 on thebeyond)
     option mode 'ap'
     option encryption 'sae-mixed'
     option ssid '<guest-ssid>'
     option key '<guest-key>'
 
-# ... iot, game similar — bound to br-v40, br-v41 networks ...
+# ... iot, game similar — bound to br-v40, br-v41 networks (also L2-only) ...
 ```
 
 #### 4. Configure DHCP / RA per VLAN
@@ -1519,7 +1599,10 @@ config dhcp 'app'
     option ra 'server'
     list ra_flags 'managed-config' 'other-config'
 
-# Repeat per VLAN. For untrusted VLANs, leave as-is (full DHCP).
+# Repeat per VLAN — but only for BT8-gateway-terminated VLANs
+# (trusted/20, lab/21, app/50). DHCP/RA for the L2-passthrough VLANs
+# (guest/30, adu/31, iot/40, game/41, dmz/100) runs on thebeyond's Kea,
+# not here.
 # For management/INFRA, keep DHCP disabled — INFRA hosts use static IPs.
 ```
 
@@ -1561,7 +1644,10 @@ config zone 'trusted'
     option output 'ACCEPT'
     option forward 'REJECT'
 
-# ... mgmt, lab, untrusted ...
+# ... mgmt (binds br-v11), lab (binds br-v21) ...
+# No `untrusted` fw4 zone here — guest/iot/game/adu are L2-only on this
+# device. Their fw enforcement runs on thebeyond's `untrusted`/`iot`/
+# `game`/`adu` zones in router6.
 
 # Forwarding pairs (mirrors router6 accessTo / forwardRules):
 config forwarding
@@ -1660,12 +1746,14 @@ reasoning is traceable from the plan rather than from the conversation log.
    diagnostics get awkward.
 4. **`media` zone.** Stays on `thebeyond` — it's the wireguard endpoint
    for media-keyed devices. The current zone scope (allow GUEST-resident
-   media-keyed devices to reach an HTPC like `oracion`) is unchanged. The
-   client devices live on GUEST (BT8-gateway-owned), but the media zone
-   itself is bound to the `wg-media` interface on `thebeyond`. If we later
-   want internal GUEST hosts to reach an HTPC *without* a wireguard
-   handshake, that's a separate forward rule on BT8-gateway and worth a
-   small follow-up plan.
+   media-keyed devices to reach an HTPC like `oracion`) is unchanged.
+   With the hostile-zone convergence decision, both the GUEST/untrusted
+   client and the wg-media endpoint terminate on `thebeyond`, so the
+   wireguard flow is entirely thebeyond-local — no transit hop. If we
+   later want internal GUEST hosts to reach an HTPC *without* a
+   wireguard handshake, that becomes a `untrusted → media` (or
+   `untrusted → app`) forward rule on `thebeyond` itself, again with no
+   transit hop.
 5. **Transit VLAN sizing.** Special-case the registry to allow per-zone
    `prefixLength4` / `prefixLength6` (defaulting to `/24` and `/64`).
    Transit gets `/30` IPv4; IPv6 stays at default `/64` because the
@@ -1728,6 +1816,51 @@ reasoning is traceable from the plan rather than from the conversation log.
    stops mattering once transit lives in its own ULA slice: the host
    IDs (`::1`, `::2`) sit cleanly inside `:ffff::/64`, and the existing
    `mkHost` formula needs no special case.
+9. **Hostile-zone convergence on `thebeyond`.** All hostile/untrusted
+   zones — `dmz` (100), `untrusted`/GUEST (30), `adu` (31),
+   `iot` (40), `game` (41) — terminate L3 on `thebeyond`'s router6
+   stack. `BT8-gateway` carries them as L2-only batman passthrough
+   (no IP, no fw4 zone, no DHCP) so SSIDs can still broadcast from the
+   office BT8 APs. Access from a hostile zone to the homelab requires
+   a wireguard tunnel (the `wg-media` zone is the prototype; `wg-iot`
+   or similar can extend the same pattern when needed).
+
+   Why: one source of truth for hostile-traffic policy, on the
+   more-mature firewall (router6 nftables vs. fw4). The
+   `untrusted → trusted` boundary is the most security-sensitive in
+   the network; consolidating it on a single firewall avoids the risk
+   of a fw4 misconfiguration leaking traffic that the router6 zone
+   model would have caught. Also a topology win: hostile-zone
+   internet egress goes directly to thebeyond's NAT without a transit
+   hop, and inter-hostile-zone flows (e.g., `wg-media → oracion` once
+   oracion is on APP, or future `wg-iot → home-assistant`) are
+   thebeyond-local once the `media`/`app` endpoints converge there too.
+
+   Cost: BT8-gateway's manual config gets four extra L2-only bridges
+   (br-v30/31/40/41) beyond the obvious DMZ passthrough. Cheap.
+10. **Single-mesh-traversal invariant.** Gateway placement must not
+    force any device's traffic to traverse the wireless mesh more than
+    once per direction. Wireguard encapsulation is the lone exception:
+    a tunneled flow logically traverses the mesh once for the encrypted
+    path and once for the decrypted path, but since both endpoints are
+    nodes that need wireless connectivity anyway, the architecture
+    introduces no extra hops beyond what the topology already requires.
+
+    Why: wireless mesh hops cost latency and bandwidth on a shared
+    medium; doubling them would compound on every cross-zone flow.
+    This invariant is the load-bearing reason hostile zones terminate
+    on `thebeyond` rather than on `BT8-gateway` — putting them on
+    `BT8-gateway` would force IoT/GUEST/GAME internet egress to mesh
+    out (client → BT8-gw L3) and then mesh back (BT8-gw → BT8-bridge →
+    thebeyond NAT), which violates the invariant in the inbound
+    direction.
+
+    How to apply: when adding a new zone, ask "is the path
+    `client → AP → batman → L3 gateway → batman → destination` capped
+    at one batman traversal in each direction?" If not, the gateway
+    placement is wrong. The IP-space split also makes this easy to
+    audit visually — addresses telegraph which gateway will terminate
+    each flow.
 
 ## Risks
 
