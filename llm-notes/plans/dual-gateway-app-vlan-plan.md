@@ -1,12 +1,19 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
 **Status:** Drafted (not started)
-**Last updated:** 2026-05-07 (revised: Phase 0 split into 0a/0b/0c; transit→hostile forward rules
-to permit HOME→IoT (HA) and the wider trust-boundary policy; ULA-only runbook fixes; DMZ
-exception route on BT8-gw during the override window; kresd transit binding via input rules;
-NAT-rule verification resolved; misc. minor fixes; arseille deferred — `netmgmt` zone stays
-as the architectural placeholder, with the existing OpenWRT homelab L2 switch documented as
-its first consumer in a follow-up plan)
+**Last updated:** 2026-05-07 (revised: simplification pass — Phase 6 folded into Phase 5
+(DMZ renumber happens once the only remaining DMZ residents are langport/trista);
+`router6.routes` option introduction moved from Phase 1 to Phase 2 (paired with first
+use); pre-flight `switchVlans` cleanup folded into Phase 0a step 1; per-prefix-length
+test committed to Phase 0a with a synthetic fixture; assorted optional/conditional
+hedges resolved.
+
+Earlier: Phase 0 split into 0a/0b; transit→hostile forward rules to permit HOME→IoT
+(HA) and the wider trust-boundary policy; ULA-only runbook fixes; DMZ exception route
+on BT8-gw during the override window; kresd transit binding via input rules; NAT-rule
+verification resolved; arseille deferred — `netmgmt` zone stays as the architectural
+placeholder, with the existing OpenWRT homelab L2 switch documented as its first
+consumer in a follow-up plan.)
 **Related:**
 - `done/secure-mgmt-vlan-plan.md` — established INFRA/MGMT split this plan extends
 - `done/openwrt-python-builder.md` — Image Builder pipeline this plan adds device types to
@@ -759,16 +766,6 @@ Each phase ends in a state where the network is functional. Plans that touch
 the same files (Authelia, x5c, ipv6-gua-stable-ingress) should sequence around
 this plan, not against it.
 
-### Pre-flight cleanups
-
-Independent of the phased work; commit as standalone changes before starting
-Phase 0:
-
-- Drop the `MEDIA = {tag = 42;}` entry from `switchVlans` in
-  `lib/common/data/openwrt.nix`. There is no media VLAN; the `media`
-  firewall zone exists only to gate what `wg-media` peers can reach,
-  and the stale switch tag is misleading.
-
 ### Phase 0 — Bring `thebeyond` online; current BT8 stays as office gateway temporarily
 
 **Goal:** `thebeyond` replaces the current BT8 as the primary internet
@@ -793,7 +790,13 @@ one no-deploy commit; 0b is the cutover proper.
 #### Phase 0a — Validation in code (no deploy)
 
 Steps:
-1. **Pre-flight: pin the OpenWrt release for BT8.** BT8 hardware is
+1. **Incidental cleanup: drop the stale `MEDIA = {tag = 42;}` entry**
+   from `switchVlans` in `lib/common/data/openwrt.nix`. There is no
+   media VLAN; the `media` firewall zone exists only to gate what
+   `wg-media` peers can reach, and the stale switch tag is misleading.
+   Independent of the rest of Phase 0a, but lands in the same no-deploy
+   commit.
+2. **Pre-flight: pin the OpenWrt release for BT8.** BT8 hardware is
    already in production as the existing prod gateway and as 4 mesh APs
    (per resolved decision #2), so target support exists. The question is
    only which release to pin. Verify against the OpenWrt support matrix
@@ -803,7 +806,7 @@ Steps:
    Run `nix run .#openwrt-build -- <bt8-mesh-device> --update-pins` to
    confirm hash availability. If support has regressed, defer to a
    stable release.
-2. **Pre-flight: enable PD client on thebeyond's WAN.** The current
+3. **Pre-flight: enable PD client on thebeyond's WAN.** The current
    `hosts/thebeyond/router.nix` WAN block is plain `type = "dhcp"` with
    no `ipv6PrefixDelegation` set, which means thebeyond would request
    no delegated prefix at all. Add the PD client (we expect `/64` per
@@ -831,7 +834,7 @@ Steps:
    so the DHCPv6 client will send solicits even if the ISP's RA doesn't set
    the M flag.
 
-3. **Drop `bond0` from `thebeyond`'s topology** in the source tree (no
+4. **Drop `bond0` from `thebeyond`'s topology** in the source tree (no
    deploy yet — this lands as part of Phase 0a's no-deploy commit). The
    new hardware uses a single wired NIC as `bat0`'s hard interface
    (instead of `bond0` over `lan` + `opt1`). Update
@@ -863,18 +866,18 @@ Steps:
      the per-zone `prefixLength4`/`prefixLength6`, defaulting to 24 /
      64). Make `hostRangeCheck` prefix-length-aware. Add a pure-eval
      test under `tests/lib/` covering at least one prefix-length
-     override (transit `/30` is the natural fixture, even though
-     transit isn't added yet — write the test against a synthetic
-     fixture if needed, or defer the test to Phase 1 once transit is
-     in the registry).
+     override against a synthetic fixture (transit isn't in the
+     registry yet — Phase 1 adds it — but the helper logic is what
+     the test exercises, and a synthetic `/30` zone is a perfectly
+     fine fixture).
    - **DMZ stays at `10.97.100.0/24` for now** via an explicit
      `prefix4 = "10.97.100"` override on the `dmz` zone, so existing
      DMZ residents (`langport`, `trista`, `oracion`, `creil`, `zeiss`,
      `saint-arkh`) don't re-IP in Phase 0. The override is dropped
-     in Phase 5/6 when the DMZ renumbers to thebeyond's slice as part
-     of the APP migration. IPv6 for DMZ is unaffected — VLAN 100 in
-     thebeyond's group-0 slice produces `fdc6:55f2:0a5e:0064::/64`,
-     same as today.
+     at the end of Phase 5 once the APP-bound services have moved
+     and only `langport` and `trista` remain on DMZ. IPv6 for DMZ
+     is unaffected — VLAN 100 in thebeyond's group-0 slice produces
+     `fdc6:55f2:0a5e:0064::/64`, same as today.
    - **Move phantasma from VLAN 11 (INFRA) to VLAN 10 (`network`)
      and re-number to host ID 10.** Since `network.gateway =
      "thebeyond"` and there is no `prefix4` override on `network`, the
@@ -930,7 +933,7 @@ Steps:
    `:0014::<host>` → `:1014::<host>` for HOME) — automatic via the
    registry. Internal-only, no GUA, no inbound v6, so the operational
    impact is essentially zero.
-4. **VM-level validation of the new topology before any hardware
+5. **VM-level validation of the new topology before any hardware
    moves.** Add (or extend) a `tests/modules/router6-batman-wired-only.nix`
    NixOS test that mirrors the post-refactor `mkVlanBridge` shape on a
    stub network. Asserts:
@@ -952,45 +955,35 @@ gateway, unchanged.
 
 Steps (continuing the numbering):
 
-5. Stage `nixos-anywhere` from the Phase 0a build (bond0 removal,
+6. Stage `nixos-anywhere` from the Phase 0a build (bond0 removal,
    registry refactor, phantasma migration). Deploy `thebeyond` with
    **no other router config changes yet** — APP/transit are added in
    Phase 1, so the existing zones still gate everything on `thebeyond`.
-6. Physically move `thebeyond` to the modem closet. Connect WAN to modem.
-
-   **Physical location of BT8-bridge (the current production BT8) — also
-   resolved in this step.** The architecture diagram puts BT8-bridge
-   alongside `thebeyond` in the modem closet so the inter-device wired
-   link is a short cable, with the 802.11s "fat pipe" handling the long
-   hop from modem closet to office. Two cases:
-   - *If the current production BT8 is already in the modem closet*
-     (alongside the modem), no physical move is required — leave it in
-     place, just connect `thebeyond`'s wired NIC to one of its LAN
-     ports.
-   - *If the current production BT8 is in the office today*, relocate
-     it to the modem closet during this same maintenance window (no
-     extra outage — the network is already down for the cutover) so it
-     ends up next to `thebeyond`. The mesh leg from BT8-bridge to the
-     remaining office BT8s now runs over 802.11s; verify that mesh
-     quality (RSSI, batman throughput counters) is acceptable from the
-     new location before declaring the cutover successful, since this
-     mesh is the committed inter-gateway path post-Phase-3 (see
-     [Risks: mesh fat pipe](#risks)).
+7. Physically move `thebeyond` to the modem closet. Connect WAN to modem.
+   `BT8-bridge` (the current production BT8 reconfigured in step 8)
+   needs to end up alongside `thebeyond` in the modem closet so the
+   inter-device wired link is short and the 802.11s "fat pipe" handles
+   the long hop to the office; relocate it during this same maintenance
+   window if it isn't already co-located. After relocation, verify mesh
+   quality from BT8-bridge's new location (RSSI, batman throughput
+   counters) before declaring the cutover successful — the mesh is the
+   committed inter-gateway path post-Phase-3 (see
+   [Risks: mesh fat pipe](#risks)).
 
    **Bootstrapping note.** `thebeyond`'s NIC is `bat0`'s hard interface
    from first boot, so the cable carries batman frames. The current
    production BT8 doesn't speak batman on its wired port yet, so the
-   link is dead between step 6 and step 7. **During this gap the entire
+   link is dead between step 7 and step 8. **During this gap the entire
    household loses internet egress and inter-VLAN routing**: NAT lives
    on `thebeyond`, and the office-side mesh has no path to it until the
    current BT8 is reconfigured into the wireless-bridge role. Same-VLAN,
    same-side traffic continues to work (the office mesh stays internally
    connected over `802.11s`), but everything else is offline. Execute
-   steps 6 and 7 in close succession with the operator on-site at both
+   steps 7 and 8 in close succession with the operator on-site at both
    devices, and schedule the cutover in a maintenance window
    (announce/expect ~10–30 min of internet downtime, +relocation time
    if the BT8 is moving rooms).
-7. Reconfigure the current production BT8 (manually):
+8. Reconfigure the current production BT8 (manually):
    - Remove its WAN interface (no longer the gateway).
    - Make it a "dumb AP" / wireless-bridge (effectively the
      [BT8-bridge config](#a-manual-setup-bt8-as-dumb-ap--wireless-bridge)).
@@ -998,31 +991,31 @@ Steps (continuing the numbering):
    - Keep its 802.11s mesh and AP radios so other office BT8s still
      associate.
    - Give it a single management IP on `network` VLAN.
-8. Cutover: bring up `thebeyond`'s WAN; verify NAT, DHCP, DNS, internet
+9. Cutover: bring up `thebeyond`'s WAN; verify NAT, DHCP, DNS, internet
    reachability from each existing zone.
-9. **Sanity-check IPv6 delegation size.** On `thebeyond`:
+10. **Sanity-check IPv6 delegation size.** On `thebeyond`:
 
-   ```sh
-   networkctl status wan
-   cat /var/lib/systemd/network/dhcp6-prefix-delegation/wan 2>/dev/null
-   ```
+    ```sh
+    networkctl status wan
+    cat /var/lib/systemd/network/dhcp6-prefix-delegation/wan 2>/dev/null
+    ```
 
-   Expected: `/64`, matching the operator's prior measurement against
-   the existing gateway. The ULA-only baseline is already what the rest
-   of the plan assumes, so there is no decision to make at this step
-   beyond documenting what was actually delegated. If the result is
-   *unexpectedly larger* (`/60` or `/56`), file a follow-up to switch
-   to the GUA-enabled posture in the
-   [IPv6 — if the ISP ever enlarges the delegation](#ipv6--if-the-isp-ever-enlarges-the-delegation)
-   section, but don't pivot Phase 1 work in flight.
-10. The current production BT8 is now physically a dumb-AP-with-mesh.
+    Expected: `/64`, matching the operator's prior measurement against
+    the existing gateway. The ULA-only baseline is already what the rest
+    of the plan assumes, so there is no decision to make at this step
+    beyond documenting what was actually delegated. If the result is
+    *unexpectedly larger* (`/60` or `/56`), file a follow-up to switch
+    to the GUA-enabled posture in the
+    [IPv6 — if the ISP ever enlarges the delegation](#ipv6--if-the-isp-ever-enlarges-the-delegation)
+    section, but don't pivot Phase 1 work in flight.
+11. The current production BT8 is now physically a dumb-AP-with-mesh.
     Going forward, we'll call this device **BT8-bridge**.
 
 After Phase 0: single-gateway model on new hardware in the right physical
 locations, registry refactored for the per-gateway split, phantasma on its
 final IP (`10.91.10.10` / `fdc6:55f2:0a5e:000a::a`), IPv6 delegation size
 known. DMZ residents still at `10.97.100.x` (override in place); they
-renumber in Phase 5/6.
+renumber at the end of Phase 5.
 
 ### Phase 1 — Add APP and transit VLANs to the registry and `thebeyond`
 
@@ -1041,9 +1034,6 @@ Steps:
    - `transit` — `vlanId = 99`, explicit `prefix4 = "10.255.255"`,
      `prefix6 = "${ulaPrefix}:ffff"`, `prefixLength4 = 30`, hosts =
      `{ thebeyond = 1; bt8gw = 2; }`.
-
-   If the per-prefix-length pure-eval test was deferred from Phase 0a,
-   add it now using the transit `/30` as the natural fixture.
 2. Add corresponding `mkVlanBridge` entries in `hosts/thebeyond/router.nix`
    for both VLANs. APP is added as a member-only bridge with no IP on
    `thebeyond`; BT8-gateway becomes APP's gateway in Phase 2. Transit gets
@@ -1059,14 +1049,38 @@ Steps:
    flows. The `network` zone's `accessTo` stays empty; cross-gateway DNS
    traffic terminates as input on `transit` and is served by kresd, not
    forwarded onto `network`.
-4. **Introduce the `router6.routes` option** in `modules/router6/default.nix`
-   (used in Phases 2–3 for the cross-gateway static routes). Translation
-   to systemd-networkd is mechanical — group routes by `interface`, emit
-   them under the corresponding network's `routes = [ { Route = {
-   Destination = ...; Gateway = ...; Metric? = ...; }; } ]` list in
-   `modules/router6/networking.nix`. Add a pure-Nix evaluation test
-   (`tests/lib/router6-routes.nix`) asserting the generated config for a
-   representative declaration.
+4. Redeploy `thebeyond` (deploy-rs with magic rollback). The
+   downstream OpenWRT homelab L2 switch (managed out-of-flake — see
+   [Reference D](#d-reference-openwrt-homelab-l2-switch-out-of-flake))
+   needs APP/transit VLANs trunked on its uplink to BT8-gateway and an
+   address on `netmgmt`/12 once that VLAN is stood up; the operator
+   updates its UCI directly. A follow-up plan will fold this switch
+   into the flake.
+
+After Phase 1: APP and transit zones exist on `thebeyond`; APP is
+member-only, awaiting BT8-gateway in Phase 2. The transit zone listens
+for DNS/NTP (kresd auto-binds via the `dnsInterfaces` derivation) and
+forwards office-side traffic into DMZ + hostile zones per
+`forwardRules`.
+
+### Phase 2 — Manual proof: BT8-bridge and BT8-gateway
+
+**Goal:** prove the dual-gateway routing/firewall model on a single VLAN
+(start with APP) using BT8-gateway. No production cutover.
+
+Steps:
+1. Configure BT8-gateway by hand using the
+   [BT8-gateway manual setup](#b-manual-setup-bt8-as-secondary-gateway). For
+   this phase, only configure APP VLAN and transit VLAN — leave other VLANs
+   for Phase 3.
+2. **Introduce the `router6.routes` option** in `modules/router6/default.nix`
+   and use it on `thebeyond` for the cross-gateway static routes.
+   Translation to systemd-networkd is mechanical — group routes by
+   `interface`, emit them under the corresponding network's
+   `routes = [ { Route = { Destination = ...; Gateway = ...; Metric? = ...; }; } ]`
+   list in `modules/router6/networking.nix`. Add a pure-Nix evaluation
+   test (`tests/lib/router6-routes.nix`) asserting the generated config
+   for a representative declaration.
 
    ```nix
    # modules/router6/default.nix — new top-level option
@@ -1086,38 +1100,10 @@ Steps:
    };
    ```
 
-   The option exists but is unused on `thebeyond` until Phase 3 — Phase 1
-   only ships the option + test. Phase 2 uses it manually for the
-   APP-only smoke test.
-5. Redeploy `thebeyond` (deploy-rs with magic rollback). The
-   downstream OpenWRT homelab L2 switch (managed out-of-flake — see
-   [Reference D](#d-reference-openwrt-homelab-l2-switch-out-of-flake))
-   needs APP/transit VLANs trunked on its uplink to BT8-gateway and an
-   address on `netmgmt`/12 once that VLAN is stood up; the operator
-   updates its UCI directly. A follow-up plan will fold this switch
-   into the flake.
-
-After Phase 1: APP and transit zones exist on `thebeyond`; APP is
-member-only, awaiting BT8-gateway in Phase 2. The transit zone listens
-for DNS/NTP (kresd auto-binds via the `dnsInterfaces` derivation) and
-forwards office-side traffic into DMZ + hostile zones per
-`forwardRules`. `router6.routes` option exists but is empty.
-
-### Phase 2 — Manual proof: BT8-bridge and BT8-gateway
-
-**Goal:** prove the dual-gateway routing/firewall model on a single VLAN
-(start with APP) using BT8-gateway. No production cutover.
-
-Steps:
-1. Configure BT8-gateway by hand using the
-   [BT8-gateway manual setup](#b-manual-setup-bt8-as-secondary-gateway). For
-   this phase, only configure APP VLAN and transit VLAN — leave other VLANs
-   for Phase 3.
-2. On `thebeyond`, add the cross-gateway static routes via the
-   `router6.routes` option that landed in Phase 1. With the per-gateway
-   split, this is a single entry per protocol — covers APP, INFRA, HOME,
-   LAB, NETMGMT in one shot (hostile zones stay terminated on
-   `thebeyond`, so they need no static routes):
+   With the per-gateway split, the cross-gateway routes are a single
+   entry per protocol — covers APP, INFRA, HOME, LAB, NETMGMT in one
+   shot (hostile zones stay terminated on `thebeyond`, so they need no
+   static routes):
 
    ```nix
    router6.routes = [
@@ -1211,14 +1197,6 @@ Steps:
    passthrough from Phase 2 (`proto 'none'`). No cutover work needed
    for them in this phase.
 
-   *Optional pre-cutover validation:* if you want to confirm
-   BT8-gateway routes correctly for a VLAN before committing, assign a
-   non-registry transitional address (e.g., `10.97.<vlan>.250/24`) to
-   the bridge, point a single test client at it manually, verify
-   end-to-end routing, then remove the transitional address. This is
-   the new equivalent of the old `.2` step — operator's choice
-   per-VLAN, not a default part of the cutover.
-
 3. **Per-VLAN cutover** (can be all-at-once or one-VLAN-at-a-time;
    each VLAN's cutover is independent). The full sequence is a single
    scripted SSH transaction so the no-`.1` window is sub-second:
@@ -1251,10 +1229,10 @@ Steps:
      batman fabric — without them, frames for those VLANs have
      nowhere to land on `thebeyond`). Just drop the `addresses`
      and `dhcp.enable` from the bridge's network block.
-   - Add the cross-gateway static routes via the `router6.routes`
-     option introduced in Phase 2 (single entry per protocol —
-     `10.97.0.0/16 via 10.255.255.2` and
-     `fdc6:55f2:0a5e:1000::/52 via fdc6:55f2:0a5e:ffff::2`).
+   - The cross-gateway static routes (`10.97.0.0/16 via 10.255.255.2`
+     and `fdc6:55f2:0a5e:1000::/52 via fdc6:55f2:0a5e:ffff::2`) already
+     landed in Phase 2 via `router6.routes`. No change needed in this
+     phase — confirm they're still present after the deploy.
    - Remove the migrated *trusted* zones (`management`, `trusted`,
      `lab`) from `router6.zones`. Their bridges have no further role
      on `thebeyond` — frames for those VLANs are L3-terminated on
@@ -1285,7 +1263,7 @@ Steps:
 
 After Phase 3: dual-gateway model is production. Manual UCI on
 `BT8-gateway` and `BT8-bridge`. DMZ residents still at `10.97.100.x`
-pending Phase 5/6 renumber.
+pending Phase 5 renumber.
 
 ### Phase 4 — Codify BT8-gateway and BT8-bridge in Image Builder
 
@@ -1408,43 +1386,22 @@ Each move includes:
 5. Retest connectivity (in-zone, cross-zone-via-BT8-gateway, internet,
    and any wg-* paths affected by step 4).
 
-### Phase 6 — DMZ renumber to thebeyond's slice
+After all candidate moves complete, only `langport` and `trista`
+remain on DMZ. Drop the Phase-0 `prefix4 = "10.97.100"` override on
+the `dmz` zone in `lib/common/data/network.nix`; the registry now
+derives `10.91.100.0/24` from `dmz.gateway = "thebeyond"` (ULA stays
+`fdc6:55f2:0a5e:0064::<host>`, unchanged from Phase 0). Re-IP
+`langport` and `trista` to `10.91.100.41` and `10.91.100.51` using
+the same dual-stack window pattern as the per-host moves above (host
+briefly holds both addresses so in-flight connections survive, then
+drop the old address). Update `thebeyond`'s `dmz` bridge to
+`10.91.100.1/24`. Cloudflare DNS for `langport`'s WAN side is
+unaffected; check `basel`'s step-ca issuance templates and re-issue
+any cert whose SANs pinned `10.97.100.<id>`.
 
-**Goal:** drop the Phase-0 `prefix4 = "10.97.100"` override on the `dmz`
-zone and let it derive from `dmz.gateway = "thebeyond"` —
-`10.91.100.0/24`. This finally puts DMZ in thebeyond's slice on both
-v4 and v6 (v6 was already there since Phase 0). Only `langport` and
-`trista` remain on DMZ at this point (everything else moved to APP in
-Phase 5), so the re-IP scope is small.
-
-Steps:
-1. Remove the `prefix4 = "10.97.100"` override from the `dmz` zone in
-   `lib/common/data/network.nix`. The registry now derives
-   `10.91.100.0/24` from the `thebeyond` gateway.
-2. Verify the registry change at eval time: `langport` and `trista`
-   should report new IPv4 (`10.91.100.41`, `10.91.100.51`); ULA stays
-   `fdc6:55f2:0a5e:0064::<host>` (unchanged from Phase 0).
-3. Each host re-IPs:
-   - For NixOS hosts (langport, trista): a normal redeploy lands the
-     new address. If anything pins the IP outside the registry-derived
-     helpers (uncommon — most consumers go through `mkExtraHosts` /
-     `mkUnboundLocalData` / `mkEgressRules`), grep for the old address
-     and update.
-   - Update `thebeyond`'s `dmz` bridge: it now holds `10.91.100.1/24`
-     instead of `10.97.100.1/24` (registry-derived).
-4. Sequence per host: enable a temporary dual-stack window where the
-   host briefly holds both `10.97.100.<id>` and `10.91.100.<id>` so any
-   in-flight connection to the old address survives the cutover. Then
-   drop the old address and verify only the new one is live.
-5. Update any external references that pin the old DMZ addresses
-   (Cloudflare DNS pointing at langport's WAN side stays the same;
-   step-ca cert SANs may need re-issuance with the new internal IP if
-   any cert pins `10.97.100.<id>` — check `basel`'s issuance
-   templates).
-
-After Phase 6: DMZ is fully in thebeyond's slice on both protocols.
-The `prefix4` override on `dmz` is gone; the registry has no special
-cases left for the address-space split.
+After Phase 5: APP zone populated; DMZ holds only `langport` and
+`trista` at their final `10.91.100.x` addresses. The registry has no
+special cases left for the address-space split.
 
 ## Manual setup procedures
 
@@ -2004,8 +1961,8 @@ config rule
 No static routes required. BT8-gateway's connected routes are the
 per-VLAN `/24`s for its own bridges (br-v11/12/20/21/50/99) — there
 is no `10.97.0.0/16` aggregate. `network` (`10.91.0.0/16`) and DMZ
-(`10.97.100.0/24` until Phase 6, then `10.91.100.0/24`) are both
-covered by the default route via `10.255.255.1`. Verify with
+(`10.97.100.0/24` until end of Phase 5, then `10.91.100.0/24`) are
+both covered by the default route via `10.255.255.1`. Verify with
 `traceroute 10.97.100.41` from a BT8-gw-side host that the path is
 `host → BT8-gw → 10.255.255.1 → thebeyond → langport`, and with
 `ip route get 10.97.100.41` on BT8-gateway that the selected nexthop
@@ -2052,7 +2009,7 @@ ping 10.91.10.1                  # thebeyond MGMT (via transit)
 ping 1.1.1.1                     # internet egress through thebeyond NAT
 traceroute 10.97.100.41          # langport (DMZ) - should hop through 10.255.255.1
                                  # via the default route (no /16 aggregate to short-circuit it).
-                                 # (DMZ stays at .97.100 until Phase 6 renumbers it to .91.100)
+                                 # (DMZ stays at .97.100 until end of Phase 5 renumbers it to .91.100)
 ```
 
 ### C. Manual setup: BT8 as office-side "dumb AP" (mesh-resident)
