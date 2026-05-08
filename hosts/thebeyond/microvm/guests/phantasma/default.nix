@@ -32,7 +32,7 @@ in {
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
-    matchConfig.MACAddress = "5E:11:AD:01:00:02";
+    matchConfig.MACAddress = "5E:0A:AD:01:00:0A";
     networkConfig = {
       Address = [host.cidr4 host.cidr6];
       Gateway = zone.gateway4;

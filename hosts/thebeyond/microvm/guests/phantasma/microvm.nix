@@ -39,8 +39,8 @@
   microvm.interfaces = [
     {
       type = "tap";
-      id = "vm-11-phantasma";
-      mac = "5E:11:AD:01:00:02";
+      id = "vm-10-phantasma";
+      mac = "5E:0A:AD:01:00:0A";
     }
   ];
 }

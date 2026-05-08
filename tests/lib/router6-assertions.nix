@@ -257,6 +257,63 @@
           };
       }
     ))
+
+    # 9. Non-WG inputRule on WAN zone fires assertion (a)
+    (assertFiresWith "WAN zone non-WG inputRule fires security assertion" "must only accept WireGuard ports" (
+      baseConfig
+      // {
+        zones =
+          baseZones
+          // {
+            external =
+              baseZones.external
+              // {
+                inputRules = [
+                  {
+                    tcp.dport = 22;
+                    verdict = "accept";
+                  }
+                ];
+              };
+          };
+      }
+    ))
+
+    # 10. DHCP server on NAT (WAN) interface fires assertion (b)
+    (assertFiresWith "DHCP on NAT interface fires security assertion" "nat.enable = true and dhcp.enable = true" (
+      baseConfig
+      // {
+        topology =
+          baseTopology
+          // {
+            wan =
+              baseTopology.wan
+              // {
+                network =
+                  baseTopology.wan.network
+                  // {
+                    dhcp.enable = true;
+                  };
+              };
+          };
+      }
+    ))
+
+    # 11. icmpEcho=enable on NAT zone fires assertion (c)
+    (assertFiresWith "icmpEcho=enable on WAN zone fires security assertion" "icmpEcho != 'disable'" (
+      baseConfig
+      // {
+        zones =
+          baseZones
+          // {
+            external =
+              baseZones.external
+              // {
+                icmpEcho = "enable";
+              };
+          };
+      }
+    ))
   ];
 
   allPass = lib.all (x: x) tests;

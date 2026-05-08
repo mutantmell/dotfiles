@@ -1,29 +1,54 @@
 {lib}: let
-  ipv4Prefix = "10.97";
   ulaPrefix = "fdc6:55f2:0a5e";
 
-  vlanHex = vlanId: lib.toLower (lib.toHexString vlanId);
+  # Per-gateway address-space split.
+  # thebeyond owns: 10.91.0.0/16 + ULA group 0 (fdc6:55f2:0a5e:00xx::/64)
+  # bt8gw owns:     10.97.0.0/16 + ULA group 1 (fdc6:55f2:0a5e:10xx::/64)
+  gateways = {
+    thebeyond = {
+      prefix4 = "10.91";
+      ulaGroup = 0;
+    };
+    bt8gw = {
+      prefix4 = "10.97";
+      ulaGroup = 1;
+    };
+  };
+
+  # Encode gateway group + VLAN ID as a 4-hex-digit ULA subnet ID.
+  # thebeyond (group 0): vlan 10 → "000a", vlan 100 → "0064"
+  # bt8gw     (group 1): vlan 11 → "100b", vlan 20  → "1014"
+  ulaSubnetHex = group: vlanId:
+    lib.fixedWidthString 4 "0" (lib.toLower (lib.toHexString (group * 4096 + vlanId)));
+
   hostHex = hostId: lib.toLower (lib.toHexString hostId);
 
-  # Network definitions — each network carries its zone, VLAN ID, and hosts.
+  # Network definitions — each network carries its VLAN ID, address-space owner, and hosts.
   # Host values are host IDs (last octet / interface identifier).
+  # gateway: which entry in the `gateways` table determines this subnet's IP address space
+  #   (10.91.x.x for thebeyond, 10.97.x.x for bt8gw). This is stable — it does not change
+  #   when routing responsibility migrates between routers (e.g. Phase 3 cutover).
+  # prefix4/prefix6: override the gateway-derived prefix (used for transit and dmz freeze).
+  # prefixLength4/prefixLength6: override default /24 and /64.
   rawNetworks = {
     network = {
       vlanId = 10;
+      gateway = "thebeyond";
       hosts = {
-        arseille = 12;
-        merkabah = 20;
-        derfflinger = 21;
-        pantagruel = 22;
-        bobcat = 23;
-        lusitania = 24;
+        # Transport IDs 1–9 (gateways, wireless-bridge mgmt, future switches)
+        thebeyond = 1;
+        bt8bridge = 4; # wireless-bridge mgmt (wired to thebeyond — 0 mesh hops)
+        # IDs 2-3 reserved for future transport
+        # 5-9 reserved for office-side dumb APs (1 mesh hop via BT8-bridge)
+        arseille = 12; # L2 switch (deferred reclassification)
+        # Service IDs 10+ (DNS, etc.)
+        phantasma = 10;
       };
     };
     management = {
       vlanId = 11;
+      gateway = "bt8gw";
       hosts = {
-        thebeyond = 1;
-        phantasma = 2;
         messeldam = 6; # Keycloak OIDC (calvard)
         basel = 7; # step-ca / PKI (calvard)
         tharbad = 5; # Prometheus+Loki+Alertmanager+ntfy (calvard)
@@ -35,12 +60,14 @@
     };
     trusted = {
       vlanId = 20;
+      gateway = "bt8gw";
       hosts = {
         azoth = 50; # Raspberry Pi (Home Assistant, MQTT)
       };
     };
     lab = {
       vlanId = 21;
+      gateway = "bt8gw";
       hosts = {
         edith = 42; # Dev environment / task runner (calvard Incus container)
         bose = 43; # Arr stack — UHD/4K — Sonarr, Radarr, Bazarr (liberl)
@@ -49,26 +76,35 @@
     };
     untrusted = {
       vlanId = 30;
+      gateway = "thebeyond";
       hosts = {
         arcus = 10; # Steam Deck (guest WiFi)
       };
     };
     adu = {
       vlanId = 31;
+      gateway = "thebeyond";
       hosts = {
         glorious = 20;
       };
     };
     iot = {
       vlanId = 40;
+      gateway = "thebeyond";
       hosts = {};
     };
     game = {
       vlanId = 41;
+      gateway = "thebeyond";
       hosts = {};
     };
     dmz = {
       vlanId = 100;
+      gateway = "thebeyond";
+      # Explicit prefix4 override: keeps DMZ at 10.97.100.x through Phase 5 so
+      # existing DMZ residents (langport, trista, oracion, creil, zeiss, saint-arkh)
+      # don't re-IP until services migrate to APP. Dropped at end of Phase 5.
+      prefix4 = "10.97.100";
       hosts = {
         zeiss = 31; # Attic binary cache (liberl)
         trista = 51; # SSH bastion (erebonia Incus VM)
@@ -130,13 +166,17 @@
       (builtins.all (x: x))
     ];
 
-    # Host ID range (1-254 for /24 subnets)
+    # Host ID range — prefix-length-aware: max valid host ID = 2^(32-prefixLength4) - 2
     hostRangeCheck = lib.pipe rawNetworks [
-      (lib.mapAttrsToList (zone: net:
+      (lib.mapAttrsToList (zone: net: let
+        prefixLength = net.prefixLength4 or 24;
+        hostBits = 32 - prefixLength;
+        maxId = (builtins.foldl' (a: _: a * 2) 1 (lib.range 1 hostBits)) - 2;
+      in
         lib.mapAttrsToList (
           host: id:
-            if id < 1 || id > 254
-            then throw "network registry: host '${host}' in zone '${zone}' has invalid ID ${toString id} (must be 1-254)"
+            if id < 1 || id > maxId
+            then throw "network registry: host '${host}' in zone '${zone}' has invalid ID ${toString id} (must be 1-${toString maxId} for /${toString prefixLength})"
             else true
         )
         net.hosts))
@@ -158,29 +198,43 @@
   in
     vlanCheck && hostnameCheck && vlanRangeCheck && hostRangeCheck && dupHostIdCheck;
 
-  # Enhance each network with derived subnet and gateway addresses
+  # Enhance each network with derived subnet and gateway addresses.
+  # prefix4/prefix6 are derived from the gateway table unless explicitly overridden.
   networks = assert validate;
-    lib.mapAttrs (_: net:
+    lib.mapAttrs (_: net: let
+      gw = gateways.${net.gateway};
+      prefix4 = net.prefix4 or "${gw.prefix4}.${toString net.vlanId}";
+      prefix6 = net.prefix6 or "${ulaPrefix}:${ulaSubnetHex gw.ulaGroup net.vlanId}";
+      prefixLength4 = net.prefixLength4 or 24;
+      prefixLength6 = net.prefixLength6 or 64;
+    in
       net
       // {
-        subnet4 = "${ipv4Prefix}.${toString net.vlanId}.0/24";
-        subnet6 = "${ulaPrefix}:${vlanHex net.vlanId}::/64";
-        prefixLength4 = 24;
-        prefixLength6 = 64;
-        gateway4 = "${ipv4Prefix}.${toString net.vlanId}.1";
-        gateway6 = "${ulaPrefix}:${vlanHex net.vlanId}::1";
+        inherit prefix4 prefix6 prefixLength4 prefixLength6;
+        subnet4 = "${prefix4}.0/${toString prefixLength4}";
+        subnet6 = "${prefix6}::/${toString prefixLength6}";
+        gateway4 = "${prefix4}.1";
+        gateway6 = "${prefix6}::1";
       })
     rawNetworks;
 
-  # Derive a full host record from network membership and host ID
-  mkHost = zoneName: vlanId: hostId: {
+  # Derive a full host record from network membership and host ID.
+  # Uses per-zone prefix4/prefix6 and prefixLength so address derivation
+  # is consistent with the networks enrichment above.
+  mkHost = zoneName: vlanId: hostId: let
+    zone = networks.${zoneName};
+    inherit (zone) prefix4;
+    inherit (zone) prefix6;
+    inherit (zone) prefixLength4;
+    inherit (zone) prefixLength6;
+  in {
     inherit zoneName vlanId hostId;
-    ipv4 = "${ipv4Prefix}.${toString vlanId}.${toString hostId}";
-    ipv6 = "${ulaPrefix}:${vlanHex vlanId}::${hostHex hostId}";
-    subnet4 = "${ipv4Prefix}.${toString vlanId}.0/24";
-    subnet6 = "${ulaPrefix}:${vlanHex vlanId}::/64";
-    cidr4 = "${ipv4Prefix}.${toString vlanId}.${toString hostId}/24";
-    cidr6 = "${ulaPrefix}:${vlanHex vlanId}::${hostHex hostId}/64";
+    ipv4 = "${prefix4}.${toString hostId}";
+    ipv6 = "${prefix6}::${hostHex hostId}";
+    subnet4 = "${prefix4}.0/${toString prefixLength4}";
+    subnet6 = "${prefix6}::/${toString prefixLength6}";
+    cidr4 = "${prefix4}.${toString hostId}/${toString prefixLength4}";
+    cidr6 = "${prefix6}::${hostHex hostId}/${toString prefixLength6}";
   };
 
   # Flatten networks into a single hosts attrset for direct lookup
@@ -391,8 +445,9 @@
 in {
   inherit
     networks
-    ipv4Prefix
     ulaPrefix
+    ulaSubnetHex
+    gateways
     mkHost
     hosts
     hostAliases

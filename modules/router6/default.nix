@@ -926,6 +926,62 @@ in {
           assertion = false;
           message = "Interface '${member}' is a member of both a batman device and a bridge. Linux only supports one master per interface. Remove it from the bridge — batman forwards traffic through to its soft interface automatically.";
         })
-        overlap);
+        overlap)
+      # ---- Security assertions ----
+      # Derive the set of WAN zone names: zones assigned to NAT-enabled interfaces.
+      ++ (let
+        wanZones = lib.unique (
+          lib.concatMap (i:
+            lib.optional
+            ((i.network.zone or null) != null && (i.network.nat.enable or false))
+            i.network.zone)
+          flattenTopology
+        );
+        # All WireGuard listen ports declared in the topology
+        wgPorts = lib.concatMap (name: let
+          port = cfg.topology.${name}.wireguard.port or null;
+        in
+          lib.optional (port != null) port)
+        (attrNames (filterAttrs (_: v: v.wireguard != null) cfg.topology));
+        # A rule is "WireGuard-shaped" if it accepts UDP on a WireGuard port only
+        isWgAccept = rule:
+          lib.isAttrs rule
+          && (rule.verdict or null) == "accept"
+          && (rule ? udp)
+          && !(rule ? tcp)
+          && (let
+            dp = rule.udp.dport or null;
+          in
+            dp
+            != null
+            && (
+              if lib.isList dp
+              then lib.all (p: elem p wgPorts) dp
+              else elem dp wgPorts
+            ));
+      in
+        # (a) WAN zone inputRules must only accept WireGuard ports
+        lib.concatMap (zoneName: let
+          zone = cfg.zones.${zoneName};
+        in
+          lib.imap0 (i: rule: {
+            assertion = isWgAccept rule;
+            message = "router6: WAN zone '${zoneName}': inputRules[${toString i}] must only accept WireGuard ports. Found a non-WG rule. Use zone.extraInputRules for other intentional exceptions.";
+          })
+          zone.inputRules)
+        wanZones
+        # (b) No DHCP server on NAT (WAN) interfaces
+        ++ lib.concatMap (i: [
+          {
+            assertion = !(i.network.dhcp.enable or false);
+            message = "router6: interface '${i.name}' has nat.enable = true and dhcp.enable = true. A DHCP server on a WAN interface would advertise to the ISP segment.";
+          }
+        ]) (filter (i: i.network.nat.enable or false) flattenTopology)
+        # (c) icmpEcho = "disable" on NAT zones
+        ++ map (zoneName: {
+          assertion = (cfg.zones.${zoneName}.icmpEcho or "disable") == "disable";
+          message = "router6: WAN zone '${zoneName}' has icmpEcho != 'disable'. NAT zones should not respond to ICMP echo from the public internet.";
+        })
+        wanZones);
   };
 }

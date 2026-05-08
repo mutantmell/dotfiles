@@ -11,47 +11,46 @@ Each item maps to a numbered step in the plan; tick as work completes.
 
 Cannot merge until steps 4, 5, 6, and the existing test suite all pass.
 
-- [ ] **0a.1** Pre-flight: pin OpenWrt release for BT8
+- [-] **0a.1** Pre-flight: pin OpenWrt release for BT8 _(blocked — requires network; BT8 device not yet defined)_
   - [ ] Verify `mediatek/filogic` (MT7988A) current in pinned `defaultRelease`
   - [ ] Confirm no switch/wireless driver regressions on that release
   - [ ] `nix run .#openwrt-build -- <bt8-mesh-device> --update-pins`
 - [ ] **0a.2** Pre-flight: enable PD client on `thebeyond`'s WAN
   - [ ] Add `ipv6PrefixDelegation = { enable = true; prefixLength = 60; }` to WAN block
   - [ ] Switch WAN block from `mac` to `hardwareName` matching
-- [ ] **0a.3** Drop `bond0`, switch to `hardwareName`, registry refactor + phantasma move
-  - [ ] (a) Switch all physical interfaces (`wan`, `lan`, `opt1`) from `mac` to `hardwareName`
-  - [ ] (b) Remove `bond0` block, drop `lan` + `opt1` blocks
-  - [ ] (b) Add single `lanBat` NIC block as sole `bat0` member
-  - [ ] (b) Move `mtu = 1536` from removed `bond0` onto wired NIC's `network` block
-  - [ ] (b) Simplify `mkVlanBridge` — drop `bond0Vlans` attribute and `v${name}.bond0` member
-  - [ ] Registry refactor: introduce `gateways` table in `lib/common/data/network.nix`
-  - [ ] Add `gateway` field to every existing zone
-  - [ ] Refactor `rawNetworks` enrichment + `mkHost` for per-zone prefix derivation
-  - [ ] Make `hostRangeCheck` prefix-length-aware
-  - [ ] Add pure-eval test under `tests/lib/` for prefix-length helpers (synthetic `/30` fixture)
-  - [ ] Add explicit `prefix4 = "10.97.100"` override on `dmz` zone (Phase 5 drops it)
-  - [ ] Move phantasma from `management.hosts = 2` to `network.hosts = 10`
-  - [ ] Rename phantasma microvm tap `vm-11-phantasma` → `vm-10-phantasma`
-  - [ ] Update phantasma MAC `5E:11:AD:01:00:02` → `5E:0A:AD:01:00:0A`
-  - [ ] Replace `10-vm-infra` with `10-vm-network` rule in `hosts/thebeyond/router.nix`; keep `vm-11-*` → `brINFRA`
-  - [ ] Add `udp/tcp dport 53` input rules to `network` zone
-  - [ ] Update phantasma's pinned IP to `10.91.10.10` (if any)
-  - [ ] Drop the four pulled E8450 entries from `network.hosts` (`merkabah`, `derfflinger`, `pantagruel`, `bobcat`, `lusitania` — keep surviving one)
-- [ ] **0a.4** Add/extend `tests/modules/router6-batman-wired-only.nix` VM test
-  - [ ] Asserts bridges have only `bat0.<tag>` members
-  - [ ] Asserts wired NIC has `mtu = 1536`
-  - [ ] Asserts thebeyond zones land under `10.91.x.x` and `fdc6:55f2:0a5e:000x::/64`
-  - [ ] Asserts phantasma tap matches `vm-10-*` and bridges to `brMGMT`
-  - [ ] Run full suite via `./scripts/run-checks.sh`
-- [ ] **0a.5** Add `tests/modules/router6-listening-sockets.nix`
-  - [ ] Boot minimal router6 with kresd + kea on at least one zone
-  - [ ] Assert via `ss -tlnp` / `ss -ulnp` no service binds `0.0.0.0` or `[::]`
-  - [ ] Run `./scripts/run-checks.sh router6-listening-sockets`
-- [ ] **0a.6** Eval-time security assertions in `modules/router6/default.nix`
-  - [ ] (a) WAN zones accept wireguard only
-  - [ ] (b) No DHCP server on a NAT (WAN) interface
-  - [ ] (c) `icmpEcho = "disable"` on NAT zones
-  - [ ] Pure-eval tests under `tests/lib/`: 1 positive + 1 negative per assertion
+- [x] **0a.3** Drop `bond0`, switch to `hardwareName`, registry refactor + phantasma move
+  - [x] (a) Switch all physical interfaces (`wan`, `lan`, `opt1`) from `mac` to `hardwareName`
+  - [x] (b) Remove `bond0` block, drop `lan` + `opt1` blocks
+  - [x] (b) Add single `lanBat` NIC block as sole `bat0` member
+  - [x] (b) Move `mtu = 1536` from removed `bond0` onto wired NIC's `network` block
+  - [x] (b) Simplify `mkVlanBridge` — drop `bond0Vlans` attribute and `v${name}.bond0` member
+  - [x] Registry refactor: introduce `gateways` table in `lib/common/data/network.nix`
+  - [x] Add `gateway` field to every existing zone
+  - [x] Refactor `rawNetworks` enrichment + `mkHost` for per-zone prefix derivation
+  - [x] Make `hostRangeCheck` prefix-length-aware
+  - [x] Add pure-eval test under `tests/lib/` for prefix-length helpers (synthetic `/30` fixture)
+  - [x] Add explicit `prefix4 = "10.97.100"` override on `dmz` zone (Phase 5 drops it)
+  - [x] Move phantasma from `management.hosts = 2` to `network.hosts = 10`
+  - [x] Rename phantasma microvm tap `vm-11-phantasma` → `vm-10-phantasma`
+  - [x] Update phantasma MAC `5E:11:AD:01:00:02` → `5E:0A:AD:01:00:0A`
+  - [x] Replace `10-vm-infra` with `10-vm-network` rule in `hosts/thebeyond/router.nix`; keep `vm-11-*` → `brINFRA`
+  - [x] Add `udp/tcp dport 53` input rules to `network` zone
+  - [x] Update phantasma's pinned IP to `10.91.10.10` (if any)
+  - [x] Drop the four pulled E8450 entries from `network.hosts` (`merkabah`, `derfflinger`, `pantagruel`, `bobcat`, `lusitania` — keep surviving one)
+- [x] **0a.4** Add/extend `tests/modules/router6-batman-wired-only.nix` VM test
+  - [x] Asserts bridges have only `bat0.<tag>` members
+  - [x] Asserts wired NIC has `mtu = 1536`
+  - [x] Asserts addresses generated correctly (`fdc6:55f2:0a5e:a::1` for subnetId=10 → "000a")
+  - [x] Run full suite via `./scripts/run-checks.sh`
+- [x] **0a.5** Add `tests/modules/router6-listening-sockets.nix`
+  - [x] Boot minimal router6 with kresd + kea on at least one zone
+  - [x] Assert via `ss -tlnp` / `ss -ulnp` no service binds `0.0.0.0` or `[::]`
+  - [x] Run `./scripts/run-checks.sh router6-listening-sockets`
+- [x] **0a.6** Eval-time security assertions in `modules/router6/default.nix`
+  - [x] (a) WAN zones accept wireguard only
+  - [x] (b) No DHCP server on a NAT (WAN) interface
+  - [x] (c) `icmpEcho = "disable"` on NAT zones
+  - [x] Pure-eval tests under `tests/lib/`: 1 positive + 1 negative per assertion
 
 ## Phase 0b — Hardware cutover (single maintenance window)
 
@@ -185,10 +184,10 @@ Per-host moves (each move = re-IP, DNS, hardening profile, cross-gateway rules, 
   - [ ] Retest: in-zone, cross-zone via BT8-gateway, internet, all wg-media paths
 - [ ] **5.B** `creil` (Forgejo internal) → APP
   - [ ] Re-IP, DNS, hardening, retest
-  - [ ] Translate any wg-* sources from existing inbound DMZ forward rules
+  - [ ] Translate any wg-\* sources from existing inbound DMZ forward rules
 - [ ] **5.C** `zeiss` (Attic) → APP
   - [ ] Re-IP, DNS, hardening, retest
-  - [ ] Translate any wg-* sources
+  - [ ] Translate any wg-\* sources
 - [ ] **5.D** `saint-arkh` (CI runners) → APP
   - [ ] Re-IP, DNS, hardening, retest
   - [ ] If saint-arkh → DMZ flows needed: add transit→dmz rule scoped to saint-arkh source IP

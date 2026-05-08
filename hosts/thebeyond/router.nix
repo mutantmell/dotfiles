@@ -1,13 +1,13 @@
 # Router6 network configuration for thebeyond
 #
-# Per-VLAN bridge topology: bond0 (wired trunk) + bat0 (batman mesh) → per-VLAN bridges
-# Each VLAN gets a bridge joining bond0 and bat0 VLAN sub-interfaces, with IP/DHCP/zone config.
-# This is the standard batman-adv deployment pattern for multi-VLAN networks.
+# Per-VLAN bridge topology: lanBat (wired to BT8-bridge) → bat0 (batman-adv) → per-VLAN bridges.
+# bond0 is gone: VP2440 uses a single wired port as the batman hard interface.
+# Bridges are bat0-only (no bond0 VLAN sub-interfaces).
 #
 # Topology:
-#   Physical NICs → bond0 (LACP) → bat0 (batman-adv mesh)
-#   bond0 VLANs (wired) + bat0 VLANs (mesh) → per-VLAN bridges (brMGMT, brINFRA, brHOME, ...)
-#   Each bridge gets: static IPs, DHCP server, firewall zone assignment
+#   lanBat (wired to BT8-bridge, mtu=1536) → bat0 (batman-adv mesh) → bat0.<tag> VLANs
+#   bat0 VLANs → per-VLAN bridges (brMGMT, brINFRA, brHOME, ...)
+#   Each bridge gets: static IPs (derived from network registry), DHCP server, firewall zone
 {
   config,
   pkgs,
@@ -27,115 +27,57 @@
   inherit (net.hosts) oracion;
   saint-arkh = net.hosts."saint-arkh";
 
-  # Helper to define a per-VLAN bridge with bond0 + bat0 members.
-  # Batman-adv only carries mesh-encapsulated frames on hard interfaces,
-  # so each VLAN needs its own bridge joining wired + mesh paths.
-  # ULA base for computing per-VLAN DNS addresses
-  ulaBase = "fdc6:55f2:a5e";
+  # Maps registry subnet name → { bridgeName, zone, enableDhcp?, enableDhcp6? }.
+  # The subnet name is the key into net.networks and determines IP addressing
+  # (gateway4, prefixLength4, vlanId). The zone field is the router6 firewall
+  # security policy — independent of subnet identity. Multiple subnets can share
+  # a zone (e.g. adu/iot/game all use "untrusted") without any registry hack.
+  subnetBindings = {
+    network    = { bridgeName = "MGMT";  zone = "network";    enableDhcp = false; enableDhcp6 = false; };
+    management = { bridgeName = "INFRA"; zone = "management"; };
+    trusted    = { bridgeName = "HOME";  zone = "trusted";    };
+    untrusted  = { bridgeName = "GUEST"; zone = "untrusted";  };
+    adu        = { bridgeName = "ADU";   zone = "untrusted";  };
+    iot        = { bridgeName = "IOT";   zone = "untrusted";  };
+    game       = { bridgeName = "GAME";  zone = "untrusted";  };
+    lab        = { bridgeName = "LAB";   zone = "lab";        };
+    dmz        = { bridgeName = "DMZ";   zone = "dmz";        };
+  };
 
-  mkVlanBridge = {
-    name,
-    tag,
-    addresses,
+  mkVlanBridge = subnetName: {
+    bridgeName,
     zone,
     enableDhcp ? true,
     enableDhcp6 ? true,
-  }: {
-    bond0Vlans."v${name}.bond0" = {
-      inherit tag;
+  }: let
+    subnet = net.networks.${subnetName};
+  in {
+    bat0Vlans."v${bridgeName}.bat0" = {
+      tag = subnet.vlanId;
       network.type = "disabled";
     };
-    bat0Vlans."v${name}.bat0" = {
-      inherit tag;
-      network.type = "disabled";
-    };
-    bridges."br${name}" = {
+    bridges."br${bridgeName}" = {
       kind = "bridge";
-      members = ["v${name}.bond0" "v${name}.bat0"];
+      members = ["v${bridgeName}.bat0"];
       network = {
         type = "static";
-        inherit addresses zone;
-        subnetId = tag;
+        addresses = ["${subnet.gateway4}/${toString subnet.prefixLength4}"];
+        inherit zone;
+        subnetId = subnet.vlanId;
         dhcp.enable = enableDhcp;
         dhcp6 = {
           enable = enableDhcp6;
           dnsAddress =
             if enableDhcp6
-            then "${ulaBase}:${lib.toLower (lib.toHexString tag)}::1"
+            then subnet.gateway6
             else null;
         };
       };
     };
   };
 
-  vlanDefs = [
-    # Network gear - APs and switches (locked down: NTP only)
-    (mkVlanBridge {
-      name = "MGMT";
-      tag = 10;
-      zone = "network";
-      addresses = ["10.97.10.1/24"];
-      enableDhcp = false;
-    })
-    # Infrastructure - NAS, VM hosts, DNS
-    (mkVlanBridge {
-      name = "INFRA";
-      tag = 11;
-      zone = "management";
-      addresses = ["10.97.11.1/24"];
-    })
-    # Home network - trusted devices
-    (mkVlanBridge {
-      name = "HOME";
-      tag = 20;
-      zone = "trusted";
-      addresses = ["10.97.20.1/24"];
-    })
-    # Guest network - untrusted devices
-    (mkVlanBridge {
-      name = "GUEST";
-      tag = 30;
-      zone = "untrusted";
-      addresses = ["10.97.30.1/24"];
-    })
-    # ADU network - separate dwelling unit
-    (mkVlanBridge {
-      name = "ADU";
-      tag = 31;
-      zone = "untrusted";
-      addresses = ["10.97.31.1/24"];
-    })
-    # IoT network - smart home devices
-    (mkVlanBridge {
-      name = "IOT";
-      tag = 40;
-      zone = "untrusted";
-      addresses = ["10.97.40.1/24"];
-    })
-    # Gaming network - consoles and gaming devices
-    (mkVlanBridge {
-      name = "GAME";
-      tag = 41;
-      zone = "untrusted";
-      addresses = ["10.97.41.1/24"];
-    })
-    # Lab network - semi-trusted dev environments (edith, trista, wg-vpn)
-    (mkVlanBridge {
-      name = "LAB";
-      tag = 21;
-      zone = "lab";
-      addresses = ["10.97.21.1/24"];
-    })
-    # DMZ network - exposed services
-    (mkVlanBridge {
-      name = "DMZ";
-      tag = 100;
-      zone = "dmz";
-      addresses = ["10.97.100.1/24"];
-    })
-  ];
+  vlanDefs = lib.mapAttrsToList mkVlanBridge subnetBindings;
 
-  allBond0Vlans = lib.foldl' (a: b: a // b.bond0Vlans) {} vlanDefs;
   allBat0Vlans = lib.foldl' (a: b: a // b.bat0Vlans) {} vlanDefs;
   allBridges = lib.foldl' (a: b: a // b.bridges) {} vlanDefs;
 in {
@@ -143,7 +85,6 @@ in {
     enable = true;
 
     # ULA prefix for internal IPv6 addressing
-    # IPv6 addresses auto-generated from VLAN tags (e.g., VLAN 10 -> fdc6:55f2:0a5e:a::1/64)
     ulaPrefix = "fdc6:55f2:0a5e::/48";
 
     zones = {
@@ -155,7 +96,9 @@ in {
       };
 
       network = {
-        # Network gear (APs, switches): NTP only, no internet, no lateral movement
+        # Network gear (APs, switches): NTP + DNS only, no internet, no lateral movement.
+        # phantasma (recursive DNS resolver) lives here — kresd auto-binds to brMGMT
+        # because inputRules allows DNS below.
         icmpEcho = "enable";
         accessTo = [];
         inputRules = [
@@ -163,6 +106,17 @@ in {
             udp.dport = 123;
             verdict = "accept";
             comment = "NTP";
+          }
+          # DNS: thebeyond's local kresd → phantasma (same L2 segment, input-chain flow)
+          {
+            udp.dport = 53;
+            verdict = "accept";
+            comment = "DNS";
+          }
+          {
+            tcp.dport = 53;
+            verdict = "accept";
+            comment = "DNS (TCP)";
           }
         ];
       };
@@ -376,7 +330,7 @@ in {
     };
 
     dns = {
-      upstream = [phantasma.ipv4]; # phantasma microVM (primary - has local hostnames)
+      upstream = [phantasma.ipv4]; # phantasma microVM on brMGMT (10.91.10.10)
       useDHCPFallback = true; # fall back to ISP DNS when phantasma microVM is down
       localDomain = "internal";
       interception = {
@@ -476,45 +430,37 @@ in {
 
     topology =
       {
-        # WAN interface - DHCP from ISP
+        # WAN interface — DHCP from ISP
+        # hardwareName: placeholder — confirm with `ip -br link` on booted VP2440
         wan = {
-          mac = "00:e0:67:1b:70:34";
+          hardwareName = "enp1s0";
           network = {
             type = "dhcp";
             zone = "external";
             nat.enable = true;
             defaultRoute = true;
+            ipv6PrefixDelegation = {
+              enable = true;
+              prefixLength = 60; # polite hint; ISP delegates /64 in practice
+            };
           };
         };
 
-        # LAN interface - will be bonded
-        lan = {
-          mac = "00:e0:67:1b:70:35";
-        };
-
-        # Second LAN interface - will be bonded
-        opt1 = {
-          mac = "00:e0:67:1b:70:36";
-        };
-
-        # Bond combining lan + opt1 for increased bandwidth (LACP)
-        bond0 = {
-          kind = "bond";
-          mode = "802.3ad";
-          lacpTransmitRate = "fast";
-          miiMonitorSec = "100ms";
-          members = ["lan" "opt1"];
+        # Wired link to BT8-bridge — batman-adv hard interface.
+        # mtu=1536 provides headroom for the ~25-byte batman encapsulation.
+        # hardwareName: placeholder — confirm with `ip -br link` on booted VP2440
+        lanBat = {
+          hardwareName = "enp2s0";
           network = {
             type = "disabled";
             mtu = 1536;
           };
-          vlans = allBond0Vlans;
         };
 
-        # Batman-adv mesh device
+        # Batman-adv mesh device — single hard interface (wired to BT8-bridge)
         bat0 = {
           kind = "batman";
-          members = ["bond0"];
+          members = ["lanBat"];
           batman = {
             gatewayMode = "off";
             routingAlgorithm = "batman-v";
@@ -606,8 +552,18 @@ in {
       // allBridges;
   };
 
-  # Bridge microVM tap interfaces into the infrastructure network
-  # The vm-11-phantasma tap interface is created by microvm and needs to be bridged to brINFRA
+  # Bridge microVM tap interfaces.
+  # vm-10-* taps (network zone, e.g. phantasma) → brMGMT
+  systemd.network.networks."10-vm-network" = {
+    matchConfig.Name = "vm-10-*";
+    networkConfig = {
+      Bridge = "brMGMT";
+      DHCP = "no";
+      LinkLocalAddressing = "no";
+    };
+    linkConfig.RequiredForOnline = "no";
+  };
+  # vm-11-* taps (management/INFRA zone) → brINFRA (kept for any future INFRA microvms)
   systemd.network.networks."10-vm-infra" = {
     matchConfig.Name = "vm-11-*";
     networkConfig = {

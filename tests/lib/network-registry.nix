@@ -22,25 +22,37 @@
   inherit (net.networks) dmz;
   inherit (net.networks) trusted;
 
+  # management is bt8gw-owned (group 1, vlanId 11): prefix = "10.97.11", ULA = "100b"
   mgmtSubnet4 = assertEq "management subnet4" mgmt.subnet4 "10.97.11.0/24";
-  mgmtSubnet6 = assertEq "management subnet6" mgmt.subnet6 "fdc6:55f2:0a5e:b::/64";
+  mgmtSubnet6 = assertEq "management subnet6" mgmt.subnet6 "fdc6:55f2:0a5e:100b::/64";
   mgmtGateway4 = assertEq "management gateway4" mgmt.gateway4 "10.97.11.1";
-  mgmtGateway6 = assertEq "management gateway6" mgmt.gateway6 "fdc6:55f2:0a5e:b::1";
+  mgmtGateway6 = assertEq "management gateway6" mgmt.gateway6 "fdc6:55f2:0a5e:100b::1";
 
+  # dmz has explicit prefix4 = "10.97.100" override; thebeyond group 0, vlanId 100 → ULA "0064"
   dmzSubnet4 = assertEq "dmz subnet4" dmz.subnet4 "10.97.100.0/24";
-  dmzSubnet6 = assertEq "dmz subnet6" dmz.subnet6 "fdc6:55f2:0a5e:64::/64";
+  dmzSubnet6 = assertEq "dmz subnet6" dmz.subnet6 "fdc6:55f2:0a5e:0064::/64";
   dmzGateway4 = assertEq "dmz gateway4" dmz.gateway4 "10.97.100.1";
 
+  # trusted is bt8gw-owned (group 1, vlanId 20): prefix = "10.97.20", ULA = "1014"
   trustedSubnet4 = assertEq "trusted subnet4" trusted.subnet4 "10.97.20.0/24";
-  trustedSubnet6 = assertEq "trusted subnet6" trusted.subnet6 "fdc6:55f2:0a5e:14::/64";
+  trustedSubnet6 = assertEq "trusted subnet6" trusted.subnet6 "fdc6:55f2:0a5e:1014::/64";
+
+  # network is thebeyond-owned (group 0, vlanId 10): prefix = "10.91.10", ULA = "000a"
+  networkGateway4 = assertEq "network gateway4" net.networks.network.gateway4 "10.91.10.1";
+  networkSubnet4 = assertEq "network subnet4" net.networks.network.subnet4 "10.91.10.0/24";
+
+  # prefixLength defaults to 24
+  mgmtPrefixLen = assertEq "management prefixLength4" mgmt.prefixLength4 24;
+  dmzPrefixLen = assertEq "dmz prefixLength4" dmz.prefixLength4 24;
 
   # --- mkHost: address derivation ---
 
+  # management zone: bt8gw group 1, vlanId 11 → prefix4 "10.97.11", prefix6 "fdc6:55f2:0a5e:100b"
   testHost = net.mkHost "management" 11 6;
   mkHostIpv4 = assertEq "mkHost ipv4" testHost.ipv4 "10.97.11.6";
-  mkHostIpv6 = assertEq "mkHost ipv6" testHost.ipv6 "fdc6:55f2:0a5e:b::6";
+  mkHostIpv6 = assertEq "mkHost ipv6" testHost.ipv6 "fdc6:55f2:0a5e:100b::6";
   mkHostCidr4 = assertEq "mkHost cidr4" testHost.cidr4 "10.97.11.6/24";
-  mkHostCidr6 = assertEq "mkHost cidr6" testHost.cidr6 "fdc6:55f2:0a5e:b::6/64";
+  mkHostCidr6 = assertEq "mkHost cidr6" testHost.cidr6 "fdc6:55f2:0a5e:100b::6/64";
   mkHostSubnet4 = assertEq "mkHost subnet4" testHost.subnet4 "10.97.11.0/24";
   mkHostZone = assertEq "mkHost zoneName" testHost.zoneName "management";
   mkHostVlanId = assertEq "mkHost vlanId" testHost.vlanId 11;
@@ -48,25 +60,38 @@
 
   # --- hosts: flattened lookup ---
 
+  # thebeyond is now in network.hosts = 1 → IP 10.91.10.1
   hostsHasThebeyond = assertEq "hosts has thebeyond" (net.hosts ? thebeyond) true;
   hostsHasLangport = assertEq "hosts has langport" (net.hosts ? langport) true;
-  hostsThebeyondIpv4 = assertEq "thebeyond ipv4" net.hosts.thebeyond.ipv4 "10.97.11.1";
-  hostsThebeyondZone = assertEq "thebeyond zone" net.hosts.thebeyond.zoneName "management";
+  hostsThebeyondIpv4 = assertEq "thebeyond ipv4" net.hosts.thebeyond.ipv4 "10.91.10.1";
+  hostsThebeyondZone = assertEq "thebeyond zone" net.hosts.thebeyond.zoneName "network";
   hostsLangportIpv4 = assertEq "langport ipv4" net.hosts.langport.ipv4 "10.97.100.41";
   hostsLangportZone = assertEq "langport zone" net.hosts.langport.zoneName "dmz";
 
-  # Host in hex-significant VLAN (dmz = 100 = 0x64)
-  hostsDmzSubnet = assertEq "dmz host subnet6" net.hosts.langport.subnet6 "fdc6:55f2:0a5e:64::/64";
-  # Host with hex hostId (azoth = 50 = 0x32)
-  hostsAzothIpv6 = assertEq "azoth ipv6" net.hosts.azoth.ipv6 "fdc6:55f2:0a5e:14::32";
+  # phantasma moved to network.hosts = 10 → IP 10.91.10.10
+  hostsPhantasmaIpv4 = assertEq "phantasma ipv4" net.hosts.phantasma.ipv4 "10.91.10.10";
+  hostsPhantasmaZone = assertEq "phantasma zone" net.hosts.phantasma.zoneName "network";
+
+  # bt8bridge added to network.hosts = 4 → IP 10.91.10.4
+  hostsBt8bridgeIpv4 = assertEq "bt8bridge ipv4" net.hosts.bt8bridge.ipv4 "10.91.10.4";
+
+  # dmz host subnet6 uses thebeyond group 0 + vlanId 100 = "0064"
+  hostsDmzSubnet = assertEq "dmz host subnet6" net.hosts.langport.subnet6 "fdc6:55f2:0a5e:0064::/64";
+
+  # azoth in trusted (bt8gw group 1, vlanId 20 = "1014"), hostId 50 = "32"
+  hostsAzothIpv6 = assertEq "azoth ipv6" net.hosts.azoth.ipv6 "fdc6:55f2:0a5e:1014::32";
+
+  # E8450 devices have been dropped
+  hostsNoMerkabah = assertEq "merkabah removed" (net.hosts ? merkabah) false;
+  hostsNoBobcat = assertEq "bobcat removed" (net.hosts ? bobcat) false;
 
   # --- forHost: structured lookup ---
 
   forThebeyond = net.forHost "thebeyond";
-  forHostReturnsHost = assertEq "forHost host ipv4" forThebeyond.host.ipv4 "10.97.11.1";
-  forHostReturnsZone = assertEq "forHost zone gateway4" forThebeyond.zone.gateway4 "10.97.11.1";
-  forHostZoneName = assertEq "forHost host zoneName" forThebeyond.host.zoneName "management";
-  forHostZoneSubnet = assertEq "forHost zone subnet4" forThebeyond.zone.subnet4 "10.97.11.0/24";
+  forHostReturnsHost = assertEq "forHost host ipv4" forThebeyond.host.ipv4 "10.91.10.1";
+  forHostReturnsZone = assertEq "forHost zone gateway4" forThebeyond.zone.gateway4 "10.91.10.1";
+  forHostZoneName = assertEq "forHost host zoneName" forThebeyond.host.zoneName "network";
+  forHostZoneSubnet = assertEq "forHost zone subnet4" forThebeyond.zone.subnet4 "10.91.10.0/24";
 
   forLangport = net.forHost "langport";
   forHostDmzHost = assertEq "forHost langport ipv4" forLangport.host.ipv4 "10.97.100.41";
@@ -169,20 +194,24 @@
   allTests = {
     # networks
     "management subnet4" = mgmtSubnet4;
-    "management subnet6" = mgmtSubnet6;
+    "management subnet6 (bt8gw group 1)" = mgmtSubnet6;
     "management gateway4" = mgmtGateway4;
-    "management gateway6" = mgmtGateway6;
-    "dmz subnet4" = dmzSubnet4;
-    "dmz subnet6" = dmzSubnet6;
-    "dmz gateway4" = dmzGateway4;
+    "management gateway6 (bt8gw group 1)" = mgmtGateway6;
+    "dmz subnet4 (prefix4 override)" = dmzSubnet4;
+    "dmz subnet6 (thebeyond group 0)" = dmzSubnet6;
+    "dmz gateway4 (prefix4 override)" = dmzGateway4;
     "trusted subnet4" = trustedSubnet4;
-    "trusted subnet6" = trustedSubnet6;
+    "trusted subnet6 (bt8gw group 1)" = trustedSubnet6;
+    "network gateway4 (thebeyond group 0)" = networkGateway4;
+    "network subnet4" = networkSubnet4;
+    "management prefixLength4 defaults to 24" = mgmtPrefixLen;
+    "dmz prefixLength4 defaults to 24" = dmzPrefixLen;
 
     # mkHost
     "mkHost produces correct ipv4" = mkHostIpv4;
-    "mkHost produces correct ipv6" = mkHostIpv6;
+    "mkHost produces correct ipv6 (bt8gw group 1)" = mkHostIpv6;
     "mkHost produces correct cidr4" = mkHostCidr4;
-    "mkHost produces correct cidr6" = mkHostCidr6;
+    "mkHost produces correct cidr6 (bt8gw group 1)" = mkHostCidr6;
     "mkHost produces correct subnet4" = mkHostSubnet4;
     "mkHost sets zoneName" = mkHostZone;
     "mkHost sets vlanId" = mkHostVlanId;
@@ -191,12 +220,17 @@
     # hosts
     "hosts contains thebeyond" = hostsHasThebeyond;
     "hosts contains langport" = hostsHasLangport;
-    "thebeyond has correct ipv4" = hostsThebeyondIpv4;
-    "thebeyond is in management zone" = hostsThebeyondZone;
-    "langport has correct ipv4" = hostsLangportIpv4;
+    "thebeyond has correct ipv4 (network zone)" = hostsThebeyondIpv4;
+    "thebeyond is in network zone" = hostsThebeyondZone;
+    "langport has correct ipv4 (dmz prefix4 override)" = hostsLangportIpv4;
     "langport is in dmz zone" = hostsLangportZone;
-    "dmz host has hex vlan in subnet6" = hostsDmzSubnet;
-    "azoth has hex hostId in ipv6" = hostsAzothIpv6;
+    "phantasma moved to network zone" = hostsPhantasmaIpv4;
+    "phantasma is in network zone" = hostsPhantasmaZone;
+    "bt8bridge added to network zone" = hostsBt8bridgeIpv4;
+    "dmz host has fixed-width hex vlan in subnet6" = hostsDmzSubnet;
+    "azoth has bt8gw group 1 ULA prefix" = hostsAzothIpv6;
+    "merkabah removed from registry" = hostsNoMerkabah;
+    "bobcat removed from registry" = hostsNoBobcat;
 
     # forHost
     "forHost returns host record" = forHostReturnsHost;
