@@ -92,6 +92,7 @@
         });
     treefmtEval = forAllSystems (sys: treefmt-nix.lib.evalModule sys.pkgs ./treefmt.nix);
     openwrtDevices = import ./hosts/openwrt {inherit (nixpkgs) lib;};
+    net = import ./lib/common/data/network.nix {lib = nixpkgs.lib;};
   in {
     devShells = forAllSystems ({
       system,
@@ -481,7 +482,7 @@
         };
 
         arcus = {
-          hostname = "10.100.20.10"; # WG tunnel IP
+          hostname = net.wireguardNetworks."wg-media".hosts.arcus.ipv4;
           profiles.system = {
             sshUser = "root";
             user = "root";

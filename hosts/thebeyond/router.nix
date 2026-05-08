@@ -15,6 +15,7 @@
   ...
 }: let
   net = pkgs.mmell.lib.data.network;
+  wg = net.wireguardNetworks;
   ds = net.mkDualStackRules;
   inherit (net.forHost "thebeyond") host;
   inherit (net.hosts) phantasma;
@@ -475,11 +476,11 @@ in {
           network = {
             type = "static";
             addresses = [
-              "10.100.0.1/24"
-              "fdc6:55f2:0a5e:6400::1/64" # Manual IPv6 for WG
+              "${wg."wg-ba".gateway4}/24"
+              "${wg."wg-ba".gateway6}/64"
             ];
             zone = "ba-tunnel";
-            required = false; # External connection, don't block boot
+            required = false;
           };
           wireguard = {
             privateKeyFile = config.sops.secrets."wg-ba-privatekey".path;
@@ -488,24 +489,24 @@ in {
             peers = [
               {
                 publicKey = "O+WWPlhy6Lg9YT3hYqq+/8gZ48PpRXaUTl4eFFwgTVA=";
-                allowedIPs = ["10.100.0.3/32" "fdc6:55f2:0a5e:6400::3/128"];
+                allowedIPs = let h = wg."wg-ba".hosts.remote; in [h.cidr4 h.cidr6];
                 persistentKeepalive = 25;
               }
             ];
           };
         };
 
-        # Wireguard - VPN for mobile devices
+        # WireGuard - VPN for mobile devices
         "wg-vpn" = {
           kind = "wireguard";
           network = {
             type = "static";
             addresses = [
-              "10.100.10.1/24"
-              "fdc6:55f2:0a5e:640a::1/64" # Manual IPv6 for WG
+              "${wg."wg-vpn".gateway4}/24"
+              "${wg."wg-vpn".gateway6}/64"
             ];
             zone = "lab";
-            required = false; # External connection, don't block boot
+            required = false;
           };
           wireguard = {
             privateKeyFile = config.sops.secrets."wg-vpn-privatekey".path;
@@ -514,11 +515,11 @@ in {
             peers = [
               {
                 publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
-                allowedIPs = ["10.100.10.20/32" "fdc6:55f2:0a5e:640a::14/128"];
+                allowedIPs = let h = wg."wg-vpn".hosts.laptop; in [h.cidr4 h.cidr6];
               }
               {
                 publicKey = "8g4r9czA23tS/XTOajuIa/BNfDE2x4GwdXXi+udE6gY=";
-                allowedIPs = ["10.100.10.21/32" "fdc6:55f2:0a5e:640a::15/128"];
+                allowedIPs = let h = wg."wg-vpn".hosts.mobile; in [h.cidr4 h.cidr6];
               }
             ];
           };
@@ -530,8 +531,8 @@ in {
           network = {
             type = "static";
             addresses = [
-              "10.100.20.1/24"
-              "fdc6:55f2:0a5e:6414::1/64"
+              "${wg."wg-media".gateway4}/24"
+              "${wg."wg-media".gateway6}/64"
             ];
             zone = "media";
             required = false;
@@ -543,7 +544,7 @@ in {
             peers = [
               {
                 publicKey = "dB9PoHBScKhwWtJpZztxOLDCC6faUdKbCsy8M0iQKzU=";
-                allowedIPs = ["10.100.20.10/32" "fdc6:55f2:0a5e:6414::a/128"];
+                allowedIPs = let h = wg."wg-media".hosts.arcus; in [h.cidr4 h.cidr6];
               }
             ];
           };
