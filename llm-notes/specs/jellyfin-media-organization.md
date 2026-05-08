@@ -294,15 +294,15 @@ boot.kernel.sysctl = {
 
 ### New Machine (Read-Only NFS, Client-Facing)
 
-| Service                       | Purpose                                   | Notes                                                      |
-| ----------------------------- | ----------------------------------------- | ---------------------------------------------------------- |
-| **Jellyfin**                  | Video/TV streaming server                 | Reads `/media/library` via RO NFS                          |
-| **Retrom**                    | Game library manager + desktop client     | Reads `/media/library/software/{console,romhacks,pc}` via RO NFS |
-| **Navidrome** (optional)      | Dedicated music streaming                 | Reads `/media/library/music` via RO NFS                    |
-| **Audiobookshelf** (optional) | Audiobook and podcast server              | Reads `/media/library/audiobooks` via RO NFS               |
-| **Kavita** (optional)         | Ebook, comic, and manga library           | Reads `/media/library/books` via RO NFS                    |
-| **Immich** (optional)         | Photo and video backup                    | Manages its own storage independently of the media library |
-| **Caddy**                     | Reverse proxy, TLS termination            | Fronts all HTTP services                                   |
+| Service                       | Purpose                               | Notes                                                            |
+| ----------------------------- | ------------------------------------- | ---------------------------------------------------------------- |
+| **Jellyfin**                  | Video/TV streaming server             | Reads `/media/library` via RO NFS                                |
+| **Retrom**                    | Game library manager + desktop client | Reads `/media/library/software/{console,romhacks,pc}` via RO NFS |
+| **Navidrome** (optional)      | Dedicated music streaming             | Reads `/media/library/music` via RO NFS                          |
+| **Audiobookshelf** (optional) | Audiobook and podcast server          | Reads `/media/library/audiobooks` via RO NFS                     |
+| **Kavita** (optional)         | Ebook, comic, and manga library       | Reads `/media/library/books` via RO NFS                          |
+| **Immich** (optional)         | Photo and video backup                | Manages its own storage independently of the media library       |
+| **Caddy**                     | Reverse proxy, TLS termination        | Fronts all HTTP services                                         |
 
 #### RAM Allocation for New Machine
 
@@ -622,24 +622,24 @@ ROM dumps staged at /data/media/staging/manual/console/<platform>/ (NAS host)
 
 ## Tool Reference
 
-| Tool               | Role                                        | Machine                | Source                  |
-| ------------------ | ------------------------------------------- | ---------------------- | ----------------------- |
-| Jellyfin           | Video/TV media server                       | New                    | jellyfin.org            |
+| Tool               | Role                                        | Machine                | Source                        |
+| ------------------ | ------------------------------------------- | ---------------------- | ----------------------------- |
+| Jellyfin           | Video/TV media server                       | New                    | jellyfin.org                  |
 | Retrom             | Game library manager + desktop client       | calvard/oracion        | github.com/JMBeresford/retrom |
-| Navidrome          | Music streaming (optional)                  | New                    | navidrome.org           |
-| Audiobookshelf     | Audiobook & podcast server (optional)       | New                    | audiobookshelf.org      |
-| Kavita             | Ebook, comic & manga library (optional)     | New                    | kavitareader.com        |
-| Immich             | Photo & video backup (optional)             | New                    | immich.app              |
-| Caddy              | Reverse proxy + TLS                         | New                    | caddyserver.com         |
-| Sonarr             | TV organization & import                    | NAS microvm            | servarr.com             |
-| Radarr             | Movie organization & import                 | NAS microvm            | servarr.com             |
-| Bazarr             | Subtitle automation                         | NAS microvm            | bazarr.media            |
-| Lidarr             | Music organization (optional)               | NAS microvm            | servarr.com             |
-| Recyclarr          | Syncs TRaSH Guide quality profiles to \*arr | NAS microvm            | recyclarr.dev           |
-| Unmanic            | Background AV1 re-encoding                  | Old                    | unmanic.app             |
-| FileBot            | Pre-rename for migration ingest             | bose microvm           | filebot.net             |
-| MusicBrainz Picard | Music tag correction (optional)             | NAS microvm (run once) | picard.musicbrainz.org  |
-| Nixarr             | NixOS modules for \*arr stack               | NAS microvm            | nixarr.com              |
+| Navidrome          | Music streaming (optional)                  | New                    | navidrome.org                 |
+| Audiobookshelf     | Audiobook & podcast server (optional)       | New                    | audiobookshelf.org            |
+| Kavita             | Ebook, comic & manga library (optional)     | New                    | kavitareader.com              |
+| Immich             | Photo & video backup (optional)             | New                    | immich.app                    |
+| Caddy              | Reverse proxy + TLS                         | New                    | caddyserver.com               |
+| Sonarr             | TV organization & import                    | NAS microvm            | servarr.com                   |
+| Radarr             | Movie organization & import                 | NAS microvm            | servarr.com                   |
+| Bazarr             | Subtitle automation                         | NAS microvm            | bazarr.media                  |
+| Lidarr             | Music organization (optional)               | NAS microvm            | servarr.com                   |
+| Recyclarr          | Syncs TRaSH Guide quality profiles to \*arr | NAS microvm            | recyclarr.dev                 |
+| Unmanic            | Background AV1 re-encoding                  | Old                    | unmanic.app                   |
+| FileBot            | Pre-rename for migration ingest             | bose microvm           | filebot.net                   |
+| MusicBrainz Picard | Music tag correction (optional)             | NAS microvm (run once) | picard.musicbrainz.org        |
+| Nixarr             | NixOS modules for \*arr stack               | NAS microvm            | nixarr.com                    |
 
 ---
 

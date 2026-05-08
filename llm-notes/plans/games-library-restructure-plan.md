@@ -104,10 +104,10 @@ layer where the tier suffix is redundant.
 
 The new layout makes ingest-pipeline distinctions operationally visible:
 
-| Tree         | Source                  | Verifiable     | Reproducible from inputs?      | IGDB metadata likely?    |
-| ------------ | ----------------------- | -------------- | ------------------------------ | ------------------------ |
-| `console/`   | DAT-driven (Igir)       | yes (DAT hash) | yes — re-run Igir              | yes (commercial titles)  |
-| `pc/`        | Manual (installer/dump) | no             | no — operator-curated artifact | sometimes                |
+| Tree       | Source                  | Verifiable     | Reproducible from inputs?      | IGDB metadata likely?   |
+| ---------- | ----------------------- | -------------- | ------------------------------ | ----------------------- |
+| `console/` | DAT-driven (Igir)       | yes (DAT hash) | yes — re-run Igir              | yes (commercial titles) |
+| `pc/`      | Manual (installer/dump) | no             | no — operator-curated artifact | sometimes               |
 
 That table maps directly to "can I delete this and re-derive it?"
 backups, audit, and replay questions. Mirroring it in storage keeps the
@@ -369,14 +369,14 @@ under `staging/manual/pc/`.
 The arr stack reads from `/media/manual/{movies,tv,music}/` and
 `/media/manual-hq/{movies,tv,music}/` today. After the rename:
 
-| Tier    | Old staging path              | New staging path                 |
-| ------- | ----------------------------- | -------------------------------- |
-| Default | `/media/manual/movies/`       | `/media/staging/manual/movies/`  |
-| Default | `/media/manual/tv/`           | `/media/staging/manual/tv/`      |
-| Default | `/media/manual/music/`        | `/media/staging/manual/music/`   |
-| HQ      | `/media/manual-hq/movies/`    | `/media/staging-hq/manual/movies/` |
-| HQ      | `/media/manual-hq/tv/`        | `/media/staging-hq/manual/tv/`   |
-| HQ      | `/media/manual-hq/music/`     | `/media/staging-hq/manual/music/` |
+| Tier    | Old staging path           | New staging path                   |
+| ------- | -------------------------- | ---------------------------------- |
+| Default | `/media/manual/movies/`    | `/media/staging/manual/movies/`    |
+| Default | `/media/manual/tv/`        | `/media/staging/manual/tv/`        |
+| Default | `/media/manual/music/`     | `/media/staging/manual/music/`     |
+| HQ      | `/media/manual-hq/movies/` | `/media/staging-hq/manual/movies/` |
+| HQ      | `/media/manual-hq/tv/`     | `/media/staging-hq/manual/tv/`     |
+| HQ      | `/media/manual-hq/music/`  | `/media/staging-hq/manual/music/`  |
 
 Library output paths are unchanged (`/media/library/{movies,tv,music}/`,
 `/media/library-hq/{movies,tv,music}/`).

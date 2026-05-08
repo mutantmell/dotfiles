@@ -616,12 +616,12 @@ that forces `umask 0002` so the directories FileBot creates are
 group-writable). What matters is the `--output` flag, which sets the
 destination, and must match the tier of the input directory:
 
-| Source                              | Output flag                         | Then import on |
-| ----------------------------------- | ----------------------------------- | -------------- |
-| `/media/staging/manual/movies/`     | `--output /media/library/movies`    | ravennue       |
-| `/media/staging-hq/manual/movies/`  | `--output /media/library-hq/movies` | bose           |
-| `/media/staging/manual/tv/`         | `--output /media/library/tv`        | ravennue       |
-| `/media/staging-hq/manual/tv/`      | `--output /media/library-hq/tv`     | bose           |
+| Source                             | Output flag                         | Then import on |
+| ---------------------------------- | ----------------------------------- | -------------- |
+| `/media/staging/manual/movies/`    | `--output /media/library/movies`    | ravennue       |
+| `/media/staging-hq/manual/movies/` | `--output /media/library-hq/movies` | bose           |
+| `/media/staging/manual/tv/`        | `--output /media/library/tv`        | ravennue       |
+| `/media/staging-hq/manual/tv/`     | `--output /media/library-hq/tv`     | bose           |
 
 Always run as `mediaops`, never as root (FileBot refuses root, and
 running as `mediaops` keeps file ownership/group correct end-to-end):
@@ -1045,30 +1045,30 @@ share if this becomes routine.
 
 ## Reference: which path means what
 
-| Where you are             | Drop / staging                                                                     | Library                                                                           |
-| ------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Where you are             | Drop / staging                                                                       | Library                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
 | liberl host               | `/data/media/staging/manual/{movies,tv,music}/` and `staging-hq/manual/{movies,tv}/` | `/data/media/library/{movies,tv,music,tv-curated}/` and `library-hq/{movies,tv}/` |
-| bose guest (virtiofs)     | `/media/staging*/manual/...` (all tiers visible)                                   | `/media/library-hq/{movies,tv}/` (its own tier)                                   |
-| ravennue guest (virtiofs) | `/media/staging*/manual/...` (all tiers visible)                                   | `/media/library/{movies,tv}/` (its own tier)                                      |
-| oracion guest (NFS RO)    | _(not visible)_                                                                    | `/media/library*/...` (both tiers, read-only)                                     |
-| Desktop via SMB           | `\\LIBERL\media\staging\manual\` and `\\LIBERL\media\staging-hq\manual\`           | _(visible, but don't write)_                                                      |
+| bose guest (virtiofs)     | `/media/staging*/manual/...` (all tiers visible)                                     | `/media/library-hq/{movies,tv}/` (its own tier)                                   |
+| ravennue guest (virtiofs) | `/media/staging*/manual/...` (all tiers visible)                                     | `/media/library/{movies,tv}/` (its own tier)                                      |
+| oracion guest (NFS RO)    | _(not visible)_                                                                      | `/media/library*/...` (both tiers, read-only)                                     |
+| Desktop via SMB           | `\\LIBERL\media\staging\manual\` and `\\LIBERL\media\staging-hq\manual\`             | _(visible, but don't write)_                                                      |
 
 Both arr guests _see_ every tier under `/media/library*/` via virtiofs,
 but each only **operates** on its own root folders (configured in §1.2 /
 §1.3). The asymmetric visibility on oracion is the security boundary:
 Jellyfin literally cannot see the staging directories.
 
-| Tier                      | Staging                                    | Library                             | Operated by             |
-| ------------------------- | ------------------------------------------ | ----------------------------------- | ----------------------- |
-| Default                   | `/data/media/staging/manual/movies/`       | `/data/media/library/movies/`       | ravennue (Radarr)       |
-| HQ                        | `/data/media/staging-hq/manual/movies/`    | `/data/media/library-hq/movies/`    | bose (Radarr)           |
-| Default                   | `/data/media/staging/manual/tv/`           | `/data/media/library/tv/`           | ravennue (Sonarr)       |
-| HQ                        | `/data/media/staging-hq/manual/tv/`        | `/data/media/library-hq/tv/`        | bose (Sonarr)           |
-| Music                     | `/data/media/staging/manual/music/`        | `/data/media/library/music/`        | _(future Lidarr)_       |
-| Console ROMs              | `/data/media/staging/manual/console/`      | `/data/media/library/software/console/<platform>/Retail/`  | Igir                    |
-| Romhacks                  | `/data/media/staging/manual/romhacks/`     | `/data/media/library/software/console/<platform>/Hacks/`   | operator (manual mv)    |
-| PC games                  | `/data/media/staging/manual/pc/`           | `/data/media/library/software/pc/`                         | operator (manual mv)    |
-| Curated TV (derived view) | _(none — no staging)_                      | `/data/media/library/tv-curated/`   | _(derive script — TBD)_ |
+| Tier                      | Staging                                 | Library                                                   | Operated by             |
+| ------------------------- | --------------------------------------- | --------------------------------------------------------- | ----------------------- |
+| Default                   | `/data/media/staging/manual/movies/`    | `/data/media/library/movies/`                             | ravennue (Radarr)       |
+| HQ                        | `/data/media/staging-hq/manual/movies/` | `/data/media/library-hq/movies/`                          | bose (Radarr)           |
+| Default                   | `/data/media/staging/manual/tv/`        | `/data/media/library/tv/`                                 | ravennue (Sonarr)       |
+| HQ                        | `/data/media/staging-hq/manual/tv/`     | `/data/media/library-hq/tv/`                              | bose (Sonarr)           |
+| Music                     | `/data/media/staging/manual/music/`     | `/data/media/library/music/`                              | _(future Lidarr)_       |
+| Console ROMs              | `/data/media/staging/manual/console/`   | `/data/media/library/software/console/<platform>/Retail/` | Igir                    |
+| Romhacks                  | `/data/media/staging/manual/romhacks/`  | `/data/media/library/software/console/<platform>/Hacks/`  | operator (manual mv)    |
+| PC games                  | `/data/media/staging/manual/pc/`        | `/data/media/library/software/pc/`                        | operator (manual mv)    |
+| Curated TV (derived view) | _(none — no staging)_                   | `/data/media/library/tv-curated/`                         | _(derive script — TBD)_ |
 
 Subtitles for all four video tiers come from Bazarr on bose, which has
 all four arrs (bose Sonarr/Radarr + ravennue Sonarr/Radarr) configured

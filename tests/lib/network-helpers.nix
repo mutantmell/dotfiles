@@ -22,9 +22,9 @@
   extraHostsBasic = net.mkExtraHosts ["messeldam" "basel"];
   # Primary (10.97) IPv4 + IPv6 lines
   extraHostsMesseldamCanonical = contains "10.97.11.6 messeldam messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
-  extraHostsMesseldamV6Canonical = contains "fdc6:55f2:0a5e:b::6 messeldam messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
+  extraHostsMesseldamV6Canonical = contains "fdc6:55f2:0a5e:100b::6 messeldam messeldam.internal.mutantmell.net messeldam.internal" extraHostsBasic;
   extraHostsBaselCanonical = contains "10.97.11.7 basel basel.internal.mutantmell.net basel.internal" extraHostsBasic;
-  extraHostsBaselV6Canonical = contains "fdc6:55f2:0a5e:b::7 basel basel.internal.mutantmell.net basel.internal" extraHostsBasic;
+  extraHostsBaselV6Canonical = contains "fdc6:55f2:0a5e:100b::7 basel basel.internal.mutantmell.net basel.internal" extraHostsBasic;
   extraHostsNoLegacy = !(contains "10.0." extraHostsBasic);
 
   # --- mkUnboundLocalData tests ---

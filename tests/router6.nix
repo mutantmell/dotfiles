@@ -20,6 +20,8 @@
   router6-dhcpv6 = import ./modules/router6-dhcpv6.nix {inherit pkgs lib;};
   egress-filter = import ./modules/egress-filter.nix {inherit pkgs lib;};
 
+  router6-batman-wired-only = import ./modules/router6-batman-wired-only.nix {inherit pkgs lib;};
+  router6-listening-sockets = import ./modules/router6-listening-sockets.nix {inherit pkgs lib;};
   router6-dnat = import ./modules/router6-dnat.nix {inherit pkgs lib;};
   router6-extra-rules = import ./modules/router6-extra-rules.nix {inherit pkgs lib;};
   router6-dns-interception-vm = import ./modules/router6-dns-interception.nix {inherit pkgs lib;};
@@ -41,6 +43,7 @@
   router6-address-parsing = import ./lib/router6-address-parsing.nix {inherit pkgs lib;};
   network-helpers = import ./lib/network-helpers.nix {inherit pkgs lib;};
   network-registry = import ./lib/network-registry.nix {inherit pkgs lib;};
+  network-prefix-length = import ./lib/network-prefix-length.nix {inherit pkgs lib;};
   openwrt-config = import ./lib/openwrt-config.nix {inherit pkgs lib;};
   uci-rendering = import ./lib/uci-rendering.nix {inherit pkgs lib;};
 }

@@ -58,8 +58,17 @@ x509_cert_end_epoch() {
 ALL_DOMAINS=$(nix eval "$REPO_ROOT#lib.common.data.network.allHostDomains" --json 2>/dev/null)
 all_hosts=$(echo "$ALL_DOMAINS" | jq -r 'keys[]')
 
+# Only check SSH host certs for hosts with a known host key (i.e., running sshd).
+# Hosts without a hostKeys entry (OpenWrt devices, switches, IoT, not-yet-deployed
+# hardware) are not expected to have SSH host certs.
+KEYS_JSON="$REPO_ROOT/lib/common/data/keys.json"
+
 echo "=== SSH host certificate expiry ==="
 for host in $all_hosts; do
+  has_host_key=$(jq -r --arg h "$host" '.hostKeys[$h] // empty' "$KEYS_JSON" 2>/dev/null || true)
+  if [ -z "$has_host_key" ]; then
+    continue # No hostKeys entry — cert not expected for this host
+  fi
   cert="$HOST_CERTS_DIR/$host-cert.pub"
   if [ ! -f "$cert" ]; then
     echo "  MISSING  $host: no SSH host cert at host-certs/$host-cert.pub"

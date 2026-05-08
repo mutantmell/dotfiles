@@ -42,6 +42,7 @@ verification resolved; arseille deferred — `netmgmt` zone stays as the archite
 placeholder, with the existing OpenWRT homelab L2 switch documented as its first
 consumer in a follow-up plan.)
 **Related:**
+
 - `done/secure-mgmt-vlan-plan.md` — established INFRA/MGMT split this plan extends
 - `done/openwrt-python-builder.md` — Image Builder pipeline this plan adds device types to
 
@@ -59,7 +60,7 @@ requirements have shifted since `thebeyond`'s initial spec:
    (`mkEgressFilter` from `lib.common.nftables`) — so their security
    doesn't depend solely on BT8-gateway's fw4. DMZ keeps strict isolation (forced through
    `thebeyond`). APP is a new zone for internal-but-not-trusted services that
-   *don't* need to round-trip through the modem closet. APP is "DMZ-shaped" in
+   _don't_ need to round-trip through the modem closet. APP is "DMZ-shaped" in
    posture but locally routed by the office-side gateway.
 
 Image deployment to the BT8 fleet and `thebeyond` will eventually run via
@@ -118,7 +119,7 @@ lands on `BT8-gateway`. Hostile zones (`untrusted`, `iot`, `game`,
 even though they're physically internal — same as how a DMZ has
 always been treated.
 
-`BT8-gateway` is hermetically east/west: it holds *no* L3 interface
+`BT8-gateway` is hermetically east/west: it holds _no_ L3 interface
 on `network` or any other thebeyond-terminated zone. Admin SSH lands
 on its transit address (`10.255.255.2`), and it queries
 `thebeyond`'s local resolver at `10.255.255.1` rather than reaching
@@ -131,9 +132,9 @@ high-trust plane.
 
 ## Network-device placement: zero-or-one mesh hop
 
-The trust-boundary principle decides which gateway terminates *user-facing*
+The trust-boundary principle decides which gateway terminates _user-facing_
 zones (DMZ, hostile zones to thebeyond; trusted office zones to BT8-gw).
-A separate question is where the *infrastructure devices themselves*
+A separate question is where the _infrastructure devices themselves_
 (network gear: switches, dumb APs, mesh bridges) hold their management
 addresses. The single-mesh-traversal invariant gives a clean rule:
 
@@ -145,18 +146,18 @@ addresses. The single-mesh-traversal invariant gives a clean rule:
 This is independent from trust-boundary placement: data VLANs follow the
 trust-boundary principle (a hostile SSID's L3 still terminates at
 `thebeyond` even when broadcast from a BT8-gw-side AP), while the AP's
-*own* management address follows the placement principle (one mesh hop
+_own_ management address follows the placement principle (one mesh hop
 toward `BT8-bridge` and out to `thebeyond` is shorter than one toward
-`BT8-gw` and then *another* mesh hop onward).
+`BT8-gw` and then _another_ mesh hop onward).
 
 Worked examples:
 
-| Device                     | Physical attachment            | Mgmt VLAN          | Mesh hops to its gateway |
-|----------------------------|--------------------------------|--------------------|--------------------------|
-| `BT8-bridge`               | wired to `thebeyond`           | `network` / 10     | 0                        |
-| Office BT8 dumb APs        | 802.11s mesh (office side)     | `network` / 10     | 1 (via mesh → BT8-bridge → thebeyond) |
-| Future wired-to-BT8-gw gear | wired to `BT8-gateway`        | `netmgmt` / 12     | 0                        |
-| `BT8-gateway` (admin SSH)  | wired to office mesh + transit | `transit` / 99     | 0 (transit IP)           |
+| Device                      | Physical attachment            | Mgmt VLAN      | Mesh hops to its gateway              |
+| --------------------------- | ------------------------------ | -------------- | ------------------------------------- |
+| `BT8-bridge`                | wired to `thebeyond`           | `network` / 10 | 0                                     |
+| Office BT8 dumb APs         | 802.11s mesh (office side)     | `network` / 10 | 1 (via mesh → BT8-bridge → thebeyond) |
+| Future wired-to-BT8-gw gear | wired to `BT8-gateway`         | `netmgmt` / 12 | 0                                     |
+| `BT8-gateway` (admin SSH)   | wired to office mesh + transit | `transit` / 99 | 0 (transit IP)                        |
 
 Counterexamples that would violate the invariant:
 
@@ -165,12 +166,12 @@ Counterexamples that would violate the invariant:
   hops**.
 - L2 switch mgmt on `network` / 10 → admin from a BT8-gw-side workstation
   goes `host → BT8-gw → transit → thebeyond → BT8-bridge → mesh → BT8-gw
-  → switch` = **2 mesh hops** (because BT8-gw can't route VLAN 10 itself,
+→ switch` = **2 mesh hops** (because BT8-gw can't route VLAN 10 itself,
   so it must hairpin via thebeyond).
 
 Practical consequence: VLAN 10 must be carried at L2 across the batman
 fabric (mesh + wired BT8-bridge↔thebeyond hop) so the dumb APs can
-participate, but BT8-gateway holds *no L3* on it — VLAN 10 joins the
+participate, but BT8-gateway holds _no L3_ on it — VLAN 10 joins the
 hostile-zone passthrough list on BT8-gw (bridge membership only,
 `proto 'none'`, no fw4 zone). Hermetic east/west isolation is an L3
 claim and is preserved.
@@ -182,23 +183,25 @@ but `batman-adv` runs on top to provide a flat, VLAN-aware L2 across the
 mesh. This is the same pattern `thebeyond` currently runs, with one
 simplification described below.
 
-The reason `batman-adv` matters here: VLANs need to be carried *through*
+The reason `batman-adv` matters here: VLANs need to be carried _through_
 the mesh so that GUEST/IOT/GAME SSIDs on every BT8 actually deliver
 frames onto the right VLAN. `802.11s` alone does not preserve 802.1Q tags
 across mesh hops in a clean way; `batman-adv` does.
 
 After this plan ships:
+
 - `thebeyond` keeps `batman-adv`, but its `bat0` hard interface is a
-  *wired* link to `BT8-bridge` rather than a wireless one. `bond0` is
+  _wired_ link to `BT8-bridge` rather than a wireless one. `bond0` is
   gone (single NIC) and per-VLAN bridges have only `bat0.<tag>` members
   — the wired link is now batman-encapsulated, not a plain VLAN trunk.
 - Every BT8 (bridge, gateway, mesh APs) runs `batman-adv` with `bat0` as
-  its mesh device. `BT8-bridge` has *two* hard interfaces: the wired
+  its mesh device. `BT8-bridge` has _two_ hard interfaces: the wired
   link to `thebeyond` and `mesh0` (802.11s). Other BT8s have only `mesh0`.
 - Per-VLAN bridges on each BT8 join `bat0.<tag>` (mesh-or-wired side via
   batman) and `lanN.<tag>` (wired-client side, where present).
 
 Trade-offs of keeping `batman-adv` on `thebeyond`:
+
 - **+** No major rewrite of `mkVlanBridge` — drops the `bond0Vlans` half
   but otherwise stays the same shape.
 - **+** `thebeyond` retains full mesh visibility (`batctl o`, `batctl n`)
@@ -263,7 +266,7 @@ It has no IP addresses except a single management address on `network`
 VLAN. It exists only to fan the batman fabric out to the office mesh.
 
 `BT8-gateway` runs OpenWrt with proper firewall zones, DHCP, and routing
-for the office-side VLANs. It is *also* a mesh node (so the office
+for the office-side VLANs. It is _also_ a mesh node (so the office
 wireless mesh isn't dependent on a separate device for its uplink). Its
 wired side toward downstream homelab gear is a plain 802.1Q trunk —
 that gear does not speak batman. The batman fabric terminates at the
@@ -329,13 +332,13 @@ change the size. Plan accordingly.
 Concrete shape:
 
 - **WAN**: request PD for visibility (`ipv6PrefixDelegation.enable =
-  true` with `prefixLength = 60` as a polite hint). Whatever lands,
+true` with `prefixLength = 60` as a polite hint). Whatever lands,
   lands; if it's `/64`, stamp it on the WAN interface only and don't
   attempt to subdivide.
 - **Internal**: ULA-only on every VLAN — what the registry generates
   from `ulaPrefix` + `vlanHex`. Both `thebeyond` and `BT8-gateway`
   stamp ULA addresses on their owned VLANs.
-- **`thebeyond`**: no DHCPv6-PD *server* on transit, no sub-prefix
+- **`thebeyond`**: no DHCPv6-PD _server_ on transit, no sub-prefix
   delegation to BT8-gateway.
 - **`BT8-gateway`**: no `transit6` DHCPv6 client interface. `odhcpd`
   advertises RAs and serves DHCPv6 for ULA prefixes only — no GUA
@@ -355,7 +358,7 @@ If the ISP later provisions a `/60` or larger (operator request, plan
 change, etc.), the original "primary path" becomes available:
 
 - `thebeyond` retains DHCPv6-PD client toward ISP.
-- `thebeyond` runs DHCPv6-PD *server* on the transit VLAN, delegating
+- `thebeyond` runs DHCPv6-PD _server_ on the transit VLAN, delegating
   a sub-prefix to `BT8-gateway` so it can carve `/64`s for its VLANs.
 - `BT8-gateway` runs `odhcpd` advertising RAs and per-VLAN DHCPv6 with
   GUA.
@@ -376,20 +379,20 @@ mirror each other in name and intent, but they are not auto-derived from a
 single source — yet (Phase 4 introduces partial codification through the
 Image Builder).
 
-| Zone           | Owner          | DHCP                | NAT |
-|----------------|----------------|---------------------|-----|
-| `external`     | `thebeyond`    | (DHCP client)       | yes |
-| `network`      | `thebeyond`    | static-only (no DHCP) | no |
-| `dmz`          | `thebeyond`    | `thebeyond` Kea     | no  |
-| `transit`      | `thebeyond`    | static `/30`        | no  |
-| `ba-tunnel`    | `thebeyond`    | wireguard           | yes (masq) |
-| `app` *(new)*  | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
-| `management`   | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
-| `netmgmt` *(new)* | `BT8-gateway` | dnsmasq + odhcpd    | no  |
-| `trusted`      | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
-| `lab`          | `BT8-gateway`  | dnsmasq + odhcpd    | no  |
-| `untrusted`*   | `thebeyond`    | `thebeyond` Kea     | no  |
-| `media`        | `thebeyond`    | (wg-keyed only)     | no  |
+| Zone              | Owner         | DHCP                  | NAT        |
+| ----------------- | ------------- | --------------------- | ---------- |
+| `external`        | `thebeyond`   | (DHCP client)         | yes        |
+| `network`         | `thebeyond`   | static-only (no DHCP) | no         |
+| `dmz`             | `thebeyond`   | `thebeyond` Kea       | no         |
+| `transit`         | `thebeyond`   | static `/30`          | no         |
+| `ba-tunnel`       | `thebeyond`   | wireguard             | yes (masq) |
+| `app` _(new)_     | `BT8-gateway` | dnsmasq + odhcpd      | no         |
+| `management`      | `BT8-gateway` | dnsmasq + odhcpd      | no         |
+| `netmgmt` _(new)_ | `BT8-gateway` | dnsmasq + odhcpd      | no         |
+| `trusted`         | `BT8-gateway` | dnsmasq + odhcpd      | no         |
+| `lab`             | `BT8-gateway` | dnsmasq + odhcpd      | no         |
+| `untrusted`\*     | `thebeyond`   | `thebeyond` Kea       | no         |
+| `media`           | `thebeyond`   | (wg-keyed only)       | no         |
 
 (BT8-gateway DHCP is dnsmasq for v4 + odhcpd for v6/RA, configured under
 the unified OpenWrt `/etc/config/dhcp` UCI tree.)
@@ -457,20 +460,20 @@ becomes prefix-length-aware: `hostId` must fit in
 
 Concrete addresses produced by this scheme:
 
-| Zone        | VLAN | Gateway   | IPv4              | ULA `/64`                       |
-|-------------|------|-----------|-------------------|---------------------------------|
-| network     | 10   | thebeyond | `10.91.10.0/24`   | `fdc6:55f2:0a5e:000a::/64`      |
-| dmz         | 100  | thebeyond | `10.91.100.0/24`  | `fdc6:55f2:0a5e:0064::/64`      |
-| management  | 11   | bt8gw     | `10.97.11.0/24`   | `fdc6:55f2:0a5e:100b::/64`      |
-| netmgmt     | 12   | bt8gw     | `10.97.12.0/24`   | `fdc6:55f2:0a5e:100c::/64`      |
-| trusted     | 20   | bt8gw     | `10.97.20.0/24`   | `fdc6:55f2:0a5e:1014::/64`      |
-| lab         | 21   | bt8gw     | `10.97.21.0/24`   | `fdc6:55f2:0a5e:1015::/64`      |
-| untrusted   | 30   | thebeyond | `10.91.30.0/24`   | `fdc6:55f2:0a5e:001e::/64`      |
-| iot         | 40   | thebeyond | `10.91.40.0/24`   | `fdc6:55f2:0a5e:0028::/64`      |
-| game        | 41   | thebeyond | `10.91.41.0/24`   | `fdc6:55f2:0a5e:0029::/64`      |
-| app         | 50   | bt8gw     | `10.97.50.0/24`   | `fdc6:55f2:0a5e:1032::/64`      |
-| adu         | 31   | thebeyond | `10.91.31.0/24`   | `fdc6:55f2:0a5e:001f::/64`      |
-| transit     | 99   | (special) | `10.255.255.0/30` | `fdc6:55f2:0a5e:ffff::/64`      |
+| Zone       | VLAN | Gateway   | IPv4              | ULA `/64`                  |
+| ---------- | ---- | --------- | ----------------- | -------------------------- |
+| network    | 10   | thebeyond | `10.91.10.0/24`   | `fdc6:55f2:0a5e:000a::/64` |
+| dmz        | 100  | thebeyond | `10.91.100.0/24`  | `fdc6:55f2:0a5e:0064::/64` |
+| management | 11   | bt8gw     | `10.97.11.0/24`   | `fdc6:55f2:0a5e:100b::/64` |
+| netmgmt    | 12   | bt8gw     | `10.97.12.0/24`   | `fdc6:55f2:0a5e:100c::/64` |
+| trusted    | 20   | bt8gw     | `10.97.20.0/24`   | `fdc6:55f2:0a5e:1014::/64` |
+| lab        | 21   | bt8gw     | `10.97.21.0/24`   | `fdc6:55f2:0a5e:1015::/64` |
+| untrusted  | 30   | thebeyond | `10.91.30.0/24`   | `fdc6:55f2:0a5e:001e::/64` |
+| iot        | 40   | thebeyond | `10.91.40.0/24`   | `fdc6:55f2:0a5e:0028::/64` |
+| game       | 41   | thebeyond | `10.91.41.0/24`   | `fdc6:55f2:0a5e:0029::/64` |
+| app        | 50   | bt8gw     | `10.97.50.0/24`   | `fdc6:55f2:0a5e:1032::/64` |
+| adu        | 31   | thebeyond | `10.91.31.0/24`   | `fdc6:55f2:0a5e:001f::/64` |
+| transit    | 99   | (special) | `10.255.255.0/30` | `fdc6:55f2:0a5e:ffff::/64` |
 
 ### Move phantasma from `management` (INFRA) to `network` (MGMT)
 
@@ -483,10 +486,11 @@ traverse `transit → BT8-gateway → mesh` to reach a microVM physically hosted
 on `thebeyond` itself.
 
 After the move:
+
 - `thebeyond` reaches phantasma directly across `brMGMT` (`10.91.10.1/24`
   stays on `thebeyond` per resolved decision: `network` gateway location).
 - `BT8-gateway` reaches phantasma via the transit link by querying
-  thebeyond's local resolver at `10.255.255.1` — *not* by holding an
+  thebeyond's local resolver at `10.255.255.1` — _not_ by holding an
   L3 address on `network`. BT8-gateway has no foot in the high-trust
   plane (see resolved decision on hard east/west isolation below).
 - The microvm bridge in `hosts/thebeyond/router.nix`
@@ -499,7 +503,7 @@ Registry change: in `lib/common/data/network.nix`, move `phantasma` from
 `management.hosts` to `network.hosts` and re-number it to host ID `10`
 (see [Network host-ID convention](#network-host-id-convention) below for
 why phantasma lands at `.10` rather than `.2`). Phantasma's IPv4 changes
-(`10.97.11.2` → `10.91.10.10`) — both because the VLAN moves *and* because
+(`10.97.11.2` → `10.91.10.10`) — both because the VLAN moves _and_ because
 `network` is in thebeyond's `10.91` slice. Its ULA changes too (now
 `fdc6:55f2:0a5e:000a::a` — VLAN 10 in thebeyond's group-0 slice, host ID
 10). DNS records, `/etc/hosts`, and egress rules regenerate from the
@@ -524,7 +528,7 @@ network.hosts = {
 };
 ```
 
-`bt8gw` is deliberately *absent* from `network.hosts`: BT8-gateway has
+`bt8gw` is deliberately _absent_ from `network.hosts`: BT8-gateway has
 no L3 interface on `network` (hermetic east/west isolation). Its
 admin-reachable address is its transit IP (`10.255.255.2`), not a
 network-VLAN address.
@@ -567,7 +571,7 @@ transit = {
 ```
 
 `netmgmt` exists for the same reason as `network`/VLAN 10: a locked-down
-zone for *network gear* management, kept separate from VM hosts and
+zone for _network gear_ management, kept separate from VM hosts and
 NAS (`management`/VLAN 11). Both gateways have one — they live on
 opposite sides because the right placement for any given device depends
 on which gateway it's physically closest to (see the
@@ -602,13 +606,13 @@ Because `BT8-gateway` holds `.1` directly in its own slice, no `bt8gw =
 flap to step around. The only `bt8gw` entry that remains is:
 
 - `transit.hosts.bt8gw = 2` — BT8-gateway's transit interface, the
-  *only* L3 address it holds outside its own `10.97.0.0/16` slice.
+  _only_ L3 address it holds outside its own `10.97.0.0/16` slice.
   Admin SSH targets this address; there is no `network.hosts.bt8gw`
   entry by design (hermetic east/west isolation — BT8-gateway has
   no foot in the high-trust plane).
 
 `transit` gets its own zone in both router6 and BT8 fw4. On `thebeyond`,
-transit is the entry point for *all* office-side traffic destined for
+transit is the entry point for _all_ office-side traffic destined for
 `thebeyond`-resident zones (DMZ, external/NAT, ba-tunnel) — so its
 `accessTo` is non-empty (see zone definitions below). Source-zone
 attribution is lost across the gateway split: BT8-gateway's fw4 is the
@@ -757,25 +761,26 @@ passes through the BT8 mesh.
 
 On `BT8-gateway` (OpenWrt fw4 zone semantics, named to mirror router6):
 
-| fw4 zone     | networks bound        | input    | forward | masq | output |
-|--------------|-----------------------|----------|---------|------|--------|
-| `transit`    | `transit` interface   | REJECT   | REJECT  | no   | ACCEPT |
-| `app`        | APP VLAN (50)         | REJECT   | REJECT  | no   | ACCEPT |
-| `management` | INFRA VLAN (11)       | ACCEPT (services as needed) | REJECT | no | ACCEPT |
-| `trusted`    | HOME VLAN (20)        | ACCEPT   | REJECT  | no   | ACCEPT |
-| `lab`        | LAB VLAN (21)         | ACCEPT (services) | REJECT | no | ACCEPT |
+| fw4 zone     | networks bound      | input                       | forward | masq | output |
+| ------------ | ------------------- | --------------------------- | ------- | ---- | ------ |
+| `transit`    | `transit` interface | REJECT                      | REJECT  | no   | ACCEPT |
+| `app`        | APP VLAN (50)       | REJECT                      | REJECT  | no   | ACCEPT |
+| `management` | INFRA VLAN (11)     | ACCEPT (services as needed) | REJECT  | no   | ACCEPT |
+| `trusted`    | HOME VLAN (20)      | ACCEPT                      | REJECT  | no   | ACCEPT |
+| `lab`        | LAB VLAN (21)       | ACCEPT (services)           | REJECT  | no   | ACCEPT |
 
-`untrusted` (GUEST/IOT/GAME/ADU) is *not* a fw4 zone on BT8-gateway —
+`untrusted` (GUEST/IOT/GAME/ADU) is _not_ a fw4 zone on BT8-gateway —
 those VLANs are L2-only batman passthrough on this device. Their L3
 firewall enforcement happens on `thebeyond` (the existing `untrusted`
 zone in `router6`).
 
 Forward rules between zones are configured per-pair in OpenWrt's
 `firewall.@forwarding[…]` UCI, mirroring the router6 `accessTo` semantics:
+
 - `trusted → app, management, lab, transit` (mirrors current
   trusted `accessTo` minus the hostile-zone family; trusted→untrusted/iot
   now traverse transit and are governed by `thebeyond`'s `transit →
-  untrusted` / `transit → iot` policies). The `transit` forward here is
+untrusted` / `transit → iot` policies). The `transit` forward here is
   the catch-all that lets HOME reach IoT/GUEST endpoints (and DMZ +
   internet) — fw4 trusts thebeyond's transit-zone forwardRules to do the
   source/destination filtering.
@@ -817,6 +822,7 @@ one no-deploy commit; 0b is the cutover proper.
 #### Phase 0a — Validation in code (no deploy)
 
 Steps:
+
 1. **Pre-flight: pin the OpenWrt release for BT8.** BT8 hardware is
    already in production as the existing prod gateway and as 4 mesh APs
    (per resolved decision #2), so target support exists. The question is
@@ -865,7 +871,7 @@ Steps:
 
    **(a) Switch from `mac` to `hardwareName` matching.** All existing
    physical-interface entries in `hosts/thebeyond/router.nix` (`wan`,
-   `lan`, `opt1`) match by `mac` against the *old* thebeyond hardware.
+   `lan`, `opt1`) match by `mac` against the _old_ thebeyond hardware.
    On the VP2440 those MACs no longer exist, so the entries have to
    change anyway. Rather than transcribing the new VP2440's MACs into
    the topology, match by `hardwareName` against systemd's stable
@@ -933,39 +939,33 @@ Steps:
      `fdc6:55f2:0a5e:0064::/64`, same as today.
    - **Move phantasma from VLAN 11 (INFRA) to VLAN 10 (`network`)
      and re-number to host ID 10.** Since `network.gateway =
-     "thebeyond"` and there is no `prefix4` override on `network`, the
+"thebeyond"` and there is no `prefix4` override on `network`, the
      refactor places phantasma at `10.91.10.10` and
      `fdc6:55f2:0a5e:000a::a` directly — single re-IP at first deploy.
-     Concretely:
-     - In `lib/common/data/network.nix`, remove `phantasma = 2` from
-       `management.hosts` and add `phantasma = 10` to `network.hosts`
-       (alongside the permanent `bt8bridge = 4` entry per the
-       [host-ID convention](#network-host-id-convention); BT8-gateway
-       deliberately has no `network.hosts` entry).
-     - In `hosts/thebeyond/microvm/guests/phantasma/microvm.nix`,
-       rename the tap from `vm-11-phantasma` to `vm-10-phantasma`
-       (`microvm.interfaces[].id`) and update the MAC from
-       `5E:11:AD:01:00:02` to `5E:0A:AD:01:00:0A`. The second octet
-       encodes the VLAN ID in hex (`0x0A` = 10) per existing
-       convention; the last octet (`0A`) encodes the new host ID 10.
-     - In `hosts/thebeyond/router.nix`, replace
-       `systemd.network.networks."10-vm-infra"` with a `10-vm-network`
-       rule that matches `vm-10-*` and bridges to `brMGMT`. Keep the
-       `vm-11-*` → `brINFRA` rule for any future INFRA-resident
-       microvms.
-     - Add `udp dport 53` and `tcp dport 53` input rules to the
-       `network` zone in `router6.zones` so phantasma can serve DNS
-       on its new segment. (NTP is already permitted on `network`.)
-     - Update phantasma's microvm config if it pins its own IP, to
-       `10.91.10.10`. Otherwise the registry-derived helpers
-       (`mkExtraHosts`, `mkUnboundLocalData`) regenerate automatically.
+     Concretely: - In `lib/common/data/network.nix`, remove `phantasma = 2` from
+     `management.hosts` and add `phantasma = 10` to `network.hosts`
+     (alongside the permanent `bt8bridge = 4` entry per the
+     [host-ID convention](#network-host-id-convention); BT8-gateway
+     deliberately has no `network.hosts` entry). - In `hosts/thebeyond/microvm/guests/phantasma/microvm.nix`,
+     rename the tap from `vm-11-phantasma` to `vm-10-phantasma`
+     (`microvm.interfaces[].id`) and update the MAC from
+     `5E:11:AD:01:00:02` to `5E:0A:AD:01:00:0A`. The second octet
+     encodes the VLAN ID in hex (`0x0A` = 10) per existing
+     convention; the last octet (`0A`) encodes the new host ID 10. - In `hosts/thebeyond/router.nix`, replace
+     `systemd.network.networks."10-vm-infra"` with a `10-vm-network`
+     rule that matches `vm-10-*` and bridges to `brMGMT`. Keep the
+     `vm-11-*` → `brINFRA` rule for any future INFRA-resident
+     microvms. - Add `udp dport 53` and `tcp dport 53` input rules to the
+     `network` zone in `router6.zones` so phantasma can serve DNS
+     on its new segment. (NTP is already permitted on `network`.) - Update phantasma's microvm config if it pins its own IP, to
+     `10.91.10.10`. Otherwise the registry-derived helpers
+     (`mkExtraHosts`, `mkUnboundLocalData`) regenerate automatically.
 
    Other thebeyond-owned zones (`network`, `ba-tunnel`, `external`,
    `media`) re-derive at the new `10.91` prefix. Of those, `network`
    has phantasma (just moved); the rest are wireguard- or WAN-bound
    and don't have registry hosts that change IP. BT8-gateway-owned
    zones stay at `10.97` (no IP change for any existing host).
-
    - **Reconcile stale `network.hosts` entries.** Today's registry
      carries five E8450 mesh-AP entries (`merkabah = 20`,
      `derfflinger = 21`, `pantagruel = 22`, `bobcat = 23`,
@@ -986,6 +986,7 @@ Steps:
    `:0014::<host>` → `:1014::<host>` for HOME) — automatic via the
    registry. Internal-only, no GUA, no inbound v6, so the operational
    impact is essentially zero.
+
 4. **VM-level validation of the new topology before any hardware
    moves.** Add (or extend) a `tests/modules/router6-batman-wired-only.nix`
    NixOS test that mirrors the post-refactor `mkVlanBridge` shape on a
@@ -996,9 +997,9 @@ Steps:
      under `10.91.x.x` and `fdc6:55f2:0a5e:000x::/64`.
    - phantasma's microvm tap matches `vm-10-*` and is bridged onto
      `brMGMT`.
-   Also run the existing test suite (`./scripts/run-checks.sh`) and a
-   pure-eval test for the per-prefix-length helpers. **0a does not
-   merge until all checks pass.**
+     Also run the existing test suite (`./scripts/run-checks.sh`) and a
+     pure-eval test for the per-prefix-length helpers. **0a does not
+     merge until all checks pass.**
 5. **Generic router6 listening-socket audit test.** No existing test
    runs `ss -tlnp`/`ulnp` to catch services accidentally bound
    wildcard (`0.0.0.0` / `[::]`). A wildcard-bound kresd/kea is
@@ -1033,13 +1034,14 @@ Steps:
 
    Run `./scripts/run-checks.sh router6-listening-sockets` alongside
    the full suite.
+
 6. **Eval-time security assertions in router6.** Cheaper and earlier
    than the VM tests — fire at flake evaluation, no build needed.
    Add three small universal assertions to `modules/router6/default.nix`'s
    existing `assertions` list. All three are scoped to the router6
    module itself (extractable; not project-specific). Trust-level
    taxonomies and project-specific zone-policy enforcement are
-   deliberately *not* added here — those belong in a project-side
+   deliberately _not_ added here — those belong in a project-side
    layer (e.g., on top of `lib/common/data/network.nix`) if needed
    later. WG listen-port uniqueness is also deliberately omitted:
    the runtime service-start failure is loud enough that an
@@ -1129,6 +1131,7 @@ Steps (continuing the numbering):
    devices, and schedule the cutover in a maintenance window
    (announce/expect ~10–30 min of internet downtime, +relocation time
    if the BT8 is moving rooms).
+
 9. Reconfigure the current production BT8 (manually):
    - Remove its WAN interface (no longer the gateway).
    - Make it a "dumb AP" / wireless-bridge (effectively the
@@ -1150,10 +1153,11 @@ Steps (continuing the numbering):
     the existing gateway. The ULA-only baseline is already what the rest
     of the plan assumes, so there is no decision to make at this step
     beyond documenting what was actually delegated. If the result is
-    *unexpectedly larger* (`/60` or `/56`), file a follow-up to switch
+    _unexpectedly larger_ (`/60` or `/56`), file a follow-up to switch
     to the GUA-enabled posture in the
     [IPv6 — if the ISP ever enlarges the delegation](#ipv6--if-the-isp-ever-enlarges-the-delegation)
     section, but don't pivot Phase 1 work in flight.
+
 12. The current production BT8 is now physically a dumb-AP-with-mesh.
     Going forward, we'll call this device **BT8-bridge**.
 13. **External security scan against the live WAN edge.** Even with the
@@ -1188,6 +1192,7 @@ yet. The registry refactor for per-gateway prefixes already landed in
 Phase 0; this phase only adds the two new zones on top of it.
 
 Steps:
+
 1. Add `app`, `netmgmt`, and `transit` zones to `lib/common/data/network.nix`:
    - `app` — `vlanId = 50`, `gateway = "bt8gw"` (no host IPs assigned
      yet; populated as services migrate in Phase 5).
@@ -1220,11 +1225,11 @@ Steps:
    address on `netmgmt`/12 once that VLAN is stood up; the operator
    updates its UCI directly. A follow-up plan will fold this switch
    into the flake.
-After Phase 1: APP and transit zones exist on `thebeyond`; APP is
-member-only, awaiting BT8-gateway in Phase 2. The transit zone listens
-for DNS/NTP (kresd auto-binds via the `dnsInterfaces` derivation) and
-forwards office-side traffic into DMZ + hostile zones per
-`forwardRules`.
+   After Phase 1: APP and transit zones exist on `thebeyond`; APP is
+   member-only, awaiting BT8-gateway in Phase 2. The transit zone listens
+   for DNS/NTP (kresd auto-binds via the `dnsInterfaces` derivation) and
+   forwards office-side traffic into DMZ + hostile zones per
+   `forwardRules`.
 
 ### Phase 2 — Manual proof: BT8-bridge and BT8-gateway
 
@@ -1232,6 +1237,7 @@ forwards office-side traffic into DMZ + hostile zones per
 (start with APP) using BT8-gateway. No production cutover.
 
 Steps:
+
 1. Configure BT8-gateway by hand using the
    [BT8-gateway manual setup](#b-manual-setup-bt8-as-secondary-gateway).
    For this phase, configure:
@@ -1249,12 +1255,12 @@ Steps:
    - **Trusted-side VLANs (INFRA/11, HOME/20, LAB/21, NETMGMT/12)** —
      leave their bridges and zones unconfigured for now; they're added
      in Phase 3 when their L3 gateways move from thebeyond to BT8-gateway.
-   Concurrent with this step: deploy the office-side BT8 mesh APs from
-   [runbook C](#c-manual-setup-bt8-as-office-side-dumb-ap-mesh-resident).
-   They share the mesh fabric with BT8-gateway and are required for
-   wireless coverage of the trusted SSIDs once Phase 3 lands; bringing
-   them up alongside BT8-gateway gives the operator a working office
-   wireless mesh without waiting for cutover.
+     Concurrent with this step: deploy the office-side BT8 mesh APs from
+     [runbook C](#c-manual-setup-bt8-as-office-side-dumb-ap-mesh-resident).
+     They share the mesh fabric with BT8-gateway and are required for
+     wireless coverage of the trusted SSIDs once Phase 3 lands; bringing
+     them up alongside BT8-gateway gives the operator a working office
+     wireless mesh without waiting for cutover.
 2. **Introduce the `router6.routes` option** in `modules/router6/default.nix`
    and use it on `thebeyond` for the cross-gateway static routes.
    Translation to systemd-networkd is mechanical — group routes by
@@ -1306,12 +1312,12 @@ Steps:
    route via `10.255.255.1` already covers `10.97.100.x` (DMZ) without
    any extra static route. Confirm with `traceroute 10.97.100.41`
    from a BT8-gw-side host that the path is `host → BT8-gw →
-   10.255.255.1 → thebeyond → langport`, and double-check with
+10.255.255.1 → thebeyond → langport`, and double-check with
    `ip route get 10.97.100.41` on BT8-gateway that the selected
    nexthop is `10.255.255.1` via `br-v99`. If the routing table
    somehow disagrees (unexpected aggregate from a DHCP option, manual
    misconfiguration, etc.), a more-specific `10.97.100.0/24 via
-   10.255.255.1 dev br-v99` route forces the right nexthop — but it
+10.255.255.1 dev br-v99` route forces the right nexthop — but it
    shouldn't be necessary.
 4. On BT8-gateway, configure DHCP for APP VLAN (dnsmasq for v4 +
    odhcpd for v6/RA, per the firewall-split table and runbook B §4).
@@ -1365,6 +1371,7 @@ DHCP migration. Each migrated VLAN sees a single cutover event (a
 sub-second ARP flip + gratuitous ARP).
 
 Steps:
+
 1. Physically install BT8-gateway in its production location in the
    office.
 2. On BT8-gateway (manually, building on Phase 2 config), add the
@@ -1374,7 +1381,7 @@ Steps:
    for now**. BT8-gateway is fully provisioned but inert on these
    VLANs; thebeyond still holds `.1` and Kea still serves leases.
 
-   GUEST (30), ADU (31), IOT (40), GAME (41) are *not* migrating —
+   GUEST (30), ADU (31), IOT (40), GAME (41) are _not_ migrating —
    they stay terminated on thebeyond per the hostile-zone convergence
    decision. On BT8-gateway, those bridges already exist as L2-only
    passthrough from Phase 2 (`proto 'none'`). No cutover work needed
@@ -1416,7 +1423,7 @@ Steps:
      and `fdc6:55f2:0a5e:1000::/52 via fdc6:55f2:0a5e:ffff::2`) already
      landed in Phase 2 via `router6.routes`. No change needed in this
      phase — confirm they're still present after the deploy.
-   - Remove the migrated *trusted* zones (`management`, `trusted`,
+   - Remove the migrated _trusted_ zones (`management`, `trusted`,
      `lab`) from `router6.zones`. Their bridges have no further role
      on `thebeyond` — frames for those VLANs are L3-terminated on
      BT8-gateway, and `thebeyond` doesn't need to host the bat0.<tag>
@@ -1427,7 +1434,7 @@ Steps:
      Even though APP's L3 gateway lives on BT8-gateway, `thebeyond`
      still needs the `brVAPP` bridge for `bat0.50` termination on
      its side of the batman fabric (mirror of how GUEST/ADU/IOT/GAME
-     exist as L2-only passthrough on *BT8-gateway* per the
+     exist as L2-only passthrough on _BT8-gateway_ per the
      hostile-zone convergence decision). The bridge stays
      member-only with no IP, no DHCP, no `inputRules`, and no
      `forwardRules`; the zone exists purely so the topology system
@@ -1435,7 +1442,7 @@ Steps:
      service ever needs to reach APP directly, that motion lives
      in a follow-up plan, not here.
    - Keep everything else — `network`, `dmz`, `transit`, `external`,
-     `ba-tunnel`, `media`, and the *entire* `untrusted` family
+     `ba-tunnel`, `media`, and the _entire_ `untrusted` family
      (`untrusted`, `iot`, `game`, `adu`) which now stays on
      `thebeyond` per the hostile-zone convergence decision.
    - Remove DHCP definitions for migrated VLANs from Kea.
@@ -1462,6 +1469,7 @@ pending Phase 5 renumber.
 `hosts/openwrt/`.
 
 Steps:
+
 1. Extend `lib/common/data/openwrt.nix`:
    - Add BT8 target/subtarget (verified during Phase 0 pre-flight; pin
      the Image Builder hash via `nix run .#openwrt-build -- --update-pins`).
@@ -1509,9 +1517,10 @@ allowlist that doesn't actually contain a working management host is a
 hard lockout — recovery means serial console or factory reset. Splitting
 this off lets us cut over to image-built profiles first (Phase 4),
 confirm SSH from the designated management hosts works on the existing
-posture, *then* tighten in this phase as a small, focused diff.
+posture, _then_ tighten in this phase as a small, focused diff.
 
 Steps:
+
 1. Decide the management-host allowlist. At minimum: the operator's
    workstation source IPs on `network` and `management`, plus the future
    pusher host once its zone placement lands. Document the allowlist in
@@ -1539,6 +1548,7 @@ image rebuild.
 **Goal:** populate the APP zone with services that fit there.
 
 Move candidates (subject to Authelia migration sequencing):
+
 - `oracion` (Jellyfin) — already DMZ-flagged, but only consumed internally
   via wg-media. Could move to APP.
 - `creil` (Forgejo internal) — same logic.
@@ -1548,10 +1558,12 @@ Move candidates (subject to Authelia migration sequencing):
   containers stay in DMZ. APP candidate.
 
 **Stays in DMZ:**
+
 - `langport` (reverse proxy, internet-exposed via 80/443).
 - `trista` (SSH bastion, internet-exposed via wg-ba).
 
 Each move includes:
+
 1. Re-IP the host into APP (`10.97.50.x`), update the registry.
 2. Update DNS (`mkUnboundLocalData` consumers regenerate automatically).
 3. **Apply the DMZ host-hardening profile** to the moved host:
@@ -1573,9 +1585,9 @@ Each move includes:
    Retrom ports — without it, every wg-media client silently breaks the
    moment oracion is re-IPed. Other moves (creil, zeiss, saint-arkh) are
    internally-consumed and don't trip this; check the host's existing
-   inbound DMZ forward rules and translate any wg-* sources the same way.
+   inbound DMZ forward rules and translate any wg-\* sources the same way.
 5. Retest connectivity (in-zone, cross-zone-via-BT8-gateway, internet,
-   and any wg-* paths affected by step 4).
+   and any wg-\* paths affected by step 4).
 
 After all candidate moves complete, only `langport` and `trista`
 remain on DMZ. Drop the Phase-0 `prefix4 = "10.97.100"` override on
@@ -1762,10 +1774,11 @@ ip -6 addr show                    # only bat0.10 has a non-link-local addr
 
 **Role:** secondary gateway for the office-side VLANs. Runs DHCP, routes
 between owned zones locally, forwards everything else (default route + DMZ
-+ `network`) via transit VLAN to `thebeyond`. Also runs as a mesh node
-(participates in `batman-adv` over `802.11s`) so the office mesh has a
-wireless leg, and broadcasts client-facing AP SSIDs bound to the right
-VLANs.
+
+- `network`) via transit VLAN to `thebeyond`. Also runs as a mesh node
+  (participates in `batman-adv` over `802.11s`) so the office mesh has a
+  wireless leg, and broadcasts client-facing AP SSIDs bound to the right
+  VLANs.
 
 **Assumptions:** OpenWrt 24.10+ flashed; mesh ID and PSK already
 established by `BT8-bridge`; transit VLAN tag (99) trunked end-to-end.
@@ -1968,7 +1981,7 @@ config interface 'game'
 
 `network` (10) is L2-only passthrough on this device. Future managed
 switches and additional BT8 mesh APs need VLAN 10 trunked to them,
-so the bridge exists; BT8-gateway itself holds *no* L3 address on it
+so the bridge exists; BT8-gateway itself holds _no_ L3 address on it
 (hermetic east/west isolation — admin reachability and DNS go via
 transit instead, configured in section 7 below).
 
@@ -2353,7 +2366,7 @@ but has no registry entry.
 **Role:** empirically verify, from outside our network, that
 `thebeyond` exposes only the documented surface (three wireguard UDP
 ports). Complements the Phase 0a eval-time WG-only assertion, which
-proves the *config* is shaped right structurally — this runbook
+proves the _config_ is shaped right structurally — this runbook
 proves the live ISP edge actually behaves accordingly (CPE quirks,
 public-IP reachability, IPv6 if delegated, kernel/nftables actually
 applying the policy as expected).
@@ -2369,7 +2382,7 @@ applying the policy as expected).
   or `external` zone definition (operator's call — phases that don't
   touch the external zone, like Phase 1 or Phase 5's APP service
   moves on the BT8-gateway side, can rely on the eval-time assertion
-  + CI tests rather than re-running the live scan).
+  - CI tests rather than re-running the live scan).
 
 **Off-network position.** The scan must originate from outside our
 network, not from inside any of our zones (an internal scan only
@@ -2387,7 +2400,7 @@ positions:
 **Inputs:**
 
 - `WAN_V4` — `thebeyond`'s public IPv4 (read it off `dig +short
-  myip.opendns.com @resolver1.opendns.com` from inside the network,
+myip.opendns.com @resolver1.opendns.com` from inside the network,
   or from `networkctl status wan` on `thebeyond`).
 - `WAN_V6` — `thebeyond`'s WAN-interface global IPv6 if the ISP
   delegated anything beyond link-local (Phase 0b step 11's PD result
@@ -2431,7 +2444,7 @@ sudo nmap -sU -Pn --top-ports 1000 --max-retries 2 \
 - Wireguard ports (`38506`, `59362`, `51820`): `open|filtered`. WG
   silently absorbs unauthenticated packets, which nmap can't
   distinguish from filtered. This is correct.
-- All other ports: `open|filtered` *or* `filtered`. **The disqualifier
+- All other ports: `open|filtered` _or_ `filtered`. **The disqualifier
   is `closed`** — that means the host responded with ICMP-port-
   unreachable, which would mean we're answering instead of dropping.
   Anything reporting `open` (a real UDP application replied) is a
@@ -2530,7 +2543,7 @@ reasoning is traceable from the plan rather than from the conversation log.
    With the hostile-zone convergence decision, both the GUEST/untrusted
    client and the wg-media endpoint terminate on `thebeyond`, so the
    wireguard flow is entirely thebeyond-local — no transit hop. If we
-   later want internal GUEST hosts to reach an HTPC *without* a
+   later want internal GUEST hosts to reach an HTPC _without_ a
    wireguard handshake, that becomes a `untrusted → media` (or
    `untrusted → app`) forward rule on `thebeyond` itself, again with no
    transit hop.
@@ -2580,7 +2593,7 @@ reasoning is traceable from the plan rather than from the conversation log.
    prefixes — `phantasma` (Phase 0, into `10.91.10.0/24`) and
    `langport` + `trista` (Phase 5, into `10.91.100.0/24` when the rest
    of DMZ migrates to APP and the `10.97.100.0/24` subnet renumbers to
-   thebeyond's space). Every BT8-gateway-side host *also* gets a new
+   thebeyond's space). Every BT8-gateway-side host _also_ gets a new
    ULA address (e.g., `fdc6:55f2:0a5e:0014::<host>` →
    `fdc6:55f2:0a5e:1014::<host>` for HOME) but registry-derived, so
    DNS, `/etc/hosts`, and dnsmasq/odhcpd reservations regenerate
@@ -2591,6 +2604,7 @@ reasoning is traceable from the plan rather than from the conversation log.
    stops mattering once transit lives in its own ULA slice: the host
    IDs (`::1`, `::2`) sit cleanly inside `:ffff::/64`, and the existing
    `mkHost` formula needs no special case.
+
 9. **Hostile-zone convergence on `thebeyond`.** All hostile/untrusted
    zones — `dmz` (100), `untrusted`/GUEST (30), `adu` (31),
    `iot` (40), `game` (41) — terminate L3 on `thebeyond`'s router6
@@ -2604,7 +2618,7 @@ reasoning is traceable from the plan rather than from the conversation log.
    `forwardRules` on `thebeyond`.** A future Home Assistant instance
    on `iot` (40) is the load-bearing example: HOME hosts (humans) need
    to reach HA's web UI, the path is `HOME → BT8-gw → transit →
-   thebeyond → iot`, and the policy lives on `thebeyond`'s `transit`
+thebeyond → iot`, and the policy lives on `thebeyond`'s `transit`
    zone (`forwardRules.iot` source-restricted to the trusted subnet).
    Concrete rules are in the [zone-wiring](#zone-wiring) section;
    tighten to specific HA host + ports when HA lands on the registry.
@@ -2622,6 +2636,7 @@ reasoning is traceable from the plan rather than from the conversation log.
 
    Cost: BT8-gateway's manual config gets four extra L2-only bridges
    (br-v30/31/40/41) beyond the obvious DMZ passthrough. Cheap.
+
 10. **Single-mesh-traversal invariant.** Gateway placement must not
     force any device's traffic to traverse the wireless mesh more than
     once per direction. Wireguard encapsulation is the lone exception:
@@ -2692,7 +2707,7 @@ reasoning is traceable from the plan rather than from the conversation log.
   - If the mesh degrades or drops, all cross-gateway flows fail:
     office-side internet egress (NAT lives on `thebeyond`), DMZ
     reachability from APP/HOME/etc., RA/DHCPv6-PD propagation to
-    office-side VLANs, and `thebeyond ↔ phantasma` *only* if phantasma
+    office-side VLANs, and `thebeyond ↔ phantasma` _only_ if phantasma
     moves out of the modem-closet L2 segment (it doesn't —
     phantasma stays a microvm on `thebeyond`, reachable directly via
     `brMGMT` regardless of mesh state).
