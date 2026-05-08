@@ -3,7 +3,11 @@
   pkgs,
   lib,
   ...
-}: {
+}: let
+  net = pkgs.mmell.lib.data.network;
+  wg = net.wireguardNetworks;
+  myWg = wg."wg-media".hosts.arcus;
+in {
   imports = [
     ./disko.nix
     ./sops.nix
@@ -96,21 +100,21 @@
   # WireGuard tunnel for homelab service access.
   # wg-quick manages the tunnel independently of NetworkManager, so WiFi is unaffected.
   networking.wg-quick.interfaces.wg-media = {
-    address = ["10.100.20.10/24" "fdc6:55f2:0a5e:6414::a/128"];
+    address = [myWg.iface4 myWg.iface6];
     privateKeyFile = config.sops.secrets."wg-media-privatekey".path;
     # No DNS config here — resolved's DefaultRoute behaviour causes wg-media to
     # intercept all queries when its DNS server is unreachable. .internal names
-    # resolve fine via the untrusted VLAN DHCP DNS (10.97.30.1), which kresd handles.
+    # resolve fine via the untrusted VLAN DHCP DNS, which kresd handles.
     peers = [
       {
         publicKey = "/CHzA3VNzlRoPJi8F3p2QVNIIxpmnjRdHRka7aj/BiY=";
         allowedIPs = [
-          "10.100.20.0/24" # WG subnet
-          "10.97.100.0/24" # DMZ subnet (Jellyfin, etc.)
-          "10.97.11.0/24" # Management subnet (DNS resolution)
-          "fdc6:55f2:0a5e:6414::/64"
-          "fdc6:55f2:0a5e:64::/64"
-          "fdc6:55f2:0a5e:b::/64"
+          wg."wg-media".subnet4
+          net.networks.dmz.subnet4
+          net.networks.management.subnet4
+          wg."wg-media".subnet6
+          net.networks.dmz.subnet6
+          net.networks.management.subnet6
         ];
         endpoint = "10.97.30.1:51820"; # Router's untrusted VLAN gateway
         persistentKeepalive = 25;
