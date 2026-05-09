@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v6 — see revision history at end)
+Date: 2026-05-09 (v7 — see revision history at end)
 
 ## Question
 
@@ -542,6 +542,258 @@ After the cluster has been operating reliably for 12+ months.
   recommendation should be re-evaluated — Phase 5 onward isn't
   forced.
 
+## Appendix A: CI runner security architecture
+
+CI runners execute arbitrary code (build scripts, dependencies,
+contributor PRs). This is the workload class where "containers are
+not a security boundary" matters most — a runc container is a
+process-isolation boundary, not a security boundary against
+hostile code. The following architecture treats untrusted-code
+execution as the design constraint.
+
+### Threat model
+
+In scope:
+
+- Compromised dependencies pulled by package managers (npm,
+  PyPI, crates.io, etc.)
+- Build scripts that attempt container or VM escape
+- Contributor PRs containing hostile code
+- Side-channel attacks on shared CI infrastructure
+- Crypto miners or exfiltration via build steps
+
+Out of scope (handle differently if needed):
+
+- Nation-state APTs targeting the homelab specifically
+- Supply-chain attacks on the cluster's own infrastructure
+  (kubelet, containerd, Cilium binaries) — addressed by image
+  pinning at the OS level, not at the CI layer
+
+### Defense-in-depth stack
+
+Six layers, each meaningful on its own.
+
+#### 1. Per-step ephemeral pods, not long-lived runner daemons
+
+Use Woodpecker's **kubernetes backend**
+(`WOODPECKER_BACKEND=kubernetes`,
+`https://woodpecker-ci.org/docs/administration/backends/kubernetes`).
+Each pipeline step becomes a fresh Pod, run, then torn down.
+Workspace is `emptyDir` — dies with the pod. No persistence
+between steps; no persistence between pipelines.
+
+Structurally better than the planned saint-arkh model (long-lived
+runner daemon spawning local jobs). With per-step pods, a
+compromised step cannot affect the next step or the next
+pipeline.
+
+#### 2. Kata as RuntimeClass — the actual security boundary
+
+```yaml
+spec:
+  runtimeClassName: kata-qemu
+```
+
+Each step pod becomes a real KVM VM with its own kernel.
+Container-escape vulnerabilities escape into the kata VM, which
+has no host privileges and no path back to the cluster. The kata
+VM is destroyed at end-of-step.
+
+In our microvm-confined cluster setup this means three KVM
+levels: host → cluster microvm → per-step kata VM. ~10–20% CPU
+overhead vs. runc; CI builds run measurably slower but not
+crippled. For untrusted-code execution this is the correct
+trade.
+
+#### 3. Pod Security Standards (Restricted)
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: woodpecker-builds
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+```
+
+Restricted profile blocks: privileged containers, host
+namespaces, host paths, host networking, capabilities other
+than the explicit drop-list, root user, writable root
+filesystem. Forces pod specs into the safe shape.
+
+#### 4. NetworkPolicy + router6 — both must allow
+
+Default-deny egress in the namespace; allow only what builds
+actually need:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ci-egress
+  namespace: woodpecker-builds
+spec:
+  podSelector:
+    matchLabels:
+      ci.woodpecker/role: step
+  policyTypes: [Egress]
+  egress:
+  - to: [{ ipBlock: { cidr: 10.97.100.53/32 } }]   # creil — git + registry
+    ports: [{ protocol: TCP, port: 443 }]
+  - to: [{ ipBlock: { cidr: 10.97.11.2/32 } }]     # phantasma — DNS
+    ports: [{ protocol: UDP, port: 53 }]
+  - to: [{ ipBlock: { cidr: 10.97.100.31/32 } }]   # ardent — attic cache
+    ports: [{ protocol: TCP, port: 443 }]
+```
+
+router6's `cluster` zone gates the same paths at the host
+level. **Both must allow.** A misconfigured NetworkPolicy that
+opens egress to `0.0.0.0/0` still hits router6's default-drop
+for anything not in the cluster zone's allowlist.
+
+The deliberate posture: **CI builds shouldn't pull directly
+from public internet registries.** Mirror upstream packages to
+creil / ardent first; CI fetches from those. This gives a
+security property (no surprise upstream code execution) and a
+reliability property (CI doesn't break when npm.org has an
+outage). Higher convenience trade is "let CI hit the internet";
+the recommended posture here is the stricter one.
+
+#### 5. Resource limits and admission policies
+
+Per-step:
+
+```yaml
+resources:
+  limits:
+    cpu: "4"
+    memory: "8Gi"
+    ephemeral-storage: "20Gi"
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+```
+
+Plus admission controllers (Kyverno or OPA Gatekeeper)
+enforcing:
+
+- `runtimeClassName` MUST be `kata-qemu` in
+  `woodpecker-builds`
+- `image:` MUST start with `creil.internal/`
+- No `hostPath`, no `hostNetwork`, no `privileged: true`
+- Resource limits MUST be set
+
+PSS covers most of this; admission policies add image-source
+enforcement and the runtime-class requirement (PSS doesn't
+constrain RuntimeClass).
+
+#### 6. Secrets scoping
+
+CI secrets that are dangerous if leaked (registry push tokens,
+deploy keys, signing keys) need narrower scopes than "every CI
+pipeline."
+
+- **Per-pipeline-type secrets via Woodpecker's secret feature**,
+  scoped by repo / branch / pipeline name. A PR-build pipeline
+  doesn't get the production-deploy key.
+- **External Secrets Operator** if secrets live in an external
+  store; otherwise plain Kubernetes `Secret` resources mounted
+  into specific step pods only.
+- **ServiceAccount RBAC** so woodpecker-server's SA can create
+  pods only in `woodpecker-builds`, nothing else.
+
+### Architecture summary
+
+```
+woodpecker-system namespace:
+  - woodpecker-server Deployment
+  - Postgres StatefulSet
+  - PSS: baseline (server itself is trusted)
+
+woodpecker-builds namespace:
+  - PSS: restricted
+  - All step pods: runtimeClassName=kata-qemu
+  - Default-deny NetworkPolicy + explicit egress allows
+  - Kyverno policies enforcing image source and runtimeClass
+  - ResourceQuota capping total concurrent build CPU/memory
+```
+
+router6's `cluster` zone gates the cluster microvm's egress to
+creil / ardent / phantasma; NetworkPolicy gates per-pod egress
+within those bounds.
+
+### Comparison: saint-arkh planned vs. k8s + kata
+
+| Property | saint-arkh (planned) | k8s + kata |
+| --- | --- | --- |
+| Runner-to-host isolation | microVM (KVM boundary) | microVM **plus** per-step kata VM |
+| Step-to-step isolation | none — same runner host | each step is a fresh kata VM |
+| Network policy granularity | host-level only | per-pod NetworkPolicy + host zone |
+| Image source enforcement | manual | admission controller |
+| Resource accounting | per-runner | per-step |
+| Recovery on compromise | rebuild the whole VM | tear down one step pod |
+
+The microVM still exists (the cluster's microvm), but it's
+shared infrastructure. Each individual build is isolated to
+its own kata VM inside it.
+
+This replaces saint-arkh's planned role. The saint-arkh
+allocation can be reclaimed once the cluster's CI workflow is
+operational (Phase 4 of the migration plan).
+
+### What this stack is NOT
+
+The defense-in-depth here is correct for the realistic threat
+model (untrusted build code, hostile dependencies, compromised
+PRs). It is not a complete security architecture against:
+
+- **Higher threat profiles** (nation-state APTs) would warrant
+  additional layers: gVisor as a second-stage sandbox,
+  mandatory image signing via cosign + admission policy,
+  per-pipeline ephemeral credentials via Vault, more
+  aggressive egress monitoring.
+- **Misconfiguration**. Each layer is independently
+  configurable and independently verifiable. Audit each layer;
+  don't assume "we're using k8s" implies "we're secure." A
+  step pod without `runtimeClassName: kata-qemu` is just a
+  runc pod — no isolation. Admission policies must enforce
+  this.
+- **Data exfiltration via allowed channels.** A build step
+  authorized to fetch from creil can also POST to creil if
+  network policy permits TCP/443 bidirectionally. NetworkPolicy
+  can scope this to specific endpoints, but DNS-based
+  exfiltration through phantasma is structurally hard to
+  prevent without DNS filtering at phantasma itself. Consider
+  this when scoping policies.
+
+### Validation checklist (before running untrusted code)
+
+Before accepting external PR builds or running anything
+hostile:
+
+- [ ] `kubectl get runtimeclass kata-qemu` returns a valid
+  RuntimeClass
+- [ ] PSS labels on the namespace enforce `restricted`
+- [ ] Kyverno (or equivalent) policies are loaded and tested:
+  reject a pod without `runtimeClassName: kata-qemu` in the
+  namespace
+- [ ] NetworkPolicy default-deny is in place; test that a pod
+  cannot reach `1.1.1.1:443`
+- [ ] router6's `cluster` zone allows only the documented
+  destinations
+- [ ] ResourceQuota caps prevent a runaway build from
+  consuming the cluster
+- [ ] Secrets are scoped per pipeline type, not global
+- [ ] Audit log + Hubble flow logs are flowing to Loki
+- [ ] Hostile-test: deploy a pod that tries to escape (e.g.,
+  attempts to mount `/proc/sys`, send raw packets, exec a
+  known kernel exploit) and verify all attempts fail / are
+  logged
+
+The hostile-test is worth doing once. After that, automated
+admission policy validation is what catches regressions.
+
 ## Revision history
 
 - v1: initial pass — recommended staying, ~90/10. Anchored too hard
@@ -562,7 +814,16 @@ After the cluster has been operating reliably for 12+ months.
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v6 (this revision): committed to **Path B** — phased migration
+- v7 (this revision): added Appendix A — CI runner security
+  architecture. Six-layer defense-in-depth for executing
+  untrusted code (per-step ephemeral pods, kata RuntimeClass,
+  PSS Restricted, NetworkPolicy + router6 dual-allow, resource
+  limits + admission policies, scoped secrets). Documents how
+  k8s + kata replaces the planned saint-arkh role with stronger
+  per-step isolation. Includes an explicit validation checklist
+  to run before accepting hostile inputs. Will be promoted to
+  its own document under `llm-notes/specs/` once stable.
+- v6: committed to **Path B** — phased migration
   of dev environments (edith, trista) into the cluster, with
   Incus eventually decommissioned. Switched the cluster guest's
   hypervisor backend to QEMU for memory ballooning (the
