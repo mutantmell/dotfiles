@@ -1,7 +1,28 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
-**Status:** Drafted (not started)
-**Last updated:** 2026-05-07 (revised: review-pass fixes — Phase 2 now
+**Status:** Phase 0a complete; Phase 0b in flight
+**Last updated:** 2026-05-09 (revised: apk-safety / image-build fix —
+24.10's `apk` makes `opkg install` (= `apk add`) on a deployed BT8
+unsafe per the upstream warning class (`wpad-*`, `kmod-*`, libraries),
+which covers every package the manual rollout needs. New
+[Reference F](#f-bt8-image-build-package-recipes) documents the
+required package recipe per role (BT8-bridge, BT8-gateway, mesh AP);
+the Firmware Selector is the build path during Phases 0b/2/3 (lets
+the operator iterate before in-flake codification), and Phase 4
+codifies the same recipes in `lib/openwrt/default.nix`. Runbooks A/B/C
+§1 now point at Reference F instead of `opkg install`; Phase 0a
+step 1 adds package-feed verification; Phase 0b step 9 and Phase 2
+step 1 prepend a "build the sysupgrade.bin via Firmware Selector"
+pre-step; Phase 4 step 1 calls Reference F the source of truth for
+the in-flake recipes. `odhcpd-ipv6only` (kept from default) replaces
+the previous "install full odhcpd" instruction in runbook B §1 — the
+full package would conflict with dnsmasq's DHCPv4. `batctl-full`
+replaces `batctl-default` for parity with existing meshAP devices and
+to keep `batctl o/n/s` available for diagnostics. `luci-app-mesh`
+dropped from the BT8-gateway recipe as marginal vs.
+`luci-proto-batman-adv` + `batctl-full`.
+
+Earlier: 2026-05-07 — review-pass fixes — Phase 2 now
 explicitly stands up the L2-only passthrough bridges (DMZ/100,
 GUEST/30, ADU/31, IOT/40, GAME/41, network/10) alongside APP and
 transit, so the hostile-zone SSIDs broadcast from BT8-gateway have
@@ -823,16 +844,30 @@ one no-deploy commit; 0b is the cutover proper.
 
 Steps:
 
-1. **Pre-flight: pin the OpenWrt release for BT8.** BT8 hardware is
-   already in production as the existing prod gateway and as 4 mesh APs
-   (per resolved decision #2), so target support exists. The question is
-   only which release to pin. Verify against the OpenWrt support matrix
-   that `mediatek/filogic` (MT7988A) is current in the release the
-   project is pinning via `openwrt-hashes.json` `defaultRelease`, and
-   that no regressions land on the release for switch/wireless drivers.
-   Run `nix run .#openwrt-build -- <bt8-mesh-device> --update-pins` to
-   confirm hash availability. If support has regressed, defer to a
-   stable release.
+1. **Pre-flight: pin the OpenWrt release for BT8 and verify package
+   availability.** BT8 hardware is already in production as the
+   existing prod gateway and as 4 mesh APs (per resolved decision
+   #2), so target support exists. The questions are which release to
+   pin and whether every package the manual rollout needs is in that
+   release's feeds.
+   - **Release pin.** Verify against the OpenWrt support matrix that
+     `mediatek/filogic` (MT7988A) is current in the release the
+     project is pinning via `openwrt-hashes.json` `defaultRelease`,
+     and that no regressions land on the release for switch/wireless
+     drivers. Run `nix run .#openwrt-build -- <bt8-mesh-device>
+--update-pins` to confirm hash availability. If support has
+     regressed, defer to a stable release.
+   - **Package-feed verification.** Confirm every package in the
+     [Reference F](#f-bt8-image-build-package-recipes) recipes
+     (`kmod-batman-adv`, `batctl-full`, `wpad-mesh-openssl`, plus
+     LuCI/diagnostic add-ons) is present in the chosen release's
+     `mediatek/filogic` feed. Easiest check: spin a dry-run image
+     via Firmware Selector with the F.1 recipe applied and confirm
+     the build succeeds. The packages flow into the image at build
+     time; if any are missing from the feed, the safe fix is to bump
+     the pinned release (or fall back to a release that does carry
+     them) — `apk add`-ing a missing package on a deployed device is
+     unsafe per Reference F.
 2. **Pre-flight: enable PD client on thebeyond's WAN.** The current
    `hosts/thebeyond/router.nix` WAN block is plain `type = "dhcp"` with
    no `ipv6PrefixDelegation` set, which means thebeyond would request
@@ -1132,14 +1167,27 @@ Steps (continuing the numbering):
    (announce/expect ~10–30 min of internet downtime, +relocation time
    if the BT8 is moving rooms).
 
-9. Reconfigure the current production BT8 (manually):
-   - Remove its WAN interface (no longer the gateway).
-   - Make it a "dumb AP" / wireless-bridge (effectively the
-     [BT8-bridge config](#a-manual-setup-bt8-as-dumb-ap--wireless-bridge)).
-   - Disable its firewall, NAT, DHCP server.
-   - Keep its 802.11s mesh and AP radios so other office BT8s still
-     associate.
-   - Give it a single management IP on `network` VLAN.
+9. Reconfigure the current production BT8 as `BT8-bridge`:
+   - **Pre-step (out-of-band, before the maintenance window):** build
+     a BT8-bridge `sysupgrade.bin` via Firmware Selector using the
+     [F.1 package recipe](#f1-bt8-bridge). Save the exact package
+     list to the operator's secret store for Phase 4 parity. Do not
+     try to retrofit packages by `apk add` on the running device —
+     see [Reference F](#f-bt8-image-build-package-recipes).
+   - **In the window:** flash the BT8-bridge image via LuCI sysupgrade
+     (preserves the overlay only briefly — UCI is rebuilt next).
+     Run the [F.4 post-flash verification](#f4-post-flash-verification)
+     before applying any UCI; if anything fails, rebuild the recipe
+     and re-flash before continuing. Then apply the manual UCI from
+     [runbook A](#a-manual-setup-bt8-as-dumb-ap--wireless-bridge):
+     - Remove its WAN interface (no longer the gateway).
+     - Configure it as a "dumb AP" / wireless-bridge per the runbook.
+     - Confirm firewall/dnsmasq/odhcpd are absent (they were not in
+       the F.1 recipe; the runbook's "stop && disable" calls are
+       defensive sanity checks).
+     - Keep its 802.11s mesh and AP radios so other office BT8s
+       still associate.
+     - Give it a single management IP on `network` VLAN.
 10. Cutover: bring up `thebeyond`'s WAN; verify NAT, DHCP, DNS, internet
     reachability from each existing zone.
 11. **Sanity-check IPv6 delegation size.** On `thebeyond`:
@@ -1238,9 +1286,21 @@ Steps:
 
 Steps:
 
-1. Configure BT8-gateway by hand using the
-   [BT8-gateway manual setup](#b-manual-setup-bt8-as-secondary-gateway).
-   For this phase, configure:
+1. **Pre-step (before flashing): build BT8-gateway and BT8-mesh-AP
+   `sysupgrade.bin` images** via Firmware Selector using the
+   [F.2](#f2-bt8-gateway) and [F.3](#f3-bt8-mesh-aps-office-side)
+   package recipes respectively. Save each role's exact package list
+   to the operator's secret store for Phase 4 parity. The
+   `apk add`-on-running-device path is unsafe per
+   [Reference F](#f-bt8-image-build-package-recipes); always rebuild
+   + re-flash if a package is missing.
+
+   Then configure BT8-gateway by hand using the
+   [BT8-gateway manual setup](#b-manual-setup-bt8-as-secondary-gateway):
+   flash the F.2 image, run the [F.4
+   verification](#f4-post-flash-verification) (gateway-side checks
+   must show dnsmasq/odhcpd/fw4 present), then apply the runbook's
+   UCI. For this phase, configure:
    - **APP (50) and transit (99) as L3-terminated** — bridges with IPs,
      fw4 zones, dnsmasq + odhcpd. This is the production traffic for
      Phase 2's proof.
@@ -1255,11 +1315,13 @@ Steps:
    - **Trusted-side VLANs (INFRA/11, HOME/20, LAB/21, NETMGMT/12)** —
      leave their bridges and zones unconfigured for now; they're added
      in Phase 3 when their L3 gateways move from thebeyond to BT8-gateway.
-     Concurrent with this step: deploy the office-side BT8 mesh APs from
-     [runbook C](#c-manual-setup-bt8-as-office-side-dumb-ap-mesh-resident).
-     They share the mesh fabric with BT8-gateway and are required for
-     wireless coverage of the trusted SSIDs once Phase 3 lands; bringing
-     them up alongside BT8-gateway gives the operator a working office
+     Concurrent with this step: deploy the office-side BT8 mesh APs
+     from [runbook C](#c-manual-setup-bt8-as-office-side-dumb-ap-mesh-resident).
+     Each is flashed with the F.3 image (same recipe as BT8-bridge),
+     verified via F.4, then UCI-configured per runbook C. They share
+     the mesh fabric with BT8-gateway and are required for wireless
+     coverage of the trusted SSIDs once Phase 3 lands; bringing them
+     up alongside BT8-gateway gives the operator a working office
      wireless mesh without waiting for cutover.
 2. **Introduce the `router6.routes` option** in `modules/router6/default.nix`
    and use it on `thebeyond` for the cross-gateway static routes.
@@ -1470,12 +1532,20 @@ pending Phase 5 renumber.
 
 Steps:
 
-1. Extend `lib/common/data/openwrt.nix`:
+1. Extend `lib/common/data/openwrt.nix` and `lib/openwrt/default.nix`:
    - Add BT8 target/subtarget (verified during Phase 0 pre-flight; pin
      the Image Builder hash via `nix run .#openwrt-build -- --update-pins`).
    - Audit the existing `meshVlans` table — with `batman-adv` carrying VLANs
      through the mesh, every VLAN trunked over the wired link is also a
      mesh VLAN. The current short list (MGMT, HOME) is no longer accurate.
+   - **Codify the [Reference F](#f-bt8-image-build-package-recipes)
+     recipes as the source of truth.** Compare each role's saved
+     Firmware Selector package list (operator's secret store, captured
+     during Phases 0b/2) against the existing `defaultMeshPackages`
+     (matches F.1 / F.3 already) and the new gateway package set
+     (F.2). Land any gap as a single named binding in
+     `lib/openwrt/default.nix` so subsequent rebuilds and the
+     Firmware Selector recipe stay in lockstep.
 2. Define two new `type` values for OpenWrt device declarations:
    - `wirelessBridge` — flat L2 bridge across wired uplink + batman-adv
      mesh. Inputs: trunk VLANs, mesh ID, mesh PSK ref, mesh radio binding.
@@ -1628,31 +1698,43 @@ natively without needing per-VLAN bridges on this device. Has a
 single management IP on `bat0.10` for SSH/sysupgrade. No DHCP,
 firewall, or routing.
 
-**Assumptions:** stock OpenWrt 24.10+ flashed (BT8 hardware support
-verified in Phase 0 pre-flight). Console access via the device's default
-192.168.1.1 LAN port for initial setup. Only the management VLAN
-(`10`) needs a sub-interface on this device; every other VLAN flows
-through batman as opaque tagged frames.
+**Assumptions:** the device has been flashed with a BT8-bridge image
+built per [Reference F.1](#f1-bt8-bridge) — i.e., the package set is
+already correct (mesh-capable wpad, batman-adv, no firewall/DHCP).
+**Do not `apk add` (or `opkg install`) packages on top of a stock
+image to fix this** — see [Reference F](#f-bt8-image-build-package-recipes)
+for why. Console access via the device's default 192.168.1.1 LAN
+port for initial UCI setup. Only the management VLAN (`10`) needs a
+sub-interface on this device; every other VLAN flows through batman
+as opaque tagged frames.
 
 #### 1. Initial setup
 
-```sh
-ssh root@192.168.1.1     # default after first-boot password set via web UI
+After first-boot password set via web UI, SSH in and run the
+post-flash verification block from
+[Reference F.4](#f4-post-flash-verification). If anything fails,
+rebuild the Firmware Selector image with the corrected package list
+and re-flash before continuing — do not patch with `apk add`.
 
-opkg update
-opkg install \
-    luci \
-    kmod-batman-adv batctl-default \
-    luci-proto-batman-adv \
-    iproute2-tc                       # only if you'll do queueing later
+```sh
+ssh root@192.168.1.1
+# (run F.4 verification commands)
 ```
 
-#### 2. Disable services that conflict with the dumb-AP role
+#### 2. Confirm services that conflict with the dumb-AP role are absent
+
+If the BT8-bridge image was built with the F.1 recipe, `firewall4`,
+`dnsmasq`, and `odhcpd-ipv6only` are not installed, so there is
+nothing to disable. As a sanity check (and so this runbook still
+works against an out-of-recipe image):
 
 ```sh
-/etc/init.d/firewall stop && /etc/init.d/firewall disable
-/etc/init.d/dnsmasq stop && /etc/init.d/dnsmasq disable
-/etc/init.d/odhcpd stop && /etc/init.d/odhcpd disable
+/etc/init.d/firewall  stop 2>/dev/null && /etc/init.d/firewall  disable 2>/dev/null
+/etc/init.d/dnsmasq   stop 2>/dev/null && /etc/init.d/dnsmasq   disable 2>/dev/null
+/etc/init.d/odhcpd    stop 2>/dev/null && /etc/init.d/odhcpd    disable 2>/dev/null
+# All three should report "command not found" or a missing init script
+# on a properly-built image. Anything else means the package leaked
+# into the image — fix the recipe and re-flash.
 ```
 
 #### 3. 802.11s mesh radio
@@ -1780,8 +1862,14 @@ between owned zones locally, forwards everything else (default route + DMZ
   wireless leg, and broadcasts client-facing AP SSIDs bound to the right
   VLANs.
 
-**Assumptions:** OpenWrt 24.10+ flashed; mesh ID and PSK already
-established by `BT8-bridge`; transit VLAN tag (99) trunked end-to-end.
+**Assumptions:** the device has been flashed with a BT8-gateway image
+built per [Reference F.2](#f2-bt8-gateway) — i.e., the package set is
+already correct (mesh-capable wpad replacing the basic build,
+batman-adv, dnsmasq + odhcpd-ipv6only retained). **Do not `apk add`
+packages post-flash to fix this** — see
+[Reference F](#f-bt8-image-build-package-recipes). Mesh ID and PSK
+already established by `BT8-bridge`; transit VLAN tag (99) trunked
+end-to-end.
 
 The hardware-side configuration (mesh radio, `batman-adv`, per-VLAN
 bridges) follows the same shape as the bridge runbook. The differences
@@ -1790,19 +1878,20 @@ fw4 zones enforce policy; client AP SSIDs get bound per-VLAN.
 
 #### 1. Initial setup
 
+After first-boot password set via web UI, SSH in and run the
+post-flash verification block from
+[Reference F.4](#f4-post-flash-verification) — gateway-side checks
+require dnsmasq, odhcpd, and fw4 to be present. If anything fails,
+rebuild the Firmware Selector image with the corrected F.2 recipe
+and re-flash before continuing.
+
 ```sh
 ssh root@192.168.1.1
-
-opkg update
-opkg install \
-    luci luci-app-firewall \
-    kmod-batman-adv batctl-default luci-proto-batman-adv \
-    odhcpd \
-    luci-app-mesh
+# (run F.4 verification commands — gateway-side checks must pass)
 ```
 
-Wipe the default `lan` interface from `/etc/config/network` so we can
-rebuild cleanly.
+Then wipe the default `lan` interface from `/etc/config/network` so
+we can rebuild cleanly.
 
 #### 2. 802.11s mesh + `batman-adv` (mirrors BT8-bridge)
 
@@ -2233,13 +2322,17 @@ would take two (AP → mesh → BT8-gw L3 → mesh → BT8-bridge →
 thebeyond), violating the single-mesh-traversal invariant. See the
 [placement principle](#network-device-placement-zero-or-one-mesh-hop).
 
-**Assumptions:** OpenWrt 24.10+ flashed. Mesh PSK already in operator's
-hands. Same package set as BT8-bridge (kmod-batman-adv, etc.).
+**Assumptions:** the device has been flashed with a mesh-AP image
+built per [Reference F.3](#f3-bt8-mesh-aps-office-side) — same recipe
+as BT8-bridge (F.1). **Do not `apk add` packages post-flash** — see
+[Reference F](#f-bt8-image-build-package-recipes). Mesh PSK already in
+operator's hands.
 
 #### 1. Initial setup, services off
 
-Same shape as BT8-bridge §1–2: install packages, then disable
-firewall/dnsmasq/odhcpd. The AP is L2-only — no services it can host.
+Same shape as BT8-bridge §1–2: run the F.4 post-flash verification,
+then sanity-check that firewall/dnsmasq/odhcpd are absent. The AP is
+L2-only — no services it can host.
 
 #### 2. 802.11s mesh radio
 
@@ -2519,6 +2612,204 @@ the date and the deploy SHA. These are the audit artifacts — the
 operator's own record that on $date, the live system exposed only the
 documented surface. A follow-up investigation a year out will thank
 past-you for keeping them.
+
+### F. BT8 image-build package recipes
+
+**Why this exists.** OpenWrt 24.10 (the project's pinned 24.10.5
+release) uses `apk` as its package manager. Per the upstream OpenWrt
+user-guide warning:
+
+> Do not use `apk upgrade` to blindly mass-update your packages! Doing
+> so will sooner or later brick your device. Several packages may have
+> various missing conflicts, incomplete dependencies or are otherwise
+> specified incorrectly, which will cause a misconfiguration if you
+> blindly upgrade them (`hostapd-*`, `wpad-*`, `ucode-mod-*`, various
+> libraries, and others). The only safe way to upgrade all packages is
+> to sysupgrade to a new firmware which would have a coherent set of
+> current packages.
+
+By extension, `apk add <pkg>` (or `opkg install <pkg>`) on a deployed
+device pulls newer feed versions that may not match the firmware-
+shipped versions of `wpad-*`, `kmod-*`, and various libraries — the
+same conflict class. Every BT8 package the manual rollout relies on
+(`kmod-batman-adv`, `wpad-mesh-openssl`, `batctl-full`, ...) lands in
+that conflict class. **The only safe way to add a non-default package
+to a BT8 is to rebuild the image with the package in the recipe and
+re-flash via sysupgrade.** Do not `apk add` post-flash to fix a
+missing package; rebuild and re-flash instead.
+
+**Build path during Phases 0–3 (manual rollout): Firmware Selector.**
+The hosted [OpenWrt Firmware Selector](https://firmware-selector.openwrt.org/)
+runs the same upstream Image Builder backend the in-flake pipeline
+uses, without needing the in-flake codification done. Workflow:
+
+1. Search for the BT8 device profile and select it.
+2. Open **Customize installed packages** and replace the default
+   package list with the recipe for the role (BT8-bridge,
+   BT8-gateway, or BT8 mesh AP) per the sub-sections below.
+3. Pin the same release as `lib/common/data/openwrt-hashes.json`
+   `defaultRelease` (currently 24.10.5) so first-flash and any later
+   in-flake rebuild produce a coherent set.
+4. Build, then download `factory.bin` for first install (if the
+   device is on stock or a non-OpenWrt firmware) or `sysupgrade.bin`
+   for a re-flash.
+5. Flash via LuCI sysupgrade (preferred during ops — preserves the
+   overlay) or `sysupgrade -n /tmp/firmware.bin` (factory-style —
+   wipes overlay).
+
+Save the exact package list used for each role (one line, space-
+separated) in the operator's secret store; Phase 4 codifies the same
+recipes in `lib/openwrt/default.nix` and verifies parity.
+
+**Build path post-Phase 4: in-flake openwrt-build pipeline.** Same
+recipes, declarative location: `lib/openwrt/default.nix` exposes a
+package set per device type (`wirelessBridge`, `gateway`, `meshAP`
+extended for BT8). `nix run .#openwrt-build -- <device-name>`
+produces the same artifacts Firmware Selector did, and the package
+list is reviewable in code rather than carried out-of-band.
+
+**Updating package versions in the field.** The pinned release in
+`lib/common/data/openwrt-hashes.json` controls which package versions
+ship in the image; bumping it (`nix run .#openwrt-build --
+--update-pins`) is the project-standard way to pull in newer
+packages. That regenerates a coherent set; deploying via sysupgrade
+preserves config (use `-n` if you want to wipe). **Never bump
+packages by SSHing in and running `apk upgrade` or `apk add` — that
+is the exact failure mode the upstream warning describes.**
+
+#### F.1 BT8-bridge
+
+**Role recap:** flat L2 batman fan-out across mesh + wired hardif,
+one mgmt IP on `bat0.10`, no firewall, no DHCP, no client SSIDs
+broadcast from this device. Differs from a mesh AP only in UCI (a
+second batman hardif on the wired port), not in package set.
+
+**Package list** (paste into Firmware Selector "Customize installed
+packages", whitespace-separated):
+
+```
+# Remove from default:
+-wpad-basic-mbedtls    # replaced by wpad-mesh-openssl (mesh + AP capable)
+-dnsmasq               # no DHCP/DNS on this device
+-odhcpd-ipv6only       # no DHCPv6/RA on this device
+-firewall4             # no firewall — flat L2 bridge
+-nftables              # firewall4's backend
+-ppp                   # not a PPPoE client
+-ppp-mod-pppoe
+
+# Add:
+kmod-batman-adv        # batman-adv kernel module
+batctl-full            # batctl userspace (full — `batctl o/n/s` need this)
+wpad-mesh-openssl      # 802.11s mesh with SAE (WPA3)
+luci                   # web UI for ops/diagnostics (recommended)
+luci-proto-batman-adv  # LuCI batman-adv protocol handler (recommended)
+htop                   # diagnostics (optional)
+tcpdump                # diagnostics (optional)
+```
+
+This is identical to `defaultMeshPackages` + `luciPackages` in
+`lib/openwrt/default.nix`; Phase 4 reuses that definition.
+
+#### F.2 BT8-gateway
+
+**Role recap:** secondary gateway with per-VLAN bridges, fw4 zones,
+DHCP/RA per VLAN, batman-adv mesh node, broadcasts client-facing AP
+SSIDs (HOME, GUEST, IOT, GAME) bound to per-VLAN networks. Needs
+firewall + DHCP + mesh + AP capabilities all together.
+
+**Package list:**
+
+```
+# Remove from default:
+-wpad-basic-mbedtls    # replaced by wpad-mesh-openssl (mesh + AP)
+-ppp                   # not a PPPoE client (thebeyond does WAN)
+-ppp-mod-pppoe
+
+# Keep from default — DO NOT add `-` prefix to these:
+#   firewall4, nftables   — fw4 zones enforce trusted-side policy
+#   dnsmasq               — serves DHCPv4 + DNS-forwards to thebeyond
+#   odhcpd-ipv6only       — serves DHCPv6 + RA per VLAN
+
+# Add:
+kmod-batman-adv
+batctl-full
+wpad-mesh-openssl      # one wpad covering both mesh underlay AND client APs
+luci                   # web UI
+luci-app-firewall      # fw4 management in LuCI
+luci-proto-batman-adv  # LuCI batman-adv protocol handler
+htop                   # diagnostics
+tcpdump                # diagnostics
+```
+
+Notes:
+
+- **Use `odhcpd-ipv6only`, not full `odhcpd`.** dnsmasq serves DHCPv4
+  in the configuration this plan uses; `odhcpd-ipv6only` handles the
+  IPv6 side without conflicting. Installing the full `odhcpd` package
+  alongside dnsmasq would conflict (both would fight over the v4
+  socket). The runbook B §1 `opkg install ... odhcpd ...` line was a
+  pre-revision oversight; ignore it in favour of this recipe.
+- **No `kmod-bonding`, no `kmod-8021q`.** Bonding isn't used (single
+  wired uplink to the homelab switch via plain VLAN trunk), and
+  802.1Q is built into the OpenWrt 24.10 kernel.
+- **`luci-app-mesh`** (mentioned in earlier drafts of runbook B) is
+  deliberately omitted: it pulls in extra dependencies and the
+  diagnostic value over `luci-proto-batman-adv` + `batctl-full` is
+  marginal. Add it if a specific operator-flow turns out to need it.
+- **Keep `htop` / `tcpdump`** through the manual phases — diagnostics
+  are load-bearing while the model is being proved. They can be
+  dropped in Phase 4 if image-size pressure shows up.
+
+#### F.3 BT8 mesh APs (office-side)
+
+**Role recap:** mesh-resident dumb AP. One mesh hardif (`mesh0`, no
+wired hardif), one mgmt IP on `network`/10 (DHCP from thebeyond's
+Kea), broadcasts SSIDs bound to hostile-zone VLANs (GUEST/IOT/GAME)
+plus optionally HOME. Same shape as BT8-bridge — both are "L2 batman
+fan-out without L3 services" — differing only in topology, not
+packages.
+
+**Package list:** identical to F.1 (BT8-bridge).
+
+This is exactly the existing `defaultMeshPackages` recipe for
+`meshAP`-type devices in `lib/openwrt/default.nix`. Phase 4 step 3
+extends the existing `meshAP` type to accept BT8 hardware
+(target/profile addition); no package-list change is needed for the
+BT8 mesh APs.
+
+#### F.4 Post-flash verification
+
+After flashing, before applying any UCI:
+
+```sh
+# Confirm the right wpad variant is installed (mesh + AP capable).
+apk list -I 2>/dev/null | grep -E '^wpad' \
+  || opkg list-installed | grep -E '^wpad'
+# Expect: wpad-mesh-openssl. NOT wpad-basic-mbedtls or wpad-mini.
+
+# Confirm batman-adv is available.
+modprobe batman-adv && lsmod | grep batman_adv
+# Expect: module loads cleanly; symbol present.
+
+# Confirm batctl is the full build.
+batctl --help 2>&1 | grep -E '^[[:space:]]*(o|originators|n|neighbors)'
+# Expect: 'originators' and 'neighbors' subcommands listed.
+
+# Role-specific checks.
+# BT8-bridge / mesh-AP: confirm absent packages stayed absent.
+[ -x /usr/sbin/dnsmasq ]    && echo "FAIL: dnsmasq present"   # expect: not present
+[ -x /usr/sbin/odhcpd ]     && echo "FAIL: odhcpd present"    # expect: not present
+[ -f /etc/init.d/firewall ] && echo "FAIL: fw4 present"       # expect: not present
+
+# BT8-gateway: confirm DHCP + firewall present.
+[ -x /usr/sbin/dnsmasq ]    || echo "FAIL: dnsmasq missing"
+[ -x /usr/sbin/odhcpd ]     || echo "FAIL: odhcpd missing"
+[ -f /etc/init.d/firewall ] || echo "FAIL: fw4 missing"
+```
+
+Anything unexpected here is a recipe error — fix the Firmware
+Selector package list, rebuild, re-flash, re-verify before moving on
+to UCI. Do **not** patch missing packages with `apk add` post-flash.
 
 ## Resolved decisions
 
