@@ -481,6 +481,114 @@ LoadBalancer/MetalLB/CNI-ingress. We'd need a written "no, this
 homelab does it via host Caddy" rule that's enforced in code review,
 or those features will re-enter and start fighting router6.
 
+## Mechanical prevention: rootless vs. microvm-confined k8s
+
+Open question raised mid-evaluation: rather than relying on convention
+("don't use LoadBalancer/MetalLB"), can we **mechanically** prevent
+the cluster from touching router6's firewall configuration?
+
+Yes, two ways. They have very different cost profiles.
+
+### Option A — Rootless Kubernetes
+
+Run the entire control plane (kubelet, apiserver, etcd, controllers)
+in a user namespace via `rootlesskit`. From inside that namespace,
+`CAP_NET_ADMIN` doesn't apply to the host's `nf_tables` — only to
+the cluster's own network namespace. The CNI can install any rules
+it likes; they only affect intra-cluster traffic.
+
+**Real and significant costs:**
+
+- **Network performance.** Rootless connectivity to the outside
+  goes through `slirp4netns` or `pasta` — userspace TCP/UDP proxies.
+  Pasta is the faster modern option but still costs 20–50%
+  throughput and tens of µs of latency. CI image pulls and
+  game-server UDP both feel it.
+- **CNI choice is constrained.** Most CNIs assume root. Rootless
+  typically lands on `flannel-rootless` or a heavily restricted
+  Cilium. The eBPF datapath needs `CAP_BPF`/`CAP_PERFMON` plus
+  unprivileged-BPF enabled in the host kernel, which hardened
+  distros disable.
+- **iSCSI CSI breaks.** `iscsiadm` and the kernel iSCSI initiator
+  need `CAP_SYS_ADMIN` on the host. democratic-csi against the NAS
+  doesn't work rootless — losing the volume-snapshot story that
+  was one of the strongest k8s arguments for game servers.
+- **Kata + rootless is uncharted.** Kata needs to invoke
+  cloud-hypervisor / QEMU and access `/dev/kvm`. Rootless kata is
+  documented as "possible with care" but isn't the well-trodden
+  path. The friction we're hoping k8s reduces gets worse.
+- **`/dev/kvm` for cc-sandbox** needs ACL grants and group
+  membership. Workable, but more setup.
+
+So rootless gets the security property but breaks two of the four
+named workloads (game-server iSCSI, cc-sandbox nested KVM). Wrong
+trade.
+
+### Option B — k0s inside a microvm
+
+Run a regular rootful k0s inside a microvm.nix guest, the same way
+`roer` runs deployd-api today.
+
+**Properties:**
+
+- **Mechanical isolation by KVM, not by user namespaces.** The
+  microvm's kernel has its own `nf_tables`. The host's `nf_tables`
+  (router6) is unreachable across the hypervisor boundary — not a
+  syscall question, a hardware question. No CNI can touch router6
+  because there's no path.
+- **CNI works normally** inside the microvm. Cilium with eBPF and
+  `kubeProxyReplacement=true`, full feature set, because inside the
+  microvm kubelet *is* root.
+- **Network cost is one virtio-net boundary**, ~1–3% overhead, vs.
+  20–50% for rootless.
+- **CSI for iSCSI works** — the microvm runs `open-iscsi` itself,
+  or the host attaches the LUN and passes it through as virtio-blk
+  (same pattern as the deployd iSCSI spec).
+- **Kata + nested KVM works** — erebonia already enables
+  `kvm_intel nested=1`. Inside the microvm, kata-shim-v2 invokes
+  cloud-hypervisor as usual.
+- **`/dev/kvm` for cc-sandbox** is virtio-passed to the microvm,
+  then a device plugin inside the cluster — same setup the cluster
+  would need anyway.
+- **router6 sees one interface** for the cluster (the microvm's
+  vsock/bridge attachment). The cluster is one zone in router6,
+  same kind of object as every other microvm guest. No new
+  conceptual surface.
+
+### Comparison
+
+| Property | Rootless | k0s-in-microvm | Rootful on host |
+| --- | --- | --- | --- |
+| Can't mechanically touch router6 | yes (user ns) | yes (KVM) | no (convention) |
+| CNI feature set | constrained | full | full |
+| iSCSI / CSI | broken | works | works |
+| Kata support | unproven | well-trodden | well-trodden |
+| `/dev/kvm` for cc-sandbox | fragile | works | works |
+| Network performance | 20–50% hit | ~1–3% hit | native |
+| Existing pattern in repo | no | yes | no |
+
+### Recommendation if migrating
+
+**If we move to k8s, run it inside a microvm.** It gives the same
+mechanical property the rootless option provides — k8s literally
+cannot touch router6 — without the workload-breaking constraints.
+And it fits the pattern the repo already uses for every other
+isolated service.
+
+This also reframes the "dual firewall" architecture: from router6's
+perspective, the cluster is just one more guest. The cluster's
+internal firewall (Cilium NetworkPolicy + whatever it installs in
+its own kernel) is invisible to router6, and router6 is invisible
+to the cluster. Each side reasons about its own firewall in
+isolation. The 1.5x debugging surface from the dual-firewall
+section above shrinks — instead of two firewalls on the same
+host, it's one firewall per kernel, debugged via that kernel's
+tooling.
+
+The cost is the microvm boundary itself: one more guest to
+provision, with cluster-control-plane resource needs (probably
+2–4 GB RAM, 2 vCPU for k0s + a small workload). Acceptable.
+
 ## On-balance recommendation
 
 This is closer than the previous pass made it sound. Two scenarios:
