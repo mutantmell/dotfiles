@@ -240,6 +240,247 @@ to." A static-fleet migration is busywork unless we're committing to
 k8s as the foundational platform — which is a much bigger decision
 than the dynamic-layer question.
 
+## Dual-firewall composition: keeping router6 authoritative
+
+The single biggest architectural question if migrating: how do nftables
+rules managed by NixOS (router6) compose with rules managed by a CNI?
+Specifically — can we keep the static config as the authoritative
+security boundary, with the CNI's firewall being **purely additive**
+(can drop more, never permit more)?
+
+**Short answer: yes, achievable, with the right CNI choice and a few
+discipline rules. Real but bounded operational cost.**
+
+### Mechanics — how rules from multiple sources compose
+
+Both `nft` (native) and `iptables-nft` (compat shim) write to the same
+kernel `nf_tables` backend. Multiple chains can attach to the same hook
+(input, forward, output, prerouting, postrouting). Within a hook,
+chains run in priority order, **and a packet must clear every chain to
+pass — any chain dropping a packet drops it for everyone**.
+
+Two firewalls don't act independently. They produce a single combined
+verdict per packet. That's the foundation that makes "additive only"
+feasible: if router6's chain says drop, the CNI cannot un-drop.
+
+### Specific issues
+
+#### a. Default-drop chains stack
+
+If router6's forward chain is `policy drop` with explicit allows
+(which it is) **and** the CNI installs anything default-drop, a
+packet has to clear both. Risky when one firewall thinks it's
+allowing but the other quietly drops.
+
+**Mitigation:** pick a CNI with a small/zero footprint in shared
+chains. Cilium with `kubeProxyReplacement=true` does almost all
+enforcement in eBPF at the tc layer (before netfilter); its nftables
+footprint is mostly empty. Calico in policy-only mode is similar.
+Avoid kube-proxy in iptables/nftables mode, flannel's vxlan rules,
+MetalLB.
+
+#### b. `bridge-nf-call-iptables` decides whether intra-bridge L2
+traffic hits L3 firewalling
+
+The kernel sysctl `net.bridge.bridge-nf-call-iptables` (on by default
+on most distros) makes pod-to-pod traffic on the same Linux bridge
+hit router6's forward chain. With it off, bridged frames bypass
+netfilter entirely.
+
+**Implication:** if pods masquerade to node IPs and we use a
+tunnelling CNI (Cilium VXLAN), cross-node pod traffic looks like UDP
+between node IPs to router6 — clean and easy to reason about. If
+pods get routable cluster-zone IPs and bridge-nf is on, router6
+needs an explicit "cluster zone → cluster zone: accept" rule so
+intra-cluster traffic isn't accidentally dropped.
+
+#### c. NAT order matters when both sides do NAT
+
+If the CNI installs DNAT for service IPs and router6 has masquerade
+in postrouting, conntrack mediates and double-NAT generally works,
+but the apparent source/destination at egress filtering changes
+based on hook priorities.
+
+**Mitigation:** **don't double-NAT.** Pick one of:
+- Pods masquerade to host IP at the cluster's edge; router6 sees
+  node-IP-as-source for all pod egress (simpler, loses per-pod
+  visibility at the router level).
+- Pods get routable IPs in their zone; no masquerade; router6 sees
+  pod IPs (more router-visible policy, requires routing setup).
+
+The first is normal and recommended for this homelab.
+
+#### d. Reload races
+
+NixOS's nftables module reloads by replacing managed rulesets. If it
+flushes tables the CNI manages, the CNI has to reconcile (Cilium
+and Calico both watch and re-install).
+
+**Mitigation:** declare router6 chains via
+`networking.nftables.tables.<name>` so NixOS only owns the tables it
+declares. Don't set `flushRuleset = true`. The CNI's tables stay
+untouched at NixOS reload.
+
+#### e. Two debugging surfaces
+
+When something doesn't work, you check both: `nft list ruleset` for
+the host side and the CNI's tooling (`cilium policy trace`,
+`calicoctl`, etc.) for the cluster side. Real ongoing cost — about
+1.5x debug time for connectivity issues, not 2x because failure
+modes are usually distinguishable (router6 drops appear in audit
+counters; CNI drops appear in CNI tooling).
+
+#### f. Don't mix iptables-nft and nft in the same chain
+
+Calico uses `iptables-nft`; Cilium native nftables (or eBPF). Both
+land in `nf_tables` but show up differently to inspection tools.
+Pick one CNI; coexisting two would be operationally awful.
+
+### How the "purely additive" property works
+
+The user's hypothesis: router6 stays authoritative; CNI rules are
+additive only (drop more, never permit more).
+
+**This holds for the standard k8s policy model:**
+
+1. router6 defines a `cluster` zone with explicit egress allows for
+   what the cluster-as-a-whole may do: cluster → internet:443,
+   cluster → creil:443 (registry), cluster → tharbad:9090
+   (Prometheus), cluster → phantasma:53 (DNS), default-drop the rest.
+2. Cluster nodes (kubelet hosts) sit in the `cluster` zone. Pod
+   egress masquerades to the node IP, so router6 sees node-IP-as-
+   source for everything leaving the cluster.
+3. Inside the cluster: NetworkPolicy resources further restrict which
+   pods talk to which other pods, and which pods may egress where.
+   NetworkPolicy is **deny-after-allow**: it can only subtract from
+   the underlying network's permitted set.
+
+A pod whose NetworkPolicy "allows" egress to `8.8.8.8:53` but whose
+node sits in a `cluster` zone that doesn't permit `→ 8.8.8.8:53`
+just won't reach it. router6 is the ceiling. The CNI cannot grant
+connectivity the host firewall denies.
+
+The reverse is **not** true: router6 cannot enforce per-pod policy
+because it can't tell which pod sent a masqueraded packet. Per-pod
+policy lives in NetworkPolicy. That's the right layering — coarse
+zone-level policy at router6, fine-grained per-pod policy inside the
+cluster.
+
+### What you give up
+
+- **Type=LoadBalancer / MetalLB / hostPort.** All of these install
+  rules that bypass or compete with router6. **Don't use them on
+  this cluster.** Use `ClusterIP` + `NodePort` and front with the
+  existing Caddy on the host. (This is also what the deployd model
+  does today.)
+- **Per-pod visibility at router6.** Pods are coarse-grained "any
+  cluster pod" from router6's perspective.
+- **Some CNI-native ingress controllers** that need to install host
+  rules (most don't; ones that do are off-limits).
+
+### Concrete config sketch (Cilium, the recommended option)
+
+```nix
+# router6: the cluster is its own zone with explicit egress allows
+router6.zones.cluster = {
+  icmpEcho = "disable";
+  accessTo = [ "internet" ];   # host-level egress to internet
+  forwardRules = {
+    dmz = [
+      { proto = "tcp"; daddr = creil.ipv4;    dport = 443; }
+      { proto = "tcp"; daddr = langport.ipv4; dport = 443; }
+    ];
+    mgmt = [
+      { proto = "tcp"; daddr = tharbad.ipv4;  dport = 9090; }
+    ];
+    infra = [
+      { proto = "udp"; daddr = phantasma.ipv4; dport = 53; }
+      { proto = "tcp"; daddr = phantasma.ipv4; dport = 53; }
+    ];
+  };
+  # Caddy fronts the cluster via NodePort range
+  inputRules = [
+    { proto = "tcp"; saddr = langport.ipv4; dport = 30000-32767; }
+  ];
+};
+```
+
+```yaml
+# cilium values (helm) — minimum-footprint config
+kubeProxyReplacement: true
+hostFirewall:
+  enabled: false        # do NOT enforce host policy via cilium
+ipam:
+  mode: kubernetes
+tunnelProtocol: vxlan   # pod-to-pod across nodes is UDP between nodes
+bpf:
+  masquerade: true      # pods masquerade to node IP at egress
+ingressController:
+  enabled: false        # we use host Caddy
+gatewayAPI:
+  enabled: false
+```
+
+With this configuration:
+
+- router6 sees one source IP per node (node IP) for all pod egress.
+- The cluster's permitted egress is **whatever the `cluster` zone
+  allows in router6, intersected with whatever NetworkPolicy
+  allows**. Both must allow.
+- Pod-to-pod policy is fully governed by NetworkPolicy via Cilium's
+  eBPF, with no router6 interaction.
+- Cilium installs no rules in router6's tables; router6 reloads
+  don't disturb Cilium's eBPF state.
+
+### Pros of this dual setup
+
+- **Trust boundary stays where it is.** router6 is authoritative;
+  CNI failures or compromise cannot expand the cluster's permitted
+  surface beyond what router6 whitelists.
+- **Defense in depth.** A NetworkPolicy mistake (allow-all by
+  accident) doesn't open the homelab to anything router6 hasn't
+  pre-approved.
+- **Right layering.** Coarse zone policy at router6, fine-grained
+  per-pod policy at NetworkPolicy.
+- **Fail-closed.** If the CNI is broken, the cluster is unreachable;
+  rest of homelab unaffected. If router6 is broken, normal
+  homelab-wide failure mode (same as today).
+
+### Cons of this dual setup
+
+- **1.5x debugging surface** for cluster connectivity issues.
+- **Two reload paths.** A `nixos-rebuild` doesn't trigger Cilium
+  reconciliation; a `kubectl apply` of a NetworkPolicy doesn't
+  trigger router6 reload. Each tested separately.
+- **Coarse zone-level policy at router6.** All pods are equivalent
+  from router6's view. Sensitive workloads (CI runners pulling
+  arbitrary code) and trusted workloads (the blog) share the same
+  egress allowlist unless we split them across multiple cluster
+  zones (doable, multiplies config).
+- **Some k8s features off-limits.** Type=LoadBalancer, MetalLB,
+  CNI-native ingress, hostPort — all conflict with router6.
+- **Operational drift risk.** Over time, an operator adds a
+  NetworkPolicy that opens egress to something router6 hasn't been
+  told about, and developers see unexplained drops. The fail mode is
+  fail-closed (good) but annoying. Mitigation: a single
+  source-of-truth doc listing every "cluster needs to reach X"
+  requirement and the rule in both layers.
+
+### Net assessment
+
+The "router6 authoritative, CNI additive only" model is the right
+target architecture if going to k8s, and it's achievable. The
+operational tax is real (~1.5x debugging, two reload cadences,
+restricted feature set) but bounded. **The security property the
+user is asking about — static config remains fully authoritative,
+CNI cannot subtract from or expand it — is correct under this
+design.**
+
+The biggest watch-out is feature creep: every k8s tutorial assumes
+LoadBalancer/MetalLB/CNI-ingress. We'd need a written "no, this
+homelab does it via host Caddy" rule that's enforced in code review,
+or those features will re-enter and start fighting router6.
+
 ## On-balance recommendation
 
 This is closer than the previous pass made it sound. Two scenarios:
