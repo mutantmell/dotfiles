@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v8 — see revision history at end)
+Date: 2026-05-09 (v9 — see revision history at end)
 
 ## Question
 
@@ -1055,6 +1055,249 @@ If that recommendation is wrong, the architecture above is the
 right shape for a k8s deployment. The decision is reversible
 either way (NixOS + git).
 
+## Appendix C: Cluster topology — single-node, multi-node, and HA
+
+The migration plan starts the cluster as a single microvm guest on
+calvard. The cluster's topology can grow over time as workloads
+warrant. This appendix documents the natural evolution path and
+when each step is worth taking.
+
+### Stage 0 — Single-node (Phases 1–4)
+
+One cluster microvm on calvard. All workloads scheduled there.
+
+- Simplest. One microvm to maintain, one NixOS module set, one
+  router6 firewall config.
+- No HA. Cluster down ≡ calvard's cluster microvm down.
+- Sufficient for the initial workload set (blog, one game
+  server, modest CI burst).
+
+This is where the migration plan starts. Don't pay multi-node
+costs before there's a workload reason.
+
+### Stage 1 — Multi-node (Phase 10)
+
+Add erebonia as a worker node. Single control plane on calvard;
+erebonia is a worker only.
+
+#### How it maps onto host roles
+
+The homelab's existing host structure aligns naturally:
+
+- **calvard** (primary VM host): control plane + interactive
+  workloads (blog, dev environments when migrated, small
+  services)
+- **erebonia** (build/CI host): worker node for batch workloads
+  (CI build pods, game servers where compute-heavy)
+
+Erebonia is *already* the build/CI host — having it host CI
+worker capacity (instead of a saint-arkh microvm running a
+Forgejo runner daemon) is a more natural extension of its role.
+Once deployd sunsets in Phase 9, erebonia would otherwise be
+underutilized; cluster worker is a clean job for it.
+
+Workload pinning via labels and taints:
+
+```yaml
+# CI step pods
+spec:
+  nodeSelector:
+    workload-class: batch        # erebonia
+  tolerations:
+  - key: ci-only
+    operator: Exists
+
+# dev environment pods
+spec:
+  nodeSelector:
+    workload-class: interactive  # calvard
+```
+
+#### What this is and isn't
+
+- **Workload distribution**, yes. Burst capacity for CI lands on
+  erebonia; calvard stays responsive for interactive work.
+- **HA**, no. Single control plane on calvard is still SPOF for
+  the API. Existing pods on erebonia keep running if calvard
+  dies (kubelet caches its assigned pod set), but no new
+  scheduling. Don't pretend otherwise.
+
+#### Storage architecture matters here
+
+This is the design decision that matters most. Plan for it in
+Phase 1 even if you're single-node initially:
+
+- **democratic-csi against liberl NAS** (NFS or iSCSI) for
+  anything that needs cross-node access — game server world
+  volumes, dev environment PVCs, StatefulSet state, anything
+  that should be reschedulable.
+- **Local-path storage** only for genuinely node-local
+  workloads — CI step `emptyDir` workspaces (already
+  ephemeral), build caches that can be regenerated.
+
+Pods bound to local-path PVs must run where the PV lives
+(nodeAffinity). Workable but defeats some of the multi-node
+value, so reserve it for ephemeral state only.
+
+#### Costs
+
+- More cluster surface (two cluster microvms, two firewall
+  configs).
+- Inter-host CNI traffic via Cilium VXLAN. Performance is fine
+  on a gigabit LAN; basically free on 10gig; degrades pod-to-
+  pod connectivity on flaky links.
+- New failure mode: inter-host network partition. Worker loses
+  contact with control plane → existing pods keep running but
+  no scheduling. Manageable but a mode to understand.
+
+### Stage 2 — Real HA (Phase 11, often with Stage 1)
+
+Add liberl as a third control-plane node, tainted so workloads
+don't schedule there.
+
+#### Why liberl is the right host
+
+- **Always-on.** liberl is the NAS — uptime focus aligns with
+  cluster uptime focus.
+- **Spare cycles.** NAS workloads are I/O-bound; CPU and RAM
+  have headroom.
+- **Already hosts microvm guests** (bose, zeiss, ravennue) on
+  the same btrfs SSD root. Adding a control-plane-only microvm
+  follows the existing pattern.
+- **Failure isolation from calvard and erebonia.** Three
+  different physical hosts means three independent failure
+  domains. Lose any one, the cluster keeps working.
+
+#### Resource cost
+
+| Component | RAM | CPU |
+| --- | --- | --- |
+| kube-apiserver | 200–500 MB | low |
+| etcd | 100–200 MB | low |
+| controller-manager | 100 MB | low |
+| scheduler | 50 MB | low |
+| kubelet | 50 MB | low |
+| **Total** | **~500 MB – 1 GB** | **~1 vCPU** |
+
+A 1 GB / 1 vCPU microvm on liberl is plenty.
+
+#### Storage for etcd
+
+Etcd writes its WAL synchronously. Recommended fsync latency
+is <10ms p99; ideally <1ms. liberl's btrfs SSD root meets this
+comfortably — SSD typically does <1ms even under load.
+
+Btrfs CoW doesn't stress etcd's workload (small WAL appends,
+periodic snapshots). Optional belt-and-suspenders:
+`chattr +C` on the etcd data directory disables CoW for that
+subtree only, eliminating any potential fragmentation of
+pre-allocated WAL segments. Pure optimization, not required.
+
+The control-plane microvm's persistent state lives on liberl's
+SSD root via the existing microvm.nix pattern (same as bose /
+zeiss / ravennue). No new storage architecture work.
+
+#### What you tell the cluster
+
+```yaml
+# liberl's node spec (set by kubeadm init/join, doesn't need manual config)
+spec:
+  taints:
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+```
+
+Kubeadm applies this taint to control-plane nodes by default.
+Workloads that don't tolerate it (which is almost everything)
+won't schedule on liberl. Control-plane components (apiserver,
+controller-manager, scheduler) explicitly tolerate it.
+
+#### Network paths
+
+router6 needs cross-zone forwarding for:
+
+- **etcd peer**: 2380/TCP between all three control-plane nodes
+- **etcd client**: 2379/TCP between all three control-plane
+  nodes
+- **apiserver**: 6443/TCP from all nodes (control-plane and
+  worker) to all control-plane nodes
+- **kubelet**: 10250/TCP from control-plane to all nodes
+- **CNI overlay** (Cilium VXLAN): 8472/UDP between all nodes
+
+Standard k8s firewall requirements; the `cluster` zone in
+router6 needs the corresponding `forwardRules`.
+
+#### Costs
+
+- One more cluster microvm to maintain (3 instead of 2).
+- liberl gains a cluster role on top of NAS. If liberl reboots
+  for NAS maintenance (NixOS upgrade), the cluster loses one
+  control-plane vote temporarily. Still has 2/3 quorum, fine —
+  but it's a new dependency to think about.
+- Bootstrap order matters. First node initializes
+  (`kubeadm init` or k0s equivalent), other two join
+  (`kubeadm join --control-plane`). Document this in the
+  runbook.
+
+### Sequencing
+
+The two stages are logically independent but worth most when
+done together:
+
+- **Stage 1 alone** (multi-node, single control plane) gets you
+  workload distribution but leaves the API as SPOF.
+- **Stage 2 alone** (3-voter etcd, single worker) gives you HA
+  for the control plane while leaving workloads on a SPOF
+  worker. Mismatched.
+- **Stages 1 and 2 together**: workload distribution + real HA.
+  This is the configuration where you actually get fault
+  tolerance — lose any single host, the cluster keeps serving.
+
+#### Recommended phasing
+
+- **Phase 10** (multi-node): add erebonia as worker. Workload
+  pinning via labels.
+- **Phase 11** (HA): add liberl as third control-plane node.
+  Switch apiserver clients to use an HA endpoint (round-robin
+  DNS, or a small proxy).
+
+These can be a single "go multi-host properly" phase if you
+want. The two changes are independent enough to land
+separately, but the value materializes when both are in place.
+
+### When does this all become worth doing?
+
+Don't expand from single-node until at least one of these is
+true:
+
+- CI burst capacity on calvard's cluster microvm hits its
+  ceiling (RAM, CPU, or scheduling pressure)
+- Game servers + dev environments + CI start fighting over
+  calvard's resources
+- deployd is sunset (Phase 9) and erebonia would otherwise be
+  underutilized
+- The cluster has become foundational enough that "fix it
+  tomorrow" is no longer acceptable for control-plane outages
+
+Until then, single-node on calvard is the right shape. The
+multi-node and HA additions are reversible (revert the
+relevant commits, the extra microvms shut down) and can be
+introduced when warranted.
+
+### Comparison to alternatives
+
+- **Raspberry Pi as etcd voter.** Common homelab pattern; same
+  idea but with separate hardware to maintain. liberl microvm
+  is strictly better — same NixOS-managed declarative
+  deployment as everything else.
+- **External etcd cluster** (3 etcd-only nodes, separate from
+  the k8s control plane). Overkill at homelab scale. Embedded
+  etcd via kubeadm/k0s is what you want.
+- **Accept SPOF on the single-node control plane indefinitely.**
+  Reasonable choice if "fix it tomorrow morning" is acceptable
+  for cluster operations. The HA microvm is small enough that
+  it's worth doing eventually anyway.
+
 ## Revision history
 
 - v1: initial pass — recommended staying, ~90/10. Anchored too hard
@@ -1075,7 +1318,19 @@ either way (NixOS + git).
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v8 (this revision): added Appendix B — SSH bastion / jump-box
+- v9 (this revision): added Appendix C — cluster topology
+  evolution. Documents three stages: single-node (the starting
+  shape, Phases 1–4), multi-node with calvard control plane +
+  erebonia worker (Phase 10, workload distribution), and full
+  3-voter HA with liberl as a control-plane-only node tainted
+  against scheduling (Phase 11, real fault tolerance). Maps the
+  topology onto existing host roles (calvard interactive,
+  erebonia batch/CI, liberl always-on). Confirms liberl's
+  btrfs SSD root is suitable for etcd. Recommends doing
+  Phases 10 and 11 together since the value materializes when
+  both are in place. Defers all of it until single-node hits a
+  workload reason to expand.
+- v8: added Appendix B — SSH bastion / jump-box
   security. Threat model contrast with CI runners (trusted code
   with sensitive context vs. untrusted code with narrow scope).
   Documents the architectural deltas: inbound traffic surface,
