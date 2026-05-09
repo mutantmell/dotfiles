@@ -1,241 +1,310 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09
+Date: 2026-05-09 (revised — fresh-eyes pass)
 
 ## Question
 
-Would moving from `deployd` (the homegrown containerd wrapper at
-`modules/deployd/` + `packages/deployd-{api,helper}/`) to a Kubernetes-based
-runtime be a net improvement for this homelab? In particular:
+Would moving the dynamic-container layer (today: `deployd` +
+`packages/deployd-{api,helper}/`, single-host on erebonia) to a
+Kubernetes-based runtime be a net improvement?
 
-1. Is k8s a good fit for the current dynamic-container workflows that deployd
-   serves?
-2. Which k8s runtime would be best if we did adopt one?
-3. Would k8s replace any of the static microvm.nix / Incus guests?
-4. On balance, should we migrate?
+Sub-questions:
 
-## Short answer
+1. Is k8s a good fit for the workload classes deployd serves (blogs,
+   CI runners, Claude Code sandboxes, game servers)?
+2. Which k8s distribution and runtime would best fit this homelab?
+3. Could k8s replace any of the static microvm.nix / Incus guests?
+4. On balance, migrate or stay?
 
-**No — stay on the current stack.** The architecture is already a more
-considered fit for the stated requirements than k8s would be, and the specific
-problems we keep hitting (Kata + nested KVM for cc-sandbox, mutable NixOS in
-containers) live below the orchestration layer. K8s does not solve them; it
-only adds a control plane on top.
+## Approach
 
-The right next moves are the in-flight ones — finish the
-nerdctl→containerd-gRPC migration (`llm-notes/wip/deployd-integration.md`)
-and build the iSCSI block-storage add-on for game servers from the existing
-spec.
+This pass deliberately re-derives the answer rather than leaning on the
+prior decisions in `llm-notes/specs/dynamic-container-layer.md` (which
+rejected **k3s specifically**, not k8s broadly) and
+`llm-notes/done/kata-cloud-hypervisor-migration.md` (which is about
+mutable-NixOS-in-kata, not orchestration). Those documents are evidence
+of past reasoning, not authority on this question.
 
-The rest of this document explains why.
+## What "Kubernetes" actually means here
 
-## What we currently have
+It's important to disentangle three different things often called "k8s":
 
-- **Dynamic layer.** `deployd-api` (axum, runs in the `roer` microVM on
-  erebonia) → Unix socket over virtiofs → `deployd-helper` (Rust, runs on
-  host) → containerd (currently driven via `nerdctl`, transitioning to direct
-  gRPC) → kata or runc per-deploy → containers on the `deploy-dmz` bridge,
-  fronted by Caddy on the host.
+- **The k8s API** — Pod / Deployment / StatefulSet / Job / CRD,
+  reconciliation loops, RBAC, audit. Distribution-agnostic.
+- **kubelet + CRI + containerd** — the per-node agent that drives
+  containerd (and therefore kata-shim-v2) on behalf of the API. This is
+  the same path the kata-containers project tests against first.
+- **The bundled distribution** — k3s, k0s, RKE2, microk8s, kubeadm. Each
+  comes with default choices for ingress, load-balancer, CNI, storage
+  class. **The earlier rejection of k3s was mostly about k3s's defaults**
+  (Traefik vs. our declared Caddy, ServiceLB vs. our nftables, flannel
+  re-managing host firewall) — not about the underlying API.
 
-  Hosts: only erebonia today (`hosts/erebonia/default.nix:25`,
-  `runtimes.allowed = ["kata" "runc"]`, default kata).
+A NixOS-native k8s build via `services.kubernetes.*` (or k0s with most
+defaults disabled) is a meaningfully different proposition from k3s with
+its batteries included.
 
-  Active production user: `cc-sandbox` — Claude Code sandboxes built from
-  `packages/claude-sandbox-image/`, deployed via `packages/cc-sandbox/`,
-  authenticated through OIDC, runs on runc with `/dev/kvm` for nested KVM.
+## Honest case FOR migration
 
-  Specced/planned users: Forgejo Actions runners (saint-arkh hosts the
-  daemon today; jobs themselves are kata-isolated), game servers with
-  iSCSI-backed suspend/resume, on-demand blogs.
+### 1. Kata is genuinely better-supported via kubelet than via nerdctl
 
-- **Static layer.** ~13 cloud-hypervisor / QEMU microVMs and 2 Incus guests
-  (full inventory in `llm-notes/microvm-inventory.md`). All of them are
-  long-lived stateful services: Keycloak/Postgres (~100GB), step-ca, nginx +
-  oauth2-proxy, Jellyfin (with VAAPI passthrough), Prometheus+Loki+
-  Alertmanager+ntfy, Forgejo, Attic, cgit, AdGuard+Unbound. None of them are
-  ephemeral.
+Most of the integration friction we've hit (nerdctl prepending a
+namespace prefix to CNI container IDs; rootful/rootless confusion when
+sudo'ing nerdctl; ctr-inspect parsing; CNI state file `\r\n`) is
+specifically because nerdctl is a Docker-compat CLI bolted onto
+containerd, not because containerd or kata are difficult. The kata
+project's reference integration is **kubelet → CRI → containerd → kata
+shim**. Bug fixes ship for that path first.
 
-- **Network model.** `modules/router6/` defines zone-based nftables across
-  VLANs. The `deploy-dmz` bridge has a static "only Caddy can reach the
-  bridge" rule; deployd-helper has no `CAP_NET_ADMIN` (decision recorded in
-  `llm-notes/wip/deployd-integration.md`). All cross-zone access is on the
-  router, declaratively.
+Caveat: the in-flight containerd-gRPC migration in
+`llm-notes/wip/deployd-integration.md` also gets us off nerdctl. So this
+is a "k8s gets it for free" point, not a "only k8s solves it" point.
 
-- **What's been tried and shelved.**
-  - **k3s** — explicitly rejected at spec time
-    (`llm-notes/specs/dynamic-container-layer.md:47`, "Fights NixOS for
-    ownership of networking, storage, and service lifecycle").
-  - **Kata for mutable NixOS dev VMs** — closed as "won't do"
-    (`llm-notes/done/kata-cloud-hypervisor-migration.md`); kata-agent's
-    cgroup ownership is mutually exclusive with systemd PID 1 on cgroup v2.
-    Upstream issue #10733 has no path to resolution.
-  - **kata-kernel-nested for cc-sandbox** — hung on container launch; we
-    added per-deploy runtime selection so cc-sandbox runs under runc with
-    direct `/dev/kvm` instead (`llm-notes/done/deployd-runtime-selection-plan.md`).
+### 2. The operator ecosystem is unusually well-matched to the named workloads
 
-## What k8s would actually give us
+- **Blog**: Deployment + Service + Ingress, with Flux/ArgoCD watching
+  the content repo for image updates. This is the canonical k8s pattern
+  and noticeably less code than wiring deployd to a webhook.
+- **CI runners**: actions-runner-controller (or the Forgejo equivalent)
+  autoscales runner pods on queue depth, runs each job in a fresh pod
+  with its own `RuntimeClass`. Strictly better than running a long-lived
+  runner daemon (saint-arkh) that spawns local jobs.
+- **Claude sandboxes**: still a Pod with a `RuntimeClass` and an OIDC
+  flow on top. Code-volume comparable to the current deployd-api, no
+  obvious win, no obvious loss.
+- **Game servers**: StatefulSet + PVC + VolumeSnapshot covers the
+  "weeks-long, survives reboot, snapshot the world" use case. Agones
+  exists for session-allocation-style fleets but is overkill for the
+  stated requirement.
 
-| Capability | Already covered | What k8s adds |
-| --- | --- | --- |
-| OCI lifecycle (create/start/stop/restart) | deployd-helper | kubelet — same primitive, more daemons |
-| Health checks, restart-on-failure | systemd unit `Restart=on-failure` | liveness/readiness probes (genuinely nicer) |
-| Image pull from private registry | nerdctl + creil cert in PKI store | image pull secrets — equivalent |
-| Kata as a runtime | per-deploy runtime field | `RuntimeClass` (well-supported, equivalent) |
-| Ingress | Caddy admin API + helper | Ingress controller — re-implementation |
-| Egress filtering | router6 zone rules | NetworkPolicy — re-implementation |
-| Secrets | sops-nix + bind mounts | Secret/CSI — different model, same security |
-| Persistent storage | bind mounts, planned iSCSI add-on | CSI drivers — useful |
-| Multi-host scheduling | not needed | actually new |
-| Auto-scaling | not needed | actually new |
-| Declarative desired state with controllers | persistent-flag replay | actually new (modest) |
-| Multi-tenant RBAC | OIDC group claim on deployd-api | actually new (not currently needed) |
-| Auditability | append-only audit log on host | k8s audit log — equivalent |
+### 3. CSI is a proper home for the iSCSI block-storage feature
 
-The genuinely-new capabilities are: multi-host scheduling, autoscaling, CSI
-storage drivers, and richer RBAC. Of those, only CSI drivers are even
-adjacent to a current need (the iSCSI add-on), and the spec'd add-on already
-gives us what we want with less code than deploying a CSI stack.
+The iSCSI suspend/resume add-on in
+`llm-notes/specs/dynamic-container-layer.md` is essentially a small,
+custom storage controller. With k8s + a CSI driver
+(`democratic-csi` against TrueNAS, or `openebs-mayastor`,
+or `longhorn`), you get dynamic provisioning, snapshot CRDs, and clone
+support out of the box. Snapshots become first-class kubernetes
+resources rather than a `state.json` field.
 
-## What k8s would cost us
+### 4. Multi-runtime via `RuntimeClass` is the cleaner expression
 
-1. **CNI vs. router6 collision.** This is the single biggest issue.
-   Calico/Cilium/flannel each want to own iptables/nftables tables, ipsets,
-   and policy routing on the host. The current model — declarative
-   nftables zones in `modules/router6/`, a single static "only Caddy"
-   rule for `deploy-dmz`, no dynamic kernel-level mutations from deployd —
-   would have to be replaced. We would either (a) accept the CNI as the new
-   source of truth and move zones into `NetworkPolicy`, losing the unified
-   router model that runs the rest of the network, or (b) try to compose
-   them and end up debugging two firewalls at once.
+The per-deploy `runtime: "kata" | "runc"` field maps directly onto k8s
+`RuntimeClassName`. We can also add a custom `runc-kvm`
+`RuntimeClass` (paired with the kvm-device-plugin) for the cc-sandbox
+nested-KVM case without special-casing it in our own code.
 
-2. **Two truths for state.** NixOS describes the host declaratively; k8s
-   describes workloads declaratively but stores them in etcd. Drift between
-   them becomes a real operational problem. Today everything that survives
-   a reboot is in either NixOS evaluation or `state.json` (which is replayed
-   via the same NixOS-defined service).
+### 5. Multi-host and KubeVirt as a long-term direction
 
-3. **Operational footprint.** Even k3s is ~500MB–1GB resident (apiserver +
-   etcd or kine + controller-manager + scheduler + kubelet + CNI + kube-proxy)
-   plus ongoing maintenance. The current dynamic stack on erebonia is two
-   Rust binaries (~2k LOC of helper+api) + containerd + Caddy. Several static
-   guests run in 256–512MB.
+If the homelab ever runs dynamic workloads across erebonia *and*
+calvard, k8s schedules across them natively; deployd would need a
+second instance with a manual placement decision per workload.
+**KubeVirt** runs full VMs as `VirtualMachine` CRDs alongside Pods —
+unmodified NixOS guests, libvirt/QEMU underneath, live migration
+across nodes, snapshots via CSI. This wouldn't replace microvm.nix
+tomorrow, but it's a credible 5-year direction for unifying VM and
+container management under one control plane.
 
-4. **Loses the cc-sandbox security story.** cc-sandbox runs untrusted Claude
-   under runc with explicit `/dev/kvm` passthrough; the device allowlist,
-   seccomp profile, and per-user volume namespacing are all in
-   `packages/deployd-helper/src/validation.rs` and audited via the helper's
-   append-only log. Recreating this in k8s requires a privileged Pod (or
-   `RuntimeClass=runc` + `securityContext` + custom `PodSecurityPolicy` /
-   Pod Security Admission profile) — strictly more pieces, not fewer, and
-   the validation now lives in admission webhooks rather than a small Rust
-   crate we wrote and can read in one sitting.
+## Honest case AGAINST migration
 
-5. **Doesn't solve the actual recurring problems.**
-   - The Kata + nested-KVM problem (cc-sandbox) was a Kata-kernel issue,
-     not an orchestration issue. K8s + kata-runtime hits the same wall.
-   - The mutable-NixOS-in-Kata problem is a fundamental Kata cgroup
-     ownership incompatibility with systemd PID 1. K8s + kata-runtime hits
-     the same wall.
-   - The nerdctl/CNI fragility (`llm-notes/wip/deployd-integration.md`
-     "post-D0 finding") is being addressed by direct containerd gRPC. K8s
-     would replace this with kubelet, which uses CRI/containerd under the
-     hood — we'd be trading one wrapper for a much larger one.
+### 1. CNI ↔ router6 integration is real ongoing engineering
 
-6. **Game-server suspend/resume regresses.** The iSCSI add-on
-   (`llm-notes/specs/dynamic-container-layer.md:412`) takes advantage of
-   Kata's clean block-device unmount on shutdown for atomic NAS snapshots.
-   StatefulSets do not have native suspend/resume. We would have to write
-   a CRD + operator that ultimately does the same thing the existing
-   `Suspend` / `Resume` helper commands do — but on top of k8s rather than
-   on top of systemd. Net code increase, not decrease.
+Every CNI either (a) leaves host networking alone and provides only
+pod-to-pod policy, or (b) takes ownership of large pieces of host
+firewall/routing. Cilium with `hostFirewall=false` and policy-only
+mode, or Calico in policy-only mode, are the "leave host alone"
+choices. Either is workable but introduces a second policy surface
+that needs to be reasoned about alongside `modules/router6/`.
 
-## If we did adopt k8s, which runtime?
+The cluster network ends up being its own zone (vDMZ-ish); router6
+governs inter-VLAN traffic; CNI governs intra-cluster. That's a
+clean-enough split, but it's a real architectural change and a
+permanent operational complexity tax (two firewalls to debug, not one).
 
-For completeness, the realistic options:
+### 2. Two sources of truth for workload state
 
-- **`services.kubernetes.*` (kubeadm-style, NixOS module).** Most NixOS-
-  native; module exists in nixpkgs. Operationally heaviest. Best for someone
-  who wants kubernetes-the-protocol expressed as Nix.
-- **k3s (`services.k3s`).** Most popular in the NixOS homelab world; bundles
-  flannel+CoreDNS+ServiceLB+Traefik (most of which we'd disable to avoid
-  fighting our existing stack). Was already rejected in the spec.
-- **k0s.** Similar profile to k3s; smaller community, less NixOS support.
-- **microk8s.** Snap-oriented; poor NixOS fit.
+Today, every workload is described in either NixOS evaluation or
+deployd's `state.json` (replayed by a NixOS-defined service). With k8s,
+manifests live in etcd. Reasonable mitigations:
 
-If forced to pick, the answer is **`services.kubernetes.*`** with a
-deliberately minimal component set (Calico in policy-only mode, no built-in
-ingress, no built-in load balancer, runtime class for kata, runtime class
-for runc-with-/dev/kvm). But "best" here is "least bad" — none of them are
-better than what we have for our actual workload mix.
+- Store manifests in this flake, apply via Flux/ArgoCD on commit (most
+  Nix-friendly).
+- Generate manifests from Nix expressions and apply via `kubectl
+  apply -k` from a NixOS systemd service.
 
-## Could k8s replace any static microvm guests?
+Either works, but the "single declarative source" property of the
+current setup is genuinely lost.
 
-In principle, several of the deployed workloads could run as Pods. Going
-through the inventory honestly:
+### 3. Operational footprint at small scale
 
-| Guest | Could it be a Pod? | Should it? |
-| --- | --- | --- |
-| phantasma (Unbound + AdGuard + oauth2-proxy + nginx) | yes | no — DNS is foundational; one less moving part on the router VM is the whole point |
-| messeldam (Keycloak + Postgres ~100GB) | technically | no — running a 100GB Postgres on k8s has its own operations story; the microVM is simpler |
-| basel (step-ca CA root keys) | yes | **no** — putting CA root material in `Secret` resources is a regression vs. sops-nix + microVM isolation |
-| langport (nginx + oauth2-proxy + WireGuard) | partially | no — WireGuard wants raw networking; nginx is fronting the entire homelab |
-| oracion (Jellyfin + Intel VAAPI passthrough) | yes | marginal — VAAPI in k8s is doable via device plugins, but the microVM does it with one nix line |
-| tharbad (Prometheus, Loki, Alertmanager, ntfy) | yes (kube-prometheus-stack is the canonical case) | not worth it for one-stack; this is also exactly where you'd start if you ever do migrate |
-| creil (Forgejo + container registry) | yes | no — its registry is the supply for cc-sandbox/CI; tight failure-mode coupling with k8s is the wrong direction |
-| saint-arkh (Forgejo runner daemon) | yes | no — daemon is long-lived; the *jobs it spawns* are already containers under deployd |
-| ardent (Attic, large Nix store) | technically | no — co-locates with NAS storage |
-| monrain (cgit + bare git repos) | yes | no benefit |
-| edith / trista (dev environments) | no | these need full mutable NixOS — Incus is correct |
-| altair / longlai (Headscale + subnet router) | partial | no — needs raw networking and is small |
+Even a stripped-down k8s control plane (apiserver + etcd or
+kine + controller-manager + scheduler + kubelet + CNI) is
+500MB–1GB resident plus daemons-to-monitor. On a single dynamic-layer
+host this is a real cost. Several static microVM guests run in 256MB.
+The cost gets cheaper per-workload as the workload count grows; it's
+unfavorable at today's scale.
 
-**Net answer: nothing in the current static fleet is a good candidate.**
-Every guest is either (a) requires raw networking / device passthrough that
-weakens with Pod abstractions, or (b) is already sized and isolated correctly
-as a microVM, or (c) holds key material that does not belong in a shared
-control plane.
+### 4. Auth and developer-tooling surface area
 
-If we ever did migrate one thing, the kube-prometheus-stack on tharbad is the
-least-risky candidate — but doing it for one stack is strictly worse than
-the current Nix-managed setup.
+deployd's auth model is a single OIDC bearer token with a group claim,
+checked once per request. K8s adds RBAC, ServiceAccounts, and (for
+human users) `kubectl` context management on top of the same OIDC.
+For machine callers (CI deploying a blog), ServiceAccount tokens are
+fine. For human callers (cc-sandbox CLI today), the auth code stays
+roughly the same size but talks to a much larger API.
 
-## Recommendation
+### 5. Custom code investment is genuinely small today
 
-**Stay.** Specifically:
+deployd is ~2k LOC of Rust (helper + api combined), with the trust
+boundary in one file (`packages/deployd-helper/src/validation.rs`) and
+the privileged operations in one shell script
+(`modules/deployd/default.nix:39`). It's small enough to read in a
+sitting and audit per-change. K8s replaces this with kubelet (~500k
+LOC) + CRI runtime + admission controllers + RBAC policy. Same security
+properties, much larger surface.
 
-1. **Finish the in-flight deployd work.** The containerd-gRPC migration in
-   `llm-notes/wip/deployd-integration.md` removes the actual operational
-   pain point (nerdctl/ctr/CNI shell-out fragility) without adding a control
-   plane. That's the win we've been looking for.
+### 6. The static-fleet migration question is unattractive
 
-2. **Build the iSCSI add-on for game servers.** The spec
-   (`llm-notes/specs/dynamic-container-layer.md:412`) gives us suspend/resume
-   with NAS-side snapshots in a way that's strictly better than what k8s
-   StatefulSets do out of the box. It's also a small amount of code — Unix
-   socket commands `AttachVolume`/`DetachVolume`/`Suspend`/`Resume` plus
-   storage-pool allowlist in the helper.
+If migration is dynamic-layer-only, k8s is justified or not on its own
+merits. If it's "and the static fleet too via KubeVirt," the cost
+balloons and the upside is mostly "live migration we don't need" and
+"unified control plane that costs us NixOS-native module declarations
+like `services.keycloak.enable = true`."
 
-3. **Accept runc as the answer for nested-KVM workloads.** Already done for
-   cc-sandbox. Kata stays for workloads where strong isolation > nested-virt
-   performance. Kata-kernel-nested has been deleted; that's the right call.
+## Per-workload assessment
 
-4. **Keep the mutable-NixOS-dev-VM problem on Incus.** edith (calvard) and
-   trista (erebonia) cover this. It's orthogonal to deployd and to k8s.
+| Workload | Current | K8s equivalent | Honest verdict |
+| --- | --- | --- | --- |
+| Blog (on-demand redeploy) | not built yet | Deployment + Flux watching content repo | k8s wins on idiom |
+| CI runners (Forgejo Actions) | saint-arkh microVM hosts daemon; jobs are isolated | runner controller + per-job kata Pods | k8s wins, especially at scale |
+| Claude sandboxes | cc-sandbox CLI → deployd-api → runc Pod with /dev/kvm | OIDC client → k8s API → Pod with `RuntimeClass=runc-kvm` + kvm-device-plugin | roughly equivalent |
+| Game servers (long-lived, weekly play) | spec'd but unbuilt; iSCSI + suspend/resume | StatefulSet + PVC + VolumeSnapshot | k8s wins on storage primitives |
 
-## When to revisit
+So: of the four named workload classes, **two are genuinely better
+served by k8s + ecosystem (CI runners, game-server storage), one is
+roughly a wash (Claude sandboxes), one isn't built yet either way (blog,
+where k8s is more idiomatic but neither is hard)**.
 
-Migrating to k8s makes sense if any of these become true:
+## If migrating, what runtime?
 
-- Dynamic workloads need to schedule across **3+ hosts** with capacity
-  awareness — not just "deployd on erebonia + deployd on calvard."
-- We start hosting **multi-tenant** workloads (friends running their own
-  game servers, shared CI for outside contributors) where per-namespace
-  RBAC and ResourceQuotas pay for themselves.
-- The static fleet grows past the point where individual microVMs are
-  manageable, and we want a unified scheduler for **both** static and
-  dynamic — not just dynamic.
+The right answer is **not k3s** — its bundled defaults (Traefik+ServiceLB
++flannel+local-path) are exactly the layers we'd disable, leaving us
+fighting opinionated removals. Better:
 
-None of these are true today, none of them are on the roadmap, and none of
-them are forcing functions. The recurring pain we've been feeling — Kata
-weirdness, nerdctl fragility — is being addressed at the right layer
-(runtime choice and direct containerd gRPC), not by adopting an
-orchestrator.
+- **`services.kubernetes.*` (kubeadm-style, NixOS module)** — most
+  NixOS-native; the control plane is declared in the same flake as
+  everything else. Heaviest operationally but most consistent with the
+  rest of the stack.
+- **k0s** — single binary, sane minimal defaults, available as a
+  package in nixpkgs. Reasonable second choice.
+
+Component picks for either:
+
+- **CNI: Cilium** with `kubeProxyReplacement=true`,
+  `hostFirewall=false`, eBPF datapath. Plays well with existing
+  host nftables and gives us NetworkPolicy as the pod-policy surface.
+  Calico in policy-only mode is a simpler alternative.
+- **Container runtime: containerd** (only realistic choice with kata).
+- **Runtimes**:
+  - `RuntimeClass: kata-qemu` — default for new isolated workloads
+  - `RuntimeClass: runc` — for general-purpose
+  - `RuntimeClass: runc-kvm` — runc with kvm-device-plugin for
+    cc-sandbox-style nested-KVM
+- **CSI: democratic-csi** against the NAS (zfs-generic-iscsi or
+  zfs-generic-nfs depending on workload). Gives us VolumeSnapshot for
+  the game-server use case.
+- **Ingress: keep Caddy on the host**, point at NodePort services. Don't
+  introduce a second ingress controller; we already declare Caddy.
+- **GitOps: Flux v2** reading manifests from creil. Lighter than
+  ArgoCD; closer to "apply this directory" semantics.
+
+## Could k8s replace static microvm guests?
+
+Going through the inventory honestly:
+
+- **Could run as a Pod**: phantasma (DNS/AdGuard), langport (nginx),
+  oracion (Jellyfin, with VAAPI device plugin), tharbad (kube-prometheus-
+  stack is the canonical case), creil (Forgejo), monrain (cgit), ardent
+  (Attic), saint-arkh (the CI controller, not the runner daemon).
+- **Could run as a KubeVirt VM**: messeldam (Keycloak+~100GB Postgres),
+  altair (Headscale), longlai (subnet router) — same as today's microVM,
+  different control plane.
+- **Should not move**: basel (CA root keys are worse off in `Secret`
+  resources than in microVM + sops-nix), the foundational guests on
+  thebeyond, edith/trista (mutable NixOS dev environments are correct
+  on Incus).
+
+**Of these, only the kube-prometheus-stack on tharbad is a clearly
+better fit on k8s.** Everything else is "could move, no real reason
+to." A static-fleet migration is busywork unless we're committing to
+k8s as the foundational platform — which is a much bigger decision
+than the dynamic-layer question.
+
+## On-balance recommendation
+
+This is closer than the previous pass made it sound. Two scenarios:
+
+### Scenario A — extend deployd
+
+**When this is right:**
+- The homelab stays roughly the size it is now (one host running
+  dynamic workloads).
+- The operator prefers extending small audit-able Rust code over
+  operating a kubelet+CNI+CSI stack.
+- The named pain points (kata friction via nerdctl, missing
+  iSCSI/snapshot story) are addressable in deployd in 3–6 months of
+  work that is mostly already specced.
+
+**Cost:** the operator owns the storage controller, the auth flow, and
+the network management forever. Each new workload type adds custom
+code.
+
+### Scenario B — move the dynamic layer to k8s
+
+**When this is right:**
+- The homelab is a multi-year direction that wants to grow into
+  multi-host scheduling, CI runner autoscaling, and possibly KubeVirt
+  for new VM-shaped workloads.
+- The operator wants to invest in k8s skills as a platform.
+- The CSI / NetworkPolicy / RuntimeClass model maps cleanly onto the
+  use cases (it does).
+
+**Shape:** k0s or `services.kubernetes.*` on erebonia (single node to
+start, calvard joinable later), Cilium policy-only, democratic-csi
+against the NAS, Flux for manifests, Caddy retained on host, deployd
+deprecated and removed once the four workload classes are migrated.
+
+**Cost:** 6–12 months of careful migration work, ongoing
+operational complexity tax, design work to keep router6 zones and
+CNI policy in sync.
+
+### My lean
+
+If forced to pick today, I lean toward **Scenario A (stay)** for one
+specific reason: the highest-leverage k8s wins (CI runner autoscaling,
+CSI volume snapshots) are real but small in absolute terms at this
+scale, and the in-flight containerd-gRPC migration removes the most
+acute deployd pain point. The k8s investment doesn't pay for itself
+until the homelab has more workloads than we can hand-roll one at a
+time.
+
+But this lean is genuinely 60/40, not the 90/10 the previous pass
+implied. Scenario B is a defensible choice if the operator wants k8s
+as a long-term platform direction. The previous "the spec already
+rejected k3s" framing over-counted that decision: it was a different
+question (k3s the distribution) at a different time.
+
+## What this pass changes vs. the previous report
+
+- Acknowledges that **k8s ≠ k3s**; the spec's k3s rejection doesn't
+  generalize.
+- Credits **kubelet + containerd + kata** as the genuinely-better
+  integration path for the kata friction we've hit (vs. previously
+  framing it as orthogonal).
+- Credits **operator-ecosystem fit** for CI runners and game-server
+  storage, which the previous pass dismissed too quickly.
+- Distinguishes **`services.kubernetes.*` / k0s** from k3s as
+  meaningfully different choices.
+- Reframes the recommendation as **60/40 stay** rather than "obvious
+  no" — Scenario B is a real option if the operator wants the
+  platform investment.
