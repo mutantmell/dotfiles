@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v7 — see revision history at end)
+Date: 2026-05-09 (v8 — see revision history at end)
 
 ## Question
 
@@ -794,6 +794,267 @@ hostile:
 The hostile-test is worth doing once. After that, automated
 admission policy validation is what catches regressions.
 
+## Appendix B: Jump box / SSH bastion
+
+The planned SSH bastion (Step 4 in the feature roadmap, "Calvard
+name TBD, Incus VM on calvard") replaces SSH access through
+langport. If migrated to the cluster instead of deployed as an
+Incus VM, it needs a security architecture similar in shape to
+the CI runners (Appendix A) but with meaningful differences.
+
+### How bastion threat model differs from CI runners
+
+| Property | CI runner | Bastion |
+| --- | --- | --- |
+| Code running | Untrusted (PRs, deps) | Trusted (admin sessions) |
+| Sensitive context | Build secrets, narrow scope | User SSH agents, broad pivot to homelab |
+| Lifecycle | Ephemeral per-step | Long-lived |
+| Inbound traffic | None | Port 22 from tailnet (or internet) |
+| Multi-user concern | One job per pod | Multiple users on one bastion |
+| Failure domain on compromise | One step's outputs | Lateral movement across homelab |
+
+CI's stack is "isolate the workload from the host." The bastion's
+stack is "isolate the host from a public-facing front-door, and
+isolate users from each other." Different shape, overlapping
+mechanisms.
+
+### What carries over from Appendix A
+
+- **`runtimeClassName: kata-qemu`** — same reason, kernel-level
+  isolation between bastion and the cluster microvm.
+- **PSS Restricted profile** on the namespace — drops
+  capabilities, blocks host namespaces, forces non-root.
+- **Admission policies** (Kyverno/OPA) enforcing image source =
+  creil and `runtimeClassName: kata-qemu`.
+- **NetworkPolicy + router6 dual-allow** for egress.
+- **Resource limits and quotas.**
+
+### What's different
+
+#### Inbound traffic
+
+CI runners have no inbound. Bastion has port 22 from outside the
+homelab. Architecture:
+
+- **Service of type `NodePort`** for port 22 → bastion pod.
+- **Host-side TCP proxy** (caddy-l4 if Caddy is built with the
+  L4 module, else nginx stream, else direct DNAT) forwards
+  external 22 → cluster microvm's NodePort.
+- **router6** allows inbound `<external>:22` → cluster microvm
+  only via that path.
+- **NetworkPolicy ingress** restricts which sources can reach the
+  bastion pod's port 22 — at minimum, only the cluster microvm's
+  interface.
+
+If bastion access is **tailnet-only** (recommended), the inbound
+surface shrinks dramatically: no public internet exposure, only
+headscale/tailscale-attached clients. router6's `cluster` zone
+gets `inputRules` allowing port 22 only from the tailnet zone.
+
+#### Egress is much broader than CI
+
+CI's egress is narrow (creil, ardent, phantasma). Bastion needs:
+
+- DNS (phantasma:53)
+- SSH (port 22) to **most internal hosts** — the bastion's job is
+  to be the jump-off point
+- step-ca:443 if SSH certs are validated against it
+- Authelia/Keycloak:443 for OIDC SSH auth (if used)
+
+This is genuinely a bigger attack surface than CI: a compromised
+bastion has more places to pivot to. Mitigation: limit which
+**target hosts** the bastion can SSH to with explicit destination
+IPs in NetworkPolicy + router6 forwardRules — not "all of vMGMT"
+but specifically "the listed bastion targets."
+
+#### User session isolation
+
+Three options:
+
+- **Shared bastion, Linux user separation.** Single Pod. Multiple
+  authorized users sshing in get separate Linux UIDs. Simplest.
+  Standard Linux user separation suffices for trusted users.
+- **Per-user persistent pod.** Each authorized user has their own
+  bastion Pod. Heavier; useful if mutual trust between users is
+  low.
+- **Per-session ephemeral pod.** Each SSH connection spins up a
+  fresh Pod. Highest isolation, heaviest. Boundary / Teleport
+  pattern.
+
+For the homelab's user count (1–5 trusted), **shared bastion is
+right.** If friends become SSH users (not just game servers),
+revisit.
+
+#### Persistence — stateless vs. stateful
+
+- **Stateless**. No persistent home dirs. Each connection starts
+  fresh. Log everything centrally. Most secure; loses convenience
+  like persistent tmux.
+- **Stateful**. PVC mounted at `/home`. Tmux sessions, shell
+  config, file staging persist across connections. More
+  convenient; larger compromise blast radius.
+
+For a homelab admin bastion, **stateful is reasonable** —
+persistent tmux for long-running operations is genuinely useful,
+and the operator is the trust root anyway. PVC at `/home` with
+regular VolumeSnapshots and the option to nuke and rebuild from
+image if compromised.
+
+For a friend-accessible bastion, **stateless** is the right call.
+
+#### SSH certificate validation, not authorized_keys
+
+Worth noting because it's the existing homelab pattern: the
+bastion validates SSH cert principals against step-ca on basel,
+with OIDC-issued user certificates. This means:
+
+- Short-TTL certificates (hours, not forever)
+- Revocation by stopping cert issuance, not by editing files
+- Per-user audit via cert principal
+- No long-lived authorized_keys files on the bastion
+
+This is the right model on k8s as well. The bastion image bundles
+step-ssh trusted-CA configuration; sshd's `TrustedUserCAKeys`
+points at the step-ca SSH CA pubkey baked into the image.
+
+### Architecture sketch (if deploying on k8s)
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bastion
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bastion
+  namespace: bastion
+spec:
+  replicas: 1
+  template:
+    spec:
+      runtimeClassName: kata-qemu
+      containers:
+      - name: sshd
+        image: creil.internal/bastion@sha256:...
+        ports: [{ containerPort: 22 }]
+        securityContext:
+          readOnlyRootFilesystem: true
+          capabilities:
+            add: [NET_BIND_SERVICE]
+            drop: [ALL]
+        resources:
+          limits:   { cpu: "2", memory: "2Gi" }
+          requests: { cpu: "100m", memory: "256Mi" }
+        volumeMounts:
+        - { name: home,           mountPath: /home }
+        - { name: ssh-host-keys,  mountPath: /etc/ssh/host-keys, readOnly: true }
+      volumes:
+      - name: home
+        persistentVolumeClaim: { claimName: bastion-home }
+      - name: ssh-host-keys
+        secret: { secretName: bastion-host-keys }
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bastion-ingress
+  namespace: bastion
+spec:
+  podSelector: { matchLabels: { app: bastion } }
+  policyTypes: [Ingress]
+  ingress:
+  - ports: [{ protocol: TCP, port: 22 }]
+    # `from:` empty/restricted to cluster microvm interface only
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bastion-egress
+  namespace: bastion
+spec:
+  podSelector: { matchLabels: { app: bastion } }
+  policyTypes: [Egress]
+  egress:
+  - to: [{ ipBlock: { cidr: 10.97.11.2/32 } }]    # phantasma DNS
+    ports: [{ protocol: UDP, port: 53 }]
+  - to: [{ ipBlock: { cidr: 10.97.11.7/32 } }]    # basel — SSH cert validation
+    ports: [{ protocol: TCP, port: 443 }]
+  - to: [{ ipBlock: { cidr: 10.97.11.6/32 } }]    # messeldam — OIDC
+    ports: [{ protocol: TCP, port: 443 }]
+  # SSH targets — explicit allowlist
+  - to:
+    - { ipBlock: { cidr: 10.97.20.0/24 } }        # vMGMT
+    - { ipBlock: { cidr: 10.97.100.0/24 } }       # vDMZ
+    - { ipBlock: { cidr: 10.97.11.0/24 } }        # vINFRA
+    ports: [{ protocol: TCP, port: 22 }]
+```
+
+router6 mirrors this on the host side — the `cluster` zone (or a
+dedicated `bastion` sub-zone) gets `forwardRules` to
+vMGMT/vDMZ/vINFRA on port 22, plus `inputRules` allowing inbound
+22 from the tailnet zone → microvm:nodeport.
+
+### Should the bastion actually go in k8s?
+
+The bastion is **borderline** for k8s. It is:
+
+- Long-lived (not the ephemeral case k8s shines at)
+- Stateful (PVC-required for persistent homes)
+- Network-policy-heavy (broad egress, careful ingress)
+- Foundational (compromise = homelab pivot)
+
+A microvm.nix guest with `services.openssh.*` and
+`services.step-ssh.*` is a perfectly clean alternative — it
+would live in vDMZ alongside langport. The same per-service-
+failure-domain reasoning that keeps Authelia / step-ca on
+microvm.nix applies here.
+
+#### The k8s case for bastion
+
+- Cluster is already running (Path B says yes for Phases 2–4).
+- Consolidation: one less microvm, one less NixOS module set to
+  maintain.
+- VolumeSnapshot for home directories is a clean backup story.
+- If admin sessions ever benefit from being scheduled near
+  cluster workloads (probably they don't), this aligns them.
+
+#### The microvm.nix case for bastion
+
+- **Failure-domain independence.** A broken cluster shouldn't
+  also mean no SSH access to debug it. With bastion outside the
+  cluster, "cluster broken → SSH to bastion → debug cluster"
+  works. With bastion inside the cluster, you're in trouble.
+- **Foundational character.** Auth, DNS, PKI, SSH ingress all
+  live on microvm.nix. The bastion fits naturally there.
+- **Simpler.** NixOS module config is more compact than the
+  k8s manifest set above.
+- **No new tooling.** Existing langport-style nginx-stream or
+  caddy-l4 ingress patterns extend trivially.
+
+#### Recommendation
+
+**microvm.nix for the bastion.** The chicken-and-egg argument is
+the most important — if the cluster goes down, you want SSH
+access independent of the cluster to fix it. Same logic that
+keeps trista on Incus during edith's migration applies
+permanently to the bastion.
+
+This is one place where the consolidation goal of Path B should
+be relaxed. The endgame management-plane count remains 3
+(NixOS + microvm.nix + k8s); the bastion lives in microvm.nix
+indefinitely.
+
+If that recommendation is wrong, the architecture above is the
+right shape for a k8s deployment. The decision is reversible
+either way (NixOS + git).
+
 ## Revision history
 
 - v1: initial pass — recommended staying, ~90/10. Anchored too hard
@@ -814,7 +1075,19 @@ admission policy validation is what catches regressions.
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v7 (this revision): added Appendix A — CI runner security
+- v8 (this revision): added Appendix B — SSH bastion / jump-box
+  security. Threat model contrast with CI runners (trusted code
+  with sensitive context vs. untrusted code with narrow scope).
+  Documents the architectural deltas: inbound traffic surface,
+  much broader egress allowlist, multi-user isolation choices,
+  stateless-vs-stateful trade, SSH-cert validation pattern.
+  Includes a complete manifest sketch for k8s deployment if
+  chosen. Recommends microvm.nix instead — the chicken-and-egg
+  failure-domain argument (cluster broken → need SSH to debug)
+  outweighs consolidation benefits. Carves out the bastion as
+  one place where Path B's consolidation goal is deliberately
+  relaxed.
+- v7: added Appendix A — CI runner security
   architecture. Six-layer defense-in-depth for executing
   untrusted code (per-step ephemeral pods, kata RuntimeClass,
   PSS Restricted, NetworkPolicy + router6 dual-allow, resource
