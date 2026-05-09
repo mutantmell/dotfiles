@@ -1,390 +1,192 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (revised — fresh-eyes pass)
+Date: 2026-05-09 (v5 — see revision history at end)
 
 ## Question
 
-Would moving the dynamic-container layer (today: `deployd` +
-`packages/deployd-{api,helper}/`, single-host on erebonia) to a
-Kubernetes-based runtime be a net improvement?
-
-Sub-questions:
-
-1. Is k8s a good fit for the workload classes deployd serves (blogs,
-   CI runners, Claude Code sandboxes, game servers)?
-2. Which k8s distribution and runtime would best fit this homelab?
-3. Could k8s replace any of the static microvm.nix / Incus guests?
-4. On balance, migrate or stay?
-
-## Approach
-
-This pass deliberately re-derives the answer rather than leaning on the
-prior decisions in `llm-notes/specs/dynamic-container-layer.md` (which
-rejected **k3s specifically**, not k8s broadly) and
-`llm-notes/done/kata-cloud-hypervisor-migration.md` (which is about
-mutable-NixOS-in-kata, not orchestration). Those documents are evidence
-of past reasoning, not authority on this question.
-
-## What "Kubernetes" actually means here
-
-It's important to disentangle three different things often called "k8s":
-
-- **The k8s API** — Pod / Deployment / StatefulSet / Job / CRD,
-  reconciliation loops, RBAC, audit. Distribution-agnostic.
-- **kubelet + CRI + containerd** — the per-node agent that drives
-  containerd (and therefore kata-shim-v2) on behalf of the API. This is
-  the same path the kata-containers project tests against first.
-- **The bundled distribution** — k3s, k0s, RKE2, microk8s, kubeadm. Each
-  comes with default choices for ingress, load-balancer, CNI, storage
-  class. **The earlier rejection of k3s was mostly about k3s's defaults**
-  (Traefik vs. our declared Caddy, ServiceLB vs. our nftables, flannel
-  re-managing host firewall) — not about the underlying API.
-
-A NixOS-native k8s build via `services.kubernetes.*` (or k0s with most
-defaults disabled) is a meaningfully different proposition from k3s with
-its batteries included.
-
-## Honest case FOR migration
-
-### 1. Kata is genuinely better-supported via kubelet than via nerdctl
-
-Most of the integration friction we've hit (nerdctl prepending a
-namespace prefix to CNI container IDs; rootful/rootless confusion when
-sudo'ing nerdctl; ctr-inspect parsing; CNI state file `\r\n`) is
-specifically because nerdctl is a Docker-compat CLI bolted onto
-containerd, not because containerd or kata are difficult. The kata
-project's reference integration is **kubelet → CRI → containerd → kata
-shim**. Bug fixes ship for that path first.
-
-Caveat: the in-flight containerd-gRPC migration in
-`llm-notes/wip/deployd-integration.md` also gets us off nerdctl. So this
-is a "k8s gets it for free" point, not a "only k8s solves it" point.
-
-### 2. The operator ecosystem is unusually well-matched to the named workloads
-
-- **Blog**: Deployment + Service + Ingress, with Flux/ArgoCD watching
-  the content repo for image updates. This is the canonical k8s pattern
-  and noticeably less code than wiring deployd to a webhook.
-- **CI runners**: actions-runner-controller (or the Forgejo equivalent)
-  autoscales runner pods on queue depth, runs each job in a fresh pod
-  with its own `RuntimeClass`. Strictly better than running a long-lived
-  runner daemon (saint-arkh) that spawns local jobs.
-- **Claude sandboxes**: still a Pod with a `RuntimeClass` and an OIDC
-  flow on top. Code-volume comparable to the current deployd-api, no
-  obvious win, no obvious loss.
-- **Game servers**: StatefulSet + PVC + VolumeSnapshot covers the
-  "weeks-long, survives reboot, snapshot the world" use case. Agones
-  exists for session-allocation-style fleets but is overkill for the
-  stated requirement.
-
-### 3. CSI is a proper home for the iSCSI block-storage feature
-
-The iSCSI suspend/resume add-on in
-`llm-notes/specs/dynamic-container-layer.md` is essentially a small,
-custom storage controller. With k8s + a CSI driver
-(`democratic-csi` against TrueNAS, or `openebs-mayastor`,
-or `longhorn`), you get dynamic provisioning, snapshot CRDs, and clone
-support out of the box. Snapshots become first-class kubernetes
-resources rather than a `state.json` field.
-
-### 4. Multi-runtime via `RuntimeClass` is the cleaner expression
-
-The per-deploy `runtime: "kata" | "runc"` field maps directly onto k8s
-`RuntimeClassName`. We can also add a custom `runc-kvm`
-`RuntimeClass` (paired with the kvm-device-plugin) for the cc-sandbox
-nested-KVM case without special-casing it in our own code.
-
-### 5. Multi-host and KubeVirt as a long-term direction
-
-If the homelab ever runs dynamic workloads across erebonia *and*
-calvard, k8s schedules across them natively; deployd would need a
-second instance with a manual placement decision per workload.
-**KubeVirt** runs full VMs as `VirtualMachine` CRDs alongside Pods —
-unmodified NixOS guests, libvirt/QEMU underneath, live migration
-across nodes, snapshots via CSI. This wouldn't replace microvm.nix
-tomorrow, but it's a credible 5-year direction for unifying VM and
-container management under one control plane.
-
-## Honest case AGAINST migration
-
-### 1. CNI ↔ router6 integration is real ongoing engineering
-
-Every CNI either (a) leaves host networking alone and provides only
-pod-to-pod policy, or (b) takes ownership of large pieces of host
-firewall/routing. Cilium with `hostFirewall=false` and policy-only
-mode, or Calico in policy-only mode, are the "leave host alone"
-choices. Either is workable but introduces a second policy surface
-that needs to be reasoned about alongside `modules/router6/`.
-
-The cluster network ends up being its own zone (vDMZ-ish); router6
-governs inter-VLAN traffic; CNI governs intra-cluster. That's a
-clean-enough split, but it's a real architectural change and a
-permanent operational complexity tax (two firewalls to debug, not one).
-
-### 2. Two sources of truth for workload state
-
-Today, every workload is described in either NixOS evaluation or
-deployd's `state.json` (replayed by a NixOS-defined service). With k8s,
-manifests live in etcd. Reasonable mitigations:
-
-- Store manifests in this flake, apply via Flux/ArgoCD on commit (most
-  Nix-friendly).
-- Generate manifests from Nix expressions and apply via `kubectl
-  apply -k` from a NixOS systemd service.
-
-Either works, but the "single declarative source" property of the
-current setup is genuinely lost.
-
-### 3. Operational footprint at small scale
-
-Even a stripped-down k8s control plane (apiserver + etcd or
-kine + controller-manager + scheduler + kubelet + CNI) is
-500MB–1GB resident plus daemons-to-monitor. On a single dynamic-layer
-host this is a real cost. Several static microVM guests run in 256MB.
-The cost gets cheaper per-workload as the workload count grows; it's
-unfavorable at today's scale.
-
-### 4. Auth and developer-tooling surface area
-
-deployd's auth model is a single OIDC bearer token with a group claim,
-checked once per request. K8s adds RBAC, ServiceAccounts, and (for
-human users) `kubectl` context management on top of the same OIDC.
-For machine callers (CI deploying a blog), ServiceAccount tokens are
-fine. For human callers (cc-sandbox CLI today), the auth code stays
-roughly the same size but talks to a much larger API.
-
-### 5. Custom code investment is genuinely small today
-
-deployd is ~2k LOC of Rust (helper + api combined), with the trust
-boundary in one file (`packages/deployd-helper/src/validation.rs`) and
-the privileged operations in one shell script
-(`modules/deployd/default.nix:39`). It's small enough to read in a
-sitting and audit per-change. K8s replaces this with kubelet (~500k
-LOC) + CRI runtime + admission controllers + RBAC policy. Same security
-properties, much larger surface.
-
-### 6. The static-fleet migration question is unattractive
-
-If migration is dynamic-layer-only, k8s is justified or not on its own
-merits. If it's "and the static fleet too via KubeVirt," the cost
-balloons and the upside is mostly "live migration we don't need" and
-"unified control plane that costs us NixOS-native module declarations
-like `services.keycloak.enable = true`."
-
-## Per-workload assessment
-
-| Workload | Current | K8s equivalent | Honest verdict |
-| --- | --- | --- | --- |
-| Blog (on-demand redeploy) | not built yet | Deployment + Flux watching content repo | k8s wins on idiom |
-| CI runners (Forgejo Actions) | saint-arkh microVM hosts daemon; jobs are isolated | runner controller + per-job kata Pods | k8s wins, especially at scale |
-| Claude sandboxes | cc-sandbox CLI → deployd-api → runc Pod with /dev/kvm | OIDC client → k8s API → Pod with `RuntimeClass=runc-kvm` + kvm-device-plugin | roughly equivalent |
-| Game servers (long-lived, weekly play) | spec'd but unbuilt; iSCSI + suspend/resume | StatefulSet + PVC + VolumeSnapshot | k8s wins on storage primitives |
-
-So: of the four named workload classes, **two are genuinely better
-served by k8s + ecosystem (CI runners, game-server storage), one is
-roughly a wash (Claude sandboxes), one isn't built yet either way (blog,
-where k8s is more idiomatic but neither is hard)**.
-
-## If migrating, what runtime?
-
-The right answer is **not k3s** — its bundled defaults (Traefik+ServiceLB
-+flannel+local-path) are exactly the layers we'd disable, leaving us
-fighting opinionated removals. Better:
-
-- **`services.kubernetes.*` (kubeadm-style, NixOS module)** — most
-  NixOS-native; the control plane is declared in the same flake as
-  everything else. Heaviest operationally but most consistent with the
-  rest of the stack.
-- **k0s** — single binary, sane minimal defaults, available as a
-  package in nixpkgs. Reasonable second choice.
-
-Component picks for either:
-
-- **CNI: Cilium** with `kubeProxyReplacement=true`,
-  `hostFirewall=false`, eBPF datapath. Plays well with existing
-  host nftables and gives us NetworkPolicy as the pod-policy surface.
-  Calico in policy-only mode is a simpler alternative.
-- **Container runtime: containerd** (only realistic choice with kata).
-- **Runtimes**:
-  - `RuntimeClass: kata-qemu` — default for new isolated workloads
-  - `RuntimeClass: runc` — for general-purpose
-  - `RuntimeClass: runc-kvm` — runc with kvm-device-plugin for
-    cc-sandbox-style nested-KVM
-- **CSI: democratic-csi** against the NAS (zfs-generic-iscsi or
-  zfs-generic-nfs depending on workload). Gives us VolumeSnapshot for
-  the game-server use case.
-- **Ingress: keep Caddy on the host**, point at NodePort services. Don't
-  introduce a second ingress controller; we already declare Caddy.
-- **GitOps: Flux v2** reading manifests from creil. Lighter than
-  ArgoCD; closer to "apply this directory" semantics.
-
-## Could k8s replace static microvm guests?
-
-Going through the inventory honestly:
-
-- **Could run as a Pod**: phantasma (DNS/AdGuard), langport (nginx),
-  oracion (Jellyfin, with VAAPI device plugin), tharbad (kube-prometheus-
-  stack is the canonical case), creil (Forgejo), monrain (cgit), ardent
-  (Attic), saint-arkh (the CI controller, not the runner daemon).
-- **Could run as a KubeVirt VM**: messeldam (Keycloak+~100GB Postgres),
-  altair (Headscale), longlai (subnet router) — same as today's microVM,
-  different control plane.
-- **Should not move**: basel (CA root keys are worse off in `Secret`
-  resources than in microVM + sops-nix), the foundational guests on
-  thebeyond, edith/trista (mutable NixOS dev environments are correct
-  on Incus).
-
-**Of these, only the kube-prometheus-stack on tharbad is a clearly
-better fit on k8s.** Everything else is "could move, no real reason
-to." A static-fleet migration is busywork unless we're committing to
-k8s as the foundational platform — which is a much bigger decision
-than the dynamic-layer question.
-
-## Dual-firewall composition: keeping router6 authoritative
-
-The single biggest architectural question if migrating: how do nftables
-rules managed by NixOS (router6) compose with rules managed by a CNI?
-Specifically — can we keep the static config as the authoritative
-security boundary, with the CNI's firewall being **purely additive**
-(can drop more, never permit more)?
-
-**Short answer: yes, achievable, with the right CNI choice and a few
-discipline rules. Real but bounded operational cost.**
-
-### Mechanics — how rules from multiple sources compose
-
-Both `nft` (native) and `iptables-nft` (compat shim) write to the same
-kernel `nf_tables` backend. Multiple chains can attach to the same hook
-(input, forward, output, prerouting, postrouting). Within a hook,
-chains run in priority order, **and a packet must clear every chain to
-pass — any chain dropping a packet drops it for everyone**.
-
-Two firewalls don't act independently. They produce a single combined
-verdict per packet. That's the foundation that makes "additive only"
-feasible: if router6's chain says drop, the CNI cannot un-drop.
-
-### Specific issues
-
-#### a. Default-drop chains stack
-
-If router6's forward chain is `policy drop` with explicit allows
-(which it is) **and** the CNI installs anything default-drop, a
-packet has to clear both. Risky when one firewall thinks it's
-allowing but the other quietly drops.
-
-**Mitigation:** pick a CNI with a small/zero footprint in shared
-chains. Cilium with `kubeProxyReplacement=true` does almost all
-enforcement in eBPF at the tc layer (before netfilter); its nftables
-footprint is mostly empty. Calico in policy-only mode is similar.
-Avoid kube-proxy in iptables/nftables mode, flannel's vxlan rules,
-MetalLB.
-
-#### b. `bridge-nf-call-iptables` decides whether intra-bridge L2
-traffic hits L3 firewalling
-
-The kernel sysctl `net.bridge.bridge-nf-call-iptables` (on by default
-on most distros) makes pod-to-pod traffic on the same Linux bridge
-hit router6's forward chain. With it off, bridged frames bypass
-netfilter entirely.
-
-**Implication:** if pods masquerade to node IPs and we use a
-tunnelling CNI (Cilium VXLAN), cross-node pod traffic looks like UDP
-between node IPs to router6 — clean and easy to reason about. If
-pods get routable cluster-zone IPs and bridge-nf is on, router6
-needs an explicit "cluster zone → cluster zone: accept" rule so
-intra-cluster traffic isn't accidentally dropped.
-
-#### c. NAT order matters when both sides do NAT
-
-If the CNI installs DNAT for service IPs and router6 has masquerade
-in postrouting, conntrack mediates and double-NAT generally works,
-but the apparent source/destination at egress filtering changes
-based on hook priorities.
-
-**Mitigation:** **don't double-NAT.** Pick one of:
-- Pods masquerade to host IP at the cluster's edge; router6 sees
-  node-IP-as-source for all pod egress (simpler, loses per-pod
-  visibility at the router level).
-- Pods get routable IPs in their zone; no masquerade; router6 sees
-  pod IPs (more router-visible policy, requires routing setup).
-
-The first is normal and recommended for this homelab.
-
-#### d. Reload races
-
-NixOS's nftables module reloads by replacing managed rulesets. If it
-flushes tables the CNI manages, the CNI has to reconcile (Cilium
-and Calico both watch and re-install).
-
-**Mitigation:** declare router6 chains via
-`networking.nftables.tables.<name>` so NixOS only owns the tables it
-declares. Don't set `flushRuleset = true`. The CNI's tables stay
-untouched at NixOS reload.
-
-#### e. Two debugging surfaces
-
-When something doesn't work, you check both: `nft list ruleset` for
-the host side and the CNI's tooling (`cilium policy trace`,
-`calicoctl`, etc.) for the cluster side. Real ongoing cost — about
-1.5x debug time for connectivity issues, not 2x because failure
-modes are usually distinguishable (router6 drops appear in audit
-counters; CNI drops appear in CNI tooling).
-
-#### f. Don't mix iptables-nft and nft in the same chain
-
-Calico uses `iptables-nft`; Cilium native nftables (or eBPF). Both
-land in `nf_tables` but show up differently to inspection tools.
-Pick one CNI; coexisting two would be operationally awful.
-
-### How the "purely additive" property works
-
-The user's hypothesis: router6 stays authoritative; CNI rules are
-additive only (drop more, never permit more).
-
-**This holds for the standard k8s policy model:**
-
-1. router6 defines a `cluster` zone with explicit egress allows for
-   what the cluster-as-a-whole may do: cluster → internet:443,
-   cluster → creil:443 (registry), cluster → tharbad:9090
-   (Prometheus), cluster → phantasma:53 (DNS), default-drop the rest.
-2. Cluster nodes (kubelet hosts) sit in the `cluster` zone. Pod
-   egress masquerades to the node IP, so router6 sees node-IP-as-
-   source for everything leaving the cluster.
-3. Inside the cluster: NetworkPolicy resources further restrict which
-   pods talk to which other pods, and which pods may egress where.
-   NetworkPolicy is **deny-after-allow**: it can only subtract from
-   the underlying network's permitted set.
-
-A pod whose NetworkPolicy "allows" egress to `8.8.8.8:53` but whose
-node sits in a `cluster` zone that doesn't permit `→ 8.8.8.8:53`
-just won't reach it. router6 is the ceiling. The CNI cannot grant
-connectivity the host firewall denies.
-
-The reverse is **not** true: router6 cannot enforce per-pod policy
-because it can't tell which pod sent a masqueraded packet. Per-pod
-policy lives in NetworkPolicy. That's the right layering — coarse
-zone-level policy at router6, fine-grained per-pod policy inside the
-cluster.
-
-### What you give up
-
-- **Type=LoadBalancer / MetalLB / hostPort.** All of these install
-  rules that bypass or compete with router6. **Don't use them on
-  this cluster.** Use `ClusterIP` + `NodePort` and front with the
-  existing Caddy on the host. (This is also what the deployd model
-  does today.)
-- **Per-pod visibility at router6.** Pods are coarse-grained "any
-  cluster pod" from router6's perspective.
-- **Some CNI-native ingress controllers** that need to install host
-  rules (most don't; ones that do are off-limits).
-
-### Concrete config sketch (Cilium, the recommended option)
+Should we replace the dynamic-container layer (`deployd`,
+single-host on erebonia) with a Kubernetes-based runtime? If yes,
+what shape should the deployment take? Could it replace any static
+microvm guests?
+
+## Recommendation
+
+**Stand up a Kubernetes cluster inside a microvm guest. Build new
+dynamic workloads on it. Leave existing deployd workloads (cc-sandbox)
+where they are. Leave the static fleet on microvm.nix. Let the cluster
+grow into freed resources as workloads land — don't pre-commit
+headroom.**
+
+This is meaningfully different from the original "don't migrate"
+framing. The change came from realizing that running the cluster as
+a microvm guest — the same way every other isolated service is
+deployed in this homelab — removes the largest operational concerns
+about adopting k8s.
+
+### What goes where
+
+| Workload | Home | Notes |
+| --- | --- | --- |
+| Blog (planned) | k8s | Canonical Deployment + Flux pattern; smallest first workload |
+| Game servers (planned) | k8s | CSI snapshots replace the custom iSCSI add-on |
+| CI runners (saint-arkh deferred) | k8s | Runner controller + per-job kata pods |
+| Claude sandboxes | deployd | Works; security model hand-tuned; revisit later |
+| Authelia and other foundational services | microvm.nix | Per-service failure domain still wins |
+| Future small auxiliary services | microvm.nix today, k8s once cluster matures | Crossover decision per service |
+| Static fleet (Keycloak→Authelia, Forgejo, Jellyfin, Prometheus, etc.) | microvm.nix | Don't migrate what works |
+
+### Why this answer rather than "migrate everything" or "stay on deployd"
+
+- **"Migrate everything" isn't right** because the static fleet works,
+  the per-service migration cost is real, and no static workload has a
+  k8s-specific reason to move strong enough to justify it.
+- **"Stay on deployd" was the previous recommendation.** It
+  under-weighted three things the iterative analysis surfaced:
+  - **k8s ≠ k3s.** The earlier rejection of k3s in
+    `llm-notes/specs/dynamic-container-layer.md:47` was about k3s's
+    bundled defaults (Traefik, ServiceLB, flannel) conflicting with
+    declared NixOS choices, not about k8s broadly. A
+    `services.kubernetes.*` or k0s deployment is meaningfully
+    different.
+  - **kubelet+containerd+kata is the better-supported integration
+    path** for kata than nerdctl+containerd+kata. Most of the
+    integration friction we've been hitting (CNI ID prefixes,
+    rootful/rootless confusion, ctr-inspect parsing) lives in
+    nerdctl as a Docker-compat wrapper, not in containerd or kata.
+  - **Operator ecosystem fit is real** for CI runners (autoscaling
+    runner controllers like ARC) and game servers (CSI
+    VolumeSnapshot vs. building our own iSCSI add-on).
+- **The microvm-confined deployment** makes the migration
+  **reversible** (turn off the guest if it doesn't work) and
+  **contained** (host firewall, host kernel, and the rest of the
+  homelab are mechanically isolated from the cluster).
+
+## Architecture
+
+### Run the cluster inside a microvm guest
+
+The cluster's control plane and kubelet run inside a single
+microvm.nix guest, the same way `roer` runs deployd-api today.
+Pods are processes inside that guest's kernel. The host sees one
+VM with one virtio-net interface and some virtio-blk traffic.
+
+For Kata pods, the kata shim spawns cloud-hypervisor *inside* the
+microvm, creating a nested KVM VM per kata pod. This works because
+the microvm has KVM available — `erebonia` already enables nested
+virtualization (`kvm_intel nested=1`).
+
+### Why microvm-confined rather than on-host
+
+Running the cluster in a guest VM:
+
+- **Mechanically prevents the cluster from touching router6.** The
+  microvm has its own kernel and its own `nf_tables`. The host's
+  `nf_tables` is unreachable across the hypervisor boundary — not
+  a syscall question, a hardware question. No CNI can install
+  rules that affect router6 because there's no path. Stronger than
+  rootless k8s (which has user-namespace edge cases) and stronger
+  than convention.
+- **Lets the CNI work normally.** Cilium with eBPF, full feature
+  set, because inside the microvm kubelet *is* root. Avoids the
+  20–50% network penalty of rootless slirp4netns/pasta, the broken
+  CSI iSCSI story, and the unproven kata-rootless path.
+- **Reduces the dual-firewall debug surface** to "one firewall per
+  kernel, debugged in that kernel's tooling."
+- **Reversible.** A failed cluster is one microvm to destroy. The
+  static fleet, deployd, and the host are unaffected.
+- **Already the standard pattern** in this repo (~13 isolated
+  services as microvm guests) and in the broader community
+  (managed cloud k8s, vSphere/Tanzu, Proxmox+Talos).
+
+### Performance
+
+By layer:
+
+| Layer | Overhead |
+| --- | --- |
+| KVM CPU (hardware-assisted) | 1–3% |
+| virtio-net | ~5% throughput, +10–30µs latency |
+| virtio-blk / virtiofs | 5–10% |
+| Nested KVM (kata pods, NixOS-test sandboxes) | additional 10–20% CPU |
+
+For the named workloads:
+
+- Blog: invisible.
+- CI runners: builds 5–10% slower than bare-metal. Fine for a
+  homelab.
+- Claude sandboxes: 5–15% slower than today's bare-metal runc.
+  (Academic in the recommended plan — cc-sandbox stays on deployd.)
+- Game servers: ~5% network, ~3% CPU. Imperceptible to players.
+
+Dramatically better than rootless (20–50% network penalty) and
+similar to running any other microvm guest.
+
+### Community pattern
+
+Running k8s inside VMs on a hypervisor is the **dominant deployment
+shape** for non-bare-metal k8s, not a niche choice:
+
+- Managed cloud k8s (EKS/GKE/AKS) — every node is a VM on the
+  cloud's hypervisor.
+- Enterprise vSphere / Tanzu — k8s nodes are VMs on vSphere.
+- Talos Linux — designed as a minimal OS for k8s, deployed almost
+  exclusively as VMs on Proxmox/vSphere/cloud.
+- Proxmox + Talos / k3s / k0s VMs — the recommended homelab
+  pattern in r/homelab and the Proxmox forums. Proxmox docs
+  explicitly discourage running k8s in LXC (shared-kernel issues
+  mirror what kata had with mutable NixOS).
+- Cluster API providers for Proxmox, vSphere, OpenStack assume
+  this pattern.
+
+Bare-metal k8s exists (Talos, Tinkerbell) but is the minority
+shape. The unusual choice in this homelab would be running k8s on
+bare metal alongside microvm.nix guests, not running k8s in a
+microvm.
+
+## Dual firewall: router6 stays authoritative
+
+### How rules from multiple sources compose on Linux
+
+Both `nft` and `iptables-nft` write to the same kernel `nf_tables`
+backend. Multiple chains can attach to the same hook (input,
+forward, output, prerouting, postrouting). Within a hook, chains run
+in priority order, **and a packet must clear every chain to pass —
+any chain dropping a packet drops it for everyone**.
+
+Two firewalls don't act independently. They cooperate to produce
+one combined verdict per packet. That foundation makes "additive
+only" feasible: if router6's chain says drop, the CNI cannot
+un-drop.
+
+### The microvm framing simplifies this
+
+With the cluster in a microvm:
+
+- router6 lives in the host kernel's `nf_tables`. The cluster's
+  CNI lives in the microvm kernel's `nf_tables`. Different
+  kernels, different netfilter instances, no chain composition.
+- router6 sees the cluster as one guest with one source IP at the
+  microvm boundary. It's not visible to the cluster.
+- The cluster's CNI manages pod-to-pod and pod-to-microvm-edge
+  policy. Pod traffic exiting the microvm masquerades to the
+  microvm's IP (Cilium `bpf.masquerade=true`); router6 enforces
+  what that microvm IP is allowed to do.
+
+So the dual-firewall complication discussed in earlier revisions
+collapses. Each firewall is reasoned about with its own kernel's
+tooling. There's no priority ordering to worry about, no
+`bridge-nf-call-iptables` interaction, no NAT-order ambiguity, no
+reload races (a `nixos-rebuild` on the host doesn't touch the
+microvm; a `kubectl apply` doesn't touch the host).
+
+### The architecture
+
+In router6:
 
 ```nix
-# router6: the cluster is its own zone with explicit egress allows
 router6.zones.cluster = {
   icmpEcho = "disable";
-  accessTo = [ "internet" ];   # host-level egress to internet
+  accessTo = [ "internet" ];
   forwardRules = {
     dmz = [
       { proto = "tcp"; daddr = creil.ipv4;    dport = 443; }
@@ -398,262 +200,198 @@ router6.zones.cluster = {
       { proto = "tcp"; daddr = phantasma.ipv4; dport = 53; }
     ];
   };
-  # Caddy fronts the cluster via NodePort range
   inputRules = [
+    # Caddy on the host fronts the cluster via NodePort range
     { proto = "tcp"; saddr = langport.ipv4; dport = 30000-32767; }
   ];
 };
 ```
 
+In Cilium (Helm values):
+
 ```yaml
-# cilium values (helm) — minimum-footprint config
 kubeProxyReplacement: true
 hostFirewall:
-  enabled: false        # do NOT enforce host policy via cilium
+  enabled: false
 ipam:
   mode: kubernetes
-tunnelProtocol: vxlan   # pod-to-pod across nodes is UDP between nodes
+tunnelProtocol: vxlan
 bpf:
-  masquerade: true      # pods masquerade to node IP at egress
+  masquerade: true
 ingressController:
-  enabled: false        # we use host Caddy
+  enabled: false
 gatewayAPI:
   enabled: false
 ```
 
-With this configuration:
+NetworkPolicy resources further restrict which pods may talk to
+which destinations. NetworkPolicy is structurally
+**deny-after-allow**: it can only subtract from what the underlying
+network already permits. **router6 is the ceiling**; the CNI cannot
+grant connectivity that router6 denies.
 
-- router6 sees one source IP per node (node IP) for all pod egress.
-- The cluster's permitted egress is **whatever the `cluster` zone
-  allows in router6, intersected with whatever NetworkPolicy
-  allows**. Both must allow.
-- Pod-to-pod policy is fully governed by NetworkPolicy via Cilium's
-  eBPF, with no router6 interaction.
-- Cilium installs no rules in router6's tables; router6 reloads
-  don't disturb Cilium's eBPF state.
+### Trade-offs to accept up-front
 
-### Pros of this dual setup
+- **Pods masquerade to the microvm's IP at egress.** router6 sees
+  microvm-IP-as-source for all pod traffic; per-pod policy lives
+  in NetworkPolicy. This is the right layering — coarse zone
+  policy at router6, fine-grained per-pod policy in the cluster.
+- **`Type=LoadBalancer`, MetalLB, hostPort, and CNI-native ingress
+  controllers are off-limits.** They assume host firewall control
+  we don't grant. Use `ClusterIP` + `NodePort` and front with the
+  existing host Caddy. (This matches today's deployd model.)
+- **Drift risk.** An operator adds a NetworkPolicy that opens
+  egress to something router6 hasn't been told about; developers
+  see unexplained drops. Failure mode is fail-closed (good) but
+  annoying. Mitigation: maintain a single doc that lists every
+  "cluster needs to reach X" requirement and the corresponding
+  rule in both layers.
 
-- **Trust boundary stays where it is.** router6 is authoritative;
-  CNI failures or compromise cannot expand the cluster's permitted
-  surface beyond what router6 whitelists.
-- **Defense in depth.** A NetworkPolicy mistake (allow-all by
-  accident) doesn't open the homelab to anything router6 hasn't
-  pre-approved.
-- **Right layering.** Coarse zone policy at router6, fine-grained
-  per-pod policy at NetworkPolicy.
-- **Fail-closed.** If the CNI is broken, the cluster is unreachable;
-  rest of homelab unaffected. If router6 is broken, normal
-  homelab-wide failure mode (same as today).
+## Component picks
 
-### Cons of this dual setup
+- **Distribution**: `services.kubernetes.*` (most NixOS-native;
+  control plane declared in the same flake) or k0s (single binary,
+  simpler bootstrap, available in nixpkgs). **Not k3s** — its
+  bundled defaults conflict with the homelab's existing decisions
+  and would need to be disabled.
+- **CNI**: Cilium with `kubeProxyReplacement=true`,
+  `hostFirewall=false`, `bpf.masquerade=true`, VXLAN tunneling.
+  Full eBPF datapath, NetworkPolicy enforcement, no kube-proxy.
+  Calico in policy-only mode is a simpler alternative if Cilium's
+  eBPF requirements (kernel features, unprivileged BPF) prove
+  problematic in the nested setup.
+- **CSI**: democratic-csi against the NAS (zfs-generic-iscsi or
+  zfs-generic-nfs). Provides VolumeSnapshot for game servers.
+- **Ingress**: keep host Caddy. Cluster exposes services as
+  `ClusterIP` + `NodePort`; Caddy on the host forwards from
+  tailscale0/dmz to the cluster's NodePort range.
+- **GitOps**: Flux v2 reading manifests from creil. Manifests live
+  in this flake.
+- **RuntimeClasses**:
+  - `kata-qemu` — default for new isolated workloads
+  - `runc` — general-purpose
+  - `runc-kvm` — runc + kvm-device-plugin for nested-KVM workloads
 
-- **1.5x debugging surface** for cluster connectivity issues.
-- **Two reload paths.** A `nixos-rebuild` doesn't trigger Cilium
-  reconciliation; a `kubectl apply` of a NetworkPolicy doesn't
-  trigger router6 reload. Each tested separately.
-- **Coarse zone-level policy at router6.** All pods are equivalent
-  from router6's view. Sensitive workloads (CI runners pulling
-  arbitrary code) and trusted workloads (the blog) share the same
-  egress allowlist unless we split them across multiple cluster
-  zones (doable, multiplies config).
-- **Some k8s features off-limits.** Type=LoadBalancer, MetalLB,
-  CNI-native ingress, hostPort — all conflict with router6.
-- **Operational drift risk.** Over time, an operator adds a
-  NetworkPolicy that opens egress to something router6 hasn't been
-  told about, and developers see unexplained drops. The fail mode is
-  fail-closed (good) but annoying. Mitigation: a single
-  source-of-truth doc listing every "cluster needs to reach X"
-  requirement and the rule in both layers.
+## Static fleet and the shrinking-services dynamic
 
-### Net assessment
+The static fleet is migrating to lighter equivalents (Keycloak →
+Authelia, etc.). Plausibly 6–10 GB RAM and 100+ GB disk freed over
+the next year.
 
-The "router6 authoritative, CNI additive only" model is the right
-target architecture if going to k8s, and it's achievable. The
-operational tax is real (~1.5x debugging, two reload cadences,
-restricted feature set) but bounded. **The security property the
-user is asking about — static config remains fully authoritative,
-CNI cannot subtract from or expand it — is correct under this
-design.**
+**Should the freed resources go to the cluster?** Mostly no.
+Cluster sizing should be driven by workloads, not by available
+headroom. Start at 4 GB / 2 vCPU; grow to 8–16 GB / 4 vCPU as
+workloads land. The remainder stays as host slack — useful for all
+guests, not just the cluster.
 
-The biggest watch-out is feature creep: every k8s tutorial assumes
-LoadBalancer/MetalLB/CNI-ingress. We'd need a written "no, this
-homelab does it via host Caddy" rule that's enforced in code review,
-or those features will re-enter and start fighting router6.
+**Should new small services go in the cluster instead of getting
+their own microvm?** Depends on the service:
 
-## Mechanical prevention: rootless vs. microvm-confined k8s
+- **Foundational, stateful, security-critical** (auth, DNS, PKI,
+  registry) → microvm.nix. Per-service failure domain matters.
+  Authelia stays in its own microvm.
+- **Small, replaceable, ecosystem-supported** → cluster, once it's
+  operating well. Things like ntfy, future small internal tools,
+  kube-prometheus-stack components.
 
-Open question raised mid-evaluation: rather than relying on convention
-("don't use LoadBalancer/MetalLB"), can we **mechanically** prevent
-the cluster from touching router6's firewall configuration?
+The crossover for this homelab is around 8–12 small services that
+could go either way. Below that, microvm-per-service is fine. Above
+that, aggregation in the cluster amortizes overhead. We're not at
+the crossover yet.
 
-Yes, two ways. They have very different cost profiles.
+The shrinking-services trend marginally favors k8s but isn't a
+tipping point. The bigger driver is whether new dynamic workloads
+land — which they will (blog, game servers, CI runners), which
+justifies standing up a cluster regardless.
 
-### Option A — Rootless Kubernetes
+## What about KubeVirt?
 
-Run the entire control plane (kubelet, apiserver, etcd, controllers)
-in a user namespace via `rootlesskit`. From inside that namespace,
-`CAP_NET_ADMIN` doesn't apply to the host's `nf_tables` — only to
-the cluster's own network namespace. The CNI can install any rules
-it likes; they only affect intra-cluster traffic.
+KubeVirt would let static services run as `VirtualMachine` resources
+inside the cluster, getting CSI snapshots and a unified API. Worth
+knowing about for completeness, not justified here:
 
-**Real and significant costs:**
+- Adds significant complexity (operators, CRDs, virt-handler
+  daemonsets) for a homelab.
+- microvm.nix is much lighter than KubeVirt VMs at this scale.
+- Loses NixOS-native module declarations like
+  `services.authelia-main.enable = true`.
+- Worth revisiting only if the cluster matures into a primary-
+  platform position over years.
 
-- **Network performance.** Rootless connectivity to the outside
-  goes through `slirp4netns` or `pasta` — userspace TCP/UDP proxies.
-  Pasta is the faster modern option but still costs 20–50%
-  throughput and tens of µs of latency. CI image pulls and
-  game-server UDP both feel it.
-- **CNI choice is constrained.** Most CNIs assume root. Rootless
-  typically lands on `flannel-rootless` or a heavily restricted
-  Cilium. The eBPF datapath needs `CAP_BPF`/`CAP_PERFMON` plus
-  unprivileged-BPF enabled in the host kernel, which hardened
-  distros disable.
-- **iSCSI CSI breaks.** `iscsiadm` and the kernel iSCSI initiator
-  need `CAP_SYS_ADMIN` on the host. democratic-csi against the NAS
-  doesn't work rootless — losing the volume-snapshot story that
-  was one of the strongest k8s arguments for game servers.
-- **Kata + rootless is uncharted.** Kata needs to invoke
-  cloud-hypervisor / QEMU and access `/dev/kvm`. Rootless kata is
-  documented as "possible with care" but isn't the well-trodden
-  path. The friction we're hoping k8s reduces gets worse.
-- **`/dev/kvm` for cc-sandbox** needs ACL grants and group
-  membership. Workable, but more setup.
+## Migration plan
 
-So rootless gets the security property but breaks two of the four
-named workloads (game-server iSCSI, cc-sandbox nested KVM). Wrong
-trade.
+Land work in roughly this order:
 
-### Option B — k0s inside a microvm
+1. **Build the cluster microvm guest.** Probably on calvard.
+   4 GB RAM, 2 vCPU initially. One virtio-net interface to a new
+   `cluster` zone. Distribution: `services.kubernetes.*` or k0s.
+2. **Wire the network.** Define the `cluster` zone in router6 with
+   explicit egress allows for image pull (creil:443), DNS
+   (phantasma:53), and internet:443. Caddy on the host gets a
+   NodePort proxy block for inbound.
+3. **Install Cilium** with the configuration above. Verify
+   pod-to-pod, pod-to-host (deny by default), pod-to-internet (only
+   via router6 allows).
+4. **Install Flux** pointed at a new repo path in this flake (e.g.,
+   `cluster/manifests/`).
+5. **First workload: the blog.** Deployment + Service + Flux
+   reconciler watching the content repo for image updates. Caddy
+   forwards `blog.*` to the NodePort. Exercises the whole stack.
+6. **Second workload: a game server with CSI snapshot.** Pick the
+   smallest game in the planned set (probably Minecraft). Use
+   democratic-csi for the world volume. Validate the
+   suspend/snapshot/resume workflow before committing to multi-game.
+7. **Third workload: CI runners.** Deploy a runner controller; pull
+   the Forgejo Actions runner setup that was planned for saint-arkh
+   into the cluster. Decommission saint-arkh's planned role if this
+   works.
+8. **Sunset criterion for deployd.** Documented up front: if the
+   cluster runs at least one production workload reliably for 12
+   months, evaluate migrating cc-sandbox. If issues arise that make
+   the cluster impractical, turn off the microvm and continue
+   extending deployd. The decision point is explicit.
 
-Run a regular rootful k0s inside a microvm.nix guest, the same way
-`roer` runs deployd-api today.
+## Risks and what could change the recommendation
 
-**Properties:**
+- **Cilium nested-KVM oddities.** eBPF programs in a nested
+  virtualization environment can be sensitive to host kernel
+  versions. Validate the eBPF datapath functionality early.
+  Fallback: Calico in policy-only mode is less performant but
+  doesn't depend on advanced eBPF features.
+- **Kata-in-microvm performance.** Three KVM levels (host →
+  microvm → kata pod). Acceptable for most workloads; for
+  CPU-intensive sandboxes might warrant `runc` with restricted
+  capabilities instead of `kata-qemu`.
+- **CSI iSCSI from inside a microvm.** The microvm needs to be the
+  iSCSI initiator, or get LUNs passed through as virtio-blk.
+  Validate the snapshot/restore cycle on the prototype game-server
+  workload before betting on it.
+- **Operator skill investment.** k8s is a real learning curve. If
+  the operator's preference is to extend deployd's small Rust
+  codebase rather than learn kubelet/CNI/CSI/admission, the
+  recommendation flips back to "stay." This is a personal
+  preference question, not a technical one.
 
-- **Mechanical isolation by KVM, not by user namespaces.** The
-  microvm's kernel has its own `nf_tables`. The host's `nf_tables`
-  (router6) is unreachable across the hypervisor boundary — not a
-  syscall question, a hardware question. No CNI can touch router6
-  because there's no path.
-- **CNI works normally** inside the microvm. Cilium with eBPF and
-  `kubeProxyReplacement=true`, full feature set, because inside the
-  microvm kubelet *is* root.
-- **Network cost is one virtio-net boundary**, ~1–3% overhead, vs.
-  20–50% for rootless.
-- **CSI for iSCSI works** — the microvm runs `open-iscsi` itself,
-  or the host attaches the LUN and passes it through as virtio-blk
-  (same pattern as the deployd iSCSI spec).
-- **Kata + nested KVM works** — erebonia already enables
-  `kvm_intel nested=1`. Inside the microvm, kata-shim-v2 invokes
-  cloud-hypervisor as usual.
-- **`/dev/kvm` for cc-sandbox** is virtio-passed to the microvm,
-  then a device plugin inside the cluster — same setup the cluster
-  would need anyway.
-- **router6 sees one interface** for the cluster (the microvm's
-  vsock/bridge attachment). The cluster is one zone in router6,
-  same kind of object as every other microvm guest. No new
-  conceptual surface.
+## Revision history
 
-### Comparison
-
-| Property | Rootless | k0s-in-microvm | Rootful on host |
-| --- | --- | --- | --- |
-| Can't mechanically touch router6 | yes (user ns) | yes (KVM) | no (convention) |
-| CNI feature set | constrained | full | full |
-| iSCSI / CSI | broken | works | works |
-| Kata support | unproven | well-trodden | well-trodden |
-| `/dev/kvm` for cc-sandbox | fragile | works | works |
-| Network performance | 20–50% hit | ~1–3% hit | native |
-| Existing pattern in repo | no | yes | no |
-
-### Recommendation if migrating
-
-**If we move to k8s, run it inside a microvm.** It gives the same
-mechanical property the rootless option provides — k8s literally
-cannot touch router6 — without the workload-breaking constraints.
-And it fits the pattern the repo already uses for every other
-isolated service.
-
-This also reframes the "dual firewall" architecture: from router6's
-perspective, the cluster is just one more guest. The cluster's
-internal firewall (Cilium NetworkPolicy + whatever it installs in
-its own kernel) is invisible to router6, and router6 is invisible
-to the cluster. Each side reasons about its own firewall in
-isolation. The 1.5x debugging surface from the dual-firewall
-section above shrinks — instead of two firewalls on the same
-host, it's one firewall per kernel, debugged via that kernel's
-tooling.
-
-The cost is the microvm boundary itself: one more guest to
-provision, with cluster-control-plane resource needs (probably
-2–4 GB RAM, 2 vCPU for k0s + a small workload). Acceptable.
-
-## On-balance recommendation
-
-This is closer than the previous pass made it sound. Two scenarios:
-
-### Scenario A — extend deployd
-
-**When this is right:**
-- The homelab stays roughly the size it is now (one host running
-  dynamic workloads).
-- The operator prefers extending small audit-able Rust code over
-  operating a kubelet+CNI+CSI stack.
-- The named pain points (kata friction via nerdctl, missing
-  iSCSI/snapshot story) are addressable in deployd in 3–6 months of
-  work that is mostly already specced.
-
-**Cost:** the operator owns the storage controller, the auth flow, and
-the network management forever. Each new workload type adds custom
-code.
-
-### Scenario B — move the dynamic layer to k8s
-
-**When this is right:**
-- The homelab is a multi-year direction that wants to grow into
-  multi-host scheduling, CI runner autoscaling, and possibly KubeVirt
-  for new VM-shaped workloads.
-- The operator wants to invest in k8s skills as a platform.
-- The CSI / NetworkPolicy / RuntimeClass model maps cleanly onto the
-  use cases (it does).
-
-**Shape:** k0s or `services.kubernetes.*` on erebonia (single node to
-start, calvard joinable later), Cilium policy-only, democratic-csi
-against the NAS, Flux for manifests, Caddy retained on host, deployd
-deprecated and removed once the four workload classes are migrated.
-
-**Cost:** 6–12 months of careful migration work, ongoing
-operational complexity tax, design work to keep router6 zones and
-CNI policy in sync.
-
-### My lean
-
-If forced to pick today, I lean toward **Scenario A (stay)** for one
-specific reason: the highest-leverage k8s wins (CI runner autoscaling,
-CSI volume snapshots) are real but small in absolute terms at this
-scale, and the in-flight containerd-gRPC migration removes the most
-acute deployd pain point. The k8s investment doesn't pay for itself
-until the homelab has more workloads than we can hand-roll one at a
-time.
-
-But this lean is genuinely 60/40, not the 90/10 the previous pass
-implied. Scenario B is a defensible choice if the operator wants k8s
-as a long-term platform direction. The previous "the spec already
-rejected k3s" framing over-counted that decision: it was a different
-question (k3s the distribution) at a different time.
-
-## What this pass changes vs. the previous report
-
-- Acknowledges that **k8s ≠ k3s**; the spec's k3s rejection doesn't
-  generalize.
-- Credits **kubelet + containerd + kata** as the genuinely-better
-  integration path for the kata friction we've hit (vs. previously
-  framing it as orthogonal).
-- Credits **operator-ecosystem fit** for CI runners and game-server
-  storage, which the previous pass dismissed too quickly.
-- Distinguishes **`services.kubernetes.*` / k0s** from k3s as
-  meaningfully different choices.
-- Reframes the recommendation as **60/40 stay** rather than "obvious
-  no" — Scenario B is a real option if the operator wants the
-  platform investment.
+- v1: initial pass — recommended staying, ~90/10. Anchored too hard
+  on the prior k3s rejection and treated the kata-cgroup decision
+  as authoritative for the orchestration question (it isn't).
+- v2: fresh-eyes rewrite — recommended staying, 60/40. Conceded
+  k8s ≠ k3s, kubelet+containerd+kata is better-supported, operator
+  ecosystem fit is real for CI runners and CSI.
+- v3: added dual-firewall composition section. Showed that
+  "router6 authoritative, CNI additive only" is achievable in a
+  shared kernel with discipline (no LoadBalancer/MetalLB, Cilium
+  with `hostFirewall=false`), at the cost of ~1.5x debug surface.
+- v4: added mechanical-prevention section comparing rootless k8s to
+  k0s-in-a-microvm. Microvm-confined deployment provides the same
+  mechanical isolation property as rootless without the rootless
+  workload-breaking penalties (network performance, broken CSI
+  iSCSI, unproven kata-rootless).
+- v5 (this revision): integrated findings into a coherent
+  recommendation. The microvm framing changed the recommendation
+  from "stay" to "build new dynamic work on a cluster, leave
+  existing things alone." Added performance characterization,
+  community-pattern context, the shrinking-services dynamic, and
+  a concrete migration plan with a sunset criterion for deployd.
