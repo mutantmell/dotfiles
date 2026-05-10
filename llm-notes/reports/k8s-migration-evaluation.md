@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v13 — see revision history at end)
+Date: 2026-05-09 (v14 — see revision history at end)
 
 ## Question
 
@@ -35,7 +35,7 @@ declared in the flake until the new pattern has run reliably.
 | --- | --- | --- | --- |
 | Blog (planned) | — | k8s | First cluster workload; canonical Deployment + Flux pattern |
 | Game servers (planned) | — | k8s | CSI VolumeSnapshot replaces the custom iSCSI add-on |
-| CI runners (saint-arkh deferred) | — | k8s | Runner controller + per-job kata pods |
+| CI runners (saint-arkh deferred) | — | k8s | Runner controller + per-job gVisor-sandboxed pods |
 | Claude sandboxes | deployd | k8s eventually | Stay on deployd until cluster proven; migrate as part of deployd sunset |
 | Dev environments (edith, trista) | Incus | k8s | StatefulSet + PVC; migrate one at a time after cluster proves out |
 | Authelia and other small foundational services | microvm.nix | microvm.nix | Per-service failure domain still wins for foundational state |
@@ -163,12 +163,12 @@ capability vs. a workload.
 - k0s as a NixOS service inside the cluster microvm — version,
   config, datastore choice
 - **k0s Helm extensions** declaring Cilium, democratic-csi,
-  Kyverno, Flux, kata RuntimeClass — applied automatically at
-  cluster startup, all chart versions and values pinned in the
-  flake
-- kata-runtime, containerd config, iSCSI client tools inside
-  the cluster microvm — host-level prerequisites the cluster
-  relies on
+  Kyverno, Flux, gVisor RuntimeClass + containerd shim —
+  applied automatically at cluster startup, all chart versions
+  and values pinned in the flake
+- gVisor's `runsc` binary, containerd shim configuration, and
+  iSCSI client tools inside the cluster microvm — host-level
+  prerequisites the cluster relies on
 - router6 zones (cluster zone with explicit egress allows)
 - Host Caddy ingress configuration (NodePort proxying)
 - Certificates and secrets at NixOS level (sops-nix)
@@ -217,8 +217,8 @@ steps.**
 1. `nixos-rebuild switch` on the cluster's host
 2. Cluster microvm provisions and boots
 3. k0s starts, reads its declared config
-4. k0s applies the Helm extensions: Cilium, CSI, Kyverno, kata
-   RuntimeClass, Flux
+4. k0s applies the Helm extensions: Cilium, CSI, Kyverno,
+   gVisor RuntimeClass + containerd shim, Flux
 5. Flux starts watching the workload manifest path
 6. Cluster is fully operational, ready for workloads
 
@@ -236,11 +236,25 @@ microvm.nix guest, the same way `roer` runs deployd-api today.
 Pods are processes inside that guest's kernel. The host sees one
 VM with one virtio-net interface and some virtio-blk traffic.
 
-For Kata pods, the kata shim spawns cloud-hypervisor *inside* the
-microvm, creating a nested KVM VM per kata pod. This works because
-the microvm has KVM available — `erebonia` already enables nested
-virtualization (`kvm_intel nested=1`) and the cluster microvm needs
-the same.
+Pods inside the cluster run under runc by default. For workloads
+that need stronger-than-runc isolation (untrusted code: CI step
+pods running build scripts and dependencies; eventually anything
+similar) — the cluster uses **gVisor** (`runsc`) as the
+isolation tier. gVisor is a userspace reimplementation of the
+Linux syscall ABI: containers under gVisor make syscalls into
+`runsc` rather than into the host kernel, so kernel-CVE exploits
+have no target. No nested-KVM dependency, no triple-KVM stack.
+
+Kata is **not** the default isolation mechanism in this plan. The
+"kata in a microvm running on cloud-hypervisor" pattern is
+genuinely off the common community path; gVisor is what k8s
+operators actually use when nodes are VMs and stronger isolation
+than runc is wanted (Google Cloud Run, GKE Sandbox, App Engine,
+many CI services). Kata sees production use primarily on
+bare-metal k8s clusters where the nested-KVM concern doesn't
+apply, or for workloads that need `/dev/kvm` as a feature (not as
+isolation). Kata could be added to this cluster later if a narrow
+use case warrants it, but it isn't part of the platform baseline.
 
 ### Hypervisor backend: QEMU, not cloud-hypervisor
 
@@ -295,21 +309,29 @@ By layer:
 | KVM CPU (hardware-assisted) | 1–3% |
 | virtio-net | ~5% throughput, +10–30µs latency |
 | virtio-blk / virtiofs | 5–10% |
-| Nested KVM (kata pods, NixOS-test sandboxes) | additional 10–20% CPU |
+| gVisor (runsc) for sandboxed pods | ~10–30% on syscall-heavy workloads, ~equal on compute-bound |
+| Nested KVM (only inside cc-sandbox pods running nested NixOS-test VMs) | additional 10–20% CPU within that pod |
 
 For the named workloads:
 
 - Blog: invisible.
-- CI runners: builds 5–10% slower than bare-metal — fine for a
-  homelab.
+- CI runners under gVisor: ~10–20% slower than bare-metal for
+  syscall-heavy steps (dependency installs, file-heavy builds);
+  near-bare-metal for compute-heavy steps (compilers, linkers).
+  Comparable in net to what kata-with-nested-KVM would have cost,
+  without the nested-KVM dependency.
 - Claude sandboxes: 5–15% slower than bare-metal runc once
-  migrated.
-- Game servers: ~5% network, ~3% CPU. Imperceptible to players.
-- Dev environments: identical to today (edith already runs as an
-  Incus container with similar overhead).
+  migrated. (Stays runc + kvm-device-plugin for `/dev/kvm`
+  access.)
+- Game servers under runc: ~5% network, ~3% CPU. Imperceptible to
+  players.
+- Dev environments under runc: identical to today (edith already
+  runs as an Incus container with similar overhead).
 
 Dramatically better than rootless k8s and similar to running any
-other microvm guest.
+other microvm guest. Notably, **no nested KVM is required for the
+isolation model** — that requirement was specific to a kata-based
+approach and goes away with gVisor.
 
 ### Community pattern
 
@@ -479,10 +501,24 @@ fully operational platform.
 - **RuntimeClasses**: declared as Kubernetes resources installed
   by k0s at startup (via the manifests-directory mechanism, not
   Helm — they're single small YAML objects).
-  - `kata-qemu` — default for new isolated workloads
-  - `runc` — general-purpose, dev environments
-  - `runc-kvm` — runc + kvm-device-plugin for nested-KVM
-    workloads (cc-sandbox if migrated)
+  - `runc` (default) — trusted code: dev environments, game
+    servers, foundational service workloads, the blog
+  - `runsc` (gVisor) — untrusted code: CI step pods running PR
+    builds and arbitrary dependencies. The community-standard
+    isolation tier above runc; doesn't require nested KVM.
+    Installed via the gVisor containerd shim, declared as a k0s
+    Helm extension with the gvisor-helm-chart or as a manifest.
+  - `runc-kvm` — runc + kvm-device-plugin for workloads that
+    legitimately need `/dev/kvm` access (cc-sandbox if migrated;
+    runs nested NixOS-test VMs as a feature, not as isolation)
+  - **Kata is intentionally not declared.** "Kata in a microvm
+    on cloud-hypervisor" is off the common community path; gVisor
+    is what k8s operators use when nodes are VMs and stronger
+    isolation is needed. If a future workload genuinely needs
+    hardware-enforced kernel isolation per pod, kata can be
+    added at that point — it's not part of the platform
+    baseline, and the platform doesn't carry the nested-KVM
+    dependency that adding it later would impose.
 - **Ingress: host Caddy**, not in-cluster. Cluster exposes
   services via `ClusterIP` + `NodePort`; host Caddy proxies
   tailnet/dmz traffic to the NodePort range. SSH ingress to
@@ -631,9 +667,9 @@ imperative steps.
   - k0s Helm extensions for Cilium, democratic-csi (with
     VolumeSnapshot CRDs), Kyverno (with base ClusterPolicies),
     and Flux pointed at the dynamic-manifest path
-  - kata-runtime, containerd config registering the kata shim,
-    and iSCSI client tools inside the cluster microvm
-  - The kata-qemu / runc / runc-kvm RuntimeClass YAMLs in k0s'
+  - gVisor's `runsc` binary, containerd shim configuration for
+    `runsc`, and iSCSI client tools inside the cluster microvm
+  - The `runc` / `runsc` / `runc-kvm` RuntimeClass YAMLs in k0s'
     auto-applied manifests directory
 - Define the `cluster` zone in router6 with explicit egress
   allows (creil:443 for image pull, phantasma:53 for DNS,
@@ -643,13 +679,14 @@ imperative steps.
 - Validation:
   - `kubectl get pods -A` — Cilium, CSI, Kyverno, Flux all
     Running
-  - `kubectl get runtimeclass` — kata-qemu present
-  - Test pod with `runtimeClassName: kata-qemu` shows a
-    different `uname -r` from the cluster microvm (proves the
-    nested KVM boundary)
+  - `kubectl get runtimeclass` — `runsc` present
+  - Test pod with `runtimeClassName: runsc` runs successfully
+    and is sandboxed (e.g., `cat /proc/version` shows the
+    gVisor kernel string, not the cluster microvm's)
   - Pod-to-pod, pod-to-host-deny-default, pod-to-internet-only-
     via-router6-allows all behave as expected
-  - Hostile-test from Appendix A's checklist runs cleanly
+  - Hostile-test from Appendix A's checklist runs cleanly under
+    `runsc`
 - Bootstrap the dynamic-manifest path with a placeholder Flux
   resource so subsequent phases have somewhere to add workloads.
 
@@ -740,10 +777,15 @@ After the cluster has been operating reliably for 12+ months.
   before committing workloads. Fallback: Calico in policy-only
   mode is less performant but doesn't depend on advanced eBPF
   features.
-- **Kata-in-microvm performance.** Three KVM levels (host →
-  microvm → kata pod). Acceptable for most workloads; for
-  CPU-intensive sandboxes might warrant `runc` with restricted
-  capabilities instead of `kata-qemu`.
+- **gVisor compatibility for CI workloads.** gVisor's userspace
+  syscall implementation is mature but has gaps — some syscalls
+  are unimplemented or behave subtly differently. Most CI
+  workloads (compilers, package managers, standard build tools)
+  work fine; very-low-level workloads can hit edge cases.
+  Validate with the actual CI workload set before betting on it.
+  Fallback: drop the affected job to `runc` + restricted PSS +
+  NetworkPolicy; not as strong, still reasonable defense for the
+  homelab threat model.
 - **CSI iSCSI from inside a microvm.** The microvm needs to be the
   iSCSI initiator, or get LUNs passed through as virtio-blk.
   Validate the snapshot/restore cycle on the prototype game-server
@@ -805,23 +847,43 @@ runner daemon spawning local jobs). With per-step pods, a
 compromised step cannot affect the next step or the next
 pipeline.
 
-#### 2. Kata as RuntimeClass — the actual security boundary
+#### 2. gVisor as RuntimeClass — the sandbox boundary
 
 ```yaml
 spec:
-  runtimeClassName: kata-qemu
+  runtimeClassName: runsc
 ```
 
-Each step pod becomes a real KVM VM with its own kernel.
-Container-escape vulnerabilities escape into the kata VM, which
-has no host privileges and no path back to the cluster. The kata
-VM is destroyed at end-of-step.
+gVisor (`runsc`) is a userspace reimplementation of the Linux
+syscall ABI. Containers under gVisor make syscalls into `runsc`
+rather than into the host kernel; kernel-CVE exploits don't
+have a target because the host kernel is never the addressed
+syscall handler. The sandbox is destroyed at end-of-step.
 
-In our microvm-confined cluster setup this means three KVM
-levels: host → cluster microvm → per-step kata VM. ~10–20% CPU
-overhead vs. runc; CI builds run measurably slower but not
-crippled. For untrusted-code execution this is the correct
-trade.
+This is the community-standard isolation tier for "k8s on VMs +
+untrusted code" — used in production by Google Cloud Run, GKE
+Sandbox, App Engine, GitHub-hosted Actions runners, and various
+CI SaaS providers. It does **not** require nested KVM, which is
+why it's the right answer for our microvm-confined cluster.
+
+Performance: ~10–30% slower for syscall-heavy workloads
+(dependency installation, file-heavy builds), near-bare-metal
+for compute-heavy steps (compilers, linkers). Net comparable to
+what kata-with-nested-KVM would have cost without the off-path
+architectural complexity.
+
+**Why not kata?** Kata in a microvm running on cloud-hypervisor
+is genuinely off the common community path; the overhead is
+similar to gVisor's but the architectural assumptions (nested
+KVM, kata-runtime, kata containerd shim) compound dependencies
+the platform otherwise wouldn't have. gVisor's threat model is
+software-enforced rather than hardware-enforced — a real
+difference, but for the homelab's threat model (build code from
+your own repos, dependencies you mostly trust, occasional
+contributor PRs), the software boundary is appropriate. Kata
+remains available to add later if a workload genuinely needs
+hardware-enforced kernel isolation; it's not part of the
+baseline.
 
 #### 3. Pod Security Standards (Restricted)
 
@@ -896,7 +958,7 @@ resources:
 Plus admission controllers (Kyverno or OPA Gatekeeper)
 enforcing:
 
-- `runtimeClassName` MUST be `kata-qemu` in
+- `runtimeClassName` MUST be `runsc` in
   `woodpecker-builds`
 - `image:` MUST start with `creil.internal/`
 - No `hostPath`, no `hostNetwork`, no `privileged: true`
@@ -931,7 +993,7 @@ woodpecker-system namespace:
 
 woodpecker-builds namespace:
   - PSS: restricted
-  - All step pods: runtimeClassName=kata-qemu
+  - All step pods: runtimeClassName=runsc (gVisor)
   - Default-deny NetworkPolicy + explicit egress allows
   - Kyverno policies enforcing image source and runtimeClass
   - ResourceQuota capping total concurrent build CPU/memory
@@ -941,20 +1003,21 @@ router6's `cluster` zone gates the cluster microvm's egress to
 creil / ardent / phantasma; NetworkPolicy gates per-pod egress
 within those bounds.
 
-### Comparison: saint-arkh planned vs. k8s + kata
+### Comparison: saint-arkh planned vs. k8s + gVisor
 
-| Property | saint-arkh (planned) | k8s + kata |
+| Property | saint-arkh (planned) | k8s + gVisor |
 | --- | --- | --- |
-| Runner-to-host isolation | microVM (KVM boundary) | microVM **plus** per-step kata VM |
-| Step-to-step isolation | none — same runner host | each step is a fresh kata VM |
+| Runner-to-host isolation | microVM (KVM boundary) | microVM **plus** per-step gVisor sandbox |
+| Step-to-step isolation | none — same runner host | each step is a fresh gVisor sandbox |
 | Network policy granularity | host-level only | per-pod NetworkPolicy + host zone |
 | Image source enforcement | manual | admission controller |
 | Resource accounting | per-runner | per-step |
 | Recovery on compromise | rebuild the whole VM | tear down one step pod |
+| Architectural risk | bespoke runner setup | community-standard pattern |
 
 The microVM still exists (the cluster's microvm), but it's
-shared infrastructure. Each individual build is isolated to
-its own kata VM inside it.
+shared infrastructure. Each individual build is sandboxed by
+gVisor inside it.
 
 This replaces saint-arkh's planned role. The saint-arkh
 allocation can be reclaimed once the cluster's CI workflow is
@@ -967,16 +1030,16 @@ model (untrusted build code, hostile dependencies, compromised
 PRs). It is not a complete security architecture against:
 
 - **Higher threat profiles** (nation-state APTs) would warrant
-  additional layers: gVisor as a second-stage sandbox,
+  additional layers: kata as a second-stage hardware-enforced
+  sandbox (the layer above gVisor's software sandbox),
   mandatory image signing via cosign + admission policy,
   per-pipeline ephemeral credentials via Vault, more
   aggressive egress monitoring.
 - **Misconfiguration**. Each layer is independently
   configurable and independently verifiable. Audit each layer;
   don't assume "we're using k8s" implies "we're secure." A
-  step pod without `runtimeClassName: kata-qemu` is just a
-  runc pod — no isolation. Admission policies must enforce
-  this.
+  step pod without `runtimeClassName: runsc` is just a runc pod
+  — no gVisor sandbox. Admission policies must enforce this.
 - **Data exfiltration via allowed channels.** A build step
   authorized to fetch from creil can also POST to creil if
   network policy permits TCP/443 bidirectionally. NetworkPolicy
@@ -990,11 +1053,11 @@ PRs). It is not a complete security architecture against:
 Before accepting external PR builds or running anything
 hostile:
 
-- [ ] `kubectl get runtimeclass kata-qemu` returns a valid
+- [ ] `kubectl get runtimeclass runsc` returns a valid
   RuntimeClass
 - [ ] PSS labels on the namespace enforce `restricted`
 - [ ] Kyverno (or equivalent) policies are loaded and tested:
-  reject a pod without `runtimeClassName: kata-qemu` in the
+  reject a pod without `runtimeClassName: runsc` in the
   namespace
 - [ ] NetworkPolicy default-deny is in place; test that a pod
   cannot reach `1.1.1.1:443`
@@ -1038,12 +1101,15 @@ mechanisms.
 
 ### What carries over from Appendix A
 
-- **`runtimeClassName: kata-qemu`** — same reason, kernel-level
-  isolation between bastion and the cluster microvm.
+- **`runtimeClassName: runsc`** (gVisor) — sandbox boundary
+  between bastion and the cluster microvm. Bastion runs trusted
+  code (admin sessions) but is public-facing, so defense-in-
+  depth via gVisor against sshd CVEs and session-escape attempts
+  is appropriate.
 - **PSS Restricted profile** on the namespace — drops
   capabilities, blocks host namespaces, forces non-root.
 - **Admission policies** (Kyverno/OPA) enforcing image source =
-  creil and `runtimeClassName: kata-qemu`.
+  creil and `runtimeClassName: runsc`.
 - **NetworkPolicy + router6 dual-allow** for egress.
 - **Resource limits and quotas.**
 
@@ -1155,7 +1221,7 @@ spec:
   replicas: 1
   template:
     spec:
-      runtimeClassName: kata-qemu
+      runtimeClassName: runsc
       containers:
       - name: sshd
         image: creil.internal/bastion@sha256:...
@@ -1602,7 +1668,7 @@ platform.
   Argo Workflow. Useful for push-driven workflows.
 - **actions-runner-controller** (or Forgejo-Actions equivalent).
   Autoscaling CI runner pods (Appendix A). Replaces saint-arkh's
-  planned role with per-job kata isolation.
+  planned role with per-job gVisor isolation.
 - **kvm-device-plugin** for `/dev/kvm` access in pods. Required
   if cc-sandbox migrates to the cluster (Phase 8); not needed
   before then.
@@ -1700,9 +1766,9 @@ integrations.
   admission policies enforce that only creil-hosted images are
   used (Appendix A).
 - **Forgejo Actions**: actions-runner-controller pattern (or
-  Forgejo equivalent) for autoscaled per-job kata pods
-  (Appendix A). Webhook-driven workflows via Argo Events for
-  more complex pipelines.
+  Forgejo equivalent) for autoscaled per-job gVisor-sandboxed
+  pods (Appendix A). Webhook-driven workflows via Argo Events
+  for more complex pipelines.
 - **Headscale (planned altair)**: there's a community
   headscale-operator for auto-registering cluster services as
   tailnet nodes. Niche but interesting if you want cluster
@@ -1767,10 +1833,16 @@ architecture doesn't have:
 To be honest about the trade:
 
 - The static fleet's per-service KVM-VM failure domain is
-  stronger than the cluster's per-pod isolation (without kata).
-  With kata RuntimeClass per pod, the cluster matches it; but
-  most workloads don't need kata, so most cluster workloads
-  have weaker isolation than a microvm guest.
+  stronger than the cluster's per-pod isolation. Cluster
+  workloads under runc share the cluster microvm's kernel;
+  workloads under gVisor add a software syscall boundary but
+  are still less isolated than a microvm-per-service. The
+  microvm boundary the cluster itself sits inside provides
+  isolation between cluster workloads and the rest of the
+  homelab; per-workload isolation inside the cluster is a
+  weaker guarantee. This is fine for cattle-shaped workloads
+  and not the right guarantee for foundational pets — which is
+  why those stay as microvms.
 - NixOS module ergonomics for stable services (`services.X.enable
   = true`) are often better than the equivalent Helm chart
   configuration. Module authors encode operational expertise.
@@ -1805,7 +1877,37 @@ The cluster doesn't subsume the static layer; it complements it.
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v13 (this revision): added a new top-level section,
+- v14 (this revision): replaced **kata** with **gVisor**
+  (`runsc`) as the strong-isolation tier for untrusted-code
+  workloads. The "kata in a microvm running on cloud-
+  hypervisor" pattern is genuinely off the common community
+  path; gVisor is what k8s operators actually use when nodes
+  are VMs and stronger isolation than runc is wanted (Google
+  Cloud Run, GKE Sandbox, App Engine, GitHub-hosted Actions
+  runners, various CI SaaS providers). gVisor doesn't require
+  nested KVM, eliminating the triple-KVM stack that was the
+  weakest link in the prior plan. The platform baseline now
+  declares `runc` (default) + `runsc` (gVisor for untrusted) +
+  `runc-kvm` (for cc-sandbox-shape `/dev/kvm` access); kata is
+  intentionally not declared but can be added later if a narrow
+  use case warrants it. Performance ballpark is comparable
+  (~10–30% syscall-heavy slowdown vs. kata's 10–20% nested-KVM
+  CPU overhead) but architectural complexity drops
+  significantly. Updated Architecture, Performance, Component
+  picks, Bootstrap flow, Migration Phase 1 validation, Risks,
+  Appendix A (CI runner security), Appendix B (bastion), and
+  Appendix D (CI runner integration mention). Threat-model
+  trade is honest: gVisor is software-enforced rather than
+  hardware-enforced; appropriate for the homelab's threat
+  model (build code from your own repos, mostly-trusted
+  dependencies, occasional contributor PRs); not appropriate
+  for "running known-malicious code from a determined
+  attacker" — for which kata-on-bare-metal-k8s would be the
+  community-standard answer, not kata-in-microvm. Yet another
+  instance of the v11→v12-style postmortem: I should have
+  surveyed the community pattern more carefully before
+  recommending kata as the default isolation mechanism.
+- v13: added a new top-level section,
   **LLM-assisted operations as a design driver**, naming the
   principle that informs several decisions throughout the
   homelab and this report. Configurations and operational
