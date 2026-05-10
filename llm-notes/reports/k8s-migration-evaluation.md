@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v14 — see revision history at end)
+Date: 2026-05-09 (v15 — see revision history at end)
 
 ## Question
 
@@ -46,12 +46,17 @@ declared in the flake until the new pattern has run reliably.
 The full chain of reasoning that produced it (across revisions of
 this report):
 
-- **k8s ≠ k3s.** The earlier rejection of k3s in
-  `llm-notes/specs/dynamic-container-layer.md:47` was about k3s's
-  bundled defaults (Traefik, ServiceLB, flannel) conflicting with
-  declared NixOS choices, not about k8s broadly. A
-  `services.kubernetes.*` or k0s deployment is meaningfully
-  different.
+- **The earlier rejection of k3s** in
+  `llm-notes/specs/dynamic-container-layer.md:47` was anchored
+  on a bare-metal mental model where k3s' bundled defaults
+  (Traefik, ServiceLB, flannel) would conflict with router6
+  and declared NixOS choices. **Inside a microvm**, those
+  components live in the cluster's network namespace and
+  don't touch host-level infrastructure — the conflict goes
+  away. With Caddy on host being a deployd-specific concern
+  rather than a homelab-wide pattern, k3s' bundled stack is
+  actually well-suited: most components are kept (CoreDNS,
+  metrics-server, kine, flannel, Traefik), few are touched.
 - **kubelet+containerd+kata is the better-supported integration
   path** than nerdctl+containerd+kata. Most of the integration
   friction with kata in deployd lives in the nerdctl glue layer,
@@ -111,9 +116,9 @@ this report:
 - **GitOps via Flux** over imperative `kubectl apply`. Cluster
   state is reconcilable from git; "what's running and why" is
   answerable by reading manifests.
-- **Platform components declared in NixOS** via k0s Helm
-  extensions (with pinned versions and values in the flake)
-  rather than ad-hoc `helm install`.
+- **Platform components declared in NixOS** via k3s' bundled
+  stack and HelmChart resources (with pinned versions and
+  values in the flake) rather than ad-hoc `helm install`.
 - **Workload manifests in git** rather than state living only
   in etcd. Flux applies them, but text is the source of truth.
 - **Avoidance of tools whose state lives in mutable runtime
@@ -160,15 +165,21 @@ capability vs. a workload.
 - NixOS host configurations (calvard, erebonia, eventually
   liberl)
 - microvm.nix guest declarations including the cluster microvm
-- k0s as a NixOS service inside the cluster microvm — version,
-  config, datastore choice
-- **k0s Helm extensions** declaring Cilium, democratic-csi,
-  Kyverno, Flux, gVisor RuntimeClass + containerd shim —
-  applied automatically at cluster startup, all chart versions
-  and values pinned in the flake
-- gVisor's `runsc` binary, containerd shim configuration, and
-  iSCSI client tools inside the cluster microvm — host-level
-  prerequisites the cluster relies on
+- k3s as a NixOS service inside the cluster microvm
+  (`services.k3s`) — version pinned, config rendered from NixOS
+- **k3s with bundled defaults** (flannel, Traefik, ServiceLB,
+  CoreDNS, metrics-server, kine+SQLite, kube-router) — declared
+  via `services.k3s` and configured from NixOS
+- **k3s HelmChart resources** declaring cert-manager (with
+  step-ca ClusterIssuer), external-snapshotter, democratic-csi,
+  Kyverno, Flux — applied automatically at cluster startup, all
+  chart versions and values pinned in the flake
+- **RuntimeClass YAMLs** for runc / runsc / runc-kvm in k3s'
+  auto-apply manifests directory
+- **gVisor's `runsc` binary**, containerd shim configuration in
+  k3s' containerd template, and iSCSI client tools inside the
+  cluster microvm — host-level prerequisites the cluster relies
+  on
 - router6 zones (cluster zone with explicit egress allows)
 - Host Caddy ingress configuration (NodePort proxying)
 - Certificates and secrets at NixOS level (sops-nix)
@@ -195,9 +206,11 @@ the static layer. That violates the principle: it forces the
 dynamic layer's cadence (workload changes) into the static
 layer's cadence (NixOS rebuilds).
 
-k0s' module is shaped right: it declares the cluster as a unit,
-including its bundled platform capabilities, but doesn't try to
-express the workload layer.
+k3s' module is shaped right: it declares the cluster as a unit,
+including its bundled platform capabilities (CoreDNS, Traefik,
+flannel, etc.), but doesn't try to express the workload layer
+in NixOS terms. Workloads land via Flux from the dynamic-
+manifest path, not via NixOS evaluation.
 
 ### Why this rules out k3s
 
@@ -216,9 +229,12 @@ steps.**
 
 1. `nixos-rebuild switch` on the cluster's host
 2. Cluster microvm provisions and boots
-3. k0s starts, reads its declared config
-4. k0s applies the Helm extensions: Cilium, CSI, Kyverno,
-   gVisor RuntimeClass + containerd shim, Flux
+3. k3s starts with its bundled stack (flannel, Traefik,
+   CoreDNS, metrics-server, kine+SQLite, kube-router)
+4. k3s' HelmChart controller and `manifests/` auto-apply
+   pick up cert-manager, external-snapshotter, democratic-csi,
+   Kyverno, Flux, and the RuntimeClass YAMLs (runc / runsc /
+   runc-kvm)
 5. Flux starts watching the workload manifest path
 6. Cluster is fully operational, ready for workloads
 
@@ -256,26 +272,37 @@ apply, or for workloads that need `/dev/kvm` as a feature (not as
 isolation). Kata could be added to this cluster later if a narrow
 use case warrants it, but it isn't part of the platform baseline.
 
-### Hypervisor backend: QEMU, not cloud-hypervisor
+### Hypervisor backend
 
-microvm.nix supports multiple hypervisor backends. The existing
-guests use cloud-hypervisor by default (fast boot, minimal idle
-overhead). For the cluster guest specifically, **QEMU is the right
-choice**:
+microvm.nix supports multiple hypervisor backends. **Every
+existing guest in this repo uses cloud-hypervisor** — the
+microvm-inventory.md description of saint-arkh / ardent /
+monrain as "microvm (QEMU)" is stale; verified against
+`hosts/*/microvm/guests/*/microvm.nix`. So whatever backend the
+cluster guest uses will be either "the same as everything
+else" (cloud-hypervisor) or "the first guest to use a different
+backend" (QEMU).
 
-- **Mature virtio-balloon support.** QEMU dynamically pools memory
-  between guests as workloads breathe. The cluster idles at
-  ~2–4 GB and balloons up to its max only when CI runners or game
-  servers are active. cloud-hypervisor's balloon support is less
-  mature and would need additional work.
-- **Boot-speed cost is irrelevant for a long-running guest.** The
-  ~5s vs. ~200ms boot difference matters for ephemeral guests,
-  not for a cluster that lives for months.
-- **~50–100 MB more idle overhead** is small relative to the
-  cluster's working set.
+For memory pooling with edith specifically — the original
+motivation for considering QEMU — the trade is:
 
-A few existing guests (`saint-arkh`, `ardent`, `monrain`) already
-use QEMU; this isn't a new pattern in the repo.
+- **cloud-hypervisor**: matches existing pattern, faster boot,
+  smaller idle footprint. Has virtio-balloon support in recent
+  versions but the microvm.nix integration is less battle-
+  tested. For a long-running cluster guest, "less battle-
+  tested balloon" is acceptable risk; worst case is the
+  balloon doesn't reclaim and we set a smaller `mem` ceiling.
+- **QEMU**: mature virtio-balloon, but introduces a new
+  hypervisor backend in the repo. ~50–100 MB more idle
+  overhead, ~5s vs. ~200ms boot.
+
+**Recommendation: start with cloud-hypervisor** and validate
+balloon behavior in Phase 1. If balloon doesn't work well, fall
+back to QEMU as a one-off pattern for the cluster guest. The
+boot-speed cost of QEMU is genuinely irrelevant for a guest
+that lives for months; only the "first QEMU guest" pattern-
+introduction cost is real, and it's small. This is a Phase-1
+decision, not an architectural one.
 
 ### Why microvm-confined rather than on-host
 
@@ -288,10 +315,13 @@ Running the cluster in a guest VM:
   rules that affect router6 because there's no path. Stronger than
   rootless k8s (which has user-namespace edge cases) and stronger
   than convention.
-- **Lets the CNI work normally.** Cilium with eBPF, full feature
-  set, because inside the microvm kubelet *is* root. Avoids the
-  20–50% network penalty of rootless slirp4netns/pasta, the broken
-  CSI iSCSI story, and the unproven kata-rootless path.
+- **Lets the CNI work normally.** Inside the microvm, kubelet
+  *is* root, so any CNI works at full feature set — k3s'
+  bundled flannel + kube-router NetworkPolicy is enough for
+  this homelab; Cilium with eBPF is available later if its
+  features become worth the additional configuration. Avoids
+  the 20–50% network penalty of rootless slirp4netns/pasta, the
+  broken CSI iSCSI story, and the unproven kata-rootless path.
 - **Reduces the dual-firewall debug surface** to "one firewall per
   kernel, debugged in that kernel's tooling."
 - **Reversible.** A failed cluster is one microvm to destroy. The
@@ -459,70 +489,132 @@ grant connectivity that router6 denies.
 ## Platform components — all NixOS-declared
 
 Each of these is declared in the cluster microvm's NixOS
-configuration and applied at cluster startup via k0s' Helm
-extensions or built-in mechanisms. None require manual
-post-install steps; a fresh `nixos-rebuild switch` produces a
-fully operational platform.
+configuration and applied at cluster startup via k3s' bundled
+mechanisms (HelmChart CRD, `manifests/` auto-apply directory).
+None require manual post-install steps; a fresh
+`nixos-rebuild switch` produces a fully operational platform.
 
-- **Distribution: k0s.** Single binary, minimal defaults,
-  first-class kine support, doesn't bundle components that
-  conflict with our existing decisions. (Vanilla
-  `services.kubernetes.*` violates the platform/dynamic
-  boundary by trying to express workloads in NixOS; k3s'
-  bundled defaults conflict with host Caddy / Cilium choices.)
-- **Hypervisor backend (microvm.nix): QEMU with
-  virtio-balloon.** Memory pools dynamically with edith. Idle
-  overhead is small for a long-running guest.
-- **Datastore: kine + SQLite** initially (single-node; trivial
-  backup/restore, no Raft to operate). Switch to embedded etcd
-  at HA expansion (Phase 11). The transition is a one-time
-  migration; kept off the critical path.
-- **CNI: Cilium**, declared as a k0s Helm extension. Values:
-  `kubeProxyReplacement=true`, `hostFirewall=false`,
-  `bpf.masquerade=true`, VXLAN tunneling, ingress controller
-  disabled, Gateway API disabled. Calico in policy-only mode is
-  a fallback if Cilium's eBPF requirements prove problematic in
-  the nested-KVM setup.
-- **CSI: democratic-csi against liberl NAS**, declared as a k0s
-  Helm extension. Provides VolumeSnapshot for game servers and
-  dev environments. iSCSI client tools (`pkgs.openiscsi`) live
-  in the cluster microvm itself, declared in NixOS.
-  VolumeSnapshot CRDs and external-snapshotter ship as a
-  separate Helm release alongside democratic-csi.
-- **Admission policy: Kyverno**, declared as a k0s Helm
-  extension. Base ClusterPolicies (image source must be
-  creil.internal, runtimeClass enforcement for the CI namespace,
-  no hostPath/hostNetwork/privileged) ship with the platform
-  declaration. Per-workload policy refinements live in the
-  dynamic layer.
-- **GitOps: Flux v2**, declared as a k0s Helm extension and
-  configured to bootstrap against the dynamic-manifest path.
+- **Distribution: k3s** (`services.k3s` from nixpkgs — mature,
+  maintained module). Bundles the boring infrastructure we need
+  (CoreDNS, metrics-server, kine+SQLite, kube-proxy) and a
+  default ingress/CNI/storage stack that, **inside the cluster
+  microvm**, doesn't conflict with anything host-level. The
+  earlier rejection of k3s was anchored on a bare-metal mental
+  model where flannel and Traefik would fight router6 and
+  host Caddy; with the cluster confined to a microvm, those
+  components live in the microvm's network namespace and don't
+  touch the host. Vanilla `services.kubernetes.*` is rejected
+  for a different reason — it violates the platform/dynamic
+  boundary by pulling workload concerns into NixOS evaluation.
+- **Hypervisor backend**: cloud-hypervisor (matches existing
+  pattern). Validate balloon support in Phase 1; fall back to
+  QEMU if needed. Discussed earlier under "Hypervisor backend."
+- **Datastore: kine + SQLite** (k3s default). Single-node;
+  trivial backup/restore (one file). Migration to embedded etcd
+  at HA expansion (Phase 11) is documented but non-trivial:
+  snapshot SQLite → install fresh k3s with `--cluster-init` and
+  embedded etcd → restore → re-join nodes. Rehearse once before
+  Phase 11; budget a brief outage. Not "off the critical path"
+  — it's a real migration, just well-bounded.
+- **CNI: flannel** (k3s bundled). VXLAN backend; manages
+  iptables-via-`iptables-nft` inside the microvm. The kube-router
+  NetworkPolicy controller (also k3s bundled) provides standard
+  NetworkPolicy enforcement. Cilium with eBPF would give us
+  Hubble flow observability and CiliumNetworkPolicy
+  expressiveness; for the homelab's traffic volumes and use
+  cases, flannel + kube-router is sufficient. If those features
+  become genuinely needed, swap in via
+  `--flannel-backend=none --disable-network-policy
+  --disable-kube-proxy` + Cilium HelmChart.
+- **Ingress: Traefik** (k3s bundled). Handles HTTP routing for
+  cluster-hosted services. Requires cert-manager + step-ca
+  ClusterIssuer for TLS — see below. Bundled Traefik replaces
+  the previously-recommended host-Caddy proxy: with deployd
+  sunset, host Caddy was deployd-specific and no longer needed.
+  Public-facing cluster services route via langport's existing
+  nginx (or via SNI passthrough → cluster microvm:443 →
+  Traefik). Tailnet-only services route directly to cluster
+  microvm:443.
+- **TLS: cert-manager + step-ca ClusterIssuer**, declared as a
+  HelmChart resource. Now load-bearing: Traefik consumes
+  Certificate-issued Secrets, all cluster-internal TLS flows
+  through this. The step-ca on basel issues short-TTL certs;
+  cert-manager handles renewal automatically.
+- **CSI: democratic-csi against liberl NAS**, declared as a
+  HelmChart. Provides VolumeSnapshot for game servers and dev
+  environments — alongside k3s' bundled local-path-provisioner,
+  which stays as the default StorageClass for ephemeral / cache
+  state (build caches, scratch volumes, etc.). Workloads pick
+  via `storageClassName`. **NAS-side requirements are real
+  engineering work**, not a checkbox: liberl needs a NixOS
+  module for an iSCSI target (LIO/targetcli or scstadmin), an
+  SSH or HTTP API endpoint for democratic-csi to issue
+  `zfs create/snapshot/destroy` calls, a dedicated ZFS dataset
+  hierarchy for cluster-allocated volumes, and a service user
+  with appropriate `zfs allow` permissions. Pick the
+  democratic-csi driver — `zfs-generic-iscsi` is the most
+  flexible for a NixOS-based ZFS NAS; alternatives are
+  `freenas-iscsi` (TrueNAS-specific, not us) and
+  `zfs-generic-nfs` (simpler but no block-device snapshots).
+  iSCSI client tools (`pkgs.openiscsi`) live in the cluster
+  microvm itself; VolumeSnapshot CRDs ship via
+  `external-snapshotter` HelmChart, **applied before**
+  democratic-csi (CRD ordering matters).
+- **Admission policy: Kyverno**, declared as a HelmChart. Base
+  ClusterPolicies enforce that **the `woodpecker-builds`
+  namespace** has image source = creil and `runtimeClassName:
+  runsc` (the Appendix A policies). Critically, **scope these
+  policies to the untrusted-code namespace, not cluster-wide** —
+  applying image-source enforcement to `kube-system`,
+  `flux-system`, `cert-manager`, `kyverno`, `cilium-*` etc.
+  would deadlock the bootstrap. Per-workload policy refinements
+  live in the dynamic layer.
+- **GitOps: Flux v2**, declared as a HelmChart, configured to
+  bootstrap against the dynamic-manifest path in this flake.
   Once running, Flux reconciles the dynamic layer.
-- **RuntimeClasses**: declared as Kubernetes resources installed
-  by k0s at startup (via the manifests-directory mechanism, not
-  Helm — they're single small YAML objects).
-  - `runc` (default) — trusted code: dev environments, game
-    servers, foundational service workloads, the blog
-  - `runsc` (gVisor) — untrusted code: CI step pods running PR
-    builds and arbitrary dependencies. The community-standard
-    isolation tier above runc; doesn't require nested KVM.
-    Installed via the gVisor containerd shim, declared as a k0s
-    Helm extension with the gvisor-helm-chart or as a manifest.
-  - `runc-kvm` — runc + kvm-device-plugin for workloads that
-    legitimately need `/dev/kvm` access (cc-sandbox if migrated;
-    runs nested NixOS-test VMs as a feature, not as isolation)
-  - **Kata is intentionally not declared.** "Kata in a microvm
-    on cloud-hypervisor" is off the common community path; gVisor
-    is what k8s operators use when nodes are VMs and stronger
-    isolation is needed. If a future workload genuinely needs
-    hardware-enforced kernel isolation per pod, kata can be
-    added at that point — it's not part of the platform
-    baseline, and the platform doesn't carry the nested-KVM
-    dependency that adding it later would impose.
-- **Ingress: host Caddy**, not in-cluster. Cluster exposes
-  services via `ClusterIP` + `NodePort`; host Caddy proxies
-  tailnet/dmz traffic to the NodePort range. SSH ingress to
-  dev-environment Pods is via the same path.
+- **RuntimeClasses**: declared as Kubernetes resources via k3s'
+  `manifests/` auto-apply directory (single small YAML files,
+  not Helm).
+  - `runc` (default) — trusted code: foundational service
+    workloads, the blog, game servers
+  - `runsc` (gVisor) — untrusted-or-adversarial code:
+    CI step pods, **and cc-sandbox** (revised from prior
+    revisions; see "cc-sandbox isolation tier" below).
+    Installed via the gVisor containerd shim configured in
+    k3s' containerd template; declared at the OS level in the
+    cluster microvm. RuntimeClass YAML in the auto-apply dir.
+  - `runc-kvm` — runc + kvm-device-plugin for the *narrow* case
+    of cc-sandbox sessions that legitimately need `/dev/kvm`
+    access for nested NixOS-test VMs, opted into per-session
+    rather than per-workload.
+  - **Kata is intentionally not declared.** Off the common
+    community path inside a microvm; can be added later if a
+    workload needs hardware-enforced kernel isolation
+    specifically.
+
+### cc-sandbox isolation tier — corrected
+
+Earlier revisions had cc-sandbox migrate to `runc-kvm` based on
+its `/dev/kvm` requirement. That gave the workload most likely
+to be coaxed adversarial via prompt-injection (Claude executing
+arbitrary code on the operator's behalf) the **weakest**
+isolation in the cluster, while CI on `runsc` got the strongest
+sandboxed tier. That ranking is inverted.
+
+Corrected approach:
+
+- **Default cc-sandbox sessions: `runsc` (gVisor)** — same
+  isolation tier as CI runners. Sufficient for most sessions
+  (LLM coding work, builds that don't need nested KVM).
+- **`/dev/kvm`-needing sessions: `runc-kvm`, opted in per
+  session.** When the operator requests a session that runs
+  NixOS test VMs, cc-sandbox provisions a `runc-kvm` Pod
+  instead. This is an explicit per-session decision, not the
+  default — the user takes the isolation downgrade only when
+  they need it.
+
+This is a meaningful security correction; carry it through
+Phase 8's migration plan.
 
 ### Bootstrap flow
 
@@ -530,16 +622,39 @@ The flake's responsibility ends at "the cluster is up with all
 platform components installed and Flux watching the dynamic
 path." Concretely:
 
-1. NixOS provisions the cluster microvm with k0s + declared Helm
-   extensions
-2. k0s applies extensions at startup (Cilium, CSI, Kyverno, Flux,
-   RuntimeClasses)
-3. Flux comes up and reconciles the dynamic-manifest path
-4. Workloads are added to the dynamic layer and reconcile in
+1. NixOS provisions the cluster microvm with k3s + the
+   bundled stack. Cluster API up; CoreDNS, metrics-server,
+   Traefik, kube-proxy, flannel, ServiceLB, local-path-
+   provisioner running. RuntimeClass YAMLs from the manifests
+   directory are applied.
+2. k3s' HelmChart controller applies external-snapshotter
+   (provides VolumeSnapshot CRDs) before democratic-csi.
+   cert-manager comes up before any Certificate resource is
+   evaluated. Kyverno comes up with its policies scoped to
+   `woodpecker-builds` (no cluster-wide image-source rule that
+   would block bootstrap).
+3. Flux comes up and reconciles the dynamic-manifest path.
+4. Workloads are added to the dynamic layer and reconcile in.
 
-No imperative bootstrap steps. The cluster's platform state is a
-function of the flake's content, the same way every other host
-in the homelab is.
+Bootstrap-ordering notes:
+
+- **CRDs before CRs.** external-snapshotter ships
+  VolumeSnapshotClass CRD; democratic-csi's chart references
+  it. Order via `dependsOn` on the HelmChart resource, or apply
+  the CRD via `manifests/` directly.
+- **cert-manager before its consumers.** Traefik's TLS
+  configuration uses Certificates; cert-manager must be running
+  first. k3s' HelmChart can be ordered.
+- **Admission policies after their consumers.** Kyverno
+  installed early but its enforcing policies enabled only after
+  the system is otherwise stable.
+
+These aren't surprises; they're documented k3s patterns. But
+they need to be in the platform declaration, not discovered.
+
+No imperative bootstrap steps beyond `nixos-rebuild switch`.
+Cluster platform state is a function of the flake's content,
+the same way every other host in the homelab is.
 
 ## Dev environments as cluster workloads
 
@@ -656,39 +771,119 @@ declared in the flake until the new pattern has proven itself.
 ### Phase 1 — Stand up the cluster microvm with platform fully declared
 
 Everything platform-level is declared in the flake; no manual
-imperative steps.
+imperative steps. The k3s pivot makes this phase substantially
+shorter than earlier revisions implied.
 
-- Build the microvm guest on calvard. Trails-themed name. QEMU
-  backend, virtio-balloon, `mem` ceiling 16 GB (initial), 4 vCPU.
-  One virtio-net interface to a new `cluster` zone.
-- In NixOS, declare:
-  - `services.k0s` with kine+SQLite datastore and
-    `network.provider: custom`
-  - k0s Helm extensions for Cilium, democratic-csi (with
-    VolumeSnapshot CRDs), Kyverno (with base ClusterPolicies),
-    and Flux pointed at the dynamic-manifest path
-  - gVisor's `runsc` binary, containerd shim configuration for
-    `runsc`, and iSCSI client tools inside the cluster microvm
-  - The `runc` / `runsc` / `runc-kvm` RuntimeClass YAMLs in k0s'
-    auto-applied manifests directory
-- Define the `cluster` zone in router6 with explicit egress
-  allows (creil:443 for image pull, phantasma:53 for DNS,
-  liberl NAS for iSCSI/NFS, internet:443 selectively).
-- Add a Caddy NodePort proxy block on the host for inbound.
-- `nixos-rebuild switch`.
-- Validation:
-  - `kubectl get pods -A` — Cilium, CSI, Kyverno, Flux all
-    Running
-  - `kubectl get runtimeclass` — `runsc` present
-  - Test pod with `runtimeClassName: runsc` runs successfully
-    and is sandboxed (e.g., `cat /proc/version` shows the
-    gVisor kernel string, not the cluster microvm's)
-  - Pod-to-pod, pod-to-host-deny-default, pod-to-internet-only-
-    via-router6-allows all behave as expected
-  - Hostile-test from Appendix A's checklist runs cleanly under
-    `runsc`
-- Bootstrap the dynamic-manifest path with a placeholder Flux
-  resource so subsequent phases have somewhere to add workloads.
+**Microvm guest setup:**
+
+- Build the microvm guest on calvard. Trails-themed name.
+  cloud-hypervisor backend (matches existing pattern); validate
+  virtio-balloon support during this phase. `mem` ceiling
+  16 GB initial, 4 vCPU.
+- One virtio-net interface to a new `cluster` zone.
+- gVisor's `runsc` binary in the cluster microvm OS
+  (`pkgs.gvisor` if available; otherwise prebuilt from
+  upstream).
+- iSCSI client tools (`pkgs.openiscsi`) in the cluster microvm.
+- containerd shim configuration registering `runsc` (k3s'
+  containerd template extension).
+
+**NixOS declares:**
+
+- `services.k3s.enable = true` with default settings — flannel,
+  Traefik, ServiceLB, CoreDNS, metrics-server, kine+SQLite,
+  kube-router NetworkPolicy all bundled and enabled.
+- HelmChart resources (via k3s' `manifests/` auto-apply
+  directory):
+  - `external-snapshotter` (must apply before democratic-csi —
+    provides VolumeSnapshot CRDs)
+  - `cert-manager` + step-ca ClusterIssuer (must apply before
+    anything that requests a Certificate)
+  - `democratic-csi` (zfs-generic-iscsi driver targeting
+    liberl)
+  - `kyverno` with ClusterPolicies scoped explicitly to the
+    `woodpecker-builds` namespace (do NOT enforce image source
+    cluster-wide — would block bootstrap of platform
+    components)
+  - `flux` configured to bootstrap against the
+    dynamic-manifest path in this flake
+- RuntimeClass YAMLs (`runc` default, `runsc` for sandboxed,
+  `runc-kvm` for /dev/kvm-needing) in the manifests directory.
+
+**liberl-side requirements** (parallel work in Phase 1):
+
+- NixOS module on liberl for iSCSI target (LIO/targetcli or
+  scstadmin)
+- Dedicated ZFS dataset hierarchy for cluster-allocated
+  volumes
+- Service user with `zfs allow create,destroy,snapshot,clone`
+  on that hierarchy
+- SSH or HTTP API endpoint for democratic-csi to issue ZFS
+  commands; credentials in sops
+- liberl's iSCSI portal reachable from cluster zone (router6
+  forwardRule: cluster → liberl on TCP/3260)
+
+**router6 cluster zone**, derived from network registry (use
+`forHost` helpers, not hardcoded IPs — the previous example
+hardcoded an incorrect IP for phantasma):
+
+```nix
+router6.zones.cluster = let
+  net = pkgs.mmell.lib.data.network;
+  forHost = name: (net.forHost name).host;
+in {
+  icmpEcho = "disable";
+  accessTo = [ "internet" ];
+  forwardRules = {
+    network = [   # phantasma — DNS
+      { proto = "udp"; daddr = (forHost "phantasma").ipv4; dport = 53; }
+      { proto = "tcp"; daddr = (forHost "phantasma").ipv4; dport = 53; }
+    ];
+    dmz = [
+      { proto = "tcp"; daddr = (forHost "creil").ipv4;    dport = 443; }
+      { proto = "tcp"; daddr = (forHost "langport").ipv4; dport = 443; }
+    ];
+    management = [
+      { proto = "tcp"; daddr = (forHost "tharbad").ipv4;  dport = 9090; }
+      { proto = "tcp"; daddr = (forHost "liberl").ipv4;   dport = 3260; }  # iSCSI
+      { proto = "tcp"; daddr = (forHost "liberl").ipv4;   dport = 22;   }  # democratic-csi mgmt
+    ];
+  };
+  inputRules = [
+    # Public-facing cluster services route via langport
+    { proto = "tcp"; saddr = (forHost "langport").ipv4; dport = 30000-32767; }
+  ];
+};
+```
+
+**Apply:** `nixos-rebuild switch`.
+
+**Validation:**
+
+- `kubectl get pods -A` — k3s system Pods (CoreDNS, Traefik,
+  metrics-server, ServiceLB, local-path-provisioner) plus
+  cert-manager, external-snapshotter, democratic-csi, Kyverno,
+  Flux all `Running`
+- `kubectl get runtimeclass` — runc, runsc, runc-kvm present
+- Test pod with `runtimeClassName: runsc` runs and is
+  sandboxed (`cat /proc/version` shows gVisor kernel string,
+  not the cluster microvm's)
+- Test PVC against democratic-csi: provisions on liberl,
+  binds, snapshots successfully via VolumeSnapshot
+- Test Certificate request: cert-manager issues from step-ca,
+  binds to a Secret
+- Pod-to-pod, pod-to-host-deny-default, pod-to-internet-only-
+  via-router6-allows behave as expected
+- balloon behavior: cluster microvm `mem` actual usage tracks
+  workload; pressure-test by spinning up several pods and
+  watching host-side memory accounting
+- Hostile-test from Appendix A's checklist runs cleanly under
+  `runsc`
+
+**Phase 1 is complete when**: the cluster comes up cleanly
+from a fresh `nixos-rebuild switch`, all the above validations
+pass, and Flux is reconciling an (initially placeholder)
+dynamic-manifest path.
 
 ### Phase 2 — First workload: the blog
 
@@ -771,12 +966,6 @@ After the cluster has been operating reliably for 12+ months.
 
 ## Risks and what could change the recommendation
 
-- **Cilium nested-KVM oddities.** eBPF programs in a nested
-  virtualization environment can be sensitive to host kernel
-  versions. Validate the eBPF datapath functionality in Phase 1
-  before committing workloads. Fallback: Calico in policy-only
-  mode is less performant but doesn't depend on advanced eBPF
-  features.
 - **gVisor compatibility for CI workloads.** gVisor's userspace
   syscall implementation is mature but has gaps — some syscalls
   are unimplemented or behave subtly differently. Most CI
@@ -786,21 +975,202 @@ After the cluster has been operating reliably for 12+ months.
   Fallback: drop the affected job to `runc` + restricted PSS +
   NetworkPolicy; not as strong, still reasonable defense for the
   homelab threat model.
-- **CSI iSCSI from inside a microvm.** The microvm needs to be the
-  iSCSI initiator, or get LUNs passed through as virtio-blk.
-  Validate the snapshot/restore cycle on the prototype game-server
-  workload before betting on it for dev environments.
+- **systemd-as-PID-1 in dev-environment Pods + PSS Restricted.**
+  PSS Restricted blocks several mounts (`/sys/fs/cgroup` rw,
+  `procMount: Unmasked`) that systemd typically wants. The
+  bastion (Restricted, in Appendix B) and dev environments
+  (Phase 5) cannot trivially share Pod policy if both run
+  systemd as PID 1. Mitigation: dev environments may run with
+  PSS Baseline rather than Restricted, with the trade-off
+  explicitly recorded; or use a non-systemd PID-1 (a thin init
+  + sshd directly). Validate during Phase 5 prototyping; don't
+  assume Coder/Gitpod patterns transfer 1:1 (those products
+  typically don't run systemd as PID 1).
+- **cloud-hypervisor balloon support.** The original "use QEMU
+  for balloon" decision was based on assumed maturity gap; v15
+  recommends starting with cloud-hypervisor for consistency
+  with the rest of the fleet. If balloon doesn't work cleanly
+  in Phase 1, fall back to QEMU as a one-off pattern.
+- **CSI iSCSI from inside a microvm — and from liberl as the
+  target.** The microvm side is straightforward (`pkgs.openiscsi`).
+  The liberl side is the harder part: a NixOS module for the
+  iSCSI target, ZFS dataset hierarchy, service-user permissions,
+  management endpoint. Validate the full lifecycle (provision,
+  snapshot, restore, delete) against actual liberl in Phase 1
+  before betting on it for game servers (Phase 3) or dev
+  environments (Phase 5).
+- **kine → embedded-etcd migration at HA expansion (Phase 11).**
+  No `k3s migrate-datastore` command. Plan: snapshot SQLite,
+  install fresh k3s with `--cluster-init` and embedded etcd,
+  restore from snapshot via etcd's snapshot import, re-join
+  nodes. Rehearse once before Phase 11 with a throwaway test
+  cluster. Budget a brief outage. Not "off the critical path"
+  — a real but bounded migration.
+- **Forgejo registry capacity for CI throughput.** The plan
+  assumes creil (Forgejo) handles CI build pushes, image GC,
+  and signature verification. Forgejo's bundled registry is
+  basic. May need replacement with Harbor or similar as Phase
+  4 (CI runners) scales up. Defer until measured pressure.
+- **Authelia OIDC compatibility with `kube-apiserver`.**
+  Authelia's token shape, audience handling, and device-code
+  flow may not match `kube-apiserver`'s OIDC verifier
+  expectations exactly. Validate with `kubectl oidc-login`
+  during Phase 1; if there's a mismatch, fall back to a small
+  oauth2-proxy-shaped adapter or static kubeconfig with bearer
+  tokens.
 - **Dev-env migration risk.** edith is the operator's daily
   driver. Mitigation: parallel-run during cutover, keep trista
   on Incus until edith is proven, leave the Incus declaration
   live for several weeks of rollback window.
-- **Operator skill investment.** k8s is a real learning curve.
-  The operator-facing UX for dev environments specifically
-  (`kubectl exec` vs. `incus console`) is less polished. If after
-  Phase 4 the operator's preference is clearly to extend
-  deployd / keep Incus rather than learn more k8s, the
-  recommendation should be re-evaluated — Phase 5 onward isn't
-  forced.
+- **Operator skill investment.** k8s is a real learning curve,
+  even with k3s' simpler bootstrap. The operator-facing UX for
+  dev environments specifically (`kubectl exec` vs.
+  `incus console`) is less polished. If after Phase 4 the
+  operator's preference is clearly to keep Incus rather than
+  consolidate, the recommendation should be re-evaluated —
+  Phase 5 onward isn't forced.
+
+## Alternatives considered
+
+The plan picks specific tools at the platform layer. This
+section names alternatives that came up across iterations
+(some surfaced by independent review) and engages with each
+honestly — what they'd look like, what they cost, why the
+plan doesn't pick them.
+
+### Talos as the cluster microvm's OS (instead of NixOS+k3s)
+
+Talos Linux is an immutable OS designed for k8s. The cluster
+microvm's NixOS layer would be replaced with Talos's machine-
+config YAML. Smaller attack surface, OS designed for the role,
+declarative-text configuration aligns with the LLM-readable
+principle.
+
+**Why not picked**: the rest of the homelab is NixOS;
+introducing Talos for one guest fragments the management plane
+(the operator now maintains both NixOS and Talos machineconfig
+patterns). Loses access to NixOS modules inside the cluster
+microvm — even though most of those are minimal for a k3s
+host, they're still part of the consistent operator experience.
+Worth revisiting if k3s-on-NixOS proves operationally
+problematic.
+
+### KubeVirt for dev environments (instead of Pod + PVC)
+
+KubeVirt would let edith and trista run as `VirtualMachine`
+resources inside the cluster — full VMs, libvirt+QEMU under
+the hood, with snapshots via CSI and live migration when
+multi-node. This is genuinely the workload shape KubeVirt is
+designed for.
+
+**Why not picked**: KubeVirt adds significant complexity
+(operators, virt-handler DaemonSets, CRDs) for a feature set
+the homelab doesn't need at scale — single-node anyway, no
+live migration requirement, snapshots already covered by
+democratic-csi for Pod PVCs. The Pod+PVC pattern with a
+trade-off on PSS profile (likely Baseline rather than
+Restricted) is lighter and adequate. Worth revisiting if the
+Pod-with-systemd-as-PID-1 pattern hits problems Phase 5
+prototyping can't resolve cleanly.
+
+### Keep Incus permanently
+
+The plan's Phase 7 decommissions Incus once dev environments
+migrate to the cluster. The alternative: keep Incus
+indefinitely as the right tool for mutable VM/container dev
+environments, with k8s for ephemeral cattle workloads only.
+
+**Why not picked (but barely)**: the consolidation argument
+("3 control planes instead of 4") is meaningful but not
+overwhelming. Incus is genuinely well-suited to dev
+environments. The plan picks consolidation as preferred but
+Phase 5–7 are explicitly framed as optional — if dev-env
+migration to Pods proves operationally worse than Incus, the
+right call is to stop at Phase 4 and accept Incus as a
+permanent control plane. The plan should be read as "this is
+the consolidation goal; deviation is acceptable when warranted."
+
+### k3s with everything stripped (`--disable=traefik,servicelb,...`)
+
+This was the main alternative the independent review pushed.
+v15 substantially adopts it but in a milder form: keep most
+k3s defaults rather than stripping them. Inside a microvm the
+bundled stack doesn't conflict with anything; stripping
+components just to disable them adds operational complexity
+(things to remember to re-enable, divergence from upstream
+default behaviors).
+
+**Why the milder version**: the principle is "use the right
+tool for the right layer," not "minimize bundled components."
+k3s' bundled stack is the right tool inside the microvm; the
+only component that genuinely doesn't fit (Traefik vs. host
+Caddy) was deployd-specific anyway and goes away when deployd
+sunsets.
+
+### `services.kubernetes.*` (vanilla kubeadm-shape) on NixOS
+
+Maximum NixOS-native: every k8s component declared in NixOS
+modules.
+
+**Why not picked**: violates the platform/dynamic boundary by
+trying to pull cluster-API resources into the static layer.
+Workload manifests should not live in the flake; this module
+encourages that pattern. Also significantly more configuration
+surface than k3s for no homelab-relevant benefit.
+
+### k0s instead of k3s
+
+The earlier revisions of this plan recommended k0s on the
+basis that "k3s' bundled defaults conflict with our
+infrastructure." That reasoning was anchored on a bare-metal
+mental model and didn't survive the microvm-confinement
+reframe. k0s is a fine distribution; in this homelab,
+`services.k3s` is mature and `services.k0s` would have to be
+written, so k3s wins on ergonomic grounds.
+
+## Open questions deferred to implementation
+
+Items the plan does not answer and shouldn't pretend to. Each
+is a Phase-1 (or later) decision worth recording explicitly.
+
+- **Cluster microvm persistent state.** Where does
+  `/var/lib/rancher/k3s/server` live? On a btrfs subvolume on
+  calvard's root pool? Via impermanence? What's the backup
+  story for the kine SQLite database itself, separate from
+  Velero (which only protects cluster state, not the datastore
+  underneath it)?
+- **PKI overlap.** k3s manages its own internal CA for
+  apiserver/kubelet/etcd certs. step-ca on basel is the
+  homelab's CA. Are these two trust roots, or does k3s' CA
+  become a step-ca-signed intermediate? cert-manager handles
+  workload TLS via step-ca; cluster-internal control-plane TLS
+  is k3s-managed. Acceptable as two roots, just worth
+  documenting.
+- **Update cadences.** k3s pinned in the flake means manual
+  bumps. What's the policy — track upstream within N weeks,
+  bump on security advisory, etc.? Same question for
+  cert-manager, democratic-csi, Kyverno, Flux. Probably
+  Renovate or similar in the dynamic layer; not part of the
+  platform.
+- **Dynamic-manifest repo structure.** Monorepo path
+  (`cluster/manifests/{infrastructure,apps}/`) or separate
+  repo (`homelab-cluster-state`)? Affects blast-radius of
+  reverts and CI pipeline complexity. Not load-bearing for
+  Phase 1; decide before Phase 2.
+- **Bootstrap-time observability.** If platform components
+  fail during initial bring-up, before vmagent / Fluent Bit
+  DaemonSet are running, what's the observability surface?
+  Probably `journalctl -u k3s` inside the microvm, plus
+  `kubectl describe` once the API is up. Worth a short
+  runbook in `llm-notes/guides/`.
+- **External-facing TLS strategy.** For public services
+  hosted in the cluster (e.g., a public-facing blog), where
+  does Let's Encrypt termination happen — langport's nginx
+  (existing pattern) or in-cluster Traefik with a separate
+  ACME setup? langport is simpler and matches existing patterns.
+- **`kubectl` access path for the operator.** OIDC via
+  Authelia + `kubectl oidc-login`? Static kubeconfig on edith?
+  Both? Phase 1 chooses; document the answer.
 
 ## Appendix A: CI runner security architecture
 
@@ -908,6 +1278,9 @@ Default-deny egress in the namespace; allow only what builds
 actually need:
 
 ```yaml
+# IPs derived from the network registry — example values shown for
+# illustration; in practice these manifests should be templated from
+# `lib.common.data.network.forHost`, not hardcoded
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -919,13 +1292,23 @@ spec:
       ci.woodpecker/role: step
   policyTypes: [Egress]
   egress:
-  - to: [{ ipBlock: { cidr: 10.97.100.53/32 } }]   # creil — git + registry
+  - to: [{ ipBlock: { cidr: <creil-ipv4>/32 } }]      # git + registry
     ports: [{ protocol: TCP, port: 443 }]
-  - to: [{ ipBlock: { cidr: 10.97.11.2/32 } }]     # phantasma — DNS
+  - to: [{ ipBlock: { cidr: <phantasma-ipv4>/32 } }]  # DNS (10.91.10.10)
     ports: [{ protocol: UDP, port: 53 }]
-  - to: [{ ipBlock: { cidr: 10.97.100.31/32 } }]   # ardent — attic cache
+  - to: [{ ipBlock: { cidr: <ardent-ipv4>/32 } }]     # attic cache
     ports: [{ protocol: TCP, port: 443 }]
 ```
+
+**Templating note**: NetworkPolicy and router6 zone rules
+share the same set of "what cluster needs to reach" facts. The
+right pattern is to derive both from network registry helpers
+in a single place, so a phantasma re-IP (e.g., during the
+ongoing vMGMT VLAN split) updates both layers automatically.
+Earlier revisions of this report hardcoded an incorrect IP for
+phantasma (10.97.11.2 — phantasma actually lives at 10.91.10.10
+in zone `network`); using the registry prevents this class of
+error.
 
 router6's `cluster` zone gates the same paths at the host
 level. **Both must allow.** A misconfigured NetworkPolicy that
@@ -1266,17 +1649,20 @@ spec:
   podSelector: { matchLabels: { app: bastion } }
   policyTypes: [Egress]
   egress:
-  - to: [{ ipBlock: { cidr: 10.97.11.2/32 } }]    # phantasma DNS
+  # IPs templated from network registry; values shown illustrative
+  - to: [{ ipBlock: { cidr: <phantasma-ipv4>/32 } }]  # DNS (10.91.10.10)
     ports: [{ protocol: UDP, port: 53 }]
-  - to: [{ ipBlock: { cidr: 10.97.11.7/32 } }]    # basel — SSH cert validation
+  - to: [{ ipBlock: { cidr: <basel-ipv4>/32 } }]      # SSH cert validation
     ports: [{ protocol: TCP, port: 443 }]
-  - to: [{ ipBlock: { cidr: 10.97.11.6/32 } }]    # messeldam — OIDC
+  - to: [{ ipBlock: { cidr: <authelia-ipv4>/32 } }]   # OIDC (Authelia replacing Keycloak)
     ports: [{ protocol: TCP, port: 443 }]
-  # SSH targets — explicit allowlist
+  # SSH targets — explicit allowlist of bastion-target hosts
+  # (do NOT use whole-zone CIDRs; specific destinations only)
   - to:
-    - { ipBlock: { cidr: 10.97.20.0/24 } }        # vMGMT
-    - { ipBlock: { cidr: 10.97.100.0/24 } }       # vDMZ
-    - { ipBlock: { cidr: 10.97.11.0/24 } }        # vINFRA
+    - { ipBlock: { cidr: <calvard-ipv4>/32 } }
+    - { ipBlock: { cidr: <erebonia-ipv4>/32 } }
+    - { ipBlock: { cidr: <liberl-ipv4>/32 } }
+    # ... explicit list per registry
     ports: [{ protocol: TCP, port: 22 }]
 ```
 
@@ -1637,16 +2023,34 @@ cluster is operational. High value, low operational cost.
   For game-server world snapshots and dev-environment home
   directories, this is genuinely better than building backup
   scripts per workload.
-- **external-secrets-operator** for sops integration. Lets
-  cluster workloads pull from your existing sops-managed
-  secrets without converting them to k8s `Secret` resources by
-  hand. Keeps sops-nix as the single source of truth for
-  secrets across NixOS and the cluster.
-- **Cilium Hubble UI** for network observability. Visual flow
-  logs showing pod-to-pod and pod-to-external traffic with
-  policy allow/deny annotations. Real value when debugging the
-  dual-firewall setup (router6 zone vs. NetworkPolicy
-  intersection).
+- **Secret distribution from sops-nix into cluster Secrets.**
+  Earlier revisions claimed external-secrets-operator handles
+  this; that's incorrect — ESO doesn't have a stable sops
+  backend (its supported backends are Vault, AWS/GCP/Azure
+  secret managers, etc.). Real options:
+  1. **`sops-secrets-operator`** (third-party). Watches
+     SopsSecret CRs in the cluster, decrypts using a key
+     mounted into the operator pod, materializes as
+     Kubernetes Secrets. Keeps sops as source of truth.
+  2. **NixOS-decrypts-at-boot, mounts into cluster microvm.**
+     The cluster microvm's NixOS layer uses sops-nix to
+     decrypt secrets to a path on the microvm filesystem;
+     a small in-cluster tool (or kustomize generator)
+     materializes them as Secret resources at sync time.
+     Tighter coupling to NixOS, simpler implementation.
+  3. **Vault**, with secrets reflected from sops-nix. Real,
+     standard, but adds Vault as a dependency. Probably
+     overkill for homelab scale.
+  Recommendation: start with option 2 (sops decryption at the
+  microvm boundary), revisit if it gets unwieldy. Decide
+  during Phase 1.
+- **Cilium Hubble UI** for network observability — only
+  applicable if the homelab eventually swaps flannel for
+  Cilium (see Risks). With the v15 default of flannel + kube-
+  router, Hubble isn't available; debugging falls back to
+  `iptables -L` inside the cluster microvm and router6 audit
+  logs on the host. Acceptable for v1; revisit if
+  observability gaps become painful.
 
 ### Useful when the matching workload appears
 
@@ -1877,7 +2281,75 @@ The cluster doesn't subsume the static layer; it complements it.
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v14 (this revision): replaced **kata** with **gVisor**
+- v15 (this revision): incorporated independent review
+  findings and pivoted from k0s to k3s. Distribution change is
+  the headline: with the cluster confined to a microvm, k3s'
+  bundled defaults (flannel, Traefik, ServiceLB, CoreDNS,
+  metrics-server, kine+SQLite, kube-router) don't conflict
+  with anything host-level — they live in the cluster's
+  network namespace, not the host's. The earlier rejection of
+  k3s was anchored on a bare-metal mental model that didn't
+  survive microvm-confinement. `services.k3s` is a mature
+  NixOS module; this dissolves the "write a `services.k0s`
+  module" engineering work the review flagged as the #1
+  finding.
+
+  Other v15 changes from review findings:
+  - Dropped host-Caddy-as-cluster-ingress assumption (Caddy
+    on host was a deployd-specific concern; with deployd
+    sunsetting, the cluster's bundled Traefik handles HTTP
+    routing).
+  - cert-manager + step-ca ClusterIssuer now load-bearing
+    rather than nice-to-have.
+  - Fixed factual errors: phantasma is at 10.91.10.10 (zone
+    `network`, VLAN 10), not 10.97.11.2; saint-arkh / ardent /
+    monrain use cloud-hypervisor in the actual code despite
+    microvm-inventory.md describing them as QEMU. Recommend
+    cloud-hypervisor as the cluster-microvm backend (matches
+    fleet pattern); QEMU as a fallback if balloon doesn't
+    work cleanly.
+  - **cc-sandbox isolation tier corrected**: moved from
+    `runc-kvm` (default) to `runsc` (default) with `runc-kvm`
+    as an opt-in per session for `/dev/kvm`-needing workloads.
+    Previous framing gave the most-likely-adversarial workload
+    the weakest isolation. Carry through Phase 8.
+  - NetworkPolicy examples templated from network registry
+    (with explicit "use `forHost`, not hardcoded IPs" note);
+    Kyverno policies scoped to `woodpecker-builds` namespace
+    only (cluster-wide image-source enforcement would deadlock
+    bootstrap).
+  - Expanded democratic-csi requirements: liberl-side iSCSI
+    target NixOS module, ZFS dataset hierarchy, service-user
+    `zfs allow` permissions, management endpoint. Real
+    engineering work, not a checkbox.
+  - Fixed external-secrets-operator + sops claim (ESO has no
+    stable sops backend); recommended sops-decrypts-at-NixOS-
+    boot pattern as default with sops-secrets-operator as
+    alternative.
+  - Bootstrap ordering specifics: external-snapshotter CRDs
+    before democratic-csi; cert-manager before its consumers;
+    Kyverno scoped policies before its enforcement.
+  - kine→etcd Phase 11 migration documented as real
+    bounded work (rehearse once, brief outage), not "off the
+    critical path."
+  - Added **Alternatives considered** section engaging with
+    Talos, KubeVirt-for-dev-envs, Incus-permanently, k3s-
+    stripped, services.kubernetes.*, k0s.
+  - Added **Open questions deferred to implementation**:
+    cluster persistent state, PKI overlap, update cadences,
+    dynamic-manifest repo structure, bootstrap-time
+    observability, public TLS strategy, kubectl OIDC.
+  - Risks expanded: gVisor compatibility (kept), systemd-as-
+    PID-1 + PSS Restricted (new), cloud-hypervisor balloon
+    (new), CSI iSCSI lifecycle (expanded), kine→etcd (new),
+    Forgejo registry capacity (new), Authelia OIDC
+    compatibility (new).
+
+  This revision incorporates a substantive independent review.
+  Findings the plan now addresses dropped half on the k3s
+  pivot; the rest are corrected in place. The plan is now
+  meaningfully closer to ready-to-implement than v14 was.
+- v14: replaced **kata** with **gVisor**
   (`runsc`) as the strong-isolation tier for untrusted-code
   workloads. The "kata in a microvm running on cloud-
   hypervisor" pattern is genuinely off the common community
