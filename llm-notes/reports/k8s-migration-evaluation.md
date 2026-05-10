@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v17 — see revision history at end)
+Date: 2026-05-09 (v18 — see revision history at end)
 
 ## Question
 
@@ -11,11 +11,14 @@ microvm guests or the Incus dev-environment hosts?
 
 ## Recommendation
 
-**Stand up a Kubernetes cluster inside a microvm guest. Build new
-dynamic workloads on it. Migrate the existing Incus dev environments
-(edith, trista) into the cluster once it has matured. Leave the static
-microvm.nix fleet alone. Sunset deployd once the cluster has proven
-itself.**
+**Stand up a Kubernetes cluster (k3s) directly on erebonia as
+bare-metal. Build new dynamic workloads on it. Migrate
+cc-sandbox into the cluster early — its current deployd
+nested-virt story is broken; bare-metal kata-qemu or runc-kvm
+fixes it. Migrate edith into the cluster once it has matured.
+Leave the static microvm.nix fleet on calvard untouched. Sunset
+deployd once the cluster has proven itself. NixOS rollback is
+the recovery mechanism — every change is boot-time reversible.**
 
 The endgame is a simpler control-plane layout than today:
 
@@ -33,13 +36,15 @@ declared in the flake until the new pattern has run reliably.
 
 | Workload | Home today | Home endgame | Notes |
 | --- | --- | --- | --- |
+| k3s control plane + nodes | — | erebonia, bare-metal | Single-node initially; calvard not pulled in for multi-node (would compromise static-fleet isolation) |
 | Blog (planned) | — | k8s | First cluster workload; canonical Deployment + Flux pattern |
 | Game servers (planned) | — | k8s | CSI VolumeSnapshot replaces the custom iSCSI add-on |
-| CI runners (saint-arkh deferred) | — | k8s | Runner controller + per-job gVisor-sandboxed pods |
-| Claude sandboxes | deployd | k8s eventually | Stay on deployd until cluster proven; migrate as part of deployd sunset |
-| Dev environments (edith, trista) | Incus | k8s | StatefulSet + PVC; migrate one at a time after cluster proves out |
-| Authelia and other small foundational services | microvm.nix | microvm.nix | Per-service failure domain still wins for foundational state |
-| Static fleet (Forgejo, Jellyfin, Prometheus, etc.) | microvm.nix | microvm.nix | Don't migrate what works |
+| CI runners (saint-arkh deferred) | — | k8s | Woodpecker kubernetes backend + per-step gVisor-sandboxed pods |
+| Claude sandboxes | deployd (broken nested-virt) | k8s with kata-qemu (or runc-kvm) | Migrate early — bare-metal access fixes the nested-virt problem deployd has; runtime per Appendix A |
+| edith dev environment | Incus (calvard) | k8s Pod (erebonia) | StatefulSet + PVC; cross-host but liberl-backed CSI handles it |
+| trista | Incus (erebonia) | resolved per Phase 6 | Role ambiguous (inventory says dev env; code says dmz-vm; registry says bastion); leave alone for now |
+| Authelia and other small foundational services | microvm.nix (calvard) | microvm.nix (calvard) | Per-service failure domain wins; calvard not pulled into cluster |
+| Static fleet (Forgejo, Jellyfin, Prometheus, etc.) | microvm.nix (calvard) | microvm.nix (calvard) | Don't migrate what works |
 
 ### Why this answer
 
@@ -66,10 +71,17 @@ this report):
 - **Operator ecosystem fit is real** for CI runners (autoscaling
   runner controllers like ARC) and game servers (CSI
   VolumeSnapshot vs. building a custom iSCSI add-on).
-- **Microvm-confined deployment** mechanically isolates the cluster
-  from router6 — same principle as every other isolated service in
-  this repo. The host firewall is unreachable across the hypervisor
-  boundary regardless of what the CNI does.
+- **Bare-metal on erebonia is the right host choice.** Erebonia
+  is already the dynamic-compute host (runs deployd today with
+  kata as default runtime, has nested-KVM enabled). It does
+  not import router6 (`hosts/erebonia/default.nix`); the
+  earlier "must be microvm-confined to isolate from router6"
+  argument doesn't apply on either VM host. Failure-domain
+  isolation between the cluster and the static fleet is
+  preserved by host choice — calvard hosts the static fleet,
+  erebonia hosts the cluster. Bare-metal eliminates nested-
+  virt penalties for kata and direct `/dev/kvm` workloads,
+  which is precisely what cc-sandbox needs.
 - **Dev environments in k8s is a mature pattern** (Coder, Gitpod,
   Codespaces, DevPod) — the previous "k8s is for cattle, not pets"
   framing was outdated.
@@ -166,8 +178,9 @@ capability vs. a workload.
 
 - NixOS host configurations (calvard, erebonia, eventually
   liberl)
-- microvm.nix guest declarations including the cluster microvm
-- k3s as a NixOS service inside the cluster microvm
+- microvm.nix guest declarations for the static fleet
+  (unchanged — none for the cluster itself in v18)
+- **k3s as a NixOS service on erebonia bare-metal**
   (`services.k3s`) — version pinned, config rendered from NixOS
 - **k3s with bundled defaults** (flannel, Traefik, ServiceLB,
   CoreDNS, metrics-server, kine+SQLite, kube-router) — declared
@@ -176,12 +189,12 @@ capability vs. a workload.
   step-ca ClusterIssuer), external-snapshotter, democratic-csi,
   Kyverno, Flux — applied automatically at cluster startup, all
   chart versions and values pinned in the flake
-- **RuntimeClass YAMLs** for runc / runsc / runc-kvm in k3s'
-  auto-apply manifests directory
-- **gVisor's `runsc` binary**, containerd shim configuration in
-  k3s' containerd template, and iSCSI client tools inside the
-  cluster microvm — host-level prerequisites the cluster relies
-  on
+- **RuntimeClass YAMLs** for runc / runsc / kata-qemu / runc-kvm
+  in k3s' auto-apply manifests directory
+- **gVisor's `runsc` binary**, kata-runtime, containerd shim
+  configuration in k3s' containerd template, and iSCSI client
+  tools on erebonia — host-level prerequisites the cluster
+  relies on
 - router6 zones (cluster zone with explicit egress allows)
 - langport's nginx forwarding rules (for public-facing cluster
   services routed through the existing reverse proxy)
@@ -240,188 +253,169 @@ on whatever cadence makes sense, independent of the platform.
 
 ## Architecture
 
-### Run the cluster inside a microvm guest
+### Run the cluster directly on erebonia bare-metal
 
-The cluster's control plane and kubelet run inside a single
-microvm.nix guest, the same way `roer` runs deployd-api today.
-Pods are processes inside that guest's kernel. The host sees one
-VM with one virtio-net interface and some virtio-blk traffic.
+k3s runs as a systemd service on erebonia. No microvm wrapper;
+no nested virtualization for the cluster itself. Cluster pods
+are processes in erebonia's kernel, with the cluster's CNI and
+runtime infrastructure managing them.
 
-Pods inside the cluster run under runc by default. For workloads
-that need stronger-than-runc isolation (untrusted code: CI step
-pods running build scripts and dependencies; eventually anything
-similar) — the cluster uses **gVisor** (`runsc`) as the
-isolation tier. gVisor is a userspace reimplementation of the
-Linux syscall ABI: containers under gVisor make syscalls into
-`runsc` rather than into the host kernel, so kernel-CVE exploits
-have no target. No nested-KVM dependency, no triple-KVM stack.
+For workloads requiring stronger-than-runc isolation, the
+cluster provides:
 
-Kata is **not** the default isolation mechanism in this plan. The
-"kata in a microvm running on cloud-hypervisor" pattern is
-genuinely off the common community path; gVisor is what k8s
-operators actually use when nodes are VMs and stronger isolation
-than runc is wanted (Google Cloud Run, GKE Sandbox, App Engine,
-many CI services). Kata sees production use primarily on
-bare-metal k8s clusters where the nested-KVM concern doesn't
-apply, or for workloads that need `/dev/kvm` as a feature (not as
-isolation). Kata could be added to this cluster later if a narrow
-use case warrants it, but it isn't part of the platform baseline.
+- **gVisor** (`runsc`) — userspace syscall sandbox. Used for
+  CI step pods running untrusted build code. Software-enforced
+  boundary; no hardware-virtualization cost.
+- **kata-qemu** — full KVM VM per pod, hardware-enforced
+  kernel isolation. With erebonia bare-metal there's no nested
+  virtualization (the host has `/dev/kvm` natively;
+  `kvm_intel nested=1` is already set per
+  `hosts/erebonia/default.nix`). This is the canonical
+  k8s-with-kata pattern used by AWS Fargate, GKE Sandbox, etc.
+  Used for cc-sandbox where stronger isolation matters and
+  where direct `/dev/kvm` access is needed for nested NixOS
+  test VMs.
+- **runc-kvm** — runc + `/dev/kvm` device passthrough.
+  Fallback for cc-sandbox sessions if kata-qemu's guest kernel
+  has nested-KVM limitations (the issue that originally drove
+  cc-sandbox off kata in deployd).
 
-### Hypervisor backend
+The per-workload runtime mapping (gVisor for CI, kata for
+cc-sandbox) is more nuanced than v15's "gVisor for everything
+sandboxed" because bare-metal removes the nested-KVM penalty
+that made kata expensive.
 
-microvm.nix supports multiple hypervisor backends. **Every
-existing guest in this repo uses cloud-hypervisor** — the
-microvm-inventory.md description of guests as "microvm (QEMU)"
-is stale; verified against
-`hosts/*/microvm/guests/*/microvm.nix`. So whatever backend the
-cluster guest uses will be either "the same as everything
-else" (cloud-hypervisor) or "the first guest to use a different
-backend" (QEMU).
+### Why erebonia, not calvard
 
-For memory pooling with edith specifically — the original
-motivation for considering QEMU — the trade is:
+Erebonia is the right host for the cluster, not just a
+viable one:
 
-- **cloud-hypervisor**: matches existing pattern, faster boot,
-  smaller idle footprint. Has virtio-balloon support in recent
-  versions but the microvm.nix integration is less battle-
-  tested. For a long-running cluster guest, "less battle-
-  tested balloon" is acceptable risk; worst case is the
-  balloon doesn't reclaim and we set a smaller `mem` ceiling.
-- **QEMU**: mature virtio-balloon, but introduces a new
-  hypervisor backend in the repo. ~50–100 MB more idle
-  overhead, ~5s vs. ~200ms boot.
+- **Role-fit.** Erebonia is the homelab's dynamic-compute host
+  today — runs deployd with kata as default, has nested-KVM
+  enabled, hosts saint-arkh (planned CI runner microvm). Its
+  role is "ephemeral compute lives here." k3s replacing
+  deployd on the same host is consistent with that role.
+- **Static-fleet isolation preserved by host choice.** Calvard
+  hosts the static fleet — Authelia/Keycloak (messeldam),
+  step-ca (basel), Forgejo (creil), nginx/oauth2-proxy
+  (langport), Jellyfin (oracion), VictoriaMetrics/Loki/etc.
+  (tharbad), edith (Incus container). None on erebonia. An
+  erebonia kernel panic does not affect foundational identity,
+  PKI, observability, or static-content services. The
+  failure-domain boundary is the host boundary, not the
+  hypervisor boundary.
+- **Eliminates the nested-virt penalty.** kata-qemu in a
+  microvm running on cloud-hypervisor would be three KVM
+  levels (host → microvm → kata pod). Bare-metal kata is one
+  level (host → kata pod). cc-sandbox's nested-NixOS-test-VM
+  workflow gets direct access to the host's `/dev/kvm`. Game
+  servers when they land get bare-metal CPU and network.
+- **The cluster host wasn't fixing anything router6.**
+  Verified: `hosts/erebonia/default.nix` does not import
+  `modules/router6/`. The mechanical-isolation argument
+  earlier revisions leaned on was overstated; router6 only
+  runs on `thebeyond` (the actual router). erebonia's
+  host-side networking is standard NixOS + microvm.nix bridges
+  + Incus bridges + (future) k3s bridges. Coexistence is
+  workable.
+- **Recovery via NixOS rollback.** Every change is boot-time
+  reversible (`nixos-rebuild switch --rollback` or boot a
+  previous generation). If Phase 1 breaks erebonia, recovery
+  is "boot previous generation, fix the broken commit." This
+  is the safety net that earlier revisions tried to provide
+  via microvm-confinement; NixOS already provides it.
 
-**Recommendation: start with cloud-hypervisor** and validate
-balloon behavior in Phase 1. If balloon doesn't work well, fall
-back to QEMU as a one-off pattern for the cluster guest. The
-boot-speed cost of QEMU is genuinely irrelevant for a guest
-that lives for months; only the "first QEMU guest" pattern-
-introduction cost is real, and it's small. This is a Phase-1
-decision, not an architectural one.
+### What's lost vs. running in a microvm
 
-### Microvm-confined or host-direct: a defensible choice, not a forced one
+Real costs of bare-metal-on-erebonia, named honestly:
 
-Earlier revisions of this report leaned heavily on "the cluster
-must run in a microvm to mechanically isolate it from router6."
-That argument was overstated. **router6 only runs on gateway
-devices** (`thebeyond` is the homelab router; `calvard` and
-`erebonia` are VM hosts that don't import the router6 module
-at all). On the proposed cluster hosts, the host-side
-networking is standard NixOS (`networking.firewall`,
-systemd-networkd bridges, microvm.nix and Incus bridge
-declarations) — much less opinionated than router6.
+- **Failure-domain isolation between cluster and host.** A
+  cluster crash takes erebonia down rather than just a
+  microvm. Mitigated by: (a) NixOS rollback, (b) the only
+  current workloads on erebonia are deployd (being replaced)
+  and `roer` (deployd-api, also being replaced) and `trista`
+  (Incus, currently unused). Blast radius is bounded to
+  workloads we're already retiring.
+- **No hard resource bounds.** The cluster shares erebonia's
+  resources with whatever else runs there. During the deployd
+  cohabitation period this includes deployd, cc-sandbox
+  sessions, and the microvm guests. Mitigation: systemd cgroup
+  limits on k3s if needed, or accept it and let workloads
+  compete.
+- **Cluster reset is heavier.** "Reinstall the cluster from
+  scratch" means cleaning up k3s state on erebonia
+  (`/var/lib/rancher/k3s/`, `/etc/rancher/k3s/`, containerd
+  state, CNI conflist files). Documented procedure required;
+  not as clean as "destroy a microvm."
 
-So the mechanical-isolation argument doesn't apply on the
-actual cluster host. **Both microvm-confined and host-direct
-are technically viable**; the choice is a real architectural
-trade-off, not a forced one.
+The operator accepts these trades. NixOS rollback covers the
+recovery story; the workloads in erebonia's current blast
+radius are being deprecated anyway; cluster-reset complexity
+is an operator-runbook concern, not an architectural one.
 
-#### What host-direct would conflict with (honestly: not much)
+### Coexistence with deployd during transition
 
-| Host-side thing | k3s collision? |
-|---|---|
-| `networking.firewall` (standard NixOS) | Coexists fine; iptables-nft chain priorities mean both work |
-| systemd-networkd bridges for microvm guests | k3s' flannel creates its own bridge (`cni0`); different name |
-| Incus bridges (for edith, trista) | Different bridge namespace |
-| nftables tables from microvm.nix / Incus | Live in different tables; coexist in `nf_tables` backend |
-| Routing tables | k3s adds routes for pod CIDR; no fundamental conflict |
-| containerd | k3s runs its own; microvm guests have their own — no shared instance |
-| Storage | k3s' local-path writes to a host directory you point at |
+Phases 1–8 have k3s and deployd both running on erebonia. This
+is a short window (months, not the year v17 envisioned —
+Phase 8 cc-sandbox migration is accelerated). The audit checklist
+below identifies coexistence touchpoints; **Phase 1
+validation must confirm each item before workloads land.**
 
-These are "more rules to debug" rather than "this won't work."
+| Touchpoint | k3s side | deployd side | Conflict risk |
+|---|---|---|---|
+| containerd socket | `/run/k3s/containerd/containerd.sock` | `/run/containerd/containerd.sock` | None — different paths |
+| Container runtime | k3s' embedded containerd | host containerd via `virtualisation.containerd.enable` | Two daemons; resource overhead small |
+| CNI conflists | `/var/lib/rancher/k3s/agent/etc/cni/net.d/` | `/etc/cni/net.d/${cfg.bridge.name}.conflist` (deploy-dmz) | Different directories — verify k3s isn't reading `/etc/cni/net.d/` |
+| Bridge interfaces | flannel `cni0`, pod CIDR `10.42.0.0/16` | `deploy-dmz`, `10.97.100.0/24` | No name or CIDR collision |
+| kata-qemu config | `/etc/kata-containers/configuration.toml` | same file (set by deployd) | **Shared config file** — k3s' kata RuntimeClass reads the same one. Audit during Phase 1; consider pinning kata version. |
+| Kernel modules | vhost, vhost_net, vhost_vsock, kvm | same | Loaded by both; additive |
+| `boot.extraModprobeConfig` | n/a | sets `options kvm_intel nested=1` | Already set by erebonia's `hosts/erebonia/default.nix:51`; deployd's `modules/deployd/default.nix:521` redundant |
+| Ports | 6443 (apiserver), 10250 (kubelet), 10256 (kube-proxy), 8472 (flannel VXLAN) | none on these | None |
+| `/dev/kvm` access | shared (no exclusive lock) | shared | Both can use it; KVM is multi-tenant |
 
-#### Residual arguments for microvm-confined
-
-The honest remaining case for keeping the cluster in a microvm:
-
-- **Failure-domain isolation.** A cluster crash, kernel panic
-  from a CNI bug, or runaway pod consuming memory affects the
-  host directly if k3s is on host. In a microvm, those affect
-  only the microvm. Other static guests (also in their own
-  KVM boundaries) are unaffected either way; the difference is
-  whether *the host itself* is at risk.
-- **Hard resource bounds.** The microvm has a memory ceiling;
-  k3s on host shares with the kernel and other system services
-  with no firm limit.
-- **Cleaner reset/teardown.** "Kill the microvm and rebuild" is
-  simpler than "carefully unwind k3s + flannel + containerd +
-  state directories from the host."
-- **Skill-investment isolation.** Tinkering with k3s, breaking
-  the cluster while learning, etc. doesn't risk the host or
-  its other guests.
-
-#### Residual arguments for host-direct
-
-- **Less abstraction.** One fewer layer to operate, debug,
-  reason about.
-- **Resource pooling without ceremony.** Cluster gets idle
-  CPU/RAM directly; no balloon-tuning or microvm-mem-ceiling
-  decisions.
-- **Direct hardware access.** GPU passthrough, `/dev/kvm`
-  without nested virt, NUMA-awareness — easier without a
-  virtualization layer between the workload and the hardware.
-- **Simpler bootstrap.** No "build a microvm, install k3s in
-  it, wire up the cluster zone." Just `services.k3s.enable =
-  true` on the chosen host alongside its other declarations.
-- **The cluster becomes another host service** rather than a
-  guest. Same shape as `services.openssh.enable = true`.
-- **Performance.** ~5% network overhead and ~1-3% CPU saved by
-  not virtualizing. Real but small.
-
-#### Recommended sequencing (deferred decision)
-
-For the **learning phase** (Phases 1–4): **microvm-confined**.
-Phase 1 is genuinely a validation phase where things may break
-in unpredicted ways; having those breakages contained reduces
-blast radius while the operator is building familiarity. The
-~5% performance cost is cheap insurance.
-
-After Phase 4 (cluster has been operating reliably with several
-production workloads): **revisit**. By that point there's
-operating experience to inform the choice. If the microvm
-abstraction has been pure overhead, lifting to host-direct is a
-defined migration (move state, point host k3s at the same
-manifests, swap DNS/networking, decommission the microvm). If
-the failure-domain isolation has caught real issues, keep the
-microvm.
-
-The rest of the plan doesn't depend on which way this lands —
-the platform components, security model, observability, dev-env
-patterns are all the same. This is a deferrable decision; it
-shouldn't block Phase 1.
+The **kata config sharing** is the only real footgun. Both
+deployd's existing kata workloads and k3s' kata RuntimeClass
+will read `/etc/kata-containers/configuration.toml`. Pinning
+the kata-runtime nixpkgs version is the right hedge.
 
 ### Performance
 
-By layer:
+Bare-metal-on-erebonia eliminates the virtualization-overhead
+penalties earlier revisions accepted. Per-runtime cost is the
+only overhead remaining:
 
-| Layer | Overhead |
+| Runtime | Overhead vs. bare-metal runc |
 | --- | --- |
-| KVM CPU (hardware-assisted) | 1–3% |
-| virtio-net | ~5% throughput, +10–30µs latency |
-| virtio-blk / virtiofs | 5–10% |
-| gVisor (runsc) for sandboxed pods | ~10–30% on syscall-heavy workloads, ~equal on compute-bound |
-| Nested KVM (only inside cc-sandbox pods running nested NixOS-test VMs) | additional 10–20% CPU within that pod |
+| runc (default) | 0% — native processes on the host kernel |
+| runsc (gVisor) | ~10–30% on syscall-heavy workloads, ~equal on compute-bound |
+| kata-qemu | ~10–20% CPU per pod (full KVM VM); near-equal network/storage with virtio-fs/virtio-net |
+| runc-kvm | 0% for the runc layer; nested-KVM cost only for workloads that actually spawn nested VMs |
 
 For the named workloads:
 
-- Blog: invisible.
-- CI runners under gVisor: ~10–20% slower than bare-metal for
+- **Blog**: invisible (runc on bare-metal).
+- **CI runners under gVisor**: ~10–20% slower than native for
   syscall-heavy steps (dependency installs, file-heavy builds);
-  near-bare-metal for compute-heavy steps (compilers, linkers).
-  Comparable in net to what kata-with-nested-KVM would have cost,
-  without the nested-KVM dependency.
-- Claude sandboxes: 5–15% slower than bare-metal runc once
-  migrated. (Stays runc + kvm-device-plugin for `/dev/kvm`
-  access.)
-- Game servers under runc: ~5% network, ~3% CPU. Imperceptible to
-  players.
-- Dev environments under runc: identical to today (edith already
-  runs as an Incus container with similar overhead).
+  near-native for compute-heavy steps. Same penalty as v15-v17
+  estimated; bare-metal removed the v6-era virtio overhead on
+  top of it.
+- **cc-sandbox under kata-qemu**: ~10–20% CPU overhead per
+  pod; storage/network near-native. Direct `/dev/kvm` for
+  nested NixOS-test VMs without nested-virt penalty (this was
+  the broken case under deployd's runc-kvm-in-microvm story).
+- **cc-sandbox under runc-kvm fallback** (if kata-qemu's guest
+  kernel has nested-KVM issues): near-bare-metal everything,
+  weaker isolation than kata.
+- **Game servers under runc**: native — direct CPU and
+  network. Imperceptible to players.
+- **edith dev environment under runc**: comparable to today
+  (Incus container on calvard); cross-host access to PVCs
+  hosted on liberl NAS adds NFS or iSCSI latency, similar to
+  Incus's network-storage path.
 
-Dramatically better than rootless k8s and similar to running any
-other microvm guest. Notably, **no nested KVM is required for the
-isolation model** — that requirement was specific to a kata-based
-approach and goes away with gVisor.
+The notable change from v17: **performance numbers drop the
+virtio overhead row**. There is no microvm boundary between
+the cluster and the host.
 
 ### Community pattern
 
@@ -509,7 +503,7 @@ router6.zones.cluster = {
 
 Cluster-side: k3s' bundled flannel + kube-router NetworkPolicy
 provides per-pod policy. flannel masquerades pod egress to the
-cluster microvm's IP by default, so router6 sees a single
+erebonia's host IP by default, so router6 sees a single
 source IP for all cluster-originated traffic. kube-router
 enforces NetworkPolicy on pod-to-pod and pod-to-external
 flows. No additional CNI configuration is required for this
@@ -532,7 +526,7 @@ grant connectivity that router6 denies.
   `ClusterIP` + `NodePort`; HTTP routing is handled by k3s'
   bundled Traefik inside the cluster, with langport's existing
   nginx fronting public-facing services (or SNI passthrough to
-  the cluster microvm:443).
+  erebonia:443).
 - **Drift risk.** An operator adds a NetworkPolicy that opens
   egress to something router6 hasn't been told about; developers
   see unexplained drops. Failure mode is fail-closed (good) but
@@ -542,9 +536,9 @@ grant connectivity that router6 denies.
 
 ## Platform components — all NixOS-declared
 
-Each of these is declared in the cluster microvm's NixOS
-configuration and applied at cluster startup via k3s' bundled
-mechanisms (HelmChart CRD, `manifests/` auto-apply directory).
+Each of these is declared in erebonia's NixOS configuration
+and applied at cluster startup via k3s' bundled mechanisms
+(HelmChart CRD, `manifests/` auto-apply directory).
 None require manual post-install steps; a fresh
 `nixos-rebuild switch` produces a fully operational platform.
 
@@ -552,8 +546,9 @@ None require manual post-install steps; a fresh
   maintained module). Bundles the canonical k3s stack: CoreDNS,
   metrics-server, kine+SQLite, kube-proxy, kube-router
   NetworkPolicy controller, flannel, Traefik, ServiceLB,
-  local-path-provisioner. **Inside the cluster microvm**, this
-  bundle doesn't conflict with anything host-level. The
+  local-path-provisioner. **On erebonia bare-metal**, this
+  bundle coexists with deployd during the transition; see the
+  coexistence audit in the Architecture section. The
   earlier rejection of k3s was anchored on a bare-metal mental
   model where flannel and Traefik would fight router6 and
   host Caddy; with the cluster confined to a microvm, those
@@ -587,8 +582,7 @@ None require manual post-install steps; a fresh
   the previously-recommended host-Caddy proxy: with deployd
   sunset, host Caddy was deployd-specific and no longer needed.
   Public-facing cluster services route via langport's existing
-  nginx (or via SNI passthrough → cluster microvm:443 →
-  Traefik). Tailnet-only services route directly to cluster
+  nginx (or via SNI passthrough → erebonia:443 → Traefik). Tailnet-only services route directly to cluster
   microvm:443.
 - **TLS: cert-manager + step-ca ClusterIssuer**, declared as a
   HelmChart resource. Now load-bearing: Traefik consumes
@@ -629,47 +623,61 @@ None require manual post-install steps; a fresh
   Once running, Flux reconciles the dynamic layer.
 - **RuntimeClasses**: declared as Kubernetes resources via k3s'
   `manifests/` auto-apply directory (single small YAML files,
-  not Helm).
+  not Helm). Bare-metal-on-erebonia makes kata viable as a
+  first-class option (no nested-KVM penalty), so the runtime
+  set is broader than the v15 framing.
   - `runc` (default) — trusted code: foundational service
-    workloads, the blog, game servers
-  - `runsc` (gVisor) — untrusted-or-adversarial code:
-    CI step pods, **and cc-sandbox** (revised from prior
-    revisions; see "cc-sandbox isolation tier" below).
-    Installed via the gVisor containerd shim configured in
-    k3s' containerd template; declared at the OS level in the
-    cluster microvm. RuntimeClass YAML in the auto-apply dir.
-  - `runc-kvm` — runc + kvm-device-plugin for the *narrow* case
-    of cc-sandbox sessions that legitimately need `/dev/kvm`
-    access for nested NixOS-test VMs, opted into per-session
-    rather than per-workload.
-  - **Kata is intentionally not declared.** Off the common
-    community path inside a microvm; can be added later if a
-    workload needs hardware-enforced kernel isolation
-    specifically.
+    workloads, the blog, game servers, edith dev environment
+  - `runsc` (gVisor) — sandboxed untrusted code: CI step pods
+    running build scripts and dependencies. Userspace
+    syscall implementation; ~10–30% syscall-heavy overhead;
+    no kernel-virt cost. Installed via the gVisor containerd
+    shim configured in k3s' containerd template.
+  - `kata-qemu` — hardware-isolated workloads: **cc-sandbox by
+    default**. Full KVM VM per pod with QEMU as the VMM;
+    ~10–20% CPU per pod. On bare-metal erebonia this is the
+    canonical k8s-with-kata pattern (host KVM directly; no
+    nesting). Critically, cc-sandbox pods get `/dev/kvm`
+    inside the kata VM for nested NixOS-test VMs — the
+    workflow that was broken under deployd's runc-kvm-in-
+    microvm story.
+  - `runc-kvm` — fallback for cc-sandbox if kata-qemu's guest
+    kernel can't handle nested NixOS-test VMs (the recurrence
+    of the kata-kernel-nested issue that originally drove
+    cc-sandbox off kata). Validated during Phase 8; the
+    decision between kata-qemu and runc-kvm for cc-sandbox is
+    deferred until then.
 
-### cc-sandbox isolation tier
+### cc-sandbox isolation tier — bare-metal reopens kata
 
-Earlier revisions had cc-sandbox migrate to `runc-kvm` based on
-its `/dev/kvm` requirement. That gave the workload most likely
-to be coaxed adversarial via prompt-injection (Claude executing
-arbitrary code on the operator's behalf) the **weakest**
-isolation in the cluster, while CI on `runsc` got the strongest
-sandboxed tier. That ranking is inverted.
+With erebonia bare-metal, cc-sandbox's isolation story is
+substantially better than under deployd or under the v17
+microvm-confined plan:
 
-Corrected approach:
+- **deployd today**: cc-sandbox runs as `runc` (host kernel
+  shared with deployd-managed workloads). `/dev/kvm`
+  passthrough works for some sessions but nested NixOS-test
+  VMs hit kata-kernel-nested launcher hangs (the original
+  reason cc-sandbox was moved to runc).
+- **v17 microvm-confined plan**: cc-sandbox would run as
+  `runsc` (gVisor) by default, downgrading to `runc-kvm`
+  per-session for `/dev/kvm` needs. gVisor was the right
+  isolation tier given nested-virt costs, but `runc-kvm`
+  sessions still had a triple-KVM stack to deal with.
+- **v18 bare-metal plan**: cc-sandbox runs as `kata-qemu` by
+  default — hardware-enforced KVM isolation **plus** direct
+  host `/dev/kvm` access for nested workloads inside the
+  kata VM. No nested-virt penalty for the cluster; the
+  nesting cost is paid only inside pods that actually use it.
+  This is strictly stronger isolation than the v17 plan and
+  strictly better performance for nested workloads than the
+  deployd story.
 
-- **Default cc-sandbox sessions: `runsc` (gVisor)** — same
-  isolation tier as CI runners. Sufficient for most sessions
-  (LLM coding work, builds that don't need nested KVM).
-- **`/dev/kvm`-needing sessions: `runc-kvm`, opted in per
-  session.** When the operator requests a session that runs
-  NixOS test VMs, cc-sandbox provisions a `runc-kvm` Pod
-  instead. This is an explicit per-session decision, not the
-  default — the user takes the isolation downgrade only when
-  they need it.
-
-This is a meaningful security correction; carry it through
-Phase 8's migration plan.
+The trade: `kata-qemu` carries ~10–20% per-pod CPU overhead vs.
+runc. Acceptable for cc-sandbox sessions which are interactive
+rather than throughput-sensitive. If a specific session needs
+near-native performance, the operator can request `runc-kvm`
+explicitly.
 
 ### Bootstrap flow
 
@@ -677,11 +685,12 @@ The flake's responsibility ends at "the cluster is up with all
 platform components installed and Flux watching the dynamic
 path." Concretely:
 
-1. NixOS provisions the cluster microvm with k3s + the
-   bundled stack. Cluster API up; CoreDNS, metrics-server,
+1. NixOS rebuild on erebonia activates `services.k3s` plus
+   the bundled stack. Cluster API up; CoreDNS, metrics-server,
    kine+SQLite, kube-proxy, kube-router, flannel, Traefik,
    ServiceLB, local-path-provisioner running. RuntimeClass
-   YAMLs from the manifests directory are applied.
+   YAMLs (runc, runsc, kata-qemu, runc-kvm) from the manifests
+   directory are applied.
 2. k3s' HelmChart controller applies external-snapshotter
    (provides VolumeSnapshot CRDs) before democratic-csi.
    cert-manager comes up before any Certificate resource is
@@ -824,33 +833,57 @@ KubeVirt VMs — Pods are sufficient, KubeVirt is overkill.
 Phased, with rollback-via-NixOS at every step. Previous tools stay
 declared in the flake until the new pattern has proven itself.
 
-### Phase 1 — Stand up the cluster microvm with platform fully declared
+### Phase 0 — Resource inventory and coexistence audit (prerequisite)
+
+Before Phase 1 lands k3s on erebonia, document and verify:
+
+- **Erebonia's actual resources.** Capture `free -h`, `nproc`,
+  `lscpu`, disk capacity. Project workload sum: existing
+  deployd + roer microvm (512 MB / 2 vCPU) + saint-arkh (4 GB
+  / 4 vCPU when deployed) + trista (Incus VM) + k3s overhead
+  (4–8 GB) + cluster workloads. Confirm headroom.
+- **Coexistence audit.** Walk the table in "Coexistence with
+  deployd during transition" above against the live state of
+  erebonia. Verify each touchpoint:
+  - containerd socket paths don't conflict (k3s under
+    `/run/k3s/containerd/`)
+  - CNI conflist directories (`/var/lib/rancher/k3s/agent/etc/cni/net.d/`
+    for k3s, `/etc/cni/net.d/` for deployd)
+  - bridge names don't collide (`cni0` for flannel,
+    `deploy-dmz` for deployd)
+  - kata config file `/etc/kata-containers/configuration.toml`
+    pinned to a known version (kata-runtime nixpkgs version)
+  - `boot.extraModprobeConfig` duplicate declarations resolved
+    (deployd module's nested-KVM setting redundant with
+    erebonia's; pick one)
+  - Port allocations free: 6443, 10250, 10256, 8472
+- **NixOS rollback verified.** Confirm boot menu has a known-
+  good previous generation; document the rollback procedure
+  for "Phase 1 broke erebonia" recovery.
+
+### Phase 1 — k3s on erebonia bare-metal
 
 Everything platform-level is declared in the flake; no manual
-imperative steps. The k3s pivot makes this phase substantially
-shorter than earlier revisions implied.
+imperative steps. With the bare-metal pivot, this phase has no
+microvm to provision.
 
-**Microvm guest setup:**
-
-- Build the microvm guest on calvard. Trails-themed name.
-  cloud-hypervisor backend (matches existing pattern); validate
-  virtio-balloon support during this phase. `mem` ceiling
-  16 GB initial, 4 vCPU.
-- One virtio-net interface to a new `cluster` zone.
-- gVisor's `runsc` binary in the cluster microvm OS
-  (`pkgs.gvisor` if available; otherwise prebuilt from
-  upstream).
-- iSCSI client tools (`pkgs.openiscsi`) in the cluster microvm.
-- containerd shim configuration registering `runsc` (k3s'
-  containerd template extension).
-
-**NixOS declares:**
+**Erebonia host config additions:**
 
 - `services.k3s.enable = true` with default settings — flannel,
   Traefik, ServiceLB, CoreDNS, metrics-server, kine+SQLite,
   kube-router NetworkPolicy all bundled and enabled.
-- HelmChart resources (via k3s' `manifests/` auto-apply
-  directory):
+- gVisor's `runsc` binary on erebonia (`pkgs.gvisor` if
+  available; otherwise prebuilt from upstream).
+- kata-runtime binary (already present today via deployd's
+  module; coordinate version pinning between deployd and k3s).
+- iSCSI client tools (`pkgs.openiscsi`) on erebonia.
+- containerd shim configuration in k3s' containerd template
+  registering `runsc` and `kata-qemu`.
+
+**Cluster-side declarations** (via k3s' `manifests/` auto-apply
+directory and HelmChart CRs):
+
+- HelmChart resources:
   - `external-snapshotter` (must apply before democratic-csi —
     provides VolumeSnapshot CRDs)
   - `cert-manager` + step-ca ClusterIssuer (must apply before
@@ -863,8 +896,9 @@ shorter than earlier revisions implied.
     components)
   - `flux` configured to bootstrap against the
     dynamic-manifest path in this flake
-- RuntimeClass YAMLs (`runc` default, `runsc` for sandboxed,
-  `runc-kvm` for /dev/kvm-needing) in the manifests directory.
+- RuntimeClass YAMLs (`runc` default, `runsc` for CI sandbox,
+  `kata-qemu` for cc-sandbox, `runc-kvm` as cc-sandbox
+  fallback) in the manifests directory.
 
 **liberl-side requirements** (parallel work in Phase 1):
 
@@ -912,7 +946,9 @@ in {
 };
 ```
 
-**Apply:** `nixos-rebuild switch`.
+**Apply:** `nixos-rebuild switch` on erebonia. If anything
+goes wrong, `nixos-rebuild switch --rollback` or boot the
+previous generation via systemd-boot.
 
 **Validation:**
 
@@ -921,19 +957,26 @@ in {
   local-path-provisioner) plus cert-manager,
   external-snapshotter, democratic-csi, Kyverno,
   Flux all `Running`
-- `kubectl get runtimeclass` — runc, runsc, runc-kvm present
+- `kubectl get runtimeclass` — runc, runsc, kata-qemu,
+  runc-kvm all present
 - Test pod with `runtimeClassName: runsc` runs and is
   sandboxed (`cat /proc/version` shows gVisor kernel string,
-  not the cluster microvm's)
+  not erebonia's host kernel)
+- Test pod with `runtimeClassName: kata-qemu` runs inside a
+  KVM VM (`uname -r` shows kata's guest kernel, distinct from
+  erebonia's)
+- Test pod with `runtimeClassName: kata-qemu` can access
+  `/dev/kvm` for nested workloads (the cc-sandbox use case)
 - Test PVC against democratic-csi: provisions on liberl,
   binds, snapshots successfully via VolumeSnapshot
 - Test Certificate request: cert-manager issues from step-ca,
   binds to a Secret
 - Pod-to-pod, pod-to-host-deny-default, pod-to-internet-only-
   via-router6-allows behave as expected
-- balloon behavior: cluster microvm `mem` actual usage tracks
-  workload; pressure-test by spinning up several pods and
-  watching host-side memory accounting
+- **deployd coexistence intact**: a deployd-managed container
+  starts and runs correctly with k3s active; `roer`'s
+  deployd-api still serves; existing kata workloads under
+  deployd unaffected
 - Hostile-test from Appendix A's checklist runs cleanly under
   `runsc`
 
@@ -942,13 +985,21 @@ from a fresh `nixos-rebuild switch`, all the above validations
 pass, and Flux is reconciling an (initially placeholder)
 dynamic-manifest path.
 
-### Phase 2 — First workload: the blog
+### Phase 2 — First workload: the blog (or skip to Phase 3/4)
+
+The blog was the v17 canonical "smallest first workload" but
+it isn't a homelab priority. This phase is genuinely optional:
+either build the blog if there's content to ship, or skip to
+Phase 3/4 if there isn't. The cluster-side validation work
+(Deployment + Service + Flux reconciler + cluster Traefik
+routing) gets done in any first workload regardless; the blog
+is just the lowest-stakes choice.
 
 - Deployment + Service + Flux reconciler watching the content repo
   for image updates.
 - Cluster-side Traefik routes `blog.*` to the Pod; langport's
-  nginx (or SNI passthrough) forwards public traffic to the
-  cluster microvm.
+  nginx (or SNI passthrough) forwards public traffic to
+  erebonia's k3s ingress.
 - Exercises the whole stack with the lowest-stakes workload.
 
 ### Phase 3 — Game server with CSI snapshot
@@ -971,93 +1022,142 @@ dynamic-manifest path.
 - Decommission saint-arkh's planned role; the network-registry
   allocation can be reclaimed or repurposed.
 
-### Phase 5 — Migrate edith into the cluster
+### Phase 5 — Migrate cc-sandbox to the cluster
 
-Earliest start: ~6 months into cluster operation, after Phases 2–4
-have run reliably.
+**This phase moves forward in v18.** Earlier revisions deferred
+cc-sandbox migration 12+ months on the theory that the cluster
+needed to prove itself first. With v18's bare-metal pivot on
+the same host cc-sandbox already runs on, the deferral isn't
+worth its operational cost (a year of two orchestrators
+competing for kata workloads on the same host). cc-sandbox is
+also one of the strongest motivations for the pivot — its
+current deployd nested-virt story is broken and bare-metal
+kata-qemu (or runc-kvm) fixes it.
+
+- Test cc-sandbox-shape workloads under `kata-qemu` first:
+  spin up a test pod, validate `/dev/kvm` access works
+  inside the kata VM, run a NixOS test VM to confirm nested
+  KVM works.
+- If kata-qemu's guest kernel can't handle nested NixOS-test
+  VMs (the recurrence of the kata-kernel-nested issue),
+  fall back to `runc-kvm`. Decide here.
+- Reimplement the OIDC-authenticated Pod-creation flow as a
+  small k8s controller, or extend `deployd-api` to talk to
+  the k8s API instead of `deployd-helper`. (Either works;
+  the latter is more reversible.)
+- Run new cluster-side cc-sandbox in parallel with deployd-
+  side cc-sandbox for a few sessions to validate.
+- Cut over cc-sandbox's CLI to the new endpoint.
+
+### Phase 6 — Decommission deployd
+
+With cc-sandbox migrated, deployd has no remaining workloads.
+
+- Remove `modules/deployd/` and `packages/deployd-{api,helper}`
+  from the flake.
+- Decommission `roer` microvm (deployd-api host).
+- Reclaim the network allocations.
+
+This phase ends the deployd cohabitation period (which was
+weeks-to-months in v18 rather than the year envisioned in v17).
+The kata config file at `/etc/kata-containers/configuration.toml`
+is now solely owned by k3s' runtime; the coexistence audit
+items collapse.
+
+### Phase 7 — Migrate edith into the cluster
+
+Earliest start: ~3 months into cluster operation, after Phases
+2–4 have run reliably. (v17's "6 months" was anchored on
+microvm-confined timing; bare-metal cluster matures faster
+because there's no microvm-shaped surprise discovery.)
 
 - Build a NixOS-as-Pod base image for edith via
   `dockerTools.streamLayeredImage`.
 - Define a StatefulSet with PVCs for `/nix`, `/home`,
-  `/etc/nixos`, and other state directories.
-- Run the new edith-pod in parallel with the existing Incus edith
-  for a few weeks. Validate that builds, dev workflows, sshd
-  access, and the langport/Traefik routing chain all work.
-- Cut over by switching DNS / langport routing to the new edith.
-- Keep the Incus edith declared (but stopped) for several more
-  weeks as a rollback option. Once confidence is high, remove the
-  Incus declaration.
+  `/etc/nixos`, and other state directories. PVCs backed by
+  democratic-csi against liberl NAS (cross-host access works
+  because PVCs are CSI-mediated, not host-local).
+- **Cross-host PVC note**: parallel-run during cutover can't
+  use the same RWX block volume from both the Incus edith
+  (on calvard) and the Pod edith (on erebonia). Either:
+  - Use NFS-backed (RWX) volumes during parallel run, switch
+    to iSCSI (RWO) after cutover; or
+  - Skip the parallel run; do a copy-then-cutover with a
+    short downtime window.
+- Run the new edith-pod for a few weeks. Validate that builds,
+  dev workflows, sshd access, and the langport routing chain
+  all work.
+- Cut over by switching DNS / langport routing to the new
+  edith. Keep the Incus edith declared (but stopped) for
+  several more weeks as rollback option. Once confidence is
+  high, remove the Incus declaration.
 
-### Phase 6 — Reconcile trista's role
+### Phase 8 — Reconcile trista's role
 
-trista's role is currently ambiguous. The microvm-inventory
-classifies it as a "Dev environment / task runner (backup)";
-the actual config (`hosts/erebonia/incus/guests/trista/
-default.nix`) uses `profile = "dmz-vm"` and the network
-registry comment labels it "SSH bastion (erebonia Incus VM)".
-Phase 6 reconciles this:
+trista's role is ambiguous. The microvm-inventory classifies
+it as a "Dev environment / task runner (backup)"; the actual
+config (`hosts/erebonia/incus/guests/trista/default.nix`) uses
+`profile = "dmz-vm"` and the network registry comment labels
+it "SSH bastion (erebonia Incus VM)". The operator has
+indicated trista is currently unused and can be left alone
+until needed.
 
-- If trista is genuinely a backup dev environment (operator
-  decision), migrate it to a StatefulSet + PVCs the same way
-  edith was migrated in Phase 5.
-- If trista is the current SSH bastion (interim), keep it on
-  Incus until the planned calvard-hosted bastion (per
-  Appendix B and the feature roadmap) supersedes it. The
-  cluster doesn't subsume the bastion (Appendix B argues
-  bastion stays on microvm.nix permanently).
-- If both: split trista into two workloads, one per role.
+- **Default action: leave alone.** If trista isn't currently
+  serving a workload, no migration work is needed.
+- If a future bastion role is assigned to trista: keep it on
+  Incus or migrate to the planned calvard-hosted bastion per
+  Appendix B.
+- If a future dev-environment role is assigned: migrate to a
+  StatefulSet + PVCs the same way edith was migrated in
+  Phase 7.
 
-The decision is operator-facing and Phase-6-blocking. Earlier
-revisions of this document treated edith and trista as
-symmetric dev environments, which was incorrect.
-
-### Phase 7 — Decommission Incus
+### Phase 9 — Decommission Incus (if/when appropriate)
 
 - Once dev environments are in the cluster (and trista's role
-  is resolved per Phase 6), evaluate whether Incus is still
+  is resolved per Phase 8), evaluate whether Incus is still
   needed. If trista was the only remaining Incus guest, remove
   `common.incus` from calvard and erebonia.
 - Reclaim the storage pool space.
 - The flake gains one less control-plane module.
-- If Phase 6 keeps trista on Incus as the interim bastion,
-  Phase 7 is deferred until the calvard-hosted bastion lands.
-
-### Phase 8 — Migrate cc-sandbox from deployd to k8s
-
-After the cluster has been operating reliably for 12+ months.
-
-- Reimplement the OIDC-authenticated Pod-creation flow as a small
-  k8s controller (or extend deployd-api to talk to the k8s API
-  instead of the helper).
-- Validate that nested-KVM works in a runc Pod with the
-  kvm-device-plugin and a `RuntimeClass: runc-kvm` definition.
-- Cut over cc-sandbox's CLI to the new endpoint.
-
-### Phase 9 — Decommission deployd
-
-- Remove `modules/deployd/` and `packages/deployd-{api,helper}`
-  from the flake.
-- Reclaim erebonia's deployd microvm guest (`roer`).
+- Phase 9 may be deferred indefinitely if trista is kept on
+  Incus or if a new use case emerges for Incus.
 
 ### Phase 10 — Multi-node expansion (when warranted)
 
-Add erebonia as a worker node to the existing single-node
-cluster. Workload distribution via labels and taints; calvard
-remains control plane + interactive workloads, erebonia takes
-batch workloads (CI step pods, possibly game servers).
+The v18 pivot changes Phase 10's shape. With the cluster on
+erebonia bare-metal, expanding to multi-node has two options:
 
-Triggered when single-node hits a workload-driven reason to
-expand (CI burst ceiling, contention, deployd sunset leaving
-erebonia underutilized, or "fix tomorrow morning" no longer
-acceptable for control-plane outages). See **Appendix C** for
-the full topology evolution, storage architecture
-implications, and host-role mapping.
+- **Add calvard as a worker.** Workable but inverts the
+  failure-domain story: dynamic cluster scheduling decisions
+  would now affect calvard, which hosts the static fleet
+  (Authelia, step-ca, Forgejo, observability stack, edith).
+  An OOM-killer event or runaway pod on calvard would impact
+  foundational services. **Not recommended** unless the
+  static fleet has also been migrated.
+- **Add a new host.** Provision additional hardware whose role
+  is "cluster worker." Preserves the host-boundary failure-
+  domain isolation v18 relies on. The new host has no static
+  fleet to protect.
+- **Stay single-node indefinitely.** For a homelab's workload
+  scale, single-node erebonia is sufficient. Multi-node is a
+  capacity-driven decision, not a maturity-driven one.
+
+The original v17 Phase 10 ("add erebonia as worker to a
+calvard-hosted control plane") is no longer applicable; erebonia
+is already the cluster host. See **Appendix C** for the
+topology evolution discussion, updated for the v18 shape.
 
 ### Phase 11 — Real HA (with or after Phase 10)
 
 Add liberl as a third control-plane node, tainted against
 workload scheduling. ~1 GB / ~1 vCPU control-plane-only
 microvm; etcd state on liberl's btrfs SSD root.
+
+In the v18 shape, Phase 11 is the more relevant HA step than
+Phase 10 because it adds control-plane redundancy without
+inverting the static-fleet isolation. Multi-node-via-new-host
++ liberl-as-third-voter is the canonical HA topology if/when
+warranted.
 
 Phases 10 and 11 are most valuable when done together — Stage
 1 alone (multi-node) leaves the API as SPOF; Stage 2 alone
@@ -1079,18 +1179,40 @@ network requirements, and trade-offs.
 
 ## Risks and what could change the recommendation
 
-- **Microvm-confined vs. host-direct deployment.** The plan
-  recommends microvm-confined for Phases 1–4 (failure-domain
-  isolation during the learning phase) but explicitly defers
-  the long-term decision. If Phases 1–4 demonstrate that the
-  microvm overhead is pure ceremony (cluster never crashes the
-  way the isolation argument anticipates; resource bounds
-  matter less than expected; reset-and-rebuild is rare), then
-  host-direct becomes the right answer at Phase 4+. The
-  reverse is also possible: failure-domain isolation catches
-  real issues, in which case microvm-confined stays. Decision
-  is genuinely deferred to operating experience; see the
-  "Microvm-confined or host-direct" subsection in Architecture.
+- **deployd ↔ k3s coexistence debugging during transition.**
+  Phases 1–6 have both running on erebonia. The audit
+  checklist in the Architecture section identifies the
+  touchpoints (containerd paths, CNI conflist directories,
+  kata config sharing, bridge names, ports, kernel modules).
+  Most are non-conflicts; the kata config file sharing is the
+  real footgun. Mitigation: pin kata-runtime nixpkgs version
+  during the transition; revisit when Phase 6 lands. If
+  coexistence debugging gets noisy, accelerate Phase 6 to end
+  the cohabitation period.
+- **kata-qemu nested-KVM for cc-sandbox.** The kata-kernel-
+  nested issue that originally drove cc-sandbox off kata in
+  deployd may recur in the cluster's kata-qemu RuntimeClass.
+  Phase 5 validates this explicitly before cutting over.
+  Fallback: `runc-kvm` for cc-sandbox sessions, accepting the
+  isolation downgrade for the sessions that need nested
+  workloads. The cluster's bare-metal access to host
+  `/dev/kvm` makes this the simple case (no nesting penalty).
+- **gVisor + kata together adds maintenance surface.**
+  Declaring both RuntimeClasses means tracking two
+  separate runtime release cadences and two containerd shim
+  configurations. v17's gVisor-only plan was simpler. v18
+  accepts more surface for per-workload mapping (gVisor for
+  CI, kata for cc-sandbox). Worth naming explicitly; budget
+  ~bi-monthly check-in time for runtime updates.
+- **Erebonia kernel panic / k3s crash recovery.** Without a
+  microvm boundary, cluster failures take erebonia down with
+  them. Recovery is NixOS rollback (`nixos-rebuild switch
+  --rollback` or boot previous generation). This is a real
+  recovery mechanism — every NixOS change is boot-time
+  reversible without data restore — but it's a different
+  posture than "destroy the cluster host and rebuild."
+  The operator accepts this trade; document the rollback
+  procedure in the runbook.
 - **gVisor compatibility for CI workloads.** gVisor's userspace
   syscall implementation is mature but has gaps — some syscalls
   are unimplemented or behave subtly differently. Most CI
@@ -1163,7 +1285,7 @@ section names alternatives that came up across iterations
 honestly — what they'd look like, what they cost, why the
 plan doesn't pick them.
 
-### Talos as the cluster microvm's OS (instead of NixOS+k3s)
+### Talos as the cluster host's OS (instead of NixOS+k3s)
 
 Talos Linux is an immutable OS designed for k8s. The cluster
 microvm's NixOS layer would be replaced with Talos's machine-
@@ -1359,7 +1481,8 @@ This is the community-standard isolation tier for "k8s on VMs +
 untrusted code" — used in production by Google Cloud Run, GKE
 Sandbox, App Engine, GitHub-hosted Actions runners, and various
 CI SaaS providers. It does **not** require nested KVM, which is
-why it's the right answer for our microvm-confined cluster.
+why it's a viable sandbox tier alongside kata-qemu (which
+v18 also enables thanks to bare-metal on erebonia).
 
 Performance: ~10–30% slower for syscall-heavy workloads
 (dependency installation, file-heavy builds), near-bare-metal
@@ -1507,7 +1630,7 @@ woodpecker-builds namespace:
   - ResourceQuota capping total concurrent build CPU/memory
 ```
 
-router6's `cluster` zone gates the cluster microvm's egress to
+router6's `cluster` zone gates the cluster host's egress to
 creil / zeiss / phantasma; NetworkPolicy gates per-pod egress
 within those bounds.
 
@@ -1610,7 +1733,7 @@ mechanisms.
 ### What carries over from Appendix A
 
 - **`runtimeClassName: runsc`** (gVisor) — sandbox boundary
-  between bastion and the cluster microvm. Bastion runs trusted
+  between bastion and the cluster host. Bastion runs trusted
   code (admin sessions) but is public-facing, so defense-in-
   depth via gVisor against sshd CVEs and session-escape attempts
   is appropriate.
@@ -1631,11 +1754,11 @@ homelab. Architecture:
 - **Service of type `NodePort`** for port 22 → bastion pod.
 - **Host-side TCP proxy** (caddy-l4 if Caddy is built with the
   L4 module, else nginx stream, else direct DNAT) forwards
-  external 22 → cluster microvm's NodePort.
-- **router6** allows inbound `<external>:22` → cluster microvm
+  external 22 → cluster host's NodePort.
+- **router6** allows inbound `<external>:22` → cluster host
   only via that path.
 - **NetworkPolicy ingress** restricts which sources can reach the
-  bastion pod's port 22 — at minimum, only the cluster microvm's
+  bastion pod's port 22 — at minimum, only the cluster host's
   interface.
 
 If bastion access is **tailnet-only** (recommended), the inbound
@@ -1762,7 +1885,7 @@ spec:
   policyTypes: [Ingress]
   ingress:
   - ports: [{ protocol: TCP, port: 22 }]
-    # `from:` empty/restricted to cluster microvm interface only
+    # `from:` empty/restricted to cluster host interface only
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -1858,65 +1981,52 @@ calvard. The cluster's topology can grow over time as workloads
 warrant. This appendix documents the natural evolution path and
 when each step is worth taking.
 
-### Stage 0 — Single-node (Phases 1–4)
+### Stage 0 — Single-node (Phases 1–9)
 
-One cluster microvm on calvard. All workloads scheduled there.
+k3s on erebonia bare-metal. All cluster workloads scheduled
+there. Static fleet stays on calvard, untouched.
 
-- Simplest. One microvm to maintain, one NixOS module set, one
-  router6 firewall config.
-- No HA. Cluster down ≡ calvard's cluster microvm down.
-- Sufficient for the initial workload set (blog, one game
-  server, modest CI burst).
+- Simplest. One NixOS host config to declare the cluster, one
+  routes table.
+- No HA. Cluster down ≡ erebonia down.
+- Sufficient for the workload set the plan ships: blog, game
+  server, CI runners (Woodpecker pods), cc-sandbox (after
+  Phase 5), eventually edith.
 
-This is where the migration plan starts. Don't pay multi-node
-costs before there's a workload reason.
+This is where the v18 migration plan starts. Don't pay multi-
+node costs before there's a workload reason.
 
 ### Stage 1 — Multi-node (Phase 10)
 
-Add erebonia as a worker node. Single control plane on calvard;
-erebonia is a worker only.
+In the v17 framing this was "add erebonia as worker to a
+calvard control plane." With v18 inverting the cluster host
+(erebonia is now the control plane), Stage 1's shape changes.
 
-#### How it maps onto host roles
+#### Three options when expansion is wanted
 
-The homelab's existing host structure aligns naturally:
-
-- **calvard** (primary VM host): control plane + interactive
-  workloads (blog, dev environments when migrated, small
-  services)
-- **erebonia** (build/CI host): worker node for batch workloads
-  (CI build pods, game servers where compute-heavy)
-
-Erebonia is *already* the build/CI host — having it host CI
-worker capacity (instead of a saint-arkh microvm running a
-Forgejo runner daemon) is a more natural extension of its role.
-Once deployd sunsets in Phase 9, erebonia would otherwise be
-underutilized; cluster worker is a clean job for it.
-
-Workload pinning via labels and taints:
-
-```yaml
-# CI step pods
-spec:
-  nodeSelector:
-    workload-class: batch        # erebonia
-  tolerations:
-  - key: ci-only
-    operator: Exists
-
-# dev environment pods
-spec:
-  nodeSelector:
-    workload-class: interactive  # calvard
-```
+- **Add a new host as a worker.** Best preserves the host-
+  boundary failure-domain isolation v18 relies on. The new
+  host has no static fleet to protect, so cluster scheduling
+  decisions don't affect foundational services. This is the
+  recommended option if Stage 1 is wanted.
+- **Add calvard as a worker.** Possible but inverts the
+  failure-domain story. The static fleet on calvard becomes
+  scheduling-adjacent to cluster workloads. An OOM event or
+  runaway pod on a calvard-as-worker affects Authelia,
+  step-ca, etc. **Not recommended.**
+- **Stay single-node indefinitely.** Often the right answer
+  for a homelab. Multi-node is a capacity decision, not a
+  maturity decision.
 
 #### What this is and isn't
 
-- **Workload distribution**, yes. Burst capacity for CI lands on
-  erebonia; calvard stays responsive for interactive work.
-- **HA**, no. Single control plane on calvard is still SPOF for
-  the API. Existing pods on erebonia keep running if calvard
-  dies (kubelet caches its assigned pod set), but no new
-  scheduling. Don't pretend otherwise.
+- **Workload distribution**, yes — if a new host is added.
+  Burst capacity for CI can spread; long-running workloads
+  can be node-affinitied to whichever host suits them.
+- **HA**, no. Single control plane on erebonia is still SPOF
+  for the API regardless of how many workers exist. Existing
+  pods on other nodes keep running if erebonia dies (kubelet
+  caches its assigned pod set), but no new scheduling.
 
 #### Storage architecture matters here
 
@@ -1937,7 +2047,7 @@ value, so reserve it for ephemeral state only.
 
 #### Costs
 
-- More cluster surface (two cluster microvms, two firewall
+- More cluster surface (two cluster hosts, two firewall
   configs).
 - Inter-host CNI traffic via Cilium VXLAN. Performance is fine
   on a gigabit LAN; basically free on 10gig; degrades pod-to-
@@ -2026,7 +2136,7 @@ router6 needs the corresponding `forwardRules`.
 
 #### Costs
 
-- One more cluster microvm to maintain (3 instead of 2).
+- One more cluster host to maintain (3 instead of 2).
 - liberl gains a cluster role on top of NAS. If liberl reboots
   for NAS maintenance (NixOS upgrade), the cluster loses one
   control-plane vote temporarily. Still has 2/3 quorum, fine —
@@ -2067,7 +2177,7 @@ separately, but the value materializes when both are in place.
 Don't expand from single-node until at least one of these is
 true:
 
-- CI burst capacity on calvard's cluster microvm hits its
+- CI burst capacity on calvard's cluster host hits its
   ceiling (RAM, CPU, or scheduling pressure)
 - Game servers + dev environments + CI start fighting over
   calvard's resources
@@ -2159,8 +2269,8 @@ cluster is operational. High value, low operational cost.
      SopsSecret CRs in the cluster, decrypts using a key
      mounted into the operator pod, materializes as
      Kubernetes Secrets. Keeps sops as source of truth.
-  2. **NixOS-decrypts-at-boot, mounts into cluster microvm.**
-     The cluster microvm's NixOS layer uses sops-nix to
+  2. **NixOS-decrypts-at-boot, mounts into cluster host.**
+     The cluster host's NixOS layer uses sops-nix to
      decrypt secrets to a path on the microvm filesystem;
      a small in-cluster tool (or kustomize generator)
      materializes them as Secret resources at sync time.
@@ -2175,7 +2285,7 @@ cluster is operational. High value, low operational cost.
   applicable if the homelab eventually swaps flannel for
   Cilium (see Risks). With the chosen CNI (flannel + kube-
   router, Hubble isn't available; debugging falls back to
-  `iptables -L` inside the cluster microvm and router6 audit
+  `iptables -L` inside the cluster host and router6 audit
   logs on the host. Acceptable initially; revisit if
   observability gaps become painful.
 
@@ -2369,7 +2479,7 @@ To be honest about the trade:
 
 - The static fleet's per-service KVM-VM failure domain is
   stronger than the cluster's per-pod isolation. Cluster
-  workloads under runc share the cluster microvm's kernel;
+  workloads under runc share the cluster host's kernel;
   workloads under gVisor add a software syscall boundary but
   are still less isolated than a microvm-per-service. The
   microvm boundary the cluster itself sits inside provides
@@ -2594,7 +2704,79 @@ The list serves two purposes:
 
 Reverse chronological — most recent revision first.
 
-- v17 (this revision): editing pass to fix internal
+- v18 (this revision): pivot Phase 1 from "k3s in a microvm on
+  calvard" to "k3s on erebonia bare-metal." Substantive
+  architectural change; not just editing. The operator
+  pointed out that:
+  
+  1. Erebonia is already the dynamic-compute host (runs
+     deployd with kata as default today, nested-KVM enabled,
+     hosts saint-arkh's planned CI role). Role-fit is real.
+  2. router6 isn't on calvard or erebonia, so the "must be
+     microvm-confined for mechanical isolation" argument
+     never applied to either VM host — already conceded in
+     v16.
+  3. Bare-metal eliminates nested-virt penalties: kata-qemu
+     becomes the canonical pattern (no microvm-on-cloud-
+     hypervisor weirdness), cc-sandbox `/dev/kvm` access is
+     direct (which fixes the broken-nested-virt story that
+     drove cc-sandbox off kata in deployd).
+  4. NixOS rollback is the recovery mechanism (every change
+     boot-reversible without data restore). The skill-
+     investment-isolation argument earlier revisions used as
+     load-bearing isn't valued — the operator wants to do
+     this right the first time.
+  5. The workloads that v17's microvm-confinement was
+     protecting (roer, saint-arkh, trista) are either being
+     deprecated (roer, saint-arkh) or unused (trista). The
+     blast radius of "Phase 1 breaks erebonia" is much
+     smaller than v17 framed.
+  
+  Changes:
+  - Recommendation: cluster runs on erebonia bare-metal.
+  - Architecture: replaced "Microvm-confined or host-direct
+    deferred decision" subsection with "Why erebonia, not
+    calvard" + "What's lost vs. running in a microvm" +
+    "Coexistence with deployd during transition" (audit
+    table for the cohabitation period).
+  - Performance: dropped virtio overhead row; per-runtime
+    cost table only. cc-sandbox under kata-qemu now first-
+    class.
+  - RuntimeClasses: kata-qemu reopened as a first-class
+    option (was rejected in v14 for the microvm-confined
+    plan; bare-metal makes it the canonical pattern). cc-
+    sandbox default moves from runsc to kata-qemu with
+    runc-kvm as fallback if nested KVM issues recur.
+  - Migration phase reordering: cc-sandbox migration brought
+    forward from Phase 8 (v17) to Phase 5 (v18). deployd
+    decommission becomes Phase 6 (was Phase 9). edith
+    becomes Phase 7. trista reconciliation becomes Phase 8
+    with default "leave alone." Incus decommission becomes
+    Phase 9 (and may be deferred indefinitely if trista
+    stays).
+  - Phase 10 (multi-node): reframed away from "add erebonia
+    as worker." Three options now: add a new host (best),
+    add calvard (not recommended — inverts static-fleet
+    isolation), stay single-node (often right).
+  - Phase 0 added (resource inventory + coexistence audit)
+    as Phase 1 prerequisite.
+  - Risks updated: drop the microvm-vs-host deferred-decision
+    bullet (decision made); add deployd-coexistence-
+    debugging, kata-qemu nested-KVM for cc-sandbox, gVisor +
+    kata maintenance surface, erebonia-kernel-panic-recovery
+    via NixOS rollback.
+  - Appendix C topology: Stage 0 is now erebonia bare-metal;
+    Stage 1's "add a node" options reanalyzed.
+  - Reference table at top updated.
+  
+  This is the third "earlier framing anchored on a context
+  that didn't generalize" correction in this report's
+  history (v11→v12 prom-stack, v13→v14 kata-tier, v17→v18
+  microvm-confinement). The pattern is real; the repo's
+  design enables checking it (host configs are one
+  directory read away) but I didn't cross-check until the
+  operator pointed it out. Lesson recorded.
+- v17: editing pass to fix internal
   inconsistencies surfaced by independent editorial review.
   No architectural changes; the recommendation, principles,
   migration plan, and threat model are unchanged.
