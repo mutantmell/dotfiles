@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v11 — see revision history at end)
+Date: 2026-05-09 (v12 — see revision history at end)
 
 ## Question
 
@@ -1474,13 +1474,30 @@ cluster opens up capabilities alongside it.
 These would land in the platform declaration shortly after the
 cluster is operational. High value, low operational cost.
 
-- **kube-prometheus-stack** (Prometheus + Grafana + Alertmanager
-  + node-exporter + ServiceMonitors). The canonical k8s
-  observability stack — single Helm chart, auto-discovers all
-  cluster workloads via labels, ships metrics to (or replaces)
-  Prometheus on tharbad. Auto-discovery is the real win: a new
-  pod with the right labels is scraped automatically with no
-  per-service config edits.
+- **vmagent + Fluent Bit DaemonSet + kube-state-metrics** —
+  extending the existing push-mode observability stack
+  (`llm-notes/done/observability-stack-migration.md`) into the
+  cluster, not introducing a parallel Prometheus.
+  - **vmagent** scrapes cluster-side targets (kubelet, cadvisor,
+    kube-apiserver, controller-manager, scheduler, kube-state-
+    metrics, per-workload metrics endpoints) and `remote_write`s
+    to tharbad's vmauth → vmsingle.
+  - **Fluent Bit as a DaemonSet** collects pod logs from
+    `/var/log/containers` and ships to tharbad's Loki via the
+    existing nginx/htpasswd ingestion path. Same agent, same
+    auth pattern, same backend as the rest of the homelab.
+  - **kube-state-metrics** (small footprint) exposes k8s object
+    state (Pod phase, Deployment readiness, etc.) for vmagent.
+  - Optionally **VictoriaMetrics Operator** for declarative
+    `VMServiceScrape` resources (the VM analog of Prometheus'
+    ServiceMonitor). Useful if you want per-workload scrape
+    configs as manifests in the dynamic layer.
+  - Why not **kube-prometheus-stack**: the homelab moved off
+    Prometheus and Grafana for the foundational stack; bundling
+    them back in just for the cluster reintroduces the
+    components you intentionally replaced. Extending the
+    existing push-mode setup is cleaner and matches the
+    "lighter-weight components" direction.
 - **cert-manager** with a step-ca issuer. Declarative
   `Certificate` resources with automatic renewal. In-cluster
   TLS becomes trivial; pairs cleanly with the existing step-ca
@@ -1592,13 +1609,25 @@ integrations.
   Declarative `Certificate` resources, automatic renewal,
   automatic distribution as Secrets. Removes per-service
   certificate management.
-- **Prometheus on tharbad**: ServiceMonitor CRDs auto-register
-  cluster pods for scraping; or run kube-prometheus-stack and
-  federate. Either way, no per-workload Prometheus config edits
-  for cluster-side workloads.
-- **Loki on tharbad**: container logs ship via Promtail or
-  fluent-bit DaemonSet. Same log pipeline as the rest of the
-  homelab; no separate aggregation.
+- **VictoriaMetrics on tharbad** (current foundational metrics
+  store, push-mode): cluster-side **vmagent** scrapes kubelet,
+  cadvisor, kube-state-metrics, and per-workload endpoints, then
+  remote_writes to tharbad via vmauth. With VictoriaMetrics
+  Operator, per-workload scrape configs are declarative
+  (`VMServiceScrape` resources in the dynamic layer).
+- **Loki on tharbad**: container logs ship via the same Fluent
+  Bit pattern used elsewhere in the homelab — DaemonSet
+  collects from `/var/log/containers`, ships via the existing
+  nginx/htpasswd auth path. No separate aggregation, no
+  alternative log pipeline.
+- **Perses on tharbad** (replaced Grafana): cluster metrics from
+  vmagent → vmsingle are queryable via Perses dashboards same
+  as host metrics. No separate dashboard tool for cluster
+  observability.
+- **Alertmanager + ntfy on tharbad** (unchanged): cluster alert
+  rules go to vmalert in the cluster (or stay on tharbad's
+  vmalert with cluster metrics federated in), routed to
+  Alertmanager → ntfy same as host alerts.
 - **creil registry**: ImagePullSecrets standard. Kyverno
   admission policies enforce that only creil-hosted images are
   used (Appendix A).
@@ -1708,7 +1737,23 @@ The cluster doesn't subsume the static layer; it complements it.
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v11 (this revision): added Appendix D — ecosystem and tooling
+- v12 (this revision): updated Appendix D to reflect the
+  current foundational observability stack
+  (`llm-notes/done/observability-stack-migration.md`):
+  VictoriaMetrics + Fluent Bit + vmauth + vmalert + Loki +
+  Perses + Alertmanager + ntfy, with Prometheus and Grafana
+  intentionally replaced. Removed the kube-prometheus-stack
+  recommendation (which would have re-introduced the components
+  the homelab moved off of). Replaced with the right pattern
+  for this homelab: vmagent + Fluent Bit DaemonSet +
+  kube-state-metrics, push-mode to tharbad's existing
+  VictoriaMetrics and Loki via vmauth and the nginx/htpasswd
+  ingest paths. Optional VictoriaMetrics Operator for
+  declarative VMServiceScrape resources. Updated the
+  integrations section to reference the actual current stack
+  (VictoriaMetrics, Loki, Perses, Alertmanager, ntfy) instead
+  of the deprecated Prometheus/Grafana naming.
+- v11: added Appendix D — ecosystem and tooling
   additions. Surveys k8s ecosystem honestly, framed as "what
   the cluster adds to the homelab" rather than "what it
   replaces." Categorizes tooling as install-early (kube-
