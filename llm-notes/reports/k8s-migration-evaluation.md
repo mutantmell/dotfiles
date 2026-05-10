@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v12 — see revision history at end)
+Date: 2026-05-09 (v13 — see revision history at end)
 
 ## Question
 
@@ -73,6 +73,67 @@ this report):
 - **NixOS + git makes the migration reversible.** Every phase can
   be reverted; the previous tools stay declared until the new
   pattern is proven.
+
+## LLM-assisted operations as a design driver
+
+Several decisions in this report — and in the homelab broadly
+— reflect a principle worth naming: **infrastructure should be
+designed such that LLM-assisted operations is a first-class
+concern.** Configurations and operational state should live as
+LLM-readable text in version control, not as opaque runtime
+state mediated by web UIs or imperative tools.
+
+This isn't an aesthetic preference; it's a workflow choice
+based on the operator routinely using LLM coding assistants
+for debugging, configuration, and infrastructure decisions.
+
+Where it already shows up in the homelab:
+
+- NixOS as the primary substrate (declarative, text, semantic)
+- `llm-notes/` with explicit lifecycle directories
+  (`plans`, `wip`, `done`, `shelved`, `specs`, `guides`,
+  `reports`) and CLAUDE.md at the repo root
+- Consistent naming (Trails-themed, systematically applied)
+- The network registry (`lib/common/data/network.nix`)
+  consolidating cross-cutting state in one readable place
+- **Perses over Grafana** for dashboards — YAML-in-git is
+  LLM-readable; Grafana's JSON-in-DB-edited-via-web-UI is not.
+  Perses isn't a bet on it succeeding as next-gen Grafana;
+  it's fitness-for-purpose for this workflow.
+- cc-sandbox itself — running Claude Code in isolated
+  environments operationalizes the workflow
+
+### Implications for the k8s direction
+
+The principle reinforces several decisions made elsewhere in
+this report:
+
+- **GitOps via Flux** over imperative `kubectl apply`. Cluster
+  state is reconcilable from git; "what's running and why" is
+  answerable by reading manifests.
+- **Platform components declared in NixOS** via k0s Helm
+  extensions (with pinned versions and values in the flake)
+  rather than ad-hoc `helm install`.
+- **Workload manifests in git** rather than state living only
+  in etcd. Flux applies them, but text is the source of truth.
+- **Avoidance of tools whose state lives in mutable runtime
+  stores** — Grafana dashboards in a DB, drifting helm
+  releases, `kubectl edit` workflows.
+
+### A failure-mode lesson worth retaining
+
+The v11 → v12 revision of this report was itself a failure of
+this principle in practice. v11 recommended kube-prometheus-
+stack without checking `llm-notes/done/` first; the relevant
+migration document (`observability-stack-migration.md`) had
+already documented the move off Prometheus and Grafana. The
+repo is designed so the relevant history is one directory read
+away; the failure was not using the design as intended.
+
+The lesson: when reasoning about adjacent infrastructure, the
+`done/` directory is the first stop, not a fallback. This
+applies to me writing the report and equally to any future
+LLM-assisted work on the homelab.
 
 ## Platform vs. dynamic: where the boundary sits
 
@@ -1620,10 +1681,17 @@ integrations.
   collects from `/var/log/containers`, ships via the existing
   nginx/htpasswd auth path. No separate aggregation, no
   alternative log pipeline.
-- **Perses on tharbad** (replaced Grafana): cluster metrics from
-  vmagent → vmsingle are queryable via Perses dashboards same
-  as host metrics. No separate dashboard tool for cluster
-  observability.
+- **Perses on tharbad** (replaced Grafana): cluster metrics
+  from vmagent → vmsingle are queryable via Perses dashboards
+  same as host metrics. No separate dashboard tool for cluster
+  observability. (Perses was selected specifically because
+  YAML dashboard definitions in git are LLM-readable for
+  diagnostic and configuration assistance — see the
+  "LLM-assisted operations" section above. The choice is
+  fitness-for-purpose for that workflow, not a bet on Perses
+  succeeding as next-gen Grafana. Risk profile is "small
+  ongoing dependency on Perses being maintained," not "needs
+  to win a popularity contest.")
 - **Alertmanager + ntfy on tharbad** (unchanged): cluster alert
   rules go to vmalert in the cluster (or stay on tharbad's
   vmalert with cluster metrics federated in), routed to
@@ -1737,7 +1805,27 @@ The cluster doesn't subsume the static layer; it complements it.
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v12 (this revision): updated Appendix D to reflect the
+- v13 (this revision): added a new top-level section,
+  **LLM-assisted operations as a design driver**, naming the
+  principle that informs several decisions throughout the
+  homelab and this report. Configurations and operational
+  state should live as LLM-readable text in version control,
+  not as opaque runtime state mediated by web UIs or
+  imperative tools. Documents where the principle already
+  shows up (NixOS, llm-notes/ structure, network registry,
+  Perses, cc-sandbox) and how it reinforces specific k8s
+  decisions in this report (GitOps via Flux, platform
+  components declared in NixOS, manifests in git, avoidance of
+  mutable-runtime-state tools). Includes the v11 → v12
+  postmortem as a captured failure-mode lesson — the repo is
+  designed so the relevant context is one directory read away;
+  the lesson is to actually use that design. Also updated the
+  Perses mention in Appendix D to reflect the actual selection
+  rationale (LLM-readable YAML in git) rather than implying
+  Perses was a generic "next-gen Grafana" bet — the risk
+  profile is "small ongoing dependency on Perses being
+  maintained," not "needs to win a popularity contest."
+- v12: updated Appendix D to reflect the
   current foundational observability stack
   (`llm-notes/done/observability-stack-migration.md`):
   VictoriaMetrics + Fluent Bit + vmauth + vmalert + Loki +
