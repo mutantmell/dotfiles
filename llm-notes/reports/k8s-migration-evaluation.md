@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v10 — see revision history at end)
+Date: 2026-05-09 (v11 — see revision history at end)
 
 ## Question
 
@@ -1455,6 +1455,239 @@ introduced when warranted.
   for cluster operations. The HA microvm is small enough that
   it's worth doing eventually anyway.
 
+## Appendix D: Ecosystem and tooling — what the cluster adds
+
+The cluster is justified primarily by the use cases already
+discussed (CI runners, game servers, blog, dev environments).
+Beyond those, having a real k8s cluster opens up an ecosystem of
+tooling that wasn't previously available in this homelab. This
+appendix surveys what's actually useful at this scale, framed
+honestly: most k8s ecosystem hype is overkill for a homelab; some
+of it is genuinely valuable.
+
+The framing is **what the cluster adds**, not what it replaces.
+The static fleet stays where it is (per the recommendation); the
+cluster opens up capabilities alongside it.
+
+### Genuinely useful, install early
+
+These would land in the platform declaration shortly after the
+cluster is operational. High value, low operational cost.
+
+- **kube-prometheus-stack** (Prometheus + Grafana + Alertmanager
+  + node-exporter + ServiceMonitors). The canonical k8s
+  observability stack — single Helm chart, auto-discovers all
+  cluster workloads via labels, ships metrics to (or replaces)
+  Prometheus on tharbad. Auto-discovery is the real win: a new
+  pod with the right labels is scraped automatically with no
+  per-service config edits.
+- **cert-manager** with a step-ca issuer. Declarative
+  `Certificate` resources with automatic renewal. In-cluster
+  TLS becomes trivial; pairs cleanly with the existing step-ca
+  on basel. Removes the per-microvm certificate-renewal cron
+  patterns.
+- **Velero** for cluster backup and disaster recovery.
+  Declarative backups (manifests + PVC contents) to S3-
+  compatible storage. liberl could host MinIO as the local S3
+  endpoint; off-site backup to external S3 is a config flag.
+  For game-server world snapshots and dev-environment home
+  directories, this is genuinely better than building backup
+  scripts per workload.
+- **external-secrets-operator** for sops integration. Lets
+  cluster workloads pull from your existing sops-managed
+  secrets without converting them to k8s `Secret` resources by
+  hand. Keeps sops-nix as the single source of truth for
+  secrets across NixOS and the cluster.
+- **Cilium Hubble UI** for network observability. Visual flow
+  logs showing pod-to-pod and pod-to-external traffic with
+  policy allow/deny annotations. Real value when debugging the
+  dual-firewall setup (router6 zone vs. NetworkPolicy
+  intersection).
+
+### Useful when the matching workload appears
+
+Install when there's a concrete reason; not part of the initial
+platform.
+
+- **CloudNativePG** (Postgres operator). HA Postgres with
+  automatic backups and point-in-time recovery via WAL
+  archiving. Worth pulling in if/when a cluster workload needs
+  Postgres (Authelia? a future blog comments DB?). Removes the
+  per-service "run Postgres yourself" pattern.
+- **Argo Workflows** for scheduled and event-driven tasks.
+  DAG-based workflow engine — think a more capable cron with
+  proper task dependencies. For "weekly NAS scrub report,"
+  "nightly backup verification," "rebuild blog when content
+  changes," this replaces ad-hoc systemd timers + scripts.
+- **Argo Events** for webhook-driven actions. External event
+  (Forgejo webhook, Tailscale ACL change, etc.) → triggers an
+  Argo Workflow. Useful for push-driven workflows.
+- **actions-runner-controller** (or Forgejo-Actions equivalent).
+  Autoscaling CI runner pods (Appendix A). Replaces saint-arkh's
+  planned role with per-job kata isolation.
+- **kvm-device-plugin** for `/dev/kvm` access in pods. Required
+  if cc-sandbox migrates to the cluster (Phase 8); not needed
+  before then.
+
+### Available but probably not worth installing
+
+Honest assessment: these are real tools, but they don't pay back
+their operational cost at homelab scale.
+
+- **KEDA** (event-driven autoscaling). Useful for queue-depth-
+  driven workloads. Not relevant for the current workload set.
+- **Service mesh** (Istio, Linkerd, Cilium Service Mesh). mTLS
+  between services, traffic shaping, distributed tracing. Real
+  value at hundreds of services; overkill at homelab scale.
+- **Knative** (serverless on k8s). Request-driven pod spin-up.
+  Overkill unless building HTTP services that need
+  scale-to-zero.
+- **Crossplane** (provision external resources via k8s API).
+  Useful for managing cloud accounts; not relevant for an
+  isolated homelab.
+- **Tekton** (k8s-native CI/CD). Functionally similar to
+  Woodpecker's k8s backend but heavier. Stick with Woodpecker
+  unless you outgrow it.
+- **Agones** (game server fleet management). Designed for
+  session-allocated games (matchmaker assigns players to
+  servers from a pool). Overkill for "one or two persistent
+  servers running for weeks at a time." Plain StatefulSet +
+  PVC + VolumeSnapshot covers your stated use case.
+
+### Specific to the cc-sandbox-shape problem
+
+The dev-environment-on-demand problem (cc-sandbox today, edith/
+trista in the cluster post-migration) has off-the-shelf k8s
+solutions worth knowing about:
+
+- **Coder** (https://coder.com/). Productized cc-sandbox: OIDC
+  login, templates define environment shapes, per-user
+  workspaces as Pods (or KubeVirt VMs) with PVCs, idle-timeout
+  shutdown, web terminal + SSH + IDE integrations, resource
+  quotas, audit logs. Migrating cc-sandbox to Coder would gain:
+  idle shutdown (saved cycles), templates, web access. Would
+  lose: the hand-tuned cgroup/seccomp profile audited in
+  `packages/deployd-helper/src/validation.rs`.
+- **DevPod** (https://devpod.sh/). CLI-driven. Closer in shape
+  to current cc-sandbox UX. More composable, less bundled.
+- **Plain StatefulSet + PVC** (the dev-env migration plan). The
+  default for edith/trista; doesn't require additional tooling.
+
+Honest framing: cc-sandbox works; the security model is
+auditable; migration to Coder/DevPod only makes sense if
+specific features (idle shutdown, templates, web access) are
+desired. The cluster *enables* this option without forcing it.
+
+### Integrations with existing services
+
+This is where the cluster adds the most concrete value to the
+homelab — the existing services already have first-class k8s
+integrations.
+
+- **Authelia / Keycloak**: native OIDC for cluster auth (kubectl
+  via OIDC plugin). Workloads also get OIDC via OAuth2-Proxy as
+  a sidecar or admission-injected. Single sign-on extends into
+  the cluster transparently.
+- **step-ca on basel**: cert-manager has a step-ca issuer.
+  Declarative `Certificate` resources, automatic renewal,
+  automatic distribution as Secrets. Removes per-service
+  certificate management.
+- **Prometheus on tharbad**: ServiceMonitor CRDs auto-register
+  cluster pods for scraping; or run kube-prometheus-stack and
+  federate. Either way, no per-workload Prometheus config edits
+  for cluster-side workloads.
+- **Loki on tharbad**: container logs ship via Promtail or
+  fluent-bit DaemonSet. Same log pipeline as the rest of the
+  homelab; no separate aggregation.
+- **creil registry**: ImagePullSecrets standard. Kyverno
+  admission policies enforce that only creil-hosted images are
+  used (Appendix A).
+- **Forgejo Actions**: actions-runner-controller pattern (or
+  Forgejo equivalent) for autoscaled per-job kata pods
+  (Appendix A). Webhook-driven workflows via Argo Events for
+  more complex pipelines.
+- **Headscale (planned altair)**: there's a community
+  headscale-operator for auto-registering cluster services as
+  tailnet nodes. Niche but interesting if you want cluster
+  workloads to appear directly on the tailnet.
+- **NAS (liberl)**: democratic-csi for PVCs (already covered).
+  VolumeSnapshot for declarative backup of stateful workloads.
+- **Hubble (Cilium)**: flow observability across cluster
+  workloads. Pairs with router6's audit logging at the host
+  level for end-to-end network visibility.
+
+### Workflow patterns enabled
+
+Beyond integrations with specific services, the cluster enables
+workflow patterns that are awkward in the current architecture:
+
+- **GitOps end-to-end.** Push to a git repo → Flux reconciles →
+  workload updated. The blog example is canonical: content
+  commit → CI builds image → manifest updated → Flux deploys.
+  Push-to-deploy without manual intervention.
+- **Event-driven actions.** Webhook fires → Argo Events triggers
+  workflow → workload happens. Replaces hand-wired systemd
+  timers + scripts for cross-service automation.
+- **Declarative backup.** Velero `Backup` resources scheduled
+  via cron-style schedules. Backup state is queryable via
+  kubectl, not buried in script logs.
+- **Per-environment promotion.** A workload can have dev /
+  staging / prod variants in different namespaces, promoted via
+  kustomize overlays + Flux. Useful if you ever want to test
+  cluster changes without affecting production workloads.
+- **Push-to-deploy CI/CD.** Forgejo Actions builds an image,
+  pushes to creil, updates a manifest in `cluster/manifests/`
+  via git push, Flux picks it up, rolls out the new image.
+  End-to-end automation without per-workload deploy scripts.
+
+### What this enables that wasn't possible before
+
+Concrete capabilities the cluster adds that the current
+architecture doesn't have:
+
+- **Auto-scaling under load** (CI runners, game-server pools if
+  ever needed)
+- **Horizontal scaling** (multiple replicas of a workload behind
+  a Service)
+- **Declarative volume snapshots** (Velero, VolumeSnapshot CRD)
+- **Event-driven workflows** (webhook → action without writing
+  custom HTTP handlers)
+- **Idle-shutdown workloads** (Coder-style dev environments,
+  Knative if ever needed)
+- **Operator-managed stateful services** (CloudNativePG, etc.)
+- **Per-namespace RBAC and ResourceQuotas** (multi-user / multi-
+  tenant scenarios)
+- **Service-mesh observability** (cluster-internal traffic
+  metrics, traces — even without a full mesh)
+- **GitOps-driven deploy** (push to deploy, with rollback by
+  reverting commits)
+- **Standard ecosystem of operators** (anything that exists as a
+  Helm chart or operator is a `helm install` away — vs. writing
+  a NixOS module from scratch for novel software)
+
+### What the cluster does NOT do that the static fleet does
+
+To be honest about the trade:
+
+- The static fleet's per-service KVM-VM failure domain is
+  stronger than the cluster's per-pod isolation (without kata).
+  With kata RuntimeClass per pod, the cluster matches it; but
+  most workloads don't need kata, so most cluster workloads
+  have weaker isolation than a microvm guest.
+- NixOS module ergonomics for stable services (`services.X.enable
+  = true`) are often better than the equivalent Helm chart
+  configuration. Module authors encode operational expertise.
+- The static fleet is operable with standard Linux tooling
+  (ssh, journalctl, systemctl). The cluster requires kubectl
+  and ecosystem-specific tooling.
+- Static services have fully-deterministic update cadence (your
+  rebuild = your update). Cluster workloads can be set up the
+  same way (pinned versions, manual reconciliation), but the
+  default is more automated.
+
+These trade-offs are why the static fleet stays where it is.
+The cluster doesn't subsume the static layer; it complements it.
+
 ## Revision history
 
 - v1: initial pass — recommended staying, ~90/10. Anchored too hard
@@ -1475,7 +1708,25 @@ introduced when warranted.
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v10 (this revision): added the **platform vs. dynamic
+- v11 (this revision): added Appendix D — ecosystem and tooling
+  additions. Surveys k8s ecosystem honestly, framed as "what
+  the cluster adds to the homelab" rather than "what it
+  replaces." Categorizes tooling as install-early (kube-
+  prometheus-stack, cert-manager, Velero, external-secrets,
+  Hubble UI), install-when-triggered (CloudNativePG, Argo
+  Workflows/Events, ARC, kvm-device-plugin), or skip
+  (KEDA, service mesh, Knative, Crossplane, Tekton, Agones).
+  Documents specific cc-sandbox-shape options (Coder, DevPod)
+  with honest assessment that current cc-sandbox works and
+  migration is optional. Lists integrations with existing
+  homelab services (Authelia OIDC, step-ca via cert-manager,
+  Prometheus on tharbad, Loki, creil, Forgejo, Headscale, NAS,
+  Hubble) and workflow patterns enabled (GitOps end-to-end,
+  event-driven actions, push-to-deploy CI/CD). Closes with
+  honest accounting of what the cluster does NOT do that the
+  static fleet does, reinforcing that they complement each
+  other rather than the cluster subsuming the static layer.
+- v10: added the **platform vs. dynamic
   boundary** as a first-class section. Corrected an earlier
   framing error: in v5–v9 the report described Cilium / CSI /
   Kyverno / Flux as "things you install on top," implying they
