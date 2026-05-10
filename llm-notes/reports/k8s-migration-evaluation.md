@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v18 — see revision history at end)
+Date: 2026-05-09 (v19 — see revision history at end)
 
 ## Question
 
@@ -11,7 +11,10 @@ microvm guests or the Incus dev-environment hosts?
 
 ## Recommendation
 
-**Stand up a Kubernetes cluster (k3s) directly on erebonia as
+**Stand up a Kubernetes cluster (k3s) on erebonia with a split
+control plane: `k3s server` (apiserver, controller-manager,
+scheduler, kine) runs inside a microvm guest; `k3s agent`
+(kubelet, kube-proxy, containerd, CNI) runs on erebonia
 bare-metal. Build new dynamic workloads on it. Migrate
 cc-sandbox into the cluster early — its current deployd
 nested-virt story is broken; bare-metal kata-qemu or runc-kvm
@@ -19,6 +22,15 @@ fixes it. Migrate edith into the cluster once it has matured.
 Leave the static microvm.nix fleet on calvard untouched. Sunset
 deployd once the cluster has proven itself. NixOS rollback is
 the recovery mechanism — every change is boot-time reversible.**
+
+The split gives bare-metal performance and direct hardware
+access for workloads (kata-qemu, `/dev/kvm`, NUMA, etc.) while
+keeping the Kubernetes API surface contained inside a microvm
+whose network exposure is controlled — same pattern the homelab
+applies to other API surfaces (deployd-api in roer, Authelia in
+messeldam, etc.). The bootstrap dependency from agent →
+apiserver is handled cleanly via microvm.nix's systemd
+socket-notification integration.
 
 The endgame is a simpler control-plane layout than today:
 
@@ -36,7 +48,8 @@ declared in the flake until the new pattern has run reliably.
 
 | Workload | Home today | Home endgame | Notes |
 | --- | --- | --- | --- |
-| k3s control plane + nodes | — | erebonia, bare-metal | Single-node initially; calvard not pulled in for multi-node (would compromise static-fleet isolation) |
+| k3s control plane (apiserver, kine, etc.) | — | erebonia microvm | API surface confined to a microvm, same pattern as other homelab API surfaces |
+| k3s agent (kubelet, containerd, CNI, pods) | — | erebonia bare-metal | Workloads run with native hardware access — kata, /dev/kvm, NUMA, etc. |
 | Blog (planned) | — | k8s | First cluster workload; canonical Deployment + Flux pattern |
 | Game servers (planned) | — | k8s | CSI VolumeSnapshot replaces the custom iSCSI add-on |
 | CI runners (saint-arkh deferred) | — | k8s | Woodpecker kubernetes backend + per-step gVisor-sandboxed pods |
@@ -71,17 +84,21 @@ this report):
 - **Operator ecosystem fit is real** for CI runners (autoscaling
   runner controllers like ARC) and game servers (CSI
   VolumeSnapshot vs. building a custom iSCSI add-on).
-- **Bare-metal on erebonia is the right host choice.** Erebonia
-  is already the dynamic-compute host (runs deployd today with
-  kata as default runtime, has nested-KVM enabled). It does
-  not import router6 (`hosts/erebonia/default.nix`); the
-  earlier "must be microvm-confined to isolate from router6"
-  argument doesn't apply on either VM host. Failure-domain
-  isolation between the cluster and the static fleet is
-  preserved by host choice — calvard hosts the static fleet,
-  erebonia hosts the cluster. Bare-metal eliminates nested-
-  virt penalties for kata and direct `/dev/kvm` workloads,
-  which is precisely what cc-sandbox needs.
+- **Split control plane on erebonia is the right shape.**
+  Erebonia is already the dynamic-compute host (runs deployd
+  today with kata as default runtime, has nested-KVM
+  enabled). Putting the apiserver inside a microvm preserves
+  the homelab's pattern of confining API surfaces to a
+  controlled-network microvm guest (deployd-api in roer,
+  Authelia in messeldam). Putting the agent on bare-metal
+  preserves the workload-performance benefits that motivated
+  v18's pivot: kata-qemu without nested-virt penalty, direct
+  `/dev/kvm` for cc-sandbox, native CPU and network for game
+  servers. Neither host imports router6
+  (`hosts/erebonia/default.nix`); failure-domain isolation
+  between the cluster and the static fleet is preserved by
+  host choice — calvard hosts the static fleet, erebonia
+  hosts the cluster.
 - **Dev environments in k8s is a mature pattern** (Coder, Gitpod,
   Codespaces, DevPod) — the previous "k8s is for cattle, not pets"
   framing was outdated.
@@ -178,23 +195,28 @@ capability vs. a workload.
 
 - NixOS host configurations (calvard, erebonia, eventually
   liberl)
-- microvm.nix guest declarations for the static fleet
-  (unchanged — none for the cluster itself in v18)
-- **k3s as a NixOS service on erebonia bare-metal**
-  (`services.k3s`) — version pinned, config rendered from NixOS
-- **k3s with bundled defaults** (flannel, Traefik, ServiceLB,
-  CoreDNS, metrics-server, kine+SQLite, kube-router) — declared
-  via `services.k3s` and configured from NixOS
-- **k3s HelmChart resources** declaring cert-manager (with
-  step-ca ClusterIssuer), external-snapshotter, democratic-csi,
-  Kyverno, Flux — applied automatically at cluster startup, all
-  chart versions and values pinned in the flake
-- **RuntimeClass YAMLs** for runc / runsc / kata-qemu / runc-kvm
-  in k3s' auto-apply manifests directory
+- microvm.nix guest declarations for the static fleet, plus
+  the **k3s-server microvm** on erebonia
+- **`services.k3s` in server mode inside the k3s-server
+  microvm** (`role = "server"; extraFlags = "--disable-agent"`)
+  — version pinned, datastore is kine+SQLite on the microvm's
+  filesystem
+- **k3s HelmChart resources** (manifests/ directory in the
+  microvm) declaring cert-manager (with step-ca
+  ClusterIssuer), external-snapshotter, democratic-csi,
+  Kyverno, Flux — applied automatically at cluster startup,
+  all chart versions and values pinned in the flake
+- **RuntimeClass YAMLs** for runc / runsc / kata-qemu /
+  runc-kvm in the microvm's manifests directory
+- **`services.k3s` in agent mode on erebonia bare-metal**
+  (`role = "agent"; serverAddr = "https://<microvm>:6443"`)
+- **systemd dependency ordering** so agent waits for the
+  microvm to be ready (microvm@k3s-server →
+  k3s-apiserver-wait oneshot → k3s agent)
 - **gVisor's `runsc` binary**, kata-runtime, containerd shim
-  configuration in k3s' containerd template, and iSCSI client
-  tools on erebonia — host-level prerequisites the cluster
-  relies on
+  configuration in the agent's containerd template, and
+  iSCSI client tools on erebonia — host-level prerequisites
+  the agent relies on
 - router6 zones (cluster zone with explicit egress allows)
 - langport's nginx forwarding rules (for public-facing cluster
   services routed through the existing reverse proxy)
@@ -253,12 +275,75 @@ on whatever cadence makes sense, independent of the platform.
 
 ## Architecture
 
-### Run the cluster directly on erebonia bare-metal
+### Cluster topology — split control plane
 
-k3s runs as a systemd service on erebonia. No microvm wrapper;
-no nested virtualization for the cluster itself. Cluster pods
-are processes in erebonia's kernel, with the cluster's CNI and
-runtime infrastructure managing them.
+The cluster is split across two NixOS-managed surfaces on
+erebonia:
+
+- **`k3s server` microvm** (cluster control plane). Runs
+  apiserver, controller-manager, scheduler, kine+SQLite
+  datastore, HelmChart controller, and the auto-apply
+  manifests directory. Configured with `--disable-agent` so
+  no kubelet runs inside. Tiny footprint (~1–2 GB RAM, 2
+  vCPU). API exposed only on the microvm's controlled
+  network interface.
+- **`k3s agent` on erebonia bare-metal**. Runs kubelet,
+  kube-proxy, containerd, the CNI plugins (flannel + kube-
+  router), and all the workload pods. Bare-metal hardware
+  access — kata-qemu without nested KVM, direct `/dev/kvm`
+  passthrough for cc-sandbox, native CPU/network for game
+  servers.
+
+The split mirrors the homelab's existing pattern of confining
+API surfaces (deployd-api in roer, Authelia in messeldam) to
+microvm guests with controlled network exposure, while
+allowing workload execution to happen wherever it best fits.
+
+Communication between agent and server is standard k3s mTLS
+over a virtio-net interface — the kubelet on erebonia connects
+to the apiserver in the microvm just as it would to a
+different physical node. Both directions are mTLS-authenticated
+via k3s-managed certs.
+
+### Bootstrap ordering via systemd socket notification
+
+The bootstrap concern (kubelet needs apiserver to be ready
+before it starts) is resolved cleanly via microvm.nix's
+systemd integration. microvm.nix uses `sd_notify` over vsock
+so the host-side `microvm@<name>.service` unit waits until the
+guest signals readiness. A small additional host-side oneshot
+verifies the apiserver itself is responding (not just that
+the microvm has booted), and the `k3s` agent service depends
+on that oneshot:
+
+```nix
+# Host-side oneshot: wait for apiserver to respond
+systemd.services.k3s-apiserver-wait = {
+  description = "Wait for k3s apiserver in microvm";
+  wants = [ "microvm@k3s-server.service" ];
+  after = [ "microvm@k3s-server.service" "network-online.target" ];
+  serviceConfig = {
+    Type = "oneshot";
+    RemainAfterExit = true;
+    ExecStart = "${pkgs.curl}/bin/curl --retry 60 --retry-delay 2 \
+      --retry-connrefused --cacert <ca> https://<microvm>:6443/readyz";
+  };
+};
+
+# Agent depends on apiserver being ready
+systemd.services.k3s = {
+  wants = [ "k3s-apiserver-wait.service" ];
+  after = [ "k3s-apiserver-wait.service" ];
+};
+```
+
+Result: a clean `nixos-rebuild switch` brings the system up in
+the right order without manual sequencing. If the microvm
+hasn't started, the agent waits; if the apiserver isn't
+responding, the agent waits. No race conditions, no manual
+intervention.
+
+### Runtime isolation tiers (unchanged from v18)
 
 For workloads requiring stronger-than-runc isolation, the
 cluster provides:
@@ -325,33 +410,32 @@ viable one:
   is the safety net that earlier revisions tried to provide
   via microvm-confinement; NixOS already provides it.
 
-### What's lost vs. running in a microvm
+### Costs of the split, named honestly
 
-Real costs of bare-metal-on-erebonia, named honestly:
+- **One more microvm to maintain.** ~1–2 GB RAM, 2 vCPU for
+  the apiserver microvm. Small relative to the rest of the
+  fleet; declares cleanly through `mk-microvm`.
+- **Marginal apiserver↔kubelet latency.** virtio-net adds ~10–
+  30µs per round trip. For homelab scale, imperceptible. The
+  apiserver is chatty (heartbeats, watch streams) but it's
+  all flowing through a local virtio interface, not a
+  network.
+- **Kubelet, containerd, and CNI still run on erebonia bare-
+  metal.** A kubelet bug, runaway pod, or kernel panic in
+  containerd still takes down the host's workload-execution
+  surface. The split confines only the API surface, not the
+  workload-execution surface. The mitigation is NixOS
+  rollback for kubelet config and per-pod resource limits
+  (Kyverno-enforced); existing pod state is cached by kubelet
+  and survives apiserver downtime.
+- **Cluster reset is split.** Apiserver reset is "destroy the
+  microvm, rebuild" (clean). Agent reset is "clean up k3s
+  state on erebonia" (heavier). Each operation is independent.
 
-- **Failure-domain isolation between cluster and host.** A
-  cluster crash takes erebonia down rather than just a
-  microvm. Mitigated by: (a) NixOS rollback, (b) the only
-  current workloads on erebonia are deployd (being replaced)
-  and `roer` (deployd-api, also being replaced) and `trista`
-  (Incus, currently unused). Blast radius is bounded to
-  workloads we're already retiring.
-- **No hard resource bounds.** The cluster shares erebonia's
-  resources with whatever else runs there. During the deployd
-  cohabitation period this includes deployd, cc-sandbox
-  sessions, and the microvm guests. Mitigation: systemd cgroup
-  limits on k3s if needed, or accept it and let workloads
-  compete.
-- **Cluster reset is heavier.** "Reinstall the cluster from
-  scratch" means cleaning up k3s state on erebonia
-  (`/var/lib/rancher/k3s/`, `/etc/rancher/k3s/`, containerd
-  state, CNI conflist files). Documented procedure required;
-  not as clean as "destroy a microvm."
-
-The operator accepts these trades. NixOS rollback covers the
-recovery story; the workloads in erebonia's current blast
-radius are being deprecated anyway; cluster-reset complexity
-is an operator-runbook concern, not an architectural one.
+Net: this is meaningfully cleaner than v18's pure-bare-metal
+recommendation. The microvm boundary for the API surface adds
+real defense-in-depth without giving up the workload-side
+performance benefits.
 
 ### Coexistence with deployd during transition
 
@@ -380,9 +464,11 @@ the kata-runtime nixpkgs version is the right hedge.
 
 ### Performance
 
-Bare-metal-on-erebonia eliminates the virtualization-overhead
-penalties earlier revisions accepted. Per-runtime cost is the
-only overhead remaining:
+The split control plane keeps workloads on bare-metal-erebonia
+(no virtualization overhead for actual pod execution) while
+the apiserver runs in a microvm (virtualization overhead on
+the API control path, which is small and fixed). Per-runtime
+cost on the workload side is the only execution overhead:
 
 | Runtime | Overhead vs. bare-metal runc |
 | --- | --- |
@@ -413,9 +499,17 @@ For the named workloads:
   hosted on liberl NAS adds NFS or iSCSI latency, similar to
   Incus's network-storage path.
 
-The notable change from v17: **performance numbers drop the
-virtio overhead row**. There is no microvm boundary between
-the cluster and the host.
+**Control-plane path overhead:** kubelet on erebonia talks to
+apiserver in the microvm over virtio-net. ~10–30µs per round
+trip vs. localhost; the apiserver is chatty (heartbeats,
+watch streams) but this is all running on the same physical
+host with a virtual NIC, not over a network. Imperceptible at
+homelab scale; mentioned for completeness.
+
+**Workload-execution path overhead:** zero virtio penalty —
+pods run directly on erebonia's kernel. This is the main
+performance benefit vs. the v17 framing where workloads ran
+inside the cluster microvm.
 
 ### Community pattern
 
@@ -861,44 +955,76 @@ Before Phase 1 lands k3s on erebonia, document and verify:
   good previous generation; document the rollback procedure
   for "Phase 1 broke erebonia" recovery.
 
-### Phase 1 — k3s on erebonia bare-metal
+### Phase 1 — k3s with split control plane on erebonia
 
 Everything platform-level is declared in the flake; no manual
-imperative steps. With the bare-metal pivot, this phase has no
-microvm to provision.
+imperative steps. Phase 1 declares both the apiserver microvm
+and the agent on bare-metal, plus the systemd ordering that
+makes the agent wait for the apiserver to be ready.
 
-**Erebonia host config additions:**
+**k3s server microvm (apiserver, controller-manager, scheduler,
+kine+SQLite):**
 
-- `services.k3s.enable = true` with default settings — flannel,
-  Traefik, ServiceLB, CoreDNS, metrics-server, kine+SQLite,
-  kube-router NetworkPolicy all bundled and enabled.
-- gVisor's `runsc` binary on erebonia (`pkgs.gvisor` if
-  available; otherwise prebuilt from upstream).
-- kata-runtime binary (already present today via deployd's
-  module; coordinate version pinning between deployd and k3s).
-- iSCSI client tools (`pkgs.openiscsi`) on erebonia.
-- containerd shim configuration in k3s' containerd template
-  registering `runsc` and `kata-qemu`.
-
-**Cluster-side declarations** (via k3s' `manifests/` auto-apply
-directory and HelmChart CRs):
-
-- HelmChart resources:
+- Microvm.nix guest on erebonia. Trails-themed name. ~2 GB
+  RAM, 2 vCPU initially. cloud-hypervisor backend (matches
+  fleet).
+- `services.k3s` inside the microvm with `role = "server"`
+  and `extraFlags = "--disable-agent"`.
+- Bundled k3s defaults (CoreDNS, metrics-server, kine+SQLite,
+  Traefik, ServiceLB, etc.) all enabled.
+- HelmChart resources in `/var/lib/rancher/k3s/server/manifests/`:
   - `external-snapshotter` (must apply before democratic-csi —
     provides VolumeSnapshot CRDs)
-  - `cert-manager` + step-ca ClusterIssuer (must apply before
-    anything that requests a Certificate)
+  - `cert-manager` + step-ca ClusterIssuer
   - `democratic-csi` (zfs-generic-iscsi driver targeting
     liberl)
-  - `kyverno` with ClusterPolicies scoped explicitly to the
-    `woodpecker-builds` namespace (do NOT enforce image source
-    cluster-wide — would block bootstrap of platform
-    components)
+  - `kyverno` with ClusterPolicies scoped to
+    `woodpecker-builds` namespace only
   - `flux` configured to bootstrap against the
-    dynamic-manifest path in this flake
-- RuntimeClass YAMLs (`runc` default, `runsc` for CI sandbox,
-  `kata-qemu` for cc-sandbox, `runc-kvm` as cc-sandbox
-  fallback) in the manifests directory.
+    dynamic-manifest path
+- RuntimeClass YAMLs (runc, runsc, kata-qemu, runc-kvm) in
+  the manifests directory.
+- One virtio-net interface on a controlled-exposure bridge
+  (only reachable from erebonia and selected tailnet-attached
+  clients via langport's proxy if remote kubectl is wanted).
+
+**k3s agent on erebonia bare-metal (kubelet, kube-proxy,
+containerd, CNI, all workloads):**
+
+- `services.k3s` on erebonia with `role = "agent"`,
+  `serverAddr = "https://<microvm>:6443"`, `tokenFile`
+  pointing at a sops-managed shared token.
+- gVisor's `runsc` binary on erebonia.
+- kata-runtime binary (already present via deployd's module
+  today; coordinate version pinning during the transition).
+- iSCSI client tools (`pkgs.openiscsi`) on erebonia.
+- containerd shim configuration registering `runsc` and
+  `kata-qemu` (the agent's containerd template).
+
+**Bootstrap ordering:**
+
+```nix
+systemd.services.k3s-apiserver-wait = {
+  description = "Wait for k3s apiserver in microvm";
+  wants = [ "microvm@k3s-server.service" ];
+  after = [ "microvm@k3s-server.service" "network-online.target" ];
+  serviceConfig = {
+    Type = "oneshot";
+    RemainAfterExit = true;
+    ExecStart = "${pkgs.curl}/bin/curl --retry 60 --retry-delay 2 \
+      --retry-connrefused --cacert <ca> https://<microvm>:6443/readyz";
+  };
+};
+systemd.services.k3s = {
+  wants = [ "k3s-apiserver-wait.service" ];
+  after = [ "k3s-apiserver-wait.service" ];
+};
+```
+
+microvm.nix's sd_notify integration over vsock ensures
+`microvm@k3s-server.service` only completes when the guest
+signals ready; the oneshot then verifies the apiserver itself
+is responding; the agent waits for both.
 
 **liberl-side requirements** (parallel work in Phase 1):
 
@@ -952,11 +1078,20 @@ previous generation via systemd-boot.
 
 **Validation:**
 
+- **Microvm boots and apiserver is reachable.** After a fresh
+  `nixos-rebuild switch` on erebonia:
+  `systemctl status microvm@k3s-server.service` shows active,
+  `systemctl status k3s-apiserver-wait.service` shows
+  succeeded oneshot, `systemctl status k3s.service` (agent)
+  shows active. Bootstrap ordering works.
+- **kubelet registered with apiserver.** `kubectl get nodes`
+  (run from within the microvm or via a host with kubectl
+  pointed at it) shows erebonia's hostname as a Ready node.
 - `kubectl get pods -A` — k3s system Pods (CoreDNS,
   metrics-server, kube-router, Traefik, ServiceLB,
   local-path-provisioner) plus cert-manager,
   external-snapshotter, democratic-csi, Kyverno,
-  Flux all `Running`
+  Flux all `Running` (scheduled on the agent node, erebonia)
 - `kubectl get runtimeclass` — runc, runsc, kata-qemu,
   runc-kvm all present
 - Test pod with `runtimeClassName: runsc` runs and is
@@ -1204,15 +1339,22 @@ network requirements, and trade-offs.
   accepts more surface for per-workload mapping (gVisor for
   CI, kata for cc-sandbox). Worth naming explicitly; budget
   ~bi-monthly check-in time for runtime updates.
-- **Erebonia kernel panic / k3s crash recovery.** Without a
-  microvm boundary, cluster failures take erebonia down with
-  them. Recovery is NixOS rollback (`nixos-rebuild switch
-  --rollback` or boot previous generation). This is a real
-  recovery mechanism — every NixOS change is boot-time
-  reversible without data restore — but it's a different
-  posture than "destroy the cluster host and rebuild."
-  The operator accepts this trade; document the rollback
-  procedure in the runbook.
+- **k3s server microvm failures.** Apiserver crashes,
+  kine/etcd corruption, controller-manager hangs — all
+  contained to the apiserver microvm. Recovery: restart the
+  microvm. Existing workloads on the agent continue running
+  via kubelet's cached pod state; no new scheduling until
+  apiserver recovers. NixOS rollback handles config errors.
+  This is the major win from v18 → v19: control-plane
+  failures don't take down the agent or its workloads.
+- **k3s agent / kubelet failures on erebonia.** A kubelet bug
+  or runaway pod can still affect erebonia bare-metal.
+  Recovery: NixOS rollback for kubelet/containerd config
+  errors; kubelet restart for runtime issues. Per-pod
+  resource limits (Kyverno-enforced) bound runaway-pod
+  damage. Less severe than v18 because at least the
+  apiserver is independent and can be used for diagnostic
+  queries during agent troubleshooting.
 - **gVisor compatibility for CI workloads.** gVisor's userspace
   syscall implementation is mature but has gaps — some syscalls
   are unimplemented or behave subtly differently. Most CI
@@ -2704,7 +2846,56 @@ The list serves two purposes:
 
 Reverse chronological — most recent revision first.
 
-- v18 (this revision): pivot Phase 1 from "k3s in a microvm on
+- v19 (this revision): split the cluster's control plane and
+  agent across the microvm boundary on erebonia. **`k3s
+  server`** (apiserver, controller-manager, scheduler, kine)
+  runs inside a microvm; **`k3s agent`** (kubelet, kube-proxy,
+  containerd, CNI, pods) runs on erebonia bare-metal.
+  
+  Why: the operator pointed out that v18's "all of k3s on
+  bare-metal erebonia" approach exposed the kube-apiserver
+  directly on the host, which doesn't match the homelab's
+  pattern of confining API surfaces (deployd-api in roer,
+  Authelia in messeldam, etc.) to microvm guests with
+  controlled network exposure. v19 puts only the API surface
+  in a microvm while keeping workloads on bare-metal — so
+  cc-sandbox still gets direct `/dev/kvm` access, kata-qemu
+  pods still run on native KVM without nesting, game servers
+  still get native performance.
+  
+  Bootstrap concern resolved via microvm.nix's sd_notify
+  integration: `microvm@k3s-server.service` waits for the
+  guest to signal ready (vsock-based), then a host-side
+  oneshot polls the apiserver `/readyz` endpoint, then the
+  k3s agent service starts. All declared in NixOS; no manual
+  sequencing.
+  
+  Changes:
+  - Recommendation: split control plane (server-microvm +
+    agent-bare-metal)
+  - Architecture: "Cluster topology — split control plane"
+    + "Bootstrap ordering via systemd socket notification"
+  - "Why erebonia, not calvard": unchanged in substance
+  - "What's lost vs. running in a microvm" → "Costs of the
+    split, named honestly" — one microvm to maintain, ~10–30µs
+    apiserver latency, agent failures still affect host
+  - Phase 1: declares both the apiserver microvm and the
+    agent on bare-metal, with the systemd dependency chain
+    documented inline
+  - Risks: replaced "Erebonia kernel panic = everything down"
+    with separate bullets for "k3s server microvm failures"
+    (small blast radius, recovered by restart) and "k3s agent
+    failures" (still on host but at least apiserver remains
+    independent for diagnostic queries)
+  - Performance: added control-plane-path note (small,
+    fixed overhead); workload path unchanged from v18
+  
+  This is the cleanest answer reached so far: preserves all
+  of v18's workload-performance benefits while restoring the
+  API-surface confinement that v17's microvm framing was
+  trying to provide. The systemd-notify integration makes
+  the bootstrap concern a non-issue.
+- v18: pivot Phase 1 from "k3s in a microvm on
   calvard" to "k3s on erebonia bare-metal." Substantive
   architectural change; not just editing. The operator
   pointed out that:
