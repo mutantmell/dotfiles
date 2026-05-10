@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v9 — see revision history at end)
+Date: 2026-05-09 (v10 — see revision history at end)
 
 ## Question
 
@@ -73,6 +73,98 @@ this report):
 - **NixOS + git makes the migration reversible.** Every phase can
   be reverted; the previous tools stay declared until the new
   pattern is proven.
+
+## Platform vs. dynamic: where the boundary sits
+
+The architectural principle that drives several decisions in this
+report:
+
+- **Platform**: capabilities the cluster needs to function as a
+  platform. Always present, always coherent, declared in NixOS,
+  reproduced on rebuild. Workloads assume these exist.
+- **Dynamic**: workloads that use those capabilities. Come and go
+  independently of platform changes. Operated through the
+  cluster's own APIs (kubectl / Flux), not via NixOS rebuilds.
+
+The boundary is **not** "installed via NixOS module" vs.
+"installed via Helm." The mechanism doesn't matter — Helm
+releases can be declared in NixOS and applied at cluster
+bootstrap. The boundary is **what the thing is**: a baseline
+capability vs. a workload.
+
+### What lives where
+
+**Static baseline (declared in this flake):**
+
+- NixOS host configurations (calvard, erebonia, eventually
+  liberl)
+- microvm.nix guest declarations including the cluster microvm
+- k0s as a NixOS service inside the cluster microvm — version,
+  config, datastore choice
+- **k0s Helm extensions** declaring Cilium, democratic-csi,
+  Kyverno, Flux, kata RuntimeClass — applied automatically at
+  cluster startup, all chart versions and values pinned in the
+  flake
+- kata-runtime, containerd config, iSCSI client tools inside
+  the cluster microvm — host-level prerequisites the cluster
+  relies on
+- router6 zones (cluster zone with explicit egress allows)
+- Host Caddy ingress configuration (NodePort proxying)
+- Certificates and secrets at NixOS level (sops-nix)
+
+**Dynamic layer (cluster manifests, watched by Flux, NOT in
+NixOS modules):**
+
+- Application Deployments / StatefulSets / Services
+- Workload-specific NetworkPolicy, ConfigMap, Secret resources
+- Image tags / digests for application versions
+- The blog's content config, the game server's settings, the CI
+  pipeline definitions
+
+The dynamic layer can live in this same git repo (e.g.,
+`cluster/manifests/`) or a separate one. Either way, it's
+operationally separate from the NixOS layer — Flux watches it,
+nothing in the flake references it directly.
+
+### Why this rules out vanilla `services.kubernetes.*`
+
+The vanilla NixOS k8s modules pitch at "declare your entire
+cluster in the flake" — they pull cluster API resources up into
+the static layer. That violates the principle: it forces the
+dynamic layer's cadence (workload changes) into the static
+layer's cadence (NixOS rebuilds).
+
+k0s' module is shaped right: it declares the cluster as a unit,
+including its bundled platform capabilities, but doesn't try to
+express the workload layer.
+
+### Why this rules out k3s
+
+Different reason. k3s' bundled defaults (Traefik, ServiceLB,
+flannel, local-path) are platform decisions made for you. Some
+of them (flannel, ServiceLB) actively conflict with the
+homelab's existing platform decisions (Cilium, host Caddy
+ingress). The philosophy is right; the bundle is wrong for this
+homelab.
+
+### Fresh-install reproducibility
+
+The principle implies a specific test: **a completely fresh
+install must produce a fully operational platform with no manual
+steps.**
+
+1. `nixos-rebuild switch` on the cluster's host
+2. Cluster microvm provisions and boots
+3. k0s starts, reads its declared config
+4. k0s applies the Helm extensions: Cilium, CSI, Kyverno, kata
+   RuntimeClass, Flux
+5. Flux starts watching the workload manifest path
+6. Cluster is fully operational, ready for workloads
+
+No manual `helm install`. No "first do this, then do this"
+runbook for the platform. Reproducibility falls out of NixOS'
+normal model. Workloads are then deployed to the dynamic layer
+on whatever cadence makes sense, independent of the platform.
 
 ## Architecture
 
@@ -281,31 +373,76 @@ grant connectivity that router6 denies.
   "cluster needs to reach X" requirement and the corresponding
   rule in both layers.
 
-## Component picks
+## Platform components — all NixOS-declared
 
-- **Distribution**: `services.kubernetes.*` (most NixOS-native;
-  control plane declared in the same flake) or k0s (single binary,
-  simpler bootstrap, available in nixpkgs). **Not k3s** — its
-  bundled defaults conflict with the homelab's existing decisions.
-- **Hypervisor backend (microvm.nix)**: QEMU with virtio-balloon,
-  not cloud-hypervisor. See "Hypervisor backend" above.
-- **CNI**: Cilium with `kubeProxyReplacement=true`,
-  `hostFirewall=false`, `bpf.masquerade=true`, VXLAN tunneling.
-  Calico in policy-only mode is a simpler alternative if Cilium's
-  eBPF requirements prove problematic in the nested setup.
-- **CSI**: democratic-csi against the NAS (zfs-generic-iscsi or
-  zfs-generic-nfs). Provides VolumeSnapshot for game servers and
-  dev environments.
-- **Ingress**: keep host Caddy. Cluster exposes services as
-  `ClusterIP` + `NodePort`; Caddy on the host forwards from
-  tailscale0/dmz to the cluster's NodePort range. SSH ingress to
-  dev-environment Pods is via the same path.
-- **GitOps**: Flux v2 reading manifests from creil. Manifests live
-  in this flake.
-- **RuntimeClasses**:
+Each of these is declared in the cluster microvm's NixOS
+configuration and applied at cluster startup via k0s' Helm
+extensions or built-in mechanisms. None require manual
+post-install steps; a fresh `nixos-rebuild switch` produces a
+fully operational platform.
+
+- **Distribution: k0s.** Single binary, minimal defaults,
+  first-class kine support, doesn't bundle components that
+  conflict with our existing decisions. (Vanilla
+  `services.kubernetes.*` violates the platform/dynamic
+  boundary by trying to express workloads in NixOS; k3s'
+  bundled defaults conflict with host Caddy / Cilium choices.)
+- **Hypervisor backend (microvm.nix): QEMU with
+  virtio-balloon.** Memory pools dynamically with edith. Idle
+  overhead is small for a long-running guest.
+- **Datastore: kine + SQLite** initially (single-node; trivial
+  backup/restore, no Raft to operate). Switch to embedded etcd
+  at HA expansion (Phase 11). The transition is a one-time
+  migration; kept off the critical path.
+- **CNI: Cilium**, declared as a k0s Helm extension. Values:
+  `kubeProxyReplacement=true`, `hostFirewall=false`,
+  `bpf.masquerade=true`, VXLAN tunneling, ingress controller
+  disabled, Gateway API disabled. Calico in policy-only mode is
+  a fallback if Cilium's eBPF requirements prove problematic in
+  the nested-KVM setup.
+- **CSI: democratic-csi against liberl NAS**, declared as a k0s
+  Helm extension. Provides VolumeSnapshot for game servers and
+  dev environments. iSCSI client tools (`pkgs.openiscsi`) live
+  in the cluster microvm itself, declared in NixOS.
+  VolumeSnapshot CRDs and external-snapshotter ship as a
+  separate Helm release alongside democratic-csi.
+- **Admission policy: Kyverno**, declared as a k0s Helm
+  extension. Base ClusterPolicies (image source must be
+  creil.internal, runtimeClass enforcement for the CI namespace,
+  no hostPath/hostNetwork/privileged) ship with the platform
+  declaration. Per-workload policy refinements live in the
+  dynamic layer.
+- **GitOps: Flux v2**, declared as a k0s Helm extension and
+  configured to bootstrap against the dynamic-manifest path.
+  Once running, Flux reconciles the dynamic layer.
+- **RuntimeClasses**: declared as Kubernetes resources installed
+  by k0s at startup (via the manifests-directory mechanism, not
+  Helm — they're single small YAML objects).
   - `kata-qemu` — default for new isolated workloads
   - `runc` — general-purpose, dev environments
-  - `runc-kvm` — runc + kvm-device-plugin for nested-KVM workloads
+  - `runc-kvm` — runc + kvm-device-plugin for nested-KVM
+    workloads (cc-sandbox if migrated)
+- **Ingress: host Caddy**, not in-cluster. Cluster exposes
+  services via `ClusterIP` + `NodePort`; host Caddy proxies
+  tailnet/dmz traffic to the NodePort range. SSH ingress to
+  dev-environment Pods is via the same path.
+
+### Bootstrap flow
+
+The flake's responsibility ends at "the cluster is up with all
+platform components installed and Flux watching the dynamic
+path." Concretely:
+
+1. NixOS provisions the cluster microvm with k0s + declared Helm
+   extensions
+2. k0s applies extensions at startup (Cilium, CSI, Kyverno, Flux,
+   RuntimeClasses)
+3. Flux comes up and reconciles the dynamic-manifest path
+4. Workloads are added to the dynamic layer and reconcile in
+
+No imperative bootstrap steps. The cluster's platform state is a
+function of the flake's content, the same way every other host
+in the homelab is.
 
 ## Dev environments as cluster workloads
 
@@ -419,21 +556,41 @@ KubeVirt VMs — Pods are sufficient, KubeVirt is overkill.
 Phased, with rollback-via-NixOS at every step. Previous tools stay
 declared in the flake until the new pattern has proven itself.
 
-### Phase 1 — Stand up the cluster microvm
+### Phase 1 — Stand up the cluster microvm with platform fully declared
 
-- Build the microvm guest on calvard. Probably named per the
-  existing Trails theme. QEMU backend, virtio-balloon, `mem`
-  ceiling 16 GB (initial), 4 vCPU.
-- One virtio-net interface to a new `cluster` zone in router6.
-- Distribution: `services.kubernetes.*` or k0s.
-- Define the `cluster` zone with explicit egress allows for image
-  pull (creil:443), DNS (phantasma:53), and internet:443. Caddy on
-  the host gets a NodePort proxy block for inbound.
-- Install Cilium with the configuration above. Verify pod-to-pod,
-  pod-to-host (deny by default), pod-to-internet (only via router6
-  allows).
-- Install Flux pointed at a new repo path in this flake (e.g.,
-  `cluster/manifests/`).
+Everything platform-level is declared in the flake; no manual
+imperative steps.
+
+- Build the microvm guest on calvard. Trails-themed name. QEMU
+  backend, virtio-balloon, `mem` ceiling 16 GB (initial), 4 vCPU.
+  One virtio-net interface to a new `cluster` zone.
+- In NixOS, declare:
+  - `services.k0s` with kine+SQLite datastore and
+    `network.provider: custom`
+  - k0s Helm extensions for Cilium, democratic-csi (with
+    VolumeSnapshot CRDs), Kyverno (with base ClusterPolicies),
+    and Flux pointed at the dynamic-manifest path
+  - kata-runtime, containerd config registering the kata shim,
+    and iSCSI client tools inside the cluster microvm
+  - The kata-qemu / runc / runc-kvm RuntimeClass YAMLs in k0s'
+    auto-applied manifests directory
+- Define the `cluster` zone in router6 with explicit egress
+  allows (creil:443 for image pull, phantasma:53 for DNS,
+  liberl NAS for iSCSI/NFS, internet:443 selectively).
+- Add a Caddy NodePort proxy block on the host for inbound.
+- `nixos-rebuild switch`.
+- Validation:
+  - `kubectl get pods -A` — Cilium, CSI, Kyverno, Flux all
+    Running
+  - `kubectl get runtimeclass` — kata-qemu present
+  - Test pod with `runtimeClassName: kata-qemu` shows a
+    different `uname -r` from the cluster microvm (proves the
+    nested KVM boundary)
+  - Pod-to-pod, pod-to-host-deny-default, pod-to-internet-only-
+    via-router6-allows all behave as expected
+  - Hostile-test from Appendix A's checklist runs cleanly
+- Bootstrap the dynamic-manifest path with a placeholder Flux
+  resource so subsequent phases have somewhere to add workloads.
 
 ### Phase 2 — First workload: the blog
 
@@ -1318,7 +1475,24 @@ introduced when warranted.
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v9 (this revision): added Appendix C — cluster topology
+- v10 (this revision): added the **platform vs. dynamic
+  boundary** as a first-class section. Corrected an earlier
+  framing error: in v5–v9 the report described Cilium / CSI /
+  Kyverno / Flux as "things you install on top," implying they
+  were dynamic-layer concerns. They are not — they are
+  baseline platform capabilities. Reclassified them as
+  NixOS-declared platform components, applied at cluster
+  startup via k0s Helm extensions. Updated the component-picks
+  section to make this explicit and updated migration Phase 1
+  to remove all manual `helm install` steps. Fresh-install
+  reproducibility ("`nixos-rebuild switch` produces a fully
+  operational platform") is now the explicit success criterion.
+  Made the rejection of vanilla `services.kubernetes.*` more
+  decisive — it violates the platform/dynamic boundary by
+  pulling workload concerns into the static layer; k0s does
+  not. This change tightens the report's coherence
+  significantly; future revisions should preserve the boundary.
+- v9: added Appendix C — cluster topology
   evolution. Documents three stages: single-node (the starting
   shape, Phases 1–4), multi-node with calvard control plane +
   erebonia worker (Phase 10, workload distribution), and full
