@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v15 — see revision history at end)
+Date: 2026-05-09 (v16 — see revision history at end)
 
 ## Question
 
@@ -304,31 +304,96 @@ that lives for months; only the "first QEMU guest" pattern-
 introduction cost is real, and it's small. This is a Phase-1
 decision, not an architectural one.
 
-### Why microvm-confined rather than on-host
+### Microvm-confined or host-direct: a defensible choice, not a forced one
 
-Running the cluster in a guest VM:
+Earlier revisions of this report leaned heavily on "the cluster
+must run in a microvm to mechanically isolate it from router6."
+That argument was overstated. **router6 only runs on gateway
+devices** (`thebeyond` is the homelab router; `calvard` and
+`erebonia` are VM hosts that don't import the router6 module
+at all). On the proposed cluster hosts, the host-side
+networking is standard NixOS (`networking.firewall`,
+systemd-networkd bridges, microvm.nix and Incus bridge
+declarations) — much less opinionated than router6.
 
-- **Mechanically prevents the cluster from touching router6.** The
-  microvm has its own kernel and its own `nf_tables`. The host's
-  `nf_tables` is unreachable across the hypervisor boundary — not
-  a syscall question, a hardware question. No CNI can install
-  rules that affect router6 because there's no path. Stronger than
-  rootless k8s (which has user-namespace edge cases) and stronger
-  than convention.
-- **Lets the CNI work normally.** Inside the microvm, kubelet
-  *is* root, so any CNI works at full feature set — k3s'
-  bundled flannel + kube-router NetworkPolicy is enough for
-  this homelab; Cilium with eBPF is available later if its
-  features become worth the additional configuration. Avoids
-  the 20–50% network penalty of rootless slirp4netns/pasta, the
-  broken CSI iSCSI story, and the unproven kata-rootless path.
-- **Reduces the dual-firewall debug surface** to "one firewall per
-  kernel, debugged in that kernel's tooling."
-- **Reversible.** A failed cluster is one microvm to destroy. The
-  static fleet, deployd, Incus, and the host are unaffected.
-- **Already the standard pattern** in this repo (~13 isolated
-  services as microvm guests) and in the broader community
-  (managed cloud k8s, vSphere/Tanzu, Proxmox+Talos).
+So the mechanical-isolation argument doesn't apply on the
+actual cluster host. **Both microvm-confined and host-direct
+are technically viable**; the choice is a real architectural
+trade-off, not a forced one.
+
+#### What host-direct would conflict with (honestly: not much)
+
+| Host-side thing | k3s collision? |
+|---|---|
+| `networking.firewall` (standard NixOS) | Coexists fine; iptables-nft chain priorities mean both work |
+| systemd-networkd bridges for microvm guests | k3s' flannel creates its own bridge (`cni0`); different name |
+| Incus bridges (for edith, trista) | Different bridge namespace |
+| nftables tables from microvm.nix / Incus | Live in different tables; coexist in `nf_tables` backend |
+| Routing tables | k3s adds routes for pod CIDR; no fundamental conflict |
+| containerd | k3s runs its own; microvm guests have their own — no shared instance |
+| Storage | k3s' local-path writes to a host directory you point at |
+
+These are "more rules to debug" rather than "this won't work."
+
+#### Residual arguments for microvm-confined
+
+The honest remaining case for keeping the cluster in a microvm:
+
+- **Failure-domain isolation.** A cluster crash, kernel panic
+  from a CNI bug, or runaway pod consuming memory affects the
+  host directly if k3s is on host. In a microvm, those affect
+  only the microvm. Other static guests (also in their own
+  KVM boundaries) are unaffected either way; the difference is
+  whether *the host itself* is at risk.
+- **Hard resource bounds.** The microvm has a memory ceiling;
+  k3s on host shares with the kernel and other system services
+  with no firm limit.
+- **Cleaner reset/teardown.** "Kill the microvm and rebuild" is
+  simpler than "carefully unwind k3s + flannel + containerd +
+  state directories from the host."
+- **Skill-investment isolation.** Tinkering with k3s, breaking
+  the cluster while learning, etc. doesn't risk the host or
+  its other guests.
+
+#### Residual arguments for host-direct
+
+- **Less abstraction.** One fewer layer to operate, debug,
+  reason about.
+- **Resource pooling without ceremony.** Cluster gets idle
+  CPU/RAM directly; no balloon-tuning or microvm-mem-ceiling
+  decisions.
+- **Direct hardware access.** GPU passthrough, `/dev/kvm`
+  without nested virt, NUMA-awareness — easier without a
+  virtualization layer between the workload and the hardware.
+- **Simpler bootstrap.** No "build a microvm, install k3s in
+  it, wire up the cluster zone." Just `services.k3s.enable =
+  true` on the chosen host alongside its other declarations.
+- **The cluster becomes another host service** rather than a
+  guest. Same shape as `services.openssh.enable = true`.
+- **Performance.** ~5% network overhead and ~1-3% CPU saved by
+  not virtualizing. Real but small.
+
+#### Recommended sequencing (deferred decision)
+
+For the **learning phase** (Phases 1–4): **microvm-confined**.
+Phase 1 is genuinely a validation phase where things may break
+in unpredicted ways; having those breakages contained reduces
+blast radius while the operator is building familiarity. The
+~5% performance cost is cheap insurance.
+
+After Phase 4 (cluster has been operating reliably with several
+production workloads): **revisit**. By that point there's
+operating experience to inform the choice. If the microvm
+abstraction has been pure overhead, lifting to host-direct is a
+defined migration (move state, point host k3s at the same
+manifests, swap DNS/networking, decommission the microvm). If
+the failure-domain isolation has caught real issues, keep the
+microvm.
+
+The rest of the plan doesn't depend on which way this lands —
+the platform components, security model, observability, dev-env
+patterns are all the same. This is a deferrable decision; it
+shouldn't block Phase 1.
 
 ### Performance
 
@@ -2261,6 +2326,204 @@ To be honest about the trade:
 These trade-offs are why the static fleet stays where it is.
 The cluster doesn't subsume the static layer; it complements it.
 
+## Appendix E: Future directions enabled (not planned)
+
+The migration plan describes specific workloads that justify
+standing up the cluster (blog, game servers, CI runners, dev
+environments). Beyond those, the platform makes a number of
+concrete workflows tractable that aren't in the plan but
+become discoverable. This appendix lists them — not as
+commitments, but as documentation that future-you (or future
+LLM-assisted exploration) can reference when a "could we do
+X?" question comes up.
+
+The pattern across all of these: the workflow exists today in
+some painful form (or doesn't exist at all), and the platform
+makes it routine. None of these are required; all are
+discoverable.
+
+### Multiplayer / fleet game-server hosting (Agones-style)
+
+The current plan covers persistent single-instance game servers
+(Phase 3). For "matchmaker assigns players to a server from a
+pool of available servers," **Agones** provides the pattern:
+
+- `Fleet` resource defines a managed pool of game servers
+- `GameServer` CRD per server instance
+- `GameServerAllocation` request to assign players to a ready
+  server
+- Built-in lifecycle states: `Starting → Ready → Allocated →
+  Shutdown`
+- SDK for game servers to self-report readiness and player
+  status
+
+Useful if friends ever want competitive sessions where the game
+allocates servers on demand, rather than a fixed Minecraft
+world running for weeks. Overkill for the current "weekly
+play sessions on a persistent server" use case; trivially
+addable when the use case shifts.
+
+### Per-PR preview environments
+
+Forgejo PR opens → Argo Events listens for the webhook →
+triggers Argo Workflow → workflow builds the PR's image, pushes
+to creil, applies a manifest to a per-PR namespace with the
+new image → preview URL gets posted back to the PR.
+
+Closes preview namespace on PR merge or close. ResourceQuota
+caps total preview-environment footprint.
+
+This is genuinely transformative for projects with frequent
+PRs — you can click a link and see the proposed change running
+before merging. Doesn't exist today (deployd doesn't do
+preview environments); becomes routine on the cluster.
+
+### Coder-style multi-user dev environments
+
+Coder (or similar) provides:
+
+- Web UI for trusted users to provision dev environments
+- Templates per environment shape (a "claude-sandbox"
+  template, a "rust-dev" template, a "data-analysis" template,
+  etc.)
+- Per-user persistent workspaces with PVCs
+- Idle-timeout shutdown (workspace pauses when user
+  disconnects, resumes on reconnect — significant resource
+  savings)
+- Web terminal + native SSH + IDE integrations
+- Per-user/per-group ResourceQuota and audit logs
+
+Useful if dev environments expand beyond the operator (friends
+working on a project, transient collaborators, classes/
+workshops). Today this would require building from scratch on
+deployd; tomorrow it's a Helm chart.
+
+### On-demand test infrastructure
+
+"Spin up a 3-node test cluster to validate changes to the
+homelab's own platform layer before applying them" — the
+self-test version of the homelab.
+
+Implementations:
+
+- **k3d / KinD pods** running ephemeral mini-clusters inside
+  the production cluster
+- **KubeVirt VMs** for fuller fidelity (test changes to host
+  NixOS configs without touching real hosts)
+- Wrapped in Argo Workflows so "run the platform-change test
+  suite" is a single command
+
+Today the homelab has `tests/modules/` for NixOS VM tests;
+adding cluster-side test infrastructure would extend the same
+discipline to k8s changes.
+
+### Webhook-driven home automation
+
+Argo Events listens for:
+
+- Forgejo webhooks (PR opens, push to main, release tags)
+- Tailscale ACL changes (Headscale events)
+- Home Assistant events (motion, time, presence)
+- ntfy delivery confirmations
+- External cron-style triggers (schedules)
+- `inotify` on NAS paths (new media files)
+
+Each can trigger an Argo Workflow that does something useful:
+deploy on push, run a backup verification when a snapshot
+completes, regenerate AdGuard blocklists on schedule, etc.
+
+Today most of this is hand-wired systemd timers + scripts
+scattered across hosts; the platform consolidates the pattern.
+
+### Short-lived ad-hoc compute Jobs
+
+"I need 16 vCPUs and 64 GB RAM for an hour to render this
+video / re-encode a media library / train a small model / run
+a parallelized data crunch."
+
+Today this would mean either a static microvm (wasteful when
+not in use) or running on the operator's workstation. The
+platform makes it a `Job` + `PVC` that runs once, writes
+output, and tears down. ResourceQuota at the namespace level
+prevents the ad-hoc Job from starving production workloads.
+
+Pairs naturally with KubeVirt VMs if the workload needs full-
+OS fidelity rather than a container.
+
+### Friend-facing services with multi-tenant isolation
+
+Give a friend (or family member, or trusted external user) a
+namespace with:
+
+- ResourceQuota capping their CPU/memory/PVC usage
+- NetworkPolicy isolating them from other namespaces
+- RBAC limiting them to their own namespace
+- Their own kubectl access via Authelia OIDC
+- Their own workloads, on their own update cadence
+
+This is the "give me a VPS" pattern, expressed as namespaces
+rather than VMs. Headscale-attached friends get cluster
+access; their workloads land in their namespace; they can't
+affect anyone else.
+
+Today the homelab doesn't have a clean answer for "let a friend
+self-host a small thing on my hardware"; tomorrow it's a
+namespace + a kubeconfig.
+
+### Backup/DR drills via Velero
+
+"Once a month, restore last week's backup to a test namespace
+and validate it works."
+
+Velero handles the mechanics; an Argo CronWorkflow schedules
+the drill; results post to ntfy. Periodic verification that
+backups actually restore (rather than the more common pattern
+of "we have backups but never tested restores").
+
+Today the homelab's backup story is per-service; the platform
+makes test-restore-in-a-test-namespace a routine workflow.
+
+### Image vulnerability scanning
+
+Trivy operator (or similar) scans images at admission time and
+periodically. Scan results expose as Kubernetes events;
+Kyverno can block deployment of images with known critical
+CVEs above a threshold.
+
+Useful as the cluster scales beyond "just my own images" —
+e.g., Helm charts pulled from upstream registries that we
+don't fully control.
+
+### Operator-managed Postgres for arbitrary services
+
+CloudNativePG provides a `Cluster` CRD; declare it, get an HA
+Postgres with automatic backups, point-in-time recovery, and
+failover. Workloads use it as a regular Postgres.
+
+Today every Postgres-needing service runs its own Postgres
+process (Keycloak/Authelia, Forgejo, Headscale). Tomorrow
+they could share an operator-managed cluster — or, more
+incrementally, a workload that suddenly needs Postgres can
+declare a `Cluster` resource without anyone running a
+dedicated install.
+
+### What this list isn't
+
+These are workflows the platform *enables*, not workflows
+that need to ship with v1. The right time to engage with any
+of them is when there's a concrete need; the wrong time is
+"because the platform supports it."
+
+The list serves two purposes:
+
+1. **Documentation for future exploration.** When a "could we
+   do X?" question comes up, this is the index of "yes, here's
+   how, here's the operator/chart/pattern that does it."
+2. **Honesty about what's not in the migration plan.** The
+   migration plan covers blog, game servers, CI runners, dev
+   environments. Anything else listed here is a future
+   discovery, not a deferred-but-planned commitment.
+
 ## Revision history
 
 - v1: initial pass — recommended staying, ~90/10. Anchored too hard
@@ -2281,7 +2544,40 @@ The cluster doesn't subsume the static layer; it complements it.
   microvm framing changed the recommendation from "stay" to
   "build new dynamic work on a cluster, leave existing things
   alone."
-- v15 (this revision): incorporated independent review
+- v16 (this revision): two updates from operator review.
+  
+  **Microvm-confined vs. host-direct reframed as a defensible
+  choice rather than a forced one.** The operator pointed out
+  (correctly) that router6 only runs on gateway devices —
+  thebeyond is the router; calvard and erebonia are VM hosts
+  that don't import router6 at all. The mechanical-isolation
+  argument the plan leaned on doesn't apply on the proposed
+  cluster host. Host-direct is technically viable; the residual
+  arguments for microvm-confinement are failure-domain
+  isolation, hard resource bounds, cleaner reset/teardown, and
+  skill-investment isolation during the learning phase. The
+  recommendation is now microvm-confined for Phases 1–4
+  (learning phase, reduce blast radius), revisit at Phase 4+
+  with operating experience to inform the choice. Either
+  outcome works; the rest of the plan doesn't depend on which.
+  
+  **Added Appendix E: Future directions enabled (not planned).**
+  Concrete workflow examples of what the platform makes
+  tractable beyond the migration plan's scope — multiplayer
+  game-server fleet management (Agones), per-PR preview
+  environments, Coder-style multi-user dev environments, on-
+  demand test infrastructure, webhook-driven home automation,
+  short-lived ad-hoc compute Jobs, friend-facing services with
+  multi-tenant isolation, backup/DR drills via Velero, image
+  vulnerability scanning, operator-managed Postgres. Framed
+  explicitly as discovery rather than commitment — the list
+  documents what's discoverable, not what's deferred.
+  
+  Net: plan acknowledges its own architectural choices are
+  sometimes more open than earlier framings suggested, and
+  explicitly documents what's enabled-but-not-planned so future
+  exploration has a starting point.
+- v15: incorporated independent review
   findings and pivoted from k0s to k3s. Distribution change is
   the headline: with the cluster confined to a microvm, k3s'
   bundled defaults (flannel, Traefik, ServiceLB, CoreDNS,
