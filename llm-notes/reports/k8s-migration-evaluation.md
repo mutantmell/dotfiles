@@ -1,6 +1,6 @@
 # Kubernetes Migration Evaluation
 
-Date: 2026-05-09 (v19 — see revision history at end)
+Date: 2026-05-11 (v20 — see revision history at end)
 
 ## Question
 
@@ -18,7 +18,9 @@ scheduler, kine) runs inside a microvm guest; `k3s agent`
 bare-metal. Build new dynamic workloads on it. Migrate
 cc-sandbox into the cluster early — its current deployd
 nested-virt story is broken; bare-metal kata-qemu or runc-kvm
-fixes it. Migrate edith into the cluster once it has matured.
+fixes it. Migrate edith into the cluster once it has matured,
+as a **KubeVirt VirtualMachine** — edith is a mutable NixOS VM
+and KubeVirt preserves that shape better than Pod + PVC would.
 Leave the static microvm.nix fleet on calvard untouched. Sunset
 deployd once the cluster has proven itself. NixOS rollback is
 the recovery mechanism — every change is boot-time reversible.**
@@ -54,7 +56,7 @@ declared in the flake until the new pattern has run reliably.
 | Game servers (planned) | — | k8s | CSI VolumeSnapshot replaces the custom iSCSI add-on |
 | CI runners (saint-arkh deferred) | — | k8s | Woodpecker kubernetes backend + per-step gVisor-sandboxed pods |
 | Claude sandboxes | deployd (broken nested-virt) | k8s with kata-qemu (or runc-kvm) | Migrate early — bare-metal access fixes the nested-virt problem deployd has; runtime per Appendix A |
-| edith dev environment | Incus (calvard) | k8s Pod (erebonia) | StatefulSet + PVC; cross-host but liberl-backed CSI handles it |
+| edith dev environment | Incus (calvard) | KubeVirt VM (erebonia) | VirtualMachine CRD with DataVolume on liberl CSI; preserves mutable-NixOS shape; CSI VolumeSnapshot maps onto `incus snapshot` |
 | trista | Incus (erebonia) | resolved per Phase 6 | Role ambiguous (inventory says dev env; code says dmz-vm; registry says bastion); leave alone for now |
 | Authelia and other small foundational services | microvm.nix (calvard) | microvm.nix (calvard) | Per-service failure domain wins; calvard not pulled into cluster |
 | Static fleet (Forgejo, Jellyfin, Prometheus, etc.) | microvm.nix (calvard) | microvm.nix (calvard) | Don't migrate what works |
@@ -494,9 +496,10 @@ For the named workloads:
   weaker isolation than kata.
 - **Game servers under runc**: native — direct CPU and
   network. Imperceptible to players.
-- **edith dev environment under runc**: comparable to today
-  (Incus container on calvard); cross-host access to PVCs
-  hosted on liberl NAS adds NFS or iSCSI latency, similar to
+- **edith dev environment under KubeVirt**: KVM VM with virtio
+  disk on liberl-backed CSI; ~5–10% per-pod CPU overhead and
+  near-native disk via virtio. Comparable to today (Incus VM
+  shape); cross-host disk access adds iSCSI latency similar to
   Incus's network-storage path.
 
 **Control-plane path overhead:** kubelet on erebonia talks to
@@ -721,7 +724,9 @@ None require manual post-install steps; a fresh
   first-class option (no nested-KVM penalty), so the runtime
   set is broader than the v15 framing.
   - `runc` (default) — trusted code: foundational service
-    workloads, the blog, game servers, edith dev environment
+    workloads, the blog, game servers, trista if migrated.
+    edith runs as a KubeVirt VirtualMachine (not under a
+    RuntimeClass) — see Phase 7.
   - `runsc` (gVisor) — sandboxed untrusted code: CI step pods
     running build scripts and dependencies. Userspace
     syscall implementation; ~10–30% syscall-heavy overhead;
@@ -816,58 +821,100 @@ the same way every other host in the homelab is.
 
 ## Dev environments as cluster workloads
 
-The eventual home for edith and trista is the cluster, as
-StatefulSets backed by PersistentVolumeClaims.
+The eventual home for edith and trista is the cluster, but in
+two different shapes:
 
-### Why this works (re-examining the previous "no" answer)
+- **edith → KubeVirt VirtualMachine.** edith is a mutable NixOS
+  dev env — the workload genuinely **is** a VM, and KubeVirt
+  expresses that directly without contorting around Pod+systemd
+  frictions.
+- **trista → Pod + PVC** (if/when migrated; Phase 8's default
+  action is "leave alone"). trista's plausible roles
+  (bastion/task-runner) are container-shaped, not VM-shaped,
+  so the lighter Pod path fits.
 
-The earlier objections to running mutable NixOS as a Pod were:
+### Why edith is a KubeVirt VM, not a Pod
 
-- **kata-agent vs. systemd PID 1 cgroup conflict** (per
-  `llm-notes/done/kata-cloud-hypervisor-migration.md`). Real, but
-  applies only to `RuntimeClassName: kata-qemu`. Under
-  `RuntimeClassName: runc` (the default for non-isolated
-  workloads), systemd-as-PID-1 in a Pod works correctly — the
-  cgroup is owned cooperatively the same way it is on a regular
-  host. Production patterns like Coder, Gitpod, Codespaces, and
-  the broader systemd-in-container ecosystem all rely on this.
-- **Mutable nix store overlay issue** (microvm.nix +
-  cloud-hypervisor). Real, but applies to overlay-based mutable
-  stores, not to a real filesystem mounted at `/nix` from a PVC.
-  The Pod's `/nix` is a regular filesystem on a CSI volume; no
-  overlay tricks needed.
+The Pod + PVC + systemd-as-PID-1 + runc pattern works for some
+dev-env shapes (Coder/Gitpod/Codespaces demonstrate it) but has
+two real frictions that don't pay back for edith specifically:
 
-Neither objection holds for a runc-runtime Pod with a PVC. The
-pattern is mature and well-supported.
+- **PSS Restricted vs. systemd as PID 1.** Restricted blocks
+  `/sys/fs/cgroup` rw and `procMount: Unmasked`, both of which
+  systemd-as-PID-1 typically wants. The fallbacks are PSS
+  Baseline (real isolation downgrade) or a non-systemd init (no
+  longer NixOS-shaped the way edith is today).
+- **The product comparisons aren't 1:1.** Coder, Gitpod, and
+  Codespaces generally don't run systemd as PID 1; they use
+  thin inits and treat the dev env as a container, not a
+  system. edith today is a full mutable NixOS — closer to a VM
+  than to a container.
 
-### What it looks like
+KubeVirt sidesteps both. A `VirtualMachine` CRD describes a
+real KVM VM running an unmodified NixOS image:
 
-- **StatefulSet** of size 1 for stable identity per dev env
-- **Base image**: minimal NixOS bootstrap built via
-  `dockerTools.streamLayeredImage`, similar to
-  `packages/claude-sandbox-image/`
-- **PersistentVolumeClaims** for `/nix`, `/home`, `/etc/nixos`,
-  and any other state directories
-- **`RuntimeClassName: runc`** (no kata, no cgroup conflict)
-- **systemd as PID 1** via the entrypoint
-- **sshd** managed by systemd inside
-- **Service + NodePort** exposes SSH; langport's nginx (or
-  Traefik in TCP mode for SNI-routed SSH) proxies from the
-  management zone
-- **VolumeSnapshot** for periodic backups (replaces
-  `incus snapshot`)
-- **Resource limits** matching today's `limits.memory = "16GB"`
+- **CSI VolumeSnapshot** maps cleanly onto `incus snapshot` —
+  per-instance snapshots, not per-volume gymnastics on multiple
+  PVCs.
+- **`virtctl console`** and **`virtctl ssh`** are closer to
+  `incus console` / `incus exec` than `kubectl exec` ever gets.
+- **The NixOS guest is literally NixOS** — no overlay tricks,
+  no "is /nix a PVC or a layered image" question, no fighting
+  PSS, no PID-1 gymnastics.
+- **Storage, networking, lifecycle** reconcile through Flux the
+  same way Pods do.
+
+The complexity tax (virt-handler DaemonSet, CRDs, KubeVirt
+operator) is real but pays back when the workload genuinely is
+a mutable VM. For edith, it's the right shape.
+
+### Why trista may still land as a Pod
+
+trista's role is ambiguous (Phase 8 reconciles it; default is
+"leave alone"). If trista does migrate, its plausible shapes
+— bastion or small task runner — are container-shaped. Pod +
+PVC is the right pattern there; KubeVirt for trista would be
+overkill. The PSS/systemd-PID-1 friction is manageable for the
+trista case: a bastion can run sshd under a thin init rather
+than systemd, and PSS Baseline is acceptable for trusted-code
+workloads.
+
+### What the edith KubeVirt VM looks like
+
+- **`VirtualMachine` resource** with KubeVirt's standard
+  schema:
+  - CPU/memory matching today's edith allocation
+    (`limits.memory = "16GB"` per the Incus config)
+  - `DataVolume` for the boot disk, backed by democratic-csi
+    against liberl
+  - Bridged into the cluster's CNI; routable through router6
+    the same as any other cluster workload
+  - cloud-init for any first-boot config the pre-baked image
+    doesn't carry
+- **Pre-built NixOS disk image** (qcow2 or raw) generated via
+  `nixos-generators` or the flake-equivalent pattern.
+  Reproducible from the flake; rebuilds replace the image
+  rather than mutating it in-place.
+- **CSI VolumeSnapshot** schedule via Velero or a CronJob —
+  the direct replacement for `incus snapshot`.
+- **`virtctl`** for console access; **sshd inside the guest**
+  for normal day-to-day access, routed via langport.
 
 ### What we lose vs. Incus
 
-- **`incus exec` / `incus console` UX.** `kubectl exec` covers the
-  shell case; the console-attach flow is less polished.
-- **Live migration.** Possible with KubeVirt, not with plain Pods.
-  Single-node anyway today.
-- **`incus snapshot` granularity.** VolumeSnapshot is
-  per-volume; Incus snapshots are per-instance. Adequate for
-  backups, less granular for "I'm about to do something risky,
-  let me snapshot."
+- **Operator familiarity.** KubeVirt is new to the homelab;
+  Incus is known. Mitigation: Phase 7 starts after the cluster
+  has matured (post-Phases 2–4), and KubeVirt's docs and
+  community are mature.
+- **Live migration** is available with KubeVirt across nodes
+  but irrelevant at single-node. Strict gain over Incus (which
+  also lacks it in this deployment) once multi-node lands.
+- **NixOS module ergonomics for the dev-env host.** edith
+  today is configured by a NixOS module; under KubeVirt the
+  guest is still NixOS (image built from the flake), so the
+  module pattern is preserved. The wrapping changes
+  (VirtualMachine resource instead of Incus VM declaration);
+  the inside doesn't.
 
 ### Bootstrap chicken-and-egg
 
@@ -876,7 +923,8 @@ in it, debugging is harder. Mitigation: **migrate edith first;
 keep trista on Incus on erebonia as the recovery dev env until
 edith has run reliably for several months**. The existing
 primary/backup pattern handles this naturally. Once edith is
-proven, trista can migrate too.
+proven, trista's reconciliation (Phase 8) picks the right shape
+for its actual role.
 
 ## Static fleet and the shrinking-services dynamic
 
@@ -905,22 +953,36 @@ could go either way. Below that, microvm-per-service is fine. Above
 that, aggregation in the cluster amortizes overhead. We're not at
 the crossover yet.
 
-## What about KubeVirt?
+## KubeVirt's role: edith only, not the static fleet
 
-KubeVirt would let the static fleet run as `VirtualMachine`
-resources inside the cluster, getting CSI snapshots and a unified
-API. Considered and rejected for the static fleet because:
+KubeVirt provides `VirtualMachine` resources inside the cluster
+— full KVM VMs managed via the k8s API, with CSI-backed disks,
+VolumeSnapshot, and (when multi-node) live migration. The
+homelab adopts it selectively:
 
-- Adds significant complexity (operators, CRDs, virt-handler
-  daemonsets) for marginal benefit.
-- microvm.nix is much lighter than KubeVirt VMs at this scale.
-- Loses NixOS-native module declarations like
-  `services.authelia-main.enable = true`.
-- The static fleet is already isolated correctly; live migration
-  isn't a homelab need.
+- **edith dev environment** (Phase 7): **yes.** The workload
+  is a mutable NixOS VM; KubeVirt expresses it directly. See
+  "Dev environments as cluster workloads" above.
+- **Static fleet** (Authelia, step-ca, Forgejo, etc.): **no.**
+  microvm.nix is lighter, NixOS module ergonomics
+  (`services.authelia-main.enable = true`) are better than
+  KubeVirt VM specs, and the static fleet is already isolated
+  correctly per-service.
+- **cc-sandbox** (Phase 5): **no.** kata-qemu already provides
+  a KVM-per-pod boundary at lower complexity; KubeVirt would
+  add operator surface without giving cc-sandbox anything it
+  needs.
+- **trista** (Phase 8, if migrated): **no.** Bastion/task-runner
+  shape is container-shaped, not VM-shaped. Pod + PVC fits.
+- **CI runners, game servers, blog**: **no.** These are
+  cattle-shaped workloads; Pods are the right answer.
 
-The dev-environment migration path uses **Pods + PVCs**, not
-KubeVirt VMs — Pods are sufficient, KubeVirt is overkill.
+KubeVirt joins the platform when Phase 7 lands (not v1). It's
+declared via HelmChart resource in the cluster microvm's
+manifests directory; the virt-handler DaemonSet runs on the
+agent node alongside kubelet. ~150 MB combined operator
+footprint — small but a real addition to the platform-update
+cadence.
 
 ## Migration plan
 
@@ -1199,33 +1261,61 @@ The kata config file at `/etc/kata-containers/configuration.toml`
 is now solely owned by k3s' runtime; the coexistence audit
 items collapse.
 
-### Phase 7 — Migrate edith into the cluster
+### Phase 7 — Migrate edith into the cluster as a KubeVirt VM
 
 Earliest start: ~3 months into cluster operation, after Phases
 2–4 have run reliably. (v17's "6 months" was anchored on
 microvm-confined timing; bare-metal cluster matures faster
 because there's no microvm-shaped surprise discovery.)
 
-- Build a NixOS-as-Pod base image for edith via
-  `dockerTools.streamLayeredImage`.
-- Define a StatefulSet with PVCs for `/nix`, `/home`,
-  `/etc/nixos`, and other state directories. PVCs backed by
-  democratic-csi against liberl NAS (cross-host access works
-  because PVCs are CSI-mediated, not host-local).
-- **Cross-host PVC note**: parallel-run during cutover can't
-  use the same RWX block volume from both the Incus edith
-  (on calvard) and the Pod edith (on erebonia). Either:
-  - Use NFS-backed (RWX) volumes during parallel run, switch
-    to iSCSI (RWO) after cutover; or
-  - Skip the parallel run; do a copy-then-cutover with a
-    short downtime window.
-- Run the new edith-pod for a few weeks. Validate that builds,
-  dev workflows, sshd access, and the langport routing chain
-  all work.
+**Add KubeVirt to the platform.** Declared via HelmChart
+resource in the cluster microvm's manifests directory. The
+kubevirt-operator and virt-handler DaemonSet land on the
+cluster (virt-handler runs on the agent node, erebonia
+bare-metal); CRDs include `VirtualMachine`,
+`VirtualMachineInstance`, and `DataVolume`. ~150 MB combined
+footprint; one new platform component to track on the
+update cadence.
+
+**Build the edith VM image.**
+- Pre-built NixOS disk image (qcow2 or raw) generated from the
+  flake via `nixos-generators` or the flake-native equivalent.
+  Reproducible across rebuilds.
+- Initial install path can also be cloud-init into a blank
+  DataVolume, but the flake-built image is the canonical
+  pattern — preserves the "infrastructure is text in git"
+  property.
+
+**Define the VirtualMachine resource.**
+- CPU/memory matching today's edith allocation (`limits.memory
+  = "16GB"` per the Incus config).
+- `DataVolume` for the boot disk, backed by democratic-csi
+  against liberl. VolumeSnapshot for periodic backups.
+- Bridged into the cluster's CNI; routable through router6 the
+  same as any other cluster workload.
+- cloud-init for any first-boot config the image doesn't carry.
+
+**Cutover.**
+- **Cross-host disk note**: parallel-run during cutover means
+  two edith VMs (Incus on calvard + KubeVirt on erebonia) with
+  separate disks. Initial copy: `incus export` of the Incus
+  edith → import as a DataVolume on liberl-backed CSI.
+  Alternatively, snapshot the Incus disk, copy via NFS or scp
+  to liberl, import directly as a PV.
+- Run the new edith-VM for a few weeks. Validate builds, dev
+  workflows, sshd access, the langport routing chain, and
+  VolumeSnapshot-based backup/restore.
 - Cut over by switching DNS / langport routing to the new
   edith. Keep the Incus edith declared (but stopped) for
   several more weeks as rollback option. Once confidence is
   high, remove the Incus declaration.
+
+**Why not Pod + PVC + systemd-as-PID-1.** PSS Restricted fights
+systemd-as-PID-1 (`/sys/fs/cgroup` rw, `procMount: Unmasked`),
+and the Coder/Gitpod/Codespaces precedents don't run systemd
+as PID 1 the way edith does — they're container-shaped. edith
+is VM-shaped, so KubeVirt is the cleaner fit. See "Dev
+environments as cluster workloads" for the full reasoning.
 
 ### Phase 8 — Reconcile trista's role
 
@@ -1242,9 +1332,13 @@ until needed.
 - If a future bastion role is assigned to trista: keep it on
   Incus or migrate to the planned calvard-hosted bastion per
   Appendix B.
-- If a future dev-environment role is assigned: migrate to a
-  StatefulSet + PVCs the same way edith was migrated in
-  Phase 7.
+- If a future dev-environment role is assigned: migrate as a
+  KubeVirt VirtualMachine the same way edith was migrated in
+  Phase 7 (the dev-environment shape is VM-shaped).
+- If a future bastion / task-runner role is assigned and it's
+  migrating to the cluster (not staying on microvm.nix): Pod +
+  PVC with a thin init (no systemd-as-PID-1) is the right
+  shape — container-shaped workload, lighter than KubeVirt.
 
 ### Phase 9 — Decommission Incus (if/when appropriate)
 
@@ -1365,16 +1459,25 @@ network requirements, and trade-offs.
   NetworkPolicy; not as strong, still reasonable defense for the
   homelab threat model.
 - **systemd-as-PID-1 in dev-environment Pods + PSS Restricted.**
-  PSS Restricted blocks several mounts (`/sys/fs/cgroup` rw,
-  `procMount: Unmasked`) that systemd typically wants. The
-  bastion (Restricted, in Appendix B) and dev environments
-  (Phase 5) cannot trivially share Pod policy if both run
-  systemd as PID 1. Mitigation: dev environments may run with
-  PSS Baseline rather than Restricted, with the trade-off
-  explicitly recorded; or use a non-systemd PID-1 (a thin init
-  + sshd directly). Validate during Phase 5 prototyping; don't
-  assume Coder/Gitpod patterns transfer 1:1 (those products
-  typically don't run systemd as PID 1).
+  Resolved for edith by going to KubeVirt (Phase 7) — the VM
+  has its own kernel, no PSS interaction. Still applies to
+  trista if trista migrates as a Pod (Phase 8): PSS Restricted
+  blocks `/sys/fs/cgroup` rw and `procMount: Unmasked`, which
+  systemd-as-PID-1 typically wants. Mitigation for the trista
+  case: a thin init + sshd directly (rather than full systemd)
+  works for bastion/task-runner shapes; PSS Baseline is
+  acceptable for trusted-code workloads. Don't assume
+  Coder/Gitpod patterns transfer 1:1 (those products don't run
+  systemd as PID 1).
+- **KubeVirt operator surface.** KubeVirt adds the
+  kubevirt-operator pod, virt-handler DaemonSet, and several
+  CRDs (~150 MB combined). Bumps to track on top of k3s,
+  cert-manager, democratic-csi, Kyverno, Flux. KubeVirt's
+  domain is libvirt-shaped semantics inside k8s — a real
+  surface to learn. Only adopted when Phase 7 lands; can be
+  reverted (revert the HelmChart, edith stays on Incus) if
+  prototyping reveals trouble. Update cadence policy follows
+  the rest of the platform.
 - **cloud-hypervisor balloon support.** The original "use QEMU
   for balloon" decision was based on assumed maturity gap; v15
   recommends starting with cloud-hypervisor for consistency
@@ -1444,23 +1547,32 @@ host, they're still part of the consistent operator experience.
 Worth revisiting if k3s-on-NixOS proves operationally
 problematic.
 
-### KubeVirt for dev environments (instead of Pod + PVC)
+### Pod + PVC for edith (instead of KubeVirt)
 
-KubeVirt would let edith and trista run as `VirtualMachine`
-resources inside the cluster — full VMs, libvirt+QEMU under
-the hood, with snapshots via CSI and live migration when
-multi-node. This is genuinely the workload shape KubeVirt is
-designed for.
+The lighter alternative for edith would be a Pod (or
+StatefulSet of size 1) with PVCs for `/nix`, `/home`,
+`/etc/nixos` and systemd as PID 1 under `RuntimeClassName:
+runc`. No KubeVirt operator footprint, no virt-handler
+DaemonSet, no VM CRDs to track — the Coder / Gitpod /
+Codespaces shape.
 
-**Why not picked**: KubeVirt adds significant complexity
-(operators, virt-handler DaemonSets, CRDs) for a feature set
-the homelab doesn't need at scale — single-node anyway, no
-live migration requirement, snapshots already covered by
-democratic-csi for Pod PVCs. The Pod+PVC pattern with a
-trade-off on PSS profile (likely Baseline rather than
-Restricted) is lighter and adequate. Worth revisiting if the
-Pod-with-systemd-as-PID-1 pattern hits problems Phase 5
-prototyping can't resolve cleanly.
+**Why not picked**: two frictions that don't pay back for an
+edith-shaped workload:
+
+- PSS Restricted blocks `/sys/fs/cgroup` rw and `procMount:
+  Unmasked`, which systemd-as-PID-1 typically wants. The
+  fallbacks are PSS Baseline (real isolation downgrade) or
+  a non-systemd init (no longer NixOS-shaped).
+- The product comparisons aren't 1:1 — Coder / Gitpod /
+  Codespaces treat dev envs as containers with thin inits,
+  not as systems running systemd. edith today is a full
+  mutable NixOS, which is closer to a VM than to a container.
+
+KubeVirt's complexity tax pays back when the workload genuinely
+**is** a VM. trista, if migrated (Phase 8), may still land as
+a Pod — its plausible shapes (bastion/task-runner) are
+container-shaped, and the PSS friction is manageable there
+(thin init + sshd, PSS Baseline for trusted code).
 
 ### Keep Incus permanently
 
@@ -2497,8 +2609,14 @@ solutions worth knowing about:
   `packages/deployd-helper/src/validation.rs`.
 - **DevPod** (https://devpod.sh/). CLI-driven. Closer in shape
   to current cc-sandbox UX. More composable, less bundled.
-- **Plain StatefulSet + PVC** (the dev-env migration plan). The
-  default for edith/trista; doesn't require additional tooling.
+- **KubeVirt VirtualMachine** (the dev-env migration plan for
+  edith — Phase 7). Default for VM-shaped dev envs; doesn't
+  require additional dev-env-specific tooling beyond KubeVirt
+  itself.
+- **Plain Pod + PVC with thin init**. Default for container-
+  shaped roles (trista if migrated, future task runners);
+  lighter than KubeVirt but avoids the systemd-as-PID-1 +
+  PSS Restricted friction by not running systemd.
 
 Honest framing: cc-sandbox works; the security model is
 auditable; migration to Coder/DevPod only makes sense if
@@ -2846,7 +2964,56 @@ The list serves two purposes:
 
 Reverse chronological — most recent revision first.
 
-- v19 (this revision): split the cluster's control plane and
+- v20 (this revision): pivot Phase 7 from "Pod + PVC +
+  systemd-as-PID-1" to **KubeVirt VirtualMachine** for edith.
+  trista (if migrated, Phase 8) remains a Pod candidate; edith
+  specifically is better expressed as a KubeVirt VM.
+
+  Why: the operator pointed out that the stated goal of the
+  Incus → cluster migration is "replace Incus with something
+  edith-shaped," and the Pod + PVC + systemd-PID-1 path has
+  two real frictions for edith specifically:
+
+  1. PSS Restricted blocks `/sys/fs/cgroup` rw and
+     `procMount: Unmasked`, both of which systemd-as-PID-1
+     typically wants. Fallback to PSS Baseline is an
+     isolation downgrade; fallback to non-systemd init
+     breaks the mutable-NixOS shape.
+  2. The Coder / Gitpod / Codespaces precedents aren't 1:1 —
+     those products use thin inits, not systemd as PID 1.
+     edith is closer to a VM than a container.
+
+  KubeVirt expresses the edith workload directly (it IS a
+  VM), preserves NixOS-as-the-guest-OS without contortions,
+  and matches CSI VolumeSnapshot onto `incus snapshot`
+  cleanly. The complexity tax (virt-handler DaemonSet, CRDs,
+  ~150 MB operator footprint) is real but pays back for the
+  mutable-VM use case. trista's migration (Phase 8) still
+  uses Pod + PVC if it migrates at all — trista's shape
+  (bastion/task-runner) is container-shaped.
+
+  Changes:
+  - Recommendation: explicit "as a KubeVirt VirtualMachine"
+    mention for edith
+  - "What goes where" table: edith row updated to "KubeVirt
+    VM" with the rationale
+  - "Dev environments as cluster workloads": rewritten to
+    distinguish edith (KubeVirt) from trista (Pod); names
+    the PSS / systemd-PID-1 frictions and the comparison
+    mismatch with Coder/Gitpod
+  - "What about KubeVirt?" → "KubeVirt's role: edith only,
+    not the static fleet": KubeVirt is selectively adopted
+    (edith only); rejected explicitly for static fleet,
+    cc-sandbox, trista, CI runners, game servers, blog
+  - Phase 7: rewritten as VirtualMachine + DataVolume
+    migration; `incus export` → DataVolume import for the
+    initial copy
+  - Alternatives: inverted — "Pod + PVC for edith"
+    is the rejected alternative
+  - Risks: PSS + systemd-PID-1 risk narrowed to trista only
+    (edith resolved via KubeVirt); new "KubeVirt operator
+    surface" risk added
+- v19: split the cluster's control plane and
   agent across the microvm boundary on erebonia. **`k3s
   server`** (apiserver, controller-manager, scheduler, kine)
   runs inside a microvm; **`k3s agent`** (kubelet, kube-proxy,
