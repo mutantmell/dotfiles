@@ -5,7 +5,7 @@ keys:
 
   # thebeyond
   - &sv_thebeyond age1xvkjw03zrcy38rxmlhawzqdzlm34cx98mc42v5caautaauj8dd5qddg9hm
-  - &sv_phantasma age128p6n3akchec88ptd6anpcssxzr9t3h4y0xzc6dkcsh6g3h46qmssy76fh
+  - &sv_phantasma age108q5tmlw9xyfd9787l58vyl6pvutwzvggpzkhy4q6anntp08m9xsv5asdc
 
   # liberl (reusing remiferia keys)
   - &sv_liberl age18e698z5sf5twkc8vup4edc7nkaza2nquuzqja8lrv7r34mzx84js48jps0
