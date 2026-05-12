@@ -596,7 +596,7 @@ Once all consumers are on Authelia and validated:
    replacement by Authelia
 2. Update `llm-notes/feature-roadmap-analysis.md` Step 4 (Keycloak OIDC)
    to reflect Authelia
-3. Update `llm-notes/wip/deployd-integration.md` auth references
+3. ~~Update `llm-notes/wip/deployd-integration.md` auth references~~ — shelved 2026-05-12, superseded by k8s
 4. Update `llm-notes/wip/headscale-integration-plan.md` Keycloak references
 5. Verify all `oauth2-proxy` references are removed from the codebase
 

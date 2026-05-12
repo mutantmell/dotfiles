@@ -1,10 +1,12 @@
 # mTLS Stack Simplification
 
-> **Status:** Phases A and C implemented (2026-04-28). Phase B deferred — see
-> "Implementation outcome" below. Reduces the operator-touch and conceptual
-> surface of the recently-introduced fleet mTLS by collapsing three parallel
-> identity systems (SSH host key / SSH host cert / x.509 client cert) onto a
-> single CA and a single bootstrap path.
+> **Status:** Phase A (SSHPOP) was unworkable — step-ca's SSHPOP provisioner
+> only renews/rekeys/revokes SSH certs, it cannot issue x509. Replaced by the
+> X5C-based fleet enrollment design — see `llm-notes/done/x5c-fleet-enrollment-plan.md`.
+> Phase C implemented (2026-04-28). Phase B deferred — see "Implementation outcome"
+> below. Reduces the operator-touch and conceptual surface of the recently-introduced
+> fleet mTLS by collapsing three parallel identity systems (SSH host key / SSH host
+> cert / x.509 client cert) onto a single CA and a single bootstrap path.
 >
 > **Related:** `observability-stack-migration.md` — that plan introduced the
 > mTLS push endpoints. This plan reduces the cost of operating them.
