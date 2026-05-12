@@ -110,15 +110,24 @@ a single `{host="tharbad"}` series — see
 - [x] **2.6 `log-viewer.yaml`** — verified; `nodename` (from `node_uname_info`)
       and Loki's `host` label both populate per Phase 1 audit.
 
-## Phase 3 — Fleet overview dashboard (new)
+## Phase 3 — Fleet overview dashboard (DONE 2026-05-12)
 
-- [ ] **3.1** Add `fleet-overview.yaml`:
-  - "All hosts at a glance" — one row per host
-  - Up/down indicator (relies on `node_uname_info` or `up` if available)
-  - CPU%, mem%, disk%, last reboot
-  - Alert count per host (alertmanager API or vmalert `ALERTS`)
-- [ ] **3.2** Wire into provisioning (it lives in `./dashboards/`, picked up
-      automatically by `perses.nix:99`)
+- [x] **3.1** `fleet-overview.yaml` added with three rows:
+  - **At a glance:** hosts up (count of `node_uname_info` series fresh within
+    120s), hosts total, total firing alerts (`sum(ALERTS{alertstate="firing"})`),
+    per-host liveness (`time() - timestamp(node_uname_info)`) with
+    green/orange/red thresholds at 60s/120s.
+  - **Resource Usage:** CPU%, Memory%, Max Filesystem%, Load Avg — all
+    grouped `by (host)` with `{{host}}` series names so the legend gives a
+    sortable per-host table.
+  - **Alerts & Uptime:** `count by (host) (ALERTS{alertstate="firing"})` and
+    `node_time_seconds - node_boot_time_seconds`.
+- [x] **3.2** Lives in `./dashboards/`; auto-picked up by `perses.nix:99`.
+- [ ] **3.3** Empirical check after deploy: confirm `ALERTS` series shape in
+      vmsingle (vmalert is the producer — `victoriametrics.nix:134`). If
+      `host` isn't a label vmalert preserves on `ALERTS`, the alerts-by-host
+      panel will need an inner subquery or the alert rules will need a
+      `host` label baked into their `expr`.
 
 ## Phase 0 — Remove dead `tharbad/modules/prometheus.nix` (DONE 2026-05-12)
 
