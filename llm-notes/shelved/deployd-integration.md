@@ -1,5 +1,12 @@
 # deployd Integration — Implementation Status
 
+> **Shelved (2026-05-12):** Superseded by the planned Kubernetes deployment.
+> Phases D0–D2 shipped (deployd-helper module/binary, deployd API microVM); D1c
+> (containerd gRPC), D3 (CI/CD), D4 (game servers) never started. The dynamic
+> container layer use case will be served by k8s instead — see the k8s
+> evaluation reports in `llm-notes/reports/`. Kept for reference on the static
+> bridge isolation pattern and the nerdctl→containerd analysis.
+
 > **Note (2026-04-19):** This plan references Keycloak as the OIDC provider. Keycloak
 > is being replaced by Authelia (see `llm-notes/wip/authelia-migration-plan.md`).
 > deployd-api's JWT validation is provider-agnostic — it validates tokens via JWKS and
