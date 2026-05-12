@@ -27,6 +27,10 @@
     })
     fleetHosts;
 in {
+  # Tharbad's own node_exporter — scraped locally by fluent-bit-agent's default
+  # `host.metric.node` input and pushed to vmsingle alongside fleet metrics.
+  node-exporter-client.enable = true;
+
   fluent-bit-agent = {
     enable = true;
     # Local traffic goes directly to Loki and vmsingle — no mTLS needed.
@@ -50,6 +54,14 @@ in {
           tag = "host.metric.vmsingle";
           host = "127.0.0.1";
           port = 8428;
+          metrics_path = "/metrics";
+          scrape_interval = "15";
+        }
+        {
+          name = "prometheus_scrape";
+          tag = "host.metric.alertmanager";
+          host = "127.0.0.1";
+          port = config.services.prometheus.alertmanager.port;
           metrics_path = "/metrics";
           scrape_interval = "15";
         }
