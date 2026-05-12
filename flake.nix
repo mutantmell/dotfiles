@@ -92,7 +92,7 @@
         });
     treefmtEval = forAllSystems (sys: treefmt-nix.lib.evalModule sys.pkgs ./treefmt.nix);
     openwrtDevices = import ./hosts/openwrt {inherit (nixpkgs) lib;};
-    net = import ./lib/common/data/network.nix {lib = nixpkgs.lib;};
+    net = import ./lib/common/data/network.nix {inherit (nixpkgs) lib;};
   in {
     devShells = forAllSystems ({
       system,
@@ -505,6 +505,22 @@
       // (nixpkgs.lib.optionalAttrs (deploy-rs.lib ? ${system})
         (deploy-rs.lib.${system}.deployChecks self.deploy))
       // {formatting = treefmtEval.${system}.config.build.check self;}
+      // (nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        perses-dashboards =
+          pkgs.runCommand "perses-dashboards-lint" {
+            nativeBuildInputs = [pkgs.perses pkgs.gnutar pkgs.gzip];
+          } ''
+            plugins=$(mktemp -d)
+            for t in ${pkgs.perses.pluginsArchive}/*.tar.gz; do
+              name=$(basename "$t" .tar.gz)
+              mkdir -p "$plugins/$name"
+              tar -xzf "$t" -C "$plugins/$name"
+            done
+            percli lint -d ${./hosts/calvard/microvm/guests/tharbad/modules/dashboards} \
+              --plugin.path "$plugins"
+            touch $out
+          '';
+      })
       # Host config eval checks — catch broken configs before deploy
       // (let
         mkHostCheck = name: let

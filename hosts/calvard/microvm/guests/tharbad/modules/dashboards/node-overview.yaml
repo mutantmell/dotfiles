@@ -49,9 +49,9 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: >-
-                    1 - avg by (host) (
+                    clamp_min(1 - avg by (host) (
                       rate(node_cpu_seconds_total{host=~"$host", mode="idle"}[$__rate_interval])
-                    )
+                    ), 0)
                   seriesNameFormat: "{{host}}"
     load_averages:
       kind: Panel
@@ -203,9 +203,11 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: >-
-                    1 - node_filesystem_avail_bytes{host=~"$host", fstype!~"tmpfs|overlay"}
-                    / node_filesystem_size_bytes{host=~"$host", fstype!~"tmpfs|overlay"}
-                  seriesNameFormat: "{{host}} {{mountpoint}}"
+                    max by (host, device) (
+                      1 - node_filesystem_avail_bytes{host=~"$host", fstype!~"tmpfs|overlay"}
+                      / node_filesystem_size_bytes{host=~"$host", fstype!~"tmpfs|overlay"}
+                    )
+                  seriesNameFormat: "{{host}} {{device}}"
     network_receive:
       kind: Panel
       spec:

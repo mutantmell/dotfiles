@@ -114,6 +114,12 @@ in {
           "storage.path" = "/var/lib/fluent-bit/storage/";
           "storage.sync" = "normal";
           "storage.backlog.mem_limit" = "16M";
+          # Cap retry backoff so destination outages drop samples after a few
+          # minutes instead of buffering for hours and replaying stale values
+          # with current timestamps on recovery (see
+          # llm-notes/wip/perses-dashboard-overhaul.md investigation).
+          "scheduler.base" = 5;
+          "scheduler.cap" = 60;
         };
         pipeline = {
           inputs =
@@ -170,6 +176,7 @@ in {
                 inherit (lokiParsed) host port uri;
                 label_keys = "$unit,$comm,$priority,$job,$host";
                 line_format = "json";
+                retry_limit = 5;
               }
               // tlsConfig)
             ({
@@ -179,6 +186,7 @@ in {
                 # nginx's extra_label overrides this for mTLS hosts; needed for
                 # hosts writing directly to vmsingle without a proxy.
                 add_label = ["host ${config.networking.hostName}"];
+                retry_limit = 5;
               }
               // tlsConfig)
           ];
