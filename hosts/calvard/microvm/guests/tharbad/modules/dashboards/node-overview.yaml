@@ -8,19 +8,19 @@ spec:
   variables:
     - kind: ListVariable
       spec:
-        name: instance
+        name: host
         display:
-          name: Instance
+          name: Host
           hidden: false
-        allowAllValue: false
-        allowMultiple: false
+        allowAllValue: true
+        allowMultiple: true
         plugin:
           kind: PrometheusLabelValuesVariable
           spec:
             datasource:
               kind: PrometheusDatasource
               name: prometheus
-            labelName: instance
+            labelName: host
             matchers:
               - node_uname_info
   panels:
@@ -49,15 +49,15 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: >-
-                    1 - avg without (cpu) (
-                      rate(node_cpu_seconds_total{instance="$instance", mode="idle"}[$__rate_interval])
+                    1 - avg by (host) (
+                      rate(node_cpu_seconds_total{host=~"$host", mode="idle"}[$__rate_interval])
                     )
-                  seriesNameFormat: "CPU Usage"
+                  seriesNameFormat: "{{host}}"
     load_averages:
       kind: Panel
       spec:
         display:
-          name: Load Averages
+          name: Load Average (1m)
         plugin:
           kind: TimeSeriesChart
           spec:
@@ -74,43 +74,13 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: node_load1{instance="$instance"}
-                  seriesNameFormat: "1m"
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: prometheus
-                  query: node_load5{instance="$instance"}
-                  seriesNameFormat: "5m"
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: prometheus
-                  query: node_load15{instance="$instance"}
-                  seriesNameFormat: "15m"
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: prometheus
-                  query: count(node_cpu_seconds_total{instance="$instance", mode="idle"})
-                  seriesNameFormat: "Logical cores"
+                  query: node_load1{host=~"$host"}
+                  seriesNameFormat: "{{host}}"
     memory_usage:
       kind: Panel
       spec:
         display:
-          name: Memory Usage
+          name: Memory Used
         plugin:
           kind: TimeSeriesChart
           spec:
@@ -132,52 +102,26 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: >-
-                    node_memory_MemTotal_bytes{instance="$instance"}
-                    - node_memory_MemFree_bytes{instance="$instance"}
-                    - node_memory_Buffers_bytes{instance="$instance"}
-                    - node_memory_Cached_bytes{instance="$instance"}
-                  seriesNameFormat: "Used"
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: prometheus
-                  query: node_memory_Buffers_bytes{instance="$instance"}
-                  seriesNameFormat: "Buffers"
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: prometheus
-                  query: node_memory_Cached_bytes{instance="$instance"}
-                  seriesNameFormat: "Cached"
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: prometheus
-                  query: node_memory_MemFree_bytes{instance="$instance"}
-                  seriesNameFormat: "Free"
+                    node_memory_MemTotal_bytes{host=~"$host"}
+                    - node_memory_MemAvailable_bytes{host=~"$host"}
+                  seriesNameFormat: "{{host}}"
     memory_pct:
       kind: Panel
       spec:
         display:
           name: Memory %
         plugin:
-          kind: GaugeChart
+          kind: TimeSeriesChart
           spec:
-            calculation: last
-            format:
-              unit: percent
+            legend:
+              position: bottom
+              mode: table
+              values: [last]
+            yAxis:
+              format:
+                unit: percent
+                min: 0
+                max: 100
             thresholds:
               mode: absolute
               defaultColor: green
@@ -196,9 +140,9 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: >-
-                    100 * (1 - node_memory_MemAvailable_bytes{instance="$instance"}
-                    / node_memory_MemTotal_bytes{instance="$instance"})
-                  seriesNameFormat: "Memory"
+                    100 * (1 - node_memory_MemAvailable_bytes{host=~"$host"}
+                    / node_memory_MemTotal_bytes{host=~"$host"})
+                  seriesNameFormat: "{{host}}"
     disk_io:
       kind: Panel
       spec:
@@ -224,8 +168,8 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: rate(node_disk_read_bytes_total{instance="$instance", device!=""}[$__rate_interval])
-                  seriesNameFormat: "{{device}} read"
+                  query: rate(node_disk_read_bytes_total{host=~"$host", device!=""}[$__rate_interval])
+                  seriesNameFormat: "{{host}} {{device}} read"
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -234,8 +178,8 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: rate(node_disk_written_bytes_total{instance="$instance", device!=""}[$__rate_interval])
-                  seriesNameFormat: "{{device}} write"
+                  query: rate(node_disk_written_bytes_total{host=~"$host", device!=""}[$__rate_interval])
+                  seriesNameFormat: "{{host}} {{device}} write"
     filesystem_usage:
       kind: Panel
       spec:
@@ -261,9 +205,9 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: >-
-                    1 - node_filesystem_avail_bytes{instance="$instance", fstype!~"tmpfs|overlay"}
-                    / node_filesystem_size_bytes{instance="$instance", fstype!~"tmpfs|overlay"}
-                  seriesNameFormat: "{{mountpoint}}"
+                    1 - node_filesystem_avail_bytes{host=~"$host", fstype!~"tmpfs|overlay"}
+                    / node_filesystem_size_bytes{host=~"$host", fstype!~"tmpfs|overlay"}
+                  seriesNameFormat: "{{host}} {{mountpoint}}"
     network_receive:
       kind: Panel
       spec:
@@ -289,8 +233,8 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: rate(node_network_receive_bytes_total{instance="$instance", device!="lo"}[$__rate_interval])
-                  seriesNameFormat: "{{device}}"
+                  query: rate(node_network_receive_bytes_total{host=~"$host", device!="lo"}[$__rate_interval])
+                  seriesNameFormat: "{{host}} {{device}}"
     network_transmit:
       kind: Panel
       spec:
@@ -316,8 +260,8 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: prometheus
-                  query: rate(node_network_transmit_bytes_total{instance="$instance", device!="lo"}[$__rate_interval])
-                  seriesNameFormat: "{{device}}"
+                  query: rate(node_network_transmit_bytes_total{host=~"$host", device!="lo"}[$__rate_interval])
+                  seriesNameFormat: "{{host}} {{device}}"
   layouts:
     - kind: Grid
       spec:
@@ -343,13 +287,13 @@ spec:
         items:
           - x: 0
             "y": 0
-            width: 16
+            width: 12
             height: 8
             content:
               $ref: "#/spec/panels/memory_usage"
-          - x: 16
+          - x: 12
             "y": 0
-            width: 8
+            width: 12
             height: 8
             content:
               $ref: "#/spec/panels/memory_pct"

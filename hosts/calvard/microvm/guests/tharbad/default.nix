@@ -14,7 +14,6 @@ in {
   imports = [
     ./microvm.nix
     ./sops.nix
-    ./modules/prometheus.nix
     ./modules/loki.nix
     ./modules/alertmanager.nix
     ./modules/ntfy.nix

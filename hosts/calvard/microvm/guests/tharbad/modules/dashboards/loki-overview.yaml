@@ -196,33 +196,6 @@ spec:
                     name: prometheus
                   query: sum by (route, status_code) (rate(loki_request_duration_seconds_count{status_code=~"5.."}[$__rate_interval]))
                   seriesNameFormat: "{{route}} {{status_code}}"
-    memory_usage:
-      kind: Panel
-      spec:
-        display:
-          name: Loki Memory
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              position: bottom
-              mode: table
-              values: [last]
-            yAxis:
-              format:
-                unit: bytes
-                shortValues: true
-        queries:
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: prometheus
-                  query: process_resident_memory_bytes{job="loki"}
-                  seriesNameFormat: "RSS"
   layouts:
     - kind: Grid
       spec:
@@ -276,15 +249,4 @@ spec:
             height: 8
             content:
               $ref: "#/spec/panels/request_errors"
-    - kind: Grid
-      spec:
-        display:
-          title: Resources
-        items:
-          - x: 0
-            "y": 0
-            width: 24
-            height: 8
-            content:
-              $ref: "#/spec/panels/memory_usage"
   duration: 1h
