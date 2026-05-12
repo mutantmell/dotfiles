@@ -6,6 +6,78 @@ spec:
   display:
     name: Alertmanager Overview
   panels:
+    firing_alerts:
+      kind: Panel
+      spec:
+        display:
+          name: Firing Alerts
+        plugin:
+          kind: Table
+          spec:
+            density: compact
+            defaultColumnHidden: true
+            pagination: false
+            enableFiltering: true
+            columnSettings:
+              - name: alertname
+                header: Alert
+                hide: false
+                width: 240
+                enableSorting: true
+                sort: asc
+              - name: severity
+                header: Severity
+                hide: false
+                width: 100
+                enableSorting: true
+              - name: host
+                header: Host
+                hide: false
+                width: 140
+                enableSorting: true
+              - name: mountpoint
+                header: Mountpoint
+                hide: false
+                width: 200
+              - name: name
+                header: Unit
+                hide: false
+                width: 220
+              - name: zpool
+                header: ZFS Pool
+                hide: false
+                width: 120
+              - name: status_code
+                header: Status
+                hide: false
+                width: 100
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: prometheus
+                  query: ALERTS{alertstate="firing"}
+    alertmanager_link:
+      kind: Panel
+      spec:
+        display:
+          name: Open in Alertmanager
+        plugin:
+          kind: Markdown
+          spec:
+            text: |
+              ### Alertmanager UI
+
+              [Open Alertmanager](http://tharbad.internal:9093/#/alerts) for full
+              alert details (annotation text, group keys, silences, routing).
+
+              - **Active**: `/#/alerts`
+              - **Silences**: `/#/silences`
+              - **Status / config**: `/#/status`
     active_alerts:
       kind: Panel
       spec:
@@ -170,6 +242,23 @@ spec:
                   query: histogram_quantile(0.99, rate(alertmanager_notification_latency_seconds_bucket[$__rate_interval]))
                   seriesNameFormat: "p99"
   layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Firing Now
+        items:
+          - x: 0
+            "y": 0
+            width: 18
+            height: 10
+            content:
+              $ref: "#/spec/panels/firing_alerts"
+          - x: 18
+            "y": 0
+            width: 6
+            height: 10
+            content:
+              $ref: "#/spec/panels/alertmanager_link"
     - kind: Grid
       spec:
         display:
