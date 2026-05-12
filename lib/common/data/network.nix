@@ -313,11 +313,8 @@
       "creil"
       "oracion"
       "zeiss"
-      "saint-arkh"
-      "trista"
       "bose"
       "ravennue"
-      "edith"
       "roer"
     ];
     unknown = lib.filter (name: !(hosts ? ${name})) listed;
