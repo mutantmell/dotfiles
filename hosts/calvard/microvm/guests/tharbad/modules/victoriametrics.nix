@@ -94,6 +94,34 @@
           }
         ];
       }
+      {
+        name = "victorialogs";
+        rules = [
+          {
+            # fluent-bit's prometheus_remote_write doesn't generate `up`, so
+            # check freshness of an always-present VL metric instead.
+            alert = "VictoriaLogsDown";
+            expr = "time() - timestamp(vlstorage_rows) > 120";
+            "for" = "2m";
+            labels.severity = "critical";
+            annotations.summary = "VictoriaLogs /metrics stale for >2m — log ingestion likely broken";
+          }
+          {
+            alert = "VictoriaLogsIngestionStalled";
+            expr = ''rate(vl_rows_ingested_total[10m]) == 0'';
+            "for" = "10m";
+            labels.severity = "warning";
+            annotations.summary = "VictoriaLogs ingestion rate is zero for 10 minutes";
+          }
+          {
+            alert = "VictoriaLogsHTTPErrors";
+            expr = ''rate(vl_http_request_errors_total[5m]) > 0'';
+            "for" = "5m";
+            labels.severity = "warning";
+            annotations.summary = "VictoriaLogs HTTP request errors detected (insert or query path)";
+          }
+        ];
+      }
     ];
   };
 in {
