@@ -34,15 +34,44 @@
   # security policy — independent of subnet identity. Multiple subnets can share
   # a zone (e.g. adu/iot/game all use "untrusted") without any registry hack.
   subnetBindings = {
-    network    = { bridgeName = "MGMT";  zone = "network";    enableDhcp = false; enableDhcp6 = false; };
-    management = { bridgeName = "INFRA"; zone = "management"; };
-    trusted    = { bridgeName = "HOME";  zone = "trusted";    };
-    untrusted  = { bridgeName = "GUEST"; zone = "untrusted";  };
-    adu        = { bridgeName = "ADU";   zone = "untrusted";  };
-    iot        = { bridgeName = "IOT";   zone = "untrusted";  };
-    game       = { bridgeName = "GAME";  zone = "untrusted";  };
-    lab        = { bridgeName = "LAB";   zone = "lab";        };
-    dmz        = { bridgeName = "DMZ";   zone = "dmz";        };
+    network = {
+      bridgeName = "MGMT";
+      zone = "network";
+      enableDhcp = false;
+      enableDhcp6 = false;
+    };
+    management = {
+      bridgeName = "INFRA";
+      zone = "management";
+    };
+    trusted = {
+      bridgeName = "HOME";
+      zone = "trusted";
+    };
+    untrusted = {
+      bridgeName = "GUEST";
+      zone = "untrusted";
+    };
+    adu = {
+      bridgeName = "ADU";
+      zone = "untrusted";
+    };
+    iot = {
+      bridgeName = "IOT";
+      zone = "untrusted";
+    };
+    game = {
+      bridgeName = "GAME";
+      zone = "untrusted";
+    };
+    lab = {
+      bridgeName = "LAB";
+      zone = "lab";
+    };
+    dmz = {
+      bridgeName = "DMZ";
+      zone = "dmz";
+    };
   };
 
   mkVlanBridge = subnetName: {

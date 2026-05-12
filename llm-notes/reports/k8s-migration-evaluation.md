@@ -36,10 +36,10 @@ socket-notification integration.
 
 The endgame is a simpler control-plane layout than today:
 
-| Today | Endgame |
-| --- | --- |
+| Today                                                 | Endgame                   |
+| ----------------------------------------------------- | ------------------------- |
 | NixOS + microvm.nix + Incus + deployd + (planned k8s) | NixOS + microvm.nix + k8s |
-| 4 active control planes | 3 |
+| 4 active control planes                               | 3                         |
 
 The migration is phased and reversible at every step — NixOS + git is
 the rollback story. Each phase can be reverted by reverting the
@@ -48,18 +48,18 @@ declared in the flake until the new pattern has run reliably.
 
 ### What goes where
 
-| Workload | Home today | Home endgame | Notes |
-| --- | --- | --- | --- |
-| k3s control plane (apiserver, kine, etc.) | — | erebonia microvm | API surface confined to a microvm, same pattern as other homelab API surfaces |
-| k3s agent (kubelet, containerd, CNI, pods) | — | erebonia bare-metal | Workloads run with native hardware access — kata, /dev/kvm, NUMA, etc. |
-| Blog (planned) | — | k8s | First cluster workload; canonical Deployment + Flux pattern |
-| Game servers (planned) | — | k8s | CSI VolumeSnapshot replaces the custom iSCSI add-on |
-| CI runners (saint-arkh deferred) | — | k8s | Woodpecker kubernetes backend + per-step gVisor-sandboxed pods |
-| Claude sandboxes | deployd (broken nested-virt) | k8s with kata-qemu (or runc-kvm) | Migrate early — bare-metal access fixes the nested-virt problem deployd has; runtime per Appendix A |
-| edith dev environment | Incus (calvard) | KubeVirt VM (erebonia) | VirtualMachine CRD with DataVolume on liberl CSI; preserves mutable-NixOS shape; CSI VolumeSnapshot maps onto `incus snapshot` |
-| trista | Incus (erebonia) | resolved per Phase 6 | Role ambiguous (inventory says dev env; code says dmz-vm; registry says bastion); leave alone for now |
-| Authelia and other small foundational services | microvm.nix (calvard) | microvm.nix (calvard) | Per-service failure domain wins; calvard not pulled into cluster |
-| Static fleet (Forgejo, Jellyfin, Prometheus, etc.) | microvm.nix (calvard) | microvm.nix (calvard) | Don't migrate what works |
+| Workload                                           | Home today                   | Home endgame                     | Notes                                                                                                                          |
+| -------------------------------------------------- | ---------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| k3s control plane (apiserver, kine, etc.)          | —                            | erebonia microvm                 | API surface confined to a microvm, same pattern as other homelab API surfaces                                                  |
+| k3s agent (kubelet, containerd, CNI, pods)         | —                            | erebonia bare-metal              | Workloads run with native hardware access — kata, /dev/kvm, NUMA, etc.                                                         |
+| Blog (planned)                                     | —                            | k8s                              | First cluster workload; canonical Deployment + Flux pattern                                                                    |
+| Game servers (planned)                             | —                            | k8s                              | CSI VolumeSnapshot replaces the custom iSCSI add-on                                                                            |
+| CI runners (saint-arkh deferred)                   | —                            | k8s                              | Woodpecker kubernetes backend + per-step gVisor-sandboxed pods                                                                 |
+| Claude sandboxes                                   | deployd (broken nested-virt) | k8s with kata-qemu (or runc-kvm) | Migrate early — bare-metal access fixes the nested-virt problem deployd has; runtime per Appendix A                            |
+| edith dev environment                              | Incus (calvard)              | KubeVirt VM (erebonia)           | VirtualMachine CRD with DataVolume on liberl CSI; preserves mutable-NixOS shape; CSI VolumeSnapshot maps onto `incus snapshot` |
+| trista                                             | Incus (erebonia)             | resolved per Phase 6             | Role ambiguous (inventory says dev env; code says dmz-vm; registry says bastion); leave alone for now                          |
+| Authelia and other small foundational services     | microvm.nix (calvard)        | microvm.nix (calvard)            | Per-service failure domain wins; calvard not pulled into cluster                                                               |
+| Static fleet (Forgejo, Jellyfin, Prometheus, etc.) | microvm.nix (calvard)        | microvm.nix (calvard)            | Don't migrate what works                                                                                                       |
 
 ### Why this answer
 
@@ -403,8 +403,8 @@ viable one:
   earlier revisions leaned on was overstated; router6 only
   runs on `thebeyond` (the actual router). erebonia's
   host-side networking is standard NixOS + microvm.nix bridges
-  + Incus bridges + (future) k3s bridges. Coexistence is
-  workable.
+  - Incus bridges + (future) k3s bridges. Coexistence is
+    workable.
 - **Recovery via NixOS rollback.** Every change is boot-time
   reversible (`nixos-rebuild switch --rollback` or boot a
   previous generation). If Phase 1 breaks erebonia, recovery
@@ -447,17 +447,17 @@ Phase 8 cc-sandbox migration is accelerated). The audit checklist
 below identifies coexistence touchpoints; **Phase 1
 validation must confirm each item before workloads land.**
 
-| Touchpoint | k3s side | deployd side | Conflict risk |
-|---|---|---|---|
-| containerd socket | `/run/k3s/containerd/containerd.sock` | `/run/containerd/containerd.sock` | None — different paths |
-| Container runtime | k3s' embedded containerd | host containerd via `virtualisation.containerd.enable` | Two daemons; resource overhead small |
-| CNI conflists | `/var/lib/rancher/k3s/agent/etc/cni/net.d/` | `/etc/cni/net.d/${cfg.bridge.name}.conflist` (deploy-dmz) | Different directories — verify k3s isn't reading `/etc/cni/net.d/` |
-| Bridge interfaces | flannel `cni0`, pod CIDR `10.42.0.0/16` | `deploy-dmz`, `10.97.100.0/24` | No name or CIDR collision |
-| kata-qemu config | `/etc/kata-containers/configuration.toml` | same file (set by deployd) | **Shared config file** — k3s' kata RuntimeClass reads the same one. Audit during Phase 1; consider pinning kata version. |
-| Kernel modules | vhost, vhost_net, vhost_vsock, kvm | same | Loaded by both; additive |
-| `boot.extraModprobeConfig` | n/a | sets `options kvm_intel nested=1` | Already set by erebonia's `hosts/erebonia/default.nix:51`; deployd's `modules/deployd/default.nix:521` redundant |
-| Ports | 6443 (apiserver), 10250 (kubelet), 10256 (kube-proxy), 8472 (flannel VXLAN) | none on these | None |
-| `/dev/kvm` access | shared (no exclusive lock) | shared | Both can use it; KVM is multi-tenant |
+| Touchpoint                 | k3s side                                                                    | deployd side                                              | Conflict risk                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| containerd socket          | `/run/k3s/containerd/containerd.sock`                                       | `/run/containerd/containerd.sock`                         | None — different paths                                                                                                   |
+| Container runtime          | k3s' embedded containerd                                                    | host containerd via `virtualisation.containerd.enable`    | Two daemons; resource overhead small                                                                                     |
+| CNI conflists              | `/var/lib/rancher/k3s/agent/etc/cni/net.d/`                                 | `/etc/cni/net.d/${cfg.bridge.name}.conflist` (deploy-dmz) | Different directories — verify k3s isn't reading `/etc/cni/net.d/`                                                       |
+| Bridge interfaces          | flannel `cni0`, pod CIDR `10.42.0.0/16`                                     | `deploy-dmz`, `10.97.100.0/24`                            | No name or CIDR collision                                                                                                |
+| kata-qemu config           | `/etc/kata-containers/configuration.toml`                                   | same file (set by deployd)                                | **Shared config file** — k3s' kata RuntimeClass reads the same one. Audit during Phase 1; consider pinning kata version. |
+| Kernel modules             | vhost, vhost_net, vhost_vsock, kvm                                          | same                                                      | Loaded by both; additive                                                                                                 |
+| `boot.extraModprobeConfig` | n/a                                                                         | sets `options kvm_intel nested=1`                         | Already set by erebonia's `hosts/erebonia/default.nix:51`; deployd's `modules/deployd/default.nix:521` redundant         |
+| Ports                      | 6443 (apiserver), 10250 (kubelet), 10256 (kube-proxy), 8472 (flannel VXLAN) | none on these                                             | None                                                                                                                     |
+| `/dev/kvm` access          | shared (no exclusive lock)                                                  | shared                                                    | Both can use it; KVM is multi-tenant                                                                                     |
 
 The **kata config sharing** is the only real footgun. Both
 deployd's existing kata workloads and k3s' kata RuntimeClass
@@ -472,12 +472,12 @@ the apiserver runs in a microvm (virtualization overhead on
 the API control path, which is small and fixed). Per-runtime
 cost on the workload side is the only execution overhead:
 
-| Runtime | Overhead vs. bare-metal runc |
-| --- | --- |
-| runc (default) | 0% — native processes on the host kernel |
-| runsc (gVisor) | ~10–30% on syscall-heavy workloads, ~equal on compute-bound |
-| kata-qemu | ~10–20% CPU per pod (full KVM VM); near-equal network/storage with virtio-fs/virtio-net |
-| runc-kvm | 0% for the runc layer; nested-KVM cost only for workloads that actually spawn nested VMs |
+| Runtime        | Overhead vs. bare-metal runc                                                             |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| runc (default) | 0% — native processes on the host kernel                                                 |
+| runsc (gVisor) | ~10–30% on syscall-heavy workloads, ~equal on compute-bound                              |
+| kata-qemu      | ~10–20% CPU per pod (full KVM VM); near-equal network/storage with virtio-fs/virtio-net  |
+| runc-kvm       | 0% for the runc layer; nested-KVM cost only for workloads that actually spawn nested VMs |
 
 For the named workloads:
 
@@ -672,7 +672,7 @@ None require manual post-install steps; a fresh
   cases, flannel + kube-router is sufficient. If those features
   become genuinely needed, swap in via
   `--flannel-backend=none --disable-network-policy
-  --disable-kube-proxy` + Cilium HelmChart.
+--disable-kube-proxy` + Cilium HelmChart.
 - **Ingress: Traefik** (k3s bundled). Handles HTTP routing for
   cluster-hosted services. Requires cert-manager + step-ca
   ClusterIssuer for TLS — see below. Bundled Traefik replaces
@@ -709,7 +709,7 @@ None require manual post-install steps; a fresh
 - **Admission policy: Kyverno**, declared as a HelmChart. Base
   ClusterPolicies enforce that **the `woodpecker-builds`
   namespace** has image source = creil and `runtimeClassName:
-  runsc` (the Appendix A policies). Critically, **scope these
+runsc` (the Appendix A policies). Critically, **scope these
   policies to the untrusted-code namespace, not cluster-wide** —
   applying image-source enforcement to `kube-system`,
   `flux-system`, `cert-manager`, `kyverno`, `cilium-*` etc.
@@ -1278,6 +1278,7 @@ footprint; one new platform component to track on the
 update cadence.
 
 **Build the edith VM image.**
+
 - Pre-built NixOS disk image (qcow2 or raw) generated from the
   flake via `nixos-generators` or the flake-native equivalent.
   Reproducible across rebuilds.
@@ -1287,8 +1288,9 @@ update cadence.
   property.
 
 **Define the VirtualMachine resource.**
+
 - CPU/memory matching today's edith allocation (`limits.memory
-  = "16GB"` per the Incus config).
+= "16GB"` per the Incus config).
 - `DataVolume` for the boot disk, backed by democratic-csi
   against liberl. VolumeSnapshot for periodic backups.
 - Bridged into the cluster's CNI; routable through router6 the
@@ -1296,6 +1298,7 @@ update cadence.
 - cloud-init for any first-boot config the image doesn't carry.
 
 **Cutover.**
+
 - **Cross-host disk note**: parallel-run during cutover means
   two edith VMs (Incus on calvard + KubeVirt on erebonia) with
   separate disks. Initial copy: `incus export` of the Incus
@@ -1385,8 +1388,9 @@ microvm; etcd state on liberl's btrfs SSD root.
 In the v18 shape, Phase 11 is the more relevant HA step than
 Phase 10 because it adds control-plane redundancy without
 inverting the static-fleet isolation. Multi-node-via-new-host
-+ liberl-as-third-voter is the canonical HA topology if/when
-warranted.
+
+- liberl-as-third-voter is the canonical HA topology if/when
+  warranted.
 
 Phases 10 and 11 are most valuable when done together — Stage
 1 alone (multi-node) leaves the API as SPOF; Stage 2 alone
@@ -1560,7 +1564,7 @@ Codespaces shape.
 edith-shaped workload:
 
 - PSS Restricted blocks `/sys/fs/cgroup` rw and `procMount:
-  Unmasked`, which systemd-as-PID-1 typically wants. The
+Unmasked`, which systemd-as-PID-1 typically wants. The
   fallbacks are PSS Baseline (real isolation downgrade) or
   a non-systemd init (no longer NixOS-shaped).
 - The product comparisons aren't 1:1 — Coder / Gitpod /
@@ -1794,12 +1798,12 @@ spec:
       ci.woodpecker/role: step
   policyTypes: [Egress]
   egress:
-  - to: [{ ipBlock: { cidr: <creil-ipv4>/32 } }]      # git + registry
-    ports: [{ protocol: TCP, port: 443 }]
-  - to: [{ ipBlock: { cidr: <phantasma-ipv4>/32 } }]  # DNS (10.91.10.10)
-    ports: [{ protocol: UDP, port: 53 }]
-  - to: [{ ipBlock: { cidr: <zeiss-ipv4>/32 } }]     # attic cache
-    ports: [{ protocol: TCP, port: 443 }]
+    - to: [{ ipBlock: { cidr: <creil-ipv4>/32 } }] # git + registry
+      ports: [{ protocol: TCP, port: 443 }]
+    - to: [{ ipBlock: { cidr: <phantasma-ipv4>/32 } }] # DNS (10.91.10.10)
+      ports: [{ protocol: UDP, port: 53 }]
+    - to: [{ ipBlock: { cidr: <zeiss-ipv4>/32 } }] # attic cache
+      ports: [{ protocol: TCP, port: 443 }]
 ```
 
 **Templating note**: NetworkPolicy and router6 zone rules
@@ -1890,15 +1894,15 @@ within those bounds.
 
 ### Comparison: saint-arkh planned vs. k8s + gVisor
 
-| Property | saint-arkh (planned) | k8s + gVisor |
-| --- | --- | --- |
-| Runner-to-host isolation | microVM (KVM boundary) | microVM **plus** per-step gVisor sandbox |
-| Step-to-step isolation | none — same runner host | each step is a fresh gVisor sandbox |
-| Network policy granularity | host-level only | per-pod NetworkPolicy + host zone |
-| Image source enforcement | manual | admission controller |
-| Resource accounting | per-runner | per-step |
-| Recovery on compromise | rebuild the whole VM | tear down one step pod |
-| Architectural risk | bespoke runner setup | community-standard pattern |
+| Property                   | saint-arkh (planned)    | k8s + gVisor                             |
+| -------------------------- | ----------------------- | ---------------------------------------- |
+| Runner-to-host isolation   | microVM (KVM boundary)  | microVM **plus** per-step gVisor sandbox |
+| Step-to-step isolation     | none — same runner host | each step is a fresh gVisor sandbox      |
+| Network policy granularity | host-level only         | per-pod NetworkPolicy + host zone        |
+| Image source enforcement   | manual                  | admission controller                     |
+| Resource accounting        | per-runner              | per-step                                 |
+| Recovery on compromise     | rebuild the whole VM    | tear down one step pod                   |
+| Architectural risk         | bespoke runner setup    | community-standard pattern               |
 
 The microVM still exists (the cluster's microvm), but it's
 shared infrastructure. Each individual build is sandboxed by
@@ -1939,23 +1943,23 @@ Before accepting external PR builds or running anything
 hostile:
 
 - [ ] `kubectl get runtimeclass runsc` returns a valid
-  RuntimeClass
+      RuntimeClass
 - [ ] PSS labels on the namespace enforce `restricted`
 - [ ] Kyverno (or equivalent) policies are loaded and tested:
-  reject a pod without `runtimeClassName: runsc` in the
-  namespace
+      reject a pod without `runtimeClassName: runsc` in the
+      namespace
 - [ ] NetworkPolicy default-deny is in place; test that a pod
-  cannot reach `1.1.1.1:443`
+      cannot reach `1.1.1.1:443`
 - [ ] router6's `cluster` zone allows only the documented
-  destinations
+      destinations
 - [ ] ResourceQuota caps prevent a runaway build from
-  consuming the cluster
+      consuming the cluster
 - [ ] Secrets are scoped per pipeline type, not global
 - [ ] Audit log + Hubble flow logs are flowing to Loki
 - [ ] Hostile-test: deploy a pod that tries to escape (e.g.,
-  attempts to mount `/proc/sys`, send raw packets, exec a
-  known kernel exploit) and verify all attempts fail / are
-  logged
+      attempts to mount `/proc/sys`, send raw packets, exec a
+      known kernel exploit) and verify all attempts fail / are
+      logged
 
 The hostile-test is worth doing once. After that, automated
 admission policy validation is what catches regressions.
@@ -1970,14 +1974,14 @@ the CI runners (Appendix A) but with meaningful differences.
 
 ### How bastion threat model differs from CI runners
 
-| Property | CI runner | Bastion |
-| --- | --- | --- |
-| Code running | Untrusted (PRs, deps) | Trusted (admin sessions) |
-| Sensitive context | Build secrets, narrow scope | User SSH agents, broad pivot to homelab |
-| Lifecycle | Ephemeral per-step | Long-lived |
-| Inbound traffic | None | Port 22 from tailnet (or internet) |
-| Multi-user concern | One job per pod | Multiple users on one bastion |
-| Failure domain on compromise | One step's outputs | Lateral movement across homelab |
+| Property                     | CI runner                   | Bastion                                 |
+| ---------------------------- | --------------------------- | --------------------------------------- |
+| Code running                 | Untrusted (PRs, deps)       | Trusted (admin sessions)                |
+| Sensitive context            | Build secrets, narrow scope | User SSH agents, broad pivot to homelab |
+| Lifecycle                    | Ephemeral per-step          | Long-lived                              |
+| Inbound traffic              | None                        | Port 22 from tailnet (or internet)      |
+| Multi-user concern           | One job per pod             | Multiple users on one bastion           |
+| Failure domain on compromise | One step's outputs          | Lateral movement across homelab         |
 
 CI's stack is "isolate the workload from the host." The bastion's
 stack is "isolate the host from a public-facing front-door, and
@@ -2108,25 +2112,29 @@ spec:
     spec:
       runtimeClassName: runsc
       containers:
-      - name: sshd
-        image: creil.internal/bastion@sha256:...
-        ports: [{ containerPort: 22 }]
-        securityContext:
-          readOnlyRootFilesystem: true
-          capabilities:
-            add: [NET_BIND_SERVICE]
-            drop: [ALL]
-        resources:
-          limits:   { cpu: "2", memory: "2Gi" }
-          requests: { cpu: "100m", memory: "256Mi" }
-        volumeMounts:
-        - { name: home,           mountPath: /home }
-        - { name: ssh-host-keys,  mountPath: /etc/ssh/host-keys, readOnly: true }
+        - name: sshd
+          image: creil.internal/bastion@sha256:...
+          ports: [{ containerPort: 22 }]
+          securityContext:
+            readOnlyRootFilesystem: true
+            capabilities:
+              add: [NET_BIND_SERVICE]
+              drop: [ALL]
+          resources:
+            limits: { cpu: "2", memory: "2Gi" }
+            requests: { cpu: "100m", memory: "256Mi" }
+          volumeMounts:
+            - { name: home, mountPath: /home }
+            - {
+                name: ssh-host-keys,
+                mountPath: /etc/ssh/host-keys,
+                readOnly: true,
+              }
       volumes:
-      - name: home
-        persistentVolumeClaim: { claimName: bastion-home }
-      - name: ssh-host-keys
-        secret: { secretName: bastion-host-keys }
+        - name: home
+          persistentVolumeClaim: { claimName: bastion-home }
+        - name: ssh-host-keys
+          secret: { secretName: bastion-host-keys }
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -2138,8 +2146,8 @@ spec:
   podSelector: { matchLabels: { app: bastion } }
   policyTypes: [Ingress]
   ingress:
-  - ports: [{ protocol: TCP, port: 22 }]
-    # `from:` empty/restricted to cluster host interface only
+    - ports: [{ protocol: TCP, port: 22 }]
+      # `from:` empty/restricted to cluster host interface only
 
 ---
 apiVersion: networking.k8s.io/v1
@@ -2151,21 +2159,21 @@ spec:
   podSelector: { matchLabels: { app: bastion } }
   policyTypes: [Egress]
   egress:
-  # IPs templated from network registry; values shown illustrative
-  - to: [{ ipBlock: { cidr: <phantasma-ipv4>/32 } }]  # DNS (10.91.10.10)
-    ports: [{ protocol: UDP, port: 53 }]
-  - to: [{ ipBlock: { cidr: <basel-ipv4>/32 } }]      # SSH cert validation
-    ports: [{ protocol: TCP, port: 443 }]
-  - to: [{ ipBlock: { cidr: <authelia-ipv4>/32 } }]   # OIDC (Authelia replacing Keycloak)
-    ports: [{ protocol: TCP, port: 443 }]
-  # SSH targets — explicit allowlist of bastion-target hosts
-  # (do NOT use whole-zone CIDRs; specific destinations only)
-  - to:
-    - { ipBlock: { cidr: <calvard-ipv4>/32 } }
-    - { ipBlock: { cidr: <erebonia-ipv4>/32 } }
-    - { ipBlock: { cidr: <liberl-ipv4>/32 } }
-    # ... explicit list per registry
-    ports: [{ protocol: TCP, port: 22 }]
+    # IPs templated from network registry; values shown illustrative
+    - to: [{ ipBlock: { cidr: <phantasma-ipv4>/32 } }] # DNS (10.91.10.10)
+      ports: [{ protocol: UDP, port: 53 }]
+    - to: [{ ipBlock: { cidr: <basel-ipv4>/32 } }] # SSH cert validation
+      ports: [{ protocol: TCP, port: 443 }]
+    - to: [{ ipBlock: { cidr: <authelia-ipv4>/32 } }] # OIDC (Authelia replacing Keycloak)
+      ports: [{ protocol: TCP, port: 443 }]
+    # SSH targets — explicit allowlist of bastion-target hosts
+    # (do NOT use whole-zone CIDRs; specific destinations only)
+    - to:
+        - { ipBlock: { cidr: <calvard-ipv4>/32 } }
+        - { ipBlock: { cidr: <erebonia-ipv4>/32 } }
+        - { ipBlock: { cidr: <liberl-ipv4>/32 } }
+      # ... explicit list per registry
+      ports: [{ protocol: TCP, port: 22 }]
 ```
 
 router6 mirrors this on the host side — the `cluster` zone (or a
@@ -2330,14 +2338,14 @@ don't schedule there.
 
 #### Resource cost
 
-| Component | RAM | CPU |
-| --- | --- | --- |
-| kube-apiserver | 200–500 MB | low |
-| etcd | 100–200 MB | low |
-| controller-manager | 100 MB | low |
-| scheduler | 50 MB | low |
-| kubelet | 50 MB | low |
-| **Total** | **~500 MB – 1 GB** | **~1 vCPU** |
+| Component          | RAM                | CPU         |
+| ------------------ | ------------------ | ----------- |
+| kube-apiserver     | 200–500 MB         | low         |
+| etcd               | 100–200 MB         | low         |
+| controller-manager | 100 MB             | low         |
+| scheduler          | 50 MB              | low         |
+| kubelet            | 50 MB              | low         |
+| **Total**          | **~500 MB – 1 GB** | **~1 vCPU** |
 
 A 1 GB / 1 vCPU microvm on liberl is plenty.
 
@@ -2364,8 +2372,8 @@ zeiss / ravennue). No new storage architecture work.
 # control-plane taint by default for server nodes)
 spec:
   taints:
-  - key: node-role.kubernetes.io/control-plane
-    effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      effect: NoSchedule
 ```
 
 Kubeadm applies this taint to control-plane nodes by default.
@@ -2532,9 +2540,9 @@ cluster is operational. High value, low operational cost.
   3. **Vault**, with secrets reflected from sops-nix. Real,
      standard, but adds Vault as a dependency. Probably
      overkill for homelab scale.
-  Recommendation: start with option 2 (sops decryption at the
-  microvm boundary), revisit if it gets unwieldy. Decide
-  during Phase 1.
+     Recommendation: start with option 2 (sops decryption at the
+     microvm boundary), revisit if it gets unwieldy. Decide
+     during Phase 1.
 - **Cilium Hubble UI** for network observability — only
   applicable if the homelab eventually swaps flannel for
   Cilium (see Risks). With the chosen CNI (flannel + kube-
@@ -2621,7 +2629,7 @@ solutions worth knowing about:
 Honest framing: cc-sandbox works; the security model is
 auditable; migration to Coder/DevPod only makes sense if
 specific features (idle shutdown, templates, web access) are
-desired. The cluster *enables* this option without forcing it.
+desired. The cluster _enables_ this option without forcing it.
 
 ### Integrations with existing services
 
@@ -2749,7 +2757,7 @@ To be honest about the trade:
   and not the right guarantee for foundational pets — which is
   why those stay as microvms.
 - NixOS module ergonomics for stable services (`services.X.enable
-  = true`) are often better than the equivalent Helm chart
+= true`) are often better than the equivalent Helm chart
   configuration. Module authors encode operational expertise.
 - The static fleet is operable with standard Linux tooling
   (ssh, journalctl, systemctl). The cluster requires kubectl
@@ -2789,7 +2797,7 @@ pool of available servers," **Agones** provides the pattern:
 - `GameServerAllocation` request to assign players to a ready
   server
 - Built-in lifecycle states: `Starting → Ready → Allocated →
-  Shutdown`
+Shutdown`
 - SDK for game servers to self-report readiness and player
   status
 
@@ -2945,7 +2953,7 @@ dedicated install.
 
 ### What this list isn't
 
-These are workflows the platform *enables*, not workflows
+These are workflows the platform _enables_, not workflows
 that need to ship with v1. The right time to engage with any
 of them is when there's a concrete need; the wrong time is
 "because the platform supports it."
@@ -2973,7 +2981,6 @@ Reverse chronological — most recent revision first.
   Incus → cluster migration is "replace Incus with something
   edith-shaped," and the Pod + PVC + systemd-PID-1 path has
   two real frictions for edith specifically:
-
   1. PSS Restricted blocks `/sys/fs/cgroup` rw and
      `procMount: Unmasked`, both of which systemd-as-PID-1
      typically wants. Fallback to PSS Baseline is an
@@ -3013,12 +3020,13 @@ Reverse chronological — most recent revision first.
   - Risks: PSS + systemd-PID-1 risk narrowed to trista only
     (edith resolved via KubeVirt); new "KubeVirt operator
     surface" risk added
+
 - v19: split the cluster's control plane and
   agent across the microvm boundary on erebonia. **`k3s
-  server`** (apiserver, controller-manager, scheduler, kine)
+server`** (apiserver, controller-manager, scheduler, kine)
   runs inside a microvm; **`k3s agent`** (kubelet, kube-proxy,
   containerd, CNI, pods) runs on erebonia bare-metal.
-  
+
   Why: the operator pointed out that v18's "all of k3s on
   bare-metal erebonia" approach exposed the kube-apiserver
   directly on the host, which doesn't match the homelab's
@@ -3029,19 +3037,19 @@ Reverse chronological — most recent revision first.
   cc-sandbox still gets direct `/dev/kvm` access, kata-qemu
   pods still run on native KVM without nesting, game servers
   still get native performance.
-  
+
   Bootstrap concern resolved via microvm.nix's sd_notify
   integration: `microvm@k3s-server.service` waits for the
   guest to signal ready (vsock-based), then a host-side
   oneshot polls the apiserver `/readyz` endpoint, then the
   k3s agent service starts. All declared in NixOS; no manual
   sequencing.
-  
+
   Changes:
   - Recommendation: split control plane (server-microvm +
     agent-bare-metal)
   - Architecture: "Cluster topology — split control plane"
-    + "Bootstrap ordering via systemd socket notification"
+    - "Bootstrap ordering via systemd socket notification"
   - "Why erebonia, not calvard": unchanged in substance
   - "What's lost vs. running in a microvm" → "Costs of the
     split, named honestly" — one microvm to maintain, ~10–30µs
@@ -3056,17 +3064,17 @@ Reverse chronological — most recent revision first.
     independent for diagnostic queries)
   - Performance: added control-plane-path note (small,
     fixed overhead); workload path unchanged from v18
-  
+
   This is the cleanest answer reached so far: preserves all
   of v18's workload-performance benefits while restoring the
   API-surface confinement that v17's microvm framing was
   trying to provide. The systemd-notify integration makes
   the bootstrap concern a non-issue.
+
 - v18: pivot Phase 1 from "k3s in a microvm on
   calvard" to "k3s on erebonia bare-metal." Substantive
   architectural change; not just editing. The operator
   pointed out that:
-  
   1. Erebonia is already the dynamic-compute host (runs
      deployd with kata as default today, nested-KVM enabled,
      hosts saint-arkh's planned CI role). Role-fit is real.
@@ -3089,7 +3097,7 @@ Reverse chronological — most recent revision first.
      deprecated (roer, saint-arkh) or unused (trista). The
      blast radius of "Phase 1 breaks erebonia" is much
      smaller than v17 framed.
-  
+
   Changes:
   - Recommendation: cluster runs on erebonia bare-metal.
   - Architecture: replaced "Microvm-confined or host-direct
@@ -3126,7 +3134,7 @@ Reverse chronological — most recent revision first.
   - Appendix C topology: Stage 0 is now erebonia bare-metal;
     Stage 1's "add a node" options reanalyzed.
   - Reference table at top updated.
-  
+
   This is the third "earlier framing anchored on a context
   that didn't generalize" correction in this report's
   history (v11→v12 prom-stack, v13→v14 kata-tier, v17→v18
@@ -3134,11 +3142,12 @@ Reverse chronological — most recent revision first.
   design enables checking it (host configs are one
   directory read away) but I didn't cross-check until the
   operator pointed it out. Lesson recorded.
+
 - v17: editing pass to fix internal
   inconsistencies surfaced by independent editorial review.
   No architectural changes; the recommendation, principles,
   migration plan, and threat model are unchanged.
-  
+
   Specific fixes:
   - Recommendation header dropped stale "(QEMU backend for
     memory ballooning)" — body has recommended cloud-
@@ -3193,8 +3202,9 @@ Reverse chronological — most recent revision first.
     bullet in the Risks list (it was discussed in
     Architecture but missing from the "what could change the
     recommendation" enumeration).
+
 - v16: two updates from operator review.
-  
+
   **Microvm-confined vs. host-direct reframed as a defensible
   choice rather than a forced one.** The operator pointed out
   (correctly) that router6 only runs on gateway devices —
@@ -3209,7 +3219,7 @@ Reverse chronological — most recent revision first.
   (learning phase, reduce blast radius), revisit at Phase 4+
   with operating experience to inform the choice. Either
   outcome works; the rest of the plan doesn't depend on which.
-  
+
   **Added Appendix E: Future directions enabled (not planned).**
   Concrete workflow examples of what the platform makes
   tractable beyond the migration plan's scope — multiplayer
@@ -3221,11 +3231,12 @@ Reverse chronological — most recent revision first.
   vulnerability scanning, operator-managed Postgres. Framed
   explicitly as discovery rather than commitment — the list
   documents what's discoverable, not what's deferred.
-  
+
   Net: plan acknowledges its own architectural choices are
   sometimes more open than earlier framings suggested, and
   explicitly documents what's enabled-but-not-planned so future
   exploration has a starting point.
+
 - v15: incorporated independent review
   findings and pivoted from k0s to k3s. Distribution change is
   the headline: with the cluster confined to a microvm, k3s'
@@ -3279,7 +3290,7 @@ Reverse chronological — most recent revision first.
     critical path."
   - Added **Alternatives considered** section engaging with
     Talos, KubeVirt-for-dev-envs, Incus-permanently, k3s-
-    stripped, services.kubernetes.*, k0s.
+    stripped, services.kubernetes.\*, k0s.
   - Added **Open questions deferred to implementation**:
     cluster persistent state, PKI overlap, update cadences,
     dynamic-manifest repo structure, bootstrap-time
@@ -3294,6 +3305,7 @@ Reverse chronological — most recent revision first.
   Findings the plan now addresses dropped half on the k3s
   pivot; the rest are corrected in place. The plan is now
   meaningfully closer to ready-to-implement than v14 was.
+
 - v14: replaced **kata** with **gVisor**
   (`runsc`) as the strong-isolation tier for untrusted-code
   workloads. The "kata in a microvm running on cloud-

@@ -33,7 +33,7 @@ fluent-bit's outer `add_label` adds to everything.
 
 1. **`add` syntax mismatch** — the fluent-bit `modify` filter `Add` operation
    takes `KEY VALUE` as a single string. The Nix attribute `add = ["target
-   ${host}.internal:22"]` may not render the way fluent-bit expects (e.g.,
+${host}.internal:22"]` may not render the way fluent-bit expects (e.g.,
    needs `Add` not `add`, or needs a different list shape).
 2. **Order-of-operations** — `prometheus_remote_write` may serialize labels
    before the `modify` filter sees the record (fluent-bit metric pipelines
