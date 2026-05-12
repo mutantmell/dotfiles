@@ -38,7 +38,8 @@ in {
       };
     };
 
-    # Loki log push endpoint — mTLS only, proxies to local Loki.
+    # Loki log push endpoint — mTLS only, proxies to local Loki (primary)
+    # with a mirror copy to VictoriaLogs (fire-and-forget, Phase 2 dual-store).
     #
     # Threat model: mTLS authenticates "this is some fleet host" but cannot
     # bind the log stream to a specific host. The `host` label sits inside
@@ -57,7 +58,9 @@ in {
     # label from that header before forwarding to Loki.
     #
     # mTLS still earns its keep here for audit ($ssl_client_s_dn_cn in nginx
-    # access logs) and to keep unauthenticated traffic off Loki entirely.
+    # access logs) and to keep unauthenticated traffic off both stores.
+    # The same best-effort host-label caveat applies to VictoriaLogs via the
+    # Loki-compat insert endpoint — the `host` field is still client-supplied.
     "tharbad-loki-push" = {
       listen = [
         {
@@ -75,8 +78,18 @@ in {
       useACMEHost = "tharbad.internal";
       extraConfig = mTLSExtra;
       locations."/loki/api/v1/push" = {
-        # Phase 2: swap to: extraConfig = ''proxy_pass http://127.0.0.1:9428/insert/loki/api/v1/push;'';
-        proxyPass = "http://127.0.0.1:${toString lokiPort}";
+        extraConfig = ''
+          mirror /vl-push;
+          mirror_request_body on;
+          # Phase 4: swap proxy_pass to http://127.0.0.1:9428/insert/loki/api/v1/push
+          proxy_pass http://127.0.0.1:${toString lokiPort};
+        '';
+      };
+      locations."/vl-push" = {
+        extraConfig = ''
+          internal;
+          proxy_pass http://127.0.0.1:9428/insert/loki/api/v1/push;
+        '';
       };
       locations."/" = {
         return = "404";

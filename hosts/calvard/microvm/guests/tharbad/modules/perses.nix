@@ -42,6 +42,18 @@
     };
   };
 
+  vlDatasource = yaml "global-victorialogs.yaml" {
+    kind = "GlobalDatasource";
+    metadata.name = "victorialogs";
+    spec = {
+      default = false;
+      plugin = {
+        kind = "VictoriaLogsDatasource";
+        spec.directUrl = "http://localhost:9428";
+      };
+    };
+  };
+
   adminRole = yaml "global-admin-role.yaml" {
     kind = "GlobalRole";
     metadata.name = "admin";
@@ -86,6 +98,10 @@
         {
           name = "global-loki.yaml";
           path = lokiDatasource;
+        }
+        {
+          name = "global-victorialogs.yaml";
+          path = vlDatasource;
         }
         {
           name = "global-admin-role.yaml";
