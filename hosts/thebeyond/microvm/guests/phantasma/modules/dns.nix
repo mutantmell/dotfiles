@@ -73,13 +73,9 @@ in {
             "zeiss"
             "azoth"
             "calvard"
-            # network gear (OpenWrt)
+            # network gear (OpenWrt) — only arseille is in the registry post phase 0a;
+            # remaining mesh APs will be re-added when OpenWrt configs are imported.
             "arseille"
-            "merkabah"
-            "derfflinger"
-            "pantagruel"
-            "bobcat"
-            "lusitania"
             # calvard guests
             "messeldam"
             "basel"

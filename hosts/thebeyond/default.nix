@@ -10,7 +10,9 @@
 in {
   imports = [
     ./hardware-configuration.nix
-    (import ../../profiles/disko/tmpfs.nix {})
+    (import ../../profiles/disko/tmpfs.nix {
+      disk = "/dev/disk/by-id/nvme-KINGSTON_SNV3S500G_50026B7687893D29";
+    })
     ./impermanence.nix
     ./sops.nix
     ./microvm
