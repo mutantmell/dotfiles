@@ -11,10 +11,11 @@ Each item maps to a numbered step in the plan; tick as work completes.
 
 Cannot merge until steps 4, 5, 6, and the existing test suite all pass.
 
-- [-] **0a.1** Pre-flight: pin OpenWrt release for BT8 _(blocked — requires network; BT8 device not yet defined)_
-  - [ ] Verify `mediatek/filogic` (MT7988A) current in pinned `defaultRelease`
-  - [ ] Confirm no switch/wireless driver regressions on that release
-  - [ ] `nix run .#openwrt-build -- <bt8-mesh-device> --update-pins`
+- [~] **0a.1** Pre-flight: pin OpenWrt release for BT8
+  - [x] Release selected: **25.12** (BT8 already flashed with stock 25.12; Firmware Selector image will pin same)
+  - [ ] Use ≥ **25.12.3** for Firmware Selector build — 25.12.1 introduced a MediaTek 2.4 GHz latency regression hot-fixed in 25.12.2; 25.12.3 adds further `mediatek/filogic` fixes
+  - [ ] Watch batman-adv throughput during `0b.8` mesh-quality check — MT7981/MT7986 had a slow-TX bug on batman-adv mesh in 24.10.x (`openwrt/openwrt#18703`); MT7988A is same Filogic family, behavior on 25.12 unverified
+  - [ ] Flake pin advance deferred to **Phase 4.1** — `openwrt-hashes.json` only carries hashes for targets that have a device in `openwrt.nix`, and BT8 lands there in 4.1. At that point: bump `defaultRelease` → 25.12 and `nix run .#openwrt-build -- <bt8-device> --update-pins`
 - [ ] **0a.2** Pre-flight: enable PD client on `thebeyond`'s WAN
   - [ ] Add `ipv6PrefixDelegation = { enable = true; prefixLength = 60; }` to WAN block
   - [ ] Switch WAN block from `mac` to `hardwareName` matching
@@ -60,6 +61,8 @@ Phase 0b not declared done until step 13 scan passes.
 - [ ] **0b.8** Physically move `thebeyond` to modem closet; connect WAN
   - [ ] Relocate BT8-bridge alongside `thebeyond` if not already co-located
   - [ ] Verify mesh quality (RSSI, batman throughput counters) from new location
+  - [ ] `iperf3` BT8-bridge ↔ BT8-mesh-AP, both directions, record number — canary for `openwrt/openwrt#18703` (slow-TX batman-adv on Filogic). Under ~100 Mbps on 5 GHz mesh = hold cutover.
+  - [ ] Carry a 24.10.5 BT8 sysupgrade image (built via Firmware Selector with same F.1 recipe) in operator secret store as in-window fallback if 25.12 batman performance is broken.
 - [ ] **0b.9** Reconfigure current production BT8 → BT8-bridge role
   - [ ] Remove WAN interface
   - [ ] Convert to dumb AP / wireless-bridge per Runbook A
