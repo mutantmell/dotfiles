@@ -461,9 +461,8 @@ in {
     topology =
       {
         # WAN interface — DHCP from ISP
-        # hardwareName: placeholder — confirm with `ip -br link` on booted VP2440
         wan = {
-          hardwareName = "enp1s0";
+          hardwareName = "enp4s0";
           network = {
             type = "dhcp";
             zone = "external";
@@ -478,7 +477,6 @@ in {
 
         # Wired link to BT8-bridge — batman-adv hard interface.
         # mtu=1536 provides headroom for the ~25-byte batman encapsulation.
-        # hardwareName: placeholder — confirm with `ip -br link` on booted VP2440
         lanBat = {
           hardwareName = "enp2s0";
           network = {
