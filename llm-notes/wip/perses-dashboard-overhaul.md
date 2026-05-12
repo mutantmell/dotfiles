@@ -39,6 +39,7 @@ a separate cleanup question (Phase 4).
 Audit run on tharbad against `localhost:8428`. Findings:
 
 **Active labels:**
+
 - `host` — 13 values, the canonical host differentiator: basel, bose,
   calvard, creil, erebonia, langport, liberl, messeldam, oracion,
   ravennue, roer, tharbad, zeiss.
@@ -59,6 +60,7 @@ synthesize `up` like a Prometheus scraper does. Liveness checks must use
 `MetricsStale` alert at `victoriametrics.nix:19-21`).
 
 **Representative series confirmations:**
+
 - `node_uname_info{host=...,nodename=...,release=...}` — one per host, all 13 hosts.
 - `zfs_pool_health{host="liberl",pool="data"}` — `host` is the right label, not `job`.
 - `loki_build_info{host="tharbad",version="3.7.1",...}` — Loki self-metrics carry `host=tharbad`.
@@ -72,6 +74,7 @@ a single `{host="tharbad"}` series — see
 `role`, `zone`, `tenant`. Out of scope for this overhaul.
 
 **Conclusions for Phase 2:**
+
 - ALL dashboard `{instance="..."}` / `{job="..."}` filters → `{host="..."}`.
 - ALL `labelName: instance` / `labelName: job` template variables → `labelName: host`.
 - `prometheus-overview.yaml` is obsolete (Prometheus removed in Phase 0).
@@ -132,6 +135,7 @@ a single `{host="tharbad"}` series — see
 ## Phase 0 — Remove dead `tharbad/modules/prometheus.nix` (DONE 2026-05-12)
 
 Verified dead before removal:
+
 - vmalert points at vmsingle (`victoriametrics.nix:134`), not Prometheus.
 - Perses datasource points at vmsingle (`perses.nix:24`).
 - No fleet host's egress rules permit scraping tharbad:9090.
@@ -141,6 +145,7 @@ Verified dead before removal:
   binary that just shares the NixOS namespace — unaffected.
 
 Changes made:
+
 - Deleted `modules/prometheus.nix`.
 - Removed import from `default.nix`.
 - Moved `node-exporter-client.enable = true` into `modules/fluent-bit.nix`

@@ -22,9 +22,9 @@
   # group becomes the leading hex digit(s); vlanId fills the remaining 3 digits.
   # thebeyond (group 0): vlan 10 → "0" ++ "00a" = "000a"
   # bt8gw     (group 1): vlan 11 → "1" ++ "00b" = "100b"
-  ulaSubnetHex = group: vlanId:
-    let groupHex = lib.toLower (lib.toHexString group);
-    in "${groupHex}${lib.fixedWidthString 3 "0" (lib.toLower (lib.toHexString vlanId))}";
+  ulaSubnetHex = group: vlanId: let
+    groupHex = lib.toLower (lib.toHexString group);
+  in "${groupHex}${lib.fixedWidthString 3 "0" (lib.toLower (lib.toHexString vlanId))}";
 
   hostHex = hostId: lib.toLower (lib.toHexString hostId);
 
@@ -257,29 +257,45 @@
   #   wg-vpn:   subnetId=10 → 10.100.10.x/24, fdc6:55f2:0a5e:640a::/64
   #   wg-media: subnetId=20 → 10.100.20.x/24, fdc6:55f2:0a5e:6414::/64
   rawWgNetworks = {
-    "wg-ba"    = { subnetId = 0;  hosts = { remote = 3;  }; };
-    "wg-vpn"   = { subnetId = 10; hosts = { laptop = 20; mobile = 21; }; };
-    "wg-media" = { subnetId = 20; hosts = { arcus  = 10; }; };
+    "wg-ba" = {
+      subnetId = 0;
+      hosts = {remote = 3;};
+    };
+    "wg-vpn" = {
+      subnetId = 10;
+      hosts = {
+        laptop = 20;
+        mobile = 21;
+      };
+    };
+    "wg-media" = {
+      subnetId = 20;
+      hosts = {arcus = 10;};
+    };
   };
 
-  wireguardNetworks = lib.mapAttrs (_: raw: let
-    subnetHex = lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString raw.subnetId));
-    prefix4   = "10.100.${toString raw.subnetId}";
-    prefix6   = "${ulaPrefix}:64${subnetHex}";
-  in {
-    gateway4 = "${prefix4}.1";
-    gateway6 = "${prefix6}::1";
-    subnet4  = "${prefix4}.0/24";
-    subnet6  = "${prefix6}::/64";
-    hosts    = lib.mapAttrs (_: id: {
-      ipv4  = "${prefix4}.${toString id}";
-      iface4 = "${prefix4}.${toString id}/24";  # interface address (with subnet prefix)
-      cidr4  = "${prefix4}.${toString id}/32";  # peer allowedIPs (host route)
-      ipv6   = "${prefix6}::${hostHex id}";
-      iface6 = "${prefix6}::${hostHex id}/64";  # interface address (with subnet prefix)
-      cidr6  = "${prefix6}::${hostHex id}/128"; # peer allowedIPs (host route)
-    }) raw.hosts;
-  }) rawWgNetworks;
+  wireguardNetworks =
+    lib.mapAttrs (_: raw: let
+      subnetHex = lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString raw.subnetId));
+      prefix4 = "10.100.${toString raw.subnetId}";
+      prefix6 = "${ulaPrefix}:64${subnetHex}";
+    in {
+      gateway4 = "${prefix4}.1";
+      gateway6 = "${prefix6}::1";
+      subnet4 = "${prefix4}.0/24";
+      subnet6 = "${prefix6}::/64";
+      hosts =
+        lib.mapAttrs (_: id: {
+          ipv4 = "${prefix4}.${toString id}";
+          iface4 = "${prefix4}.${toString id}/24"; # interface address (with subnet prefix)
+          cidr4 = "${prefix4}.${toString id}/32"; # peer allowedIPs (host route)
+          ipv6 = "${prefix6}::${hostHex id}";
+          iface6 = "${prefix6}::${hostHex id}/64"; # interface address (with subnet prefix)
+          cidr6 = "${prefix6}::${hostHex id}/128"; # peer allowedIPs (host route)
+        })
+        raw.hosts;
+    })
+    rawWgNetworks;
 
   # Hosts that run fluent-bit-agent and push metrics/logs to tharbad.
   # Add a host here when enabling fluent-bit-agent in its NixOS config.

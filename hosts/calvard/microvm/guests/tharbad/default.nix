@@ -15,6 +15,7 @@ in {
     ./microvm.nix
     ./sops.nix
     ./modules/loki.nix
+    ./modules/victorialogs.nix
     ./modules/alertmanager.nix
     ./modules/ntfy.nix
     ./modules/perses.nix

@@ -1303,7 +1303,7 @@ Steps:
    [F.3 service activation](#f3-role-specific-service-activation).
    The `apk add`-on-running-device path is unsafe per
    [Reference F](#f-bt8-image-build-package-recipes); always rebuild
-   + re-flash if a package is missing.
+   - re-flash if a package is missing.
 
    Then configure BT8-gateway by hand using the
    [BT8-gateway manual setup](#b-manual-setup-bt8-as-secondary-gateway):
@@ -1335,6 +1335,7 @@ Steps:
      wireless coverage of the trusted SSIDs once Phase 3 lands;
      bringing them up alongside BT8-gateway gives the operator a
      working office wireless mesh without waiting for cutover.
+
 2. **Introduce the `router6.routes` option** in `modules/router6/default.nix`
    and use it on `thebeyond` for the cross-gateway static routes.
    Translation to systemd-networkd is mechanical — group routes by
@@ -2760,7 +2761,7 @@ Notes:
   the BT8-gateway configuration; `odhcpd-ipv6only` handles the IPv6
   side without conflicting. Full `odhcpd` would conflict with
   dnsmasq's v4 socket. The original runbook B §1 `opkg install ...
-  odhcpd ...` line was a pre-revision oversight; this recipe is
+odhcpd ...` line was a pre-revision oversight; this recipe is
   authoritative.
 - **No `kmod-bonding`, no `kmod-8021q`.** Bonding isn't used (single
   wired uplink); 802.1Q is built into the OpenWrt 24.10 kernel.
@@ -2805,14 +2806,14 @@ to UCI. Do **not** patch a missing package with `apk add` post-flash.
 The image contains every service every BT8 role uses; runbook UCI
 turns the right subset on per role. Reference table:
 
-| Service     | BT8-bridge | BT8-gateway | BT8 mesh AP |
-| ----------- | ---------- | ----------- | ----------- |
-| `network`   | enabled    | enabled     | enabled     |
-| `firewall`  | disabled   | enabled     | disabled    |
-| `dnsmasq`   | disabled   | enabled     | disabled    |
-| `odhcpd`    | disabled   | enabled     | disabled    |
-| `dropbear`  | enabled    | enabled     | enabled     |
-| `uhttpd`    | enabled    | enabled     | enabled     |
+| Service    | BT8-bridge | BT8-gateway | BT8 mesh AP |
+| ---------- | ---------- | ----------- | ----------- |
+| `network`  | enabled    | enabled     | enabled     |
+| `firewall` | disabled   | enabled     | disabled    |
+| `dnsmasq`  | disabled   | enabled     | disabled    |
+| `odhcpd`   | disabled   | enabled     | disabled    |
+| `dropbear` | enabled    | enabled     | enabled     |
+| `uhttpd`   | enabled    | enabled     | enabled     |
 
 (LuCI's `uhttpd` is left enabled on every role for ops; the
 operator-policy decision about restricting LuCI/SSH source moves to

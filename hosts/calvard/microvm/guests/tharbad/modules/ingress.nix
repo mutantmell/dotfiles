@@ -75,6 +75,7 @@ in {
       useACMEHost = "tharbad.internal";
       extraConfig = mTLSExtra;
       locations."/loki/api/v1/push" = {
+        # Phase 2: swap to: extraConfig = ''proxy_pass http://127.0.0.1:9428/insert/loki/api/v1/push;'';
         proxyPass = "http://127.0.0.1:${toString lokiPort}";
       };
       locations."/" = {
