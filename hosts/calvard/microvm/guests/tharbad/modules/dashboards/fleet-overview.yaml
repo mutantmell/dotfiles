@@ -145,9 +145,9 @@ spec:
                     kind: PrometheusDatasource
                     name: prometheus
                   query: >-
-                    1 - avg by (host) (
+                    clamp_min(1 - avg by (host) (
                       rate(node_cpu_seconds_total{mode="idle"}[$__rate_interval])
-                    )
+                    ), 0)
                   seriesNameFormat: "{{host}}"
     fleet_memory:
       kind: Panel

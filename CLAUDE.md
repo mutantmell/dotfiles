@@ -25,7 +25,7 @@ nix build .#checks.x86_64-linux.<name>
 #   router6-wireguard-config, router6-kresd-config, router6-sysctl-properties,
 #   router6-dyndns-config, router6-pppoe-config, router6-extra-rules,
 #   network-helpers, network-registry, openwrt-config, uci-rendering, incus-container, incus-vm,
-#   disko-tmpfs, disko-btrfs
+#   disko-tmpfs, disko-btrfs, perses-dashboards
 
 # Run pure Nix eval tests directly
 nix-instantiate --eval --strict tests/lib/<file>.nix
