@@ -51,7 +51,7 @@ spec:
                   datasource:
                     kind: VictoriaLogsDatasource
                     name: victorialogs
-                  query: 'host:"$host" AND _msg:"$filter"'
+                  query: 'host:"$host" AND _msg:~"$filter"'
   layouts:
     - kind: Grid
       spec:

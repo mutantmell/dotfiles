@@ -156,6 +156,7 @@ in {
                   "SYSTEMD_UNIT unit"
                   "COMM comm"
                   "PRIORITY priority"
+                  "MESSAGE _msg"
                 ];
               }
               {

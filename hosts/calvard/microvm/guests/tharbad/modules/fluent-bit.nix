@@ -49,6 +49,14 @@ in {
         }
         {
           name = "prometheus_scrape";
+          tag = "host.metric.victorialogs";
+          host = "127.0.0.1";
+          port = 9428;
+          metrics_path = "/metrics";
+          scrape_interval = "15";
+        }
+        {
+          name = "prometheus_scrape";
           tag = "host.metric.alertmanager";
           host = "127.0.0.1";
           port = config.services.prometheus.alertmanager.port;

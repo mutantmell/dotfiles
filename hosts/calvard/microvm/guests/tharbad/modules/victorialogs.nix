@@ -3,7 +3,9 @@
   lib,
   ...
 }: let
-  expectedHosts = 16;
+  # Tracks the central registry — when FleetLogGap fires, either fix the host
+  # or remove it from data.network.monitoredHosts.
+  expectedHosts = builtins.length pkgs.mmell.lib.data.network.monitoredHosts;
   vlPort = 9428;
   vlAlertPort = 8881;
 
