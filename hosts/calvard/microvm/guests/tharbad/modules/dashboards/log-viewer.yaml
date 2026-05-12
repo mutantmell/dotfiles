@@ -46,13 +46,12 @@ spec:
           - kind: LogQuery
             spec:
               plugin:
-                kind: LokiLogQuery
+                kind: VictoriaLogsLogQuery
                 spec:
                   datasource:
-                    kind: LokiDatasource
-                    name: loki
-                  query: '{host="$host"} |= "$filter"'
-                  direction: backward
+                    kind: VictoriaLogsDatasource
+                    name: victorialogs
+                  query: 'host:"$host" AND _msg:"$filter"'
   layouts:
     - kind: Grid
       spec:
