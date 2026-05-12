@@ -6,8 +6,6 @@
 }: let
   fleetHosts = pkgs.mmell.lib.data.network.monitoredHosts;
 
-  lokiPort = config.services.loki.configuration.server.http_listen_port;
-
   blackboxInputs =
     map (host: {
       name = "prometheus_scrape";
@@ -33,22 +31,14 @@ in {
 
   fluent-bit-agent = {
     enable = true;
-    # Local traffic goes directly to Loki and vmsingle — no mTLS needed.
-    lokiUrl = "http://127.0.0.1:${toString lokiPort}/loki/api/v1/push";
+    # Local traffic goes directly to VictoriaLogs and vmsingle — no mTLS needed.
+    lokiUrl = "http://127.0.0.1:9428/insert/loki/api/v1/push";
     metricsUrl = "http://127.0.0.1:8428/api/v1/write";
     tls.certFile = lib.mkForce null;
     tls.keyFile = lib.mkForce null;
     extraInputs =
       blackboxInputs
       ++ [
-        {
-          name = "prometheus_scrape";
-          tag = "host.metric.loki";
-          host = "127.0.0.1";
-          port = lokiPort;
-          metrics_path = "/metrics";
-          scrape_interval = "15";
-        }
         {
           name = "prometheus_scrape";
           tag = "host.metric.vmsingle";

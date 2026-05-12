@@ -27,21 +27,6 @@
     };
   };
 
-  lokiDatasource = yaml "global-loki.yaml" {
-    kind = "GlobalDatasource";
-    metadata.name = "loki";
-    spec = {
-      default = false;
-      plugin = {
-        kind = "LokiDatasource";
-        spec.proxy = {
-          kind = "HTTPProxy";
-          spec.url = "http://localhost:${toString config.services.loki.configuration.server.http_listen_port}";
-        };
-      };
-    };
-  };
-
   vlDatasource = yaml "global-victorialogs.yaml" {
     kind = "GlobalDatasource";
     metadata.name = "victorialogs";
@@ -49,7 +34,10 @@
       default = false;
       plugin = {
         kind = "VictoriaLogsDatasource";
-        spec.directUrl = "http://localhost:9428";
+        spec.proxy = {
+          kind = "HTTPProxy";
+          spec.url = "http://localhost:9428";
+        };
       };
     };
   };
@@ -94,10 +82,6 @@
         {
           name = "global-prometheus.yaml";
           path = promDatasource;
-        }
-        {
-          name = "global-loki.yaml";
-          path = lokiDatasource;
         }
         {
           name = "global-victorialogs.yaml";

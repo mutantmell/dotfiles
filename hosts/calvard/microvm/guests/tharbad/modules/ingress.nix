@@ -1,10 +1,5 @@
-{
-  pkgs,
-  config,
-  ...
-}: let
+{pkgs, ...}: let
   inherit (pkgs.mmell.lib.data) pki;
-  lokiPort = config.services.loki.configuration.server.http_listen_port;
   # Fleet client certs are issued by the intermediate CA. nginx needs both
   # intermediate and root in ssl_client_certificate to verify the full chain.
   caBundle = pkgs.runCommand "internal-ca-bundle.crt" {} ''
@@ -38,12 +33,13 @@ in {
       };
     };
 
-    # Loki log push endpoint — mTLS only, proxies to local Loki (primary)
-    # with a mirror copy to VictoriaLogs (fire-and-forget, Phase 2 dual-store).
+    # Log push endpoint — mTLS only, proxies to VictoriaLogs via its
+    # Loki-protocol-compatible insert endpoint. Fleet agents push to
+    # /loki/api/v1/push unchanged; nginx routes to VL internally.
     #
     # Threat model: mTLS authenticates "this is some fleet host" but cannot
-    # bind the log stream to a specific host. The `host` label sits inside
-    # Loki's protobuf push body, set by the client (fluent-bit modify filter),
+    # bind the log stream to a specific host. The `host` field sits inside
+    # the protobuf push body, set by the client (fluent-bit modify filter),
     # and nginx can't rewrite it the way it rewrites the URL on the metrics
     # endpoint below. So a compromised fleet host can forge logs labelled as
     # any other host — fire false alerts about a peer, hide its own activity
@@ -55,12 +51,10 @@ in {
     # not "code execution"; (b) the fleet is internal. If log-spoofing ever
     # becomes a real concern, run vector/alloy on tharbad as a relay: nginx
     # passes $ssl_client_s_dn_cn in a header, the relay overrides the host
-    # label from that header before forwarding to Loki.
+    # field from that header before forwarding to VictoriaLogs.
     #
     # mTLS still earns its keep here for audit ($ssl_client_s_dn_cn in nginx
-    # access logs) and to keep unauthenticated traffic off both stores.
-    # The same best-effort host-label caveat applies to VictoriaLogs via the
-    # Loki-compat insert endpoint — the `host` field is still client-supplied.
+    # access logs) and to keep unauthenticated traffic off the store.
     "tharbad-loki-push" = {
       listen = [
         {
@@ -79,15 +73,6 @@ in {
       extraConfig = mTLSExtra;
       locations."/loki/api/v1/push" = {
         extraConfig = ''
-          mirror /vl-push;
-          mirror_request_body on;
-          # Phase 4: swap proxy_pass to http://127.0.0.1:9428/insert/loki/api/v1/push
-          proxy_pass http://127.0.0.1:${toString lokiPort};
-        '';
-      };
-      locations."/vl-push" = {
-        extraConfig = ''
-          internal;
           proxy_pass http://127.0.0.1:9428/insert/loki/api/v1/push;
         '';
       };

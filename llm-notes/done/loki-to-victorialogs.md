@@ -1,12 +1,11 @@
 # Loki → VictoriaLogs Migration
 
-> **Status:** Planning. Phase C fast-follow from
-> `llm-notes/done/observability-stack-migration.md` — the deferred swap of the
-> log store now that the VictoriaMetrics-on-receiver stack is in steady state
-> and Perses 0.53.1 ships first-class VictoriaLogs plugins.
+> **Status:** Complete (2026-05-12). Phase 3 (ruler decommission) and Phase 4
+> (dual-store cooldown) were skipped; the operator went directly to the
+> destination state after Phase 2 deployed.
 >
 > **Supersedes:** the "Phase C — VictoriaLogs fast-follow (deferred)" section
-> of `observability-stack-migration.md` (now scheduled, not deferred).
+> of `observability-stack-migration.md`.
 
 ---
 

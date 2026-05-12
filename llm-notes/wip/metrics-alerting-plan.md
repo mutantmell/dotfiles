@@ -10,7 +10,7 @@ homelab.
 **tharbad** (on calvard, VLAN 11 — management zone) currently runs:
 
 - Prometheus (port 9090) — scrapes parent hosts + all guest node_exporters
-- Loki (port 3100) — receiving logs from fleet-wide promtail-client
+- VictoriaLogs (port 9428, behind nginx :3100) — receiving logs from fleet-wide fluent-bit-agent
 - Perses — dashboard visualization (replacing Grafana)
 - Alertmanager — **enabled**, routing alerts to ntfy
 - ntfy — **enabled**, self-hosted notification server
@@ -24,7 +24,7 @@ homelab.
 
 - node_exporter (9001), zfs_exporter (9002), smartctl_exporter (9003)
 
-**promtail-client** module deployed fleet-wide, shipping to `tharbad.internal:3100`.
+**fluent-bit-agent** module deployed fleet-wide, shipping to `tharbad.internal:3100` (nginx → VictoriaLogs).
 
 **Remaining work:**
 
@@ -45,14 +45,14 @@ config, so tharbad can reach exporters in those zones without extra firewall rul
 
 ### Stack Selection
 
-| Component       | Choice                 | Rationale                                                                                   |
-| --------------- | ---------------------- | ------------------------------------------------------------------------------------------- |
-| Metrics         | **Prometheus**         | Already running on tharbad, NixOS module is mature, pull-based model works well for homelab |
-| Visualization   | **Perses**             | Prometheus-native; dashboards-as-code (declarative/GitOps-first), replaces Grafana          |
-| Log aggregation | **Loki**               | Already running on tharbad, designed for Prometheus stack, low resource usage vs ELK        |
-| Log shipping    | **Promtail**           | Native Loki companion; can scrape systemd journal on each host                              |
-| Alerting        | **Alertmanager**       | Native Prometheus integration, supports multiple notification channels                      |
-| Notifications   | **ntfy** (self-hosted) | See Notification System section below                                                       |
+| Component       | Choice                 | Rationale                                                                                                             |
+| --------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Metrics         | **Prometheus**         | Already running on tharbad, NixOS module is mature, pull-based model works well for homelab                           |
+| Visualization   | **Perses**             | Prometheus-native; dashboards-as-code (declarative/GitOps-first), replaces Grafana                                    |
+| Log aggregation | **VictoriaLogs**       | Column-oriented log store; no label/stream cardinality limits; Apache 2.0; smaller RSS than Loki at equivalent ingest |
+| Log shipping    | **fluent-bit**         | Fleet-wide agent shipping via Loki-compat push protocol to VictoriaLogs through nginx mTLS                            |
+| Alerting        | **Alertmanager**       | Native Prometheus integration, supports multiple notification channels                                                |
+| Notifications   | **ntfy** (self-hosted) | See Notification System section below                                                                                 |
 
 ### Why not VictoriaMetrics / Mimir / Thanos?
 
@@ -231,53 +231,30 @@ Scrape interval: 15s (default), 60s (slow targets)
 | nginx    | langport.internal:9113  | nginx_exporter    |
 | nftables | thebeyond.internal:9630 | nftables_exporter |
 
-### 2. Loki
+### 2. VictoriaLogs
 
 ```
-Port: 3100
+External port: 3100 (nginx mTLS)
+Internal port: 9428 (127.0.0.1)
 Retention: 30d
-Storage: filesystem (boltdb-shipper + chunks on /var/lib/loki)
+Storage: column-oriented on /var/lib/victorialogs
 ```
 
-Receives logs from Promtail agents running on each host (via `promtail-client`
-module). Local Promtail on tharbad scrapes its own systemd journal.
+Receives logs from fluent-bit agents running on each host (via
+`fluent-bit-agent` module). Agents push to `https://tharbad.internal:3100/loki/api/v1/push`;
+nginx verifies mTLS and proxies to VictoriaLogs' Loki-compat insert endpoint.
+Log alerting is handled by a dedicated vmalert-vlogs instance (see
+`modules/victorialogs.nix`) using LogsQL rules evaluated against VL's stats API.
 
-> **Future: S3 backend via Garage.** Loki's storage is currently constrained by
-> tharbad's 30GB persist volume. Migrating chunk storage to a Garage S3 endpoint
-> (see CI/CD plan Phase 5) would decouple retention from tharbad's disk and allow
-> longer retention with managed GC. Loki's TSDB+chunks architecture is designed
-> for object storage.
+> **Log Aggregation superseded:** This section originally described Loki +
+> Promtail. The full migration to VictoriaLogs is documented in
+> `llm-notes/done/loki-to-victorialogs.md`.
 
-### 3. Promtail (deployed to each host)
+### 3. fluent-bit (deployed to each host)
 
-Promtail runs as a lightweight agent on every NixOS host and microVM, shipping
-systemd journal logs to Loki on tharbad.
-
-**Deployment approach**: Add a shared NixOS module
-(`modules/promtail-client/default.nix` or similar) that each host imports:
-
-```nix
-# Conceptual — actual module would be more complete
-services.promtail = {
-  enable = true;
-  configuration = {
-    server.http_listen_port = 3031;
-    clients = [{ url = "http://tharbad.internal:3100/loki/api/v1/push"; }];
-    scrape_configs = [{
-      job_name = "journal";
-      journal = {
-        max_age = "12h";
-        labels.job = "systemd-journal";
-        labels.host = config.networking.hostName;
-      };
-      relabel_configs = [{
-        source_labels = [ "__journal__systemd_unit" ];
-        target_label = "unit";
-      }];
-    }];
-  };
-};
-```
+fluent-bit runs as a lightweight agent on every NixOS host and microVM (via
+`modules/fluent-bit-agent/default.nix`), shipping systemd journal logs to
+VictoriaLogs on tharbad via the Loki-compat push protocol over mTLS.
 
 ### 4. Alertmanager
 
@@ -396,12 +373,12 @@ Domain: perses.internal (tharbad)
 
 ### Phase 2 — Security Alerts
 
-Loki-based alerts are evaluated by Loki's built-in ruler. The ruler sends
-firing alerts to Alertmanager.
+VictoriaLogs-based alerts are evaluated by vmalert-vlogs using LogsQL rules.
+The ruler sends firing alerts to Alertmanager.
 
 ```yaml
-# SSH authentication failures (from Loki ruler — LogQL queries)
-# Implemented in loki.nix securityRules:
+# SSH authentication failures (from vmalert-vlogs — LogsQL queries)
+# Implemented in victorialogs.nix securityRules:
 # - SSHBruteForce: >10 failed auth in 5min (warning)
 # - SSHBruteForceExtreme: >50 failed auth in 5min (critical)
 # - SudoFailure: any failed sudo auth in 10min (warning)
@@ -500,21 +477,22 @@ the management zone already has `accessTo` that covers `trusted` and
   verdict = "accept"; comment = "tharbad -> DMZ (node_exporter)"; }
 ```
 
-### Promtail → Loki Connectivity
+### fluent-bit → VictoriaLogs Connectivity
 
-Hosts in all zones need to reach tharbad:3100 (Loki push endpoint). Management
-zone hosts can already reach tharbad (intra-zone). For other zones:
+Hosts in all zones need to reach tharbad:3100 (nginx mTLS log push endpoint,
+proxies to VictoriaLogs). Management zone hosts can already reach tharbad
+(intra-zone). For other zones:
 
 - **trusted zone** → management: already allowed (`accessTo` includes
   `management`)
-- **DMZ zone** → management: needs cross-zone forward rule for Loki port
+- **DMZ zone** → management: needs cross-zone forward rule for port 3100
   (**already implemented** — forward rules + per-host egress rules in place)
 
 ```nix
 # DMZ hosts → tharbad for log shipping (ALREADY IN PLACE)
 { iifname = "vDMZ.br0"; oifname = "vINFRA.br0";
   ip.daddr = tharbad.ipv4; tcp.dport = 3100;
-  verdict = "accept"; comment = "DMZ -> tharbad (Loki)"; }
+  verdict = "accept"; comment = "DMZ -> tharbad (log push)"; }
 ```
 
 ---
@@ -531,12 +509,12 @@ hosts/calvard/microvm/guests/tharbad/
 ├── secrets/
 │   └── secrets.yaml     # Encrypted secrets
 └── modules/
-    ├── prometheus.nix   # Prometheus + scrape configs + alert rules ✓
-    ├── loki.nix         # Loki + local promtail ✓
-    ├── alertmanager.nix # Alertmanager + routing config ✓
-    └── ntfy.nix         # ntfy notification server ✓
+    ├── victoriametrics.nix  # vmsingle + vmalert (Prometheus rules) ✓
+    ├── victorialogs.nix    # VictoriaLogs + vmalert-vlogs (LogsQL rules) ✓
+    ├── alertmanager.nix    # Alertmanager + routing config ✓
+    └── ntfy.nix            # ntfy notification server ✓
 
-modules/promtail-client/default.nix      # Shared module, deployed fleet-wide ✓
+modules/fluent-bit-agent/default.nix     # Shared module, deployed fleet-wide ✓
 modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide ✓
 ```
 
@@ -556,15 +534,17 @@ modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide �
 - [x] Deploy and verify tharbad on VLAN 11 (management zone)
 - [x] Migrated from Grafana to Perses for dashboard visualization
 
-### Phase 2 — Log Aggregation (COMPLETE)
+### Phase 2 — Log Aggregation (COMPLETE — migrated to VictoriaLogs)
 
-- [x] Enable Loki on tharbad — `modules/loki.nix`: TSDB + v13 schema, port 3100
-- [x] Enable local Promtail on tharbad via loki.nix
-- [x] Create `modules/promtail-client/default.nix` shared module — fleet-wide
-- [x] Deploy Promtail to all parent hosts + microVMs
-- [x] Add cross-zone firewall rules for DMZ → tharbad Loki port (IPv4 + IPv6)
-- [x] Add per-host egress rules for Loki push
-- [ ] Verify logs flowing from all hosts after deployment
+> Loki + Promtail have been replaced by VictoriaLogs + fluent-bit-agent.
+> See `llm-notes/done/loki-to-victorialogs.md` for the full migration record.
+
+- [x] VictoriaLogs running on tharbad, port 9428 (127.0.0.1)
+- [x] vmalert-vlogs evaluating LogsQL security alert rules
+- [x] nginx mTLS on :3100 proxies to VL Loki-compat insert endpoint
+- [x] `modules/fluent-bit-agent/default.nix` deployed fleet-wide
+- [x] Cross-zone firewall rules for DMZ → tharbad :3100 (IPv4 + IPv6)
+- [x] Per-host egress rules for log push
 
 ### Phase 3 — Alerting & Notifications (DEPLOYED)
 
@@ -586,9 +566,9 @@ modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide �
 - [x] Add management → DMZ/lab forward rules on router for Prometheus scraping
 - [x] Rename stale `ymir_node` scrape job to `tharbad_node`
 - [ ] Deploy service-specific exporters (unbound, kea, nginx, nftables) — blocked on thebeyond hardware
-- [x] Add Phase 2 alert rules (Loki ruler: SSHBruteForce, SSHBruteForceExtreme, SudoFailure)
+- [x] Add Phase 2 alert rules (vmalert-vlogs: SSHBruteForce, SSHBruteForceExtreme, SudoFailure)
 - [ ] Add remaining Phase 2 alerts (FirewallDropsSpike, CertExpiringSoon) — blocked on exporters
-- [x] Add Phase 3 alert rules (Prometheus: SlowScrape, PrometheusRuleEvalFailure, LokiRequestErrors, LokiIngestionLag; also HighCPUUsage, HostRebooted in infrastructure group; Loki ruler: FleetLogGap)
+- [x] Add Phase 3 alert rules (Prometheus: SlowScrape, PrometheusRuleEvalFailure; also HighCPUUsage, HostRebooted in infrastructure group; vmalert-vlogs: FleetLogGap)
 - [ ] Review existing Perses dashboards, identify coverage gaps (dashboards are declarative/code-managed — changes go through the repo and CI)
 - [ ] Build additional Perses dashboards (firewall overview, DNS stats)
 - [ ] Configure CI/CD webhook integration (Forgejo → ntfy)
@@ -598,31 +578,19 @@ modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide �
 
 ## Rejected Alternatives
 
-### mTLS on Loki push endpoint
+### mTLS-direct on VictoriaLogs push endpoint
 
-We considered adding mutual TLS to the Promtail→Loki connection so that only
-hosts presenting a valid client certificate can push logs. The infrastructure
-exists (basel runs step-ca, several hosts already use ACME), but the
-operational cost outweighs the benefit for this deployment:
+mTLS is terminated at nginx (:3100); VictoriaLogs listens on 127.0.0.1:9428
+with no auth. We considered having agents authenticate directly to VL, but:
 
-- **Every host running Promtail would need an ACME-issued client cert.**
-  Management-zone hosts can already reach basel (intra-zone), but the cert
-  renewal lifecycle adds a hard dependency: if basel is down, certs expire and
-  log shipping stops across the fleet.
-- **Certificate renewal plumbing** — Promtail and Loki need systemd restart
-  triggers after ACME renewal. NixOS's `security.acme` handles renewal but
-  wiring the restart dependencies for every host is boilerplate.
-- **Loki needs a serving cert too** (for `https://`), plus its own ACME setup.
-  Local Promtail on tharbad would need special handling (loopback TLS or a second
-  plaintext listener).
-- **The threat model doesn't justify it.** The DMZ→tharbad:3100 forward rules are
-  narrow (specific destination + port), and the 5 DMZ hosts with egress filters
-  are the only ones that can even attempt the connection. A compromised DMZ host
-  can write garbage logs but can't read other hosts' logs or pivot further
-  through Loki's append-only push API.
+- **nginx mTLS is already the established pattern** for both the metrics push
+  (:8427) and log push (:3100) endpoints. Consistency matters.
+- **Audit identity** — `$ssl_client_s_dn_cn` in nginx access logs gives per-host
+  attribution. VL's built-in basicAuth doesn't provide this without custom logging.
+- **The fleet already has client certs issued** — no new credential infrastructure.
 
-Revisit if Loki is ever exposed beyond the LAN or multi-tenant log separation
-is needed.
+Revisit if VictoriaLogs is ever exposed beyond the LAN or multi-tenant log
+separation is needed.
 
 ---
 

@@ -86,32 +86,11 @@
             annotations.summary = "vmalert rule evaluation failures detected";
           }
           {
-            alert = "LokiRequestErrors";
-            expr = ''rate(loki_request_duration_seconds_count{status_code=~"5.."}[5m]) > 0'';
-            "for" = "5m";
-            labels.severity = "warning";
-            annotations.summary = "Loki returning server errors";
-          }
-          {
-            alert = "LokiIngestionLag";
-            expr = "loki_ingester_chunk_age_seconds_sum / loki_ingester_chunk_age_seconds_count > 900";
-            "for" = "10m";
-            labels.severity = "warning";
-            annotations.summary = "Loki chunk age averaging above 15 minutes — ingestion may be lagging";
-          }
-          {
             alert = "IngestAuthFailures";
             expr = ''rate(vmauth_user_request_errors_total{reason="bad_auth"}[5m]) > 0'';
             "for" = "0m";
             labels.severity = "warning";
             annotations.summary = "vmauth: bad bearer token rejections detected";
-          }
-          {
-            alert = "LokiAuthFailures";
-            expr = ''rate(nginx_http_requests_total{server="loki",status="401"}[5m]) > 0'';
-            "for" = "0m";
-            labels.severity = "warning";
-            annotations.summary = "Loki nginx: 401 auth failures detected on push endpoint";
           }
         ];
       }
