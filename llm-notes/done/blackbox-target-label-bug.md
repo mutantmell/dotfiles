@@ -1,7 +1,14 @@
 # Blackbox Probe Target Label Bug
 
-> **Status:** Discovered 2026-05-12 during Perses dashboard label audit
-> (`perses-dashboard-overhaul.md` Phase 1).
+> **Status:** Closed 2026-05-12 — resolved by removing blackbox entirely
+> (Option 3 from "Fix sketch" below). `MetricsStale` already provides
+> per-host liveness via `node_uname_info` freshness, making the SSH probe
+> redundant. Removed: `tharbad/modules/blackbox.nix`, blackbox inputs in
+> `tharbad/modules/fluent-bit.nix`, `HostUnreachable` alert, and the
+> blackbox SSH egress allowlist entries.
+>
+> _Original status: Discovered 2026-05-12 during Perses dashboard label
+> audit (`perses-dashboard-overhaul.md` Phase 1)._
 
 ## Summary
 
