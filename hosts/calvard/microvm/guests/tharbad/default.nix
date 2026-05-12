@@ -19,7 +19,6 @@ in {
     ./modules/ntfy.nix
     ./modules/perses.nix
     ./modules/victoriametrics.nix
-    ./modules/blackbox.nix
     ./modules/fluent-bit.nix
     ./modules/ingress.nix
   ];
@@ -98,14 +97,6 @@ in {
           comment = "Keycloak OIDC";
         }
       ]
-      # Blackbox SSH probes — blackbox_exporter initiates TCP connections to :22.
-      ++ (map (name: {
-          host = name;
-          proto = "tcp";
-          port = 22;
-          comment = "blackbox SSH probe";
-        })
-        externalHosts)
     )
   );
 

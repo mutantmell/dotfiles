@@ -5,17 +5,6 @@
         name = "availability";
         rules = [
           {
-            alert = "HostUnreachable";
-            expr = "probe_success == 0";
-            "for" = "2m";
-            labels = {
-              severity = "critical";
-            };
-            annotations = {
-              summary = "{{ $labels.target }}: SSH probe failing — host may be down";
-            };
-          }
-          {
             alert = "MetricsStale";
             expr = "time() - timestamp(node_uname_info) > 120";
             "for" = "0m";
