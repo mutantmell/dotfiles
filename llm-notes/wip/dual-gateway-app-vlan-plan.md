@@ -2682,9 +2682,19 @@ uses, without needing the in-flake codification done. Workflow:
 2. Open **Customize installed packages** and replace the default
    package list with the recipe for the role (BT8-bridge,
    BT8-gateway, or BT8 mesh AP) per the sub-sections below.
-3. Pin the same release as `lib/common/data/openwrt-hashes.json`
-   `defaultRelease` (currently 24.10.5) so first-flash and any later
-   in-flake rebuild produce a coherent set.
+3. Pin the release in Firmware Selector. The manual rollout uses
+   **OpenWrt 25.12 (≥ 25.12.3)** for BT8 — selected because the BT8
+   hardware (MT7988A / `mediatek/filogic`) has its kernel + mt76
+   driver updates land first on the current stable train; 25.12.1
+   regressed MediaTek 2.4 GHz latency, hot-fixed in 25.12.2, with
+   further filogic fixes in 25.12.3. `lib/common/data/openwrt-hashes.json`
+   `defaultRelease` still points at `24.10.5` because no BT8 target
+   is defined in `lib/common/data/openwrt.nix` yet; the pin advances
+   to `25.12` (and a `mediatek/filogic` hash is added) at
+   [Phase 4.1](#phase-4--codify-bt8-gateway-and-bt8-bridge-in-image-builder)
+   when BT8 enters the in-flake build. Until then, Firmware Selector
+   is the only build path for BT8 and is pinned independently of the
+   in-flake `defaultRelease`.
 4. Build, then download `factory.bin` for first install (if the
    device is on stock or a non-OpenWrt firmware) or `sysupgrade.bin`
    for a re-flash.
