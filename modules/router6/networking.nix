@@ -88,6 +88,11 @@ in {
       systemd.network.wait-online.enable = false;
       services.resolved.enable = false; # We use kresd
 
+      # kresd binds 127.0.0.1:53. With resolved off, nothing populates
+      # /etc/resolv.conf, so libc-based DNS callers (curl, sops, the WAN
+      # DHCP client) have no resolver. Point them at the local kresd.
+      networking.nameservers = ["127.0.0.1"];
+
       environment.systemPackages = with pkgs; [
         tcpdump
         conntrack-tools
