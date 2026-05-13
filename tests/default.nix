@@ -17,6 +17,10 @@
   incus-container = import ./modules/incus-container.nix {inherit pkgs lib;};
   incus-vm = import ./modules/incus-vm.nix {inherit pkgs lib disko;};
 
+  # Phantasma DNS stack (Blocky + Unbound)
+  blocky-config = import ./lib/blocky-config.nix {inherit pkgs lib;};
+  phantasma-dns = import ./modules/phantasma-dns.nix {inherit pkgs lib;};
+
   # Disko profile validation
   disko-tmpfs = let
     profile = import ../profiles/disko/tmpfs.nix {};

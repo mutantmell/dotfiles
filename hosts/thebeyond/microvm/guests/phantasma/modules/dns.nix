@@ -4,7 +4,6 @@
   ...
 }: let
   net = pkgs.mmell.lib.data.network;
-  h = net.hosts;
 in {
   networking.firewall.allowedUDPPorts = [
     53 # DNS
@@ -13,41 +12,56 @@ in {
     53 # DNS
   ];
 
-  # AdGuard owns port 53 here. NixOS's networkd module defaults
+  # Blocky owns port 53. NixOS's networkd module defaults
   # services.resolved.enable=true when networkd is on, which binds
-  # 127.0.0.53:53 and conflicts with AdGuard's 0.0.0.0:53 bind.
+  # 127.0.0.53:53 and conflicts with Blocky's 0.0.0.0:53 bind.
   services.resolved.enable = false;
 
   # Without resolved writing /etc/resolv.conf, point libc-based DNS
-  # callers (curl, sops, etc.) at the local AdGuard instance.
+  # callers (curl, sops, etc.) at the local Blocky instance.
   networking.nameservers = ["127.0.0.1"];
 
-  # Adguard Home - DNS filtering and ad blocking
-  services.adguardhome = {
+  # Blocky — declarative DNS proxy with ad-blocking
+  services.blocky = {
     enable = true;
     settings = {
-      dns = {
-        bind_hosts = ["0.0.0.0"]; # Listen on all interfaces for DNS
-        port = 53;
-        upstream_dns = ["127.0.0.1:5335"]; # Forward to local Unbound
-        bootstrap_dns = ["127.0.0.1:5335"];
-        # Allow queries from router and local networks
-        # The router forwards DNS queries here
-        allowed_clients = [
-          "127.0.0.1"
-          "::1"
-          h.thebeyond.ipv4
-          h.phantasma.ipv4
-          h.thebeyond.ipv6
-          h.phantasma.ipv6
+      ports = {
+        dns = "0.0.0.0:53";
+        http = "127.0.0.1:4000"; # metrics + REST API on loopback only
+      };
+
+      # Forward all queries to local Unbound (recursive + split-horizon).
+      upstreams.groups.default = ["127.0.0.1:5335"];
+
+      # Blocky short-circuits RFC 6761 + ICANN special-use domains
+      # (including the recently-added `.internal`) to NXDOMAIN unless they
+      # have a conditional upstream. Without this, the entire
+      # homelab's `*.internal` and split-horizon `*.mutantmell.net`
+      # resolution would break.
+      conditional = {
+        fallbackUpstream = false;
+        mapping = {
+          "internal" = "127.0.0.1:5335";
+          "internal.mutantmell.net" = "127.0.0.1:5335";
+          "mutantmell.net" = "127.0.0.1:5335";
+        };
+      };
+
+      # Source-IP allowlisting is the firewall's job (allowedUDPPorts above).
+      # No Blocky-side client allowlist.
+
+      blocking = {
+        denylists.ads = [
+          "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
         ];
+        clientGroupsBlock.default = ["ads"];
       };
-      # Web interface binds to localhost only - accessed via nginx with OAuth
-      http = {
-        address = "127.0.0.1:3000";
-      };
-      dhcp = {
-        enabled = false; # DHCP is handled by the router
+
+      prometheus.enable = true;
+
+      log = {
+        level = "info";
+        format = "json";
       };
     };
   };
