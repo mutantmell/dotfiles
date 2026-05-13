@@ -1,13 +1,20 @@
 # Router6 network configuration for thebeyond
 #
-# Per-VLAN bridge topology: lanBat (wired to BT8-bridge) → bat0 (batman-adv) → per-VLAN bridges.
+# Per-VLAN bridge topology: enp2s0 (wired to BT8-bridge) → bat0 (batman-adv) → per-VLAN bridges.
 # bond0 is gone: VP2440 uses a single wired port as the batman hard interface.
 # Bridges are bat0-only (no bond0 VLAN sub-interfaces).
 #
 # Topology:
-#   lanBat (wired to BT8-bridge, mtu=1536) → bat0 (batman-adv mesh) → bat0.<tag> VLANs
+#   enp2s0 (wired to BT8-bridge, mtu=1536) → bat0 (batman-adv mesh) → bat0.<tag> VLANs
 #   bat0 VLANs → per-VLAN bridges (brMGMT, brINFRA, brHOME, ...)
 #   Each bridge gets: static IPs (derived from network registry), DHCP server, firewall zone
+#
+# Note: topology keys are kernel-assigned predictable names (enp2s0/enp4s0) rather
+# than logical aliases. The `hardwareName`-driven rename machinery in router6/
+# networking.nix emits `OriginalName=enpXsY` in the .link file, which doesn't
+# match at boot (the kernel-assigned name is eth0 at device-add). See checklist
+# "Outstanding open items" — fix the .link match strategy before reintroducing
+# logical names.
 {
   config,
   pkgs,
@@ -460,9 +467,11 @@ in {
 
     topology =
       {
-        # WAN interface — DHCP from ISP
-        wan = {
-          hardwareName = "enp4s0";
+        # WAN interface — DHCP from ISP.
+        # Topology key is the kernel predictable name; no .link rename (see
+        # file header note on hardwareName semantics).
+        enp4s0 = {
+          kind = "physical";
           network = {
             type = "dhcp";
             zone = "external";
@@ -477,8 +486,9 @@ in {
 
         # Wired link to BT8-bridge — batman-adv hard interface.
         # mtu=1536 provides headroom for the ~25-byte batman encapsulation.
-        lanBat = {
-          hardwareName = "enp2s0";
+        # Topology key is the kernel predictable name; no .link rename.
+        enp2s0 = {
+          kind = "physical";
           network = {
             type = "disabled";
             mtu = 1536;
@@ -488,7 +498,7 @@ in {
         # Batman-adv mesh device — single hard interface (wired to BT8-bridge)
         bat0 = {
           kind = "batman";
-          members = ["lanBat"];
+          members = ["enp2s0"];
           batman = {
             gatewayMode = "off";
             routingAlgorithm = "batman-v";
