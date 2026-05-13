@@ -47,6 +47,10 @@ in {
         ''}
 
         ${optionalString (!cfg.dns.enableDNSSEC) ''
+          -- knot-resolver >=5.7: there is a default trust anchor for `.`,
+          -- and set_insecure refuses to mark a name as NTA when it already
+          -- has a TA. Drop the TA first, then mark `.` insecure.
+          trust_anchors.remove('.')
           trust_anchors.set_insecure({ '.' })
         ''}
 
