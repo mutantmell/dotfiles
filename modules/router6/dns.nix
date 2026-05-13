@@ -46,11 +46,6 @@ in {
           policy.add(policy.all(policy.FORWARD({${upstreamServers}})))
         ''}
 
-        ${optionalString (cfg.dns.localDomain != null) ''
-          -- Block external resolution of local domain
-          policy.add(policy.suffix(policy.DENY, policy.todnames({'${cfg.dns.localDomain}.'})))
-        ''}
-
         ${optionalString (!cfg.dns.enableDNSSEC) ''
           trust_anchors.negative = { '.' }
         ''}

@@ -240,12 +240,14 @@
     (assertTrue "D: has trust_anchors.negative"
       (contains "trust_anchors.negative" extraD))
 
-    # Config E: localDomain set
-    (assertTrue "E: has policy.suffix DENY"
-      (contains "policy.suffix(policy.DENY" extraE))
+    # Config E: localDomain set — kresd no longer emits a DENY rule for it
+    # (localDomain is consumed by DHCP domain-name only). Verify kresd config
+    # does not contain DENY policy machinery.
+    (assertTrue "E: no policy.suffix DENY (localDomain not enforced in kresd)"
+      (notContains "policy.suffix(policy.DENY" extraE))
 
-    (assertTrue "E: has home.arpa domain"
-      (contains "home.arpa" extraE))
+    (assertTrue "E: no home.arpa in kresd config"
+      (notContains "home.arpa" extraE))
 
     # Config F: localDomain null
     (assertTrue "F: no policy.suffix DENY"
