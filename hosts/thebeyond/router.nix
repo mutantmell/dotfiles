@@ -138,6 +138,29 @@ in {
         # because inputRules allows DNS below.
         icmpEcho = "enable";
         accessTo = [];
+        # phantasma is the recursive resolver for the whole network. It must be
+        # able to reach root servers (DNS) and NTP servers (for DNSSEC clock
+        # alignment). Restricted to phantasma's IPs so general network-zone gear
+        # (APs/switches) does NOT inherit internet egress.
+        forwardRules.external =
+          (ds {
+            saddr = phantasma;
+            udp.dport = 53;
+            verdict = "accept";
+            comment = "phantasma -> internet (recursive DNS)";
+          })
+          ++ (ds {
+            saddr = phantasma;
+            tcp.dport = 53;
+            verdict = "accept";
+            comment = "phantasma -> internet (recursive DNS TCP)";
+          })
+          ++ (ds {
+            saddr = phantasma;
+            udp.dport = 123;
+            verdict = "accept";
+            comment = "phantasma -> internet (NTP, for DNSSEC clock)";
+          });
         inputRules = [
           {
             udp.dport = 123;
