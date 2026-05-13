@@ -51,9 +51,11 @@ in {
       # No Blocky-side client allowlist.
 
       blocking = {
-        denylists.ads = [
-          "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
-        ];
+        # Denylist is pinned via flake input (stevenblack-hosts) and
+        # exposed as a store path through the mmell overlay. Avoids the
+        # bootstrap chicken-and-egg where Blocky tries to resolve the
+        # denylist URL through itself before it's ready.
+        denylists.ads = ["${pkgs.mmell.stevenblack-hosts}/hosts"];
         clientGroupsBlock.default = ["ads"];
       };
 

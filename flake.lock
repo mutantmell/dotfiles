@@ -365,6 +365,7 @@
         "retrom": "retrom",
         "rust-overlay": "rust-overlay",
         "sops-nix": "sops-nix",
+        "stevenblack-hosts": "stevenblack-hosts",
         "treefmt-nix": "treefmt-nix"
       }
     },
@@ -438,6 +439,22 @@
       "original": {
         "type": "git",
         "url": "https://spectrum-os.org/git/spectrum"
+      }
+    },
+    "stevenblack-hosts": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1778514220,
+        "narHash": "sha256-QfJhMIJ8puLV3f3PQoDpGlK9sHN6L100p4JSS7lHPZ8=",
+        "owner": "StevenBlack",
+        "repo": "hosts",
+        "rev": "1ad2f21a0af2a683ec8a14ed41d900e080d0b812",
+        "type": "github"
+      },
+      "original": {
+        "owner": "StevenBlack",
+        "repo": "hosts",
+        "type": "github"
       }
     },
     "systems": {

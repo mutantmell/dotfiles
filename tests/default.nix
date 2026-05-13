@@ -20,6 +20,7 @@
   # Phantasma DNS stack (Blocky + Unbound)
   blocky-config = import ./lib/blocky-config.nix {inherit pkgs lib;};
   phantasma-dns = import ./modules/phantasma-dns.nix {inherit pkgs lib;};
+  phantasma-dns-real = import ./modules/phantasma-dns-real.nix {inherit pkgs lib;};
 
   # Disko profile validation
   disko-tmpfs = let

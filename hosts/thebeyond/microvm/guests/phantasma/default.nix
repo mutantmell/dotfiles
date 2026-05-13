@@ -1,6 +1,7 @@
 {
   pkgs,
   config,
+  lib,
   ...
 }: let
   hostname = "phantasma";
@@ -29,6 +30,13 @@ in {
     }
   ];
 
+  # cloud-hypervisor's `console=ttyS0` triggers systemd-getty-generator to
+  # create serial-getty@ttyS0.service, which waits on dev-ttyS0.device.
+  # udev never tags the device in this hypervisor's serial path, so the unit
+  # times out after 90s every boot — enough to push past the host service's
+  # TimeoutStartSec on fresh deploys. We don't use serial login anyway.
+  systemd.services."serial-getty@ttyS0".enable = lib.mkForce false;
+
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
     matchConfig.Type = "ether";
@@ -36,10 +44,18 @@ in {
     networkConfig = {
       Address = [host.cidr4 host.cidr6];
       Gateway = zone.gateway4;
-      DNS = ["127.0.0.1"]; # Use local DNS (Adguard -> Unbound)
-      IPv6AcceptRA = true;
-      IPv6PrivacyExtensions = "yes";
+      DNS = ["127.0.0.1"]; # Use local DNS (Blocky -> Unbound)
+      # Static v4 and v6 addresses + explicit routes — we don't need RA.
+      # Leaving IPv6AcceptRA on stalls systemd-networkd-wait-online for
+      # ~2 minutes if no router advertises on brMGMT yet.
+      IPv6AcceptRA = false;
       DHCP = "no";
+    };
+    # Only require IPv4 to consider the interface "online". With static
+    # IPv6 + no RA we don't want wait-online to gate boot on v6 SLAAC.
+    linkConfig = {
+      RequiredForOnline = "routable";
+      RequiredFamilyForOnline = "ipv4";
     };
     routes = [
       {Gateway = zone.gateway4;}
