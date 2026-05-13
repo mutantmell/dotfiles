@@ -392,6 +392,12 @@ in {
     dns = {
       upstream = [phantasma.ipv4]; # phantasma microVM on brMGMT (10.91.10.10)
       localDomain = "internal";
+      # Validation happens upstream at phantasma's Unbound. With it on here,
+      # kresd's root trust anchor is empty/broken — taupd refresh fails
+      # (rcode 2 against its own validator) and every forwarded query then
+      # times out into SERVFAIL. Service restart does not heal the state.
+      # See llm-notes/wip/blocky-migration-plan.md for the proper fix.
+      enableDNSSEC = false;
       interception = {
         enable = true;
         extraExcludeAddresses = [phantasma.ipv6];
