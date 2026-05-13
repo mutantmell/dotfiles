@@ -1,9 +1,7 @@
 # kresd DNS config tests for router6
 #
 # Pure Nix evaluation tests verifying kresd Lua configuration:
-# - Upstream DNS with/without fallback
-# - DHCP fallback code paths
-# - Static fallback list
+# - Upstream DNS forwarding
 # - DNSSEC toggle
 # - localDomain isolation
 #
@@ -76,34 +74,12 @@
     };
   };
 
-  # Config A: Simple upstream, no fallback
+  # Config A: Simple upstream
   configA =
     baseTopology
     // {
       dns = {
         upstream = ["1.1.1.1"];
-        useDHCPFallback = false;
-      };
-    };
-
-  # Config B: Upstream with DHCP fallback
-  configB =
-    baseTopology
-    // {
-      dns = {
-        upstream = ["1.1.1.1"];
-        useDHCPFallback = true;
-      };
-    };
-
-  # Config C: Upstream with static fallback list
-  configC =
-    baseTopology
-    // {
-      dns = {
-        upstream = ["1.1.1.1"];
-        fallback = ["8.8.8.8"];
-        useDHCPFallback = false;
       };
     };
 
@@ -113,7 +89,6 @@
     // {
       dns = {
         upstream = ["1.1.1.1"];
-        useDHCPFallback = false;
         enableDNSSEC = false;
       };
     };
@@ -124,7 +99,6 @@
     // {
       dns = {
         upstream = ["1.1.1.1"];
-        useDHCPFallback = false;
         localDomain = "home.arpa";
       };
     };
@@ -135,7 +109,6 @@
     // {
       dns = {
         upstream = ["1.1.1.1"];
-        useDHCPFallback = false;
         localDomain = null;
       };
     };
@@ -168,7 +141,6 @@
     ulaPrefix = "fdc6:55f2:0a5e::/48";
     dns = {
       upstream = ["1.1.1.1"];
-      useDHCPFallback = false;
     };
     topology = {
       wan = {
@@ -216,7 +188,6 @@
     ulaPrefix = "fdc6:55f2:0a5e::/48";
     dns = {
       upstream = ["1.1.1.1"];
-      useDHCPFallback = false;
     };
     topology = {
       wan = {
@@ -242,45 +213,28 @@
   evalH = evalConfig configH;
 
   extraA = (evalConfig configA).services.kresd.extraConfig;
-  extraB = (evalConfig configB).services.kresd.extraConfig;
-  extraC = (evalConfig configC).services.kresd.extraConfig;
   extraD = (evalConfig configD).services.kresd.extraConfig;
   extraE = (evalConfig configE).services.kresd.extraConfig;
   extraF = (evalConfig configF).services.kresd.extraConfig;
 
-  evalB = evalConfig configB;
   evalG = evalConfig configG;
 
   tests = [
-    # Config A: Simple upstream, no fallback
+    # Config A: Simple upstream
     (assertTrue "A: has policy.FORWARD"
       (contains "policy.FORWARD" extraA))
 
     (assertTrue "A: has upstream server"
       (contains "'1.1.1.1'" extraA))
 
-    (assertTrue "A: no get_fallback function"
+    (assertTrue "A: no fallback machinery"
       (notContains "get_fallback" extraA))
 
-    (assertTrue "A: no get_dhcp_dns function"
+    (assertTrue "A: no DHCP DNS extraction"
       (notContains "get_dhcp_dns" extraA))
 
-    # Config B: Upstream with DHCP fallback
-    (assertTrue "B: has get_fallback"
-      (contains "get_fallback" extraB))
-
-    (assertTrue "B: has dhcp-dns file path"
-      (contains "/run/kresd/dhcp-dns" extraB))
-
-    (assertTrue "B: kresd-dhcp-dns service exists"
-      (builtins.hasAttr "kresd-dhcp-dns" evalB.systemd.services))
-
-    # Config C: Upstream with static fallback
-    (assertTrue "C: has get_fallback"
-      (contains "get_fallback" extraC))
-
-    (assertTrue "C: has fallback server"
-      (contains "'8.8.8.8'" extraC))
+    (assertTrue "A: no primary_down state"
+      (notContains "primary_down" extraA))
 
     # Config D: DNSSEC disabled
     (assertTrue "D: has trust_anchors.negative"

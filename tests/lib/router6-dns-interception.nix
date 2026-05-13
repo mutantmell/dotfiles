@@ -38,7 +38,6 @@
   baseConfig = {
     ulaPrefix = "fdc6:55f2:0a5e::/48";
     dns.upstream = ["10.0.11.2"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";
@@ -110,7 +109,6 @@
     // {
       dns = {
         upstream = ["fdc6:55f2:0a5e:b::2"];
-        useDHCPFallback = false;
         interception.enable = true;
       };
     };

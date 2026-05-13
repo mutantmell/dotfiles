@@ -46,7 +46,6 @@ pkgs.testers.nixosTest {
 
         dns = {
           upstream = ["1.1.1.1"];
-          useDHCPFallback = false;
           localDomain = "test.local";
         };
 

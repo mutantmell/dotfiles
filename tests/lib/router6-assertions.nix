@@ -81,7 +81,6 @@
   baseConfig = {
     ulaPrefix = "fdc6:55f2:0a5e::/48";
     dns.upstream = ["1.1.1.1"];
-    dns.useDHCPFallback = false;
     zones = baseZones;
     topology = baseTopology;
   };

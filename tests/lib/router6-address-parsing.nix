@@ -46,7 +46,6 @@
   cfg = evalConfig {
     ulaPrefix = "fdc6:55f2:0a5e::/48";
     dns.upstream = ["9.9.9.9"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";
