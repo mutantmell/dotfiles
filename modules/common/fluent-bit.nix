@@ -126,6 +126,13 @@ in {
               RemainAfterExit = true;
               Restart = "on-failure";
               RestartSec = "30s";
+              # Without this, step ca certificate blocks on basel reachability
+              # for the systemd default 90s. With microvm@<guest>.service's
+              # 2-minute notify-ready window on the host, a basel-unreachable
+              # boot tips phantasma's start past that limit and the host kills
+              # the VM. Fail fast and let Restart=on-failure retry in the
+              # background instead.
+              TimeoutStartSec = "30s";
               # Creates /var/lib/fleet-tls owned by root:fleet-tls 0750. Files written
               # by step inherit the fleet-tls primary group, so fluent-bit (in that
               # group) can read the key after a chmod 640.
@@ -182,13 +189,32 @@ in {
             };
           };
 
-          # Don't gate fluent-bit on bootstrap. If basel is unreachable at boot
-          # (e.g. transit not up yet), bootstrap can hang for minutes and would
-          # otherwise block multi-user.target. fluent-bit's Restart=always plus
-          # a high StartLimitBurst keeps it retrying until bootstrap eventually
-          # writes the cert.
+          # Don't try to start fluent-bit until the cert exists. /var/lib/fleet-tls
+          # is persisted, so after the first successful bootstrap the cert is
+          # present at boot and this condition passes immediately. On a cold deploy
+          # where bootstrap hasn't yet written a cert (or basel is unreachable),
+          # fluent-bit stays cleanly inactive instead of restart-looping on TLS
+          # load errors — and crucially does not contribute to boot-time pressure.
+          # StartLimitBurst kept high so post-cert restarts aren't rate-limited.
           systemd.services.fluent-bit = {
-            unitConfig.StartLimitBurst = 10000;
+            unitConfig = {
+              ConditionPathExists = "/var/lib/fleet-tls/client.crt";
+              StartLimitBurst = 10000;
+            };
+          };
+
+          # Watches for the cert that bootstrap writes. On a cold deploy where
+          # the cert isn't yet provisioned, fluent-bit's ConditionPathExists
+          # leaves it inactive at boot — this path unit kicks it once bootstrap
+          # finally writes the cert, so no manual `systemctl start fluent-bit`
+          # is needed.
+          systemd.paths.fluent-bit-cert-watch = {
+            description = "Trigger fluent-bit when fleet TLS cert appears";
+            wantedBy = ["multi-user.target"];
+            pathConfig = {
+              PathExists = "/var/lib/fleet-tls/client.crt";
+              Unit = "fluent-bit.service";
+            };
           };
 
           users.users.fluent-bit.extraGroups = ["fleet-tls"];
