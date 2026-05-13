@@ -47,7 +47,7 @@ in {
         ''}
 
         ${optionalString (!cfg.dns.enableDNSSEC) ''
-          trust_anchors.negative = { '.' }
+          trust_anchors.set_insecure({ '.' })
         ''}
 
         cache.size = 100 * MB

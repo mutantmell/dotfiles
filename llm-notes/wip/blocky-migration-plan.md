@@ -173,7 +173,7 @@ Rollback:
   re-reads the same broken state.
 
   Workaround in place: `router6.dns.enableDNSSEC = false` on thebeyond,
-  which renders `trust_anchors.negative = { '.' }` and skips kresd-side
+  which renders `trust_anchors.set_insecure({ '.' })` and skips kresd-side
   validation entirely. Validation still happens upstream at phantasma's
   Unbound, which preserves the main DNSSEC threat model (public-internet
   hop). Only intra-LAN MITM detection is lost.
