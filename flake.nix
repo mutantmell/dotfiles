@@ -53,6 +53,10 @@
       url = "github:JMBeresford/retrom";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    stevenblack-hosts = {
+      url = "github:StevenBlack/hosts";
+      flake = false;
+    };
   };
   outputs = {
     self,
@@ -72,6 +76,7 @@
     treefmt-nix,
     rust-overlay,
     retrom,
+    stevenblack-hosts,
   }: let
     pkgsFor = basepkgs: system:
       import basepkgs {
@@ -189,7 +194,10 @@
 
     overlays = {
       packages = final: prev: {
-        mmell = (prev.mmell or {}) // self.packages.${prev.stdenv.hostPlatform.system};
+        mmell =
+          (prev.mmell or {})
+          // self.packages.${prev.stdenv.hostPlatform.system}
+          // {inherit stevenblack-hosts;};
       };
 
       lib = final: prev: {
