@@ -68,7 +68,7 @@ in {
         user = "acme";
         group = "acme";
       }
-      "/var/lib/private/AdGuardHome" # Adguard Home state
+      "/var/lib/private/blocky" # Blocky state (DynamicUser backing dir)
     ];
   };
 

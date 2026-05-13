@@ -118,7 +118,6 @@ in {
           systemd.services.fleet-tls-bootstrap = {
             description = "Bootstrap fleet TLS client certificate via X5C enrollment";
             wantedBy = ["fluent-bit.service"];
-            before = ["fluent-bit.service"];
             after = ["network-online.target" "fleet-enrollment-key.service"];
             wants = ["network-online.target" "fleet-enrollment-key.service"];
             unitConfig.ConditionPathExists = "!/var/lib/fleet-tls/client.crt";
@@ -183,14 +182,12 @@ in {
             };
           };
 
-          # Order fluent-bit after bootstrap, but don't make it a hard requirement:
-          # if bootstrap is mid-retry, fluent-bit's own Restart=always (from upstream)
-          # will retry until bootstrap eventually writes the cert. With Requires=,
-          # systemd would not auto-start fluent-bit when bootstrap recovers.
-          # StartLimitBurst is set high so fluent-bit keeps retrying during the
-          # bootstrap window rather than giving up and entering start-limit-hit.
+          # Don't gate fluent-bit on bootstrap. If basel is unreachable at boot
+          # (e.g. transit not up yet), bootstrap can hang for minutes and would
+          # otherwise block multi-user.target. fluent-bit's Restart=always plus
+          # a high StartLimitBurst keeps it retrying until bootstrap eventually
+          # writes the cert.
           systemd.services.fluent-bit = {
-            after = ["fleet-tls-bootstrap.service"];
             unitConfig.StartLimitBurst = 10000;
           };
 
