@@ -41,7 +41,6 @@ pkgs.testers.nixosTest {
 
         dns = {
           upstream = ["10.0.20.2"];
-          useDHCPFallback = false;
           interception = {
             enable = true;
             target = "10.0.10.1";

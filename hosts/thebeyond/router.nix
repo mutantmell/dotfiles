@@ -368,7 +368,6 @@ in {
 
     dns = {
       upstream = [phantasma.ipv4]; # phantasma microVM on brMGMT (10.91.10.10)
-      useDHCPFallback = true; # fall back to ISP DNS when phantasma microVM is down
       localDomain = "internal";
       interception = {
         enable = true;

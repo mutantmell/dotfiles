@@ -471,22 +471,7 @@ in {
           upstream = mkOption {
             type = types.listOf types.str;
             default = [];
-            description = "Primary upstream DNS servers";
-          };
-
-          fallback = mkOption {
-            type = types.listOf types.str;
-            default = [];
-            description = "Static fallback DNS servers (used if useDHCPFallback is false)";
-          };
-
-          useDHCPFallback = mkOption {
-            type = types.bool;
-            default = true;
-            description = ''
-              Use DNS servers from DHCP (WAN) lease as fallback
-              when primary upstream servers are unavailable.
-            '';
+            description = "Upstream DNS servers";
           };
 
           localDomain = mkOption {

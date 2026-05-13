@@ -62,7 +62,6 @@
   forwardRulesConfig = {
     ulaPrefix = "fdc6:55f2:0a5e::/48";
     dns.upstream = ["1.1.1.1"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";
@@ -124,7 +123,6 @@
   multiIfaceConfig = {
     ulaPrefix = "fdc6:55f2:0a5e::/48";
     dns.upstream = ["1.1.1.1"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";
@@ -171,7 +169,6 @@
   # Test 1.7c: icmpEcho ipv4-only and ipv6-only
   icmpV4OnlyConfig = {
     dns.upstream = ["1.1.1.1"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";
@@ -207,7 +204,6 @@
 
   icmpV6OnlyConfig = {
     dns.upstream = ["1.1.1.1"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";
@@ -244,7 +240,6 @@
   # Test 1.7d: self-forwarding within a zone
   selfForwardConfig = {
     dns.upstream = ["1.1.1.1"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";
@@ -281,7 +276,6 @@
   # Test 1.7e: escape hatch interaction
   escapeHatchConfig = {
     dns.upstream = ["1.1.1.1"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";
@@ -335,7 +329,6 @@
   # Test 1.7f-1: empty zone
   emptyZoneConfig = {
     dns.upstream = ["1.1.1.1"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";
@@ -378,7 +371,6 @@
   # Test 1.7f-2: baseRules = false
   noBaseRulesConfig = {
     dns.upstream = ["1.1.1.1"];
-    dns.useDHCPFallback = false;
     zones = {
       external = {
         icmpEcho = "disable";

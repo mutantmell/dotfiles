@@ -182,7 +182,6 @@ pkgs.testers.nixosTest {
 
         dns = {
           upstream = ["2001:db8::1"];
-          useDHCPFallback = false;
           localDomain = "test.local";
         };
 
