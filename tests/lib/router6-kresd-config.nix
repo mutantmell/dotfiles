@@ -236,9 +236,11 @@
     (assertTrue "A: no primary_down state"
       (notContains "primary_down" extraA))
 
-    # Config D: DNSSEC disabled
-    (assertTrue "D: has trust_anchors.negative"
-      (contains "trust_anchors.negative" extraD))
+    # Config D: DNSSEC disabled — knot-resolver >=5.7 requires
+    # trust_anchors.set_insecure({...}); the legacy trust_anchors.negative
+    # assignment is rejected at load time.
+    (assertTrue "D: has trust_anchors.set_insecure"
+      (contains "trust_anchors.set_insecure" extraD))
 
     # Config E: localDomain set — kresd no longer emits a DENY rule for it
     # (localDomain is consumed by DHCP domain-name only). Verify kresd config
