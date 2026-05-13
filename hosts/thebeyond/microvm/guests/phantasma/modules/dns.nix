@@ -13,6 +13,15 @@ in {
     53 # DNS
   ];
 
+  # AdGuard owns port 53 here. NixOS's networkd module defaults
+  # services.resolved.enable=true when networkd is on, which binds
+  # 127.0.0.53:53 and conflicts with AdGuard's 0.0.0.0:53 bind.
+  services.resolved.enable = false;
+
+  # Without resolved writing /etc/resolv.conf, point libc-based DNS
+  # callers (curl, sops, etc.) at the local AdGuard instance.
+  networking.nameservers = ["127.0.0.1"];
+
   # Adguard Home - DNS filtering and ad blocking
   services.adguardhome = {
     enable = true;
