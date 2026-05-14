@@ -35,7 +35,11 @@ in {
   # udev never tags the device in this hypervisor's serial path, so the unit
   # times out after 90s every boot — enough to push past the host service's
   # TimeoutStartSec on fresh deploys. We don't use serial login anyway.
+  # Same hazard applies to hvc0 (cloud-hypervisor virtio-console): the
+  # generator auto-creates serial-getty@hvc0 which then waits on a
+  # dev-hvc0.device that never tags, blocking stage-2 udev for ~90s.
   systemd.services."serial-getty@ttyS0".enable = lib.mkForce false;
+  systemd.services."serial-getty@hvc0".enable = lib.mkForce false;
 
   systemd.network.enable = true;
   systemd.network.networks."20-tap" = {
