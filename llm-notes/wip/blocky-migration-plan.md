@@ -225,3 +225,57 @@ Rollback:
      (IANA-published KSK), so cold-start always has a valid initial anchor.
   2. Switch the kresd ↔ phantasma hop to DoT, which authenticates phantasma
      and lets us drop kresd's DNSSEC entirely without any security loss.
+
+- **Phantasma slow-boot root cause + revert `microvm@phantasma` TimeoutSec.**
+  Observed 2026-05-14: fresh phantasma deploys take >2:30 to reach
+  multi-user.target, blowing the microvm framework's host-side default
+  `TimeoutSec=150`. The host then kills the VM mid-boot and the restart
+  loop never converges. Two band-aids landed in this migration:
+
+  1. `hosts/thebeyond/microvm/default.nix` overrides
+     `systemd.services."microvm@phantasma".serviceConfig.TimeoutSec = 600`
+     to give the guest 10 min instead of 2:30.
+  2. `hosts/thebeyond/microvm/guests/phantasma/default.nix` disables
+     `serial-getty@hvc0` (alongside the pre-existing `ttyS0` disable)
+     because systemd-getty-generator auto-creates a getty for cloud-
+     hypervisor's virtio-console that waits ~90s for a `dev-hvc0.device`
+     that never tags.
+
+  The hvc0 disable is a real fix. The `TimeoutSec=600` bump is a
+  band-aid — the underlying slowness is still there, just no longer
+  fatal. Stage-2 systemd events come through at exactly 2-second intervals
+  early in boot, which strongly suggests console-bandwidth saturation:
+  kernel cmdline is `earlyprintk=ttyS0 console=ttyS0` with no baud rate
+  (defaults to 9600 baud on the emulated 8250 UART, ~1.2 KB/s). systemd's
+  verbose status spew fills that channel and backpressures init.
+
+  Investigation steps when revisiting:
+
+  ```bash
+  # 1. Confirm baud rate on the emulated UART (from inside phantasma).
+  stty -F /dev/ttyS0 -a | head -5
+
+  # 2. Compare boot time under three configurations (one at a time):
+  #    a) baseline (current)
+  #    b) console=ttyS0,115200n8 on the kernel cmdline (faster UART)
+  #    c) console=hvc0 console=ttyS0 (virtio-console as primary; no baud limit)
+  #    d) quiet on the cmdline (less verbose, less backpressure)
+  # Look at journal timestamps between `Stopped initrd-switch-root.service`
+  # and `Reached target Multi-User System`.
+
+  # 3. Check whether microvm.nix has an option for primary console.
+  # If not, set boot.kernelParams on phantasma directly. The microvm
+  # framework's command-line construction for cloud-hypervisor is in
+  # microvm.nix upstream; verify console= isn't being force-set elsewhere.
+  ```
+
+  Acceptance criteria for reverting `TimeoutSec=600`: a fresh deploy
+  (delete `/persist/guests/phantasma/images/persist.img`, redeploy) boots
+  to multi-user.target in under 60s. Then drop the override in
+  `hosts/thebeyond/microvm/default.nix` and the hvc0 workaround can stay
+  (it's free) or be replaced with whatever the proper console fix is.
+
+  Generalization: the hvc0 getty trap applies to *any* future cloud-
+  hypervisor microvm guest, not just phantasma. If we add more guests
+  using this hypervisor, either replicate the disable or push the fix
+  into `mk-microvm` so it's automatic.
