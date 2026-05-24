@@ -82,6 +82,24 @@ in {
         ];
         aggressive-nsec = true;
 
+        # Recover quickly from network transitions. Default infra-host-ttl
+        # of 900s means a router/uplink flap can blackhole recursion for 15
+        # minutes after Unbound marks roots/auths unreachable. 60s keeps
+        # the dead-state window short without meaningfully increasing probe
+        # traffic on a homelab.
+        infra-host-ttl = 60;
+
+        # Graceful degradation during upstream outages. serve-expired
+        # returns cached records past their TTL only when a fresh fetch is
+        # actually slow/failing (client-timeout gate), not as a routine
+        # optimization. Stale answers are capped at 1 day and tagged with
+        # a short reply TTL so clients re-ask once upstream recovers.
+        serve-expired = true;
+        serve-expired-client-timeout = 1800;
+        serve-expired-ttl = 86400;
+        serve-expired-reply-ttl = 30;
+        prefetch = true;
+
         # Split-horizon DNS zones
         local-zone = [
           ''"mutantmell.net." transparent'' # split-horizon: local overrides, rest forwarded
