@@ -183,7 +183,7 @@ Worked examples:
 | `BT8-bridge`                | wired to `thebeyond`           | `network` / 10 | 0                                     |
 | Office BT8 dumb APs         | 802.11s mesh (office side)     | `network` / 10 | 1 (via mesh → BT8-bridge → thebeyond) |
 | Future wired-to-BT8-gw gear | wired to `BT8-gateway`         | `netmgmt` / 12 | 0                                     |
-| `BT8-gateway` (admin SSH)   | wired to office mesh + transit | `transit` / 99 | 0 (transit IP)                        |
+| `BT8-gateway` (admin SSH)   | wired to office mesh + transit | `transit` / 255 | 0 (transit IP)                        |
 
 Counterexamples that would violate the invariant:
 
@@ -324,7 +324,7 @@ per-VLAN bridges inside `BT8-gateway`.
   section. This is the hostile-zone convergence model for the data
   VLANs — see resolved decision below.
 - **Transit VLAN passes through `BT8-bridge`**: like every other VLAN,
-  the transit VLAN (99) is carried as `bat0.99` across the batman
+  the transit VLAN (255) is carried as `bat0.255` across the batman
   fabric. `BT8-bridge` participates in transit only as a passthrough
   L2 bridge with no IP on it; the actual peers are `thebeyond`
   (`10.255.255.1`) and `BT8-gateway` (`10.255.255.2`).
@@ -499,7 +499,7 @@ Concrete addresses produced by this scheme:
 | game       | 41   | thebeyond | `10.91.41.0/24`   | `fdc6:55f2:0a5e:0029::/64` |
 | app        | 50   | bt8gw     | `10.97.50.0/24`   | `fdc6:55f2:0a5e:1032::/64` |
 | adu        | 31   | thebeyond | `10.91.31.0/24`   | `fdc6:55f2:0a5e:001f::/64` |
-| transit    | 99   | (special) | `10.255.255.0/30` | `fdc6:55f2:0a5e:ffff::/64` |
+| transit    | 255  | (special) | `10.255.255.0/30` | `fdc6:55f2:0a5e:ffff::/64` |
 
 ### Move phantasma from `management` (INFRA) to `network` (MGMT)
 
@@ -582,7 +582,7 @@ netmgmt = {
                           # (managed switches, PDUs, BMC) lands here
 };
 transit = {
-  vlanId = 99;
+  vlanId = 255;
   # Special-cased: third address space, neither gateway. Both prefix4
   # and prefix6 overridden directly rather than derived from the
   # gateway table.
@@ -1257,7 +1257,8 @@ Steps:
      consumers in this plan; the zone exists as the BT8-gw-side
      architectural mirror of `network`/10 and gets populated by a
      follow-up plan when wired-to-BT8-gw network gear lands here.
-   - `transit` — `vlanId = 99`, explicit `prefix4 = "10.255.255"`,
+   - `transit` — `vlanId = 255`, explicit `prefix4 = "10.255.255"`,
+
      `prefix6 = "${ulaPrefix}:ffff"`, `prefixLength4 = 30`, hosts =
      `{ thebeyond = 1; bt8gw = 2; }`.
 2. Add corresponding `mkVlanBridge` entries in `hosts/thebeyond/router.nix`
@@ -1293,6 +1294,28 @@ Steps:
 **Goal:** prove the dual-gateway routing/firewall model on a single VLAN
 (start with APP) using BT8-gateway. No production cutover.
 
+**Prerequisite gate (before opening the BT8-gateway window):**
+
+Phase 1's transit configuration must be deployed and verified end-to-end
+before the operator flashes BT8-gateway. Runbook B
+([§5.G/H](#b-manual-setup-bt8-as-secondary-gateway)) adopts `default via
+10.255.255.1` as part of the first VLAN brought up; if that IP is
+unreachable, BT8-gateway loses upstream and the operator is debugging a
+broken default route mid-window with the homelab torn down.
+
+- thebeyond's `transit` bridge (`brTRANSIT`, `10.255.255.1/30`,
+  `fdc6:55f2:0a5e:ffff::1/64`) deployed and up — Phase 1.4 complete.
+- BT8-bridge's wired uplink to thebeyond trunks VLAN 255 as a tagged
+  member. The mesh-side `bat0.255` reaches BT8-bridge transparently via
+  batman, but the wired uplink to thebeyond must carry VLAN 255
+  explicitly so frames cross from the mesh fabric into thebeyond's
+  `brTRANSIT`.
+- From any host on `network`/10: `ping 10.255.255.1` succeeds in both
+  directions. (Runbook B re-enforces this as its own pre-flight check at
+  the top of the hardware-cutover window, but verifying it *before* the
+  window opens catches a missing-config gap while the homelab is still
+  intact and recoverable without rollback.)
+
 Steps:
 
 1. **Pre-step (before flashing): use the unified BT8 `sysupgrade.bin`
@@ -1312,7 +1335,7 @@ Steps:
    dnsmasq/odhcpd/fw4 present — the gateway role uses them, the
    bridge/mesh-AP roles ship with them disabled), then apply the
    runbook's UCI. For this phase, configure:
-   - **APP (50) and transit (99) as L3-terminated** — bridges with IPs,
+   - **APP (50) and transit (255) as L3-terminated** — bridges with IPs,
      fw4 zones, dnsmasq + odhcpd. This is the production traffic for
      Phase 2's proof.
    - **DMZ (100), GUEST/untrusted (30), ADU (31), IOT (40), GAME (41),
@@ -1383,16 +1406,16 @@ Steps:
 
 3. **Verify DMZ reachability via transit.** BT8-gateway's connected
    routes are the per-VLAN `/24`s for its own bridges (br-v11/12/20/
-   21/50/99) — there is no `10.97.0.0/16` aggregate, so the default
+   21/50/255) — there is no `10.97.0.0/16` aggregate, so the default
    route via `10.255.255.1` already covers `10.97.100.x` (DMZ) without
    any extra static route. Confirm with `traceroute 10.97.100.41`
    from a BT8-gw-side host that the path is `host → BT8-gw →
 10.255.255.1 → thebeyond → langport`, and double-check with
    `ip route get 10.97.100.41` on BT8-gateway that the selected
-   nexthop is `10.255.255.1` via `br-v99`. If the routing table
+   nexthop is `10.255.255.1` via `br-v255`. If the routing table
    somehow disagrees (unexpected aggregate from a DHCP option, manual
    misconfiguration, etc.), a more-specific `10.97.100.0/24 via
-10.255.255.1 dev br-v99` route forces the right nexthop — but it
+10.255.255.1 dev br-v255` route forces the right nexthop — but it
    shouldn't be necessary.
 4. On BT8-gateway, configure DHCP for APP VLAN (dnsmasq for v4 +
    odhcpd for v6/RA, per the firewall-split table and runbook B §4).
@@ -1891,7 +1914,7 @@ enabled per [Reference F.3](#f3-role-specific-service-activation)
 (the default after flash). **Do not `apk add` packages post-flash to
 fix a missing package** — see
 [Reference F](#f-bt8-image-build-package-recipes). Mesh ID and PSK
-already established by `BT8-bridge`; transit VLAN tag (99) trunked
+already established by `BT8-bridge`; transit VLAN tag (255) trunked
 end-to-end.
 
 The hardware-side configuration (mesh radio, `batman-adv`, per-VLAN
@@ -1943,7 +1966,7 @@ config interface 'bat0'
     option gw_mode 'off'
 
 # Per-VLAN sub-interfaces of bat0 (one per carried VLAN).
-# Required for both L3-terminating VLANs (11, 12, 20, 21, 50, 99) AND
+# Required for both L3-terminating VLANs (11, 12, 20, 21, 50, 255) AND
 # L2-only passthrough VLANs (10, 30, 31, 40, 41, 100) — without
 # bat0.<tag>, frames for those VLANs have nowhere to land on this device.
 # VLAN 10 (network) is passthrough so office-side dumb APs reach
@@ -1953,7 +1976,7 @@ config device
     option type '8021q'
     option ifname 'bat0'
     option vid '50'
-# ... repeat for 10, 11, 12, 20, 21, 30, 31, 40, 41, 99, 100 ...
+# ... repeat for 10, 11, 12, 20, 21, 30, 31, 40, 41, 100, 255 ...
 ```
 
 #### 3. Wired ports + per-VLAN bridges
@@ -2016,13 +2039,13 @@ Transit VLAN (`/30` point-to-point with `thebeyond`):
 
 ```uci
 config device
-    option name 'br-v99'
+    option name 'br-v255'
     option type 'bridge'
-    list ports 'bat0.99'              # transit reaches thebeyond via mesh→bridge
-    list ports 'lan1.99'              # only if a wired path is available
+    list ports 'bat0.255'              # transit reaches thebeyond via mesh→bridge
+    list ports 'lan1.255'              # only if a wired path is available
 
 config interface 'transit'
-    option device 'br-v99'
+    option device 'br-v255'
     option proto 'static'
     option ipaddr '10.255.255.2'
     option netmask '255.255.255.252'  # /30
@@ -2036,7 +2059,7 @@ config interface 'transit'
 # `proto 'dhcpv6'` form only if/when the ISP enlarges the delegation
 # and the GUA-enabled posture is adopted.
 config interface 'transit6'
-    option device 'br-v99'
+    option device 'br-v255'
     option proto 'static'
     list ip6addr 'fdc6:55f2:0a5e:ffff::2/64'
     option ip6gw 'fdc6:55f2:0a5e:ffff::1'
@@ -2275,17 +2298,17 @@ config rule
 #### 6. Static routes for DMZ and `network` VLANs
 
 No static routes required. BT8-gateway's connected routes are the
-per-VLAN `/24`s for its own bridges (br-v11/12/20/21/50/99) — there
+per-VLAN `/24`s for its own bridges (br-v11/12/20/21/50/255) — there
 is no `10.97.0.0/16` aggregate. `network` (`10.91.0.0/16`) and DMZ
 (`10.97.100.0/24` until end of Phase 5, then `10.91.100.0/24`) are
 both covered by the default route via `10.255.255.1`. Verify with
 `traceroute 10.97.100.41` from a BT8-gw-side host that the path is
 `host → BT8-gw → 10.255.255.1 → thebeyond → langport`, and with
 `ip route get 10.97.100.41` on BT8-gateway that the selected nexthop
-is `10.255.255.1` via `br-v99`. If something unexpected (a stray
+is `10.255.255.1` via `br-v255`. If something unexpected (a stray
 DHCP route option, manual misconfiguration) injects a `10.97.0.0/16`
 aggregate, a more-specific `10.97.100.0/24 via 10.255.255.1 dev
-br-v99` static route forces the right nexthop — but it shouldn't
+br-v255` static route forces the right nexthop — but it shouldn't
 be necessary.
 
 #### 7. NTP, DNS resolver, and management
@@ -2312,10 +2335,10 @@ ip -6 route
 # No /16 aggregate, so DMZ (10.97.100.0/24) and network (10.91.0.0/16) both
 # follow the default via transit without needing a more-specific route.
 # IPv6: per-VLAN ULA /64s as connected; default v6 route via
-# fdc6:55f2:0a5e:ffff::1 dev br-v99.
+# fdc6:55f2:0a5e:ffff::1 dev br-v255.
 
 # IPv6 (ULA-only baseline — no PD)
-ip -6 addr show dev br-v99
+ip -6 addr show dev br-v255
 # Should see only the static fdc6:55f2:0a5e:ffff::2/64 — no delegated
 # prefix. If a delegated prefix appears, the ISP has enlarged the
 # delegation and the plan should pivot to the GUA-enabled posture.

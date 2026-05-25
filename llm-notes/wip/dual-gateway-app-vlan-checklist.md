@@ -88,7 +88,7 @@ Phase 0b not declared done until step 13 scan passes.
 - [ ] **1.1** Add zones to `lib/common/data/network.nix`
   - [ ] `app` (vlanId 50, gateway `bt8gw`, hosts `{}`)
   - [ ] `netmgmt` (vlanId 12, gateway `bt8gw`, hosts `{}`)
-  - [ ] `transit` (vlanId 99, prefix4 `10.255.255`, prefix6 `${ulaPrefix}:ffff`, prefixLength4 30, hosts `{thebeyond=1; bt8gw=2}`)
+  - [ ] `transit` (vlanId 255, prefix4 `10.255.255`, prefix6 `${ulaPrefix}:ffff`, prefixLength4 30, hosts `{thebeyond=1; bt8gw=2}`)
 - [ ] **1.2** Add `mkVlanBridge` entries in `hosts/thebeyond/router.nix`
   - [ ] APP — member-only bridge, no IP on thebeyond
   - [ ] Transit — `10.255.255.1/30` and `fdc6:55f2:0a5e:ffff::1/64`
@@ -104,8 +104,13 @@ Phase 0b not declared done until step 13 scan passes.
 
 ## Phase 2 — Manual proof: BT8-bridge and BT8-gateway
 
+- [ ] **2.0** PREREQUISITE GATE — verify transit reachability before opening the BT8-gateway window
+  - [ ] thebeyond's `transit` bridge (`brTRANSIT`, `10.255.255.1/30`, `fdc6:55f2:0a5e:ffff::1/64`) deployed and up (Phase 1.4 complete)
+  - [ ] BT8-bridge wired uplink to thebeyond trunks VLAN 255 as a tagged member (mesh-side `bat0.255` reaches BT8-bridge transparently via batman; wired uplink needs explicit VLAN-tag passthrough config)
+  - [ ] From any host on `network`/10: `ping 10.255.255.1` succeeds, both directions
+  - [ ] **Do NOT proceed to 2.1 until the above passes.** Runbook B §5.G/H makes BT8-gateway adopt `default via 10.255.255.1` as part of the first VLAN brought up. If `10.255.255.1` is unreachable when the window opens, BT8-gateway loses upstream and the operator is debugging a broken default route mid-cutover with the homelab torn down. Runbook B's own pre-flight check (top of file) enforces the same gate, but verifying *before* the window means catching the gap with the homelab still intact.
 - [ ] **2.1** Configure BT8-gateway by hand per Runbook B
-  - [ ] APP (50) and transit (99) — L3-terminated, fw4 zones, dnsmasq + odhcpd
+  - [ ] APP (50) and transit (255) — L3-terminated, fw4 zones, dnsmasq + odhcpd
   - [ ] DMZ (100), GUEST (30), ADU (31), IOT (40), GAME (41), network (10) — L2-only batman passthrough (`proto 'none'`, no IP, no fw4 zone)
   - [ ] Trusted-side VLANs (INFRA/11, HOME/20, LAB/21, NETMGMT/12) — leave unconfigured for now
   - [ ] Concurrent: deploy office-side BT8 mesh APs per Runbook C
@@ -116,7 +121,7 @@ Phase 0b not declared done until step 13 scan passes.
   - [ ] Set cross-gateway routes on `thebeyond` (`10.97.0.0/16` + `fdc6:55f2:0a5e:1000::/52` via transit)
 - [ ] **2.3** Verify DMZ reachability via transit
   - [ ] `traceroute 10.97.100.41` from BT8-gw-side host
-  - [ ] `ip route get 10.97.100.41` on BT8-gateway shows nexthop `10.255.255.1` via `br-v99`
+  - [ ] `ip route get 10.97.100.41` on BT8-gateway shows nexthop `10.255.255.1` via `br-v255`
 - [ ] **2.4** Configure DHCP for APP VLAN on BT8-gateway (dnsmasq v4 + odhcpd v6/RA); connect test device
 - [ ] **2.5** Verify
   - [ ] `sysctl net.bridge.bridge-nf-call-iptables` reports `0` (or fw4 explicit accept for DMZ bridge)
