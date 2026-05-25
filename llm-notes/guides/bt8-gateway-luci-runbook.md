@@ -416,7 +416,7 @@ For each VLAN in the table below, create one device:
 | 40      | `bat0.40` | iot — passthrough               |
 | 41      | `bat0.41` | game — passthrough              |
 | 50      | `bat0.50` | app — L3 here                   |
-| 99      | `bat0.99` | transit — L3 here               |
+| 255     | `bat0.255` | transit — L3 here               |
 | 100     | `bat0.100`| dmz — passthrough               |
 
 **Save** each one. After all are added, **Save & Apply** the page.
@@ -450,7 +450,7 @@ For each VLAN in the table below, create one device:
 | 40      | `<TRUNK>.40`     |
 | 41      | `<TRUNK>.41`     |
 | 50      | `<TRUNK>.50`     |
-| 99      | `<TRUNK>.99`     |
+| 255     | `<TRUNK>.255`     |
 | 100     | `<TRUNK>.100`    |
 
 **IMPORTANT before save:** `<TRUNK>` is currently a member of
@@ -474,8 +474,8 @@ is the one.
 **Network → Interfaces → Devices** tab → **Add device configuration...**
 
 - **Type**: `Bridge device`
-- **Device name**: `br-v99`
-- **Bridge ports**: select `bat0.99` AND `<TRUNK>.99`
+- **Device name**: `br-v255`
+- **Bridge ports**: select `bat0.255` AND `<TRUNK>.255`
 - (Leave bridge VLAN filtering OFF — we are not using bridge-vlan-filtering;
   one bridge per VLAN is the model here.)
 
@@ -485,7 +485,7 @@ is the one.
 
 - **Name**: `transit`
 - **Protocol**: `Static address`
-- **Device**: `br-v99`
+- **Device**: `br-v255`
 
 Click **Create interface**.
 
@@ -514,9 +514,9 @@ Now also add IPv6. On **General Settings**:
 In SSH:
 
 ```sh
-ip -4 addr show dev br-v99       # should show 10.255.255.2/30
-ip -6 addr show dev br-v99       # should show fdc6:55f2:0a5e:ffff::2/64
-ip route                         # should show 'default via 10.255.255.1 dev br-v99'
+ip -4 addr show dev br-v255       # should show 10.255.255.2/30
+ip -6 addr show dev br-v255       # should show fdc6:55f2:0a5e:ffff::2/64
+ip route                         # should show 'default via 10.255.255.1 dev br-v255'
 ip -6 route                      # should show default via fdc6:55f2:0a5e:ffff::1
 
 ping -c 3 10.255.255.1           # thebeyond's transit IP — MUST work
@@ -531,9 +531,9 @@ ping -c 3 10.91.10.10            # phantasma DNS resolver via transit
   table. If not, the wired link from BT8-bridge to thebeyond is
   broken — investigate on BT8-bridge (`batctl n` should list
   thebeyond as a wired-hardif neighbour).
-- Run `tcpdump -ni br-v99 'icmp'` while pinging from another
-  terminal — confirm packets are leaving on `br-v99`.
-- Run `tcpdump -ni bat0.99 'icmp'` — confirm batman is carrying them.
+- Run `tcpdump -ni br-v255 'icmp'` while pinging from another
+  terminal — confirm packets are leaving on `br-v255`.
+- Run `tcpdump -ni bat0.255 'icmp'` — confirm batman is carrying them.
 - On thebeyond: `tcpdump -ni brTRANSIT 'icmp'` — confirm they arrive.
 - If they arrive on thebeyond but no reply: thebeyond's `transit`
   zone may not have the input rule for ICMP echo. Check
@@ -641,7 +641,7 @@ In SSH:
 
 ```sh
 ip -br link    | sort                # all br-v*, bat0.*, lan*.* devices present
-ip -br addr -4 | grep 'br-v'         # 5 entries: v11, v12, v20, v21, v50, v99
+ip -br addr -4 | grep 'br-v'         # 5 entries: v11, v12, v20, v21, v50, v255
                                      # (transit shows .2; others show .1)
 ping -c 2 10.255.255.1               # transit still works
 ping -c 2 1.1.1.1                    # internet still works
@@ -1109,7 +1109,7 @@ Print this and keep it next to the laptop.
 
 | Zone        | VLAN | Interface name (LuCI) | Bridge   | Gateway IP (this dev) | IPv6 ULA gateway              | DHCP? |
 | ----------- | ---- | --------------------- | -------- | --------------------- | ----------------------------- | ----- |
-| transit     | 99   | `transit`             | `br-v99` | `10.255.255.2/30`     | `fdc6:55f2:0a5e:ffff::2/64`   | no    |
+| transit     | 255  | `transit`             | `br-v255` | `10.255.255.2/30`     | `fdc6:55f2:0a5e:ffff::2/64`   | no    |
 | app         | 50   | `app`                 | `br-v50` | `10.97.50.1/24`       | `fdc6:55f2:0a5e:1032::1/64`   | yes   |
 | management  | 11   | `management`          | `br-v11` | `10.97.11.1/24`       | `fdc6:55f2:0a5e:100b::1/64`   | no (static) |
 | netmgmt     | 12   | `netmgmt`             | `br-v12` | `10.97.12.1/24`       | `fdc6:55f2:0a5e:100c::1/64`   | no (static) |
@@ -1184,10 +1184,10 @@ Print this and keep it next to the laptop.
 - `batctl o` — does `thebeyond` appear? If not, the wired hardif on
   BT8-bridge isn't reaching thebeyond. Check on BT8-bridge:
   `batctl n` should list thebeyond.
-- `ip -d link show dev bat0.99` — confirm the VLAN device exists.
-- `bridge link show` — confirm `bat0.99` and `<TRUNK>.99` are both
-  bridge ports of `br-v99`.
-- `tcpdump -ni br-v99 'arp or icmp'` — see if anything moves.
+- `ip -d link show dev bat0.255` — confirm the VLAN device exists.
+- `bridge link show` — confirm `bat0.255` and `<TRUNK>.255` are both
+  bridge ports of `br-v255`.
+- `tcpdump -ni br-v255 'arp or icmp'` — see if anything moves.
 - On thebeyond: `tcpdump -ni brTRANSIT 'icmp'` — see if requests arrive.
 
 ### Symptom: ping works but DNS doesn't
@@ -1210,7 +1210,7 @@ Print this and keep it next to the laptop.
 - On the client: `nslookup example.com` — DNS works?
 - On BT8-gateway: `tcpdump -ni br-v20 'icmp and src host <client-ip>'`
   while client pings 1.1.1.1 — see the request leave HOME bridge
-- On BT8-gateway: `tcpdump -ni br-v99 'icmp and src host <client-ip>'`
+- On BT8-gateway: `tcpdump -ni br-v255 'icmp and src host <client-ip>'`
   — see it leave on transit
 - If the request leaves but no reply: thebeyond's NAT may not be
   matching the source. Check on thebeyond:
