@@ -65,10 +65,115 @@ If any of the above is "no", **stop and resolve before proceeding**.
 
 ---
 
+## Network context & state assumptions
+
+**Read this before the window opens.** This runbook covers the
+**Phase 2** scope of the [dual-gateway migration
+plan](../wip/dual-gateway-app-vlan-plan.md): bringing BT8-gateway up
+as the L3 gateway for **APP (VLAN 50)** and **transit (VLAN 255)
+only**. L3 ownership of `management`/11, `trusted`/20, `lab`/21,
+`netmgmt`/12 stays on `thebeyond` until Phase 3, which is a separate
+later window covered by its own (future) cutover runbook.
+
+### Devices and current L3 ownership (the state this runbook assumes)
+
+| Device       | Role                                  | Where it's reachable                          |
+| ------------ | ------------------------------------- | --------------------------------------------- |
+| `thebeyond`  | Internet gateway + WAN/NAT + most L3s | `10.91.10.1` (network); `10.255.255.1` (transit) |
+| `BT8-bridge` | Wireless bridge — L2 passthrough only | `10.91.10.4` (network)                        |
+| BT8 (legacy) | Will be wiped and re-flashed in Phase 1 below | (whatever it's on today)              |
+
+L3 ownership by VLAN as of *right now* (verify before starting — if
+any of this is wrong, the rollout has a pre-existing inconsistency
+that must be resolved first):
+
+| VLAN | Zone        | Subnet           | L3 lives on    | Permanent home / migration note         |
+| ---- | ----------- | ---------------- | -------------- | --------------------------------------- |
+| 10   | network     | `10.91.10.0/24`  | `thebeyond`    | permanent — stays on `thebeyond` forever |
+| 11   | management  | `10.97.11.0/24`  | `thebeyond`    | moves to BT8-gateway in **Phase 3**     |
+| 12   | netmgmt     | (new)            | (none yet)     | added on BT8-gateway in **Phase 3**     |
+| 20   | trusted     | `10.97.20.0/24`  | `thebeyond`    | moves to BT8-gateway in **Phase 3**     |
+| 21   | lab         | `10.97.21.0/24`  | `thebeyond`    | moves to BT8-gateway in **Phase 3**     |
+| 30   | guest       | `10.91.30.0/24`  | `thebeyond`    | permanent                               |
+| 31   | adu         | `10.91.31.0/24`  | `thebeyond`    | permanent                               |
+| 40   | iot         | `10.91.40.0/24`  | `thebeyond`    | permanent                               |
+| 41   | game        | `10.91.41.0/24`  | `thebeyond`    | permanent                               |
+| 50   | app         | (new)            | (none yet)     | **added on BT8-gateway by this runbook** |
+| 100  | dmz         | `10.97.100.0/24` | `thebeyond`    | permanent through Phase 5; later renumbers to `10.91.100` |
+| 255  | transit     | `10.255.255.0/30`| `thebeyond` (.1) | **BT8-gateway picks up .2 in this runbook** |
+
+(Phase 1 of the plan already added `app`, `netmgmt`, and `transit`
+zones to `thebeyond`'s NixOS config: APP and NETMGMT as member-only
+bridges with no IP on `thebeyond`, transit with `10.255.255.1/30`.)
+
+### Target state (when this runbook completes)
+
+BT8-gateway will be the L3 gateway for **only**:
+
+| VLAN | Zone    | IPv4              | IPv6                            |
+| ---- | ------- | ----------------- | ------------------------------- |
+| 50   | app     | `10.97.50.1/24`   | `fdc6:55f2:0a5e:1032::1/64`     |
+| 255  | transit | `10.255.255.2/30` | `fdc6:55f2:0a5e:ffff::2/64`     |
+
+All other VLANs on BT8-gateway will be **L2-passthrough**: the bridge
+exists so mesh-side (`bat0.<vid>`) and wired-trunk-side
+(`<TRUNK>.<vid>`) frames can meet, but BT8-gateway holds **no IP,
+no fw4 zone, no DHCP** on them. L3 for those VLANs keeps living on
+`thebeyond` until Phase 3.
+
+**Importantly:** this runbook **does not create bridges or zones for
+management/11, trusted/20, lab/21, or netmgmt/12** on BT8-gateway.
+Doing so before Phase 3 would put a duplicate `10.97.11.1` (etc.) on
+the mesh fabric and cause ARP collisions with `thebeyond`. Phase 3
+handles those VLANs as a separate per-VLAN cutover (one transaction
+removes the IP from `thebeyond` and adds it on BT8-gateway).
+
+### What stays working throughout this runbook
+
+This is the reachability assurance: nothing in the existing homelab
+should break while BT8-gateway is brought up.
+
+- **Existing management/trusted/lab/DMZ/network traffic** continues
+  flowing through `thebeyond` unchanged. BT8-gateway is added to the
+  mesh as a peer but does not intercept any of these VLANs in Phase 2.
+- **Existing homelab → internet path** is untouched: clients still
+  default-route to their existing `thebeyond`-side gateway, then NAT
+  out via `thebeyond`.
+- **APP traffic** has no production clients yet (Phase 5 of the plan
+  moves services into APP). The L3 you stand up here is infrastructure
+  for that future work.
+- **Operator laptop access**: the laptop stays on the BT8-gateway's
+  `<MGMT>` wired port in `br-lan` (default `192.168.1.0/24`)
+  throughout the runbook. That's how LuCI and SSH access work during
+  config. The `lan` fw4 zone is preserved for this reason (the
+  full-cutover variant of this runbook would delete it; we don't).
+
+### Stopping points
+
+There are two safe pauses inside this runbook:
+
+1. **End of §5.F** — mesh joined + all VLAN sub-devices created, but
+   zero L3 commitments. Device can sit indefinitely; no production
+   impact. (§5.F.5 has an explicit STOP block with the transit
+   prerequisites.)
+2. **End of §5.L** — all bridges built, transit working, no firewall
+   changes yet. A natural checkpoint with a sysupgrade backup.
+
+If you have to abandon the window, abort at one of these. After §5.M
+(firewall changes), abort is harder and the troubleshooting appendix
+should be consulted before pulling the plug.
+
+---
+
 ## Window structure
 
 Approximate duration: **2–4 hours** of active work, plus testing
-buffer. The discrete phases:
+buffer. (Shorter than the full-cutover variant — Phase 2 stands up
+only the APP and transit zones; the management/trusted/lab/netmgmt
+zones are deferred to Phase 3.)
+
+The discrete phases inside this runbook (numbered locally; do not
+confuse with the plan's phase numbers):
 
 1. **Phase 1** — Build the image via Firmware Selector. Do this
    pre-window; takes ~5 minutes once you have the recipe.
@@ -76,16 +181,22 @@ buffer. The discrete phases:
    ~10 minutes plus first-boot.
 3. **Phase 3** — First-boot LuCI setup (root password, SSH).
 4. **Phase 4** — Post-flash SSH verification (must pass before any UCI).
-5. **Phase 5** — LuCI step-by-step configuration. ~20 discrete Save &
-   Apply checkpoints.
-6. **Phase 6** — Cabling cutover (homelab gear → BT8-gateway), final
-   verification.
+5. **Phase 5** — LuCI step-by-step configuration. Discrete Save &
+   Apply checkpoints; restricted to the APP + transit L3 commitments.
+6. **Phase 6** — Cabling cutover (BT8-gateway joins the mesh), final
+   verification. Existing homelab cabling is **not** disturbed in
+   Phase 2; nothing migrates off `thebeyond` here.
 
 You can pause between any two checkpoints to think, eat, sleep, or
 abort. The checkpoints between **5.M (firewall zones complete)** and
-**5.N (DHCP enabled)** are the riskiest — if you must abort during the
+**5.O (DHCP enabled)** are the riskiest — if you must abort during the
 window, abort BEFORE 5.M (the BT8 can sit configured but inert) or
-AFTER 5.N (DHCP is serving and you can verify clients work).
+AFTER 5.O (DHCP is serving on APP and you can verify clients work).
+
+After this runbook completes, BT8-gateway is in production for APP +
+transit only. **Phase 3 (per-VLAN cutover for
+management/trusted/lab/netmgmt)** is a separate later window with its
+own runbook.
 
 ---
 
@@ -391,9 +502,26 @@ BT8-bridge.
 
 ### 5.E — Create `bat0.<vid>` VLAN sub-devices
 
-You need a `bat0.<vid>` for **every VLAN this device touches** — both
-L3-terminating ones and L2-only passthrough ones. Without `bat0.<vid>`,
-frames for that VLAN have nowhere to land on this device.
+You need a `bat0.<vid>` for **every VLAN this device touches in Phase
+2** — both L3-terminating ones and L2-only passthrough ones. Without
+`bat0.<vid>`, frames for that VLAN have nowhere to land on this device.
+
+In Phase 2 the only **L3-terminating** VLANs on BT8-gateway are
+`app/50` and `transit/255`. The other VLANs listed below
+(`network/10`, hostile zones `30/31/40/41`, `dmz/100`) get
+**L2-passthrough** bridges in §5.J so frames can cross between the
+mesh fabric and the wired homelab L2 switch, but BT8-gateway holds no
+IP, no zone, no DHCP on them — L3 stays on `thebeyond`.
+
+**Deliberately omitted in Phase 2**: VLANs `11` (management), `12`
+(netmgmt), `20` (trusted/HOME), `21` (lab). Phase 1 left their L3 on
+`thebeyond` and routes them via the mesh. Adding their `bat0.<vid>`
+sub-devices on BT8-gateway prematurely would tempt the operator to
+also add the L3 bridges, which would collide with `thebeyond`'s
+addresses on the same fabric. Phase 3 introduces these four VLANs as a
+single coordinated cutover (sub-device → passthrough bridge → L3 IP →
+zone → DHCP, with the matching IP removed from `thebeyond` in the
+same window).
 
 **Network → Interfaces → Devices** tab → **Add device configuration...**
 
@@ -404,20 +532,16 @@ For each VLAN in the table below, create one device:
 - **VLAN ID**: as listed
 - (LuCI auto-fills the device name as `bat0.<vid>`)
 
-| VLAN ID | Name      | Purpose                         |
-| ------- | --------- | ------------------------------- |
-| 10      | `bat0.10` | network — L2 passthrough        |
-| 11      | `bat0.11` | management — L3 here            |
-| 12      | `bat0.12` | netmgmt — L3 here               |
-| 20      | `bat0.20` | trusted (HOME) — L3 here        |
-| 21      | `bat0.21` | lab — L3 here                   |
-| 30      | `bat0.30` | untrusted (GUEST) — passthrough |
-| 31      | `bat0.31` | adu — passthrough               |
-| 40      | `bat0.40` | iot — passthrough               |
-| 41      | `bat0.41` | game — passthrough              |
-| 50      | `bat0.50` | app — L3 here                   |
-| 255     | `bat0.255` | transit — L3 here               |
-| 100     | `bat0.100`| dmz — passthrough               |
+| VLAN ID | Name       | Purpose                                              |
+| ------- | ---------- | ---------------------------------------------------- |
+| 10      | `bat0.10`  | network — L2 passthrough                             |
+| 30      | `bat0.30`  | untrusted (GUEST) — L2 passthrough                   |
+| 31      | `bat0.31`  | adu — L2 passthrough                                 |
+| 40      | `bat0.40`  | iot — L2 passthrough                                 |
+| 41      | `bat0.41`  | game — L2 passthrough                                |
+| 50      | `bat0.50`  | app — **L3 terminated here** (the new APP gateway)   |
+| 100     | `bat0.100` | dmz — L2 passthrough                                 |
+| 255     | `bat0.255` | transit — **L3 terminated here** (gateway to thebeyond) |
 
 **Save** each one. After all are added, **Save & Apply** the page.
 
@@ -438,20 +562,19 @@ For each VLAN in the table below, create one device:
 - **Base device**: `<TRUNK>` (e.g., `lan1`)
 - **VLAN ID**: as listed
 
+Create one trunk sub-device per L2-passthrough or L3-terminated VLAN
+from §5.E (same VLAN set; VLANs 11/12/20/21 stay out of Phase 2):
+
 | VLAN ID | Name             |
 | ------- | ---------------- |
 | 10      | `<TRUNK>.10`     |
-| 11      | `<TRUNK>.11`     |
-| 12      | `<TRUNK>.12`     |
-| 20      | `<TRUNK>.20`     |
-| 21      | `<TRUNK>.21`     |
 | 30      | `<TRUNK>.30`     |
 | 31      | `<TRUNK>.31`     |
 | 40      | `<TRUNK>.40`     |
 | 41      | `<TRUNK>.41`     |
 | 50      | `<TRUNK>.50`     |
-| 255     | `<TRUNK>.255`     |
 | 100     | `<TRUNK>.100`    |
+| 255     | `<TRUNK>.255`    |
 
 **IMPORTANT before save:** `<TRUNK>` is currently a member of
 `br-lan` (the default bridge). Adding 802.1q sub-devices on top of it
@@ -464,6 +587,40 @@ that's fine because the homelab L2 switch will only send tagged
 frames once you cut over.
 
 **Save & Apply.**
+
+### 5.F.5 — STOP: safe pause point before any L3 commitment
+
+> **You are at the first safe stopping point.** Everything before this
+> step is purely additive: the device has joined the mesh, has VLAN
+> sub-devices on both sides (mesh and wired trunk), and has zero IPs,
+> zero bridges, zero firewall zones. It can sit in this state
+> indefinitely with no impact on production — neither side is bridged
+> together yet, so no homelab traffic crosses through it.
+>
+> The next step (§5.G) adopts `default via 10.255.255.1` as
+> BT8-gateway's only upstream route. If `thebeyond`'s transit
+> termination isn't actually up, this device loses its way out at
+> exactly the moment you click Save & Apply, and your only management
+> path is the laptop cable.
+>
+> **Re-verify the transit prerequisite before proceeding:**
+>
+> 1. From the operator laptop (or any host on `network`/10 that you
+>    can reach), confirm `ping 10.255.255.1` succeeds. This must be
+>    answered by `thebeyond`'s `brTRANSIT` interface — Phase 1.4 stood
+>    it up. If it doesn't answer, **stop here**: Phase 1 isn't
+>    actually deployed, and continuing will create a broken default
+>    route on this device.
+> 2. Confirm `batctl n` on this device still lists BT8-bridge (no mesh
+>    flap since §5.D).
+> 3. Confirm the homelab L2 switch trunks VLAN 255 toward this device
+>    if you intend to plug `<TRUNK>` in after §5.L. (You can defer
+>    this verification until immediately before §6 cabling; mesh-side
+>    transit works regardless.)
+>
+> If any of the above fails, do **not** proceed to §5.G. Either fix
+> Phase 1 deployment first, or abort the window (the device is inert
+> at this checkpoint — nothing to roll back).
 
 ### 5.G — Create the transit bridge and interface (HIGHEST PRIORITY VLAN)
 
@@ -568,55 +725,44 @@ Click **Create interface**, then **Save & Apply**.
 (Repeating: this interface has **no IP** on this device. The L3 for
 `network` lives on `thebeyond`.)
 
-### 5.J — Create the L3-terminating VLAN bridges and interfaces
+### 5.J — Create the APP/50 L3-terminating bridge and interface
 
-For each L3-terminating VLAN below, repeat the pattern from §5.G
-(bridge device + interface with static IP). Do them **one at a time**
-with a Save & Apply after each.
+APP is the **only** new L3 zone BT8-gateway adopts in Phase 2 (besides
+transit, which §5.G handled). All other L3 commitments —
+`management/11`, `netmgmt/12`, `trusted/20`, `lab/21` — are deferred
+to Phase 3 to avoid a duplicate-IP collision on the mesh fabric while
+`thebeyond` still owns those subnets.
+
+Follow the pattern from §5.G (bridge device + interface with static
+IP). Single VLAN; single Save & Apply.
 
 **`app` / VLAN 50:**
 
-- Bridge `br-v50`, members: `bat0.50`, `<TRUNK>.50`
-- Interface `app`, protocol Static, device `br-v50`
-  - IPv4: `10.97.50.1` / `255.255.255.0`
-  - IPv6 address: `fdc6:55f2:0a5e:1032::1/64`
-  - No IPv4 gateway (default route is via transit)
-  - **Save & Apply**, then `ip addr show dev br-v50` to verify.
+- **Network → Interfaces → Devices** tab → **Add device configuration...**
+  - **Type**: `Bridge device`
+  - **Device name**: `br-v50`
+  - **Bridge ports**: `bat0.50` AND `<TRUNK>.50`
+- **Save** the device.
+- **Network → Interfaces → Add new interface...**
+  - **Name**: `app`
+  - **Protocol**: `Static address`
+  - **Device**: `br-v50`
+  - **IPv4 address**: `10.97.50.1` / `255.255.255.0`
+  - **IPv6 address**: `fdc6:55f2:0a5e:1032::1/64`
+  - **No IPv4 gateway** (the default route lives on transit)
+- **Save & Apply.**
 
-**`netmgmt` / VLAN 12** (for the homelab L2 switch and other wired-to-BT8 net gear):
+Verify:
 
-- Bridge `br-v12`, members: `bat0.12`, `<TRUNK>.12`
-- Interface `netmgmt`, protocol Static, device `br-v12`
-  - IPv4: `10.97.12.1` / `255.255.255.0`
-  - IPv6 address: `fdc6:55f2:0a5e:100c::1/64`
-  - **Save & Apply**, verify.
+```sh
+ip -4 addr show dev br-v50    # shows 10.97.50.1/24
+ip -6 addr show dev br-v50    # shows fdc6:55f2:0a5e:1032::1/64
+```
 
-**`management` / VLAN 11** (for VM hosts, NAS, BMC):
-
-- Bridge `br-v11`, members: `bat0.11`, `<TRUNK>.11`
-- Interface `management`, protocol Static, device `br-v11`
-  - IPv4: `10.97.11.1` / `255.255.255.0`
-  - IPv6 address: `fdc6:55f2:0a5e:100b::1/64`
-  - **Save & Apply**, verify.
-
-**`trusted` / VLAN 20** (HOME):
-
-- Bridge `br-v20`, members: `bat0.20`, `<TRUNK>.20`
-- Interface `home`, protocol Static, device `br-v20`
-  - IPv4: `10.97.20.1` / `255.255.255.0`
-  - IPv6 address: `fdc6:55f2:0a5e:1014::1/64`
-  - **Save & Apply**, verify.
-
-**`lab` / VLAN 21:**
-
-- Bridge `br-v21`, members: `bat0.21`, `<TRUNK>.21`
-- Interface `lab`, protocol Static, device `br-v21`
-  - IPv4: `10.97.21.1` / `255.255.255.0`
-  - IPv6 address: `fdc6:55f2:0a5e:1015::1/64`
-  - **Save & Apply**, verify.
-
-After all five: `ip -br addr show | grep br-v` should list all five
-bridges with their `.1` addresses.
+> **Phase 3 will add four more bridges to this section** (`br-v11`,
+> `br-v12`, `br-v20`, `br-v21`) — each created with its IPs in the
+> same window that strips the matching IP off `thebeyond`. Do not
+> stand them up now.
 
 ### 5.K — Create the L2-passthrough VLAN bridges (no L3 here)
 
@@ -637,17 +783,44 @@ You can configure these in 1–2 Save & Apply batches; risk is low
 
 ### 5.L — CHECKPOINT: snapshot before firewall
 
+This is the **second safe stopping point** in the runbook. All
+bridges are built, transit works, but no firewall zones exist yet
+(default fw4 is still permissive). The device can be safely cabled
+into the homelab L2 switch from this point on — passthrough VLANs
+will reach `thebeyond` through the mesh, APP/transit will route on
+this box. If you must pause for hours/overnight, this is the place.
+
 In SSH:
 
 ```sh
-ip -br link    | sort                # all br-v*, bat0.*, lan*.* devices present
-ip -br addr -4 | grep 'br-v'         # 5 entries: v11, v12, v20, v21, v50, v255
-                                     # (transit shows .2; others show .1)
+ip -br link    | sort                # all br-v*, bat0.*, <TRUNK>.* devices present
+ip -br addr -4 | grep 'br-v'         # exactly 2 entries with an IPv4:
+                                     #   br-v50  10.97.50.1/24    (APP)
+                                     #   br-v255 10.255.255.2/30  (transit)
+                                     # All other br-v* show no IPv4 (L2 passthrough)
+ip -br addr -6 | grep 'br-v'         # same two with their fdc6:55f2:0a5e:* /64s
 ping -c 2 10.255.255.1               # transit still works
 ping -c 2 1.1.1.1                    # internet still works
 nft list ruleset | head -50          # default fw4 ruleset present
                                      # (still permissive — no zones added yet)
 ```
+
+Expected bridges at this checkpoint (Phase 2 scope):
+
+| Bridge   | VLAN | L3?            | Members                       |
+| -------- | ---- | -------------- | ----------------------------- |
+| `br-lan` | —    | mgmt only      | `lan2` (laptop), default LAN  |
+| `br-v10` | 10   | L2 passthrough | `bat0.10`, `<TRUNK>.10`       |
+| `br-v30` | 30   | L2 passthrough | `bat0.30`, `<TRUNK>.30`       |
+| `br-v31` | 31   | L2 passthrough | `bat0.31`, `<TRUNK>.31`       |
+| `br-v40` | 40   | L2 passthrough | `bat0.40`, `<TRUNK>.40`       |
+| `br-v41` | 41   | L2 passthrough | `bat0.41`, `<TRUNK>.41`       |
+| `br-v50` | 50   | **L3 — APP**   | `bat0.50`, `<TRUNK>.50`       |
+| `br-v100`| 100  | L2 passthrough | `bat0.100`, `<TRUNK>.100`     |
+| `br-v255`| 255  | **L3 — transit** | `bat0.255`, `<TRUNK>.255`   |
+
+Not present (deliberately, deferred to Phase 3): `br-v11`, `br-v12`,
+`br-v20`, `br-v21`.
 
 This is a good place to **back up** before touching the firewall.
 Run on BT8-gateway:
@@ -667,6 +840,20 @@ the post-§5.K state.
 silently drop your transit traffic and you'll lose internet
 reachability without warning.
 
+**Phase 2 zone summary (sanity-check list):**
+
+| Zone      | Interface  | Input    | Output | Forward  | Purpose                                        |
+| --------- | ---------- | -------- | ------ | -------- | ---------------------------------------------- |
+| `lan`     | `lan` (default `br-lan`) | `accept` | `accept` | `reject` | **KEEP** — operator laptop cable; LuCI/SSH surface during the runbook |
+| `transit` | `transit`  | `reject` | `accept` | `reject` | Uplink to `thebeyond` (point-to-point /30)     |
+| `app`     | `app`      | `reject` | `accept` | `reject` | New APP zone (10.97.50.0/24)                   |
+
+That is the entire set for Phase 2. No `management`, `netmgmt`,
+`trusted`, `lab`, or hostile-zone fw4 zones — those L3 surfaces don't
+exist on this box yet (Phase 3 adds the first four; the hostile zones
+stay L2-passthrough only on this device forever, with fw enforcement
+on `thebeyond`).
+
 **Network → Firewall → General Settings** tab:
 
 - **Drop invalid packets**: enabled
@@ -674,9 +861,11 @@ reachability without warning.
 - **Output**: `accept`
 - **Forward**: `reject`
 
-Now switch to the **Zones** section. Delete the default `lan` and
-`wan` zones (they refer to interfaces we're not using in their
-default form). Click the trash icon on each.
+Now switch to the **Zones** section. Delete the default `wan` zone
+(no `wan` interface on this device). **Keep the default `lan` zone**
+— it covers `br-lan` which is your laptop cable and the only
+management surface during this runbook. Click the trash icon on
+`wan` only.
 
 **Wait — do NOT save & apply yet.** Add the new zones first.
 
@@ -696,56 +885,33 @@ default form). Click the trash icon on each.
 - **Input**: `reject`, **Output**: `accept`, **Forward**: `reject`
 - **Covered networks**: `app`
 
-**Add the `management` zone:**
+**Confirm the existing `lan` zone is unchanged:**
 
-- **Name**: `management`
+- **Name**: `lan` (default)
 - **Input**: `accept`, **Output**: `accept`, **Forward**: `reject`
-- **Covered networks**: `management`
-
-**Add the `netmgmt` zone:**
-
-- **Name**: `netmgmt`
-- **Input**: `reject` (locked-down infra plane; SSH allowed via explicit rule below)
-- **Output**: `accept`, **Forward**: `reject`
-- **Covered networks**: `netmgmt`
-
-**Add the `trusted` zone:**
-
-- **Name**: `trusted`
-- **Input**: `accept`, **Output**: `accept`, **Forward**: `reject`
-- **Covered networks**: `home`
-
-**Add the `lab` zone:**
-
-- **Name**: `lab`
-- **Input**: `accept`, **Output**: `accept`, **Forward**: `reject`
-- **Covered networks**: `lab`
+- **Covered networks**: `lan` (the default `br-lan` interface)
+- Do **not** delete this. You lose laptop LuCI/SSH if you do.
 
 (Note: no fw4 zone for `network`/10, `guest`/30, `adu`/31, `iot`/40,
 `game`/41, or `dmz`/100 — these are L2-only on this device, no L3
-interface to bind. Their fw enforcement runs on thebeyond.)
+interface to bind. Their fw enforcement runs on thebeyond.
+`management`/11, `netmgmt`/12, `trusted`/20, `lab`/21 are deferred
+to Phase 3 with their bridges.)
 
 ### 5.M.1 — Add inter-zone forwardings
 
 Still on **Network → Firewall**, scroll to **Inter-Zone Forwarding**.
 
-Add each pair below (one per row):
+Phase 2 needs exactly one forward (plus the `lan→*` defaults from the
+preserved `lan` zone, which we don't touch):
 
-| Source       | Destination  | Purpose                                       |
-| ------------ | ------------ | --------------------------------------------- |
-| `trusted`    | `transit`    | HOME → internet/DMZ/iot via thebeyond         |
-| `trusted`    | `app`        | HOME → APP services                           |
-| `trusted`    | `management` | HOME → VM/NAS admin                           |
-| `lab`        | `management` | LAB → admin                                   |
-| `lab`        | `lab`        | LAB intra-zone (most fw4 zones need this)     |
-| `lab`        | `transit`    | LAB → internet/DMZ via thebeyond              |
-| `app`        | `transit`    | APP → internet/DMZ via thebeyond              |
-| `management` | `management` | management intra-zone                         |
-| `management` | `trusted`    | admin → HOME                                  |
-| `management` | `app`        | admin → APP                                   |
-| `management` | `transit`    | admin → internet/DMZ via thebeyond            |
-| `management` | `netmgmt`    | admin → switch/PDU/BMC CLI                    |
-| `netmgmt`    | `transit`    | netmgmt outbound NTP/DNS only (no inbound)    |
+| Source | Destination | Purpose                                       |
+| ------ | ----------- | --------------------------------------------- |
+| `app`  | `transit`   | APP clients → internet/DMZ via thebeyond      |
+
+That's it. The full forwarding mesh
+(`trusted→*`, `lab→*`, `management→*`, `netmgmt→transit`) gets added
+in Phase 3 when those source zones actually exist on this device.
 
 Now **Save & Apply** the whole firewall page.
 
@@ -759,53 +925,47 @@ exists; either delete them or leave them — they will be inert without
 a `wan` zone. Cleanest is to **delete every default rule** and add
 back only what we explicitly need.
 
-**Add: Allow DNS and DHCP to BT8-gateway from any zone**
+The `lan` zone defaults already provide laptop → device input
+(SSH/LuCI/DHCP); the rules below cover only the new APP and transit
+surfaces.
+
+**Add: Allow DNS and DHCP to BT8-gateway from APP and transit**
 
 - **Name**: `Allow-DNS-DHCP`
 - **Protocol**: `TCP UDP`
-- **Source zone**: `Any zone`
+- **Source zone**: `app` (add a second rule for `transit` if you want
+  thebeyond to be able to hit dnsmasq on this box — usually not
+  needed, defer if unsure)
 - **Destination zone**: `Device (input)`
 - **Destination port**: `53 67 547`
 - **Action**: `accept`
 - (Optional rate-limit) **Extra arguments**: `--limit 100/sec`
 
-**Add: Allow ICMP echo from any zone (diagnostics)**
+**Add: Allow ICMP echo from APP and transit (diagnostics)**
 
-- **Name**: `Allow-ICMP`
+- **Name**: `Allow-ICMP-app`
 - **Protocol**: `ICMP`
-- **Source zone**: `Any zone`
-- **Destination zone**: `Device (input)`
-- **Action**: `accept`
-
-**Add: Allow SSH from management** (so admin from VM/NAS workstations works):
-
-- **Name**: `Allow-SSH-mgmt`
-- **Protocol**: `TCP`
-- **Source zone**: `management`
-- **Destination zone**: `Device (input)`
-- **Destination port**: `22`
-- **Action**: `accept`
-
-**Add: Allow LuCI from management** (HTTP/HTTPS):
-
-- **Name**: `Allow-LuCI-mgmt`
-- **Protocol**: `TCP`
-- **Source zone**: `management`
-- **Destination zone**: `Device (input)`
-- **Destination port**: `80 443`
-- **Action**: `accept`
-
-**Add: Allow APP → basel ACME** (Phase 5 services need cert renewal):
-
-- **Name**: `app-basel-ACME`
-- **Protocol**: `TCP`
 - **Source zone**: `app`
-- **Destination zone**: `management`
-- **Destination IP**: `10.97.11.7`
-- **Destination port**: `443`
+- **Destination zone**: `Device (input)`
 - **Action**: `accept`
+
+- **Name**: `Allow-ICMP-transit`
+- **Protocol**: `ICMP`
+- **Source zone**: `transit`
+- **Destination zone**: `Device (input)`
+- **Action**: `accept` (this is what makes
+  `ping 10.255.255.2` from `thebeyond` work and lets the §5.M.3
+  smoke test pass)
 
 **Save & Apply.**
+
+> **Deferred to Phase 3** (do **not** add now): `Allow-SSH-mgmt`,
+> `Allow-LuCI-mgmt`, `app-basel-ACME`. They reference the
+> `management` source zone (Allow-SSH-mgmt / Allow-LuCI-mgmt) or
+> resolve into the `management` destination subnet (app-basel-ACME) —
+> neither destination interface nor source zone exists on this box in
+> Phase 2. Add them in the Phase 3 window alongside the
+> `management/11` bridge.
 
 ### 5.M.3 — CHECKPOINT: firewall sanity
 
@@ -862,9 +1022,11 @@ nslookup phantasma.internal 127.0.0.1   # should resolve via thebeyond's kresd
 
 ### 5.O — Configure DHCP servers per VLAN
 
-For each L3-terminating VLAN that should hand out leases, configure a
-DHCP pool. **Skip `management` and `netmgmt`** — both use static IPs
-from the registry (DHCP off there).
+Phase 2 stands up DHCP for **APP/50 only**. `home`/20 and `lab`/21
+DHCP servers are deferred to Phase 3 (they'd require their L3 bridges
+to exist on this device, which is exactly what Phase 3 adds).
+`management` and `netmgmt` never get DHCP on this device (static IPs
+from the registry).
 
 **Network → DHCP and DNS → DHCP** tab → for each entry, click on the
 matching interface row (or **Add** if not present):
@@ -887,15 +1049,11 @@ matching interface row (or **Add** if not present):
 
 **Save & Apply.**
 
-**`home` (trusted, VLAN 20):**
-
-- Same pattern as `app`. Pool start `100`, limit `100`.
-
-**`lab` (VLAN 21):**
-
-- Same pattern. Pool start `100`, limit `100`.
-
-**Save & Apply** between each.
+That's the only DHCP server BT8-gateway runs in Phase 2. Phase 3 will
+add `home` (trusted/20) and `lab` (lab/21) pools when their bridges
+land — the operator on each downstream client will see no DHCP change
+during Phase 2 because their lease is still served by `thebeyond` over
+the mesh.
 
 ### 5.O.1 — Static reservations
 
@@ -938,28 +1096,35 @@ Each SSID is bound to a per-VLAN bridge; batman + 802.1q does the
 rest. If you're keeping the office wifi on existing E8450 / mesh-AP
 hardware for now, skip this step.
 
+**Phase 2 SSID scope:** only the L2-passthrough zones whose bridges
+exist on this device — **GUEST/30, IOT/40, GAME/41** (and ADU/31 if
+desired). **HOME wifi is deferred to Phase 3** because it requires
+`br-v20` (trusted/20), which isn't built until then. Keep HOME on the
+existing E8450 / mesh-AP hardware until Phase 3.
+
 **Network → Wireless → Add** on `radio1` (5 GHz) or `radio0` (2.4 GHz):
 
-For HOME wifi:
+For GUEST wifi (example pattern):
 
 - **General Setup** tab:
   - **Mode**: `Access Point`
-  - **ESSID**: your HOME SSID
-  - **Network**: `home` (the trusted/20 interface — this binds the
-    SSID to bridge `br-v20`, which is L3-terminated here)
+  - **ESSID**: your GUEST SSID
+  - **Network**: `guest` (the L2-passthrough interface bridged into
+    `br-v30`; thebeyond is the L3 gateway, frames cross via mesh)
 - **Wireless Security** tab:
   - **Encryption**: `WPA3-SAE` or `WPA2-PSK/WPA3-SAE Mixed Mode`
-  - **Key**: HOME PSK from secret store
+  - **Key**: GUEST PSK from secret store
 
-Repeat for GUEST (network `guest`, the L2-passthrough interface for
-br-v30), IOT (network `iot`), GAME (network `game`).
+Repeat for IOT (network `iot`, bridge `br-v40`), GAME (network
+`game`, bridge `br-v41`), and optionally ADU (network `adu`, bridge
+`br-v31`).
 
 **Important:** for the L2-passthrough zones, the `Network` field
-binds to the **interface name** (`guest`, `iot`, `game`) — these
-interfaces have `proto 'none'` and are bridged into the matching
-`br-v30` / `br-v40` / `br-v41`. The SSID injects client frames
-directly into the bridge tagged with the right VID; batman delivers
-them to thebeyond, which is the L3 gateway for those zones.
+binds to the **interface name** (`guest`, `iot`, `game`, `adu`) —
+these interfaces have `proto 'none'` and are bridged into the matching
+`br-v30` / `br-v40` / `br-v41` / `br-v31`. The SSID injects client
+frames directly into the bridge tagged with the right VID; batman
+delivers them to thebeyond, which is the L3 gateway for those zones.
 
 **Save & Apply** after each SSID.
 
@@ -985,80 +1150,112 @@ revert.
 
 ## Phase 6 — Cabling cutover and final verification
 
-### 6.1 Move the homelab gear onto BT8-gateway
+> **Phase 2 scope reminder.** BT8-gateway is now an APP + transit
+> gateway plus an L2-passthrough box for everything else. Cutover here
+> means **joining BT8-gateway to the mesh and to the homelab L2
+> switch's trunk**; it does **not** move any L3 ownership off
+> `thebeyond`. The non-APP homelab keeps routing through
+> `thebeyond` (now via mesh → BT8-gateway → wire), exactly as before.
 
-Cable the homelab L2 switch (or whatever currently terminates the
-homelab gear) onto `<TRUNK>` on the BT8-gateway. The downstream side
-needs to be a tagged 802.1q trunk carrying:
+### 6.1 Cable BT8-gateway into the homelab trunk
 
-- VLAN 11 (management — for VM hosts)
-- VLAN 12 (netmgmt — for the homelab L2 switch's own mgmt address)
-- VLAN 20 (HOME — if any wired home gear)
-- VLAN 21 (LAB)
-- VLAN 50 (APP)
-- VLAN 30/31/40/41/100 (passthrough — only if any wired gear in
-  those zones)
+Cable the homelab L2 switch onto `<TRUNK>` on BT8-gateway. The
+downstream side needs to be a tagged 802.1q trunk carrying:
+
+- **VLAN 50** (APP) — terminated here; clients on this VLAN will get
+  an address from BT8-gateway's dnsmasq.
+- **VLAN 10, 30, 31, 40, 41, 100** — passthrough; frames cross the
+  bridge into `bat0.<vid>` and reach `thebeyond` over the mesh.
+- **VLAN 255** (transit) — usually mesh-only between BT8-gateway and
+  `thebeyond`, but trunking it on the wire is harmless and is
+  required as a fallback if the mesh degrades.
+
+**Do NOT trunk VLANs 11, 12, 20, 21 yet.** Their L3 still lives on
+`thebeyond` and is reached via mesh; if you trunk them through here,
+the L2 switch sees the same MAC on both the mesh-side path
+(via thebeyond) and the wired path (still going through... nothing
+on this device), which can poison the switch's MAC table. Phase 3 is
+when these VLANs join the trunk on the wire.
 
 If the homelab L2 switch is OpenWrt and you're managing it
-out-of-flake (per Reference D in the plan), update its UCI to:
+out-of-flake (per Reference D in the plan), update its UCI to trunk
+the Phase-2 VLAN set on the uplink to BT8-gateway. The L2 switch's
+own management address stays where it is today (on `network`/10 via
+`thebeyond`); `netmgmt`/12 is a Phase 3 / follow-up plan deliverable.
 
-- Bind a management IP on `netmgmt`/12 (e.g., `10.97.12.<id>`)
-- Trunk the above VLANs on the uplink port to BT8-gateway
+### 6.2 Verify from the homelab side — APP
 
-### 6.2 Verify from the homelab side
-
-From a host on `management` (e.g., a VM host that just got an IP via
-BT8-gateway's DHCP, or a static-IP NAS):
+If you have a test client to attach to APP (a laptop on a VLAN 50
+access port, or an existing host you can re-VLAN onto 50 temporarily):
 
 ```sh
-ip route                          # default via 10.97.11.1 (or .12.1, .20.1, etc.
-                                  # depending on which VLAN you're on)
-ping 10.97.11.1                   # BT8-gateway local-zone gateway
+ip route                          # default via 10.97.50.1
+ping 10.97.50.1                   # BT8-gateway local APP gateway
 ping 10.255.255.1                 # thebeyond via transit
-ping 1.1.1.1                      # internet
-ping 10.91.10.10                  # phantasma via transit → thebeyond → brMGMT
+ping 1.1.1.1                      # internet (via thebeyond NAT)
+ping 10.91.10.10                  # phantasma via transit → thebeyond
 nslookup example.com              # DNS via thebeyond's kresd
 ```
 
-All five must work. If any fails, see [Troubleshooting](#troubleshooting).
+If APP has no client to test with yet (likely — Phase 5 of the plan
+moves services into APP), skip this and verify §6.3 instead.
 
-### 6.3 Confirm cross-gateway routes on `thebeyond`
+### 6.3 Verify from the homelab side — passthrough still works
 
-`thebeyond` needs static routes for the BT8-gw side. These are
-configured in `hosts/thebeyond/router.nix` (per Phase 1 of the plan)
-and should already be live since you redeployed thebeyond before
-starting this runbook. Verify from a third host (or from
-BT8-gateway):
+This is the **regression check**: nothing the homelab depends on
+should have broken. From a host on a passthrough VLAN that previously
+worked (e.g., a NAS on `network`/10, or anything on
+`management`/11 / `trusted`/20):
 
 ```sh
-# From BT8-gateway:
-ssh root@10.255.255.1 ip route | grep 10.97
-# Expect: 10.97.0.0/16 via 10.255.255.2 dev brTRANSIT
+ip route                          # unchanged from before the window
+                                  # (still defaults via thebeyond's IP on this VLAN)
+ping <thebeyond's IP on this VLAN>  # routes via wire → BT8-gateway → mesh → thebeyond
+ping 1.1.1.1                      # internet via thebeyond NAT
+nslookup example.com              # DNS via thebeyond's kresd
 ```
 
-If that route is missing on thebeyond: the `router6.routes` config
-didn't take. Open `hosts/thebeyond/router.nix` (you can do this from
-your laptop if you have the repo cloned locally — no internet needed
-for the read), confirm the route entry exists, and redeploy
-thebeyond. **This is the only thing in this runbook that requires
-touching the NixOS config**; everything else is OpenWrt-side.
+If a passthrough VLAN that worked yesterday doesn't work now: most
+likely the bridge for that VLAN is missing on BT8-gateway, or the
+homelab L2 switch isn't trunking the VLAN to BT8-gateway, or the
+batman peer relationship between BT8-gateway and `thebeyond` has
+flapped. See [Troubleshooting](#troubleshooting).
 
-### 6.4 Verify from a HOME wifi client
+### 6.4 Confirm cross-gateway route on `thebeyond` (APP)
 
-If you brought up wifi SSIDs in §5.Q: connect a client to the HOME
-SSID:
+`thebeyond` needs a route to APP's subnet that points back at
+BT8-gateway (`10.97.50.0/24 via 10.255.255.2`). This was configured
+in `hosts/thebeyond/router.nix` as part of Phase 1.
 
-- Confirm DHCP lease arrived in `10.97.20.100`–`10.97.20.199` range
-- Browse a website
-- `ping 10.97.20.1` (BT8-gw local), `ping 1.1.1.1` (internet)
+```sh
+# From BT8-gateway (over transit):
+ssh root@10.255.255.1 ip route | grep -E '10\.97\.50|10\.97\.12'
+# Expect at minimum: 10.97.50.0/24 via 10.255.255.2 dev brTRANSIT
+# (netmgmt/12 may or may not be present in Phase 1; that's fine
+# either way for Phase 2 since no traffic uses it yet)
+```
 
-### 6.5 External security scan (deferred)
+If the APP route is missing on thebeyond, Phase 1 wasn't fully
+deployed. Open `hosts/thebeyond/router.nix` (the repo is fine to
+read offline from your laptop), confirm the route entry exists, and
+redeploy thebeyond. **This is the only thing in this runbook that
+requires touching the NixOS config**; everything else is OpenWrt-side.
 
-Per the plan checklist Phase 0b.13, run the external security scan
-runbook (Reference E in the plan) within ~24h of cutover from an
-off-network host. **This does NOT have to happen during the
-maintenance window** — schedule for a follow-up day with full
-internet/dev environment available.
+### 6.5 Verify the wifi SSIDs you brought up in §5.Q (if any)
+
+If you stood up GUEST/IOT/GAME/ADU SSIDs on this device:
+
+- Connect a client to each SSID in turn.
+- Confirm DHCP lease arrived from `thebeyond` (the L3 gateway).
+- Browse a website / `ping 1.1.1.1`.
+
+HOME wifi was deferred — keep it on the existing hardware.
+
+### 6.6 External security scan (deferred)
+
+Phase 2 doesn't change `thebeyond`'s WAN edge (still the same gateway
+as before). The Phase 0b.13 external scan covered that surface. No
+new scan is required for Phase 2 closeout.
 
 ---
 
@@ -1101,26 +1298,79 @@ follow-up.
 
 ---
 
+## Phase 3 (separate future window — not this runbook)
+
+This runbook ends with BT8-gateway in the **Phase 2 steady state**:
+APP + transit L3 here, everything else still routing through
+`thebeyond` via mesh-passthrough. Phase 3 of the [migration
+plan](../wip/dual-gateway-app-vlan-plan.md#phase-3--cutover-vlans-with-host-renumbering)
+is what completes the dual-gateway model.
+
+Phase 3 is a **per-VLAN** cutover: one VLAN at a time, in a single
+coordinated change that simultaneously (a) removes the IP from
+`thebeyond`'s side of the mesh and (b) adds it on BT8-gateway. Doing
+both in the same window avoids the duplicate-IP / ARP-collision
+window that would happen if you brought the BT8-gateway address up
+first or tore the thebeyond address down first.
+
+The four Phase 3 cutovers, roughly in the order recommended by the
+plan:
+
+1. **`netmgmt`/12** — net-new; no IP to remove on `thebeyond`. Safest
+   to do first as a dry run of the Phase 3 cutover mechanics.
+2. **`lab`/21** — semi-trusted; clients re-DHCP onto BT8-gateway and
+   pick up new leases. Brief disconnect window.
+3. **`trusted`/20 (HOME)** — same shape as `lab`. Notify household
+   first.
+4. **`management`/11** — highest-impact (VM admin plane). Save for
+   last; coordinate with any in-flight ops.
+
+Each cutover involves:
+
+- **NixOS side (thebeyond)**: drop the zone from `router.nix`,
+  redeploy. The matching `mkVlanBridge` becomes a no-op.
+- **LuCI side (BT8-gateway)**: extend §5.E with `bat0.<vid>`, §5.F
+  with `<TRUNK>.<vid>`, §5.J with the L3-terminating bridge, §5.M
+  with the fw4 zone, §5.M.1 with the new forwardings (e.g.,
+  `management → app`, `management → transit`), §5.M.2 with the
+  per-zone input rules (Allow-SSH-mgmt, Allow-LuCI-mgmt,
+  app-basel-ACME), §5.O with the DHCP pool.
+- **Homelab L2 switch side**: add the VLAN to the trunk toward
+  BT8-gateway (was withheld in §6.1 of this runbook).
+
+The full Phase 3 procedure lives in a separate runbook to be written
+when the operator is ready to schedule the first cutover. The tables
+and section structure above are designed so that "Phase 3 extends
+§5.X" reads cleanly when that runbook is drafted.
+
+---
+
 ## Appendix A — Reference data table
 
 Print this and keep it next to the laptop.
 
-### Addressing (BT8-gateway side)
+### Addressing (BT8-gateway side, end-of-Phase-2 state)
 
 | Zone        | VLAN | Interface name (LuCI) | Bridge   | Gateway IP (this dev) | IPv6 ULA gateway              | DHCP? |
 | ----------- | ---- | --------------------- | -------- | --------------------- | ----------------------------- | ----- |
-| transit     | 255  | `transit`             | `br-v255` | `10.255.255.2/30`     | `fdc6:55f2:0a5e:ffff::2/64`   | no    |
+| transit     | 255  | `transit`             | `br-v255`| `10.255.255.2/30`     | `fdc6:55f2:0a5e:ffff::2/64`   | no    |
 | app         | 50   | `app`                 | `br-v50` | `10.97.50.1/24`       | `fdc6:55f2:0a5e:1032::1/64`   | yes   |
-| management  | 11   | `management`          | `br-v11` | `10.97.11.1/24`       | `fdc6:55f2:0a5e:100b::1/64`   | no (static) |
-| netmgmt     | 12   | `netmgmt`             | `br-v12` | `10.97.12.1/24`       | `fdc6:55f2:0a5e:100c::1/64`   | no (static) |
-| trusted     | 20   | `home`                | `br-v20` | `10.97.20.1/24`       | `fdc6:55f2:0a5e:1014::1/64`   | yes   |
-| lab         | 21   | `lab`                 | `br-v21` | `10.97.21.1/24`       | `fdc6:55f2:0a5e:1015::1/64`   | yes   |
 | network     | 10   | `v10`                 | `br-v10` | (none — L2 only)      | (none — L2 only)              | no    |
 | dmz         | 100  | `v100`                | `br-v100`| (none — L2 only)      | (none — L2 only)              | no    |
 | guest       | 30   | `guest`               | `br-v30` | (none — L2 only)      | (none — L2 only)              | no    |
 | adu         | 31   | `adu`                 | `br-v31` | (none — L2 only)      | (none — L2 only)              | no    |
 | iot         | 40   | `iot`                 | `br-v40` | (none — L2 only)      | (none — L2 only)              | no    |
 | game        | 41   | `game`                | `br-v41` | (none — L2 only)      | (none — L2 only)              | no    |
+
+**Phase 3 will add to this table** (these rows do **not** exist at
+end of Phase 2; their L3 still lives on `thebeyond`):
+
+| Zone        | VLAN | Interface name (LuCI) | Bridge   | Gateway IP (this dev, Phase 3) | IPv6 ULA gateway              | DHCP? |
+| ----------- | ---- | --------------------- | -------- | ------------------------------ | ----------------------------- | ----- |
+| management  | 11   | `management`          | `br-v11` | `10.97.11.1/24`                | `fdc6:55f2:0a5e:100b::1/64`   | no (static) |
+| netmgmt     | 12   | `netmgmt`             | `br-v12` | `10.97.12.1/24`                | `fdc6:55f2:0a5e:100c::1/64`   | no (static) |
+| trusted     | 20   | `home`                | `br-v20` | `10.97.20.1/24`                | `fdc6:55f2:0a5e:1014::1/64`   | yes   |
+| lab         | 21   | `lab`                 | `br-v21` | `10.97.21.1/24`                | `fdc6:55f2:0a5e:1015::1/64`   | yes   |
 
 ### Upstream / external addresses (for DNS / NTP / static routes)
 
@@ -1133,7 +1383,7 @@ Print this and keep it next to the laptop.
 | phantasma (recursive DNS)               | `10.91.10.10` (reachable via transit)  |
 | BT8-bridge                              | `10.91.10.4` (reachable via transit)   |
 | thebeyond MGMT                          | `10.91.10.1` (reachable via transit)   |
-| basel ACME                              | `10.97.11.7` (local; explicit fw rule) |
+| basel ACME                              | `10.97.11.7` (currently via mesh → thebeyond; explicit fw rule in Phase 3) |
 
 ### Mesh parameters
 
@@ -1204,17 +1454,24 @@ Print this and keep it next to the laptop.
 - `/etc/init.d/firewall status` — should be running
 - Compare zone bindings: `uci show firewall | grep -E '(zone|forwarding)'`
 
-### Symptom: HOME wifi clients get DHCP but no internet
+### Symptom: APP clients get DHCP but no internet
 
-- On the client: `ip route` — default should be `10.97.20.1`
+(In Phase 2, APP is the only L3 zone served by BT8-gateway with DHCP,
+so this is the relevant variant of the classic "DHCP works, traffic
+doesn't" symptom. The same diagnostic pattern applies to any future
+Phase 3 zone — substitute `br-v<vid>` and the matching gateway IP.)
+
+- On the client: `ip route` — default should be `10.97.50.1`
 - On the client: `nslookup example.com` — DNS works?
-- On BT8-gateway: `tcpdump -ni br-v20 'icmp and src host <client-ip>'`
-  while client pings 1.1.1.1 — see the request leave HOME bridge
+- On BT8-gateway: `tcpdump -ni br-v50 'icmp and src host <client-ip>'`
+  while client pings 1.1.1.1 — see the request leave APP bridge
 - On BT8-gateway: `tcpdump -ni br-v255 'icmp and src host <client-ip>'`
   — see it leave on transit
 - If the request leaves but no reply: thebeyond's NAT may not be
-  matching the source. Check on thebeyond:
-  `nft list table inet filter | grep -A2 masquerade`
+  matching the source, or thebeyond is missing the `10.97.50.0/24 via
+  10.255.255.2` return route (see §6.4). Check on thebeyond:
+  `nft list table inet filter | grep -A2 masquerade` and
+  `ip route | grep 10.97.50`.
 
 ### Symptom: laptop loses LuCI access mid-config
 
@@ -1223,9 +1480,11 @@ Check, in order:
    have — `<MGMT>` was supposed to stay in `br-lan`.)
 2. Did the laptop's IP change? Renew DHCP: `dhclient -r && dhclient`
    on Linux, or unplug-replug the cable.
-3. Try `192.168.1.1` (default lan) and management VLAN IP
-   (`10.97.11.1`) — one of them should work.
-4. If neither: serial console (next section).
+3. Try `192.168.1.1` (default `lan` on `br-lan`). In Phase 2 this is
+   the only BT8-gateway LuCI surface; the management-VLAN address
+   (`10.97.11.1`) does **not** exist on this device yet — that
+   appears in Phase 3.
+4. If `192.168.1.1` is unreachable: serial console (next section).
 
 ### Recovery: serial console
 
