@@ -43,23 +43,55 @@ Tick each before powering anything off.
   is still available. Save both `factory.bin` and `sysupgrade.bin` to
   your laptop's local disk. Do not rely on being able to download
   during the window.
-- [ ] **Save a known-good rollback image**: keep the current production
-  BT8's `sysupgrade.bin` (the one it's currently running) on your
-  laptop in case you need to revert mid-window.
+- [ ] **Save the legacy BT8's `sysupgrade.bin`** (the one it's running
+  right now, in its gateway role) onto your laptop. This is your
+  emergency reflash image *if* the cable-swap-back rollback (§6.5)
+  doesn't restore service for some unforeseen reason and you need to
+  rebuild legacy from clean state. The expected rollback path is just
+  unplugging the new BT8 and plugging the legacy one back in — but
+  having the image as a backstop costs nothing.
 - [ ] **Have a USB-serial cable** ready and tested against the BT8's
   serial header (3.3V; baud rate per device docs — typically 115200
-  8N1). This is your recovery path if LuCI access is lost.
-- [ ] **Stage hardware**: BT8 device in office location, ethernet patch
-  cable from BT8's `lan2` port to your laptop, power supply.
-- [ ] **Confirm BT8-bridge is up and reachable.** From a host that can
-  still reach it: `ssh root@10.91.10.4 'batctl n'`. The BT8-gateway
-  will need an existing mesh peer to join.
-- [ ] **Confirm `thebeyond` transit IP is up**: from any host on
-  `network`/10, `ping 10.255.255.1` should succeed. (You will not be
-  able to verify this once the homelab is down; do it now.)
-- [ ] **Take photos** of the current cabling on the existing office
-  gateway so you can rebuild it identically if you abort.
-- [ ] **Tell anyone affected** that the homelab/internet is going down.
+  8N1). This is your recovery path if LuCI access on the new BT8 is
+  lost during config.
+- [ ] **Stage hardware**: the **spare BT8** in the office (the one to
+  be flashed), ethernet patch cable from its `lan2` port to your
+  laptop, power supply. The **legacy BT8 stays in place** and
+  continues to serve homelab traffic for the entire duration of
+  Phase 1–5; it is only disconnected at §6 cable swap.
+- [ ] **Confirm BT8-bridge is up and reachable.** From any host that
+  can still reach it (e.g., your laptop via legacy BT8 + mesh):
+  `ssh root@10.91.10.4 'batctl n'`. The new BT8-gateway needs
+  BT8-bridge as its mesh peer to join.
+- [ ] **Confirm `thebeyond` transit IP is up**: `ping 10.255.255.1`
+  from whichever host you currently have a reliable path to thebeyond
+  from. **Note** for this deployment specifically: thebeyond is not
+  yet reachable via a normal SSH path; the operator is currently
+  using a VLAN 30 mesh-bridge workaround (the existing non-batman
+  mesh patched into VLAN 30, which is the only VLAN safe to bridge
+  because legacy BT8 doesn't own `10.97.30.0/24`). That hack is
+  acceptable for this verification check — what matters is that
+  thebeyond's transit interface answers, not which path you use to
+  test it. The hack becomes obsolete after §6 cutover, when the
+  homelab reaches thebeyond cleanly via mesh through BT8-gateway.
+- [ ] **Confirm the plan's Phase 1 is deployed** (registry+thebeyond
+  config redeployed). The cable swap in §6 only works because
+  thebeyond is already serving L3 for all of the homelab's VLANs
+  (10.97.10/11/20/21/100 + APP/50 + transit/255) over the mesh; if
+  Phase 1 isn't deployed, the swap goes to a thebeyond that doesn't
+  know about half the homelab's address space and traffic black-holes.
+  See [plan §Phase 1](../wip/dual-gateway-app-vlan-plan.md#phase-1--add-app-and-transit-vlans-to-the-registry-and-thebeyond)
+  for the exact zone/route set; the prerequisite gate inside the plan
+  ([§Phase 2 prerequisites](../wip/dual-gateway-app-vlan-plan.md#phase-2--manual-proof-bt8-bridge-and-bt8-gateway))
+  enumerates the checks.
+- [ ] **Take photos** of the legacy BT8's current cabling so you can
+  rebuild it identically if you have to roll the §6 swap back and
+  fully revert to legacy.
+- [ ] **No general homelab announcement needed** for this runbook —
+  Phases 1–5 happen on the spare BT8 with no production impact. The
+  §6 swap is a few-seconds cable change; briefly notify anyone
+  actively using the homelab in case they see a single dropped
+  connection, but no maintenance window required.
 
 If any of the above is "no", **stop and resolve before proceeding**.
 
@@ -77,11 +109,12 @@ later window covered by its own (future) cutover runbook.
 
 ### Devices and current L3 ownership (the state this runbook assumes)
 
-| Device       | Role                                  | Where it's reachable                          |
-| ------------ | ------------------------------------- | --------------------------------------------- |
-| `thebeyond`  | Internet gateway + WAN/NAT + most L3s | `10.91.10.1` (network); `10.255.255.1` (transit) |
-| `BT8-bridge` | Wireless bridge — L2 passthrough only | `10.91.10.4` (network)                        |
-| BT8 (legacy) | Will be wiped and re-flashed in Phase 1 below | (whatever it's on today)              |
+| Device         | Role                                                            | Where it's reachable                          |
+| -------------- | --------------------------------------------------------------- | --------------------------------------------- |
+| `thebeyond`    | Internet gateway + WAN/NAT + most L3s                           | `10.91.10.1` (network); `10.255.255.1` (transit) |
+| `BT8-bridge`   | Wireless bridge — L2 passthrough only                           | `10.91.10.4` (network)                        |
+| legacy BT8     | **Still in production** as the office gateway. Stays running through §5; cable-swapped out at §6; decommissioned at §7. | whatever IP it currently serves homelab on (typically `10.97.11.1` / `10.97.20.1` / etc.) |
+| spare BT8 (new BT8-gateway) | The device being flashed by this runbook. On the operator's laptop cable during §1–§5; joins the homelab trunk at §6. | `192.168.1.1` (default LuCI on laptop cable) during config; `10.97.50.1` + `10.255.255.2` after §6 |
 
 L3 ownership by VLAN as of *right now* (verify before starting — if
 any of this is wrong, the rollout has a pre-existing inconsistency
@@ -128,25 +161,62 @@ the mesh fabric and cause ARP collisions with `thebeyond`. Phase 3
 handles those VLANs as a separate per-VLAN cutover (one transaction
 removes the IP from `thebeyond` and adds it on BT8-gateway).
 
+### Hardware staging (two-device topology during the window)
+
+This runbook is designed to introduce a **second** BT8 (the spare)
+without disrupting the **legacy BT8** that is currently the office
+gateway. The two devices coexist on the network for the entire
+duration of Phases 1–5; the cutover in §6 is purely a cable swap,
+not a flash event.
+
+Topology during §1–§5:
+
+- **Legacy BT8** stays exactly where it is, doing exactly what it
+  does today: terminating L3 for the homelab VLANs it currently
+  owns, plugged into the homelab L2 switch trunk, carrying homelab
+  traffic to the internet via its existing path. **Do not touch it.**
+- **Spare BT8** is in the office on a one-port patch cable to the
+  operator's laptop (LuCI on `192.168.1.1`). After mesh comes up
+  (§5.A–§5.D) it joins the batman fabric as a peer of `BT8-bridge`,
+  but it is **not** plugged into the homelab L2 switch yet, so no
+  homelab frames cross through it.
+- **`thebeyond`** is unchanged from its post-Phase-1 deployed state.
+
+Why this is ARP-clean while both devices coexist on overlapping
+fabrics: legacy BT8 does not speak batman-adv, so it is not a
+participant in the mesh fabric the spare joins. The two devices share
+the homelab L2 switch's broadcast domain, but **only on VLANs where
+the spare has no IP** — which in Phase 2 is every VLAN legacy BT8
+owns (10/11/20/21/100). The spare's only L3 IPs (`10.97.50.1` APP and
+`10.255.255.2` transit) live on subnets legacy BT8 doesn't touch. No
+duplicate-IP conflict possible.
+
+(The user's existing VLAN 30 mesh-bridge workaround for reaching
+thebeyond also continues to work through this window — it's
+independent of either BT8's gateway role.)
+
 ### What stays working throughout this runbook
 
 This is the reachability assurance: nothing in the existing homelab
 should break while BT8-gateway is brought up.
 
 - **Existing management/trusted/lab/DMZ/network traffic** continues
-  flowing through `thebeyond` unchanged. BT8-gateway is added to the
-  mesh as a peer but does not intercept any of these VLANs in Phase 2.
-- **Existing homelab → internet path** is untouched: clients still
-  default-route to their existing `thebeyond`-side gateway, then NAT
-  out via `thebeyond`.
+  flowing through legacy BT8 → existing wired/mesh path → thebeyond
+  → internet, exactly as it does today. The new BT8-gateway is sitting
+  on a laptop cable doing config; it has no path to homelab clients
+  until the §6 cable swap.
 - **APP traffic** has no production clients yet (Phase 5 of the plan
   moves services into APP). The L3 you stand up here is infrastructure
   for that future work.
-- **Operator laptop access**: the laptop stays on the BT8-gateway's
-  `<MGMT>` wired port in `br-lan` (default `192.168.1.0/24`)
-  throughout the runbook. That's how LuCI and SSH access work during
-  config. The `lan` fw4 zone is preserved for this reason (the
-  full-cutover variant of this runbook would delete it; we don't).
+- **Operator's existing thebeyond access** (the VLAN 30 mesh-bridge
+  workaround, if you're using it) continues to work — neither BT8 in
+  Phase 2 disturbs that path.
+- **Operator laptop access to the spare BT8**: the laptop stays on
+  the spare's `<MGMT>` wired port in `br-lan` (default
+  `192.168.1.0/24`) throughout the runbook. That's how LuCI and SSH
+  access to the spare work during config. The `lan` fw4 zone is
+  preserved for this reason (the full-cutover variant of this
+  runbook would delete it; we don't).
 
 ### Stopping points
 
@@ -167,31 +237,43 @@ should be consulted before pulling the plug.
 
 ## Window structure
 
-Approximate duration: **2–4 hours** of active work, plus testing
-buffer. (Shorter than the full-cutover variant — Phase 2 stands up
-only the APP and transit zones; the management/trusted/lab/netmgmt
-zones are deferred to Phase 3.)
+Approximate duration: **2–4 hours** of active work on the spare BT8,
+spread across as many sittings as you want (legacy BT8 is still
+running, so there is no clock pressure). Plus a few-seconds cable
+swap at §6.
+
+This runbook is **not a maintenance window** in the conventional
+sense:
+
+- Phases 1–5 happen on the spare BT8 at the operator's desk; the
+  homelab keeps using legacy BT8 unchanged. You can stop and resume
+  freely.
+- Phase 6 is a single ~5–10 second cable swap. The rollback (plug
+  legacy back in) is the same motion in reverse.
 
 The discrete phases inside this runbook (numbered locally; do not
 confuse with the plan's phase numbers):
 
 1. **Phase 1** — Build the image via Firmware Selector. Do this
    pre-window; takes ~5 minutes once you have the recipe.
-2. **Phase 2** — Flash the BT8 from stock to OpenWrt 25.12. Takes
-   ~10 minutes plus first-boot.
-3. **Phase 3** — First-boot LuCI setup (root password, SSH).
-4. **Phase 4** — Post-flash SSH verification (must pass before any UCI).
-5. **Phase 5** — LuCI step-by-step configuration. Discrete Save &
-   Apply checkpoints; restricted to the APP + transit L3 commitments.
-6. **Phase 6** — Cabling cutover (BT8-gateway joins the mesh), final
-   verification. Existing homelab cabling is **not** disturbed in
-   Phase 2; nothing migrates off `thebeyond` here.
+2. **Phase 2** — Flash the **spare** BT8 from stock to OpenWrt 25.12.
+   Takes ~10 minutes plus first-boot. Legacy BT8 untouched.
+3. **Phase 3** — First-boot LuCI setup (root password, SSH) on the
+   spare.
+4. **Phase 4** — Post-flash SSH verification (must pass before any
+   UCI on the spare).
+5. **Phase 5** — LuCI step-by-step configuration on the spare.
+   Discrete Save & Apply checkpoints; restricted to the APP + transit
+   L3 commitments.
+6. **Phase 6** — Cable swap: legacy BT8 unplugged from the homelab L2
+   switch trunk, spare (now BT8-gateway) plugged in. Verification on
+   homelab side. Rollback by reversing the swap.
 
 You can pause between any two checkpoints to think, eat, sleep, or
-abort. The checkpoints between **5.M (firewall zones complete)** and
-**5.O (DHCP enabled)** are the riskiest — if you must abort during the
-window, abort BEFORE 5.M (the BT8 can sit configured but inert) or
-AFTER 5.O (DHCP is serving on APP and you can verify clients work).
+abort. The §5.M (firewall zones) → §5.O (DHCP enabled) span is
+locally the riskiest stretch on the spare *for the spare's own
+config*, but it has **no homelab impact** either way — the worst
+outcome is "spare BT8 is misconfigured, reflash it tomorrow".
 
 After this runbook completes, BT8-gateway is in production for APP +
 transit only. **Phase 3 (per-VLAN cutover for
@@ -1148,45 +1230,89 @@ revert.
 
 ---
 
-## Phase 6 — Cabling cutover and final verification
+## Phase 6 — Cable swap (legacy BT8 → BT8-gateway)
 
-> **Phase 2 scope reminder.** BT8-gateway is now an APP + transit
-> gateway plus an L2-passthrough box for everything else. Cutover here
-> means **joining BT8-gateway to the mesh and to the homelab L2
-> switch's trunk**; it does **not** move any L3 ownership off
-> `thebeyond`. The non-APP homelab keeps routing through
-> `thebeyond` (now via mesh → BT8-gateway → wire), exactly as before.
+> **What this section is.** A few-seconds physical cable change:
+> the homelab L2 switch's trunk uplink moves from legacy BT8 to the
+> newly configured BT8-gateway. Everything BT8-gateway needs to serve
+> traffic is already configured (§5); legacy BT8 is replaced wholesale,
+> not partially. **Plan Phase 1 must already be deployed on
+> `thebeyond`** — that is what makes the swap safe (thebeyond is
+> ready to serve L3 for all the VLANs legacy BT8 was carrying, over
+> the mesh path that BT8-gateway now provides). See [the prerequisite
+> gate in the plan](../wip/dual-gateway-app-vlan-plan.md#phase-2--manual-proof-bt8-bridge-and-bt8-gateway)
+> for the full set of checks.
 
-### 6.1 Cable BT8-gateway into the homelab trunk
+### 6.1 Pre-swap verification — L2 switch trunk config matches BT8-gateway
 
-Cable the homelab L2 switch onto `<TRUNK>` on BT8-gateway. The
-downstream side needs to be a tagged 802.1q trunk carrying:
+Before unplugging anything, confirm the homelab L2 switch is
+configured to trunk the **exact VLAN set** that BT8-gateway expects
+on `<TRUNK>`. On the L2 switch, the uplink port that *will* go to
+BT8-gateway should trunk:
 
-- **VLAN 50** (APP) — terminated here; clients on this VLAN will get
-  an address from BT8-gateway's dnsmasq.
-- **VLAN 10, 30, 31, 40, 41, 100** — passthrough; frames cross the
-  bridge into `bat0.<vid>` and reach `thebeyond` over the mesh.
-- **VLAN 255** (transit) — usually mesh-only between BT8-gateway and
-  `thebeyond`, but trunking it on the wire is harmless and is
-  required as a fallback if the mesh degrades.
+- **VLAN 50** (APP) — new; BT8-gateway terminates it.
+- **VLAN 10, 30, 31, 40, 41, 100** — passthrough; BT8-gateway's
+  bridges relay these to thebeyond over the mesh.
+- **VLAN 11, 20, 21** — passthrough at the *L2 switch level*,
+  exactly as today (the switch keeps trunking them to whatever it
+  trunks them to today; in Phase 2 those frames go to thebeyond via
+  the mesh path through BT8-gateway, the same fabric Phase 3 will
+  later L3-terminate on BT8-gateway).
+- **VLAN 255** (transit) — usually mesh-only, but trunking on the
+  wire is harmless and is a useful fallback if the mesh degrades.
 
-**Do NOT trunk VLANs 11, 12, 20, 21 yet.** Their L3 still lives on
-`thebeyond` and is reached via mesh; if you trunk them through here,
-the L2 switch sees the same MAC on both the mesh-side path
-(via thebeyond) and the wired path (still going through... nothing
-on this device), which can poison the switch's MAC table. Phase 3 is
-when these VLANs join the trunk on the wire.
+You do **not** need to change which physical port on the L2 switch
+the uplink lives on — if legacy BT8 is plugged into port N today,
+BT8-gateway will be plugged into port N tomorrow with the same
+trunk config. The L2 switch's UCI/config does not need to change at
+all for the swap itself (some plan items add netmgmt/12 trunking
+later, but that's not part of this swap).
 
-If the homelab L2 switch is OpenWrt and you're managing it
-out-of-flake (per Reference D in the plan), update its UCI to trunk
-the Phase-2 VLAN set on the uplink to BT8-gateway. The L2 switch's
-own management address stays where it is today (on `network`/10 via
-`thebeyond`); `netmgmt`/12 is a Phase 3 / follow-up plan deliverable.
+**If the L2 switch isn't already trunking the full VLAN set to the
+legacy-BT8 uplink port**, fix that now (it's a no-op to do
+proactively — frames not consumed are dropped, no traffic impact)
+and verify with `bridge vlan show` or LuCI's bridge view.
 
-### 6.2 Verify from the homelab side — APP
+### 6.2 The swap
 
-If you have a test client to attach to APP (a laptop on a VLAN 50
-access port, or an existing host you can re-VLAN onto 50 temporarily):
+Have the new BT8-gateway powered up and verified at end of §5.R
+(post-config sysupgrade backup in hand). Then:
+
+1. Pull the laptop patch cable from BT8-gateway's `<MGMT>` port.
+   (Optional — you can leave it for emergency LuCI access during the
+   swap, but it's not needed for the swap itself.)
+2. **Unplug** the homelab trunk cable from legacy BT8's uplink port.
+3. **Plug** that same cable into BT8-gateway's `<TRUNK>` port.
+
+Total elapsed time on a clean swap: ~5–10 seconds. The homelab
+notices a brief link flap on whatever VLAN it was actively using and
+recovers as soon as the BT8-gateway-side bridges learn MACs (one or
+two ARP round-trips). Connections survive: the homelab → thebeyond
+path is now physically wire → BT8-gateway L2-passthrough bridge →
+mesh → thebeyond, which is a shorter (and stronger) version of the
+path legacy BT8 was providing.
+
+### 6.3 Post-swap verification — passthrough regression check
+
+This is the most important check: **nothing should be broken**. From
+a host on a passthrough VLAN that worked before the swap (a NAS on
+`network`/10, anything on `management`/11, `trusted`/20):
+
+```sh
+ip route                          # unchanged from pre-swap
+                                  # (still defaults via thebeyond's IP on this VLAN)
+ping <thebeyond's IP on this VLAN>  # routes via wire → BT8-gateway → mesh → thebeyond
+ping 1.1.1.1                      # internet via thebeyond NAT
+nslookup example.com              # DNS via thebeyond's kresd
+```
+
+All four must work. If any fails, **roll back immediately** (§6.5)
+and diagnose offline.
+
+### 6.4 Post-swap verification — APP (the new path)
+
+If you have a test client for APP (a laptop on a VLAN 50 access port,
+or any host you can temporarily re-VLAN onto 50):
 
 ```sh
 ip route                          # default via 10.97.50.1
@@ -1198,50 +1324,37 @@ nslookup example.com              # DNS via thebeyond's kresd
 ```
 
 If APP has no client to test with yet (likely — Phase 5 of the plan
-moves services into APP), skip this and verify §6.3 instead.
+moves services into APP), this verification can be deferred.
 
-### 6.3 Verify from the homelab side — passthrough still works
-
-This is the **regression check**: nothing the homelab depends on
-should have broken. From a host on a passthrough VLAN that previously
-worked (e.g., a NAS on `network`/10, or anything on
-`management`/11 / `trusted`/20):
+Also confirm the cross-gateway route is live on thebeyond:
 
 ```sh
-ip route                          # unchanged from before the window
-                                  # (still defaults via thebeyond's IP on this VLAN)
-ping <thebeyond's IP on this VLAN>  # routes via wire → BT8-gateway → mesh → thebeyond
-ping 1.1.1.1                      # internet via thebeyond NAT
-nslookup example.com              # DNS via thebeyond's kresd
+# From BT8-gateway:
+ssh root@10.255.255.1 ip route | grep 10.97.50
+# Expect: 10.97.50.0/24 via 10.255.255.2 dev brTRANSIT
 ```
 
-If a passthrough VLAN that worked yesterday doesn't work now: most
-likely the bridge for that VLAN is missing on BT8-gateway, or the
-homelab L2 switch isn't trunking the VLAN to BT8-gateway, or the
-batman peer relationship between BT8-gateway and `thebeyond` has
-flapped. See [Troubleshooting](#troubleshooting).
+If the route is missing, plan Phase 1 wasn't deployed — but at this
+point you're already cabled over, so most likely you got past the
+prerequisite-gate check at the top of this runbook and the route is
+in fact present.
 
-### 6.4 Confirm cross-gateway route on `thebeyond` (APP)
+### 6.5 Rollback (if anything fails)
 
-`thebeyond` needs a route to APP's subnet that points back at
-BT8-gateway (`10.97.50.0/24 via 10.255.255.2`). This was configured
-in `hosts/thebeyond/router.nix` as part of Phase 1.
+The swap is fully reversible in the time it takes to swap the cable
+back:
 
-```sh
-# From BT8-gateway (over transit):
-ssh root@10.255.255.1 ip route | grep -E '10\.97\.50|10\.97\.12'
-# Expect at minimum: 10.97.50.0/24 via 10.255.255.2 dev brTRANSIT
-# (netmgmt/12 may or may not be present in Phase 1; that's fine
-# either way for Phase 2 since no traffic uses it yet)
-```
+1. **Unplug** the trunk cable from BT8-gateway's `<TRUNK>` port.
+2. **Plug** it back into legacy BT8's uplink port (the original).
+3. Legacy BT8 resumes its old role with no config changes — it was
+   never modified during this runbook.
 
-If the APP route is missing on thebeyond, Phase 1 wasn't fully
-deployed. Open `hosts/thebeyond/router.nix` (the repo is fine to
-read offline from your laptop), confirm the route entry exists, and
-redeploy thebeyond. **This is the only thing in this runbook that
-requires touching the NixOS config**; everything else is OpenWrt-side.
+Total rollback time: ~5–10 seconds. After rollback, leave BT8-gateway
+powered up and on its laptop cable; diagnose what failed offline,
+fix the spare, and re-attempt the swap when ready. Nothing about this
+process is one-way until you decommission legacy BT8 in §7.4.
 
-### 6.5 Verify the wifi SSIDs you brought up in §5.Q (if any)
+### 6.6 Verify the wifi SSIDs you brought up in §5.Q (if any)
 
 If you stood up GUEST/IOT/GAME/ADU SSIDs on this device:
 
@@ -1251,7 +1364,7 @@ If you stood up GUEST/IOT/GAME/ADU SSIDs on this device:
 
 HOME wifi was deferred — keep it on the existing hardware.
 
-### 6.6 External security scan (deferred)
+### 6.7 External security scan (deferred)
 
 Phase 2 doesn't change `thebeyond`'s WAN edge (still the same gateway
 as before). The Phase 0b.13 external scan covered that surface. No
@@ -1295,6 +1408,40 @@ management-host allowlist via `inputRules` on the `management` zone.
 **Do not do this during today's window** — it requires a separate
 test cycle and a known operator workstation IP. Track for a
 follow-up.
+
+### 7.4 Decommission the legacy BT8
+
+After §6 has been stable for **at least 24 hours** (a full day of
+real homelab traffic crossing the new fabric without operator
+intervention), retire the legacy BT8. Until then, leave it powered
+off but in place — it is your fastest fallback if a latent issue
+surfaces.
+
+Three reasonable end-states for the legacy device:
+
+- **A. Wipe to factory** — `firstboot && reboot` over serial (or
+  factory-reset button) and shelve. Simplest; gives you a clean
+  spare for unrelated future projects.
+- **B. Reflash with the unified BT8 image and re-role as an office
+  mesh AP** — per [runbook C of the
+  plan](../wip/dual-gateway-app-vlan-plan.md#c-manual-setup-bt8-as-office-side-dumb-ap-mesh-resident).
+  This is the preferred path: it adds capacity/redundancy to the
+  office-side mesh that BT8-gateway depends on for transit, and the
+  mesh AP role uses the same unified image so there is no extra
+  build step. Configure it with the same `MESH_PSK` and
+  `home-mesh` mesh ID, disable dnsmasq/odhcpd/firewall, give it a
+  single mgmt IP on `network`/10. Cabling: a single wired uplink to
+  the L2 switch trunk (any management VLAN you've trunked) plus the
+  802.11s mesh radio.
+- **C. Keep as a hot spare for BT8-gateway** — leave the post-§5.R
+  sysupgrade backup of BT8-gateway on your laptop with a one-page
+  "how to reflash legacy → BT8-gateway role" pointer. Cost: one
+  device shelved doing nothing. Benefit: zero-time disaster recovery
+  if BT8-gateway dies later.
+
+Whichever you choose, **document what you did** in the operator's
+notes so a future-you (or someone else) knows the legacy device's
+current state and how to reverse it.
 
 ---
 

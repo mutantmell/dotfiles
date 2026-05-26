@@ -33,6 +33,7 @@
   # gateway: which entry in the `gateways` table determines this subnet's IP address space
   #   (10.91.x.x for thebeyond, 10.97.x.x for bt8gw). This is stable — it does not change
   #   when routing responsibility migrates between routers (e.g. Phase 3 cutover).
+  #   May be omitted only when BOTH prefix4 and prefix6 are overridden (transit zone).
   # prefix4/prefix6: override the gateway-derived prefix (used for transit and dmz freeze).
   # prefixLength4/prefixLength6: override default /24 and /64.
   rawNetworks = {
@@ -119,6 +120,37 @@
         "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia)
       };
     };
+    # Services VLAN — terminates on BT8-gateway in Phase 2. No interface on
+    # thebeyond (member-only bridge for L2 mesh passthrough). Populated as
+    # services migrate from DMZ in Phase 5.
+    app = {
+      vlanId = 50;
+      gateway = "bt8gw";
+      hosts = {};
+    };
+    # BT8-gw-side network-gear management VLAN (parallel of network/10 on
+    # thebeyond's side). Populated by a follow-up plan when wired-to-BT8-gw
+    # gear (managed switches, PDUs, BMCs) lands here.
+    netmgmt = {
+      vlanId = 12;
+      gateway = "bt8gw";
+      hosts = {};
+    };
+    # Point-to-point /30 + /64 link between thebeyond and BT8-gateway. The
+    # only zone without a gateway-table owner — its addresses sit outside
+    # both per-gateway address spaces, so both prefix4 and prefix6 are
+    # overridden directly. BT8-gateway is the only registered host (its
+    # address is the only one referenced by router6.routes nexthops); the
+    # thebeyond side is the implicit `.1` via gateway4/gateway6.
+    transit = {
+      vlanId = 255;
+      prefix4 = "10.255.255";
+      prefix6 = "${ulaPrefix}:ffff";
+      prefixLength4 = 30;
+      hosts = {
+        bt8gw = 2;
+      };
+    };
   };
 
   # --- Validation ---
@@ -200,14 +232,30 @@
         else true))
       (builtins.all (x: x))
     ];
+
+    # A zone may omit `gateway` only when both prefix4 and prefix6 are
+    # overridden directly (transit zone uses this).
+    gatewayCheck = lib.pipe rawNetworks [
+      (lib.mapAttrsToList (zone: net:
+        if !(net ? gateway) && !(net ? prefix4 && net ? prefix6)
+        then throw "network registry: zone '${zone}' must set 'gateway', or override both 'prefix4' and 'prefix6'"
+        else true))
+      (builtins.all (x: x))
+    ];
   in
-    vlanCheck && hostnameCheck && vlanRangeCheck && hostRangeCheck && dupHostIdCheck;
+    vlanCheck && hostnameCheck && vlanRangeCheck && hostRangeCheck && dupHostIdCheck && gatewayCheck;
 
   # Enhance each network with derived subnet and gateway addresses.
   # prefix4/prefix6 are derived from the gateway table unless explicitly overridden.
+  # `gw` is lazy — only evaluated when a prefix needs derivation, so a zone
+  # that overrides both prefixes can omit `gateway` entirely (gatewayCheck
+  # in validate enforces this above).
   networks = assert validate;
     lib.mapAttrs (_: net: let
-      gw = gateways.${net.gateway};
+      gw =
+        if net ? gateway
+        then gateways.${net.gateway}
+        else null;
       prefix4 = net.prefix4 or "${gw.prefix4}.${toString net.vlanId}";
       prefix6 = net.prefix6 or "${ulaPrefix}:${ulaSubnetHex gw.ulaGroup net.vlanId}";
       prefixLength4 = net.prefixLength4 or 24;
