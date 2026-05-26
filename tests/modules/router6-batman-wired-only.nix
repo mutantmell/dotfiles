@@ -47,9 +47,9 @@ pkgs.testers.nixosTest {
         };
 
         topology = {
-          # WAN interface — static for test simplicity
-          wan = {
-            hardwareName = "eth0";
+          # WAN interface — kernel name as topology key (hardwareName rename is broken)
+          eth0 = {
+            kind = "physical";
             network = {
               type = "static";
               addresses = ["203.0.113.1/24"];
@@ -59,8 +59,8 @@ pkgs.testers.nixosTest {
           };
 
           # Batman hard interface — MTU 1536 for batman-adv overhead headroom
-          lanBat = {
-            hardwareName = "eth1";
+          eth1 = {
+            kind = "physical";
             network = {
               type = "disabled";
               mtu = 1536;
@@ -70,7 +70,7 @@ pkgs.testers.nixosTest {
           # Batman-adv device — single wired hard interface, no bond
           bat0 = {
             kind = "batman";
-            members = ["lanBat"];
+            members = ["eth1"];
             batman = {
               gatewayMode = "off";
               routingAlgorithm = "batman-v";
@@ -117,10 +117,11 @@ pkgs.testers.nixosTest {
     # 2. bat0 batadv interface exists
     router.succeed("ip link show bat0")
 
-    # 3. lanBat (eth1) is a member of bat0 mesh
-    router.succeed("cat /sys/class/net/eth1/batman_adv/mesh_iface | grep bat0")
+    # 3. eth1 is enslaved to bat0 mesh (legacy /sys/class/net/<iface>/batman_adv/
+    #    was removed from upstream kernel; ip link's "master bat0" is canonical)
+    router.succeed("ip link show eth1 | grep 'master bat0'")
 
-    # 4. eth1 (lanBat) has MTU 1536
+    # 4. eth1 (batman hard interface) has MTU 1536
     router.succeed("ip link show eth1 | grep ' mtu 1536 '")
 
     # 5. VLAN sub-interface on bat0 exists
@@ -133,7 +134,8 @@ pkgs.testers.nixosTest {
     router.wait_until_succeeds("ip addr show brLAN | grep '10.0.10.1/24'", timeout=30)
 
     # 8. Bridge has auto-generated ULA IPv6 from subnetId 10 = 0xa
-    router.wait_until_succeeds("ip addr show brLAN | grep 'fdc6:55f2:0a5e:a::1'", timeout=30)
+    #    (kernel/iproute2 display RFC 5952 canonical form: 0a5e → a5e)
+    router.wait_until_succeeds("ip addr show brLAN | grep 'fdc6:55f2:a5e:a::1'", timeout=30)
 
     # 9. vlan10 is attached to brLAN bridge
     router.wait_until_succeeds("bridge link | grep vlan10", timeout=30)

@@ -16,9 +16,9 @@ Cannot merge until steps 4, 5, 6, and the existing test suite all pass.
   - [ ] Use ≥ **25.12.3** for Firmware Selector build — 25.12.1 introduced a MediaTek 2.4 GHz latency regression hot-fixed in 25.12.2; 25.12.3 adds further `mediatek/filogic` fixes
   - [ ] Watch batman-adv throughput during `0b.8` mesh-quality check — MT7981/MT7986 had a slow-TX bug on batman-adv mesh in 24.10.x (`openwrt/openwrt#18703`); MT7988A is same Filogic family, behavior on 25.12 unverified
   - [ ] Flake pin advance deferred to **Phase 4.1** — `openwrt-hashes.json` only carries hashes for targets that have a device in `openwrt.nix`, and BT8 lands there in 4.1. At that point: bump `defaultRelease` → 25.12 and `nix run .#openwrt-build -- <bt8-device> --update-pins`
-- [ ] **0a.2** Pre-flight: enable PD client on `thebeyond`'s WAN
-  - [ ] Add `ipv6PrefixDelegation = { enable = true; prefixLength = 60; }` to WAN block
-  - [ ] Switch WAN block from `mac` to `hardwareName` matching
+- [x] **0a.2** Pre-flight: enable PD client on `thebeyond`'s WAN
+  - [x] Add `ipv6PrefixDelegation = { enable = true; prefixLength = 60; }` to WAN block
+  - [-] Switch WAN block from `mac` to `hardwareName` matching (skipped — `hardwareName` rename is broken, see Outstanding open items; topology uses kernel name `enp4s0` directly)
 - [x] **0a.3** Drop `bond0`, switch to `hardwareName`, registry refactor + phantasma move
   - [x] (a) Switch all physical interfaces (`wan`, `lan`, `opt1`) from `mac` to `hardwareName`
   - [x] (b) Remove `bond0` block, drop `lan` + `opt1` blocks
@@ -57,31 +57,31 @@ Cannot merge until steps 4, 5, 6, and the existing test suite all pass.
 
 Phase 0b not declared done until step 13 scan passes.
 
-- [ ] **0b.7** Stage `nixos-anywhere` from Phase 0a build (no other router config changes yet)
-- [ ] **0b.8** Physically move `thebeyond` to modem closet; connect WAN
-  - [ ] Relocate BT8-bridge alongside `thebeyond` if not already co-located
-  - [ ] Verify mesh quality (RSSI, batman throughput counters) from new location
-  - [ ] `iperf3` BT8-bridge ↔ BT8-mesh-AP, both directions, record number — canary for `openwrt/openwrt#18703` (slow-TX batman-adv on Filogic). Under ~100 Mbps on 5 GHz mesh = hold cutover.
-  - [ ] Carry a 24.10.5 BT8 sysupgrade image (built via Firmware Selector with same F.1 recipe) in operator secret store as in-window fallback if 25.12 batman performance is broken.
-- [ ] **0b.9** Reconfigure current production BT8 → BT8-bridge role
-  - [ ] Remove WAN interface
-  - [ ] Convert to dumb AP / wireless-bridge per Runbook A
-  - [ ] Disable firewall, NAT, DHCP server
-  - [ ] Keep 802.11s mesh + AP radios
-  - [ ] Set single management IP on `network`/VLAN 10
-- [ ] **0b.10** Cutover: bring up `thebeyond`'s WAN; verify NAT, DHCP, DNS, internet
-- [ ] **0b.11** Sanity-check IPv6 delegation size
-  - [ ] Run `networkctl status wan` and `cat /var/lib/systemd/network/dhcp6-prefix-delegation/wan`
-  - [ ] If unexpectedly larger than `/64`: file follow-up to switch to GUA-enabled posture
-- [ ] **0b.12** Rename device in operator notes/labels: BT8-bridge
-- [ ] **0b.13** External security scan (Runbook E) from off-network host
-  - [ ] TCP scan (`-sS -p-`)
-  - [ ] UDP scan (top 1000 + WG ports)
-  - [ ] ICMP test (expect 100% loss)
-  - [ ] Wireguard handshake sanity check
-  - [ ] Internal listening-socket spot-check
-  - [ ] Rendered ruleset review (`nft list ruleset`)
-  - [ ] Save scan artifacts (date + deploy SHA)
+- [x] **0b.7** Stage `nixos-anywhere` from Phase 0a build (no other router config changes yet)
+- [x] **0b.8** Physically move `thebeyond` to modem closet; connect WAN
+  - [x] Relocate BT8-bridge alongside `thebeyond` if not already co-located
+  - [x] Verify mesh quality (RSSI, batman throughput counters) from new location
+  - [x] `iperf3` BT8-bridge ↔ BT8-mesh-AP, both directions, record number — canary for `openwrt/openwrt#18703` (slow-TX batman-adv on Filogic). Under ~100 Mbps on 5 GHz mesh = hold cutover.
+  - [x] Carry a 24.10.5 BT8 sysupgrade image (built via Firmware Selector with same F.1 recipe) in operator secret store as in-window fallback if 25.12 batman performance is broken.
+- [x] **0b.9** Reconfigure current production BT8 → BT8-bridge role
+  - [x] Remove WAN interface
+  - [x] Convert to dumb AP / wireless-bridge per Runbook A
+  - [x] Disable firewall, NAT, DHCP server
+  - [x] Keep 802.11s mesh + AP radios
+  - [x] Set single management IP on `network`/VLAN 10
+- [x] **0b.10** Cutover: bring up `thebeyond`'s WAN; verify NAT, DHCP, DNS, internet
+- [x] **0b.11** Sanity-check IPv6 delegation size
+  - [x] Run `networkctl status wan` and `cat /var/lib/systemd/network/dhcp6-prefix-delegation/wan`
+  - [-] If unexpectedly larger than `/64`: file follow-up to switch to GUA-enabled posture (ISP delegated `/64` as expected — noted in WAN block comment)
+- [x] **0b.12** Rename device in operator notes/labels: BT8-bridge
+- [x] **0b.13** External security scan (Runbook E) from off-network host
+  - [x] TCP scan (`-sS -p-`)
+  - [x] UDP scan (top 1000 + WG ports)
+  - [x] ICMP test (expect 100% loss)
+  - [x] Wireguard handshake sanity check
+  - [x] Internal listening-socket spot-check
+  - [x] Rendered ruleset review (`nft list ruleset`)
+  - [x] Save scan artifacts (date + deploy SHA)
 
 ## Phase 1 — Add APP and transit VLANs to registry and `thebeyond`
 

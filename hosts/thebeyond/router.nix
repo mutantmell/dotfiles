@@ -113,7 +113,55 @@
     };
   };
 
-  vlanDefs = lib.mapAttrsToList mkVlanBridge subnetBindings;
+  # L2-only batman passthrough: bridge carries the VLAN across the mesh but
+  # holds no IP, no zone, no DHCP on thebeyond. The actual L3 gateway lives
+  # elsewhere (APP/50 terminates on BT8-gateway, not thebeyond).
+  mkMemberOnlyBridge = subnetName: {bridgeName}: let
+    subnet = net.networks.${subnetName};
+  in {
+    bat0Vlans."v${bridgeName}.bat0" = {
+      tag = subnet.vlanId;
+      network.type = "disabled";
+    };
+    bridges."br${bridgeName}" = {
+      kind = "bridge";
+      members = ["v${bridgeName}.bat0"];
+      network.type = "disabled";
+    };
+  };
+
+  # Transit: point-to-point /30 + /64 link between thebeyond and BT8-gateway.
+  # Static on both sides (no DHCP) — BT8-gateway's `.2` address is fixed via
+  # runbook B. IPv6 is set explicitly (not via DHCP6 auto-derivation) so the
+  # bridge has both AFs without running RA/DHCPv6 on a point-to-point link.
+  transitBridge = let
+    subnet = net.networks.transit;
+  in {
+    bat0Vlans."vTRANSIT.bat0" = {
+      tag = subnet.vlanId;
+      network.type = "disabled";
+    };
+    bridges.brTRANSIT = {
+      kind = "bridge";
+      members = ["vTRANSIT.bat0"];
+      network = {
+        type = "static";
+        addresses = [
+          "${subnet.gateway4}/${toString subnet.prefixLength4}"
+          "${subnet.gateway6}/${toString subnet.prefixLength6}"
+        ];
+        zone = "transit";
+        subnetId = subnet.vlanId;
+      };
+    };
+  };
+
+  vlanDefs =
+    (lib.mapAttrsToList mkVlanBridge subnetBindings)
+    ++ [
+      (mkMemberOnlyBridge "app" {bridgeName = "APP";})
+      transitBridge
+    ];
 
   allBat0Vlans = lib.foldl' (a: b: a // b.bat0Vlans) {} vlanDefs;
   allBridges = lib.foldl' (a: b: a // b.bridges) {} vlanDefs;
@@ -386,6 +434,92 @@ in {
             comment = "DNS";
           }
         ];
+      };
+
+      # APP services VLAN. Defined here so cross-zone references can name it,
+      # but no interface on thebeyond binds to this zone — APP terminates on
+      # BT8-gateway. Zone gets activated when services migrate in Phase 5.
+      app = {
+        icmpEcho = "disable";
+        accessTo = [];
+        inputRules = [];
+      };
+
+      # Transit (point-to-point /30 + /64 to BT8-gateway). Entry point for
+      # ALL office-side traffic destined for thebeyond-resident zones (DMZ,
+      # external/NAT, ba-tunnel). Source-zone attribution is lost across the
+      # gateway split: BT8-gateway's fw4 is the source-zone enforcer; transit
+      # gates by destination + source subnet/host only.
+      transit = {
+        icmpEcho = "enable";
+        accessTo = ["external" "ba-tunnel"];
+        # DNS inputRules double as the kresd-on-transit binding signal —
+        # `dnsInterfaces` in router6/lib.nix auto-binds kresd to any interface
+        # in a zone whose inputRules allow DNS. No separate listen config.
+        inputRules = [
+          {
+            udp.dport = 53;
+            limit = "100/second";
+            verdict = "accept";
+            comment = "DNS";
+          }
+          {
+            tcp.dport = 53;
+            limit = "100/second";
+            verdict = "accept";
+            comment = "DNS over TCP";
+          }
+          {
+            udp.dport = 123;
+            verdict = "accept";
+            comment = "NTP";
+          }
+        ];
+
+        # Mirrors of cross-zone DMZ flows that used to be enforced inside
+        # thebeyond before office-side gateways move to BT8-gateway. Source
+        # restrictions defend against a compromised BT8-gateway impersonating
+        # other zones (source-zone attribution is lost across the gateway
+        # split — subnet/host IP is the strongest constraint available).
+        forwardRules.dmz =
+          # lab → dmz (broad) — mirrors current `lab.accessTo = [..."dmz"...]`
+          (ds {
+            saddr = {
+              ipv4 = net.networks.lab.subnet4;
+              ipv6 = net.networks.lab.subnet6;
+            };
+            verdict = "accept";
+            comment = "lab -> dmz (any) [via BT8-gateway]";
+          })
+          # management → dmz:9100 (tharbad Prometheus node_exporter scrape)
+          ++ (ds {
+            saddr = tharbad;
+            tcp.dport = 9100;
+            verdict = "accept";
+            comment = "tharbad -> dmz (node_exporter) [via BT8-gateway]";
+          });
+
+        # trusted → iot — Home Assistant prep. Scoped broadly to the trusted
+        # subnet today; tighten to HA host IP + 8123 once HA is registered.
+        forwardRules.iot = ds {
+          saddr = {
+            ipv4 = net.networks.trusted.subnet4;
+            ipv6 = net.networks.trusted.subnet6;
+          };
+          verdict = "accept";
+          comment = "trusted -> iot (Home Assistant access) [via BT8-gateway]";
+        };
+
+        # trusted → untrusted — mirrors current `trusted.accessTo` which
+        # already permits trusted → untrusted. Path is now via transit.
+        forwardRules.untrusted = ds {
+          saddr = {
+            ipv4 = net.networks.trusted.subnet4;
+            ipv6 = net.networks.trusted.subnet6;
+          };
+          verdict = "accept";
+          comment = "trusted -> untrusted (any) [via BT8-gateway]";
+        };
       };
     };
 
