@@ -64,40 +64,38 @@ in {
   # Egress filtering — default-drop with explicit allowlist
   networking.nftables.enable = true;
   networking.nftables.tables.egress = pkgs.mmell.lib.nftables.mkEgressFilter (
-    net.mkEgressRules zone (
-      [
-        {
-          gateway = true;
-          proto = "udp";
-          port = 53;
-        }
-        {
-          gateway = true;
-          proto = "tcp";
-          port = 53;
-        }
-        {
-          gateway = true;
-          proto = "udp";
-          port = 123;
-          comment = "NTP";
-        }
-        # ACME certs from basel (for Perses TLS)
-        {
-          host = "basel";
-          proto = "tcp";
-          port = 443;
-          comment = "ACME certs from basel";
-        }
-        # Perses OIDC token exchange with Keycloak
-        {
-          host = "messeldam";
-          proto = "tcp";
-          port = 443;
-          comment = "Keycloak OIDC";
-        }
-      ]
-    )
+    net.mkEgressRules zone [
+      {
+        gateway = true;
+        proto = "udp";
+        port = 53;
+      }
+      {
+        gateway = true;
+        proto = "tcp";
+        port = 53;
+      }
+      {
+        gateway = true;
+        proto = "udp";
+        port = 123;
+        comment = "NTP";
+      }
+      # ACME certs from basel (for Perses TLS)
+      {
+        host = "basel";
+        proto = "tcp";
+        port = 443;
+        comment = "ACME certs from basel";
+      }
+      # Perses OIDC token exchange with Keycloak
+      {
+        host = "messeldam";
+        proto = "tcp";
+        port = 443;
+        comment = "Keycloak OIDC";
+      }
+    ]
   );
 
   environment.persistence."/persist" = {

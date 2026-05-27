@@ -137,7 +137,7 @@ Risks:
 - `DynamicUser = true` plus `StateDirectory = "blocky"` means state lives at
   `/var/lib/blocky` (not `/var/lib/private/AdGuardHome`). Need to add this path to
   phantasma's `environment.persistence."/persist".directories` — otherwise it's
-  recreated empty on every boot. Empty state is *fine* for Blocky (denylists
+  recreated empty on every boot. Empty state is _fine_ for Blocky (denylists
   re-downloaded on start) but log history is lost across reboots.
 
 Rollback:
@@ -165,7 +165,7 @@ Rollback:
 - **Fix kresd's broken trust-anchor state so DNSSEC can be turned back on at
   the router.** Observed 2026-05-13: thebeyond's kresd logs
   `[timesk] cannot resolve '.' NS` and `[taupd] active refresh failed for
-  . with rcode: 2` shortly after start. From then on, every forwarded query
+. with rcode: 2` shortly after start. From then on, every forwarded query
   takes ~3s and returns SERVFAIL (the validator can't validate against an
   empty/missing root trust anchor). `systemctl restart kresd@1` does NOT
   fix it — the trust-anchor state is persistent (not a boot-time race
@@ -231,7 +231,6 @@ Rollback:
   multi-user.target, blowing the microvm framework's host-side default
   `TimeoutSec=150`. The host then kills the VM mid-boot and the restart
   loop never converges. Two band-aids landed in this migration:
-
   1. `hosts/thebeyond/microvm/default.nix` overrides
      `systemd.services."microvm@phantasma".serviceConfig.TimeoutSec = 600`
      to give the guest 10 min instead of 2:30.
@@ -275,7 +274,7 @@ Rollback:
   `hosts/thebeyond/microvm/default.nix` and the hvc0 workaround can stay
   (it's free) or be replaced with whatever the proper console fix is.
 
-  Generalization: the hvc0 getty trap applies to *any* future cloud-
+  Generalization: the hvc0 getty trap applies to _any_ future cloud-
   hypervisor microvm guest, not just phantasma. If we add more guests
   using this hypervisor, either replicate the disable or push the fix
   into `mk-microvm` so it's automatic.
