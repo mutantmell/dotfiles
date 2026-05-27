@@ -129,6 +129,10 @@ pkgs.testers.nixosTest {
           };
         };
       };
+
+      # Test exercises WAN DHCP + LAN DHCP — no DNS or DHCPv6 probes.
+      services.kresd.enable = lib.mkForce false;
+      services.kea.dhcp6.enable = lib.mkForce false;
     };
 
     # LAN client: gets DHCP from router

@@ -19,6 +19,7 @@ pkgs.testers.nixosTest {
     router = {
       config,
       pkgs,
+      lib,
       ...
     }: {
       imports = [
@@ -106,6 +107,9 @@ pkgs.testers.nixosTest {
           };
         };
       };
+
+      # Test exercises batman/bridge topology only — no DNS probes.
+      services.kresd.enable = lib.mkForce false;
     };
   };
 

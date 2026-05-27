@@ -94,6 +94,10 @@ pkgs.testers.nixosTest {
           extraForwardRules = [];
         };
       };
+
+      # Test exercises firewall stealth + kresd (:53 checks) — no DHCP probes.
+      services.kea.dhcp4.enable = lib.mkForce false;
+      services.kea.dhcp6.enable = lib.mkForce false;
     };
 
     # Attacker node on the external/WAN network

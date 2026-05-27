@@ -236,6 +236,10 @@ pkgs.testers.nixosTest {
           };
         };
       };
+
+      # Test exercises DHCPv6-PD + LAN DHCPv6 — no DNS or DHCPv4 probes.
+      services.kresd.enable = lib.mkForce false;
+      services.kea.dhcp4.enable = lib.mkForce false;
     };
 
     # Client on LAN1: accepts RAs, uses DHCPv6
