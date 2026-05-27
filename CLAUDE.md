@@ -131,6 +131,9 @@ Topology defines devices (physical, bond, bridge, batman, wireguard) with VLANs,
 - For forward-chain connectivity tests, use `ping` — avoids background listener process issues.
 - Background processes in VM tests: `succeed("cmd &")` hangs; redirect output with `>/dev/null 2>&1 &`.
 - Use `nc -z` for input-chain tests against running services.
+- All VM test machines should import `tests/lib/test-minimal-base.nix`
+  to keep closure size down. The profile disables docs, locales beyond
+  C/en_US, and nix-env tooling — none of which test machines need.
 
 ## Secrets
 

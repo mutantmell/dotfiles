@@ -32,7 +32,10 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
-      imports = [../../modules/router6];
+      imports = [
+        ../../modules/router6
+        ../lib/test-minimal-base.nix
+      ];
 
       # Virtual network setup
       # - eth1 (vlan1) = WAN/external network (attacker connected here)
@@ -100,6 +103,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [1];
 
       networking = {
@@ -134,6 +138,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [2];
 
       networking = {

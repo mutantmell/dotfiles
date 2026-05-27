@@ -24,6 +24,7 @@ pkgs.testers.nixosTest {
       pkgs,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [1];
 
       networking = {
@@ -96,6 +97,7 @@ pkgs.testers.nixosTest {
       pkgs,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [1];
       networking = {
         useDHCP = false;

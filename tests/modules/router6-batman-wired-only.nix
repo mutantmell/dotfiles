@@ -21,7 +21,10 @@ pkgs.testers.nixosTest {
       pkgs,
       ...
     }: {
-      imports = [../../modules/router6];
+      imports = [
+        ../../modules/router6
+        ../lib/test-minimal-base.nix
+      ];
 
       # batman-adv is in-tree; load it explicitly for the test VM
       boot.kernelModules = ["batman_adv"];

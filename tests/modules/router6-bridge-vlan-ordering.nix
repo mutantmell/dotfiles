@@ -23,7 +23,10 @@ pkgs.testers.nixosTest {
       pkgs,
       ...
     }: {
-      imports = [../../modules/router6];
+      imports = [
+        ../../modules/router6
+        ../lib/test-minimal-base.nix
+      ];
 
       virtualisation.vlans = [1 2 3];
 
@@ -133,6 +136,7 @@ pkgs.testers.nixosTest {
     # Shares L2 segment with router's eth3 (bridge member of br1).
     # Tagged 802.1Q frames pass through the vde switch transparently.
     client = {lib, ...}: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [3];
       networking.useDHCP = false;
       networking.interfaces.eth1.useDHCP = false;

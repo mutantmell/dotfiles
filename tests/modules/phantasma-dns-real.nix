@@ -28,6 +28,7 @@ pkgs.testers.nixosTest {
     }: {
       imports = [
         ../../hosts/thebeyond/microvm/guests/phantasma/modules/dns.nix
+        ../lib/test-minimal-base.nix
       ];
 
       virtualisation.vlans = [1];
@@ -54,6 +55,7 @@ pkgs.testers.nixosTest {
       pkgs,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [1];
       networking = {
         useDHCP = false;

@@ -43,7 +43,10 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
-      imports = [../../modules/router6];
+      imports = [
+        ../../modules/router6
+        ../lib/test-minimal-base.nix
+      ];
 
       # Virtual network setup:
       # eth1 (vlan1) = WAN/external (203.0.113.0/24)
@@ -202,6 +205,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [2];
       networking = {
         useDHCP = false;
@@ -235,6 +239,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [3];
       networking = {
         useDHCP = false;
@@ -268,6 +273,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [4];
       networking = {
         useDHCP = false;
@@ -289,6 +295,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [5];
       networking = {
         useDHCP = false;
@@ -322,6 +329,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [6];
       networking = {
         useDHCP = false;
@@ -343,6 +351,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [1];
       networking = {
         useDHCP = false;

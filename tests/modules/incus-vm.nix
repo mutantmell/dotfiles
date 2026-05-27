@@ -26,8 +26,6 @@
   }: {
     networking.hostName = "testvm";
     system.stateVersion = "25.11";
-    # Minimize closure size
-    documentation.enable = false;
   };
 
   # Build a VM system with disko-virtual-machine module
@@ -50,7 +48,10 @@ in
       lib,
       ...
     }: {
-      imports = [../../modules/incus];
+      imports = [
+        ../../modules/incus
+        ../lib/test-minimal-base.nix
+      ];
 
       incus-manager = {
         enable = true;

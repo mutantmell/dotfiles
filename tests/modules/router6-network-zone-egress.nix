@@ -37,7 +37,10 @@ in
         lib,
         ...
       }: {
-        imports = [../../modules/router6];
+        imports = [
+          ../../modules/router6
+          ../lib/test-minimal-base.nix
+        ];
 
         # eth1 (vlan1) = WAN/external (203.0.113.0/24)
         # eth2 (vlan2) = network      (10.0.50.0/24, fdc6:55f2:0a5e:32::/64)

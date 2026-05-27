@@ -33,6 +33,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [1 2];
 
       networking.useDHCP = false;
@@ -77,7 +78,10 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
-      imports = [../../modules/router6];
+      imports = [
+        ../../modules/router6
+        ../lib/test-minimal-base.nix
+      ];
 
       # eth1 = WAN (VLAN 1), eth2 = LAN (VLAN 3)
       virtualisation.vlans = [1 3];
@@ -134,6 +138,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [3];
       networking.useDHCP = false;
       networking.interfaces.eth1.useDHCP = true;

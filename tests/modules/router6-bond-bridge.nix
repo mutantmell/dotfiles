@@ -25,7 +25,10 @@ pkgs.testers.nixosTest {
       pkgs,
       ...
     }: {
-      imports = [../../modules/router6];
+      imports = [
+        ../../modules/router6
+        ../lib/test-minimal-base.nix
+      ];
 
       # Virtual network setup - eth0 is WAN, eth1/eth2 for bonding, VLAN 10 for bridge
       virtualisation.vlans = [1 2 10];
@@ -132,7 +135,8 @@ pkgs.testers.nixosTest {
       };
     };
 
-    client = _: {
+    client = {...}: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [10];
       networking = {
         useDHCP = false;
