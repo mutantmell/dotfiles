@@ -23,7 +23,10 @@ pkgs.testers.nixosTest {
       pkgs,
       ...
     }: {
-      imports = [../../modules/router6];
+      imports = [
+        ../../modules/router6
+        ../lib/test-minimal-base.nix
+      ];
 
       # eth0 = WAN (VLAN 1), eth1 = LAN (VLAN 2)
       virtualisation.vlans = [1 2];

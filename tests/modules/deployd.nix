@@ -30,7 +30,10 @@ in
       lib,
       ...
     }: {
-      imports = [../../modules/deployd];
+      imports = [
+        ../../modules/deployd
+        ../lib/test-minimal-base.nix
+      ];
 
       # Enable systemd-networkd (required for bridge)
       networking.useNetworkd = true;

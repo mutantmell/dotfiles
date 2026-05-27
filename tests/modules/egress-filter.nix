@@ -22,6 +22,7 @@ in
         lib,
         ...
       }: {
+        imports = [../lib/test-minimal-base.nix];
         virtualisation.vlans = [1];
         networking = {
           useDHCP = false;
@@ -49,6 +50,7 @@ in
         lib,
         ...
       }: {
+        imports = [../lib/test-minimal-base.nix];
         virtualisation.vlans = [1];
         networking = {
           useDHCP = false;
@@ -77,6 +79,7 @@ in
         lib,
         ...
       }: {
+        imports = [../lib/test-minimal-base.nix];
         virtualisation.vlans = [1];
         networking = {
           useDHCP = false;

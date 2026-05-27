@@ -40,7 +40,10 @@ in
       lib,
       ...
     }: {
-      imports = [../../modules/incus];
+      imports = [
+        ../../modules/incus
+        ../lib/test-minimal-base.nix
+      ];
 
       incus-manager = {
         enable = true;

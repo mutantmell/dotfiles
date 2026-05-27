@@ -22,7 +22,10 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
-      imports = [../../modules/router6];
+      imports = [
+        ../../modules/router6
+        ../lib/test-minimal-base.nix
+      ];
 
       # Virtual network setup - eth1 is WAN, eth2 is LAN
       virtualisation.vlans = [1 2];
@@ -94,6 +97,7 @@ pkgs.testers.nixosTest {
       lib,
       ...
     }: {
+      imports = [../lib/test-minimal-base.nix];
       virtualisation.vlans = [2];
 
       # Use traditional networking with VLAN

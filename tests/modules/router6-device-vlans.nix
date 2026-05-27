@@ -23,7 +23,10 @@ pkgs.testers.nixosTest {
       pkgs,
       ...
     }: {
-      imports = [../../modules/router6];
+      imports = [
+        ../../modules/router6
+        ../lib/test-minimal-base.nix
+      ];
 
       # Virtual network setup
       virtualisation.vlans = [1 2 3 4];
