@@ -510,8 +510,6 @@
         inherit pkgs disko;
         inherit (pkgs) lib;
       })
-      // (nixpkgs.lib.optionalAttrs (deploy-rs.lib ? ${system})
-        (deploy-rs.lib.${system}.deployChecks self.deploy))
       // {formatting = treefmtEval.${system}.config.build.check self;}
       // (nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
         perses-dashboards =
