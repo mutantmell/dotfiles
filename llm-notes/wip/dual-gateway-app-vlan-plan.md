@@ -178,11 +178,11 @@ toward `BT8-bridge` and out to `thebeyond` is shorter than one toward
 
 Worked examples:
 
-| Device                      | Physical attachment            | Mgmt VLAN      | Mesh hops to its gateway              |
-| --------------------------- | ------------------------------ | -------------- | ------------------------------------- |
-| `BT8-bridge`                | wired to `thebeyond`           | `network` / 10 | 0                                     |
-| Office BT8 dumb APs         | 802.11s mesh (office side)     | `network` / 10 | 1 (via mesh → BT8-bridge → thebeyond) |
-| Future wired-to-BT8-gw gear | wired to `BT8-gateway`         | `netmgmt` / 12 | 0                                     |
+| Device                      | Physical attachment            | Mgmt VLAN       | Mesh hops to its gateway              |
+| --------------------------- | ------------------------------ | --------------- | ------------------------------------- |
+| `BT8-bridge`                | wired to `thebeyond`           | `network` / 10  | 0                                     |
+| Office BT8 dumb APs         | 802.11s mesh (office side)     | `network` / 10  | 1 (via mesh → BT8-bridge → thebeyond) |
+| Future wired-to-BT8-gw gear | wired to `BT8-gateway`         | `netmgmt` / 12  | 0                                     |
 | `BT8-gateway` (admin SSH)   | wired to office mesh + transit | `transit` / 255 | 0 (transit IP)                        |
 
 Counterexamples that would violate the invariant:
@@ -1261,6 +1261,7 @@ Steps:
 
      `prefix6 = "${ulaPrefix}:ffff"`, `prefixLength4 = 30`, hosts =
      `{ thebeyond = 1; bt8gw = 2; }`.
+
 2. Add corresponding `mkVlanBridge` entries in `hosts/thebeyond/router.nix`
    for both VLANs. APP is added as a member-only bridge with no IP on
    `thebeyond`; BT8-gateway becomes APP's gateway in Phase 2. Transit gets
@@ -1312,7 +1313,7 @@ broken default route mid-window with the homelab torn down.
   `brTRANSIT`.
 - From any host on `network`/10: `ping 10.255.255.1` succeeds in both
   directions. (Runbook B re-enforces this as its own pre-flight check at
-  the top of the hardware-cutover window, but verifying it *before* the
+  the top of the hardware-cutover window, but verifying it _before_ the
   window opens catches a missing-config gap while the homelab is still
   intact and recoverable without rollback.)
 

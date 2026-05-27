@@ -499,19 +499,11 @@ in {
             comment = "tharbad -> dmz (node_exporter) [via BT8-gateway]";
           });
 
-        # trusted → iot — Home Assistant prep. Scoped broadly to the trusted
-        # subnet today; tighten to HA host IP + 8123 once HA is registered.
-        forwardRules.iot = ds {
-          saddr = {
-            ipv4 = net.networks.trusted.subnet4;
-            ipv6 = net.networks.trusted.subnet6;
-          };
-          verdict = "accept";
-          comment = "trusted -> iot (Home Assistant access) [via BT8-gateway]";
-        };
-
-        # trusted → untrusted — mirrors current `trusted.accessTo` which
-        # already permits trusted → untrusted. Path is now via transit.
+        # trusted → untrusted (covers iot/adu/game which all bind into the
+        # `untrusted` zone on thebeyond via subnetBindings). When Home
+        # Assistant lands and a tighter iot-specific rule is wanted, split
+        # the iot VLAN into its own router6 zone first; until then the broad
+        # trusted → untrusted accept covers the HA access case too.
         forwardRules.untrusted = ds {
           saddr = {
             ipv4 = net.networks.trusted.subnet4;
