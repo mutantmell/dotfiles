@@ -28,7 +28,7 @@ pkgs.testers.nixosTest {
         ../lib/test-minimal-base.nix
       ];
 
-      # eth0 = WAN (VLAN 1), eth1 = LAN (VLAN 2)
+      # eth1 = WAN (VLAN 1), eth2 = LAN (VLAN 2)
       virtualisation.vlans = [1 2];
 
       router6 = {
@@ -56,8 +56,8 @@ pkgs.testers.nixosTest {
 
         topology = {
           # WAN: no DNS inputRule in external zone — kresd must not listen here
-          wan = {
-            hardwareName = "eth0";
+          eth1 = {
+            hardwareName = "eth1";
             network = {
               type = "static";
               addresses = ["203.0.113.1/24"];
@@ -67,8 +67,8 @@ pkgs.testers.nixosTest {
           };
 
           # LAN: trusted zone with DNS allowed — kresd must listen here
-          lan = {
-            hardwareName = "eth1";
+          eth2 = {
+            hardwareName = "eth2";
             network = {
               type = "static";
               addresses = ["10.0.10.1/24"];
@@ -93,7 +93,7 @@ pkgs.testers.nixosTest {
     router.wait_for_unit("kea-dhcp4-server.service")
 
     # Wait for LAN interface to get its address before checking sockets
-    router.wait_until_succeeds("ip addr show eth1 | grep '10.0.10.1'", timeout=30)
+    router.wait_until_succeeds("ip addr show eth2 | grep '10.0.10.1'", timeout=30)
 
     # === kresd: verify no wildcard binds ===
 
@@ -117,11 +117,12 @@ pkgs.testers.nixosTest {
     # Must listen on IPv6 loopback
     router.succeed("ss -tulnp | grep '\\[::1\\]:53'")
 
-    # Wait for LAN IPv6 address to appear (subnetId=10 → fdc6:55f2:0a5e:a::1)
-    router.wait_until_succeeds("ip -6 addr show eth1 | grep 'fdc6:55f2:0a5e:a::1'", timeout=30)
+    # Wait for LAN IPv6 address to appear (subnetId=10 → fdc6:55f2:0a5e:a::1,
+    # which the kernel prints with leading zeros stripped as fdc6:55f2:a5e:a::1).
+    router.wait_until_succeeds("ip -6 addr show eth2 | grep 'fdc6:55f2:a5e:a::1'", timeout=30)
 
-    # MUST listen on LAN IPv6 address
-    router.succeed("ss -tulnp | grep '\\[fdc6:55f2:0a5e:a::1\\]:53'")
+    # MUST listen on LAN IPv6 address (ss also prints the canonical form)
+    router.succeed("ss -tulnp | grep '\\[fdc6:55f2:a5e:a::1\\]:53'")
 
     # === kresd: DNS actually responds (sanity check) ===
     router.succeed("${pkgs.dig}/bin/dig @10.0.10.1 localhost A +short +time=2 || true")

@@ -57,6 +57,7 @@ Target:
 ```
 
 Each layer has one job:
+
 - **kresd-on-thebeyond**: authoritative for homelab zones, client-facing
   resolver, source-based policy, upstream fallback.
 - **Blocky**: blocklist enforcement only.
@@ -124,7 +125,7 @@ Implementation shape (one new sub-module —
    `/run/kresd/isp-dns.lua` of the form `return { '1.2.3.4', '5.6.7.8' }`.
    If the lease file is missing or has no DNS, write a static safe
    default (Quad9: `9.9.9.9`, `149.112.112.112`) so kresd always has
-   *something* to fall back to.
+   _something_ to fall back to.
 
 2. **Path unit watching the lease file** — on lease change (DHCP
    renewal that updates DNS, ISP reconfig, etc.), re-trigger the
@@ -138,9 +139,9 @@ local fallback_dns = dofile('/run/kresd/isp-dns.lua')
 policy.add(policy.on_failure(policy.FORWARD(fallback_dns)))
 ```
 
-   At kresd start, the file is guaranteed present (oneshot ordered
-   before kresd). On lease change, kresd reload re-evaluates the
-   config and picks up the new list.
+At kresd start, the file is guaranteed present (oneshot ordered
+before kresd). On lease change, kresd reload re-evaluates the
+config and picks up the new list.
 
 **Module option:**
 
@@ -186,6 +187,7 @@ owned/accessible (set `RuntimeDirectory=kresd` on the renderer
 service or use the existing kresd runtime dir).
 
 **Verification:**
+
 - Existing `router6-kresd-config` test should pass with default
   (no fallback) and grow assertions for fallback Lua presence.
 - New VM test: kill phantasma's Blocky mid-query, confirm queries still
@@ -257,6 +259,7 @@ authoritativeRecords = mkOption {
 ### Step 2c — Strip authoritative config from phantasma's Unbound
 
 In `hosts/thebeyond/microvm/guests/phantasma/modules/dns.nix`:
+
 - Remove the `local-zone` block (lines 104–108).
 - Remove the `local-data` block (lines 109–142).
 - Unbound becomes pure recursive resolver.
@@ -264,12 +267,12 @@ In `hosts/thebeyond/microvm/guests/phantasma/modules/dns.nix`:
 ### Step 2d — Address Blocky's internal-data needs
 
 **User's observation: external clients route via kresd-on-thebeyond,
-which now answers `.internal` authoritatively *before* the query reaches
+which now answers `.internal` authoritatively _before_ the query reaches
 Blocky. So Blocky doesn't need internal data for external clients.**
 Correct.
 
 The only queries hitting Blocky for internal names are those
-*originating on phantasma itself* (libc resolver → 127.0.0.1 → Blocky).
+_originating on phantasma itself_ (libc resolver → 127.0.0.1 → Blocky).
 Today's `conditional.mapping` in `phantasma/modules/dns.nix:41-48`
 exists to handle exactly that case (Blocky NXDOMAINs RFC 6761 special-use
 names without an explicit conditional upstream — see
@@ -292,7 +295,7 @@ block at `phantasma/modules/dns.nix:41-48` can be deleted entirely
 know `.internal` exists).
 
 Bootstrap concern: phantasma's libc now depends on thebeyond's kresd
-being up *before* phantasma's services start. In practice phantasma
+being up _before_ phantasma's services start. In practice phantasma
 boots after thebeyond (it's a microVM running on it), so the
 dependency is already satisfied by topology. If a unit on phantasma
 makes a DNS query before networking is up — unlikely, but worth a
@@ -301,6 +304,7 @@ spot-check — it'd fail just as it would today against local 127.0.0.1.
 ### Step 2e — Test migration
 
 Update `tests/modules/phantasma-dns.nix` and `phantasma-dns-real.nix`:
+
 - Assertions for `.internal` lookups should expect kresd-on-thebeyond
   as the answering server (or just check answer correctness, not source).
 - Add new assertion: phantasma stopped → `.internal` queries from
@@ -440,6 +444,7 @@ router6.dns.sourceRoutes = [
    Blocky's conditional mapping references kresd holding the data).
 
 **Rollback per PR:**
+
 - **PR-1**: revert `dns.nix` extraConfig change + the new
   `dns-isp-fallback.nix` module; no data migration. Behavior returns
   to "SERVFAIL on recursion stall," same as today.
@@ -451,12 +456,12 @@ router6.dns.sourceRoutes = [
 
 ## Decisions recap
 
-| Question | Decision |
-|---|---|
-| Phase 1 fallback target | ISP DNS from WAN DHCP lease, with static Quad9 default if lease lacks DNS |
-| Phase 3 no-block endpoint | Expose Unbound directly on brMGMT (NixOS doesn't multi-instance `services.blocky` cleanly) |
-| Phase 2 phantasma libc resolver | Option (a) — repoint at thebeyond's kresd |
-| Phase 2 & 3 sequencing | Combined into a single PR (PR-2) |
+| Question                        | Decision                                                                                   |
+| ------------------------------- | ------------------------------------------------------------------------------------------ |
+| Phase 1 fallback target         | ISP DNS from WAN DHCP lease, with static Quad9 default if lease lacks DNS                  |
+| Phase 3 no-block endpoint       | Expose Unbound directly on brMGMT (NixOS doesn't multi-instance `services.blocky` cleanly) |
+| Phase 2 phantasma libc resolver | Option (a) — repoint at thebeyond's kresd                                                  |
+| Phase 2 & 3 sequencing          | Combined into a single PR (PR-2)                                                           |
 
 ## Notes / cross-references
 
