@@ -33,6 +33,7 @@
   inherit (net.hosts) tharbad;
   inherit (net.hosts) roer;
   inherit (net.hosts) oracion;
+  inherit (net.hosts) creil;
   saint-arkh = net.hosts."saint-arkh";
 
   # Maps registry subnet name → { bridgeName, zone, enableDhcp?, enableDhcp6? }.
@@ -234,12 +235,23 @@ in {
         icmpEcho = "enable";
         accessTo = ["management" "trusted" "untrusted"];
         # tharbad → DMZ/lab for Prometheus scraping
-        forwardRules.dmz = ds {
-          saddr = tharbad;
-          tcp.dport = 9100;
-          verdict = "accept";
-          comment = "tharbad -> DMZ (node_exporter)";
-        };
+        forwardRules.dmz =
+          (ds {
+            saddr = tharbad;
+            tcp.dport = 9100;
+            verdict = "accept";
+            comment = "tharbad -> DMZ (node_exporter)";
+          })
+          # TEMP: management → creil (SSH + Forgejo HTTPS) so calvard/erebonia/liberl
+          # can coordinate updates via Forgejo while creil is still in DMZ. Remove
+          # after Phase 5.B moves creil to APP (cross-gateway path becomes a
+          # BT8-gateway-local management→app fw4 rule at that point).
+          ++ (ds {
+            daddr = creil;
+            tcp.dport = [22 443];
+            verdict = "accept";
+            comment = "TEMP: management -> creil (SSH + Forgejo) — remove after Phase 5.B";
+          });
         forwardRules.lab = ds {
           saddr = tharbad;
           tcp.dport = 9100;
@@ -285,6 +297,16 @@ in {
         # User devices: full router access, can reach all internal + internet
         icmpEcho = "enable";
         accessTo = ["management" "trusted" "lab" "untrusted" "external"];
+        # TEMP: HOME → DMZ broad access so workstation can reach Forgejo,
+        # Jellyfin, Attic, etc. while services are still in DMZ. Remove after
+        # Phase 5 moves APP-bound services out. NOTE: when Phase 3 moves
+        # trusted to BT8-gateway, this needs a mirror in
+        # transit.forwardRules.dmz (which today has lab→dmz broad but no
+        # trusted→dmz).
+        forwardRules.dmz = ds {
+          verdict = "accept";
+          comment = "TEMP: trusted -> dmz (any) — remove after Phase 5";
+        };
         inputRules = [
           {
             verdict = "accept";
@@ -546,59 +568,70 @@ in {
       logDropped = true;
 
       egressPolicy = "drop";
-      egressRules = [
-        # DNS (kresd recursive queries)
-        {
-          udp.dport = 53;
+      egressRules =
+        [
+          # DNS (kresd recursive queries)
+          {
+            udp.dport = 53;
+            verdict = "accept";
+            comment = "DNS recursive";
+          }
+          {
+            tcp.dport = 53;
+            verdict = "accept";
+            comment = "DNS recursive (TCP)";
+          }
+          # NTP
+          {
+            udp.dport = 123;
+            verdict = "accept";
+            comment = "NTP";
+          }
+          # DHCP client
+          {
+            udp.dport = 67;
+            verdict = "accept";
+            comment = "DHCP client";
+          }
+          {
+            udp.dport = 68;
+            verdict = "accept";
+            comment = "DHCP server response";
+          }
+          # DHCPv6
+          {
+            udp.dport = [546 547];
+            verdict = "accept";
+            comment = "DHCPv6";
+          }
+          # HTTP/HTTPS (system updates)
+          {
+            tcp.dport = 80;
+            verdict = "accept";
+            comment = "HTTP";
+          }
+          {
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "HTTPS";
+          }
+          # WireGuard
+          {
+            udp.dport = [38506 59362 51820];
+            verdict = "accept";
+            comment = "WireGuard";
+          }
+        ]
+        # TEMP: thebeyond -> creil SSH so the router can pull its own updates
+        # from Forgejo via git+ssh while managing them itself. HTTPS (443) is
+        # already open to anywhere above, so git+https://creil.internal/... is
+        # already reachable without this rule. Remove after Phase 5.B.
+        ++ (ds {
+          daddr = creil;
+          tcp.dport = 22;
           verdict = "accept";
-          comment = "DNS recursive";
-        }
-        {
-          tcp.dport = 53;
-          verdict = "accept";
-          comment = "DNS recursive (TCP)";
-        }
-        # NTP
-        {
-          udp.dport = 123;
-          verdict = "accept";
-          comment = "NTP";
-        }
-        # DHCP client
-        {
-          udp.dport = 67;
-          verdict = "accept";
-          comment = "DHCP client";
-        }
-        {
-          udp.dport = 68;
-          verdict = "accept";
-          comment = "DHCP server response";
-        }
-        # DHCPv6
-        {
-          udp.dport = [546 547];
-          verdict = "accept";
-          comment = "DHCPv6";
-        }
-        # HTTP/HTTPS (system updates)
-        {
-          tcp.dport = 80;
-          verdict = "accept";
-          comment = "HTTP";
-        }
-        {
-          tcp.dport = 443;
-          verdict = "accept";
-          comment = "HTTPS";
-        }
-        # WireGuard
-        {
-          udp.dport = [38506 59362 51820];
-          verdict = "accept";
-          comment = "WireGuard";
-        }
-      ];
+          comment = "TEMP: thebeyond -> creil (SSH) — remove after Phase 5.B";
+        });
       # Port forward SSH from wg-ba to trista (SSH bastion)
       portForwards = [
         {
