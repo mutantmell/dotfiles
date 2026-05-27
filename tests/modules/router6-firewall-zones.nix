@@ -196,6 +196,10 @@ pkgs.testers.nixosTest {
           };
         };
       };
+
+      # Test exercises zone firewall + kresd (:53 checks) — no DHCP probes.
+      services.kea.dhcp4.enable = lib.mkForce false;
+      services.kea.dhcp6.enable = lib.mkForce false;
     };
 
     # Management node

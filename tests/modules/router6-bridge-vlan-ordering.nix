@@ -21,6 +21,7 @@ pkgs.testers.nixosTest {
     router = {
       config,
       pkgs,
+      lib,
       ...
     }: {
       imports = [
@@ -130,6 +131,9 @@ pkgs.testers.nixosTest {
           };
         };
       };
+
+      # Test exercises bridge/VLAN topology and DHCP — no DNS probes.
+      services.kresd.enable = lib.mkForce false;
     };
 
     # DHCP client on VLAN 30 (VLANs-on-bridge scenario)

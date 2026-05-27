@@ -92,6 +92,10 @@ pkgs.testers.nixosTest {
           };
         };
       };
+
+      # Test exercises nftables extra rules + kresd — no DHCP probes.
+      services.kea.dhcp4.enable = lib.mkForce false;
+      services.kea.dhcp6.enable = lib.mkForce false;
     };
 
     client = {

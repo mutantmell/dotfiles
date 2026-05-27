@@ -89,6 +89,9 @@ pkgs.testers.nixosTest {
           };
         };
       };
+
+      # Test exercises kresd + kea-dhcp4 (DHCP client on vlan10) — no stateful DHCPv6 probes.
+      services.kea.dhcp6.enable = lib.mkForce false;
     };
 
     client = {

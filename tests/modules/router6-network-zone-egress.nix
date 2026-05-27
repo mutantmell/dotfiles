@@ -110,6 +110,14 @@ in
             };
           };
         };
+
+        # Test exercises nftables forward rules only — no DNS or DHCP probes.
+        services.kresd.enable = lib.mkForce false;
+        services.kea.dhcp4.enable = lib.mkForce false;
+        services.kea.dhcp6.enable = lib.mkForce false;
+        # kea normally wants network-online.target; without it nothing pulls
+        # up that target. Anchor it to multi-user.target so it still activates.
+        systemd.targets.network-online.wantedBy = ["multi-user.target"];
       };
     };
 
