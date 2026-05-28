@@ -43,6 +43,13 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Per-test logs are captured here. Kept on failure so a flake or real error
+# can be diagnosed after the fact (the script no longer discards `nix build`
+# output). Passing tests have their log file deleted to keep the dir tidy.
+LOG_DIR="$(mktemp -d -t run-checks-XXXXXX)"
+echo "Per-test logs: ${LOG_DIR}"
+echo ""
+
 PASSED=0
 FAILED=0
 FAILED_NAMES=()
@@ -66,11 +73,13 @@ echo ""
 if [[ $MAX_PARALLEL -le 1 ]]; then
   # Sequential mode — simple and clear
   for check in "${CHECKS[@]}"; do
-    if nix build "${FLAKE_REF}#checks.${SYSTEM}.${check}" --print-build-logs >/dev/null 2>&1; then
+    log="${LOG_DIR}/${check}.log"
+    if nix build "${FLAKE_REF}#checks.${SYSTEM}.${check}" --print-build-logs >"$log" 2>&1; then
       echo "  PASS  ${check}"
+      rm -f "$log"
       PASSED=$((PASSED + 1))
     else
-      echo "  FAIL  ${check}"
+      echo "  FAIL  ${check}  (log: ${log})"
       FAILED=$((FAILED + 1))
       FAILED_NAMES+=("${check}")
     fi
@@ -78,6 +87,7 @@ if [[ $MAX_PARALLEL -le 1 ]]; then
 else
   # Parallel mode — run up to MAX_PARALLEL at once
   declare -A PID_TO_NAME
+  declare -A PID_TO_LOG
   RUNNING=0
 
   reap_one() {
@@ -86,15 +96,18 @@ else
     wait -n -p pid 2>/dev/null || true
     if [[ -n ${PID_TO_NAME[$pid]+x} ]]; then
       local name="${PID_TO_NAME[$pid]}"
+      local log="${PID_TO_LOG[$pid]}"
       if wait "$pid" 2>/dev/null; then
         echo "  PASS  ${name}"
+        rm -f "$log"
         PASSED=$((PASSED + 1))
       else
-        echo "  FAIL  ${name}"
+        echo "  FAIL  ${name}  (log: ${log})"
         FAILED=$((FAILED + 1))
         FAILED_NAMES+=("${name}")
       fi
       unset "PID_TO_NAME[$pid]"
+      unset "PID_TO_LOG[$pid]"
       RUNNING=$((RUNNING - 1))
     fi
   }
@@ -103,8 +116,10 @@ else
     while [[ $RUNNING -ge $MAX_PARALLEL ]]; do
       reap_one
     done
-    nix build "${FLAKE_REF}#checks.${SYSTEM}.${check}" --print-build-logs >/dev/null 2>&1 &
+    log="${LOG_DIR}/${check}.log"
+    nix build "${FLAKE_REF}#checks.${SYSTEM}.${check}" --print-build-logs >"$log" 2>&1 &
     PID_TO_NAME[$!]="$check"
+    PID_TO_LOG[$!]="$log"
     RUNNING=$((RUNNING + 1))
   done
 
@@ -113,6 +128,9 @@ else
     reap_one
   done
 fi
+
+# Tidy up an empty log dir on full success so we don't litter /tmp.
+rmdir "$LOG_DIR" 2>/dev/null || true
 
 echo ""
 echo "Results: ${PASSED} passed, ${FAILED} failed ($((TOTAL + 1)) total)"
