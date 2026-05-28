@@ -229,6 +229,7 @@ in {
   imports = [
     ./dhcp.nix
     ./dns.nix
+    ./dns-isp-fallback.nix
     ./dyndns.nix
     ./firewall.nix
     ./networking.nix
@@ -484,6 +485,24 @@ in {
             type = types.bool;
             default = true;
             description = "Enable DNSSEC validation";
+          };
+
+          fallbackFromLease = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            example = "enp4s0";
+            description = ''
+              WAN interface whose DHCP lease supplies fallback DNS servers.
+              When set, the lease's DNS= field is rendered into a kresd-loaded
+              Lua file. Static fallbackUpstream is used when the lease is
+              missing or has no DNS entries.
+            '';
+          };
+
+          fallbackUpstream = mkOption {
+            type = types.listOf types.str;
+            default = ["9.9.9.9" "149.112.112.112"];
+            description = "Static fallback resolvers when fallbackFromLease is null or unavailable.";
           };
 
           interception = mkOption {

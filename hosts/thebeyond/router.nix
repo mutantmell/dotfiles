@@ -546,6 +546,7 @@ in {
       # times out into SERVFAIL. Service restart does not heal the state.
       # See llm-notes/wip/blocky-migration-plan.md for the proper fix.
       enableDNSSEC = false;
+      fallbackFromLease = "enp4s0";
       interception = {
         enable = true;
         extraExcludeAddresses = [phantasma.ipv6];

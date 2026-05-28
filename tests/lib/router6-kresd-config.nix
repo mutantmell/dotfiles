@@ -212,12 +212,37 @@
 
   evalH = evalConfig configH;
 
+  # Config I: fallbackFromLease enabled
+  configI =
+    baseTopology
+    // {
+      dns = {
+        upstream = ["10.0.0.1"];
+        fallbackFromLease = "eth0";
+      };
+    };
+
+  # Config J: fallbackFromLease + custom fallbackUpstream
+  configJ =
+    baseTopology
+    // {
+      dns = {
+        upstream = ["10.0.0.1"];
+        fallbackFromLease = "eth0";
+        fallbackUpstream = ["1.1.1.1" "1.0.0.1"];
+      };
+    };
+
   extraA = (evalConfig configA).services.kresd.extraConfig;
   extraD = (evalConfig configD).services.kresd.extraConfig;
   extraE = (evalConfig configE).services.kresd.extraConfig;
   extraF = (evalConfig configF).services.kresd.extraConfig;
 
   evalG = evalConfig configG;
+  evalI = evalConfig configI;
+  evalJ = evalConfig configJ;
+  extraI = evalI.services.kresd.extraConfig;
+  extraJ = evalJ.services.kresd.extraConfig;
 
   tests = [
     # Config A: Simple upstream
@@ -282,6 +307,91 @@
         listenAddrs = evalH.services.kresd.listenPlain;
       in
         lib.any (addr: lib.hasPrefix "10.97.10.1" addr) listenAddrs))
+
+    # Config A baseline: no fallback machinery when fallbackFromLease unset
+    (assertTrue "A: no dofile when fallback not configured"
+      (notContains "dofile" extraA))
+
+    (assertTrue "A: no fallback renderer service when fallback not configured"
+      (!(evalConfig configA).systemd.services ? "kresd-isp-fallback-render"))
+
+    # Config I: fallbackFromLease enabled — extraConfig must load runtime file
+    (assertTrue "I: extraConfig loads runtime fallback file via dofile"
+      (contains "dofile('/run/knot-resolver/isp-dns.lua')" extraI))
+
+    (assertTrue "I: extraConfig forwards to primary upstream"
+      (contains "'10.0.0.1'" extraI))
+
+    # Strict-failover circuit-breaker must be present (the Phase 1 broken impl
+    # concatenated primary+fallback into one FORWARD list; that design is
+    # explicitly rejected here).
+    (assertTrue "I: declares primary_down breaker flag"
+      (contains "primary_down" extraI))
+
+    (assertTrue "I: declares PRIMARY_THRESHOLD constant"
+      (contains "PRIMARY_THRESHOLD" extraI))
+
+    (assertTrue "I: declares PRIMARY_RETRY cooldown"
+      (contains "PRIMARY_RETRY" extraI))
+
+    (assertTrue "I: uses event-based health probe"
+      (contains "event.recurrent" extraI))
+
+    (assertTrue "I: probes via worker.resolve (named `resolve` in sandbox)"
+      (contains "resolve(" extraI))
+
+    (assertTrue "I: defines a fallback policy.FORWARD separate from primary"
+      (contains "policy.FORWARD(fallback_dns)" extraI))
+
+    (assertTrue "I: defines a primary policy.FORWARD separate from fallback"
+      (contains "policy.FORWARD(primary_servers)" extraI))
+
+    (assertTrue "I: does NOT concatenate primary + fallback into one FORWARD"
+      (let
+        # The broken impl built a single list `{primary..., fallback...}` and
+        # handed it to policy.FORWARD. The strict-failover impl keeps them as
+        # two distinct closures dispatched by the breaker.
+        primaryInForward = builtins.match ".*policy.FORWARD\\(\\{'10\\.0\\.0\\.1'[^}]*fallback.*" extraI;
+      in
+        primaryInForward == null))
+
+    (assertTrue "I: renderer service is defined"
+      (evalI.systemd.services ? "kresd-isp-fallback-render"))
+
+    (assertTrue "I: lease-watch path unit is defined"
+      (evalI.systemd.paths ? "kresd-isp-fallback"))
+
+    (assertTrue "I: reload service is defined"
+      (evalI.systemd.services ? "kresd-isp-fallback"))
+
+    (assertTrue "I: renderer ordered before kresd.target"
+      (lib.elem "kresd.target" evalI.systemd.services."kresd-isp-fallback-render".before))
+
+    (assertTrue "I: renderer ordered before kresd@.service instances"
+      (lib.elem "kresd@.service" evalI.systemd.services."kresd-isp-fallback-render".before))
+
+    (assertTrue "I: renderer waits for WAN online"
+      (lib.elem "systemd-networkd-wait-online@eth0.service"
+        evalI.systemd.services."kresd-isp-fallback-render".after))
+
+    # Config J: custom static fallbackUpstream propagates into renderer script
+    (assertTrue "J: static fallback list reaches renderer ExecStart"
+      (let
+        execStart = evalJ.systemd.services."kresd-isp-fallback-render".serviceConfig.ExecStart;
+        scriptPath = toString execStart;
+        scriptText = builtins.readFile scriptPath;
+      in
+        contains "1.1.1.1" scriptText
+        && contains "1.0.0.1" scriptText))
+
+    (assertTrue "I: default fallback (Quad9) reaches renderer ExecStart"
+      (let
+        execStart = evalI.systemd.services."kresd-isp-fallback-render".serviceConfig.ExecStart;
+        scriptPath = toString execStart;
+        scriptText = builtins.readFile scriptPath;
+      in
+        contains "9.9.9.9" scriptText
+        && contains "149.112.112.112" scriptText))
   ];
 
   allPass = lib.all (x: x) tests;
