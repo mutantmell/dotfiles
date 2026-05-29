@@ -71,13 +71,27 @@ in {
     systemd.services."kresd-isp-fallback-render" = {
       description = "Render kresd ISP DNS fallback from WAN DHCP lease";
       wantedBy = ["kresd.target"];
-      before = ["kresd.target" "kresd@.service"];
+      before = ["kresd.target"];
       after = ["systemd-networkd-wait-online@${wan}.service"];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
         ExecStart = renderScript;
       };
+    };
+
+    # kresd's Lua config dofile()s /run/knot-resolver/isp-dns.lua at
+    # config-load time, so the renderer above MUST complete before any
+    # kresd instance starts. The render service's own `before =
+    # ["kresd@.service"]` targets the template literal — systemd does
+    # not propagate template-level Before= to instances, so on cold
+    # boot under load kresd@1.service races the render and dies with
+    # `cannot open /run/knot-resolver/isp-dns.lua`. Wire the dependency
+    # in the other direction via the kresd@ template, which DOES
+    # propagate to instances.
+    systemd.services."kresd@" = {
+      after = ["kresd-isp-fallback-render.service"];
+      requires = ["kresd-isp-fallback-render.service"];
     };
 
     systemd.paths."kresd-isp-fallback" = {
