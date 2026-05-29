@@ -475,6 +475,35 @@ in {
             description = "Upstream DNS servers";
           };
 
+          upstreamPolicy = mkOption {
+            type = types.enum ["forward" "stub"];
+            default = "forward";
+            description = ''
+              kresd policy applied to the primary upstream.
+
+              - `forward` — kresd locally re-validates DNSSEC. The upstream
+                must return the full DNSSEC chain (RRSIGs, DS, DNSKEY).
+                Use when the upstream is not trusted to validate.
+              - `stub`    — kresd does NOT re-validate. The upstream's AD
+                bit is not enforced; kresd just proxies. Use only when
+                the upstream is itself an authoritative validator AND the
+                network path between kresd and the upstream is trusted —
+                this is "skip redundant work", not a security boundary.
+            '';
+          };
+
+          fallbackPolicy = mkOption {
+            type = types.enum ["forward" "stub"];
+            default = "forward";
+            description = ''
+              kresd policy applied to the fallback upstream. Same
+              semantics as `upstreamPolicy`. Defaults to `forward`
+              because fallback resolvers (ISP-supplied, public DNS) are
+              typically untrusted and DNSSEC re-validation is the safer
+              default.
+            '';
+          };
+
           localDomain = mkOption {
             type = types.nullOr types.str;
             default = "local";
@@ -798,6 +827,16 @@ in {
             message = "router6: interface(s) ${lib.concatMapStringsSep ", " (i: "'${i.name}'") pdReceivers} have pdSubnetId set but no interface has ipv6PrefixDelegation.enable = true";
           }
         ])
+      # DNSSEC: pinned static root KSK must be available in nixpkgs.
+      # This is a static existence check (dns-root-data ships in nixpkgs),
+      # not a runtime defense — its purpose is to make the dependency
+      # explicit so a stripped pkgs set fails eval, not boot.
+      ++ (optionals cfg.dns.enableDNSSEC [
+        {
+          assertion = pkgs ? dns-root-data;
+          message = "router6.dns.enableDNSSEC = true requires pkgs.dns-root-data (provides the IANA root KSK at \${pkgs.dns-root-data}/root.key).";
+        }
+      ])
       # Dynamic DNS assertions
       ++ (optionals cfg.dyndns.enable [
         {

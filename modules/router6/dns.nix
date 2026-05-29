@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  pkgs,
   ...
 }: let
   cfg = config.router6;
@@ -19,6 +20,11 @@
   hasPrimary = cfg.dns.upstream != [];
   upstreamServers = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.upstream);
 
+  # kresd's policy.* identifiers are uppercase (FORWARD, STUB). The option
+  # values are lowercase to match Nix-attr convention.
+  primaryPolicyFn = "policy.${lib.toUpper cfg.dns.upstreamPolicy}";
+  fallbackPolicyFn = "policy.${lib.toUpper cfg.dns.fallbackPolicy}";
+
   # kresd 5.x policy.FORWARD returns a closure that synchronously sets request
   # flags and the nslist, then returns `state`. It does NOT block on the
   # upstream answer, so the e3cf667 pattern `if primary(state, req) then ...`
@@ -28,13 +34,13 @@
   # cached primary_down flag. Probe outcome reads req.state / answer:rcode().
   strictFailoverLua = ''
     local primary_servers = {${upstreamServers}}
-    local primary = policy.FORWARD(primary_servers)
+    local primary = ${primaryPolicyFn}(primary_servers)
 
     -- Renderer writes /run/knot-resolver/isp-dns.lua as `return {...}`. We
     -- load it once at config-load time; updates require kresd restart, which
     -- the renderer's reload service handles.
     local fallback_dns = dofile('/run/knot-resolver/isp-dns.lua')
-    local fallback = policy.FORWARD(fallback_dns)
+    local fallback = ${fallbackPolicyFn}(fallback_dns)
 
     local PRIMARY_THRESHOLD = 3
     local PRIMARY_RETRY = 30
@@ -146,12 +152,12 @@ in {
           then strictFailoverLua
           else if hasPrimary
           then ''
-            policy.add(policy.all(policy.FORWARD({${upstreamServers}})))
+            policy.add(policy.all(${primaryPolicyFn}({${upstreamServers}})))
           ''
           else if hasFallback
           then ''
             local fallback_dns = dofile('/run/knot-resolver/isp-dns.lua')
-            policy.add(policy.all(policy.FORWARD(fallback_dns)))
+            policy.add(policy.all(${fallbackPolicyFn}(fallback_dns)))
           ''
           else ""
         }
@@ -162,6 +168,17 @@ in {
           -- has a TA. Drop the TA first, then mark `.` insecure.
           trust_anchors.remove('.')
           trust_anchors.set_insecure({ '.' })
+        ''}
+        ${optionalString cfg.dns.enableDNSSEC ''
+          -- Pin the IANA root KSK from nixpkgs (dns-root-data) and load it
+          -- in read-only mode. readonly=true sets managed=false internally,
+          -- which keeps ta_update loaded but disables its RFC 5011 on-disk
+          -- writes. The remove('.') call is for symmetry with the
+          -- set_insecure branch above and to silence the "TA already exists"
+          -- warning add_file would otherwise emit. KSK rolls roughly once
+          -- per decade — a nixpkgs bump picks up the new revision.
+          trust_anchors.remove('.')
+          trust_anchors.add_file('${pkgs.dns-root-data}/root.key', true)
         ''}
 
         cache.size = 100 * MB

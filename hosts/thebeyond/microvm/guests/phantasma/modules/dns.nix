@@ -4,6 +4,7 @@
   ...
 }: let
   net = pkgs.mmell.lib.data.network;
+  inherit (net.forHost "phantasma") host;
 in {
   networking.firewall.allowedUDPPorts = [
     53 # DNS
@@ -12,13 +13,18 @@ in {
     53 # DNS
   ];
 
-  # Blocky owns port 53. NixOS's networkd module defaults
-  # services.resolved.enable=true when networkd is on, which binds
-  # 127.0.0.53:53 and conflicts with Blocky's 0.0.0.0:53 bind.
+  # Blocky binds the externally-routable v4+v6 addresses; Unbound owns
+  # 127.0.0.1:53. Result: libc on phantasma resolves directly through
+  # Unbound and never depends on Blocky being up. NixOS's networkd
+  # module defaults services.resolved.enable=true, which binds
+  # 127.0.0.53:53 and (more importantly) rewrites /etc/resolv.conf to
+  # point at that stub — both of which we need to keep clear.
   services.resolved.enable = false;
 
-  # Without resolved writing /etc/resolv.conf, point libc-based DNS
-  # callers (curl, sops, etc.) at the local Blocky instance.
+  # libc → 127.0.0.1:53 → Unbound directly (Blocky is on the external
+  # IPs only). Keeps system DNS resolvable even if Blocky fails or
+  # restarts. Phantasma is a server — bypassing ad-blocking for its
+  # own queries is fine.
   networking.nameservers = ["127.0.0.1"];
 
   # Blocky — declarative DNS proxy with ad-blocking
@@ -26,12 +32,15 @@ in {
     enable = true;
     settings = {
       ports = {
-        dns = "0.0.0.0:53";
+        # Bind only the externally-routable addresses (v4 and v6).
+        # NOT 0.0.0.0/[::]:53 — that would capture loopback and force
+        # phantasma's own libc through Blocky again.
+        dns = "${host.ipv4}:53,[${host.ipv6}]:53";
         http = "127.0.0.1:4000"; # metrics + REST API on loopback only
       };
 
       # Forward all queries to local Unbound (recursive + split-horizon).
-      upstreams.groups.default = ["127.0.0.1:5335"];
+      upstreams.groups.default = ["127.0.0.1:53"];
 
       # Blocky short-circuits RFC 6761 + ICANN special-use domains
       # (including the recently-added `.internal`) to NXDOMAIN unless they
@@ -41,9 +50,9 @@ in {
       conditional = {
         fallbackUpstream = false;
         mapping = {
-          "internal" = "127.0.0.1:5335";
-          "internal.mutantmell.net" = "127.0.0.1:5335";
-          "mutantmell.net" = "127.0.0.1:5335";
+          "internal" = "127.0.0.1:53";
+          "internal.mutantmell.net" = "127.0.0.1:53";
+          "mutantmell.net" = "127.0.0.1:53";
         };
       };
 
@@ -68,16 +77,21 @@ in {
     };
   };
 
-  # Unbound - recursive DNS resolver
+  # Unbound - recursive DNS resolver. DNSSEC validation is intentionally
+  # ON here: this is the recursive resolver in the chain, and the
+  # router-side kresd-fragility note in hosts/thebeyond/router.nix is
+  # specific to kresd's taupd trust-anchor refresh, not to Unbound.
   services.unbound = {
     enable = true;
     settings = {
       server = {
-        interface = ["127.0.0.1"];
-        port = 5335;
+        # Listen on 127.0.0.1:53 (so libc and Blocky reach Unbound via the
+        # default port) and 127.0.0.1:5335 (kept as a readability alias —
+        # makes Unbound easy to spot in netstat/logs separate from Blocky).
+        interface = ["127.0.0.1" "127.0.0.1@5335"];
+        port = 53;
         access-control = [
           "127.0.0.0/8 allow"
-          "::1 allow"
           "0.0.0.0/0 refuse"
         ];
         aggressive-nsec = true;
@@ -88,6 +102,12 @@ in {
         # the dead-state window short without meaningfully increasing probe
         # traffic on a homelab.
         infra-host-ttl = 60;
+
+        # Cache sized for the whole homelab — Unbound's defaults (4M each)
+        # are too tight for a recursive resolver that fronts every device's
+        # queries, leading to repeated cold-cache fetches on first-connect.
+        msg-cache-size = "64m";
+        rrset-cache-size = "128m";
 
         # Graceful degradation during upstream outages. serve-expired
         # returns cached records past their TTL only when a fresh fetch is
@@ -143,6 +163,23 @@ in {
       };
       remote-control.control-enable = true;
     };
+  };
+
+  # Ensure Unbound is listening before Blocky starts answering. Without
+  # this, Blocky on a cold boot can accept queries while its upstream
+  # (127.0.0.1:53) is still being bound by Unbound, producing SERVFAIL
+  # bursts for any device that connects in that window. Unbound is
+  # Type=notify on NixOS, so After= only releases once it's listening.
+  #
+  # Also add `After=network-online.target`: Blocky now binds specific
+  # external addresses (${host.ipv4}:53 / [${host.ipv6}]:53) instead of
+  # 0.0.0.0:53, so the tap interface must be up and the addresses
+  # assigned before Blocky's bind() succeeds. Upstream's NixOS module
+  # has wants= but not after= for network-online, which leaves a race
+  # we'd hit on cold boot before the v6 address leaves tentative.
+  systemd.services.blocky = {
+    after = ["network-online.target" "unbound.service"];
+    wants = ["unbound.service"];
   };
 
   environment.systemPackages = with pkgs; [
