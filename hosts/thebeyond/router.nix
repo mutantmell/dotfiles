@@ -689,7 +689,7 @@ in {
             defaultRoute = true;
             ipv6PrefixDelegation = {
               enable = true;
-              prefixLength = 60; # polite hint; ISP delegates /64 in practice
+              prefixLength = 56;
             };
           };
         };
