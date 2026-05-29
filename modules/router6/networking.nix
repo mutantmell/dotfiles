@@ -28,6 +28,20 @@
     parseCIDR
     isV6
     ;
+
+  # Numeric prefix for a device network file name.
+  # 10- for regular devices, 40- for wireguard, 21- for VLAN sub-devices.
+  devicePrefix = device:
+    if device.kind == "wireguard"
+    then "40-"
+    else "10-";
+
+  # Network file name for a given interface name. Used to find the
+  # right network file to attach static routes / extra config to.
+  networkFileFor = ifaceName:
+    if cfg.topology ? ${ifaceName}
+    then "${devicePrefix cfg.topology.${ifaceName}}${ifaceName}"
+    else "21-${ifaceName}";
 in {
   config = lib.mkIf cfg.enable (lib.mkMerge [
     # ===================
@@ -393,12 +407,7 @@ in {
             vlan = attrNames vlans;
           };
 
-        # Determine numeric prefix for a device network
-        # 10- for regular devices, 40- for wireguard
-        devicePrefix = device:
-          if device.kind == "wireguard"
-          then "40-"
-          else "10-";
+        inherit devicePrefix;
 
         # Physical and virtual device networks
         deviceNetworks =
@@ -446,5 +455,29 @@ in {
           mapAttrsToList (n: v: v) (deviceNetworks // vlanNetworks)
         );
     }
+
+    # =========================================
+    # systemd-networkd: cfg.routes (static routes)
+    # =========================================
+    # Group routes by interface and attach to that interface's network file.
+    # lists merge by concatenation, so coexists with any per-network routes
+    # the rest of the module emits.
+    (let
+      byIface = lib.groupBy (r: r.interface) cfg.routes;
+      mkRoute = r:
+        {
+          Destination = r.destination;
+          Gateway = r.gateway;
+        }
+        // lib.optionalAttrs (r.metric != null) {Metric = r.metric;};
+    in {
+      systemd.network.networks = lib.mapAttrs' (
+        ifaceName: routes:
+          lib.nameValuePair (networkFileFor ifaceName) {
+            routes = map mkRoute routes;
+          }
+      )
+      byIface;
+    })
   ]);
 }

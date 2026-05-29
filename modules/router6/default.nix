@@ -306,6 +306,47 @@ in {
       }));
     };
 
+    routes = mkOption {
+      description = ''
+        Static routes added to systemd-networkd on the named interface.
+        Use for cross-gateway reachability where no protocol carries the
+        route automatically (e.g. point-to-point transit links between
+        gateways with downstream subnets behind each).
+
+        Each entry is grouped by `interface` and emitted into that
+        interface's network file's [Route] section.
+      '';
+      default = [];
+      type = types.listOf (types.submodule {
+        options = {
+          destination = mkOption {
+            type = types.str;
+            description = "Destination prefix in CIDR notation (IPv4 or IPv6).";
+            example = "10.97.0.0/16";
+          };
+          gateway = mkOption {
+            type = types.str;
+            description = "Next-hop address. AF must match destination.";
+            example = "10.255.255.2";
+          };
+          interface = mkOption {
+            type = types.str;
+            description = ''
+              Interface to install the route on. Must reference a
+              topology device or VLAN that owns the network file
+              this route is rendered into.
+            '';
+            example = "brTRANSIT";
+          };
+          metric = mkOption {
+            type = types.nullOr types.int;
+            default = null;
+            description = "Optional route metric.";
+          };
+        };
+      });
+    };
+
     topology = mkOption {
       description = "Network topology definition";
       default = {};
@@ -905,6 +946,16 @@ in {
               zone.forwardRules.${dstZone}
           ) (attrNames zone.forwardRules)
       ) (attrNames cfg.zones)
+      # router6.routes: interface must exist as a topology device or VLAN
+      ++ (let
+        allVlanNames = lib.concatMap (d: attrNames (d.vlans or {})) (attrValues cfg.topology);
+        knownIfaces = (attrNames cfg.topology) ++ allVlanNames;
+      in
+        lib.imap0 (i: route: {
+          assertion = elem route.interface knownIfaces;
+          message = "router6.routes[${toString i}]: interface '${route.interface}' is not a topology device or VLAN";
+        })
+        cfg.routes)
       # Wireguard openFirewall requires port
       ++ (mapAttrsToList (name: iface: {
         assertion = !(iface.wireguard.openFirewall or false) || (iface.wireguard.port or null) != null;
