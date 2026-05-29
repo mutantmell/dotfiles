@@ -99,7 +99,18 @@
       members = ["v${bridgeName}.bat0"];
       network = {
         type = "static";
-        addresses = ["${subnet.gateway4}/${toString subnet.prefixLength4}"];
+        # Both v4 and v6 are explicit. Letting router6 auto-derive the v6
+        # address from the VLAN tag alone breaks bt8gw-owned subnets that
+        # currently live on thebeyond: router6 would assign
+        # `<ulaPrefix>:<vlanHex>::1` while the registry's gateway6 (used
+        # for RA DNS emission) is `<ulaPrefix>:<groupHex><vlanHex>::1`.
+        # For group 1 (bt8gw) those are different addresses, so the RA
+        # advertises a DNS server nothing on the segment actually claims —
+        # clients then stall ~5s per first-query on the v6 path.
+        addresses = [
+          "${subnet.gateway4}/${toString subnet.prefixLength4}"
+          "${subnet.gateway6}/${toString subnet.prefixLength6}"
+        ];
         inherit zone;
         subnetId = subnet.vlanId;
         dhcp.enable = enableDhcp;
