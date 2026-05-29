@@ -558,6 +558,25 @@ in {
       };
     };
 
+    # Cross-gateway static routes. BT8-gateway terminates APP/50 and any
+    # office-side trusted VLANs migrated to it (Phase 3). The bt8gw-owned
+    # IP space lives under 10.97.0.0/16 + fdc6:55f2:0a5e:1000::/52; the
+    # transit /30 + /64 is the only point-to-point link to it. Connected
+    # routes via the still-present bridges cover return traffic today;
+    # these routes survive Phase 3 when those bridges are removed.
+    routes = [
+      {
+        destination = "10.97.0.0/16";
+        gateway = "10.255.255.2";
+        interface = "brTRANSIT";
+      }
+      {
+        destination = "fdc6:55f2:0a5e:1000::/52";
+        gateway = "fdc6:55f2:0a5e:ffff::2";
+        interface = "brTRANSIT";
+      }
+    ];
+
     dns = {
       upstream = [phantasma.ipv4]; # phantasma microVM on brMGMT (10.91.10.10)
       localDomain = "internal";

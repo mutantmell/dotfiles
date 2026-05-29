@@ -1,7 +1,31 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
-**Status:** Phase 0a complete; Phase 0b in flight
-**Last updated:** 2026-05-09 (revised: unified BT8 image —
+**Status:** Phases 0a / 0b / 1 / 2 complete (incl. Phase 2.2 `router6.routes`
+and 2.6 as-built notes). Phase 3 not started — see
+[as-built notes](dual-gateway-bt8-gw-as-built-notes.md) for current
+BT8-gateway state and Phase 3 readiness deltas.
+**Last updated:** 2026-05-29 — Phase 2 as-built revisions:
+(1) **Wireless architecture clarified:** all client WiFi is provided
+by BT8-bridge bound to GUEST/30; HOME/INFRA/LAB are wired-only by
+design. BT8-gateway broadcasts no client SSIDs. Runbook C (office-side
+mesh APs) is therefore optional and not a Phase 3 prerequisite.
+Removed the "trusted SSIDs once Phase 3 lands" framing from Phase 2.1
+and Runbook B §3a accordingly.
+(2) **VLANs 11/20/21 trunked early as L2-passthrough** on BT8-gateway
+in Phase 2.1 (not Phase 3 as earlier drafts implied) — the wired
+homelab L2 switch lives behind BT8-gateway, so the trunk must carry
+trusted-side VLANs from day one. Phase 3 promotes them from
+L2-passthrough to L3-terminated by adding the bridge IP + fw4 zone +
+odhcpd.
+(3) **Trunk wiring uses `br0` + `bridge-vlan` filtering**, not per-VLAN
+`<TRUNK>.<vid>` 8021q sub-devices (cleaner, DSA-style; supports
+tagged/untagged on one port).
+(4) **Mesh radio on `radio2` (6 GHz)**, not 5 GHz.
+(5) **Phase 3.3 cutover script uses `arping -U`** (busybox flag) not
+`-A` (iputils flag). Adding `iputils-arping` would force an
+image rebuild + reflash; the script change is a one-flag delta.
+
+Earlier: 2026-05-09 — unified BT8 image —
 [Reference F](#f-bt8-image-build-package-recipes) collapses the
 per-role recipes into a single gateway-shaped package list (F.1) plus
 universal post-flash verification (F.2) and a service-activation
@@ -264,14 +288,14 @@ Trade-offs of keeping `batman-adv` on `thebeyond`:
                             ┌──────┴──────────┐
                             │  BT8-gateway    │  (office — secondary gateway)
                             │  L3: app, mgmt, │
-                            │      netmgmt,   │  + 802.11s mesh node
-                            │      trusted,   │  + AP radios for ALL VLANs
-                            │      lab        │    (incl. iot/game/guest —
-                            │  L2 only:       │    SSIDs broadcast here, but
-                            │   iot/game/     │    L3 lives on thebeyond)
-                            │   guest/adu/    │
-                            │   network       │  network/10 is L2-passthrough
-                            │                 │    so dumb APs reach thebeyond
+                            │      netmgmt,   │  + 6 GHz mesh node only —
+                            │      trusted,   │    no client SSIDs.
+                            │      lab        │  Client WiFi is provided by
+                            │  L2 only:       │    BT8-bridge on GUEST/30;
+                            │   iot/game/     │    HOME/INFRA/LAB are wired
+                            │   guest/adu/    │    only by design.
+                            │   network/dmz   │
+                            │                 │
                             └──┬──────────────┘
                                │ wired (trunk, plain 802.1Q — not batman)
                                │
@@ -1341,24 +1365,46 @@ Steps:
      Phase 2's proof.
    - **DMZ (100), GUEST/untrusted (30), ADU (31), IOT (40), GAME (41),
      and network (10) as L2-only batman passthrough** — bridges with
-     `proto 'none'`, no IP, no fw4 zone, no DHCP. These are needed
-     immediately so (a) hostile-zone client SSIDs broadcast from
-     BT8-gateway's APs (per runbook B §3a) have somewhere to land
-     frames, (b) DMZ frames transiting BT8-gateway between thebeyond
-     and the homelab switch reach their destination, and (c) Phase 3's
-     "passthrough bridges already exist from Phase 2" assumption holds.
-   - **Trusted-side VLANs (INFRA/11, HOME/20, LAB/21, NETMGMT/12)** —
-     leave their bridges and zones unconfigured for now; they're added
-     in Phase 3 when their L3 gateways move from thebeyond to BT8-gateway.
-     Concurrent with this step: deploy the office-side BT8 mesh APs
-     from [runbook C](#c-manual-setup-bt8-as-office-side-dumb-ap-mesh-resident).
-     Each is flashed with the same unified BT8 image, verified via
-     F.2, then UCI-configured per runbook C (which disables
-     `firewall`/`dnsmasq`/`odhcpd` for the mesh-AP role per F.3).
-     They share the mesh fabric with BT8-gateway and are required for
-     wireless coverage of the trusted SSIDs once Phase 3 lands;
-     bringing them up alongside BT8-gateway gives the operator a
-     working office wireless mesh without waiting for cutover.
+     `proto 'none'`, no IP, no fw4 zone, no DHCP. Needed so DMZ frames
+     transiting BT8-gateway between thebeyond and the homelab switch
+     reach their destination, and so Phase 3's "passthrough bridges
+     already exist from Phase 2" assumption holds.
+   - **Trusted-side VLANs (INFRA/11, HOME/20, LAB/21)** — also added
+     as **L2-only batman passthrough** in this phase. Same `proto
+     'none'`, no IP, no fw4 zone, no DHCP shape as the hostile/dmz
+     VLANs above. **This is a deviation from earlier plan drafts**
+     that left them unconfigured until Phase 3: in practice the
+     wired homelab L2 switch sits behind BT8-gateway (on its wired
+     trunk), so frames on those VLANs must traverse BT8-gateway as
+     wired-side tagged traffic from day one — otherwise the homelab
+     can't reach thebeyond. Phase 3 promotes these from
+     L2-passthrough to L3-terminated by adding the bridge IP + fw4
+     zone + odhcpd config; the L2 fabric stays intact through the
+     transition. NETMGMT/12 is not trunked in this phase (no
+     consumers yet); add when wired-to-BT8-gw network gear lands.
+   - **Trunk wiring on BT8-gateway**: use the OpenWrt
+     `br0` + `bridge-vlan` filtering pattern, not per-VLAN
+     `<TRUNK>.<vid>` 8021q sub-devices. The trunk port becomes a
+     member of `br0`, and each VLAN gets a `bridge-vlan` filter on
+     `br0` (tagged on the trunk port, optionally with an untagged
+     access port for one VLAN — e.g. `lan3` untagged on VLAN 20 for
+     the operator workstation). Each VLAN's L2-passthrough bridge
+     `br-v<vid>` then has both `bat0.<vid>` (mesh side) and
+     `br0.<vid>` (auto-created by bridge-vlan filtering, wired side)
+     as members. This is the as-built shape — see
+     [as-built notes](dual-gateway-bt8-gw-as-built-notes.md) and
+     [`temp/BT8-gw-current.uci`](../../temp/BT8-gw-current.uci).
+   - **No client SSIDs on BT8-gateway.** Client wireless is provided
+     entirely by **BT8-bridge** (modem closet, wired directly to
+     thebeyond), and all SSIDs are bound to **GUEST/30 (untrusted)**.
+     HOME/INFRA/LAB are wired-only by design — there is no
+     trusted-zone wireless to deploy or preserve through cutover.
+     BT8-gateway's radio0/radio1 stay disabled; its only wireless
+     activity is the 6 GHz mesh radio joining the batman fabric.
+     Runbook C ("office-side BT8 mesh APs") is therefore **optional**
+     and only relevant if you ever need to extend the mesh fabric
+     range beyond what BT8-bridge ↔ BT8-gateway can do directly on
+     6 GHz; it is **not** a Phase 3 prerequisite.
 
 2. **Introduce the `router6.routes` option** in `modules/router6/default.nix`
    and use it on `thebeyond` for the cross-gateway static routes.
@@ -1473,12 +1519,16 @@ Steps:
 
 1. Physically install BT8-gateway in its production location in the
    office.
-2. On BT8-gateway (manually, building on Phase 2 config), add the
-   remaining BT8-gateway-terminated VLANs: INFRA (11), HOME (20),
-   LAB (21). For each: bridge, fw4 zone binding, odhcpd config — all
-   in place, but **leave the bridge without an IP and odhcpd disabled
-   for now**. BT8-gateway is fully provisioned but inert on these
-   VLANs; thebeyond still holds `.1` and Kea still serves leases.
+2. On BT8-gateway (manually, building on Phase 2 config), **promote
+   INFRA (11), HOME (20), LAB (21) from L2-passthrough to L3-terminated**.
+   The bridges already exist from Phase 2 (`br-v11`, `br-v20`, `br-v21`
+   with both `bat0.<vid>` and `br0.<vid>` as members, `proto 'none'`).
+   For each: add an fw4 zone binding (`management`, `trusted`, `lab`),
+   stage an odhcpd config block, and stage the dnsmasq dhcp block —
+   all in place, but **leave the bridge without an IP and the dhcp
+   blocks `option ignore '1'` (or unstarted) for now**. BT8-gateway
+   is fully provisioned but inert on these VLANs; thebeyond still
+   holds `.1` and Kea still serves leases.
 
    GUEST (30), ADU (31), IOT (40), GAME (41) are _not_ migrating —
    they stay terminated on thebeyond per the hostile-zone convergence
@@ -1498,14 +1548,21 @@ Steps:
    ssh root@bt8-gateway  "ip addr add 10.97.<vlan>.1/24 dev br-v<vlan>" && \
    ssh root@bt8-gateway  "ip -6 addr add fdc6:55f2:0a5e:1<vlanHex>::1/64 dev br-v<vlan>" && \
    ssh root@bt8-gateway  "/etc/init.d/odhcpd start <vlan>" && \
-   ssh root@bt8-gateway  "arping -c 3 -A -I br-v<vlan> 10.97.<vlan>.1"
+   ssh root@bt8-gateway  "arping -c 3 -U -I br-v<vlan> 10.97.<vlan>.1"
    ```
 
    The actual Kea unit name (`kea-dhcp4-server@<vlan>`) and any
    IPv6/RA-server stop commands depend on how thebeyond's services are
-   structured; substitute as needed. `arping -A` (gratuitous ARP,
-   sender = target) is the standard way to announce an IP→MAC change
-   on a shared L2.
+   structured; substitute as needed. `arping -U` (busybox flag for
+   "unsolicited ARP", a.k.a. gratuitous ARP) announces the IP→MAC
+   change on the shared L2 so clients converge quickly instead of
+   waiting for their ARP cache to time out. **Flag note:** the BT8
+   image ships busybox arping, which uses `-U`; iputils arping (on
+   thebeyond / operator workstation) uses `-A` for the same thing.
+   The SSH command runs on BT8-gateway, so `-U` is what works. Don't
+   "fix" this by adding `iputils-arping` to the BT8 image — that
+   forces a rebuild + reflash window for a one-flag delta. See
+   [as-built notes §Phase 4 codification targets](dual-gateway-bt8-gw-as-built-notes.md).
 
    Existing client leases continue to point at `.1`; they keep
    working because `.1` is now BT8-gateway. Brief ARP-cache flap on
@@ -2132,37 +2189,26 @@ config interface 'v10'
     option proto 'none'
 ```
 
-#### 3a. Client AP SSIDs (per-VLAN, optional in early phases)
+#### 3a. Client AP SSIDs — not on BT8-gateway
 
-If the BT8-gateway is also broadcasting client SSIDs (it should — we want
-the mesh to do double duty as the office wifi for clients on HOME, GUEST,
-IOT, GAME, etc.), bind each SSID to the matching network. `batman-adv`
-over `802.11s` ensures frames carry the right VLAN tag across the mesh.
+**BT8-gateway does NOT broadcast client SSIDs.** All client WiFi is
+provided by **BT8-bridge** (in the modem closet, wired directly to
+thebeyond) and bound to **GUEST/30 (untrusted)**. HOME, INFRA, LAB
+are wired-only by design — no trusted-zone wireless exists in this
+deployment.
 
-The SSID-to-network binding works identically for L3-terminated VLANs
-(home → trusted on this device) and for L2-only passthrough VLANs
-(guest/iot/game → bridges with `proto 'none'`); in the latter case
-client traffic flows straight through to `thebeyond` over batman.
+Leave BT8-gateway's `radio0` (2.4 GHz) and `radio1` (5 GHz)
+configured but with `option disabled '1'` on their wifi-ifaces. Its
+only wireless activity is the `radio2` (6 GHz) mesh radio joining
+the batman fabric, configured in §5.A.
 
-```uci
-config wifi-iface 'home_5g'
-    option device 'radio1'             # same radio as mesh, or radio2 (6GHz)
-    option network 'home'              # corresponds to br-v20 (L3 here)
-    option mode 'ap'
-    option encryption 'sae-mixed'
-    option ssid '<home-ssid>'
-    option key '<home-key>'
+If you ever decide to extend the mesh fabric range (additional mesh
+APs between BT8-bridge and BT8-gateway), see Runbook C — but for the
+two-device topology this plan ships with, BT8-bridge ↔ BT8-gateway
+typically see each other directly on 6 GHz and intermediate mesh APs
+add no value.
 
-config wifi-iface 'guest_5g'
-    option device 'radio1'
-    option network 'guest'             # br-v30 (L2-only — L3 on thebeyond)
-    option mode 'ap'
-    option encryption 'sae-mixed'
-    option ssid '<guest-ssid>'
-    option key '<guest-key>'
-
-# ... iot, game similar — bound to br-v40, br-v41 networks (also L2-only) ...
-```
+Client-SSID UCI for BT8-bridge (not BT8-gateway) lives in Runbook A.
 
 #### 4. Configure DHCP / RA per VLAN
 

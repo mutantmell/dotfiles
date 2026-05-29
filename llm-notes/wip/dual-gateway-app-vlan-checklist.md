@@ -85,53 +85,54 @@ Phase 0b not declared done until step 13 scan passes.
 
 ## Phase 1 — Add APP and transit VLANs to registry and `thebeyond`
 
-- [ ] **1.1** Add zones to `lib/common/data/network.nix`
-  - [ ] `app` (vlanId 50, gateway `bt8gw`, hosts `{}`)
-  - [ ] `netmgmt` (vlanId 12, gateway `bt8gw`, hosts `{}`)
-  - [ ] `transit` (vlanId 255, prefix4 `10.255.255`, prefix6 `${ulaPrefix}:ffff`, prefixLength4 30, hosts `{thebeyond=1; bt8gw=2}`)
-- [ ] **1.2** Add `mkVlanBridge` entries in `hosts/thebeyond/router.nix`
-  - [ ] APP — member-only bridge, no IP on thebeyond
-  - [ ] Transit — `10.255.255.1/30` and `fdc6:55f2:0a5e:ffff::1/64`
-- [ ] **1.3** Add `app` and `transit` zones to `router6.zones`
-  - [ ] APP: DMZ-shaped (no `accessTo`, restricted egress, selective forwards)
-  - [ ] Transit: ICMP + DNS + NTP input rules; `accessTo = ["external" "ba-tunnel"]`
-  - [ ] Transit `forwardRules.dmz` (lab → dmz, tharbad → dmz:9100)
-  - [ ] Transit `forwardRules.iot` (trusted → iot, HA prep)
-  - [ ] Transit `forwardRules.untrusted` (trusted → untrusted)
-  - [ ] Confirm `network` zone `accessTo` stays empty
-- [ ] **1.4** Redeploy `thebeyond` (deploy-rs with magic rollback)
-  - [ ] Update downstream OpenWRT homelab L2 switch UCI: trunk APP/transit, address on `netmgmt`/12
+- [x] **1.1** Add zones to `lib/common/data/network.nix`
+  - [x] `app` (vlanId 50, gateway `bt8gw`, hosts `{}`)
+  - [x] `netmgmt` (vlanId 12, gateway `bt8gw`, hosts `{}`)
+  - [x] `transit` (vlanId 255, prefix4 `10.255.255`, prefix6 `${ulaPrefix}:ffff`, prefixLength4 30, hosts `{thebeyond=1; bt8gw=2}`)
+- [x] **1.2** Add `mkVlanBridge` entries in `hosts/thebeyond/router.nix`
+  - [x] APP — member-only bridge, no IP on thebeyond (`mkMemberOnlyBridge`)
+  - [x] Transit — `10.255.255.1/30` and `fdc6:55f2:0a5e:ffff::1/64` (`transitBridge`)
+- [x] **1.3** Add `app` and `transit` zones to `router6.zones`
+  - [x] APP: empty placeholder (no `accessTo`, no input/forward rules) — selective forwards/egress will be added in Phase 5 when services migrate
+  - [x] Transit: ICMP + DNS + NTP input rules; `accessTo = ["external" "ba-tunnel"]`
+  - [x] Transit `forwardRules.dmz` (lab → dmz, tharbad → dmz:9100)
+  - [-] Transit `forwardRules.iot` (trusted → iot, HA prep) — deliberately omitted; iot/adu/game all bind into the `untrusted` zone via subnetBindings, so the broad `forwardRules.untrusted` already covers HA access. Split iot into its own router6 zone first if a tighter rule is wanted (note in `hosts/thebeyond/router.nix:545-549`).
+  - [x] Transit `forwardRules.untrusted` (trusted → untrusted)
+  - [x] Confirm `network` zone `accessTo` stays empty
+- [x] **1.4** Redeploy `thebeyond` (deploy-rs with magic rollback) — landed via commit `2767a25` + follow-up deploys
+  - [x] Update downstream OpenWRT homelab L2 switch UCI: trunk APP/transit, address on `netmgmt`/12 — operator handled out-of-flake; folded back in via follow-up plan
 
 ## Phase 2 — Manual proof: BT8-bridge and BT8-gateway
 
-- [ ] **2.0** PREREQUISITE GATE — verify transit reachability before opening the BT8-gateway window
-  - [ ] thebeyond's `transit` bridge (`brTRANSIT`, `10.255.255.1/30`, `fdc6:55f2:0a5e:ffff::1/64`) deployed and up (Phase 1.4 complete)
-  - [ ] BT8-bridge wired uplink to thebeyond trunks VLAN 255 as a tagged member (mesh-side `bat0.255` reaches BT8-bridge transparently via batman; wired uplink needs explicit VLAN-tag passthrough config)
-  - [ ] From any host on `network`/10: `ping 10.255.255.1` succeeds, both directions
-  - [ ] **Do NOT proceed to 2.1 until the above passes.** Runbook B §5.G/H makes BT8-gateway adopt `default via 10.255.255.1` as part of the first VLAN brought up. If `10.255.255.1` is unreachable when the window opens, BT8-gateway loses upstream and the operator is debugging a broken default route mid-cutover with the homelab torn down. Runbook B's own pre-flight check (top of file) enforces the same gate, but verifying _before_ the window means catching the gap with the homelab still intact.
-- [ ] **2.1** Configure BT8-gateway by hand per Runbook B
-  - [ ] APP (50) and transit (255) — L3-terminated, fw4 zones, dnsmasq + odhcpd
-  - [ ] DMZ (100), GUEST (30), ADU (31), IOT (40), GAME (41), network (10) — L2-only batman passthrough (`proto 'none'`, no IP, no fw4 zone)
-  - [ ] Trusted-side VLANs (INFRA/11, HOME/20, LAB/21, NETMGMT/12) — leave unconfigured for now
+- [x] **2.0** PREREQUISITE GATE — verify transit reachability before opening the BT8-gateway window
+  - [x] thebeyond's `transit` bridge (`brTRANSIT`, `10.255.255.1/30`, `fdc6:55f2:0a5e:ffff::1/64`) deployed and up (Phase 1.4 complete)
+  - [x] BT8-bridge wired uplink to thebeyond trunks VLAN 255 as a tagged member (mesh-side `bat0.255` reaches BT8-bridge transparently via batman; wired uplink needs explicit VLAN-tag passthrough config)
+  - [x] From any host on `network`/10: `ping 10.255.255.1` succeeds, both directions
+- [x] **2.1** Configure BT8-gateway by hand per Runbook B
+  - [x] APP (50) and transit (255) — L3-terminated, fw4 zones, dnsmasq + odhcpd
+  - [x] DMZ (100), GUEST (30), ADU (31), IOT (40), GAME (41), network (10) — L2-only batman passthrough (`proto 'none'`, no IP, no fw4 zone)
+  - [~] Trusted-side VLANs (INFRA/11, HOME/20, LAB/21, NETMGMT/12) — **deviation from plan:** VLANs 11/20/21 were added to BT8-gateway's wired trunk bridge (`br0` with `bridge-vlan` filtering) and given L2-passthrough `br-v<vid>` bridges so the downstream homelab gear could reach thebeyond through BT8-gateway. They are still L2-only on BT8-gateway (no IP, no fw4 zone, no odhcpd) — L3 termination still lives on thebeyond and moves in Phase 3. NETMGMT/12 not yet trunked.
   - [ ] Concurrent: deploy office-side BT8 mesh APs per Runbook C
-- [ ] **2.2** Introduce `router6.routes` option in `modules/router6/default.nix`
-  - [ ] Add submodule type (destination, gateway, interface, metric)
-  - [ ] Translate to systemd-networkd in `modules/router6/networking.nix`
-  - [ ] Add `tests/lib/router6-routes.nix` evaluation test
-  - [ ] Set cross-gateway routes on `thebeyond` (`10.97.0.0/16` + `fdc6:55f2:0a5e:1000::/52` via transit)
-- [ ] **2.3** Verify DMZ reachability via transit
-  - [ ] `traceroute 10.97.100.41` from BT8-gw-side host
-  - [ ] `ip route get 10.97.100.41` on BT8-gateway shows nexthop `10.255.255.1` via `br-v255`
-- [ ] **2.4** Configure DHCP for APP VLAN on BT8-gateway (dnsmasq v4 + odhcpd v6/RA); connect test device
-- [ ] **2.5** Verify
-  - [ ] `sysctl net.bridge.bridge-nf-call-iptables` reports `0` (or fw4 explicit accept for DMZ bridge)
-  - [ ] `nft monitor trace` / `tcpdump br-v100` clean during DMZ ping across mesh
-  - [ ] Test device receives DHCP from BT8-gateway
-  - [ ] Test device reaches internet (NAT egress through thebeyond)
-  - [ ] `dig @10.97.50.1 example.com` resolves; transit-zone DNS rule shows hits on thebeyond
-  - [ ] `ss -tlnp 'sport = :53'` on thebeyond shows kresd bound to `10.255.255.1:53`
-  - [ ] Test device → DMZ host: traceroute confirms APP → BT8-gw → transit → thebeyond → DMZ
-- [ ] **2.6** Document any UCI snippets / kernel-tuning needed in Phase 4 implementation notes
+- [x] **2.2** Introduce `router6.routes` option in `modules/router6/default.nix`
+  - [x] Add submodule type (destination, gateway, interface, metric)
+  - [x] Translate to systemd-networkd in `modules/router6/networking.nix`
+  - [x] Add `tests/lib/router6-routes.nix` evaluation test
+  - [x] Set cross-gateway routes on `thebeyond` (`10.97.0.0/16` + `fdc6:55f2:0a5e:1000::/52` via transit)
+- [x] **2.3** Verify DMZ reachability via transit
+  - [x] `traceroute 10.97.100.41` from BT8-gw-side host
+  - [x] `ip route get 10.97.100.41` on BT8-gateway shows nexthop `10.255.255.1` via `br-v255`
+- [x] **2.4** Configure DHCP for APP VLAN on BT8-gateway (dnsmasq v4 + odhcpd v6/RA); connect test device
+- [x] **2.5** Verify
+  - [x] `sysctl net.bridge.bridge-nf-call-iptables` reports `0` (or fw4 explicit accept for DMZ bridge)
+  - [x] `nft monitor trace` / `tcpdump br-v100` clean during DMZ ping across mesh
+  - [x] Test device receives DHCP from BT8-gateway
+  - [x] Test device reaches internet (NAT egress through thebeyond)
+  - [x] `dig @10.97.50.1 example.com` resolves; transit-zone DNS rule shows hits on thebeyond
+  - [x] `ss -tlnp 'sport = :53'` on thebeyond shows kresd bound to `10.255.255.1:53`
+  - [x] Test device → DMZ host: traceroute confirms APP → BT8-gw → transit → thebeyond → DMZ
+- [x] **2.6** Document any UCI snippets / kernel-tuning needed in Phase 4 implementation notes
+  - Captured in `llm-notes/wip/dual-gateway-bt8-gw-as-built-notes.md` (post-2.1 UCI dump
+    `temp/BT8-gw-current.uci`, deltas vs Runbook B, and Phase-4 codification targets).
 
 ## Phase 3 — Production cutover of office-side VLAN gateways
 

@@ -41,6 +41,7 @@
   router6-sysctl-properties = import ./lib/router6-sysctl-properties.nix {inherit pkgs lib;};
   router6-dyndns-config = import ./lib/router6-dyndns-config.nix {inherit pkgs lib;};
   router6-pppoe-config = import ./lib/router6-pppoe-config.nix {inherit pkgs lib;};
+  router6-routes = import ./lib/router6-routes.nix {inherit pkgs lib;};
   router6-egress-properties = import ./lib/router6-egress-properties.nix {inherit pkgs lib;};
   router6-dns-interception = import ./lib/router6-dns-interception.nix {inherit pkgs lib;};
   router6-address-parsing = import ./lib/router6-address-parsing.nix {inherit pkgs lib;};
