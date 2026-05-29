@@ -1445,50 +1445,619 @@ current state and how to reverse it.
 
 ---
 
-## Phase 3 (separate future window — not this runbook)
+## Phase 8 — Plan Phase 3 cutover (per-VLAN gateway move)
 
-This runbook ends with BT8-gateway in the **Phase 2 steady state**:
-APP + transit L3 here, everything else still routing through
-`thebeyond` via mesh-passthrough. Phase 3 of the [migration
-plan](../wip/dual-gateway-app-vlan-plan.md#phase-3--cutover-vlans-with-host-renumbering)
-is what completes the dual-gateway model.
+This phase completes the dual-gateway design: INFRA/11, HOME/20, and
+LAB/21 L3 termination moves from `thebeyond` to BT8-gateway. The
+bridges (`br-v11`, `br-v20`, `br-v21`) already exist on BT8-gateway as
+L2-passthrough from Phase 2 (per as-built UCI, with both `bat0.<vid>`
+and `br0.<vid>` as members). This phase **promotes them from
+L2-passthrough to L3-terminated** by adding bridge IPs, fw4 zone
+bindings, dnsmasq DHCPv4, and odhcpd DHCPv6/RA — all via a per-VLAN
+scripted SSH transaction that races thebeyond's IP-removal against
+BT8-gateway's IP-addition to keep the no-`.1` window sub-second.
 
-Phase 3 is a **per-VLAN** cutover: one VLAN at a time, in a single
-coordinated change that simultaneously (a) removes the IP from
-`thebeyond`'s side of the mesh and (b) adds it on BT8-gateway. Doing
-both in the same window avoids the duplicate-IP / ARP-collision
-window that would happen if you brought the BT8-gateway address up
-first or tore the thebeyond address down first.
+**Why a separate window from Phase 2:** Phase 2 only proved the
+dual-gateway routing/firewall model for APP/50 (one greenfield VLAN).
+This phase migrates production VLANs with live DHCP leases and
+existing client traffic. The blast radius is larger, the rollback path
+is per-VLAN (not all-or-nothing), and notification of household /
+collaborators is appropriate (HOME briefly loses inter-VLAN routing
+during cutover).
 
-The four Phase 3 cutovers, roughly in the order recommended by the
-plan:
+**Prerequisite:** `router6.routes` deployed on `thebeyond` with the
+cross-gateway statics already in place (`10.97.0.0/16 via 10.255.255.2`
+and `fdc6:55f2:0a5e:1000::/52 via fdc6:55f2:0a5e:ffff::2`). Verify
+with `ip route show 10.97.0.0/16` on `thebeyond` before opening this
+window. Without those routes, return-path traffic to the migrated
+VLANs has nowhere to go from `thebeyond` once its connected /24s on
+brINFRA/brHOME/brLAB are removed in §8.4.
 
-1. **`netmgmt`/12** — net-new; no IP to remove on `thebeyond`. Safest
-   to do first as a dry run of the Phase 3 cutover mechanics.
-2. **`lab`/21** — semi-trusted; clients re-DHCP onto BT8-gateway and
-   pick up new leases. Brief disconnect window.
-3. **`trusted`/20 (HOME)** — same shape as `lab`. Notify household
-   first.
-4. **`management`/11** — highest-impact (VM admin plane). Save for
-   last; coordinate with any in-flight ops.
+NETMGMT/12 is **not** migrated by this phase. The homelab L2 switch
+folding into the flake is a separate follow-up plan; until that lands,
+NETMGMT has no consumers and there's nothing to cut over.
 
-Each cutover involves:
+---
 
-- **NixOS side (thebeyond)**: drop the zone from `router.nix`,
-  redeploy. The matching `mkVlanBridge` becomes a no-op.
-- **LuCI side (BT8-gateway)**: extend §5.E with `bat0.<vid>`, §5.F
-  with `<TRUNK>.<vid>`, §5.J with the L3-terminating bridge, §5.M
-  with the fw4 zone, §5.M.1 with the new forwardings (e.g.,
-  `management → app`, `management → transit`), §5.M.2 with the
-  per-zone input rules (Allow-SSH-mgmt, Allow-LuCI-mgmt,
-  app-basel-ACME), §5.O with the DHCP pool.
-- **Homelab L2 switch side**: add the VLAN to the trunk toward
-  BT8-gateway (was withheld in §6.1 of this runbook).
+### 8.0 Pre-cutover sanity checks (do BEFORE pre-staging)
 
-The full Phase 3 procedure lives in a separate runbook to be written
-when the operator is ready to schedule the first cutover. The tables
-and section structure above are designed so that "Phase 3 extends
-§5.X" reads cleanly when that runbook is drafted.
+From operator workstation:
+
+```sh
+# router6.routes deployed on thebeyond
+ssh root@thebeyond.internal 'ip route show 10.97.0.0/16'
+# expect: 10.97.0.0/16 via 10.255.255.2 dev brTRANSIT proto static
+ssh root@thebeyond.internal 'ip -6 route show fdc6:55f2:0a5e:1000::/52'
+# expect: ... via fdc6:55f2:0a5e:ffff::2 dev brTRANSIT proto static
+
+# BT8-gateway reachable on both transit AF
+ssh root@thebeyond.internal 'ping -c 3 10.255.255.2'
+ssh root@thebeyond.internal 'ping -c 3 fdc6:55f2:0a5e:ffff::2'
+
+# BT8-gateway's L2-passthrough bridges for 11/20/21 are up
+ssh root@10.255.255.2 'ip link show br-v11 br-v20 br-v21 | grep state'
+# expect: each shows "state UP" (or "state UNKNOWN" with NO-CARRIER absent)
+
+# Confirm batman sees BT8-bridge (mesh path to thebeyond intact)
+ssh root@10.255.255.2 'batctl n'
+# expect: BT8-bridge's MAC visible with a small LastSeen
+
+# No existing IPs on the L2-passthrough bridges (would indicate prior
+# half-applied cutover)
+ssh root@10.255.255.2 'ip -4 addr show br-v11 br-v20 br-v21 | grep -E "10\.97\.(11|20|21)\.1"'
+# expect: no output
+```
+
+If any check fails, **stop**. Don't pre-stage further until resolved.
+
+---
+
+### 8.1 Pre-stage BT8-gateway via LuCI (non-disruptive, do anytime ahead of window)
+
+All §8.1 changes are inert — the bindings exist but the bound
+interfaces are still `proto 'none'` (no IP), so the new zones are
+empty and the staged DHCP blocks are `ignored`. Each subsection is
+one **Save & Apply** in LuCI (90-second auto-rollback timer protects
+against losing your management session), safe to do incrementally
+across multiple sittings.
+
+Connect to LuCI from a host that can reach BT8-gateway over
+transit/network — e.g. `https://10.255.255.2` from thebeyond, or
+direct via the lan port from operator workstation if cabled.
+
+#### 8.1.1 Normalize iot/game interface device refs
+
+**Network → Interfaces**.
+
+For `iot`:
+
+- Click **Edit**.
+- **Device**: change from `bat0.40` to `br-v40`.
+- **Save**.
+
+For `game`:
+
+- Click **Edit**.
+- **Device**: change from `bat0.41` to `br-v41`.
+- **Save**.
+
+**Save & Apply** (whole page). No traffic disruption — the `br-v40`/
+`br-v41` bridges already exist with `bat0.4x` + `br0.4x` as members
+(same as today); this just relabels which device the interface block
+references.
+
+(Pure cosmetic / Nix-consistency win, but easier to do now than during
+or after the cutover.)
+
+#### 8.1.2 Add fw4 zones for management / trusted / lab
+
+**Network → Firewall → Zones** tab.
+
+This mirrors §5.M where `app` and `transit` were created. Same form,
+same defaults (reject input/forward, accept output, no masquerade).
+
+**Add `management`:**
+
+- **Name**: `management`
+- **Input**: `reject`
+- **Output**: `accept`
+- **Forward**: `reject`
+- **Masquerading**: off
+- **MSS clamping**: off
+- **Covered networks**: `mgmt`
+
+**Add `trusted`:**
+
+- **Name**: `trusted`
+- **Input**: `reject`
+- **Output**: `accept`
+- **Forward**: `reject`
+- **Masquerading**: off
+- **Covered networks**: `home`
+
+**Add `lab`:**
+
+- **Name**: `lab`
+- **Input**: `reject`
+- **Output**: `accept`
+- **Forward**: `reject`
+- **Masquerading**: off
+- **Covered networks**: `lab`
+
+**Save & Apply.** The zones now exist but their covered interfaces
+are still `proto 'none'` — fw4 treats the zones as having no active
+interfaces until §8.3 promotes the interface protos.
+
+If LuCI's rollback timer triggers (you lost management because of a
+mis-typed zone name), reconnect and try again with corrected values.
+This is the value of using LuCI for staging: the timer rescues you
+automatically.
+
+#### 8.1.3 Add inter-zone forwarding mesh
+
+**Network → Firewall → Inter-Zone Forwarding** (or the **Zones** tab
+in newer LuCI, which has inline forwarding selectors per zone).
+
+Add each forwarding pair below. Per the plan's zone table:
+
+| Source       | Destination  | Purpose                                                                       |
+| ------------ | ------------ | ----------------------------------------------------------------------------- |
+| `trusted`    | `app`        | HOME → APP-resident services (Jellyfin, Forgejo, etc., post-Phase-5)          |
+| `trusted`    | `management` | HOME → mgmt-zone services (Prometheus UI, etc.)                               |
+| `trusted`    | `lab`        | HOME → lab (edith, etc.)                                                      |
+| `trusted`    | `transit`    | HOME → internet via transit→thebeyond (catch-all; thebeyond's transit gates)  |
+| `lab`        | `management` | Lab → mgmt services                                                           |
+| `lab`        | `transit`    | Lab → internet / DMZ via transit                                              |
+| `management` | `trusted`    | Mgmt → HOME (admin reach)                                                     |
+| `management` | `app`        | Mgmt → APP (Prometheus scrape, etc.)                                          |
+| `management` | `transit`    | Mgmt → internet / DMZ via transit                                             |
+
+Notably absent: `management → lab`. Mgmt initiates into lab only via
+specific input rules added per-host, not blanket-forwarded.
+
+**Save & Apply.**
+
+#### 8.1.4 Add per-zone input rules
+
+**Network → Firewall → Traffic Rules** tab. Mirrors the §5.M.2 rules
+that exist for `app` today.
+
+**Add: Allow-DNS-DHCP-mgmt**
+
+- **Name**: `Allow-DNS-DHCP-mgmt`
+- **Protocol**: `TCP UDP`
+- **Source zone**: `management`
+- **Destination zone**: `Device (input)`
+- **Destination port**: `53 67 547`
+- **Action**: `accept`
+
+**Add: Allow-ICMP-mgmt**
+
+- **Name**: `Allow-ICMP-mgmt`
+- **Protocol**: `ICMP`
+- **Source zone**: `management`
+- **Destination zone**: `Device (input)`
+- **Action**: `accept`
+
+**Add: Allow-DNS-DHCP-trusted** (same shape, source `trusted`).
+**Add: Allow-ICMP-trusted** (same shape, source `trusted`).
+**Add: Allow-DNS-DHCP-lab** (same shape, source `lab`).
+**Add: Allow-ICMP-lab** (same shape, source `lab`).
+
+**Save & Apply.**
+
+#### 8.1.5 Stage DHCP / RA blocks per VLAN (ignored)
+
+**Network → DHCP and DNS → DHCP** is the global dnsmasq config; the
+per-interface DHCP blocks live in **Network → Interfaces → \<iface\>
+→ DHCP Server** tab.
+
+For each of `mgmt`, `home`, `lab`:
+
+- **Network → Interfaces** → click **Edit** on the interface.
+- Go to the **DHCP Server** tab.
+- **Ignore interface**: **check this box** (this sets `option ignore '1'`).
+  Without this, dnsmasq will try to start serving the moment the
+  interface gets a static IP — which is what we want during cutover
+  but not during pre-staging.
+- **Setup DHCP Server**: keep enabled (the box still needs to exist).
+- **Start**: `100`
+- **Limit**: `150`
+- **Lease time**: `12h`
+
+Switch to the **IPv6 Settings** tab on the same interface:
+
+- **Router Advertisement-Service**: `server mode`
+- **DHCPv6-Service**: `server mode`
+- **NDP-Proxy**: `disabled`
+- **DHCPv6-Mode**: `stateful` (advertises `M=1, O=1` flags)
+- **Announced DNS servers**: `fdc6:55f2:0a5e:ffff::1` (thebeyond's
+  transit-side address, where kresd is bound)
+- **Announced DNS domains**: `internal`
+
+**Save** (the per-interface form). Repeat for the other two interfaces.
+
+Then **Save & Apply** at the top.
+
+Verify the blocks are present but ignored:
+
+```sh
+ssh root@10.255.255.2 'uci show dhcp | grep -E "ignore|interface=.(mgmt|home|lab)."'
+# expect three sets of: dhcp.<iface>.interface='<iface>' and dhcp.<iface>.ignore='1'
+```
+
+#### 8.1.6 Set hostname
+
+**System → System** tab.
+
+- **Hostname**: `bt8gw`
+
+**Save & Apply.**
+
+#### 8.1.7 Snapshot post-staging state
+
+**System → Backup / Flash Firmware** → **Generate archive** →
+download. Save with a meaningful name:
+
+```sh
+mv ~/Downloads/backup-OpenWrt-*.tar.gz \
+   ~/operator-backups/bt8gw-pre-phase3-$(date +%Y%m%d).tar.gz
+```
+
+This is your rollback target if a cutover goes wrong and you need to
+get BT8-gateway back to "Phase 2 + inert Phase 3 staging" state. Note
+this is a snapshot of the *staged but inert* state, not a working
+post-cutover state.
+
+If you have to restore from this backup mid-window, use **System →
+Backup / Flash Firmware → Restore backup** in LuCI (preserves
+configuration; doesn't re-flash firmware).
+
+---
+
+### 8.2 Stage thebeyond cleanup commit
+
+In the dotfiles repo on the operator workstation, prepare (but do not
+deploy) a commit that removes the migrated zones from thebeyond:
+
+In `lib/common/data/network.nix`, no change needed — management/11,
+trusted/20, lab/21 stay in the registry (BT8-gateway needs them).
+
+In `hosts/thebeyond/router.nix`:
+
+- Remove the `management`, `trusted`, `lab` entries from
+  `subnetBindings`. This drops the corresponding `mkVlanBridge`
+  invocations and so removes brINFRA/brHOME/brLAB and their `.1`
+  addresses.
+- Remove the `management`, `trusted`, `lab` zone definitions from
+  `router6.zones`.
+- Remove any forwardRules in *other* zones that named the dropped
+  zones as destinations (otherwise eval fails — assertions catch this).
+  Cross-reference: `transit.forwardRules.dmz` source-restricted by
+  `lab` subnet is fine (string IP, not a zone name); same for the
+  `forwardRules.untrusted` rule restricted to the trusted subnet.
+- Drop the `management.hosts` cross-zone forwardRules that lived on
+  the management zone (the TEMP rule for management → creil, plus
+  tharbad → DMZ scrape) — those flows now originate from a
+  BT8-gateway-terminated zone and traverse transit, so the rules need
+  to land in `transit.forwardRules.dmz` (or be source-restricted by
+  IP if the rule already exists there).
+
+Run `nix flake check` locally to catch the assertion failures before
+the window starts. Commit on a branch but **do not deploy**. The
+commit is staged so step §8.4 is just `deploy-rs`.
+
+---
+
+### 8.3 Cutover window
+
+Open a maintenance window. Expected duration: 15–30 minutes including
+verification. Per-VLAN cutover takes seconds; the window length is
+dominated by verification between VLANs.
+
+**Why this section is SSH-only, not LuCI:** the cutover transaction
+spans two devices (thebeyond + BT8-gateway) and needs sub-second
+atomicity to keep the no-`.1` window short. LuCI's Save & Apply
+cycle (form submission + commit + service reload + rollback timer) is
+seconds per step on a single device, with no cross-device
+coordination — by the time you click "Apply" on BT8-gateway, thebeyond
+has been without `.1` for tens of seconds and clients have started
+ARPing for a nonexistent host. SSH with `&&`-chained commands keeps
+the whole transaction under a second on each device. The rollback
+safety you get from LuCI in §8.1 doesn't apply here because the
+cutover is a *coordinated change across two devices*, not a single
+config edit — neither device's individual rollback would unwind the
+other side.
+
+If you need to abort mid-cutover, follow §8.7.
+
+#### 8.3.1 Window kickoff checklist
+
+- [ ] §8.0 sanity checks still pass.
+- [ ] §8.1 pre-staging complete; `pre-phase3-cutover-backup.tar.gz`
+      saved to operator workstation.
+- [ ] §8.2 thebeyond cleanup commit prepared on operator workstation;
+      `nix flake check` passes locally.
+- [ ] Operator notified household / collaborators of brief HOME
+      disconnect (~5 seconds while DHCP renews).
+- [ ] Operator workstation has working v4 + v6 path to both
+      `thebeyond` (via current HOME terminated there) AND BT8-gateway
+      (via mesh through HOME → bat0 → BT8-gateway). The workstation
+      is the only host that needs to maintain reachability throughout;
+      everything else converges via DHCP/RA.
+- [ ] Operator workstation has `~/.ssh/config` aliases set for
+      `thebeyond.internal` and `10.255.255.2` (BT8-gateway via
+      transit — current path).
+
+#### 8.3.2 Cutover script template
+
+Per-VLAN script. Substitute the values from §8.3.3 for each VLAN.
+Run from operator workstation. Each `&&` ensures the next step only
+fires if the previous succeeded; a mid-script failure stops the
+transaction before duplicate-IP state.
+
+```sh
+# Variables to substitute per VLAN:
+#   VLAN          — VLAN ID (11 / 20 / 21)
+#   VLAN_HEX      — bt8gw-group prefix + vlan hex (100b / 1014 / 1015)
+#   BRTHE         — thebeyond's bridge name (brINFRA / brHOME / brLAB)
+#   BRBT8         — BT8-gateway's bridge name (br-v11 / br-v20 / br-v21)
+#   KEA_UNIT      — Kea systemd unit name for this VLAN (check first)
+
+VLAN=21
+VLAN_HEX=1015
+BRTHE=brLAB
+BRBT8=br-v21
+KEA_UNIT=kea-dhcp4-server@${VLAN}.service   # verify before running
+
+# Single SSH transaction. Each step <100ms; total no-.1 window <1s.
+ssh root@thebeyond.internal "systemctl stop ${KEA_UNIT}" && \
+ssh root@thebeyond.internal "ip addr del 10.97.${VLAN}.1/24 dev ${BRTHE}" && \
+ssh root@thebeyond.internal "ip -6 addr del fdc6:55f2:0a5e:${VLAN_HEX}::1/64 dev ${BRTHE}" && \
+ssh root@10.255.255.2 "ip addr add 10.97.${VLAN}.1/24 dev ${BRBT8}" && \
+ssh root@10.255.255.2 "ip -6 addr add fdc6:55f2:0a5e:${VLAN_HEX}::1/64 dev ${BRBT8}" && \
+ssh root@10.255.255.2 "uci set network.${BRBT8/br-v/v}.proto=static && \
+                       uci set network.${BRBT8/br-v/v}.ipaddr=10.97.${VLAN}.1 && \
+                       uci set network.${BRBT8/br-v/v}.netmask=255.255.255.0 && \
+                       uci add_list network.${BRBT8/br-v/v}.ip6addr=fdc6:55f2:0a5e:${VLAN_HEX}::1/64 && \
+                       uci commit network" && \
+ssh root@10.255.255.2 "uci set dhcp.${BRBT8/br-v/v}=dhcp && uci del dhcp.${BRBT8/br-v/v}.ignore && uci commit dhcp" && \
+ssh root@10.255.255.2 "/etc/init.d/dnsmasq reload && /etc/init.d/odhcpd reload" && \
+ssh root@10.255.255.2 "arping -c 3 -U -I ${BRBT8} 10.97.${VLAN}.1"
+```
+
+**Important notes on the script:**
+
+- The `${BRBT8/br-v/v}` shell expansion strips `br-v` → leaves `v11`/
+  `v20`/`v21` — but the actual UCI interface names from §8.1 are
+  `mgmt`/`home`/`lab` (not v11/v20/v21). **Substitute the UCI
+  interface name manually** in the `uci set ...` lines:
+  - VLAN 11: `network.mgmt` / `dhcp.mgmt`
+  - VLAN 20: `network.home` / `dhcp.home`
+  - VLAN 21: `network.lab` / `dhcp.lab`
+- `arping -c 3 -U` uses busybox's gratuitous-ARP flag (`-U`), not
+  iputils's (`-A`). Don't try to "fix" this by installing
+  `iputils-arping` mid-stream — it'd force an image rebuild + reflash.
+- The `Kea systemd unit name` may differ — verify by running
+  `ssh root@thebeyond.internal 'systemctl list-units "kea*"'` before
+  the window. If thebeyond uses a single `kea-dhcp4-server.service`
+  for all VLANs, stopping it kills DHCP for *every* still-on-thebeyond
+  VLAN simultaneously. Cross-check with `hosts/thebeyond/router.nix`'s
+  Kea configuration before assuming per-VLAN units exist.
+
+#### 8.3.3 Per-VLAN cutover order
+
+Recommended order: lowest impact first. Verify each VLAN with §8.3.4
+before proceeding to the next.
+
+**Order A — lab/21 first (recommended):**
+
+| Variable | Value     |
+| -------- | --------- |
+| VLAN     | `21`      |
+| VLAN_HEX | `1015`    |
+| BRTHE    | `brLAB`   |
+| BRBT8    | `br-v21`  |
+| UCI iface| `lab`     |
+
+Impact: edith (dev environment, calvard Incus container) and bose /
+ravennue (Arr stack microVMs on liberl) re-DHCP onto BT8-gateway.
+Brief disconnect, no household-visible impact.
+
+**Order B — trusted/20 (HOME) second:**
+
+| Variable | Value     |
+| -------- | --------- |
+| VLAN     | `20`      |
+| VLAN_HEX | `1014`    |
+| BRTHE    | `brHOME`  |
+| BRBT8    | `br-v20`  |
+| UCI iface| `home`    |
+
+Impact: operator workstation re-DHCPs. If the workstation has a
+static IP / persistent lease, no re-DHCP needed and disconnect is
+sub-second. azoth (Raspberry Pi for HA / MQTT) re-DHCPs.
+
+**Order C — management/11 last:**
+
+| Variable | Value     |
+| -------- | --------- |
+| VLAN     | `11`      |
+| VLAN_HEX | `100b`    |
+| BRTHE    | `brINFRA` |
+| BRBT8    | `br-v11`  |
+| UCI iface| `mgmt`    |
+
+Impact: highest. calvard, erebonia, liberl, basel, messeldam,
+tharbad, roer all re-DHCP. Brief gap in Prometheus scraping
+(tharbad), Forgejo access (creil from management), etc. — all
+self-resolving as DHCP renews and the new gateway answers.
+
+#### 8.3.4 Per-VLAN verification (run between cutovers)
+
+After each VLAN's script completes, verify before moving to the next:
+
+```sh
+# On BT8-gateway: confirm bridge has the new IP
+ssh root@10.255.255.2 "ip -4 addr show ${BRBT8} | grep ${VLAN}.1"
+ssh root@10.255.255.2 "ip -6 addr show ${BRBT8} | grep ${VLAN_HEX}::1"
+
+# On thebeyond: confirm bridge no longer has the IP
+ssh root@thebeyond.internal "ip -4 addr show ${BRTHE} | grep -c ${VLAN}.1"
+# expect: 0
+
+# From operator workstation: confirm new gateway answers
+ping -c 3 10.97.${VLAN}.1
+ping6 -c 3 fdc6:55f2:0a5e:${VLAN_HEX}::1
+
+# Existing client on the migrated VLAN reaches internet
+# (pick a known host; e.g., calvard for VLAN 11)
+ssh root@calvard 'curl -s -o /dev/null -w "%{http_code}\n" https://1.1.1.1'
+# expect: 200
+
+# DNS resolution still works
+ssh root@calvard 'dig +short example.com'
+# expect: a non-empty A record
+```
+
+If verification fails: see §8.7 rollback. **Do not proceed to next
+VLAN until current one verifies.**
+
+---
+
+### 8.4 Post-cutover: deploy thebeyond cleanup
+
+With all three VLANs cut over and verified, deploy the staged commit
+from §8.2:
+
+```sh
+# In the dotfiles repo on operator workstation
+git switch <phase3-cleanup-branch>
+nix run github:serokell/deploy-rs -- .#thebeyond
+```
+
+`deploy-rs` magic_rollback verifies SSH stays up post-activation. The
+deploy is functionally inert from a client perspective: it removes
+inactive bridge declarations from `thebeyond`'s NixOS config, which
+makes the brINFRA/brHOME/brLAB devices go away cleanly. systemd-networkd
+tears down the now-undeclared interfaces. No client traffic flows
+through those bridges anymore (the gateway moved in §8.3), so removal
+is silent.
+
+After deploy, verify the routes still look right on thebeyond:
+
+```sh
+ssh root@thebeyond.internal 'ip route show 10.97.0.0/16'
+# still: 10.97.0.0/16 via 10.255.255.2 dev brTRANSIT proto static
+ssh root@thebeyond.internal 'ip route show 10.97.11.0/24'
+# expected: no output — the connected /24 is gone, so /16 catches it
+ssh root@thebeyond.internal 'ip route get 10.97.11.5'
+# expect: via 10.255.255.2 dev brTRANSIT (was: dev brINFRA, connected)
+```
+
+The connected /24s for 11/20/21 are gone; the /16 catches everything
+in BT8-gateway's address space.
+
+Repeat verification from §8.3.4 after this deploy — clients should
+still reach internet and DNS. If anything regresses, the suspect is
+either (a) a fw4 rule on BT8-gateway that didn't cover an allow case,
+or (b) a routing case that depended on thebeyond's connected /24 in a
+way that wasn't covered by transit forwarding.
+
+---
+
+### 8.5 Post-cutover housekeeping (low priority)
+
+- Persist UCI changes on BT8-gateway. The `ip addr add` in §8.3.2 is
+  transient; the script's `uci set network.<iface>.proto=static` and
+  `uci commit network` in the same transaction make it durable. Verify
+  with `ssh root@10.255.255.2 'cat /etc/config/network | grep -A4 "interface .mgmt."'`
+  — should show `proto 'static'` + `ipaddr` + `ip6addr`.
+- Take a post-cutover BT8-gateway sysupgrade snapshot for the new
+  baseline:
+
+  ```sh
+  ssh root@10.255.255.2 'sysupgrade -b /tmp/post-phase3-cutover-backup.tar.gz'
+  scp root@10.255.255.2:/tmp/post-phase3-cutover-backup.tar.gz \
+      ~/operator-backups/bt8gw-post-phase3-$(date +%Y%m%d).tar.gz
+  ```
+
+- Update DNS / monitoring dashboards that hard-coded `10.97.11.1` or
+  similar as a Prometheus target. None should — those are gateway IPs,
+  not service IPs, and shouldn't be scraped. Worth a search anyway.
+
+---
+
+### 8.6 External security scan (required)
+
+Re-run Runbook E external scan from off-network. Phase 3 is the
+largest single change to `thebeyond`'s zone topology in the plan, and
+fw4 rule re-derivation on BT8-gateway is a plausible regression vector
+(open `input` or `forward` somewhere that shouldn't be).
+
+Save scan artifacts with date + deploy SHA for compliance trail.
+
+---
+
+### 8.7 Per-VLAN rollback (if mid-window failure)
+
+If §8.3.4 verification for the current VLAN fails, reverse the
+cutover for that VLAN only. Other (successfully cut over) VLANs stay
+on BT8-gateway.
+
+```sh
+# Reverse the IP move
+ssh root@10.255.255.2 "uci set dhcp.<iface>.ignore=1 && uci commit dhcp" && \
+ssh root@10.255.255.2 "ip addr del 10.97.${VLAN}.1/24 dev ${BRBT8}" && \
+ssh root@10.255.255.2 "ip -6 addr del fdc6:55f2:0a5e:${VLAN_HEX}::1/64 dev ${BRBT8}" && \
+ssh root@10.255.255.2 "uci set network.<iface>.proto=none && \
+                       uci del network.<iface>.ipaddr && \
+                       uci del network.<iface>.netmask && \
+                       uci del network.<iface>.ip6addr && \
+                       uci commit network && \
+                       /etc/init.d/network reload" && \
+ssh root@thebeyond.internal "ip addr add 10.97.${VLAN}.1/24 dev ${BRTHE}" && \
+ssh root@thebeyond.internal "ip -6 addr add fdc6:55f2:0a5e:${VLAN_HEX}::1/64 dev ${BRTHE}" && \
+ssh root@thebeyond.internal "systemctl start ${KEA_UNIT}" && \
+ssh root@thebeyond.internal "arping -c 3 -A -I ${BRTHE} 10.97.${VLAN}.1"
+```
+
+Note: thebeyond's arping is iputils → `-A`, not BT8-gateway's
+busybox → `-U`.
+
+Then **abort the window** — do not proceed to the next VLAN. Diagnose
+what failed before re-attempting. Common causes:
+
+- fw4 rule gap on BT8-gateway (zone or forwarding missed in §8.1).
+  Symptom: client gets DHCP, can ping gateway, can't reach anything
+  else. Check `nft list ruleset` on BT8-gateway for the dropped flow.
+- Kea unit naming wrong (didn't actually stop on thebeyond). Symptom:
+  client gets a lease from both gateways, intermittent breakage.
+  Stop Kea fully on thebeyond and confirm before re-cutover.
+- Cross-gateway route missing (`router6.routes` deploy didn't land or
+  was rolled back). Verify with `ssh root@thebeyond.internal 'ip route show 10.97.0.0/16'`
+  — if missing, the §8.4 cleanup deploy would lose return-path
+  connectivity. Address before retrying.
+
+---
+
+### 8.8 Abort criteria
+
+Full abort (reverse all cutovers) if:
+
+- More than one VLAN fails verification after cutover.
+- BT8-gateway's transit interface goes down during the window
+  (`ip addr show br-v255` returns empty) — root cause first, then
+  retry.
+- Mesh fabric goes degraded (`batctl o` shows no neighbors).
+- Operator workstation loses path to both thebeyond AND BT8-gateway
+  simultaneously (use the spare BT8 / serial console recovery).
+
+Restore from `pre-phase3-cutover-backup.tar.gz` if BT8-gateway is in
+an inconsistent state: `sysupgrade -r <backup>` on BT8-gateway
+restores it to the post-§8.1 (inert staging) state. Then unwind
+thebeyond if deployed: `nixos-rebuild switch --rollback` on
+thebeyond rolls back the §8.4 deploy.
 
 ---
 
