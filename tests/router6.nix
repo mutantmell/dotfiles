@@ -26,6 +26,7 @@
   router6-extra-rules = import ./modules/router6-extra-rules.nix {inherit pkgs lib;};
   router6-dns-interception-vm = import ./modules/router6-dns-interception.nix {inherit pkgs lib;};
   router6-dns-fallback = import ./modules/router6-dns-fallback.nix {inherit pkgs lib;};
+  router6-dnssec = import ./modules/router6-dnssec.nix {inherit pkgs lib;};
   router6-network-zone-egress = import ./modules/router6-network-zone-egress.nix {inherit pkgs lib;};
 
   # Pure Nix evaluation tests

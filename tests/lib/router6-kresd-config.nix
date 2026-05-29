@@ -212,7 +212,7 @@
 
   evalH = evalConfig configH;
 
-  # Config I: fallbackFromLease enabled
+  # Config I: fallbackFromLease enabled (defaults: forward on both paths)
   configI =
     baseTopology
     // {
@@ -233,6 +233,30 @@
       };
     };
 
+  # Config K: simple primary with explicit upstreamPolicy = "stub". Used to
+  # verify the policy plumbing — single-primary branch must template the
+  # option, not hardcode FORWARD/STUB.
+  configK =
+    baseTopology
+    // {
+      dns = {
+        upstream = ["1.1.1.1"];
+        upstreamPolicy = "stub";
+      };
+    };
+
+  # Config L: primary + fallback with upstreamPolicy = "stub". Covers the
+  # strict-failover branch's policy templating.
+  configL =
+    baseTopology
+    // {
+      dns = {
+        upstream = ["10.0.0.1"];
+        upstreamPolicy = "stub";
+        fallbackFromLease = "eth0";
+      };
+    };
+
   extraA = (evalConfig configA).services.kresd.extraConfig;
   extraD = (evalConfig configD).services.kresd.extraConfig;
   extraE = (evalConfig configE).services.kresd.extraConfig;
@@ -243,14 +267,30 @@
   evalJ = evalConfig configJ;
   extraI = evalI.services.kresd.extraConfig;
   extraJ = evalJ.services.kresd.extraConfig;
+  extraK = (evalConfig configK).services.kresd.extraConfig;
+  extraL = (evalConfig configL).services.kresd.extraConfig;
 
   tests = [
-    # Config A: Simple upstream
-    (assertTrue "A: has policy.FORWARD"
+    # Config A: Simple upstream — module default is upstreamPolicy = "forward",
+    # so the single-primary path must template to policy.FORWARD (and NOT
+    # policy.STUB).
+    (assertTrue "A: has policy.FORWARD on the primary path"
       (contains "policy.FORWARD" extraA))
+
+    (assertTrue "A: does not use policy.STUB on default config"
+      (notContains "policy.STUB" extraA))
 
     (assertTrue "A: has upstream server"
       (contains "'1.1.1.1'" extraA))
+
+    # Config K: explicit upstreamPolicy = "stub" — single-primary branch must
+    # template the option through to policy.STUB. Defends against
+    # re-introducing a hardcoded primaryPolicyFn.
+    (assertTrue "K: has policy.STUB when upstreamPolicy = stub"
+      (contains "policy.STUB" extraK))
+
+    (assertTrue "K: does NOT emit policy.FORWARD when upstreamPolicy = stub"
+      (notContains "policy.FORWARD" extraK))
 
     (assertTrue "A: no fallback machinery"
       (notContains "get_fallback" extraA))
@@ -266,6 +306,28 @@
     # assignment is rejected at load time.
     (assertTrue "D: has trust_anchors.set_insecure"
       (contains "trust_anchors.set_insecure" extraD))
+
+    (assertTrue "D: does not pin a static root anchor when DNSSEC is off"
+      (notContains "trust_anchors.add_file" extraD))
+
+    # Config A defaults to enableDNSSEC = true. Verify the symmetric
+    # DNSSEC-on branch: pinned static root KSK in readonly mode, no
+    # set_insecure.
+    (assertTrue "A: pins static root KSK via trust_anchors.add_file"
+      (contains "trust_anchors.add_file" extraA))
+
+    (assertTrue "A: pins KSK from dns-root-data root.key"
+      (contains "/root.key" extraA))
+
+    (assertTrue "A: loads the pinned anchor in readonly mode"
+      # match `add_file('<any path ending in root.key>', true)` without
+      # referring to the dns-root-data store path (refs are disallowed in
+      # pure-eval test outputs).
+      (builtins.match ".*add_file\\('[^']*root\\.key', true\\).*" extraA != null))
+
+    (assertTrue "A: does not disable the root TA when DNSSEC is enabled"
+      # Match the actual call, not the word in a comment.
+      (notContains "trust_anchors.set_insecure" extraA))
 
     # Config E: localDomain set — kresd no longer emits a DENY rule for it
     # (localDomain is consumed by DHCP domain-name only). Verify kresd config
@@ -340,20 +402,41 @@
     (assertTrue "I: probes via worker.resolve (named `resolve` in sandbox)"
       (contains "resolve(" extraI))
 
-    (assertTrue "I: defines a fallback policy.FORWARD separate from primary"
-      (contains "policy.FORWARD(fallback_dns)" extraI))
-
-    (assertTrue "I: defines a primary policy.FORWARD separate from fallback"
+    # Config I: defaults — both upstream and fallback use FORWARD. Verifies
+    # the strict-failover dispatcher templates both policies from options
+    # rather than hardcoding either side.
+    (assertTrue "I: primary uses policy.FORWARD (default upstreamPolicy)"
       (contains "policy.FORWARD(primary_servers)" extraI))
 
-    (assertTrue "I: does NOT concatenate primary + fallback into one FORWARD"
+    (assertTrue "I: fallback uses policy.FORWARD (default fallbackPolicy)"
+      (contains "policy.FORWARD(fallback_dns)" extraI))
+
+    (assertTrue "I: does NOT emit policy.STUB on default config"
+      (notContains "policy.STUB" extraI))
+
+    (assertTrue "I: does NOT concatenate primary + fallback into one upstream list"
       (let
         # The broken impl built a single list `{primary..., fallback...}` and
         # handed it to policy.FORWARD. The strict-failover impl keeps them as
         # two distinct closures dispatched by the breaker.
-        primaryInForward = builtins.match ".*policy.FORWARD\\(\\{'10\\.0\\.0\\.1'[^}]*fallback.*" extraI;
+        primaryInForward = builtins.match ".*policy\\.(FORWARD|STUB)\\(\\{'10\\.0\\.0\\.1'[^}]*fallback.*" extraI;
       in
         primaryInForward == null))
+
+    # Config L: explicit upstreamPolicy = "stub" with fallback path. Verifies
+    # the strict-failover dispatcher uses STUB on primary and keeps FORWARD
+    # on fallback (the load-bearing combination for the thebeyond deployment).
+    (assertTrue "L: primary uses policy.STUB when upstreamPolicy = stub"
+      (contains "policy.STUB(primary_servers)" extraL))
+
+    (assertTrue "L: fallback still uses policy.FORWARD (default fallbackPolicy)"
+      (contains "policy.FORWARD(fallback_dns)" extraL))
+
+    (assertTrue "L: primary does NOT use policy.FORWARD with upstreamPolicy = stub"
+      (let
+        m = builtins.match ".*policy\\.FORWARD\\(primary_servers.*" extraL;
+      in
+        m == null))
 
     (assertTrue "I: renderer service is defined"
       (evalI.systemd.services ? "kresd-isp-fallback-render"))

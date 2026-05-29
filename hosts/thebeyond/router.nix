@@ -307,6 +307,16 @@ in {
           verdict = "accept";
           comment = "TEMP: trusted -> dmz (any) — remove after Phase 5";
         };
+        # TEMP: trusted → phantasma SSH so workstation can shell in to
+        # diagnose DNS issues from the lab. Network zone has no broad
+        # access from trusted by design (it carries the recursive
+        # resolver + future infra mgmt). Remove once DNS stabilizes.
+        forwardRules.network = ds {
+          daddr = phantasma;
+          tcp.dport = 22;
+          verdict = "accept";
+          comment = "TEMP: trusted -> phantasma (SSH) — remove after DNS diagnosis";
+        };
         inputRules = [
           {
             verdict = "accept";
@@ -540,12 +550,13 @@ in {
     dns = {
       upstream = [phantasma.ipv4]; # phantasma microVM on brMGMT (10.91.10.10)
       localDomain = "internal";
-      # Validation happens upstream at phantasma's Unbound. With it on here,
-      # kresd's root trust anchor is empty/broken — taupd refresh fails
-      # (rcode 2 against its own validator) and every forwarded query then
-      # times out into SERVFAIL. Service restart does not heal the state.
-      # See llm-notes/wip/blocky-migration-plan.md for the proper fix.
-      enableDNSSEC = false;
+      enableDNSSEC = true;
+      # phantasma's Unbound is the authoritative DNSSEC validator in this
+      # deployment, reached over brMGMT (switched/wired bridge inside
+      # thebeyond — trusted L2). Skip kresd-side re-validation on the
+      # primary path; the fallback path stays on FORWARD (default) so kresd
+      # locally re-validates anything coming back from the ISP resolver.
+      upstreamPolicy = "stub";
       fallbackFromLease = "enp4s0";
       interception = {
         enable = true;
