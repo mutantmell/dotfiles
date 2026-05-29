@@ -64,10 +64,6 @@
   '';
 in {
   config = lib.mkIf (cfg.enable && wan != null) {
-    systemd.tmpfiles.rules = [
-      "d /run/knot-resolver 0770 knot-resolver knot-resolver - -"
-    ];
-
     systemd.services."kresd-isp-fallback-render" = {
       description = "Render kresd ISP DNS fallback from WAN DHCP lease";
       wantedBy = ["kresd.target"];
@@ -77,6 +73,18 @@ in {
         Type = "oneshot";
         RemainAfterExit = true;
         ExecStart = renderScript;
+
+        # systemd owns /run/knot-resolver. Created before ExecStart with
+        # the right user/mode; kept alive across kresd@*.service restarts
+        # (Preserve=yes) so the lease-watch path unit can re-render even
+        # when a transient kresd outage has torn down its own
+        # RuntimeDirectory. Runs as knot-resolver so the written file is
+        # owned by the same user kresd reads it as.
+        User = "knot-resolver";
+        Group = "knot-resolver";
+        RuntimeDirectory = "knot-resolver";
+        RuntimeDirectoryMode = "0770";
+        RuntimeDirectoryPreserve = "yes";
       };
     };
 
@@ -89,9 +97,15 @@ in {
     # `cannot open /run/knot-resolver/isp-dns.lua`. Wire the dependency
     # in the other direction via the kresd@ template, which DOES
     # propagate to instances.
+    #
+    # `wants` (not `requires`): a render failure is preferable to a
+    # cascading kresd failure. If render is broken (e.g. shell typo,
+    # missing tool), kresd still starts and uses whatever was last
+    # written to isp-dns.lua (or, on cold boot with no prior write,
+    # fails its own config-load — same as before this dependency).
     systemd.services."kresd@" = {
       after = ["kresd-isp-fallback-render.service"];
-      requires = ["kresd-isp-fallback-render.service"];
+      wants = ["kresd-isp-fallback-render.service"];
     };
 
     systemd.paths."kresd-isp-fallback" = {
@@ -110,8 +124,13 @@ in {
       description = "Re-render kresd ISP DNS fallback and restart kresd";
       serviceConfig = {
         Type = "oneshot";
+        # Drive the render via its own service so the render always runs
+        # under the same User + RuntimeDirectory setup (instead of as
+        # root with no managed runtime dir). `restart` (not start) is
+        # what we want for an oneshot-RemainAfterExit unit: it re-runs
+        # ExecStart even though the service is "active".
         ExecStart = [
-          renderScript.outPath
+          "${pkgs.systemd}/bin/systemctl restart kresd-isp-fallback-render.service"
           "${pkgs.systemd}/bin/systemctl try-restart kresd.target"
         ];
       };
