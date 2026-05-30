@@ -48,10 +48,6 @@
       enableDhcp = false;
       enableDhcp6 = false;
     };
-    management = {
-      bridgeName = "INFRA";
-      zone = "management";
-    };
     untrusted = {
       bridgeName = "GUEST";
       zone = "untrusted";
@@ -67,10 +63,6 @@
     game = {
       bridgeName = "GAME";
       zone = "untrusted";
-    };
-    lab = {
-      bridgeName = "LAB";
-      zone = "lab";
     };
     dmz = {
       bridgeName = "DMZ";
@@ -237,69 +229,6 @@ in {
         ];
       };
 
-      management = {
-        # Infrastructure: full router access, filtered internet egress
-        icmpEcho = "enable";
-        accessTo = ["management" "untrusted"];
-        # tharbad → DMZ/lab for Prometheus scraping
-        forwardRules.dmz =
-          (ds {
-            saddr = tharbad;
-            tcp.dport = 9100;
-            verdict = "accept";
-            comment = "tharbad -> DMZ (node_exporter)";
-          })
-          # TEMP: management → creil (SSH + Forgejo HTTPS) so calvard/erebonia/liberl
-          # can coordinate updates via Forgejo while creil is still in DMZ. Remove
-          # after Phase 5.B moves creil to APP (cross-gateway path becomes a
-          # BT8-gateway-local management→app fw4 rule at that point).
-          ++ (ds {
-            daddr = creil;
-            tcp.dport = [22 443];
-            verdict = "accept";
-            comment = "TEMP: management -> creil (SSH + Forgejo) — remove after Phase 5.B";
-          });
-        forwardRules.lab = ds {
-          saddr = tharbad;
-          tcp.dport = 9100;
-          verdict = "accept";
-          comment = "tharbad -> lab (node_exporter)";
-        };
-        forwardRules.external = [
-          {
-            udp.dport = 53;
-            verdict = "accept";
-            comment = "DNS recursive queries";
-          }
-          {
-            tcp.dport = 53;
-            verdict = "accept";
-            comment = "DNS recursive queries (TCP)";
-          }
-          {
-            tcp.dport = 80;
-            verdict = "accept";
-            comment = "HTTP for package mirrors";
-          }
-          {
-            tcp.dport = 443;
-            verdict = "accept";
-            comment = "HTTPS for updates";
-          }
-          {
-            udp.dport = 123;
-            verdict = "accept";
-            comment = "NTP";
-          }
-        ];
-        inputRules = [
-          {
-            verdict = "accept";
-            comment = "Full router service access";
-          }
-        ];
-      };
-
       untrusted = {
         # Guest/IoT: DNS + DHCP only, internet only, no lateral movement
         icmpEcho = "enable";
@@ -355,28 +284,34 @@ in {
             comment = "DNS over TCP";
           }
         ];
-        forwardRules.management =
+        # DMZ-initiated flows to management-zone services. Pre-Phase-3 these
+        # were `forwardRules.management` (local on thebeyond, brDMZ → brINFRA);
+        # post-Phase-3 the destination IPs (messeldam/basel/tharbad/roer) live
+        # on BT8-gateway, so the path is brDMZ → brTRANSIT and the rules live
+        # under `forwardRules.transit`. The daddr constraints still gate by
+        # specific host so transit traffic to other zones isn't broadened.
+        forwardRules.transit =
           # langport → messeldam (OIDC token exchange)
           (ds {
             saddr = langport;
             daddr = messeldam;
             tcp.dport = 443;
             verdict = "accept";
-            comment = "langport -> messeldam (OIDC)";
+            comment = "langport -> messeldam (OIDC) [via BT8-gateway]";
           })
           # DMZ → basel (ACME certificate issuance)
           ++ (ds {
             daddr = basel;
             tcp.dport = 443;
             verdict = "accept";
-            comment = "DMZ -> basel (ACME)";
+            comment = "DMZ -> basel (ACME) [via BT8-gateway]";
           })
           # DMZ → tharbad (Loki log push)
           ++ (ds {
             daddr = tharbad;
             tcp.dport = 3100;
             verdict = "accept";
-            comment = "DMZ -> tharbad (Loki)";
+            comment = "DMZ -> tharbad (Loki) [via BT8-gateway]";
           })
           # saint-arkh → roer (deployd container deployment API)
           ++ (ds {
@@ -384,7 +319,7 @@ in {
             daddr = roer;
             tcp.dport = 443;
             verdict = "accept";
-            comment = "saint-arkh -> roer (deployd API)";
+            comment = "saint-arkh -> roer (deployd API) [via BT8-gateway]";
           });
       };
 
@@ -399,21 +334,6 @@ in {
           comment = "wg-ba -> trista SSH";
         };
         inputRules = [];
-      };
-
-      lab = {
-        # Semi-trusted: dev environments + VPN clients. Can reach infra services
-        # and DMZ but NOT trusted (asymmetric containment for personal devices).
-        # Self-referential access needed for wg-vpn (10.100.10.0/24) → lab hosts
-        # (10.97.21.0/24) since they cross interfaces and hit the forward chain.
-        icmpEcho = "enable";
-        accessTo = ["management" "lab" "dmz" "external"];
-        inputRules = [
-          {
-            verdict = "accept";
-            comment = "Full router service access";
-          }
-        ];
       };
 
       isolated = {
@@ -439,6 +359,21 @@ in {
             udp.dport = 53;
             verdict = "accept";
             comment = "DNS";
+          }
+        ];
+      };
+
+      wg-vpn = {
+        # Authenticated VPN-in for operator devices (laptop, mobile). Pre-Phase-3
+        # this zone was "lab" (admin/dev access to lab hosts + management
+        # services). Post-Phase-3 those destinations are bt8gw-side, so reach is
+        # via transit (cross-gateway) plus the thebeyond-resident dmz + external.
+        icmpEcho = "enable";
+        accessTo = ["dmz" "external" "transit"];
+        inputRules = [
+          {
+            verdict = "accept";
+            comment = "Full router service access";
           }
         ];
       };
@@ -516,6 +451,21 @@ in {
             tcp.dport = 9100;
             verdict = "accept";
             comment = "tharbad -> dmz (node_exporter) [via BT8-gateway]";
+          })
+          # TEMP: management → creil (SSH + Forgejo HTTPS) so calvard/erebonia/liberl
+          # can coordinate updates via Forgejo while creil is still in DMZ. Replaces
+          # the pre-cutover `management.forwardRules.dmz` creil rule. Remove after
+          # Phase 5.B moves creil to APP (which becomes a BT8-gateway-local
+          # management→app fw4 rule at that point).
+          ++ (ds {
+            saddr = {
+              ipv4 = net.networks.management.subnet4;
+              ipv6 = net.networks.management.subnet6;
+            };
+            daddr = creil;
+            tcp.dport = [22 443];
+            verdict = "accept";
+            comment = "TEMP: management -> creil (SSH + Forgejo) [via BT8-gateway] — remove after Phase 5.B";
           });
 
         # TEMP: trusted (HOME) → phantasma SSH for workstation debug access.
@@ -762,7 +712,7 @@ in {
               "${wg."wg-vpn".gateway4}/24"
               "${wg."wg-vpn".gateway6}/64"
             ];
-            zone = "lab";
+            zone = "wg-vpn";
             required = false;
           };
           wireguard = {
@@ -821,17 +771,6 @@ in {
     };
     linkConfig.RequiredForOnline = "no";
   };
-  # vm-11-* taps (management/INFRA zone) → brINFRA (kept for any future INFRA microvms)
-  systemd.network.networks."10-vm-infra" = {
-    matchConfig.Name = "vm-11-*";
-    networkConfig = {
-      Bridge = "brINFRA";
-      DHCP = "no";
-      LinkLocalAddressing = "no";
-    };
-    linkConfig.RequiredForOnline = "no";
-  };
-
   # NTP server for network gear and infrastructure
   services.chrony = {
     enable = true;
