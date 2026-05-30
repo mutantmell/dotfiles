@@ -52,10 +52,6 @@
       bridgeName = "INFRA";
       zone = "management";
     };
-    trusted = {
-      bridgeName = "HOME";
-      zone = "trusted";
-    };
     untrusted = {
       bridgeName = "GUEST";
       zone = "untrusted";
@@ -244,7 +240,7 @@ in {
       management = {
         # Infrastructure: full router access, filtered internet egress
         icmpEcho = "enable";
-        accessTo = ["management" "trusted" "untrusted"];
+        accessTo = ["management" "untrusted"];
         # tharbad → DMZ/lab for Prometheus scraping
         forwardRules.dmz =
           (ds {
@@ -296,38 +292,6 @@ in {
             comment = "NTP";
           }
         ];
-        inputRules = [
-          {
-            verdict = "accept";
-            comment = "Full router service access";
-          }
-        ];
-      };
-
-      trusted = {
-        # User devices: full router access, can reach all internal + internet
-        icmpEcho = "enable";
-        accessTo = ["management" "trusted" "lab" "untrusted" "external"];
-        # TEMP: HOME → DMZ broad access so workstation can reach Forgejo,
-        # Jellyfin, Attic, etc. while services are still in DMZ. Remove after
-        # Phase 5 moves APP-bound services out. NOTE: when Phase 3 moves
-        # trusted to BT8-gateway, this needs a mirror in
-        # transit.forwardRules.dmz (which today has lab→dmz broad but no
-        # trusted→dmz).
-        forwardRules.dmz = ds {
-          verdict = "accept";
-          comment = "TEMP: trusted -> dmz (any) — remove after Phase 5";
-        };
-        # TEMP: trusted → phantasma SSH so workstation can shell in to
-        # diagnose DNS issues from the lab. Network zone has no broad
-        # access from trusted by design (it carries the recursive
-        # resolver + future infra mgmt). Remove once DNS stabilizes.
-        forwardRules.network = ds {
-          daddr = phantasma;
-          tcp.dport = 22;
-          verdict = "accept";
-          comment = "TEMP: trusted -> phantasma (SSH) — remove after DNS diagnosis";
-        };
         inputRules = [
           {
             verdict = "accept";
@@ -534,6 +498,18 @@ in {
             verdict = "accept";
             comment = "lab -> dmz (any) [via BT8-gateway]";
           })
+          # TEMP: trusted (HOME) -> dmz broad — preserves the workstation's
+          # access to Forgejo, Jellyfin, Attic etc. while services are still
+          # in DMZ. Replaces the pre-cutover `trusted.forwardRules.dmz` rule.
+          # Remove after Phase 5 moves APP-bound services out.
+          ++ (ds {
+            saddr = {
+              ipv4 = net.networks.trusted.subnet4;
+              ipv6 = net.networks.trusted.subnet6;
+            };
+            verdict = "accept";
+            comment = "TEMP: trusted -> dmz (any) [via BT8-gateway] — remove after Phase 5";
+          })
           # management → dmz:9100 (tharbad Prometheus node_exporter scrape)
           ++ (ds {
             saddr = tharbad;
@@ -541,6 +517,21 @@ in {
             verdict = "accept";
             comment = "tharbad -> dmz (node_exporter) [via BT8-gateway]";
           });
+
+        # TEMP: trusted (HOME) → phantasma SSH for workstation debug access.
+        # Replaces the pre-cutover `trusted.forwardRules.network` rule;
+        # network zone otherwise has no broad reach from trusted by design.
+        # Remove once DNS stabilizes.
+        forwardRules.network = ds {
+          saddr = {
+            ipv4 = net.networks.trusted.subnet4;
+            ipv6 = net.networks.trusted.subnet6;
+          };
+          daddr = phantasma;
+          tcp.dport = 22;
+          verdict = "accept";
+          comment = "TEMP: trusted -> phantasma (SSH) [via BT8-gateway] — remove after DNS diagnosis";
+        };
 
         # trusted → untrusted (covers iot/adu/game which all bind into the
         # `untrusted` zone on thebeyond via subnetBindings). When Home
