@@ -98,14 +98,17 @@ in {
     # in the other direction via the kresd@ template, which DOES
     # propagate to instances.
     #
-    # `wants` (not `requires`): a render failure is preferable to a
-    # cascading kresd failure. If render is broken (e.g. shell typo,
-    # missing tool), kresd still starts and uses whatever was last
-    # written to isp-dns.lua (or, on cold boot with no prior write,
-    # fails its own config-load — same as before this dependency).
+    # `requires` (not `wants`): the render must be active before kresd
+    # starts. The render script is robust — it ALWAYS produces a file,
+    # falling back to the static upstream list when no lease is present
+    # — so the "render fails -> kresd fails" cascade only triggers on a
+    # real script bug. A previous iteration used `wants` to soften this,
+    # but the actual failure mode we hit was "file doesn't exist on
+    # deploy/restart" (the soft dependency let kresd start without the
+    # render completing), which is worse than a clean cascade.
     systemd.services."kresd@" = {
       after = ["kresd-isp-fallback-render.service"];
-      wants = ["kresd-isp-fallback-render.service"];
+      requires = ["kresd-isp-fallback-render.service"];
     };
 
     systemd.paths."kresd-isp-fallback" = {

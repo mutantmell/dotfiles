@@ -1665,15 +1665,48 @@ For each of `mgmt`, `home`, `lab`:
 - **Limit**: `150`
 - **Lease time**: `12h`
 
-Switch to the **IPv6 Settings** tab on the same interface:
+Switch to the **IPv6 Settings** tab on the same interface. **Two
+separate dropdowns** at the top of this tab control different pieces
+of the v6 stack — easy to confuse. **Both must be set to "server
+mode"**:
 
-- **Router Advertisement-Service**: `server mode`
-- **DHCPv6-Service**: `server mode`
+- **Router Advertisement-Service**: `server mode` → emits the UCI
+  `option ra 'server'` line. **Without this, odhcpd sends no RAs at
+  all.** Clients get an address via DHCPv6 but no default router,
+  no DNS via RA, no on-link prefix advertisement. The symptom is "v4
+  works, v6 address present, but ping to anything off-link fails with
+  no default route in `netsh interface ipv6 show route`." This field
+  sits immediately next to "DHCPv6-Service" in the LuCI form, and the
+  two labels are easy to read as one bundled setting — double-check
+  that both dropdowns are explicitly set.
+- **DHCPv6-Service**: `server mode` → UCI `option dhcpv6 'server'`.
+  Stateful DHCPv6 address assignment.
 - **NDP-Proxy**: `disabled`
 - **DHCPv6-Mode**: `stateful` (advertises `M=1, O=1` flags)
+- **Always announce default router**: **checked** (sets `ra_default '1'`).
+  **Required for ULA-only deployments.** Without it, odhcpd's default
+  behavior is to only advertise a default router when a public (GUA)
+  prefix is delegated to the interface. BT8-gateway has no GUA — only
+  ULA — so the default-route advertisement is suppressed.
+- **Router Lifetime**: `1800` (sets `ra_lifetime '1800'`). Explicitly
+  setting this protects against odhcpd's auto-compute returning 0 when
+  no GUA prefix exists. Without it, even `ra_default '1'` can produce
+  an RA with `router lifetime 0s`.
 - **Announced DNS servers**: `fdc6:55f2:0a5e:ffff::1` (thebeyond's
   transit-side address, where kresd is bound)
 - **Announced DNS domains**: `internal`
+
+**Verify before moving on** — the most common failure mode at this
+stage is "I configured most of these but missed `ra=server`":
+
+```sh
+ssh root@10.255.255.2 'uci show dhcp.<iface> | grep -E "^dhcp\.<iface>\.(ra|dhcpv6|ra_default|ra_lifetime)"'
+# expect ALL of:
+#   dhcp.<iface>.ra='server'
+#   dhcp.<iface>.dhcpv6='server'
+#   dhcp.<iface>.ra_default='1'
+#   dhcp.<iface>.ra_lifetime='1800'
+```
 
 **Save** (the per-interface form). Repeat for the other two interfaces.
 

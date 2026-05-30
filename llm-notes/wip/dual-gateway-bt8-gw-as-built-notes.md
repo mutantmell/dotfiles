@@ -132,6 +132,14 @@ don't rely on. Worth aligning in Phase 4 for consistency.
 - batman-adv `hop_penalty '30'` on `bat0`. Worth documenting / setting
   as the gateway type default. Higher penalty = batman prefers fewer
   hops; relevant when multiple BT8-mesh APs add hop options.
+- **`ra_default '1'` on every L3-terminated VLAN's dhcp block.**
+  **Required for ULA-only setups.** odhcpd's default heuristic
+  suppresses the default-router advertisement in RAs when no GUA
+  prefix is delegated. ULA-only deployments fail the check — clients
+  get a SLAAC address but no IPv6 default route. As-built `dhcp.app`
+  is missing this (latent bug; no APP clients to expose it yet).
+  Phase 4's gateway type should emit `ra_default '1'` for every
+  L3-terminated VLAN by default.
 - `mesh_fwding '0'` on the wifi-iface mesh node — disables native 802.11s
   forwarding so batman-adv handles forwarding (avoids double-forwarding
   loops). **Required**.
