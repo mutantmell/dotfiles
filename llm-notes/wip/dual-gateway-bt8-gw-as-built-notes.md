@@ -123,7 +123,7 @@ don't rely on. Worth aligning in Phase 4 for consistency.
   the chance of dnsmasq sneaking out to an ISP resolver.
 - odhcpd RA flags `managed-config` + `other-config` (M=1, O=1) on APP —
   stateful DHCPv6 + DNS via RA. Matches the registry's `dhcp6.mode =
-  "stateful"` posture (verify which mode we actually want; SLAAC would
+"stateful"` posture (verify which mode we actually want; SLAAC would
   be flagless).
 - `option ip6gw 'fdc6:55f2:0a5e:ffff::1'` on the transit interface —
   explicit v6 gateway. Required because transit is a static /64

@@ -471,13 +471,14 @@ in {
         }
         // lib.optionalAttrs (r.metric != null) {Metric = r.metric;};
     in {
-      systemd.network.networks = lib.mapAttrs' (
-        ifaceName: routes:
-          lib.nameValuePair (networkFileFor ifaceName) {
-            routes = map mkRoute routes;
-          }
-      )
-      byIface;
+      systemd.network.networks =
+        lib.mapAttrs' (
+          ifaceName: routes:
+            lib.nameValuePair (networkFileFor ifaceName) {
+              routes = map mkRoute routes;
+            }
+        )
+        byIface;
     })
   ]);
 }

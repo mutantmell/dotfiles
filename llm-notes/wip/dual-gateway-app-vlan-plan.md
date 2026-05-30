@@ -1371,7 +1371,7 @@ Steps:
      already exist from Phase 2" assumption holds.
    - **Trusted-side VLANs (INFRA/11, HOME/20, LAB/21)** — also added
      as **L2-only batman passthrough** in this phase. Same `proto
-     'none'`, no IP, no fw4 zone, no DHCP shape as the hostile/dmz
+'none'`, no IP, no fw4 zone, no DHCP shape as the hostile/dmz
      VLANs above. **This is a deviation from earlier plan drafts**
      that left them unconfigured until Phase 3: in practice the
      wired homelab L2 switch sits behind BT8-gateway (on its wired
