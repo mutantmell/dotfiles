@@ -1600,17 +1600,17 @@ in newer LuCI, which has inline forwarding selectors per zone).
 
 Add each forwarding pair below. Per the plan's zone table:
 
-| Source       | Destination  | Purpose                                                                       |
-| ------------ | ------------ | ----------------------------------------------------------------------------- |
-| `trusted`    | `app`        | HOME → APP-resident services (Jellyfin, Forgejo, etc., post-Phase-5)          |
-| `trusted`    | `management` | HOME → mgmt-zone services (Prometheus UI, etc.)                               |
-| `trusted`    | `lab`        | HOME → lab (edith, etc.)                                                      |
-| `trusted`    | `transit`    | HOME → internet via transit→thebeyond (catch-all; thebeyond's transit gates)  |
-| `lab`        | `management` | Lab → mgmt services                                                           |
-| `lab`        | `transit`    | Lab → internet / DMZ via transit                                              |
-| `management` | `trusted`    | Mgmt → HOME (admin reach)                                                     |
-| `management` | `app`        | Mgmt → APP (Prometheus scrape, etc.)                                          |
-| `management` | `transit`    | Mgmt → internet / DMZ via transit                                             |
+| Source       | Destination  | Purpose                                                                      |
+| ------------ | ------------ | ---------------------------------------------------------------------------- |
+| `trusted`    | `app`        | HOME → APP-resident services (Jellyfin, Forgejo, etc., post-Phase-5)         |
+| `trusted`    | `management` | HOME → mgmt-zone services (Prometheus UI, etc.)                              |
+| `trusted`    | `lab`        | HOME → lab (edith, etc.)                                                     |
+| `trusted`    | `transit`    | HOME → internet via transit→thebeyond (catch-all; thebeyond's transit gates) |
+| `lab`        | `management` | Lab → mgmt services                                                          |
+| `lab`        | `transit`    | Lab → internet / DMZ via transit                                             |
+| `management` | `trusted`    | Mgmt → HOME (admin reach)                                                    |
+| `management` | `app`        | Mgmt → APP (Prometheus scrape, etc.)                                         |
+| `management` | `transit`    | Mgmt → internet / DMZ via transit                                            |
 
 Notably absent: `management → lab`. Mgmt initiates into lab only via
 specific input rules added per-host, not blanket-forwarded.
@@ -1739,7 +1739,7 @@ mv ~/Downloads/backup-OpenWrt-*.tar.gz \
 
 This is your rollback target if a cutover goes wrong and you need to
 get BT8-gateway back to "Phase 2 + inert Phase 3 staging" state. Note
-this is a snapshot of the *staged but inert* state, not a working
+this is a snapshot of the _staged but inert_ state, not a working
 post-cutover state.
 
 If you have to restore from this backup mid-window, use **System →
@@ -1764,7 +1764,7 @@ In `hosts/thebeyond/router.nix`:
   addresses.
 - Remove the `management`, `trusted`, `lab` zone definitions from
   `router6.zones`.
-- Remove any forwardRules in *other* zones that named the dropped
+- Remove any forwardRules in _other_ zones that named the dropped
   zones as destinations (otherwise eval fails — assertions catch this).
   Cross-reference: `transit.forwardRules.dmz` source-restricted by
   `lab` subnet is fine (string IP, not a zone name); same for the
@@ -1798,7 +1798,7 @@ has been without `.1` for tens of seconds and clients have started
 ARPing for a nonexistent host. SSH with `&&`-chained commands keeps
 the whole transaction under a second on each device. The rollback
 safety you get from LuCI in §8.1 doesn't apply here because the
-cutover is a *coordinated change across two devices*, not a single
+cutover is a _coordinated change across two devices_, not a single
 config edit — neither device's individual rollback would unwind the
 other side.
 
@@ -1874,7 +1874,7 @@ ssh root@10.255.255.2 "arping -c 3 -U -I ${BRBT8} 10.97.${VLAN}.1"
 - The `Kea systemd unit name` may differ — verify by running
   `ssh root@thebeyond.internal 'systemctl list-units "kea*"'` before
   the window. If thebeyond uses a single `kea-dhcp4-server.service`
-  for all VLANs, stopping it kills DHCP for *every* still-on-thebeyond
+  for all VLANs, stopping it kills DHCP for _every_ still-on-thebeyond
   VLAN simultaneously. Cross-check with `hosts/thebeyond/router.nix`'s
   Kea configuration before assuming per-VLAN units exist.
 
@@ -1885,13 +1885,13 @@ before proceeding to the next.
 
 **Order A — lab/21 first (recommended):**
 
-| Variable | Value     |
-| -------- | --------- |
-| VLAN     | `21`      |
-| VLAN_HEX | `1015`    |
-| BRTHE    | `brLAB`   |
-| BRBT8    | `br-v21`  |
-| UCI iface| `lab`     |
+| Variable  | Value    |
+| --------- | -------- |
+| VLAN      | `21`     |
+| VLAN_HEX  | `1015`   |
+| BRTHE     | `brLAB`  |
+| BRBT8     | `br-v21` |
+| UCI iface | `lab`    |
 
 Impact: edith (dev environment, calvard Incus container) and bose /
 ravennue (Arr stack microVMs on liberl) re-DHCP onto BT8-gateway.
@@ -1899,13 +1899,13 @@ Brief disconnect, no household-visible impact.
 
 **Order B — trusted/20 (HOME) second:**
 
-| Variable | Value     |
-| -------- | --------- |
-| VLAN     | `20`      |
-| VLAN_HEX | `1014`    |
-| BRTHE    | `brHOME`  |
-| BRBT8    | `br-v20`  |
-| UCI iface| `home`    |
+| Variable  | Value    |
+| --------- | -------- |
+| VLAN      | `20`     |
+| VLAN_HEX  | `1014`   |
+| BRTHE     | `brHOME` |
+| BRBT8     | `br-v20` |
+| UCI iface | `home`   |
 
 Impact: operator workstation re-DHCPs. If the workstation has a
 static IP / persistent lease, no re-DHCP needed and disconnect is
@@ -1913,13 +1913,13 @@ sub-second. azoth (Raspberry Pi for HA / MQTT) re-DHCPs.
 
 **Order C — management/11 last:**
 
-| Variable | Value     |
-| -------- | --------- |
-| VLAN     | `11`      |
-| VLAN_HEX | `100b`    |
-| BRTHE    | `brINFRA` |
-| BRBT8    | `br-v11`  |
-| UCI iface| `mgmt`    |
+| Variable  | Value     |
+| --------- | --------- |
+| VLAN      | `11`      |
+| VLAN_HEX  | `100b`    |
+| BRTHE     | `brINFRA` |
+| BRBT8     | `br-v11`  |
+| UCI iface | `mgmt`    |
 
 Impact: highest. calvard, erebonia, liberl, basel, messeldam,
 tharbad, roer all re-DHCP. Brief gap in Prometheus scraping
