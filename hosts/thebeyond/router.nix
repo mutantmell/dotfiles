@@ -398,25 +398,48 @@ in {
         # DNS inputRules double as the kresd-on-transit binding signal —
         # `dnsInterfaces` in router6/lib.nix auto-binds kresd to any interface
         # in a zone whose inputRules allow DNS. No separate listen config.
-        inputRules = [
-          {
-            udp.dport = 53;
-            limit = "100/second";
+        inputRules =
+          [
+            {
+              udp.dport = 53;
+              limit = "100/second";
+              verdict = "accept";
+              comment = "DNS";
+            }
+            {
+              tcp.dport = 53;
+              limit = "100/second";
+              verdict = "accept";
+              comment = "DNS over TCP";
+            }
+            {
+              udp.dport = 123;
+              verdict = "accept";
+              comment = "NTP";
+            }
+          ]
+          # Migrated admin VLANs (mgmt 11, trusted 20, lab 21) lost their
+          # local bridges on thebeyond — their L3 terminates on BT8-gateway
+          # and return traffic enters here. Pre-Phase-3 those zones had
+          # inputRules=accept; this restores the same posture across the
+          # gateway split, gated by source subnet (source-zone attribution
+          # is lost across transit).
+          ++ (ds {
+            saddr = {
+              ipv4 = [
+                net.networks.management.subnet4
+                net.networks.trusted.subnet4
+                net.networks.lab.subnet4
+              ];
+              ipv6 = [
+                net.networks.management.subnet6
+                net.networks.trusted.subnet6
+                net.networks.lab.subnet6
+              ];
+            };
             verdict = "accept";
-            comment = "DNS";
-          }
-          {
-            tcp.dport = 53;
-            limit = "100/second";
-            verdict = "accept";
-            comment = "DNS over TCP";
-          }
-          {
-            udp.dport = 123;
-            verdict = "accept";
-            comment = "NTP";
-          }
-        ];
+            comment = "admin VLANs -> thebeyond input via BT8-gateway";
+          });
 
         # Mirrors of cross-zone DMZ flows that used to be enforced inside
         # thebeyond before office-side gateways move to BT8-gateway. Source
