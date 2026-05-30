@@ -850,4 +850,14 @@ in {
     "/var/lib/private/kea"
     "/var/lib/knot-resolver"
   ];
+
+  # Force /var/lib/private to mode 0700 — systemd's StateDirectory+DynamicUser
+  # creates it with 0700 on first use and refuses to start the service if it
+  # finds it with any other mode. impermanence bind-mounts /var/lib/private/kea
+  # as the persistent target, but the parent /var/lib/private gets created at
+  # the default 0755 along the way. This tmpfiles rule reconciles them on every
+  # boot before any DynamicUser service tries to claim the directory.
+  systemd.tmpfiles.rules = [
+    "d /var/lib/private 0700 root root - -"
+  ];
 }

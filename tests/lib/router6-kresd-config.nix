@@ -450,8 +450,16 @@
     (assertTrue "I: renderer ordered before kresd.target"
       (lib.elem "kresd.target" evalI.systemd.services."kresd-isp-fallback-render".before))
 
-    (assertTrue "I: renderer ordered before kresd@.service instances"
-      (lib.elem "kresd@.service" evalI.systemd.services."kresd-isp-fallback-render".before))
+    # Template-level Before= does not propagate to instances, so the
+    # ordering for kresd@.service instances is wired in the other
+    # direction via kresd@ template's After= + Requires=.
+    (assertTrue "I: kresd@.service ordered after renderer"
+      (lib.elem "kresd-isp-fallback-render.service"
+        evalI.systemd.services."kresd@".after))
+
+    (assertTrue "I: kresd@.service requires renderer (hard dependency)"
+      (lib.elem "kresd-isp-fallback-render.service"
+        evalI.systemd.services."kresd@".requires))
 
     (assertTrue "I: renderer waits for WAN online"
       (lib.elem "systemd-networkd-wait-online@eth0.service"
