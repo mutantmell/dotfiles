@@ -26,6 +26,7 @@
   ds = net.mkDualStackRules;
   inherit (net.forHost "thebeyond") host;
   inherit (net.hosts) phantasma;
+  inherit (net.hosts) bt8bridge;
   inherit (net.hosts) langport;
   inherit (net.hosts) trista;
   inherit (net.hosts) messeldam;
@@ -495,16 +496,39 @@ in {
         # Replaces the pre-cutover `trusted.forwardRules.network` rule;
         # network zone otherwise has no broad reach from trusted by design.
         # Remove once DNS stabilizes.
-        forwardRules.network = ds {
-          saddr = {
-            ipv4 = net.networks.trusted.subnet4;
-            ipv6 = net.networks.trusted.subnet6;
-          };
-          daddr = phantasma;
-          tcp.dport = 22;
-          verdict = "accept";
-          comment = "TEMP: trusted -> phantasma (SSH) [via BT8-gateway] — remove after DNS diagnosis";
-        };
+        forwardRules.network =
+          (ds {
+            saddr = {
+              ipv4 = net.networks.trusted.subnet4;
+              ipv6 = net.networks.trusted.subnet6;
+            };
+            daddr = phantasma;
+            tcp.dport = 22;
+            verdict = "accept";
+            comment = "TEMP: trusted -> phantasma (SSH) [via BT8-gateway] — remove after DNS diagnosis";
+          })
+          # Admin SSH to BT8-bridge (network/10 host, wired to thebeyond).
+          # BT8-bridge stays on the network zone by design (0 mesh hops from
+          # thebeyond); the network zone otherwise denies all forwards from
+          # admin VLANs, so this is a per-host carve-out for the mgmt path.
+          ++ (ds {
+            saddr = {
+              ipv4 = [
+                net.networks.management.subnet4
+                net.networks.trusted.subnet4
+                net.networks.lab.subnet4
+              ];
+              ipv6 = [
+                net.networks.management.subnet6
+                net.networks.trusted.subnet6
+                net.networks.lab.subnet6
+              ];
+            };
+            daddr = bt8bridge;
+            tcp.dport = 22;
+            verdict = "accept";
+            comment = "admin VLANs -> bt8bridge (SSH) via BT8-gateway";
+          });
 
         # trusted → untrusted (covers iot/adu/game which all bind into the
         # `untrusted` zone on thebeyond via subnetBindings). When Home
