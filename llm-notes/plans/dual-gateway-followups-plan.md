@@ -259,12 +259,10 @@ Per-host conversion (each host independent):
       and recovers ~6–8s after blocky binds. Diagnosis on three real
       trip events (May 28–31) confirmed the breaker behaves correctly
       and every trip mapped 1:1 to a planned dual-gateway-work reboot.
-- [ ] **Fix thebeyond timezone — should be UTC, not PDT.** Discovered
-      while correlating the kresd fallback logs above with phantasma's
-      UTC journals. Cosmetic but pays for itself the first time
-      anyone needs to compare two hosts' logs again. Likely a one-line
-      `time.timeZone = "UTC"` (or removing an override) in the
-      thebeyond config.
+- [x] ~~Fix thebeyond timezone — should be UTC, not PDT.~~ Done
+      2026-05-31. `hosts/thebeyond/default.nix:46` flipped from
+      `America/Los_Angeles` → `UTC`. Bundled into the phantasma-journald
+      deploy.
 - [ ] **Add end-to-end DNS resolution VM test
       (`tests/modules/router6-dns-resolution.nix`).** Existing
       coverage (`router6-kresd-config`, `router6-dns-interception`,
