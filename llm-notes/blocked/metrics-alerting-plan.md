@@ -5,6 +5,26 @@ homelab.
 
 ---
 
+## Blocked on
+
+[`cicd-fleet-activation-plan.md`](../plans/cicd-fleet-activation-plan.md).
+
+The original block on this plan was thebeyond hardware (for wg-vpn reachability
+and for the Phase 4 service-specific exporters running on the router). thebeyond
+is now deployed (dual-gateway work shipped 2026-05), so the hardware gate is
+lifted — but the remaining Phase 4 items are deferred behind CI/CD for the same
+reason as dual-gateway Phase 4/4.5 (see
+[[project_phase_4_deferred_to_cicd]]): rolling new exporters and dashboard
+changes out to every host by hand is exactly the churn the CI/CD pipeline is
+designed to absorb, and doing it pre-CI/CD just creates throwaway operator work.
+
+**Unblock condition:** CI/CD fleet activation reaches the point where
+`nixos-rebuild` is driven by the pusher host on merge — at which point the
+Phase 4 exporter rollout, dashboard refresh, and Forgejo → ntfy webhook all
+ride the new pipeline.
+
+---
+
 ## Current State
 
 **tharbad** (on calvard, VLAN 11 — management zone) currently runs:
@@ -26,11 +46,11 @@ homelab.
 
 **fluent-bit-agent** module deployed fleet-wide, shipping to `tharbad.internal:3100` (nginx → VictoriaLogs).
 
-**Remaining work:**
+**Remaining work** (all deferred behind CI/CD — see `## Blocked on` above):
 
 1. Review Perses dashboards, identify gaps
-2. ntfy phone integration — blocked on thebeyond deploy + wg-vpn (hardware ETA April/May 2026)
-3. Phase 4 service-specific exporters — blocked on thebeyond hardware
+2. ntfy phone integration — needs wg-vpn (thebeyond hardware now in place; wg-vpn is its own track)
+3. Phase 4 service-specific exporters (unbound, kea, nginx, nftables) — fleet rollout deferred to CI/CD
 4. CI/CD webhook integration (Forgejo → ntfy)
 
 ---
@@ -553,7 +573,7 @@ modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide �
 - [x] Write Phase 1 alert rules — HostDown, DiskSpaceLow, HighMemoryUsage,
       ZFSPoolDegraded, SystemdUnitFailed
 - [x] Alertmanager + ntfy deployed and running
-- [ ] Install ntfy app on phone, subscribe to topics — blocked on thebeyond deploy + wg-vpn (hardware ETA April/May 2026)
+- [ ] Install ntfy app on phone, subscribe to topics — needs wg-vpn (thebeyond hardware now in place; wg-vpn is its own track)
 - [ ] Test end-to-end alert pipeline once phone integration is possible
 
 ### Phase 4 — Expanded Monitoring
@@ -565,9 +585,9 @@ modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide �
 - [x] Add egress rules on tharbad for all new scrape targets
 - [x] Add management → DMZ/lab forward rules on router for Prometheus scraping
 - [x] Rename stale `ymir_node` scrape job to `tharbad_node`
-- [ ] Deploy service-specific exporters (unbound, kea, nginx, nftables) — blocked on thebeyond hardware
+- [ ] Deploy service-specific exporters (unbound, kea, nginx, nftables) — fleet rollout deferred to CI/CD (see `## Blocked on`)
 - [x] Add Phase 2 alert rules (vmalert-vlogs: SSHBruteForce, SSHBruteForceExtreme, SudoFailure)
-- [ ] Add remaining Phase 2 alerts (FirewallDropsSpike, CertExpiringSoon) — blocked on exporters
+- [ ] Add remaining Phase 2 alerts (FirewallDropsSpike, CertExpiringSoon) — needs the exporters above
 - [x] Add Phase 3 alert rules (Prometheus: SlowScrape, PrometheusRuleEvalFailure; also HighCPUUsage, HostRebooted in infrastructure group; vmalert-vlogs: FleetLogGap)
 - [ ] Review existing Perses dashboards, identify coverage gaps (dashboards are declarative/code-managed — changes go through the repo and CI)
 - [ ] Build additional Perses dashboards (firewall overview, DNS stats)
