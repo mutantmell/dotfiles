@@ -29,11 +29,8 @@ in {
     };
   };
 
-  services.nginx = {
-    enable = true;
-    recommendedTlsSettings = true;
-    recommendedProxySettings = true;
-    virtualHosts."creil.internal" = {
+  services.nginx = let
+    forgejoVhost = {
       forceSSL = true;
       enableACME = true;
       extraConfig = "client_max_body_size 512m;";
@@ -41,6 +38,14 @@ in {
         proxyPass = "http://127.0.0.1:3000";
         proxyWebsockets = true;
       };
+    };
+  in {
+    enable = true;
+    recommendedTlsSettings = true;
+    recommendedProxySettings = true;
+    virtualHosts = {
+      "creil.internal" = forgejoVhost;
+      "forgejo.internal" = forgejoVhost;
     };
   };
 

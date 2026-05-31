@@ -108,15 +108,12 @@
       vlanId = 100;
       gateway = "thebeyond";
       # Explicit prefix4 override: keeps DMZ at 10.97.100.x through Phase 5 so
-      # existing DMZ residents (langport, trista, oracion, creil, zeiss, saint-arkh)
-      # don't re-IP until services migrate to APP. Dropped at end of Phase 5.
+      # remaining DMZ residents (langport, trista) don't re-IP until A.4 drops
+      # the override and renumbers them to 10.91.100.x.
       prefix4 = "10.97.100";
       hosts = {
-        zeiss = 31; # Attic binary cache (liberl)
         trista = 51; # SSH bastion (erebonia Incus VM)
         langport = 41; # Reverse proxy (calvard)
-        creil = 53; # Forgejo git hosting (calvard)
-        "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia)
       };
     };
     # Services VLAN — terminates on BT8-gateway in Phase 2. No interface on
@@ -127,6 +124,9 @@
       gateway = "bt8gw";
       hosts = {
         oracion = 52; # Jellyfin/Navidrome/Retrom media server (calvard) — moved from dmz in Phase 5.A
+        zeiss = 31; # Attic binary cache (liberl) — moved from dmz in Phase 5.A.2
+        creil = 53; # Forgejo git hosting (calvard) — moved from dmz in Phase 5.A.1
+        "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia) — moved from dmz in Phase 5.A.3
       };
     };
     # BT8-gw-side network-gear management VLAN (parallel of network/10 on
@@ -409,6 +409,10 @@
       "navidrome.internal"
       "retrom.internal.mutantmell.net"
       "retrom.internal"
+    ];
+    creil = [
+      "forgejo.internal.mutantmell.net"
+      "forgejo.internal"
     ];
   };
 

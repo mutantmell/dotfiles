@@ -33,9 +33,9 @@
   microvm.interfaces = [
     {
       type = "macvtap";
-      id = "vm-100-s-arkh";
+      id = "vm-50-s-arkh";
       mac = "5E:64:00:3D:00:01";
-      macvtap.link = "uplink.100";
+      macvtap.link = "uplink.50";
       macvtap.mode = "bridge";
     }
   ];

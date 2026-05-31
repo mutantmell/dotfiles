@@ -33,7 +33,7 @@
   microvm.interfaces = [
     {
       type = "tap";
-      id = "vm-100-creil";
+      id = "vm-50-creil";
       mac = "5E:64:00:35:00:01";
     }
   ];

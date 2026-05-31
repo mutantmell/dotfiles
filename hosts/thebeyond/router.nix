@@ -32,10 +32,7 @@
   inherit (net.hosts) messeldam;
   inherit (net.hosts) basel;
   inherit (net.hosts) tharbad;
-  inherit (net.hosts) roer;
   inherit (net.hosts) oracion;
-  inherit (net.hosts) creil;
-  saint-arkh = net.hosts."saint-arkh";
 
   # Maps registry subnet name → { bridgeName, zone, enableDhcp?, enableDhcp6? }.
   # The subnet name is the key into net.networks and determines IP addressing
@@ -313,14 +310,6 @@ in {
             tcp.dport = 3100;
             verdict = "accept";
             comment = "DMZ -> tharbad (Loki) [via BT8-gateway]";
-          })
-          # saint-arkh → roer (deployd container deployment API)
-          ++ (ds {
-            saddr = saint-arkh;
-            daddr = roer;
-            tcp.dport = 443;
-            verdict = "accept";
-            comment = "saint-arkh -> roer (deployd API) [via BT8-gateway]";
           });
       };
 
@@ -460,39 +449,12 @@ in {
             verdict = "accept";
             comment = "lab -> dmz (any) [via BT8-gateway]";
           })
-          # TEMP: trusted (HOME) -> dmz broad — preserves the workstation's
-          # access to Forgejo, Jellyfin, Attic etc. while services are still
-          # in DMZ. Replaces the pre-cutover `trusted.forwardRules.dmz` rule.
-          # Remove after Phase 5 moves APP-bound services out.
-          ++ (ds {
-            saddr = {
-              ipv4 = net.networks.trusted.subnet4;
-              ipv6 = net.networks.trusted.subnet6;
-            };
-            verdict = "accept";
-            comment = "TEMP: trusted -> dmz (any) [via BT8-gateway] — remove after Phase 5";
-          })
           # management → dmz:9100 (tharbad Prometheus node_exporter scrape)
           ++ (ds {
             saddr = tharbad;
             tcp.dport = 9100;
             verdict = "accept";
             comment = "tharbad -> dmz (node_exporter) [via BT8-gateway]";
-          })
-          # TEMP: management → creil (SSH + Forgejo HTTPS) so calvard/erebonia/liberl
-          # can coordinate updates via Forgejo while creil is still in DMZ. Replaces
-          # the pre-cutover `management.forwardRules.dmz` creil rule. Remove after
-          # Phase 5.B moves creil to APP (which becomes a BT8-gateway-local
-          # management→app fw4 rule at that point).
-          ++ (ds {
-            saddr = {
-              ipv4 = net.networks.management.subnet4;
-              ipv6 = net.networks.management.subnet6;
-            };
-            daddr = creil;
-            tcp.dport = [22 443];
-            verdict = "accept";
-            comment = "TEMP: management -> creil (SSH + Forgejo) [via BT8-gateway] — remove after Phase 5.B";
           });
 
         # Admin access to network-zone hosts. Network zone otherwise denies
@@ -658,17 +620,7 @@ in {
             verdict = "accept";
             comment = "WireGuard";
           }
-        ]
-        # TEMP: thebeyond -> creil SSH so the router can pull its own updates
-        # from Forgejo via git+ssh while managing them itself. HTTPS (443) is
-        # already open to anywhere above, so git+https://creil.internal/... is
-        # already reachable without this rule. Remove after Phase 5.B.
-        ++ (ds {
-          daddr = creil;
-          tcp.dport = 22;
-          verdict = "accept";
-          comment = "TEMP: thebeyond -> creil (SSH) — remove after Phase 5.B";
-        });
+        ];
       # Port forward SSH from wg-ba to trista (SSH bastion)
       portForwards = [
         {

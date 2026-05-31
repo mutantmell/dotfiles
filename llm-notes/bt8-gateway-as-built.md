@@ -11,6 +11,11 @@ Source dumps live in `temp/`:
   after Phase 2.1 cutover (2026-05-29). Not re-captured per change.
 - `temp/BT8-gw-phase-5a-additions.uci` — fw4 additions applied 2026-05-31
   during oracion's DMZ→APP move.
+- `temp/BT8-gw-section-a-additions.uci` — fw4 additions for the remaining
+  Phase 5 service migrations (creil, zeiss, saint-arkh DMZ→APP). Apply
+  after the Nix-side re-IPs deploy. Companion to
+  [`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
+  Section A.
 
 This file captures (a) deltas from
 [`guides/bt8-gateway-luci-runbook.md`](guides/bt8-gateway-luci-runbook.md),
@@ -180,6 +185,29 @@ chain rules; deferred unless an actual leak is found.
 
 This resolves the previous loose-end "No transit → app reverse
 forwarding."
+
+## Section A additions — creil / zeiss / saint-arkh moved DMZ → APP
+
+UCI source: `temp/BT8-gw-section-a-additions.uci`. Companion to
+[`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
+Section A.
+
+Three new zone-pair forwarding directives + per-flow accept rules:
+
+| Direction | Flows | Ports |
+| --- | --- | --- |
+| `app → management` | creil/zeiss/saint-arkh → basel | tcp 443 (ACME) |
+| `app → management` | creil/zeiss/saint-arkh → tharbad | tcp 3100, 8427 (Loki + metrics push) |
+| `app → management` | saint-arkh → roer | tcp 443 (deployd API) |
+| `management → app` | management VLAN → creil | tcp 22, 443 (Forgejo) |
+| `management → app` | management VLAN → zeiss | tcp 443 (Attic cache) |
+| `trusted → app` | HOME (operator workstation) → app (broad) | (zone-pair accept; per-rule TBD) |
+| `lab → app` | edith → app (broad) | (zone-pair accept; per-rule TBD) |
+
+No `transit → app` per-flow rules needed for this batch — no wg-* flows
+currently target creil/zeiss/saint-arkh. `app → app` intra-zone flows
+(e.g. saint-arkh → zeiss Attic push) traverse the APP bridge directly
+without involving fw4.
 
 ## Loose ends / follow-ups
 
