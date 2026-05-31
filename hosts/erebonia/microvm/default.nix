@@ -69,6 +69,11 @@ in {
       netdevConfig.Name = "uplink.21";
       vlanConfig.Id = 21;
     };
+    netdevs."20-uplink.50" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "uplink.50";
+      vlanConfig.Id = 50;
+    };
     netdevs."20-uplink.100" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "uplink.100";
@@ -81,6 +86,7 @@ in {
       vlan = [
         "uplink.11"
         "uplink.21"
+        "uplink.50"
         "uplink.100"
       ];
     };
@@ -112,6 +118,17 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
     };
+    networks."20-uplink.50" = {
+      matchConfig.Name = "uplink.50";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+    };
+    # macvtap interfaces for VLAN 50 guests: no host-side IP, just carrier
+    networks."20-vm50-macvtap" = {
+      matchConfig.Name = "vm-50-*";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+    };
     networks."20-uplink.100" = {
       matchConfig.Name = "uplink.100";
       networkConfig.DHCP = "no";
@@ -132,10 +149,10 @@ in {
   };
   services.resolved.enable = true;
 
-  # Wait for VLAN 100 before setting up macvtap interfaces
+  # Wait for VLAN 50 before setting up macvtap interfaces
   systemd.services."microvm-macvtap-interfaces@saint-arkh" = {
-    after = ["sys-subsystem-net-devices-uplink.100.device"];
-    wants = ["sys-subsystem-net-devices-uplink.100.device"];
+    after = ["sys-subsystem-net-devices-uplink.50.device"];
+    wants = ["sys-subsystem-net-devices-uplink.50.device"];
   };
 
   # Host-based input firewall: restrict SSH to router + vHOME

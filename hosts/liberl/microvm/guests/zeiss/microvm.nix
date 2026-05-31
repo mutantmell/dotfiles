@@ -34,7 +34,7 @@
   microvm.interfaces = [
     {
       type = "tap";
-      id = "vm-100-zeiss";
+      id = "vm-50-zeiss";
       mac = "5E:A5:4D:A3:A0:1A";
     }
   ];
