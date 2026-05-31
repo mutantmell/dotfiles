@@ -1,10 +1,20 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
-**Status:** Phases 0a / 0b / 1 / 2 complete (incl. Phase 2.2 `router6.routes`
-and 2.6 as-built notes). Phase 3 not started — see
-[as-built notes](dual-gateway-bt8-gw-as-built-notes.md) for current
-BT8-gateway state and Phase 3 readiness deltas.
-**Last updated:** 2026-05-29 — Phase 2 as-built revisions:
+**Status:** Phases 0a / 0b / 1 / 2 / 3 complete. Next is **Phase 5** (services
+into APP, starting 5.A `oracion`); per project policy Phase 4 / 4.5 are deferred
+until the CI/CD pipeline lands, so Phase 5 cross-gateway rules go in as
+hand-edited UCI on BT8-gw during this window — flake doesn't codegen BT8-gw fw4
+yet. See [as-built notes](dual-gateway-bt8-gw-as-built-notes.md) for current
+BT8-gateway state.
+**Last updated:** 2026-05-31 — Phase 3 closed: INFRA/11, HOME/20, LAB/21 L3
+terminate on BT8-gw; thebeyond's `subnetBindings` no longer holds them;
+cross-gateway routes + source-subnet-gated transit-zone rules in place
+(`hosts/thebeyond/router.nix:428-549`). End-to-end connectivity and external
+scan verified by operator. **Deviation logged:** source-zone attribution is
+lost across the transit /30, so admin-VLAN forwards/inputs are gated by source
+subnet under `transit` rather than source-zone under each destination zone.
+
+Earlier: 2026-05-29 — Phase 2 as-built revisions:
 (1) **Wireless architecture clarified:** all client WiFi is provided
 by BT8-bridge bound to GUEST/30; HOME/INFRA/LAB are wired-only by
 design. BT8-gateway broadcasts no client SSIDs. Runbook C (office-side
