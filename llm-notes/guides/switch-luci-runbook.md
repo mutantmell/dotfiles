@@ -1013,6 +1013,74 @@ bridge link show
 
 on both sides and confirm STP / spanning-tree state.
 
+### Symptom: SSH from VLAN 20/21 times out, but BT8-gw can SSH to `10.97.12.12` fine
+
+Return-path asymmetry through thebeyond. Trace:
+
+- SYN from workstation (e.g. `10.97.20.x`) reaches arseille via VLAN
+  20 → BT8-gw → arseille on VLAN 12. Forward path works.
+- SYN-ACK from arseille has `src = 10.97.12.12`, `dst = 10.97.20.x`.
+  Arseille's routing lookup for `10.97.20.x`: not connected, no
+  matching static — falls back to the default route via `10.91.10.1`
+  (thebeyond) which is correctly still in place during the dual-stack
+  window.
+- Reply enters thebeyond on `brMGMT` (zone `network`). thebeyond's
+  forward chain matches `network → transit` (the reply is destined
+  for a subnet beyond the transit `/30`). thebeyond's `network` zone
+  has `accessTo = []` and no `forwardRules.transit` — the reply is
+  dropped silently (the relevant config is in
+  `hosts/thebeyond/router.nix`).
+- Workstation sees no SYN-ACK → TCP timeout. The giveaway versus the
+  earlier "Connection refused" symptom is the **timeout** (silent
+  drop on thebeyond) vs the **ICMP-error replies** (fw4 REJECT on
+  arseille itself).
+
+Confirm with `tcpdump -i any -nn port 22 and host 10.97.20.x` on
+arseille while initiating SSH — you'll see the SYN arrive and a
+SYN-ACK leave on `switch.10` toward thebeyond, never coming back.
+
+**Fix: more-specific route on arseille for the bt8gw address space
+via BT8-gw**, so replies to anything in `10.97.0.0/16` (and the
+matching ULA block) take the symmetric path back through BT8-gw
+instead of detouring via thebeyond.
+
+LuCI — **Network → Routing → IPv4 Routes → Add**:
+
+| Field     | Value          |
+| --------- | -------------- |
+| Interface | `netmgmt`      |
+| Target    | `10.97.0.0/16` |
+| Gateway   | `10.97.12.1`   |
+
+And under IPv6 Routes:
+
+| Field     | Value                      |
+| --------- | -------------------------- |
+| Interface | `netmgmt`                  |
+| Target    | `fdc6:55f2:0a5e:1000::/52` |
+| Gateway   | `fdc6:55f2:0a5e:100c::1`   |
+
+UCI:
+
+```sh
+uci add network route
+uci set network.@route[-1].interface='netmgmt'
+uci set network.@route[-1].target='10.97.0.0/16'
+uci set network.@route[-1].gateway='10.97.12.1'
+uci add network route6
+uci set network.@route6[-1].interface='netmgmt'
+uci set network.@route6[-1].target='fdc6:55f2:0a5e:1000::/52'
+uci set network.@route6[-1].gateway='fdc6:55f2:0a5e:100c::1'
+uci commit network && /etc/init.d/network reload
+```
+
+Verify: `ip route get 10.97.20.1` on arseille should report
+`via 10.97.12.1 dev switch.12`, not `via 10.91.10.1`.
+
+At VLAN 10 retirement the `/16` static becomes redundant — the
+default route flips to `10.97.12.1` and covers the same range — and
+can be removed for tidiness.
+
 ---
 
 ## Appendix C — Post-runbook follow-ups
