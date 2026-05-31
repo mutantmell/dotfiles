@@ -1,7 +1,13 @@
 # Perses Dashboard Overhaul
 
-> **Status:** Planning (2026-05-12). Sub-plan of `metrics-alerting-plan.md`
-> Phase 4 ("Review existing Perses dashboards, identify coverage gaps").
+> **Status:** Shipped 2026-05. Phases 0–3 complete. Dead `tharbad/modules/prometheus.nix`
+> removed; dashboards rewritten to use the `host` label; `fleet-overview.yaml` added.
+> Loki→VictoriaLogs migration superseded `loki-overview.yaml` with `victorialogs-overview.yaml`
+> out-of-band. Phase 3.3 (empirical ALERTS-series check after deploy) was never
+> formally signed off, but no breakage reported — re-open if alerts-by-host
+> panel turns out to be empty in practice.
+>
+> Sub-plan of `wip/metrics-alerting-plan.md` Phase 4.
 
 ## Background
 

@@ -1,5 +1,15 @@
 # AdGuard → Blocky Migration on Phantasma
 
+**Status:** Shipped 2026-05. `services.blocky` deployed on phantasma
+(`hosts/thebeyond/microvm/guests/phantasma/modules/dns.nix`), with Unbound
+preserved as the recursive resolver. Tests at
+`tests/modules/phantasma-dns.nix` and `tests/lib/blocky-config.nix`.
+
+The "Out-of-scope follow-ups" section below remains as historical context.
+The kresd DNSSEC item is superseded by `done/kresd-dnssec-fix-plan.md`.
+The phantasma slow-boot investigation is still open — `TimeoutSec=600`
+and the hvc0-getty disable remain in place as band-aids.
+
 ## Why now
 
 Two converging reasons:
