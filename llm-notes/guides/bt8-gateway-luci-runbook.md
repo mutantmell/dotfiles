@@ -3,9 +3,9 @@
 **Status:** operator-facing runbook for the BT8-gateway hardware cutover
 during the dual-gateway migration. Read end-to-end before starting.
 
-**Companion plan:** [`dual-gateway-app-vlan-plan.md`](dual-gateway-app-vlan-plan.md)
+**Companion plan:** [`dual-gateway-app-vlan-plan.md`](../done/dual-gateway-app-vlan-plan.md)
 (architectural reference; do not need to follow during the window).
-**Companion checklist:** [`dual-gateway-app-vlan-checklist.md`](dual-gateway-app-vlan-checklist.md)
+**Companion checklist:** [`dual-gateway-app-vlan-checklist.md`](../done/dual-gateway-app-vlan-checklist.md)
 (maps to plan phases; this runbook covers Phase 0b ("Hardware cutover")
 and the manual side of Phase 2 ("BT8-gateway by hand") for the
 **BT8-gateway** role specifically).
@@ -80,9 +80,9 @@ Tick each before powering anything off.
       (10.97.10/11/20/21/100 + APP/50 + transit/255) over the mesh; if
       Phase 1 isn't deployed, the swap goes to a thebeyond that doesn't
       know about half the homelab's address space and traffic black-holes.
-      See [plan §Phase 1](../wip/dual-gateway-app-vlan-plan.md#phase-1--add-app-and-transit-vlans-to-the-registry-and-thebeyond)
+      See [plan §Phase 1](../done/dual-gateway-app-vlan-plan.md#phase-1--add-app-and-transit-vlans-to-the-registry-and-thebeyond)
       for the exact zone/route set; the prerequisite gate inside the plan
-      ([§Phase 2 prerequisites](../wip/dual-gateway-app-vlan-plan.md#phase-2--manual-proof-bt8-bridge-and-bt8-gateway))
+      ([§Phase 2 prerequisites](../done/dual-gateway-app-vlan-plan.md#phase-2--manual-proof-bt8-bridge-and-bt8-gateway))
       enumerates the checks.
 - [ ] **Take photos** of the legacy BT8's current cabling so you can
       rebuild it identically if you have to roll the §6 swap back and
@@ -101,7 +101,7 @@ If any of the above is "no", **stop and resolve before proceeding**.
 
 **Read this before the window opens.** This runbook covers the
 **Phase 2** scope of the [dual-gateway migration
-plan](../wip/dual-gateway-app-vlan-plan.md): bringing BT8-gateway up
+plan](../done/dual-gateway-app-vlan-plan.md): bringing BT8-gateway up
 as the L3 gateway for **APP (VLAN 50)** and **transit (VLAN 255)
 only**. L3 ownership of `management`/11, `trusted`/20, `lab`/21,
 `netmgmt`/12 stays on `thebeyond` until Phase 3, which is a separate
@@ -1240,7 +1240,7 @@ revert.
 > `thebeyond`** — that is what makes the swap safe (thebeyond is
 > ready to serve L3 for all the VLANs legacy BT8 was carrying, over
 > the mesh path that BT8-gateway now provides). See [the prerequisite
-> gate in the plan](../wip/dual-gateway-app-vlan-plan.md#phase-2--manual-proof-bt8-bridge-and-bt8-gateway)
+> gate in the plan](../done/dual-gateway-app-vlan-plan.md#phase-2--manual-proof-bt8-bridge-and-bt8-gateway)
 > for the full set of checks.
 
 ### 6.1 Pre-swap verification — L2 switch trunk config matches BT8-gateway
@@ -1424,7 +1424,7 @@ Three reasonable end-states for the legacy device:
   spare for unrelated future projects.
 - **B. Reflash with the unified BT8 image and re-role as an office
   mesh AP** — per [runbook C of the
-  plan](../wip/dual-gateway-app-vlan-plan.md#c-manual-setup-bt8-as-office-side-dumb-ap-mesh-resident).
+  plan](../done/dual-gateway-app-vlan-plan.md#c-manual-setup-bt8-as-office-side-dumb-ap-mesh-resident).
   This is the preferred path: it adds capacity/redundancy to the
   office-side mesh that BT8-gateway depends on for transit, and the
   mesh AP role uses the same unified image so there is no extra

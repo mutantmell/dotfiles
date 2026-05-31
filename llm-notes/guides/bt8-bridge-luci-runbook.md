@@ -8,9 +8,9 @@ BT8-bridge to the target spec for the dual-gateway plan.
 runbook lists "BT8-bridge is up and reachable" as a pre-flight check
 — **this runbook is what makes that check pass cleanly.**
 
-**Companion plan:** [`dual-gateway-app-vlan-plan.md`](../wip/dual-gateway-app-vlan-plan.md)
+**Companion plan:** [`dual-gateway-app-vlan-plan.md`](../done/dual-gateway-app-vlan-plan.md)
 (architectural reference). The plan's
-[runbook A](../wip/dual-gateway-app-vlan-plan.md#a-manual-setup-bt8-as-dumb-ap--wireless-bridge)
+[runbook A](../done/dual-gateway-app-vlan-plan.md#a-manual-setup-bt8-as-dumb-ap--wireless-bridge)
 is the UCI-level target spec; this document is the LuCI-driven
 operator path to it on a device that is **already partially
 configured**.
@@ -494,7 +494,7 @@ the OK message.
 > isn't serving any clients (everything DHCPs from thebeyond), and
 > the firewall isn't enforcing any rules that the operator cares
 > about (BT8-bridge does no L3 forwarding). The
-> [Reference F.3](../wip/dual-gateway-app-vlan-plan.md#f3-role-specific-service-activation)
+> [Reference F.3](../done/dual-gateway-app-vlan-plan.md#f3-role-specific-service-activation)
 > table in the plan documents this explicitly.
 
 ### 3.G — Remove the default `wan` interface and any stale fw4 zones
@@ -921,7 +921,7 @@ If it broke:
 ## Appendix D — Post-runbook follow-ups
 
 Track these in the project's existing checklist (likely
-[`dual-gateway-app-vlan-checklist.md`](../wip/dual-gateway-app-vlan-checklist.md));
+[`dual-gateway-app-vlan-checklist.md`](../done/dual-gateway-app-vlan-checklist.md));
 they are NOT part of running this runbook:
 
 - Save the post-runbook sysupgrade backup into the operator secret
