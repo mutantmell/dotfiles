@@ -1,5 +1,16 @@
 # Fix kresd DNSSEC validation on thebeyond
 
+**Status:** Shipped 2026-05. Both fixes landed:
+- Primary path switched to `policy.STUB` via `router6.dns.upstreamPolicy = "stub"` (`hosts/thebeyond/router.nix:584`).
+- Root KSK pinned via `pkgs.dns-root-data` in read-only mode (`modules/router6/dns.nix:181`).
+- `router6.dns.enableDNSSEC = true` on thebeyond (`hosts/thebeyond/router.nix:578`).
+- DNSSEC tests at `tests/modules/router6-dnssec.nix`.
+
+Recommended follow-up (still open): switch fallback target from
+ISP-from-lease to a DNSSEC-aware public resolver (Quad9/Cloudflare).
+Without that, fallback during signing-aware-only-upstream outages still
+SERVFAILs signed queries.
+
 ## Why now
 
 `router6.dns.enableDNSSEC = false` is currently set on thebeyond
