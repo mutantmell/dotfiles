@@ -1085,7 +1085,7 @@ can be removed for tidiness.
 
 ## Appendix C — Post-runbook follow-ups
 
-Track in [`dual-gateway-app-vlan-checklist.md`](../wip/dual-gateway-app-vlan-checklist.md);
+Track in [`dual-gateway-app-vlan-checklist.md`](../done/dual-gateway-app-vlan-checklist.md);
 they're NOT part of this runbook:
 
 - **Flake back-port** (per "Flake back-port" section above) — registry

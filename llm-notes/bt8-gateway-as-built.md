@@ -1,9 +1,19 @@
-# BT8-gateway as-built notes (Phase 2.6)
+# BT8-gateway as-built reference
 
-Source of truth: `temp/BT8-gw-current.uci` (UCI dump from the running
-BT8-gateway after Phase 2.1 cutover).
+Snapshot of BT8-gateway's deployed state, kept here as the operator
+reference until Phase 4 codifies the same shape into the image-builder
+pipeline (see [`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
+§B.1). Updated in place whenever live UCI diverges from what's recorded.
 
-This file captures (a) deltas from `llm-notes/guides/bt8-gateway-luci-runbook.md`,
+Source dumps live in `temp/`:
+
+- `temp/BT8-gw-current.uci` — full UCI dump from the running BT8-gateway
+  after Phase 2.1 cutover (2026-05-29). Not re-captured per change.
+- `temp/BT8-gw-phase-5a-additions.uci` — fw4 additions applied 2026-05-31
+  during oracion's DMZ→APP move.
+
+This file captures (a) deltas from
+[`guides/bt8-gateway-luci-runbook.md`](guides/bt8-gateway-luci-runbook.md),
 (b) implementation choices that worked in production and should be the
 default for Phase 4 image-builder codification, and (c) loose ends that
 need follow-up.
@@ -144,6 +154,33 @@ don't rely on. Worth aligning in Phase 4 for consistency.
   forwarding so batman-adv handles forwarding (avoids double-forwarding
   loops). **Required**.
 
+## Phase 5.A additions (2026-05-31) — oracion moved DMZ → APP
+
+UCI source: `temp/BT8-gw-phase-5a-additions.uci`. Added on BT8-gateway
+when `oracion` (Jellyfin / Navidrome / Retrom) migrated from `10.97.100.52`
+(DMZ on thebeyond) to `10.97.50.52` (APP on BT8-gateway).
+
+Two new zone-pair forwarding directives + three per-flow accept rules:
+
+| Direction | Flow | Ports |
+| --- | --- | --- |
+| `transit → app` | wg-media (`10.100.20.0/24`) → oracion | tcp 443 |
+| `app → management` | oracion → basel | tcp 443 (ACME) |
+| `app → management` | oracion → tharbad | tcp 3100, 8427 (Loki + metrics push) |
+
+**fw4 gotcha:** per-rule accepts alone weren't sufficient — fw4 only
+evaluates inter-zone rules when a matching `config forwarding`
+directive opens the zone pair. Without it the zone's `forward 'REJECT'`
+policy fires first and rules never get reached (symptom: ICMP
+"destination port unreachable" from the gateway IP, even though
+`uci show firewall` shows the rule loaded). Both directives are
+therefore broad accepts; the per-rule entries document intent but don't
+tighten the zone-pair policy further. Tightening would need custom
+chain rules; deferred unless an actual leak is found.
+
+This resolves the previous loose-end "No transit → app reverse
+forwarding."
+
 ## Loose ends / follow-ups
 
 - **NETMGMT/12 not yet trunked.** Add when the OpenWRT homelab L2 switch
@@ -162,11 +199,13 @@ don't rely on. Worth aligning in Phase 4 for consistency.
   source filter). This is the management surface (br-lan / lan1 /
   192.168.1.1). Phase 4.5 (management plane lockdown) restricts
   SSH/LuCI on this zone to the operator allowlist.
-- **No `transit → app` reverse forwarding.** Today only `app → transit`
-  and `lan → transit` are configured. If a future flow needs thebeyond
-  to initiate inbound to an APP-resident host (e.g. monitoring scrape
-  of an APP service), add a `transit → app` forwarding with appropriate
-  rules.
+- **`app → management` and `transit → app` are broad zone-pair
+  accepts.** Phase 5.A added these because fw4 won't fire per-rule
+  accepts without them, but the per-rule entries we wrote can't
+  tighten the zone-pair policy itself on this version. If Phase 5
+  expands (creil, zeiss, saint-arkh into APP) and the per-flow list
+  grows, revisit whether custom chains or per-rule defaults can give
+  back strict-by-default at the zone-pair level.
 
 ## Anchor for Phase 4
 

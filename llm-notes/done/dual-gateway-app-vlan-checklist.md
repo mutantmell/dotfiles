@@ -1,5 +1,10 @@
 # Dual-Gateway + APP VLAN — Status Checklist
 
+**Status: COMPLETE** as of 2026-05-31. Phases 0a / 0b / 1 / 2 / 3 / 5.A
+shipped. Items below 5.A (5.B onward, Phase 4 / 4.5, outstanding open
+items) moved to [`../plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
+and are intentionally left unchecked here as historical record.
+
 Companion status doc for [`dual-gateway-app-vlan-plan.md`](dual-gateway-app-vlan-plan.md).
 Each item maps to a numbered step in the plan; tick as work completes.
 
@@ -131,7 +136,7 @@ Phase 0b not declared done until step 13 scan passes.
   - [x] `ss -tlnp 'sport = :53'` on thebeyond shows kresd bound to `10.255.255.1:53`
   - [x] Test device → DMZ host: traceroute confirms APP → BT8-gw → transit → thebeyond → DMZ
 - [x] **2.6** Document any UCI snippets / kernel-tuning needed in Phase 4 implementation notes
-  - Captured in `llm-notes/wip/dual-gateway-bt8-gw-as-built-notes.md` (post-2.1 UCI dump
+  - Captured in `llm-not../bt8-gateway-as-built.md` (post-2.1 UCI dump
     `temp/BT8-gw-current.uci`, deltas vs Runbook B, and Phase-4 codification targets).
 
 ## Phase 3 — Production cutover of office-side VLAN gateways
@@ -186,12 +191,19 @@ Phase 0b not declared done until step 13 scan passes.
 
 Per-host moves (each move = re-IP, DNS, hardening profile, cross-gateway rules, retest):
 
-- [ ] **5.A** `oracion` (Jellyfin) → APP
-  - [ ] Re-IP into `10.97.50.x`; update registry
-  - [ ] Update DNS (auto-regenerated)
-  - [ ] Apply DMZ host-hardening profile (host firewall + `mkEgressFilter`)
-  - [ ] **Required:** add `transit → app` rule on BT8-gateway sourced `10.100.20.0/24` (wg-media) → oracion on Jellyfin/Navidrome/Retrom ports
-  - [ ] Retest: in-zone, cross-zone via BT8-gateway, internet, all wg-media paths
+- [x] **5.A** `oracion` (Jellyfin/Navidrome/Retrom) → APP — landed 2026-05-31
+  - [x] Re-IP into `10.97.50.52`; registry move (`lib/common/data/network.nix` dmz.hosts → app.hosts)
+  - [x] Calvard host plumbing: br50 / enp88s0.50 / vm-50-bridge added (`hosts/calvard/microvm/default.nix`)
+  - [x] Oracion microvm tap renamed `vm-100-oracion` → `vm-50-oracion` (`hosts/calvard/microvm/guests/oracion/microvm.nix`)
+  - [x] DNS auto-regenerated (phantasma `mkUnboundLocalData` is registry-derived; refreshes on next thebeyond deploy)
+  - [x] DMZ host-hardening profile already in place on oracion (egress filter + host firewall predate Phase 5.A; `mkEgressRules zone …` auto-targets new APP gateway)
+  - [x] thebeyond router: `media.forwardRules.dmz` oracion → `media.forwardRules.transit` (`hosts/thebeyond/router.nix:347-365`)
+  - [x] BT8-gateway fw4: per-flow accepts for wg-media→oracion (transit→app), oracion→basel ACME, oracion→tharbad push (app→management). Broader than checklist line 192 originally said — needs `config forwarding` directives on the zone pairs to fire. Captured in `temp/BT8-gw-phase-5a-additions.uci` + as-built notes Phase 5.A section.
+  - [x] In-zone reachability: VLAN 20 (HOME) → 10.97.50.52 direct, retrom.internal, jellyfin.internal (after browser cache flush) all serve
+  - [x] oracion → tharbad metrics push working (fluent-bit healed once BT8-gw rule applied)
+  - [x] Consumer-host `/etc/hosts` refresh: thebeyond + liberl microvms (bose, ravennue) redeployed. langport refreshed via calvard reboot.
+  - [-] wg-media verification (arcus → jellyfin.internal over wg) — deferred; arcus needs additional work to get on-tunnel, tracked in follow-up plan
+  - [-] ACME re-issuance verification — passive; rule is in place, will renew when cert cycle hits
 - [ ] **5.B** `creil` (Forgejo internal) → APP
   - [ ] Re-IP, DNS, hardening, retest
   - [ ] Translate any wg-\* sources from existing inbound DMZ forward rules

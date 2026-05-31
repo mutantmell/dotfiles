@@ -1,12 +1,25 @@
 # Dual-Gateway + APP VLAN Migration Plan
 
-**Status:** Phases 0a / 0b / 1 / 2 / 3 complete. Next is **Phase 5** (services
-into APP, starting 5.A `oracion`); per project policy Phase 4 / 4.5 are deferred
-until the CI/CD pipeline lands, so Phase 5 cross-gateway rules go in as
-hand-edited UCI on BT8-gw during this window — flake doesn't codegen BT8-gw fw4
-yet. See [as-built notes](dual-gateway-bt8-gw-as-built-notes.md) for current
-BT8-gateway state.
-**Last updated:** 2026-05-31 — Phase 3 closed: INFRA/11, HOME/20, LAB/21 L3
+**Status:** **COMPLETE** (2026-05-31). Phases 0a / 0b / 1 / 2 / 3 / 5.A shipped.
+Phases 5.B / 5.C / 5.D, the 5.E–J DMZ renumber, Phase 4 / 4.5 image-builder
+codification, and the outstanding open-items list have moved to
+[`llm-notes/plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md).
+The dual-gateway topology is operational; this plan stays in `done/` as the
+historical record of how it landed. Living state for BT8-gateway is in
+[`../bt8-gateway-as-built.md`](../bt8-gateway-as-built.md)
+(remains there until Phase 4 codifies it into the image-builder pipeline).
+
+**Last updated:** 2026-05-31 — Phase 5.A (`oracion` Jellyfin/Navidrome/Retrom
+moved from DMZ to APP) shipped. BT8-gw fw4 gained zone-pair forwarding
+directives for `transit → app` and `app → management` plus per-flow accept
+rules; thebeyond's `media.forwardRules.dmz` rule for oracion became
+`media.forwardRules.transit`. Verification: in-zone HTTPS to oracion from
+HOME/20 confirmed; oracion → tharbad fluent-bit push working; consumer-host
+`/etc/hosts` refresh complete on liberl + thebeyond. Deferred to follow-up:
+arcus on-tunnel → wg-media → oracion validation (arcus needs separate work
+to get back on the tunnel). See follow-up plan Section E.
+
+Earlier: 2026-05-31 — Phase 3 closed: INFRA/11, HOME/20, LAB/21 L3
 terminate on BT8-gw; thebeyond's `subnetBindings` no longer holds them;
 cross-gateway routes + source-subnet-gated transit-zone rules in place
 (`hosts/thebeyond/router.nix:428-549`). End-to-end connectivity and external
@@ -1402,7 +1415,7 @@ Steps:
      `br-v<vid>` then has both `bat0.<vid>` (mesh side) and
      `br0.<vid>` (auto-created by bridge-vlan filtering, wired side)
      as members. This is the as-built shape — see
-     [as-built notes](dual-gateway-bt8-gw-as-built-notes.md) and
+     [as-built notes](../bt8-gateway-as-built.md) and
      [`temp/BT8-gw-current.uci`](../../temp/BT8-gw-current.uci).
    - **No client SSIDs on BT8-gateway.** Client wireless is provided
      entirely by **BT8-bridge** (modem closet, wired directly to
@@ -1572,7 +1585,7 @@ Steps:
    The SSH command runs on BT8-gateway, so `-U` is what works. Don't
    "fix" this by adding `iputils-arping` to the BT8 image — that
    forces a rebuild + reflash window for a one-flag delta. See
-   [as-built notes §Phase 4 codification targets](dual-gateway-bt8-gw-as-built-notes.md).
+   [as-built notes §Phase 4 codification targets](../bt8-gateway-as-built.md).
 
    Existing client leases continue to point at `.1`; they keep
    working because `.1` is now BT8-gateway. Brief ARP-cache flap on
