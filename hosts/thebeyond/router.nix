@@ -345,15 +345,18 @@ in {
       };
 
       media = {
-        # Consumer media access: Jellyfin, Retrom (future), game streaming (future)
+        # Consumer media access: Jellyfin, Navidrome, Retrom (future game streaming)
         # Authenticated via WireGuard — only keyed devices reach this zone
         icmpEcho = "enable";
         accessTo = [];
-        forwardRules.dmz = ds {
+        # oracion routed via transit since Phase 5.A — it lives in APP on
+        # BT8-gateway, no longer in thebeyond-local DMZ. BT8-gateway's fw4
+        # gates the transit→app side of the same flow.
+        forwardRules.transit = ds {
           daddr = oracion;
           tcp.dport = 443;
           verdict = "accept";
-          comment = "media -> oracion (Jellyfin)";
+          comment = "media -> oracion (Jellyfin/Navidrome/Retrom) [via BT8-gateway]";
         };
         inputRules = [
           {

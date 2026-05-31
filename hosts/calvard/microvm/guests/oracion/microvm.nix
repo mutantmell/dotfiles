@@ -59,7 +59,7 @@
   microvm.interfaces = [
     {
       type = "tap";
-      id = "vm-100-oracion";
+      id = "vm-50-oracion";
       mac = "5E:64:00:34:00:01";
     }
   ];
