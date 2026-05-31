@@ -249,15 +249,22 @@ Per-host conversion (each host independent):
 
 ### D.5 Router resilience / observability
 
-- [ ] **Investigate phantasma slow-boot.** Observed during Phase 0b:
-      `dig @10.91.10.10` returned errors for a while after thebeyond
-      reported the VM started. Identify the long-pole unit (likely
-      Blocky-on-Unbound dependency, Unbound-on-network-online, or
-      DNSSEC trust-anchor setup). Goal: bound startup to <30s or add
-      `systemd.services.<unit>.serviceConfig.TimeoutStartSec` /
-      dependency ordering so the VM is considered "ready" only when
-      DNS actually answers. Capture timing: `systemd-analyze blame`
-      and `systemd-analyze critical-chain` inside the VM.
+- [x] ~~Investigate phantasma slow-boot.~~ Closed 2026-05-31. Slow boot
+      is the accepted cost of running phantasma as a full systemd NixOS
+      environment — a deliberate trade-off, not a defect. The
+      user-visible impact during planned reboots is already bounded by
+      the kresd ISP-lease fallback breaker (see
+      `modules/router6/dns.nix` strict-failover dispatcher), which
+      switches to ISP DNS within ~10–15s of phantasma going unhealthy
+      and recovers ~6–8s after blocky binds. Diagnosis on three real
+      trip events (May 28–31) confirmed the breaker behaves correctly
+      and every trip mapped 1:1 to a planned dual-gateway-work reboot.
+- [ ] **Fix thebeyond timezone — should be UTC, not PDT.** Discovered
+      while correlating the kresd fallback logs above with phantasma's
+      UTC journals. Cosmetic but pays for itself the first time
+      anyone needs to compare two hosts' logs again. Likely a one-line
+      `time.timeZone = "UTC"` (or removing an override) in the
+      thebeyond config.
 - [ ] **Add end-to-end DNS resolution VM test
       (`tests/modules/router6-dns-resolution.nix`).** Existing
       coverage (`router6-kresd-config`, `router6-dns-interception`,
