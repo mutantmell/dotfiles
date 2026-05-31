@@ -492,26 +492,12 @@ in {
             comment = "TEMP: management -> creil (SSH + Forgejo) [via BT8-gateway] — remove after Phase 5.B";
           });
 
-        # TEMP: trusted (HOME) → phantasma SSH for workstation debug access.
-        # Replaces the pre-cutover `trusted.forwardRules.network` rule;
-        # network zone otherwise has no broad reach from trusted by design.
-        # Remove once DNS stabilizes.
+        # Admin access to network-zone hosts. Network zone otherwise denies
+        # all forwards from admin VLANs by design (bt8bridge, phantasma,
+        # arseille all live here); these are per-host carve-outs for the
+        # mgmt path across the gateway split.
         forwardRules.network =
           (ds {
-            saddr = {
-              ipv4 = net.networks.trusted.subnet4;
-              ipv6 = net.networks.trusted.subnet6;
-            };
-            daddr = phantasma;
-            tcp.dport = 22;
-            verdict = "accept";
-            comment = "TEMP: trusted -> phantasma (SSH) [via BT8-gateway] — remove after DNS diagnosis";
-          })
-          # Admin SSH to BT8-bridge (network/10 host, wired to thebeyond).
-          # BT8-bridge stays on the network zone by design (0 mesh hops from
-          # thebeyond); the network zone otherwise denies all forwards from
-          # admin VLANs, so this is a per-host carve-out for the mgmt path.
-          ++ (ds {
             saddr = {
               ipv4 = [
                 net.networks.management.subnet4
@@ -525,9 +511,27 @@ in {
               ];
             };
             daddr = bt8bridge;
+            tcp.dport = [22 80 443];
+            verdict = "accept";
+            comment = "admin VLANs -> bt8bridge (SSH + LuCI) — narrow LuCI to operator allowlist after Phase 4.5";
+          })
+          ++ (ds {
+            saddr = {
+              ipv4 = [
+                net.networks.management.subnet4
+                net.networks.trusted.subnet4
+                net.networks.lab.subnet4
+              ];
+              ipv6 = [
+                net.networks.management.subnet6
+                net.networks.trusted.subnet6
+                net.networks.lab.subnet6
+              ];
+            };
+            daddr = phantasma;
             tcp.dport = 22;
             verdict = "accept";
-            comment = "admin VLANs -> bt8bridge (SSH) via BT8-gateway";
+            comment = "admin VLANs -> phantasma (SSH) via BT8-gateway";
           });
 
         # trusted → untrusted (covers iot/adu/game which all bind into the
