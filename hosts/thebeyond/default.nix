@@ -43,7 +43,7 @@ in {
   '';
 
   networking.hostName = hostname;
-  time.timeZone = "America/Los_Angeles";
+  time.timeZone = "UTC";
 
   nix.settings.auto-optimise-store = true;
   nix.gc = {
