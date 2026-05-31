@@ -115,7 +115,6 @@
         zeiss = 31; # Attic binary cache (liberl)
         trista = 51; # SSH bastion (erebonia Incus VM)
         langport = 41; # Reverse proxy (calvard)
-        oracion = 52; # Jellyfin media server (calvard)
         creil = 53; # Forgejo git hosting (calvard)
         "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia)
       };
@@ -126,7 +125,9 @@
     app = {
       vlanId = 50;
       gateway = "bt8gw";
-      hosts = {};
+      hosts = {
+        oracion = 52; # Jellyfin/Navidrome/Retrom media server (calvard) — moved from dmz in Phase 5.A
+      };
     };
     # BT8-gw-side network-gear management VLAN (parallel of network/10 on
     # thebeyond's side). Populated by a follow-up plan when wired-to-BT8-gw
