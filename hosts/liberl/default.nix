@@ -31,6 +31,7 @@ in {
   boot.loader.systemd-boot.enable = true;
   boot.supportedFilesystems = ["zfs"];
   boot.zfs.extraPools = ["data"];
+  boot.zfs.forceImportRoot = false;
 
   services.zfs.autoScrub.enable = true;
   services.zfs.trim.enable = true;
