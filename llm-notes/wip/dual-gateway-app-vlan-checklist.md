@@ -136,24 +136,25 @@ Phase 0b not declared done until step 13 scan passes.
 
 ## Phase 3 — Production cutover of office-side VLAN gateways
 
-- [ ] **3.1** Physically install BT8-gateway in office production location
-- [ ] **3.2** Add inert L3 config on BT8-gateway for INFRA (11), HOME (20), LAB (21)
-  - [ ] Bridge + fw4 zone binding + odhcpd config in place, but bridge has no IP and odhcpd disabled
-- [ ] **3.3** Per-VLAN cutover (scripted single SSH transaction per VLAN)
-  - [ ] INFRA (11)
-  - [ ] HOME (20)
-  - [ ] LAB (21)
-  - [ ] Confirm gratuitous ARP convergence (`arping -A`) for each
-- [ ] **3.4** Apply on `thebeyond`
-  - [ ] Remove IPv4 + IPv6 gateway addresses from migrated VLAN bridges (keep bridges themselves)
-  - [ ] Confirm `router6.routes` cross-gateway routes still present
-  - [ ] Remove `management`, `trusted`, `lab` zones from `router6.zones` + their `mkVlanBridge` entries
-  - [ ] Keep `app` zone as no-op-by-design (member-only `brVAPP`, no IP/DHCP/rules)
-  - [ ] Confirm `network`, `dmz`, `transit`, `external`, `ba-tunnel`, `media`, untrusted family kept
-  - [ ] Remove DHCP definitions for migrated VLANs from Kea
-  - [ ] Stop DHCPv6-PD server on migrated VLANs
-- [ ] **3.5** Verify connectivity (DMZ ↔ APP ↔ GUEST ↔ INFRA paths; SSH to thebeyond, BT8-bridge, BT8-gateway)
-- [ ] **3.6** Re-run external scan runbook (Runbook E) — internal listening-socket and rendered ruleset review especially
+- [x] **3.1** Physically install BT8-gateway in office production location
+- [x] **3.2** Add inert L3 config on BT8-gateway for INFRA (11), HOME (20), LAB (21)
+  - [x] Bridge + fw4 zone binding + odhcpd config in place, but bridge has no IP and odhcpd disabled
+- [x] **3.3** Per-VLAN cutover (scripted single SSH transaction per VLAN)
+  - [x] INFRA (11)
+  - [x] HOME (20)
+  - [x] LAB (21)
+  - [x] Confirm gratuitous ARP convergence (`arping -U`, busybox flag) for each
+- [x] **3.4** Apply on `thebeyond`
+  - [x] Remove IPv4 + IPv6 gateway addresses from migrated VLAN bridges — done by dropping `management`/`trusted`/`lab` from `subnetBindings` in `hosts/thebeyond/router.nix` (commits `7ad41d7`, `75fd7ef`). Bridges themselves go away with the entries (no separate "keep bridge" step needed — Phase 5 doesn't need them on thebeyond).
+  - [x] Confirm `router6.routes` cross-gateway routes still present (`10.97.0.0/16` + `fdc6:55f2:0a5e:1000::/52` via `10.255.255.2`, `router.nix:559-569`; landed in `9f89f95`)
+  - [x] Remove `management`, `trusted`, `lab` zones from `router6.zones` + their `mkVlanBridge` entries
+  - [x] Keep `app` zone as no-op-by-design (member-only `brVAPP`, no IP/DHCP/rules)
+  - [x] Confirm `network`, `dmz`, `transit`, `external`, `ba-tunnel`, `media`, untrusted family kept
+  - [x] Remove DHCP definitions for migrated VLANs from Kea (dropped along with `mkVlanBridge` entries — Kea config is derived from `subnetBindings`)
+  - [x] Stop DHCPv6-PD server on migrated VLANs (same — derived from removed bindings)
+  - [x] **Deviation:** source-zone attribution is lost across the transit /30, so post-Phase-3 admin-VLAN access to thebeyond input and to other zones (DMZ, network/bt8bridge, network/phantasma, untrusted) is gated by **source subnet** under `transit` instead of source-zone under each zone. See `router.nix:428-443` (input), `:450-549` (forwards). Landed in `907e91b`. Will be revisited if/when we add a project-side trust-level wrapper.
+- [x] **3.5** Verify connectivity (DMZ ↔ APP ↔ GUEST ↔ INFRA paths; SSH to thebeyond, BT8-bridge, BT8-gateway) — operator verified out-of-band (SSH to all three gateways; HOME → DMZ HTTP; WAN egress).
+- [x] **3.6** Re-run external scan runbook (Runbook E) — completed by operator out-of-band.
 
 ## Phase 4 — Codify BT8-gateway and BT8-bridge in Image Builder
 
