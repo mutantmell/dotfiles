@@ -360,7 +360,7 @@ desktop, SSH cert auth, ET to edith. Standalone home-manager profile
 
 ### Metrics, Logging & Alerting — Phase 1-3 Deployed
 
-**Plan:** `wip/metrics-alerting-plan.md`
+**Plan:** `blocked/metrics-alerting-plan.md`
 
 tharbad migrated to VLAN 11 (management zone). Prometheus, Loki, and
 promtail-client operational. Grafana deployed but not fully configured.
