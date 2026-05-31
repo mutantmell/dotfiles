@@ -63,7 +63,20 @@ Each layer has one job:
 - **Blocky**: blocklist enforcement only.
 - **Unbound**: recursive resolution only.
 
-## Phase 1 — kresd upstream fallback
+## Phase 1 — kresd upstream fallback **(DEPLOYED)**
+
+> **Status:** Deployed and validated. Shipped as a strict-failover
+> dispatcher in `modules/router6/dns.nix` (Lua-driven probe + breaker
+> rather than the original `policy.on_failure` sketch — see comment
+> block at lines 28–34 for why). Lease-file renderer in
+> `modules/router6/dns-isp-fallback.nix`. Wired up on the router via
+> `router6.dns.fallbackFromLease = "enp4s0"` in
+> `hosts/thebeyond/router.nix`. Three real fallback events between
+> May 28–31 2026 all mapped 1:1 to planned phantasma reboots —
+> breaker behaves correctly (see
+> [[project-kresd-fallback-handles-phantasma-reboots]]). Original
+> design sketch below is preserved for context; the as-shipped
+> implementation is what's in the code.
 
 **Goal:** when forwarding to phantasma stalls (SERVFAIL or timeout),
 retry against a public resolver so clients don't see a 60s dead window.
