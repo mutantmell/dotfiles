@@ -77,6 +77,14 @@ in {
   time.timeZone = "UTC";
   security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
 
+  # Local journal is last-resort only — fluent-bit-agent ships everything to
+  # tharbad/VictoriaLogs. Capping it shortens systemd-journald's startup work
+  # on boot (matches the calvard/erebonia/liberl pattern).
+  services.journald.extraConfig = ''
+    SystemMaxUse=100M
+    MaxFileSec=7day
+  '';
+
   environment.persistence."/persist" = {
     hideMounts = true;
     directories = [
