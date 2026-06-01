@@ -7,9 +7,14 @@ Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 
 Depends on:
 - `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (cluster + CSI).
-- Cluster proven by `llm-notes/plans/k3s-cluster-workloads-plan.md`
-  (Phases 2–4 running reliably) — report says earliest start ~3 months
-  into cluster operation.
+- Cluster proven by `llm-notes/plans/k3s-deployd-migration-plan.md`
+  (cc-sandbox running reliably in-cluster). Per operator priority the
+  existing workloads are migrated before the net-new features in
+  `llm-notes/plans/k3s-cluster-workloads-plan.md`, so the cc-sandbox
+  migration — not the new workloads — is what proves the cluster ahead of
+  the edith move. (The report gated this on its Phases 2–4 + ~3 months of
+  cluster operation; the proving workload changes with the reordering, the
+  "let it run a while first" intent does not.)
 
 Relates to / eventually obsoletes:
 - **`llm-notes/done/incus-vm-migration.md`** — converted `edith` to an

@@ -1,12 +1,23 @@
 # k3s Cluster Workloads Plan (blog, game servers, CI runners)
 
-Status: Planned (not started)
+Status: Planned (not started) — **deferred to last**. Per operator
+priority, the existing workloads are migrated onto the cluster before these
+net-new features are added.
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
-**Phases 2–4** and Appendix A (CI runner security).
+**Phases 2–4** and Appendix A (CI runner security). Note: the report ran
+these as the cluster's *first* workloads; here they run **after** the
+migration plans below, because moving existing workloads (cc-sandbox,
+edith) over takes priority and those serve as the cluster's proving
+workloads instead.
 
-Depends on: `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster,
-CSI, runtimes, and Flux must exist first).
+Depends on:
+- `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster, CSI,
+  runtimes, and Flux must exist first).
+- Existing-workload migration done first:
+  `llm-notes/plans/k3s-deployd-migration-plan.md` and
+  `llm-notes/plans/k3s-dev-env-migration-plan.md`. The cluster should be
+  proven by those migrations before new features land here.
 
 Interacts with:
 - **`llm-notes/plans/cicd-fleet-activation-plan.md`** — its Phase 1
