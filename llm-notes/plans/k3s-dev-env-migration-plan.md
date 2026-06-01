@@ -1,4 +1,4 @@
-# k3s Dev-Environment Migration Plan (edith → KubeVirt, trista, Incus sunset)
+# k3s Dev-Environment Migration Plan (edith + trista → KubeVirt, Incus sunset)
 
 Status: Planned (not started)
 
@@ -26,17 +26,18 @@ Relates to / eventually obsoletes:
   calvard/erebonia (Phase 9).
 - **`llm-notes/done/kata-cloud-hypervisor-migration.md`** — documents *why*
   mutable-NixOS-as-a-container failed (kata-agent vs systemd cgroup-v2
-  `EBUSY`). That lesson is exactly why edith goes to **KubeVirt (a real
-  VM)**, not Pod + PVC.
+  `EBUSY`). That lesson is exactly why edith and trista go to **KubeVirt
+  (real VMs)**, not Pod + PVC.
 
 ---
 
-## Why edith is a KubeVirt VM, not a Pod + PVC
+## Why edith and trista are KubeVirt VMs, not Pods
 
-The stated goal of the Incus → cluster migration is "replace Incus with
-something **edith-shaped**." edith is a mutable NixOS system (systemd as
-PID 1, writable store, home-manager). Pod + PVC + systemd-as-PID-1 has two
-real frictions:
+**Both edith and trista are fully-fledged NixOS workstations** (operator,
+2026-06-01) — mutable NixOS systems with systemd as PID 1, writable store,
+home-manager. The stated goal of the Incus → cluster migration is "replace
+Incus with something **workstation-shaped**." Pod + PVC + systemd-as-PID-1
+has two real frictions for that shape:
 
 1. **PSS Restricted fights systemd-as-PID-1** — it blocks `/sys/fs/cgroup`
    rw and `procMount: Unmasked`, both of which systemd-as-PID-1 wants.
@@ -45,11 +46,17 @@ real frictions:
 2. The Coder / Gitpod / Codespaces precedents are container-shaped (thin
    inits), not systemd-as-PID-1 — they don't transfer 1:1.
 
-KubeVirt expresses edith directly (it *is* a VM), keeps NixOS as the guest
-OS without contortions, and maps CSI VolumeSnapshot cleanly onto the
-`incus snapshot` workflow edith has today. The cost (kubevirt-operator +
-virt-handler DaemonSet + CRDs, ~150 MB) is real and is the rejected
-alternative's tax to avoid.
+KubeVirt expresses these workloads directly (they *are* VMs), keeps NixOS
+as the guest OS without contortions, and maps CSI VolumeSnapshot cleanly
+onto the `incus snapshot` workflow both have today. The cost
+(kubevirt-operator + virt-handler DaemonSet + CRDs, ~150 MB) is real and is
+the rejected alternative's tax to avoid.
+
+> **Deviation from the report.** Report v20 kept trista as a *Pod*
+> candidate (treating it as a bastion/task-runner), with KubeVirt reserved
+> for edith. The operator has since clarified trista is a NixOS workstation
+> just like edith, so it gets the **same KubeVirt treatment**. Phase 8 is
+> rewritten accordingly.
 
 ## Current edith state (repo-grounded)
 
@@ -96,68 +103,73 @@ alternative's tax to avoid.
 edith is the operator's daily driver — the parallel-run + stopped-Incus
 rollback window is the mitigation for that risk.
 
-## Phase 8 — reconcile trista's role
+## Phase 8 — migrate trista into the cluster as a KubeVirt VM
 
-**Authoritative role (operator, 2026-06-01):** trista is an **SSH target
-that lives in DMZ and is reachable over the wg-ba mesh**. It **may also be
-a task runner**. It is **not** primarily a bastion. This supersedes the
+**Authoritative role (operator, 2026-06-01):** trista is a **fully-fledged
+NixOS workstation, the same shape as edith** — accessed as an SSH target in
+DMZ over the wg-ba mesh, and usable as a task runner. It is **not** a
+bastion and **not** a container-shaped workload. This supersedes the
 conflicting descriptions previously scattered across the repo:
 
 - `lib/common/data/network.nix` comment said "SSH bastion" — **corrected**
-  to the role above as part of this work.
+  to "NixOS workstation / dev environment" as part of this work.
 - `hosts/erebonia/incus/guests/trista/default.nix` → profile **`dmz-vm`**,
-  `macvlan` on `uplink.100` (DMZ placement — consistent with the role).
+  `macvlan` on `uplink.100` (DMZ placement — preserve after migration).
 - `microvm-inventory.md` → "Dev environment / task runner (backup)" —
-  **stale**, still needs the same correction (flagged below).
+  partially right (dev env) but needs refresh (flagged below).
 - `llm-notes/done/vlab-zone-plan.md` (vLAB) → "trista stays on DMZ, serves
-  wg-ba mesh peer" — consistent with the role.
+  wg-ba mesh peer" — consistent.
 
-Migration shape: an SSH target + occasional task runner is
-**container-shaped** — if/when trista moves into the cluster, **Pod + PVC
-with a thin init + sshd** (no systemd-as-PID-1) is the right fit, lighter
-than KubeVirt. (PSS: thin init + sshd works; PSS Baseline is acceptable for
-trusted-code workloads. It is *not* edith-shaped, so KubeVirt is not
-warranted.)
+Because trista is workstation-shaped, it migrates **exactly like edith in
+Phase 7**: a KubeVirt `VirtualMachine` with a flake-built NixOS image on a
+DataVolume (liberl-backed CSI, VolumeSnapshot backups). The "Why edith and
+trista are KubeVirt VMs" reasoning above applies in full. Concretely:
 
-The real complication is **wg-ba mesh peering**: a WireGuard mesh peer is
-naturally a host/VM, not a Pod. Two options when migration is actually
-wanted:
-- keep trista as a VM (Incus today, or KubeVirt) so wg-ba peering stays
-  host-native — simplest given the mesh role; or
-- run it as a Pod in the DMZ zone and terminate wg-ba elsewhere (e.g. on
-  the router / an existing mesh peer), routing SSH to the Pod via router6 +
-  NetworkPolicy.
+- Add it after edith is proven (edith is the daily driver and goes first);
+  trista is the secondary/backup workstation, so it's the lower-risk
+  second KubeVirt VM and a good confidence-builder before Incus sunset.
+- **DMZ placement + wg-ba mesh peering carry over cleanly** — a KubeVirt VM
+  is host-shaped, so it can hold the wg-ba WireGuard peer the same way the
+  Incus VM does today; no need to terminate wg-ba elsewhere (this was the
+  awkward part of the rejected Pod approach). Bridge the VM into the
+  cluster CNI on the DMZ zone; route SSH/wg-ba via router6.
+- Cutover mirrors edith: `incus export` the Incus trista → import as a
+  DataVolume; parallel-run; keep the stopped Incus declaration as the
+  rollback window; remove once confident.
 
-**No urgency.** trista has a live, low-churn role; there's no forced
-migration. Decide the shape only if/when consolidating off Incus (Phase 9)
-makes it worthwhile. Keeping it on Incus indefinitely is fine and is what
-defers Phase 9.
+**No urgency on timing** — trista is low-churn. But the *shape* is settled:
+KubeVirt VM, not Pod. Keeping it on Incus until edith is proven is fine.
 
-**Follow-up:** correct the `microvm-inventory.md` trista entry to match the
-authoritative role above.
+**Follow-up:** refresh the `microvm-inventory.md` trista entry to "NixOS
+workstation (KubeVirt VM after migration)".
 
-## Phase 9 — decommission Incus (if/when appropriate)
+## Phase 9 — decommission Incus
 
-Once dev environments are in the cluster and trista's role is resolved:
+With **both** edith (Phase 7) and trista (Phase 8) migrated to KubeVirt,
+Incus has no remaining guests — edith (calvard) and trista (erebonia) are
+the only two Incus guests today. So Phase 9 is now a clean removal rather
+than a contingent one:
 
-- If trista was the only remaining Incus guest, remove `common.incus` from
-  **calvard** (`hosts/calvard/incus/`) and **erebonia**
-  (`hosts/erebonia/incus/`).
-- Optionally retire `modules/incus/`, `modules/common/incus.nix`, and the
-  `incus-vm` / `incus-container` checks + `mk-incus-vm` / `mk-incus-container`
-  builders in `flake.nix` if nothing else uses them.
+- Remove `common.incus` from **calvard** (`hosts/calvard/incus/`) and
+  **erebonia** (`hosts/erebonia/incus/`).
+- Retire `modules/incus/`, `modules/common/incus.nix`, and the `incus-vm` /
+  `incus-container` checks + `mk-incus-vm` / `mk-incus-container` builders
+  in `flake.nix` (nothing else uses them once both guests are gone — verify
+  before removing).
 - Reclaim the Incus storage pool space.
 - The flake loses one control-plane module — the report's endgame
   (NixOS + microvm.nix + k8s; 3 control planes instead of 4).
 
-**Phase 9 may be deferred indefinitely** if trista is kept on Incus or a
-new Incus use case emerges.
+Do this only after both KubeVirt VMs have run reliably through their
+rollback windows (the stopped Incus declarations are the rollback path
+until then).
 
 ## Open decisions
 
-- edith's network placement after migration: keep the lab-VLAN identity
-  (`10.97.21.42`) routed into the cluster, or give it a cluster-zone
-  address? Affects router6 rules and the registry entry.
-- trista: leave alone (default) vs assign a concrete role now.
+- Network placement after migration for **both** workstations: keep their
+  current identities (edith lab VLAN `10.97.21.42`; trista DMZ + wg-ba) and
+  route them into the cluster, or give them cluster-zone addresses? Affects
+  router6 rules and the registry entries. trista additionally must keep its
+  wg-ba mesh peer working (KubeVirt VM holds it natively).
 - Whether to fully remove the Incus module/builders in Phase 9 or just
   disable on the hosts.
