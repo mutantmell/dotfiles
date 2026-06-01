@@ -1,12 +1,14 @@
-# k3s deployd Migration Plan (cc-sandbox cutover + deployd decommission)
+# k3s deployd Decommission Plan
 
 Status: Planned (not started)
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
-**Phases 5–6**.
+**Phases 5–6** — but reframed: see "What changed" below.
 
-Depends on: `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (cluster +
-kata-qemu/runc-kvm runtimes + `/dev/kvm` access must exist).
+Depends on: `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster is
+deployd's replacement context). deployd removal itself needs nothing from
+the cluster — it just needs the operator to be confident deployd isn't
+needed, which is already true (see below).
 
 Supersedes / retires:
 - The deployd implementation itself. (Its tracking doc,
@@ -16,115 +18,77 @@ Supersedes / retires:
   executes the actual removal from the flake.
 - **`llm-notes/specs/dynamic-container-layer.md`** — the deployd design
   spec. Once deployd is removed, the spec describes a decommissioned
-  system; add a forward-pointer (done as part of this work) and treat the
-  cluster plans as the live dynamic-runtime design.
+  system; a forward-pointer was added there and the cluster plans are the
+  live dynamic-runtime design.
 
-Reworks **cc-sandbox**'s deploy backend. (The original `cc-sandbox-plan.md`
-in `done/` was deleted once superseded — its deployd-based design had
-outlived its usefulness; git history retains it.) The user-facing
-cc-sandbox model is **unchanged** — repo fork on Forgejo/creil, project
-profiles, persistent Claude state volume, dev-shell build + `nix copy`,
-OIDC-authenticated sandbox creation. Only the deploy path changes: the old
-backend (deployd-api on `roer` → deployd-helper → containerd/kata on
-erebonia) is replaced by the k8s API, per Phase 5 below.
+## What changed (cc-sandbox is unused, not migrated)
 
----
+Earlier revisions of this plan treated **cc-sandbox** as a workload to
+*migrate* onto the cluster (parallel-run, re-point the deploy backend,
+preserve the user-facing model). That's no longer the plan:
 
-## Why these two phases are paired
+- **cc-sandbox ended up not very useful** — the nested-virtualization
+  limitations of what deployd built meant it never delivered, and it is
+  **currently unused**. (operator, 2026-06-01)
+- It is **not critical to keep working**. There is nothing worth
+  migrating.
+- The motivating goal — sandboxed AI-assisted coding — is carried forward
+  as a **better AI coding layer built fresh on the cluster**, not a port
+  of cc-sandbox. That successor workload lives in
+  `llm-notes/plans/k3s-cluster-workloads-plan.md` ("AI coding layer"). The
+  bare-metal k3s agent's kata-qemu + direct `/dev/kvm` access is exactly
+  what fixes the nested-virt problem that sank cc-sandbox — and the
+  bootstrap plan's Phase 1 validation already exercises that path
+  (kata-qemu pod, `/dev/kvm`, nested NixOS test VM).
 
-cc-sandbox is the *only* real deployd workload, and it's also one of the
-strongest motivations for the cluster: its current deployd nested-virt
-story is broken, and bare-metal kata-qemu (or runc-kvm) on the cluster
-fixes it. Migrating cc-sandbox empties deployd; once empty, deployd is
-removed. The report deliberately keeps the deployd-cohabitation period
-short (weeks-to-months) rather than the year earlier revisions imagined —
-two orchestrators competing for kata workloads on one host is the cost
-being minimised.
+So this plan is now a straight **decommission**: deployd has no active
+workload, so it is simply removed. No migration phase, no parallel-run.
 
-## Phase 5 — migrate cc-sandbox to the cluster
+## Decommission deployd
 
-1. **Validate the runtime first.** Spin up a test pod under `kata-qemu`;
-   confirm `/dev/kvm` access works inside the kata VM; run a NixOS test VM
-   inside it to confirm nested KVM works. The cluster's bare-metal access
-   to the host `/dev/kvm` is what makes this the simple case (no nesting
-   penalty) — this is the problem deployd couldn't solve.
-   - **Fallback:** if kata-qemu's guest kernel can't run nested NixOS-test
-     VMs (recurrence of the kata-kernel-nested issue that drove cc-sandbox
-     off kata under deployd — see
-     `llm-notes/done/kata-cloud-hypervisor-migration.md` for that
-     history), drop those sessions to **`runc-kvm`**, accepting the
-     isolation downgrade for sessions that need nested workloads. Decide
-     here, per Appendix A.
-2. **Reimplement the deploy flow.** Today: OIDC-authenticated
-   Pod-creation via `deployd-api` (on `roer`) → `deployd-helper` →
-   containerd. Two options, both fine:
-   - a small new k8s controller that does the OIDC-authenticated
-     Pod-creation, or
-   - extend `deployd-api` to talk to the **k8s API** instead of
-     `deployd-helper` (more reversible — keeps the existing API surface and
-     OIDC wiring on `roer`).
-   The OIDC issuer is the homelab provider (`messeldam`/Keycloak today,
-   Authelia after `authelia-migration-plan.md`); keep the `deploy` group
-   requirement.
-3. **Parallel-run.** New cluster-side cc-sandbox alongside the deployd-side
-   one for a few sessions to validate parity (sandbox creation, persistent
-   Claude state volume, dev-shell build + `nix copy`, repo fork on
-   Forgejo/creil).
-4. **Cut over** cc-sandbox's CLI to the new endpoint.
+deployd has no remaining workloads (cc-sandbox, its only consumer, is
+unused). It can be removed whenever convenient after the cluster exists —
+there is no workload-cutover to gate on. The previous "weeks-to-months
+cohabitation window" concern (two orchestrators competing for kata
+workloads on erebonia) largely evaporates because deployd isn't actually
+running anything; until removed, it just sits declared.
 
-### cc-sandbox repo touchpoints
-
-- `packages/deployd-api/` (`auth.rs`, `routes.rs`, `helper.rs`) — extend
-  to a k8s client, or leave as-is if a new controller is written instead.
-- cc-sandbox CLI config (home-manager tool) — repoint the deploy endpoint.
-- Sandbox host note: cc-sandbox currently targets `edith` as the build/dev
-  host; the cluster path runs the sandbox pod on erebonia bare-metal.
-  Confirm the build/`nix copy` source-of-truth host after cutover.
-
-## Phase 6 — decommission deployd
-
-With cc-sandbox migrated, deployd has no remaining workloads.
+Removal steps:
 
 - Remove `modules/deployd/` and `modules/common/deployd.nix`.
-- Remove `packages/deployd-api/` and `packages/deployd-helper/` (or keep
-  `deployd-api` if it was repurposed as the k8s-talking controller in
-  Phase 5 — decide based on the Phase 5 choice).
+- Remove `packages/deployd-api/` and `packages/deployd-helper/`.
 - Remove `common.deployd.enable` and the deployd block from
-  `hosts/erebonia/default.nix` (the `vsockHostSocket`/`vsockDirectoryService`
-  wiring to `roer`, `runtimes.allowed`, the `deploy-dmz` bridge config).
+  `hosts/erebonia/default.nix` (the `vsockHostSocket` /
+  `vsockDirectoryService` wiring to `roer`, `runtimes.allowed`, the
+  `deploy-dmz` bridge config).
 - **Decommission the `roer` microvm** (`hosts/erebonia/microvm/guests/roer/`,
-  the deployd-api host) — unless `roer` is being kept as the cc-sandbox
-  controller host per Phase 5.
+  the deployd-api host).
 - Reclaim the network allocation (`roer = 32`, management, in
   `lib/common/data/network.nix`).
 - The duplicate nested-KVM modprobe collapses to a single owner: erebonia's
   host-level `boot.extraModprobeConfig` (`hosts/erebonia/default.nix:53`)
   or the agent's containerd/kata config — the deployd copy is gone.
-- `/etc/kata-containers/configuration.toml` is now solely owned by k3s'
-  runtime; the kata-config coexistence footgun from the bootstrap plan
-  collapses.
+- `/etc/kata-containers/configuration.toml` is left solely to k3s' runtime;
+  the kata-config coexistence footgun from the bootstrap plan collapses.
 
-This ends the deployd cohabitation period. Two distinct report timeframes
-apply and shouldn't be conflated: the **cohabitation window** (how long
-deployd and k3s run side-by-side) is deliberately short — weeks-to-months,
-ended by this phase — while the report's **formal sunset bar** (12+ months
-as the platform for new dynamic work with no rollback events) is the
-conservative criterion for declaring the cluster proven in general. They
-don't conflict here: cc-sandbox is deployd's only workload and the
-bare-metal pivot directly fixes its nested-virt problem, so the practical
-trigger for *this* removal is "cc-sandbox runs reliably in-cluster," not
-the 12-month general bar.
+### cc-sandbox cleanup
+
+cc-sandbox's home-manager CLI tool and any remaining config can be removed
+or left to bit-rot harmlessly — it's a client-side tool with no running
+backend once deployd is gone. There's no parity bar to meet; nothing
+depends on it. (If any AI-coding workflow is wanted, it's the fresh cluster
+workload, not cc-sandbox.)
 
 ## Stale-reference cleanup (do as part of this work)
 
-- `docs/hostnames.md` lists `roer` as "not allocated" under erebonia, but
-  `roer` is the live deployd-api microvm. Remove the `roer` entry there when
-  the guest is decommissioned (and fix the stale "not allocated" label
-  meanwhile if touched).
+- `docs/hostnames.md` lists `roer` as the deployd-api microvm — remove that
+  entry when the guest is decommissioned.
 
 ## Rollback
 
-deployd stays fully declared through Phase 5 (parallel-run window) and is
-only removed in Phase 6. If the cluster cc-sandbox path regresses, revert
-the Phase 5 cutover commit — the deployd path is still live until Phase 6
-lands.
+deployd stays fully declared until this plan removes it; there is no
+intermediate cutover. If for some reason deployd is wanted back before
+removal, nothing has changed. After removal, the revert is restoring the
+removed commits — but since the cluster (with a better-isolated runtime) is
+the going-forward substrate for any sandboxed-compute need, a deployd
+revert is not expected.

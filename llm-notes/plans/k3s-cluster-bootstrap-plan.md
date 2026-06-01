@@ -10,16 +10,22 @@ Depends on: nothing in-repo (greenfield). Optional dependency on
 `llm-notes/plans/authelia-migration-plan.md` if OIDC `kubectl` access is
 wanted at bootstrap (see "Open decisions").
 
-Foundation for (in recommended execution order — **migrate existing
-workloads onto the cluster before adding net-new features**):
-1. `llm-notes/plans/k3s-deployd-migration-plan.md` (cc-sandbox + deployd sunset)
-2. `llm-notes/plans/k3s-dev-env-migration-plan.md` (edith KubeVirt, Incus sunset)
-3. `llm-notes/plans/k3s-cluster-workloads-plan.md` (blog, game servers, CI — last)
+Foundation for (recommended execution order):
+1. `llm-notes/plans/k3s-deployd-migration-plan.md` (deployd decommission —
+   trivial now; cc-sandbox is unused, so this can land early/anytime)
+2. `llm-notes/plans/k3s-dev-env-migration-plan.md` (edith + trista → KubeVirt,
+   Incus sunset) — the real "migrate existing workloads" step
+3. `llm-notes/plans/k3s-cluster-workloads-plan.md` (AI coding layer, game
+   servers, CI, blog — net-new features)
 
-The migrations (1, 2) are what prove the cluster; the new features (3) come
-after the existing stuff is moved over. This reorders the report's phase
-numbering (the report ran new workloads as Phases 2–4 *before* the
-cc-sandbox/edith migrations) per operator priority.
+Per operator priority, existing workloads move onto the cluster before
+net-new features. With cc-sandbox now unused (not migrated), the only
+existing workloads to migrate are the dev environments (edith/trista);
+deployd is just decommissioned. A low-stakes net-new workload (e.g. the AI
+coding layer prototype or a game server) is the natural cluster shakedown
+before moving the daily-driver edith — see the dev-env plan. This reorders
+the report's phase numbering (it ran net-new workloads as Phases 2–4 before
+the migrations).
 
 Reverses the k3s rejection in `llm-notes/specs/dynamic-container-layer.md`
 (see that spec's "Alternatives" table). deployd is being retired in
@@ -196,7 +202,7 @@ and keep them non-conflicting:
 - **kata config is the real footgun**: both want
   `/etc/kata-containers/configuration.toml`. Pin `pkgs.kata-runtime` to a
   single version across both during the transition; this collapses when
-  deployd is removed (see `k3s-deployd-migration-plan.md`, Phase 6).
+  deployd is removed (see `k3s-deployd-migration-plan.md`).
 - **nested-KVM modprobe is declared twice today**: deployd's module sets
   `options kvm_intel nested=1` and `hosts/erebonia/default.nix:53` sets it
   again at host level. Resolve the duplicate (pick one owner).
@@ -224,7 +230,9 @@ target). Validation (from the report):
   external-snapshotter, democratic-csi, Kyverno, Flux all Running.
 - `kubectl get runtimeclass` → runc, runsc, kata-qemu, runc-kvm present.
 - runsc test pod is sandboxed (gVisor kernel string); kata-qemu test pod
-  runs in a KVM VM and can reach `/dev/kvm` (the cc-sandbox case).
+  runs in a KVM VM and can reach `/dev/kvm`, and a nested NixOS test VM
+  boots inside it (the nested-virt path the AI coding layer needs — the
+  thing deployd couldn't do).
 - democratic-csi PVC provisions on liberl, binds, snapshots via
   VolumeSnapshot.
 - cert-manager issues a Certificate from step-ca.
