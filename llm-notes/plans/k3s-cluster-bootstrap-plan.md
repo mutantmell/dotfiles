@@ -13,19 +13,20 @@ wanted at bootstrap (see "Open decisions").
 Foundation for (recommended execution order):
 1. `llm-notes/plans/k3s-deployd-migration-plan.md` (deployd decommission —
    trivial now; cc-sandbox is unused, so this can land early/anytime)
-2. `llm-notes/plans/k3s-dev-env-migration-plan.md` (edith + trista → KubeVirt,
-   Incus sunset) — the real "migrate existing workloads" step
-3. `llm-notes/plans/k3s-cluster-workloads-plan.md` (AI coding layer, game
-   servers, CI, blog — net-new features)
+2. `llm-notes/plans/k3s-cluster-workloads-plan.md` **Phase A** — AI coding
+   layer / dev containers via a coordinator service. The **low-stakes
+   starter and cluster shakedown**; the cc-sandbox-workflow successor.
+3. `llm-notes/plans/k3s-dev-env-migration-plan.md` (edith + trista → KubeVirt,
+   Incus sunset) — migrate the existing dev environments, once the cluster
+   is proven by Phase A.
+4. The **rest** of `k3s-cluster-workloads-plan.md` (blog, game servers, CI)
+   — remaining net-new features, after the dev-env migration.
 
-Per operator priority, existing workloads move onto the cluster before
-net-new features. With cc-sandbox now unused (not migrated), the only
-existing workloads to migrate are the dev environments (edith/trista);
-deployd is just decommissioned. A low-stakes net-new workload (e.g. the AI
-coding layer prototype or a game server) is the natural cluster shakedown
-before moving the daily-driver edith — see the dev-env plan. This reorders
-the report's phase numbering (it ran net-new workloads as Phases 2–4 before
-the migrations).
+Rationale: deployd is just decommissioned (no workload). The AI coding
+layer (dev containers) is built first as a low-stakes shakedown that proves
+the cluster before the daily-driver edith moves. This reorders the report's
+phase numbering (it ran net-new workloads as Phases 2–4 before the
+migrations).
 
 Reverses the k3s rejection in `llm-notes/specs/dynamic-container-layer.md`
 (see that spec's "Alternatives" table). deployd is being retired in

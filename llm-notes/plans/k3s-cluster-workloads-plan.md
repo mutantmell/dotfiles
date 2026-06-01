@@ -1,27 +1,26 @@
 # k3s Cluster Workloads Plan (AI coding layer, game servers, CI, blog)
 
-Status: Planned (not started) — net-new features, after the existing
-workloads (the dev environments) are migrated. The **AI coding layer** is
-the headline motivating workload (see below); the others follow.
+Status: Planned (not started). **Phase A (AI coding layer / dev containers)
+runs first** as the cluster's low-stakes starter and shakedown — ahead of
+the dev-environment migration. The remaining net-new features (blog, game
+servers, CI) come **after** the dev-env migration.
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 2–4** and Appendix A (CI runner security). The AI coding layer is
 *not* in the report — it's the successor goal to cc-sandbox (which is
 unused and being retired, not migrated; see
 `k3s-deployd-migration-plan.md`). The report ran blog/game/CI as the
-cluster's *first* workloads; here they run after the dev-env migration, per
-operator priority, except that a low-stakes one of them may serve as the
-cluster shakedown before the daily-driver edith moves (see the dev-env
-plan's "Depends on").
+cluster's *first* workloads; here Phase A is the first workload and the rest
+run after the dev-env migration, per operator priority.
 
 Depends on:
 - `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster, CSI,
-  runtimes, and Flux must exist first; the AI coding layer additionally
-  needs the kata-qemu/runc-kvm + `/dev/kvm` path validated in bootstrap
-  Phase 1).
-- Net-new features generally land after
-  `llm-notes/plans/k3s-dev-env-migration-plan.md`, though a single
-  low-stakes workload here may be pulled earlier as the cluster shakedown.
+  runtimes, and Flux must exist first; the AI coding layer's optional
+  nested-virt sessions additionally need the kata-qemu/runc-kvm + `/dev/kvm`
+  path validated in bootstrap Phase 1).
+- **Phase A runs before** `llm-notes/plans/k3s-dev-env-migration-plan.md`
+  (it's the shakedown that proves the cluster ahead of the edith move). The
+  **remaining** features (Phases 2–4) land after the dev-env migration.
 
 Interacts with:
 - **`llm-notes/plans/cicd-fleet-activation-plan.md`** — its Phase 1 makes
@@ -47,41 +46,55 @@ the chosen dynamic-manifest path), **not** as NixOS modules.
 
 ---
 
-## Phase A — AI coding layer (motivating workload)
+## Phase A — AI coding layer / dev containers (first workload, cluster shakedown)
 
 A motivating goal of the whole k3s effort: **a better AI-assisted coding
-layer** — sandboxed, isolated environments for running AI coding agents
-against homelab repos. This is the *successor to cc-sandbox's intent*, not
-a port of it. cc-sandbox failed because deployd's nested-virtualization
-story was broken; the bare-metal k3s agent fixes exactly that.
+layer**. Concretely (operator, 2026-06-01): use **k3s plus a coordinator
+service to create dev containers on demand**, replacing the cc-sandbox
+workflow with something else. This is the *successor to cc-sandbox's
+intent*, not a port of it.
 
-Design is deliberately open (cc-sandbox's specifics aren't carried
-forward), but the shape is:
+This is also the **low-stakes workload the cluster starts with** — it runs
+**first**, before the dev-environment migration, and serves as the cluster
+shakedown that proves things before the daily-driver edith moves (see
+`k3s-dev-env-migration-plan.md`). It is therefore the one part of this plan
+pulled ahead of the dev-env migration; the rest (blog/game/CI) stays later.
 
-- **Strong per-session isolation** via the runtime tiers the cluster
-  already provides: `kata-qemu` (VM-isolated, with `/dev/kvm` for nested
-  workloads such as `nixos-rebuild`/NixOS test VMs) or `runc-kvm` as the
-  fallback if kata's guest kernel can't nest. gVisor (`runsc`) for the
-  lighter, untrusted-code tier. All validated in bootstrap Phase 1.
-- **OIDC-authenticated** session/Pod creation against the homelab provider
+Shape:
+
+- **Dev containers (Pods), created on demand by a coordinator service.**
+  The coordinator is the cc-sandbox-api successor: it takes an
+  authenticated request and creates a per-session dev-container Pod via the
+  k8s API (a small k8s-native controller, or Flux-templated Pods), rather
+  than the old deployd-api/deployd-helper split. Containers, not VMs — this
+  is the lighter shape, which is part of why it's the low-stakes starter.
+- **Isolation via the cluster's runtime tiers.** Default to gVisor
+  (`runsc`) for the per-session containers; `kata-qemu` is available if a
+  session needs VM-grade isolation. Full nested-virt (`/dev/kvm`,
+  `kata-qemu`/`runc-kvm` running nested NixOS build VMs) is **only** needed
+  for sessions that must build/boot VMs — the exact thing that broke under
+  deployd, now fixed by the bare-metal agent — but it is not the default
+  for ordinary dev containers. (All tiers validated in bootstrap Phase 1.)
+- **OIDC-authenticated** session creation against the homelab provider
   (Keycloak now, Authelia later), gated on a group — the same auth shape
-  cc-sandbox used, but reimplemented as a small k8s-native controller (or
-  a Flux-managed Job/Pod template), not the deployd-api/helper split.
+  cc-sandbox used.
 - **Repo integration** with Forgejo (`creil`) and the Nix substituter
   (`zeiss` Attic) for fast dev-shell builds.
-- Persistent per-project state on democratic-csi (VolumeSnapshot backups).
+- Persistent per-session/project state on democratic-csi (VolumeSnapshot
+  backups).
 
-Because it exercises the cluster's strongest isolation path and is
-lower-stakes than the daily-driver dev environments, this is a good
-candidate for the **cluster shakedown workload** that proves things before
-edith migrates (see `k3s-dev-env-migration-plan.md`). Treat the detailed
-design as an open item to spec when this phase is picked up.
+The coordinator service itself: decide whether it runs as a cluster
+workload (Pod) or a small NixOS-declared service that talks to the
+apiserver — lean toward a cluster workload to keep it in the dynamic layer.
+Treat the detailed design (session lifecycle, state model, coordinator API)
+as an open item to spec when this phase is picked up.
 
 ## Phase 2 — the blog (optional)
 
 Genuinely optional — the blog isn't a homelab priority. Build it if
-there's content to ship; otherwise skip straight to Phase 3/4. Whichever
-workload is first exercises the same cluster-side plumbing.
+there's content to ship; otherwise skip straight to Phase 3/4. (Phase A is
+the actual first workload; the blog is just the lowest-stakes of the
+report's original three.)
 
 - Deployment + Service + Flux reconciler watching the content repo for
   image updates.
@@ -190,5 +203,5 @@ newly public-facing service.
   session lifecycle, state model, runtime tier per session. Spec it when
   picked up; it's the motivating workload but the design is open.
 - Dynamic-manifest repo layout (inherited from the bootstrap plan's open
-  decision #4) — decide before the first workload lands (Phase A or 2).
+  decision #4) — decide before Phase A (the first workload) lands.
 - Whether the blog is worth building at all, or Phase 2 is skipped.
