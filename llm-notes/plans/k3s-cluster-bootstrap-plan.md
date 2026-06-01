@@ -10,10 +10,16 @@ Depends on: nothing in-repo (greenfield). Optional dependency on
 `llm-notes/plans/authelia-migration-plan.md` if OIDC `kubectl` access is
 wanted at bootstrap (see "Open decisions").
 
-Foundation for:
-- `llm-notes/plans/k3s-cluster-workloads-plan.md` (blog, game servers, CI)
-- `llm-notes/plans/k3s-deployd-migration-plan.md` (cc-sandbox + deployd sunset)
-- `llm-notes/plans/k3s-dev-env-migration-plan.md` (edith KubeVirt, Incus sunset)
+Foundation for (in recommended execution order — **migrate existing
+workloads onto the cluster before adding net-new features**):
+1. `llm-notes/plans/k3s-deployd-migration-plan.md` (cc-sandbox + deployd sunset)
+2. `llm-notes/plans/k3s-dev-env-migration-plan.md` (edith KubeVirt, Incus sunset)
+3. `llm-notes/plans/k3s-cluster-workloads-plan.md` (blog, game servers, CI — last)
+
+The migrations (1, 2) are what prove the cluster; the new features (3) come
+after the existing stuff is moved over. This reorders the report's phase
+numbering (the report ran new workloads as Phases 2–4 *before* the
+cc-sandbox/edith migrations) per operator priority.
 
 Reverses the k3s rejection in `llm-notes/specs/dynamic-container-layer.md`
 (see that spec's line ~47 alternatives table). deployd itself is already
