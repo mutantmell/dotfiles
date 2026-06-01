@@ -49,7 +49,7 @@ in {
   networking.extraHosts = net.mkExtraHosts ["creil" "tharbad"];
 
   time.timeZone = "UTC";
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
+  common.internal-pki.enable = true;
 
   environment.persistence."/persist" = {
     hideMounts = true;

@@ -28,8 +28,8 @@ in {
         hostnameAllowlist = [".internal"];
       };
 
-      # Trust step-ca root CA so nerdctl can pull from creil.internal over HTTPS
-      security.pki.certificateFiles = [pkgs.mmell.lib.data.pki.root];
+      # Trust the internal step-ca PKI so nerdctl can pull from creil.internal over HTTPS
+      common.internal-pki.enable = true;
 
       # Allow cloud-hypervisor (microvm user) to connect to the vsock proxy socket.
       users.users.microvm.extraGroups = ["deployd-helper"];

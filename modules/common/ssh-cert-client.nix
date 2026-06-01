@@ -15,8 +15,8 @@ in {
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [pkgs.step-cli];
 
-    # Trust the internal root CA for TLS
-    security.pki.certificateFiles = [pki.root];
+    # Trust the internal step-ca PKI (root + intermediate) for TLS
+    common.internal-pki.enable = true;
 
     # step-cli defaults: CA URL, fingerprint, and default provisioner
     environment.etc."step-cli/config/defaults.json".text = builtins.toJSON {

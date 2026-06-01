@@ -35,9 +35,6 @@ in {
     };
   };
 
-  # Trust the internal root CA
-  security.pki.certificateFiles = [pkgs.mmell.lib.data.pki.root];
-
   services.nginx = {
     enable = true;
     recommendedTlsSettings = true;

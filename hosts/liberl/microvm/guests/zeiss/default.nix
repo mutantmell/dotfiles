@@ -48,7 +48,7 @@ in {
   networking.extraHosts = net.mkExtraHosts ["basel"];
 
   time.timeZone = "UTC";
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
+  common.internal-pki.enable = true;
 
   # Shared nginx + ACME for attic vhost
   networking.firewall.allowedTCPPorts = [80 443];

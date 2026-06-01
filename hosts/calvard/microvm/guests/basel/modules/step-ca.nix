@@ -28,8 +28,6 @@ in {
       mode = "0444";
     };
   };
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
-
   services.step-ca = {
     enable = true;
     address = "[::]";

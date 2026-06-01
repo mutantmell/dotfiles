@@ -75,7 +75,7 @@ in {
     + net.mkExtraHosts ["messeldam" "basel" "langport"];
 
   time.timeZone = "UTC";
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
+  common.internal-pki.enable = true;
 
   # Local journal is last-resort only — fluent-bit-agent ships everything to
   # tharbad/VictoriaLogs. Capping it shortens systemd-journald's startup work
