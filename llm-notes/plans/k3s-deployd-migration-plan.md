@@ -33,8 +33,9 @@ preserve the user-facing model). That's no longer the plan:
 - It is **not critical to keep working**. There is nothing worth
   migrating.
 - The motivating goal — sandboxed AI-assisted coding — is carried forward
-  via an **off-the-shelf dev-environment platform (Coder, or DevPod)** on
-  the cluster, not a port of cc-sandbox and not a bespoke build. That
+  via an **off-the-shelf dev-environment tool (DevPod recommended, or Coder
+  if multi-user)** on the cluster, not a port of cc-sandbox and not a
+  bespoke build. That
   successor workload lives in
   `llm-notes/plans/k3s-cluster-workloads-plan.md` (Phase A). The bare-metal
   k3s agent's kata-qemu + direct `/dev/kvm` access fixes the nested-virt
