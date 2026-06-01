@@ -75,23 +75,50 @@ additions for any new cross-zone flows.
 - [ ] Retest: a sample CI job that exercises Forgejo (creil), Attic
       (zeiss), and the public-facing langport reverse-proxy path
 
-### A.4 Post-migration cleanup (was 5.E–J)
+### A.4 Post-migration cleanup (was 5.E–J) — DONE 2026-06-01
 
 After A.1–A.3 land — the only remaining DMZ residents are `langport`
 and `trista`, both physically pinned to DMZ for their roles (public
 ingress + SSH bastion). The renumber unwinds the temporary
 `prefix4 = "10.97.100"` override on the `dmz` zone.
 
-- [ ] Drop `prefix4 = "10.97.100"` override on `dmz` zone in
+Operator is sole consumer of langport + trista, so the dual-stack
+window was skipped in favor of a single in-place flip.
+
+- [x] Drop `prefix4 = "10.97.100"` override on `dmz` zone in
       `lib/common/data/network.nix`
-- [ ] Re-IP `langport` to `10.91.100.41` (dual-stack window pattern —
-      add new address alongside, switch DNS, drop old)
-- [ ] Re-IP `trista` to `10.91.100.51` (same dual-stack approach)
-- [ ] Update `thebeyond`'s `dmz` bridge to `10.91.100.1/24`
-- [ ] Check `basel`'s step-ca issuance templates; re-issue any cert
-      pinning `10.97.100.<id>`
-- [ ] Confirm Cloudflare DNS for `langport`'s WAN side unaffected by
-      the internal re-IP
+- [x] Re-IP `langport` to `10.91.100.41` (single in-place flip via
+      registry — langport already consumed `host.cidr4`/`zone.gateway4`)
+- [x] Re-IP `trista` to `10.91.100.51` (migrated hardcoded literals to
+      registry helpers in `hosts/erebonia/incus/guests/trista/default.nix`
+      while in there; eliminates the divergence call-out)
+- [x] Update `thebeyond`'s `dmz` bridge to `10.91.100.1/24` (automatic
+      via registry — router topology re-derived from `net.networks.dmz`)
+- [x] Check `basel`'s step-ca issuance templates; re-issue any cert
+      pinning `10.97.100.<id>` — **no reissuance needed.** Audited all
+      cert-request sites in the flake (`messeldam/keycloak.nix:86`,
+      `roer/api.nix:87`, `modules/common/fluent-bit.nix:144`); all
+      DNS-only. All 18 checked-in fleet x5c enrollment certs are
+      DNS-only. step-ca policy at `basel/modules/step-ca.nix:55`
+      allows IP SANs in `10.97.0.0/16`, but the flake doesn't exercise
+      that path.
+- [x] Confirm Cloudflare DNS for `langport`'s WAN side unaffected by
+      the internal re-IP — external DNS untouched by definition (only
+      internal addressing changed).
+- [x] Verify: `dig langport.internal` returns `10.91.100.41` from
+      edith — confirmed 2026-06-01 03:28 UTC. trista reachable
+      via SSH on the new IP; langport public HTTPS ingress confirmed
+      operational; no regressions observed elsewhere.
+
+Also bundled into this section's PR: kresd-isp-fallback runtime-dir
+preservation fix (`modules/router6/dns-isp-fallback.nix`). Stops
+kresd@N restarts from wiping `/run/knot-resolver/isp-dns.lua` —
+unrelated to the re-IP but rode the same deploy window.
+
+Erebonia deployd bridge (kata-runtime workload pool) also re-derived
+from the registry in this PR — previously hardcoded `10.97.100.x`
+literals at `hosts/erebonia/default.nix:38-41`. Same shape as the
+trista cleanup.
 
 ---
 
