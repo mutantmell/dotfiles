@@ -2,7 +2,7 @@
 
 > **Superseded (2026-06-01).** The dynamic-container use case is now served
 > by a k3s cluster, not deployd. The k3s rejection in the alternatives
-> table below (~line 47) was reversed — see
+> table below (the "Alternatives" section) was reversed — see
 > `llm-notes/reports/k8s-migration-evaluation.md` for the reasoning, and
 > the `llm-notes/plans/k3s-*-plan.md` set for the implementation. deployd's
 > removal from the flake is planned in

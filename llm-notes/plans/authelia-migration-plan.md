@@ -597,7 +597,7 @@ Once all consumers are on Authelia and validated:
 2. ~~Update `feature-roadmap-analysis.md` Step 4 (Keycloak OIDC)~~ — n/a,
    roadmap doc deleted (superseded by the plans/wip/done lifecycle)
 3. ~~Update deployd auth references~~ — n/a, deployd retired (superseded by k8s; plan doc deleted)
-4. Update `llm-notes/wip/headscale-integration-plan.md` Keycloak references
+4. Update `llm-notes/plans/headscale-integration-plan.md` Keycloak references
 5. Verify all `oauth2-proxy` references are removed from the codebase
 
 ## Rollback plan
@@ -683,7 +683,7 @@ compromise scenarios where audit trails inform incident response.
 
 ### F3. Headscale plan update (Keycloak → Authelia)
 
-The headscale integration plan (`llm-notes/wip/headscale-integration-plan.md`)
+The headscale integration plan (`llm-notes/plans/headscale-integration-plan.md`)
 references Keycloak throughout — OIDC client registration, cross-zone firewall
 rules to Keycloak, architecture diagrams. All Keycloak references should be
 updated to Authelia. The OIDC flows are identical (authorization code grant),

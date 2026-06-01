@@ -104,12 +104,16 @@ With cc-sandbox migrated, deployd has no remaining workloads.
   runtime; the kata-config coexistence footgun from the bootstrap plan
   collapses.
 
-This ends the deployd cohabitation period. Per the report's sunset
-criteria, deployd retirement is appropriate once the cluster has been the
-platform for new dynamic work for 12+ months with no rollback events — but
-because cc-sandbox is the only workload and the bare-metal pivot directly
-fixes its nested-virt problem, the practical trigger is "cc-sandbox runs
-reliably in-cluster," not a fixed calendar.
+This ends the deployd cohabitation period. Two distinct report timeframes
+apply and shouldn't be conflated: the **cohabitation window** (how long
+deployd and k3s run side-by-side) is deliberately short — weeks-to-months,
+ended by this phase — while the report's **formal sunset bar** (12+ months
+as the platform for new dynamic work with no rollback events) is the
+conservative criterion for declaring the cluster proven in general. They
+don't conflict here: cc-sandbox is deployd's only workload and the
+bare-metal pivot directly fixes its nested-virt problem, so the practical
+trigger for *this* removal is "cc-sandbox runs reliably in-cluster," not
+the 12-month general bar.
 
 ## Stale-reference cleanup (do as part of this work)
 

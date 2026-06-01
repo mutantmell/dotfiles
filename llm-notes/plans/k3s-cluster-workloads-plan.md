@@ -53,7 +53,7 @@ workload is first exercises the same cluster-side plumbing.
   image updates.
 - Cluster Traefik routes `blog.*` to the pod; **langport's nginx**
   forwards public traffic to erebonia's k3s ingress (existing reverse-proxy
-  pattern — langport is the dmz reverse proxy, `10.97.x`/dmz).
+  pattern — langport is the dmz reverse proxy, `10.91.100.x`/dmz).
 - Lowest-stakes exercise of the full stack: image pull, scheduling,
   ingress, public routing.
 
