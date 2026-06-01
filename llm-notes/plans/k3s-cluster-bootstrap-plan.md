@@ -22,9 +22,8 @@ numbering (the report ran new workloads as Phases 2–4 *before* the
 cc-sandbox/edith migrations) per operator priority.
 
 Reverses the k3s rejection in `llm-notes/specs/dynamic-container-layer.md`
-(see that spec's line ~47 alternatives table). deployd itself is already
-shelved in favour of this direction — see
-`llm-notes/shelved/deployd-integration.md`.
+(see that spec's line ~47 alternatives table). deployd is being retired in
+favour of this direction — see `llm-notes/plans/k3s-deployd-migration-plan.md`.
 
 ---
 

@@ -9,8 +9,11 @@ Depends on: `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (cluster +
 kata-qemu/runc-kvm runtimes + `/dev/kvm` access must exist).
 
 Supersedes / retires:
-- **`llm-notes/shelved/deployd-integration.md`** — already shelved citing
-  this k8s direction. This plan executes the actual removal.
+- The deployd implementation itself. (Its tracking doc,
+  `shelved/deployd-integration.md`, was deleted as obsolete once this k8s
+  direction was settled — git history retains it, including the static
+  bridge isolation pattern and the nerdctl→containerd analysis.) This plan
+  executes the actual removal from the flake.
 - **`llm-notes/specs/dynamic-container-layer.md`** — the deployd design
   spec. Once deployd is removed, the spec describes a decommissioned
   system; add a forward-pointer (done as part of this work) and treat the
