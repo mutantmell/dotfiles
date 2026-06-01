@@ -106,9 +106,20 @@ in {
     # but the actual failure mode we hit was "file doesn't exist on
     # deploy/restart" (the soft dependency let kresd start without the
     # render completing), which is worse than a clean cascade.
+    #
+    # RuntimeDirectoryPreserve=yes: nixpkgs's kresd@ template declares
+    # RuntimeDirectory=knot-resolver without Preserve. Default behavior
+    # tears down /run/knot-resolver when kresd@1 stops, wiping the
+    # renderer-written isp-dns.lua. On next kresd@1 start, `requires=`
+    # passes (renderer is still active via RemainAfterExit) so the
+    # renderer doesn't re-run, kresd@1 finds the file gone, and dies
+    # with `cannot open /run/knot-resolver/isp-dns.lua`. Preserving the
+    # dir across kresd@ restarts matches the renderer's own Preserve=yes
+    # so both units agree.
     systemd.services."kresd@" = {
       after = ["kresd-isp-fallback-render.service"];
       requires = ["kresd-isp-fallback-render.service"];
+      serviceConfig.RuntimeDirectoryPreserve = "yes";
     };
 
     systemd.paths."kresd-isp-fallback" = {
