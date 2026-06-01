@@ -104,8 +104,8 @@ Shape (DevPod):
   ordinary workspaces; `kata-qemu` for stronger isolation. Full nested-virt
   (`/dev/kvm`, `kata-qemu`/`runc-kvm` running nested NixOS build VMs) is
   **only** for workspaces that build/boot VMs — the exact thing that broke
-  under deployd, now fixed by the bare-metal agent — not the default. (All
-  tiers validated in bootstrap Phase 1.)
+  under deployd, now fixed by running k3s on erebonia bare-metal — not the
+  default. (All tiers validated in bootstrap Phase 1.)
 - **Auth** is the operator's existing k8s access (OIDC `kubectl`/kubeconfig
   from the bootstrap plan), not a separate login surface. Per-workspace
   NetworkPolicy + router6 bound egress as usual.
@@ -189,7 +189,7 @@ things with different roles, so they live on different surfaces:
   stance does not apply under the hybrid.
 - **Build runners move into the cluster** — Woodpecker uses the
   **kubernetes backend** (`WOODPECKER_BACKEND=kubernetes`), so per-pipeline-
-  step pods schedule onto the k3s agent (erebonia bare-metal) with the
+  step pods schedule onto the k3s node (erebonia, bare-metal) with the
   Appendix-A security stack (gVisor RuntimeClass, PSS Restricted,
   NetworkPolicy, Kyverno). This replaces the
   `cicd-fleet-activation-plan.md` Phase 1 "agents on erebonia bare-metal

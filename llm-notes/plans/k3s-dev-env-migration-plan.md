@@ -86,8 +86,9 @@ deferred (its section D). Do this before the first KubeVirt VM:
   `zfs allow create,destroy,snapshot,clone`; management endpoint (SSH/HTTP)
   for democratic-csi, credentials in sops.
 - `external-snapshotter` then `democratic-csi` (`zfs-generic-iscsi`,
-  targeting liberl) as HelmCharts in the server microvm's manifests;
-  `pkgs.openiscsi` on the erebonia agent.
+  targeting liberl) as HelmCharts in the k3s server manifests directory
+  (`/var/lib/rancher/k3s/server/manifests/` on erebonia); `pkgs.openiscsi`
+  on erebonia.
 - router6 cluster-zone forward rules: cluster → liberl TCP/3260 (iSCSI) +
   SSH/HTTP mgmt endpoint (add to the zone defined in bootstrap E).
 - Validate the full lifecycle (provision → bind → snapshot → restore →
@@ -99,12 +100,13 @@ verifies it's present.)
 
 ## Phase 7 — migrate edith into the cluster as a KubeVirt VM
 
-1. **Add KubeVirt to the platform.** HelmChart resource in the k3s-server
-   microvm's `manifests/` directory (declared in the flake, pinned).
-   kubevirt-operator + virt-handler DaemonSet (virt-handler runs on the
-   erebonia agent node); CRDs: `VirtualMachine`, `VirtualMachineInstance`,
-   `DataVolume`. One new platform component on the update cadence.
-   Reversible — revert the HelmChart and edith stays on Incus.
+1. **Add KubeVirt to the platform.** HelmChart resource in the k3s server
+   manifests directory (`/var/lib/rancher/k3s/server/manifests/` on
+   erebonia; declared in the flake, pinned). kubevirt-operator +
+   virt-handler DaemonSet (virt-handler runs on erebonia, the single node);
+   CRDs: `VirtualMachine`, `VirtualMachineInstance`, `DataVolume`. One new
+   platform component on the update cadence. Reversible — revert the
+   HelmChart and edith stays on Incus.
 2. **Build the edith VM image** from the flake: a pre-built NixOS disk
    image (qcow2/raw) via `nixos-generators` or the flake-native
    equivalent, reproducible across rebuilds. (cloud-init into a blank

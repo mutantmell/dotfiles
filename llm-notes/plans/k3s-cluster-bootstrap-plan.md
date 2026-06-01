@@ -49,29 +49,55 @@ is being retired in favour of this direction — see
 
 ## Goal
 
-Stand up a single-node k3s cluster on **erebonia** with a *split control
-plane*:
-
-- **`k3s server`** (apiserver, controller-manager, scheduler, kine+SQLite)
-  inside a **microvm guest on erebonia** — `--disable-agent`, no kubelet.
-- **`k3s agent`** (kubelet, kube-proxy, containerd, CNI, all pods) on
-  **erebonia bare-metal** — native hardware access for kata-qemu,
-  `/dev/kvm`, NUMA, native networking.
+Stand up a **single-node, all-bare-metal** k3s cluster on **erebonia**: one
+`services.k3s` in `role = "server"` (apiserver, controller-manager,
+scheduler, kine+SQLite, **and** the kubelet/containerd/CNI — the agent is
+included, not disabled). All workloads run on erebonia with native hardware
+access (kata-qemu, `/dev/kvm`, NUMA, native networking).
 
 Everything platform-level is declared in this flake; a fresh
 `nixos-rebuild switch` on erebonia must bring the whole platform up with
 no manual `helm install` or imperative steps. Rollback is
 `nixos-rebuild switch --rollback` / boot the prior generation.
 
-The split confines the API surface to a controlled-network microvm — the
-same pattern used for the OIDC provider (`messeldam`), and previously for
-deployd-api (`roer`, removed in the prerequisite step) — while letting
-workloads run with bare-metal performance.
-
 Storage at bootstrap is **local only** (k3s's bundled
 `local-path-provisioner` on erebonia). Networked block storage (liberl
 iSCSI + democratic-csi) is **deferred** until a workload needs
 VolumeSnapshots or NAS durability — see D.
+
+### Deliberate deviation from the report: no split control plane
+
+The report (v19/v20) recommends a **split control plane** — `k3s server`
+(`--disable-agent`) inside a microvm on erebonia, with a separate `k3s
+agent` on bare metal — to confine the apiserver's network exposure to a
+microvm, mirroring the deployd-api (`roer`) / Authelia (`messeldam`)
+pattern. **We intentionally do not do this.** For a single-node homelab
+cluster the split is largely security theater at real complexity cost:
+
+- It's half a boundary. The split isolates the apiserver from the host but
+  leaves the **kubelet** (root, network-exposed on :10250, sitting right
+  next to the untrusted workloads) on bare metal — the likelier compromise
+  path is untouched.
+- The agent holds node credentials that can drive the full kube API over
+  legitimate mTLS, so **host compromise ≈ cluster compromise** regardless
+  of where the apiserver runs. The microvm isn't on that path.
+- The deployd analogy doesn't transfer: deployd's security came from a
+  **narrow, audited vsock protocol** + privilege-dropping in the helper,
+  not the microvm per se. The k3s agent↔server link is the *entire*
+  Kubernetes API spoken by a credentialed kubelet — not a narrow surface to
+  confine.
+- The real isolation the homelab needs is **per-workload** (gVisor / kata /
+  landlock, "security when needed" — the report's own runtime tiers), which
+  is independent of where the control plane runs.
+
+Net: bare-metal single-node drops the apiserver microvm, the kine-in-guest
+persistence/backup problem, the `sd_notify`+oneshot bootstrap chain, and
+split-reset semantics. We confine :6443 with the host firewall + router6
+(network confinement doesn't need a separate kernel), and put the security
+budget into the runtime tiers. The only thing given up is the clean
+microvm-rebuild recovery for the control plane — replaced by routine
+kine/etcd snapshot backups, which we want anyway. (HA later can still add
+control-plane nodes on *other* hosts — see "Deferred — multi-node & HA".)
 
 ## Repo-grounding corrections to the report
 
@@ -103,23 +129,29 @@ plan corrects against the live repo:
 
 ## Static-baseline deliverables (this flake)
 
-### A. k3s server microvm on erebonia
+### A. k3s server (all-in-one) on erebonia bare-metal
 
-- New microvm guest under `hosts/erebonia/microvm/guests/<name>/`
-  (Trails-themed name; pick + register in network registry). Built via
-  `lib.mk-microvm` (the same builder `roer`/`saint-arkh` use). ~2 GB RAM,
-  2 vCPU initially. cloud-hypervisor backend to match the fleet (the
-  report flags cloud-hypervisor balloon support as a risk — fall back to
-  QEMU as a one-off if balloon misbehaves).
-- `services.k3s` in the guest with `role = "server"`,
-  `extraFlags = "--disable-agent"`. Version pinned in the flake.
-- Datastore: kine + SQLite on the guest filesystem. **Decide persistence**
-  — btrfs subvolume vs impermanence, and the backup story for the SQLite
-  file itself (Velero protects cluster state, not the datastore under it).
-  See "Open decisions".
-- One virtio-net interface on a controlled-exposure bridge; apiserver
-  reachable only from erebonia and (optionally) selected tailnet clients
-  via langport's proxy if remote kubectl is wanted.
+- `services.k3s` on erebonia with `role = "server"`, version pinned in the
+  flake. The agent (kubelet/containerd/CNI) is **included** (no
+  `--disable-agent`), so this single node is both control plane and worker.
+  One systemd unit (`k3s.service`) — no microvm, no separate agent, no
+  bootstrap-ordering machinery to sequence.
+- Datastore: kine + SQLite at `/var/lib/rancher/k3s/server` on erebonia.
+  **Decide persistence** — btrfs subvolume vs impermanence — and the
+  **backup** story for the SQLite file (scheduled snapshot/copy; this is the
+  cluster's source of truth, see "Open decisions"). This is the recovery
+  mechanism that replaces the report's "rebuild the apiserver microvm."
+- **apiserver (:6443) network confinement via the host**, not a VM: bind it
+  to erebonia's management interface and gate access with the host firewall
+  + the router6 `cluster` zone (E). Reachable from erebonia-local and
+  selected clients (optionally remote `kubectl` via langport's proxy).
+- Host prerequisites on erebonia: gVisor `runsc` binary, `pkgs.kata-runtime`
+  (deployd's module owned this before; with deployd removed first, k3s is
+  the sole owner of the kata runtime and
+  `/etc/kata-containers/configuration.toml`), and a containerd shim
+  configuration registering `runsc` and `kata-qemu`.
+  - `pkgs.openiscsi` is **deferred** — added when the iSCSI/CSI work lands
+    (D), not at bootstrap.
 - **HelmChart + auto-apply manifests** in
   `/var/lib/rancher/k3s/server/manifests/` (declared in the flake, applied
   at cluster startup, all chart versions + values pinned):
@@ -134,44 +166,9 @@ plan corrects against the live repo:
 - **RuntimeClass YAMLs**: `runc`, `runsc` (gVisor), `kata-qemu`,
   `runc-kvm` in the manifests directory.
 
-### B. k3s agent on erebonia bare-metal
-
-- `services.k3s` on erebonia with `role = "agent"`,
-  `serverAddr = "https://<server-microvm>:6443"`, `tokenFile` → a
-  sops-managed shared token.
-- Host prerequisites on erebonia: gVisor `runsc` binary, `pkgs.kata-runtime`
-  (deployd's module owned this before; with deployd removed first, k3s'
-  agent is the sole owner of the kata runtime and
-  `/etc/kata-containers/configuration.toml`), and a containerd shim
-  configuration registering `runsc` and `kata-qemu`.
-  - `pkgs.openiscsi` is **deferred** — added when the iSCSI/CSI work lands
-    (D), not at bootstrap.
-
-### C. Bootstrap ordering (systemd)
-
-Per the report — host-side oneshot waits for the apiserver, agent waits
-for the oneshot:
-
-```nix
-systemd.services.k3s-apiserver-wait = {
-  wants  = [ "microvm@<server-microvm>.service" ];
-  after  = [ "microvm@<server-microvm>.service" "network-online.target" ];
-  serviceConfig = {
-    Type = "oneshot";
-    RemainAfterExit = true;
-    ExecStart = "${pkgs.curl}/bin/curl --retry 60 --retry-delay 2 \
-      --retry-connrefused --cacert <ca> https://<server-microvm>:6443/readyz";
-  };
-};
-systemd.services.k3s = {              # the agent
-  wants = [ "k3s-apiserver-wait.service" ];
-  after = [ "k3s-apiserver-wait.service" ];
-};
-```
-
-microvm.nix's `sd_notify`-over-vsock integration means
-`microvm@<name>.service` only completes when the guest signals ready; the
-oneshot then confirms the apiserver responds; the agent waits for both.
+(There is no "section B / C" anymore — collapsing the split removed the
+separate-agent config and the `sd_notify`/apiserver-wait systemd chain the
+report's split required.)
 
 ### D. liberl iSCSI target + CSI backing — DEFERRED (not part of bootstrap)
 
@@ -196,8 +193,8 @@ it lands (owned by the dev-env plan), the work is:
 - SSH or HTTP management endpoint for democratic-csi to issue ZFS
   commands; credentials in sops.
 - `external-snapshotter` then `democratic-csi` (`zfs-generic-iscsi`) as
-  HelmCharts in the server microvm's manifests; `pkgs.openiscsi` on the
-  erebonia agent.
+  HelmCharts in the k3s server manifests directory
+  (`/var/lib/rancher/k3s/server/manifests/`); `pkgs.openiscsi` on erebonia.
 - liberl's iSCSI portal reachable from the cluster zone (router6 forward
   rule: cluster → liberl TCP/3260; management endpoint over SSH/22 or HTTP)
   — add these rules to the cluster zone (E) at that time, not now.
@@ -221,10 +218,13 @@ Egress allows (translated from the report's example to live host roles):
 
 ### F. Network registry + secrets
 
-- Register the k3s-server microvm in `lib/common/data/network.nix`
-  (`name = hostId; # comment`) in an appropriate zone (management mirrors
-  `roer`'s pattern for an API surface).
-- Shared k3s token and step-ca trust material via sops-nix.
+- **No new registry entry** — k3s runs on erebonia, which is already
+  registered (`erebonia = 31`, management). The apiserver is just a port on
+  that host. (The collapsed split means there's no k3s-server microvm to
+  name/register.)
+- Secrets via sops-nix: step-ca trust material and any cluster secrets. A
+  single-node server generates its own CA/tokens — no shared agent join
+  token is needed (there's no separate agent).
   (democratic-csi credentials are deferred with the CSI work, D.)
 
 ## No deployd coexistence (removed first)
@@ -240,7 +240,7 @@ top). On a clean erebonia:
 - Settle the single owner of the nested-KVM modprobe (`options kvm_intel
   nested=1`) — deployd's module set it and `hosts/erebonia/default.nix:53`
   also sets it; after deployd removal, keep just the host-level one (or
-  move it under the k3s agent config). One declaration, not two.
+  move it under the k3s config). One declaration, not two.
 - Ports 6443/10250/10256/8472 are free (nothing else on erebonia uses them).
 
 ## Phase 0 — resource inventory & rollback check (prerequisite)
@@ -255,11 +255,11 @@ top). On a clean erebonia:
 ## Phase 1 — land the cluster
 
 Apply with `nixos-rebuild switch` on erebonia. (No liberl change — CSI is
-deferred.) Validation (from the report, minus the CSI items):
+deferred.) Validation:
 
-- `systemctl status microvm@<server>.service` active;
-  `k3s-apiserver-wait.service` succeeded; `k3s.service` (agent) active.
-- `kubectl get nodes` → erebonia Ready.
+- `systemctl status k3s.service` active (the single server unit — no
+  microvm, no apiserver-wait oneshot).
+- `kubectl get nodes` → erebonia Ready (single node, control-plane+worker).
 - `kubectl get pods -A` → k3s system pods + cert-manager, Kyverno, Flux all
   Running. (No external-snapshotter/democratic-csi — deferred.)
 - `kubectl get runtimeclass` → runc, runsc, kata-qemu, runc-kvm present.
@@ -289,11 +289,16 @@ Recorded here because the control-plane topology is owned by this plan.
   (the static fleet would be exposed to cluster scheduling). The v17
   "add erebonia as worker to a calvard control plane" framing is obsolete:
   erebonia is already the cluster host.
-- **Phase 11 (real HA):** add **liberl** as a third control-plane voter,
-  tainted against workload scheduling (~1 GB/1 vCPU control-plane-only
-  microvm; etcd state on liberl's btrfs SSD root). More relevant than
-  Phase 10 because it adds control-plane redundancy without inverting
-  static-fleet isolation.
+- **Phase 11 (real HA):** add control-plane nodes on **other hosts** to
+  reach a 3-voter etcd quorum — e.g. **liberl** as a voter tainted against
+  workload scheduling (~1 GB/1 vCPU control-plane-only; etcd state on
+  liberl's btrfs SSD root). More relevant than Phase 10 because it adds
+  control-plane redundancy without inverting static-fleet isolation.
+  - Note: a *dedicated HA control-plane node on another host* may run as a
+    small microvm or bare-metal — that's orthogonal to (and not a
+    reinstatement of) the rejected erebonia apiserver-in-microvm split. The
+    split we declined was wrapping the single node's own apiserver; adding
+    real voter nodes on other hosts is a different thing.
 - **kine → embedded-etcd migration** at HA expansion has no
   `k3s migrate-datastore`: snapshot SQLite, install fresh k3s with
   `--cluster-init` + embedded etcd, restore via etcd snapshot import,
@@ -310,9 +315,12 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
    both? (Report flags Authelia↔kube-apiserver OIDC compatibility as a
    risk — validate `kubectl oidc-login` in Phase 1; fall back to
    oauth2-proxy-shaped adapter or static bearer token if it mismatches.)
-2. **Cluster microvm persistent state + datastore backup.** btrfs subvol
-   vs impermanence for `/var/lib/rancher/k3s/server`; backup story for the
-   kine SQLite file separate from Velero.
+2. **kine datastore persistence + backup (on erebonia).** btrfs subvol vs
+   impermanence for `/var/lib/rancher/k3s/server`; scheduled backup of the
+   kine SQLite file (separate from Velero, which protects cluster *state*,
+   not the datastore underneath). This is now the primary control-plane
+   recovery mechanism (it replaces the rejected microvm-rebuild path), so
+   it matters more than before — settle it at bootstrap.
 3. **PKI overlap.** k3s' internal control-plane CA as a second trust root
    alongside step-ca (acceptable, just document), or make k3s' CA a
    step-ca-signed intermediate?
