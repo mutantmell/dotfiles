@@ -12,11 +12,11 @@ in {
     settings = {
       DEFAULT.APP_NAME = "Forgejo";
       server = {
-        DOMAIN = "creil.internal";
-        ROOT_URL = "https://creil.internal/";
+        DOMAIN = "forgejo.internal";
+        ROOT_URL = "https://forgejo.internal/";
         HTTP_PORT = 3000;
         HTTP_ADDR = "127.0.0.1";
-        SSH_DOMAIN = "creil.internal";
+        SSH_DOMAIN = "forgejo.internal";
         SSH_PORT = 22;
       };
       service = {
