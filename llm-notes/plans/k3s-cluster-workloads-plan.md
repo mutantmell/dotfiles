@@ -34,9 +34,9 @@ Interacts with:
 - **`llm-notes/specs/cicd-fleet-management.md`** §9 (container
   integration) is written against deployd's API; it needs re-pointing at
   k8s deploy events.
-- **`llm-notes/specs/dynamic-container-layer.md`** — the planned-but-never-
-  built deployd game-server iSCSI add-on (its milestone D4) is replaced
-  here by CSI VolumeSnapshot. deployd is being retired
+- The planned-but-never-built deployd game-server iSCSI add-on (deployd
+  milestone "D4", from the now-deleted dynamic-container-layer spec) is
+  replaced here by CSI VolumeSnapshot. deployd is being retired
   (`llm-notes/plans/k3s-deployd-migration-plan.md`).
 - Friend-facing game-server access is tracked in
   `llm-notes/plans/headscale-integration-plan.md` (Headscale/subnet-router
@@ -150,9 +150,9 @@ blog specifically: the cluster is the new home for it.
   up by the dev-env plan (Phase 6.5), which precedes this; if for some
   reason game servers land first, do the iSCSI/CSI work here (bootstrap D).
 - Validate **suspend → VolumeSnapshot → resume**. This is the prototype
-  that was originally going to be the deployd iSCSI add-on
-  (`dynamic-container-layer.md` milestone D4 — never built). CSI
-  VolumeSnapshot replaces the custom iSCSI add-on entirely.
+  that was originally going to be the deployd iSCSI add-on (deployd's
+  never-built "D4" milestone). CSI VolumeSnapshot replaces the custom iSCSI
+  add-on entirely.
 - Friend-facing exposure stays consistent with the friend-access model
   (`llm-notes/reports/friend-access-schemes.md` and the roadmap's Headscale
   track) — routed/authenticated at the edge, not by opening the cluster.

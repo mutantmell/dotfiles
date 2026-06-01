@@ -39,9 +39,11 @@ shakedown on local storage that proves the cluster before the daily-driver
 edith moves. This reorders the report's phase numbering (it ran net-new
 workloads as Phases 2–4 before the migrations).
 
-Reverses the k3s rejection in `llm-notes/specs/dynamic-container-layer.md`
-(see that spec's "Alternatives" table). deployd is being retired in
-favour of this direction — see `llm-notes/plans/k3s-deployd-migration-plan.md`.
+Reverses the earlier k3s rejection that motivated deployd (the
+dynamic-container-layer spec, since deleted — see the report
+`llm-notes/reports/k8s-migration-evaluation.md` for the reversal). deployd
+is being retired in favour of this direction — see
+`llm-notes/plans/k3s-deployd-migration-plan.md`.
 
 ---
 

@@ -15,15 +15,13 @@ context for any sandboxed-compute need (see
 `k3s-cluster-workloads-plan.md` Phase A).
 
 Supersedes / retires:
-- The deployd implementation itself. (Its tracking doc,
-  `shelved/deployd-integration.md`, was deleted as obsolete once this k8s
-  direction was settled — git history retains it, including the static
-  bridge isolation pattern and the nerdctl→containerd analysis.) This plan
-  executes the actual removal from the flake.
-- **`llm-notes/specs/dynamic-container-layer.md`** — the deployd design
-  spec. Once deployd is removed, the spec describes a decommissioned
-  system; a forward-pointer was added there and the cluster plans are the
-  live dynamic-runtime design.
+- The deployd implementation itself, and its design docs. Both the
+  implementation-tracking doc (`shelved/deployd-integration.md`) and the
+  design spec (`specs/dynamic-container-layer.md`) were deleted as obsolete
+  once this k8s direction was settled — git history retains them (including
+  the static bridge isolation pattern and the nerdctl→containerd analysis).
+  This plan executes the actual removal from the flake; the cluster plans
+  are the live dynamic-runtime design.
 
 ## What changed (cc-sandbox is unused, not migrated)
 
