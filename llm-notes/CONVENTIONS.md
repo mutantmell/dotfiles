@@ -8,7 +8,6 @@ Plans flow through state directories as work progresses.
 ```
 llm-notes/
 ├── CONVENTIONS.md          ← this file
-├── microvm-inventory.md         ← top-level inventory (not a plan)
 │
 ├── plans/        ← drafted but not yet started
 ├── wip/          ← work in progress (some phases complete, more remain)

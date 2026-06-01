@@ -34,8 +34,9 @@ Interacts with:
   (`llm-notes/plans/k3s-deployd-migration-plan.md`).
 - Friend-facing game-server access is tracked in
   `llm-notes/plans/headscale-integration-plan.md` (Headscale/subnet-router
-  track) and the workloads here are inventoried in `microvm-inventory.md` —
-  both predate the cluster direction and should be reconciled with it.
+  track), which predates the cluster direction — game servers are now
+  cluster workloads (CSI VolumeSnapshot for world state) rather than
+  calvard microvms, and should be reconciled with that plan.
 
 All three workloads land in the **dynamic layer** (Flux-watched manifests
 in the chosen dynamic-manifest path), **not** as NixOS modules.

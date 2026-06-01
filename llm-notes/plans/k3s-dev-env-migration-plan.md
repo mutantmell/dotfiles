@@ -115,8 +115,9 @@ conflicting descriptions previously scattered across the repo:
   to "NixOS workstation / dev environment" as part of this work.
 - `hosts/erebonia/incus/guests/trista/default.nix` → profile **`dmz-vm`**,
   `macvlan` on `uplink.100` (DMZ placement — preserve after migration).
-- `microvm-inventory.md` → "Dev environment / task runner (backup)" —
-  partially right (dev env) but needs refresh (flagged below).
+- `docs/hostnames.md` → "Dev environment / task runner (backup)" — stale
+  (calls trista a backup task runner, not a workstation); needs refresh
+  (flagged below).
 - `llm-notes/done/vlab-zone-plan.md` (vLAB) → "trista stays on DMZ, serves
   wg-ba mesh peer" — consistent.
 
@@ -140,7 +141,7 @@ trista are KubeVirt VMs" reasoning above applies in full. Concretely:
 **No urgency on timing** — trista is low-churn. But the *shape* is settled:
 KubeVirt VM, not Pod. Keeping it on Incus until edith is proven is fine.
 
-**Follow-up:** refresh the `microvm-inventory.md` trista entry to "NixOS
+**Follow-up:** refresh the `docs/hostnames.md` trista entry to "NixOS
 workstation (KubeVirt VM after migration)".
 
 ## Phase 9 — decommission Incus
