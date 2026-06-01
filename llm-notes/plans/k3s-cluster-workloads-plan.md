@@ -46,48 +46,62 @@ the chosen dynamic-manifest path), **not** as NixOS modules.
 
 ---
 
-## Phase A — AI coding layer / dev containers (first workload, cluster shakedown)
+## Phase A — AI coding layer via Coder (first workload, cluster shakedown)
 
 A motivating goal of the whole k3s effort: **a better AI-assisted coding
-layer**. Concretely (operator, 2026-06-01): use **k3s plus a coordinator
-service to create dev containers on demand**, replacing the cc-sandbox
-workflow with something else. This is the *successor to cc-sandbox's
-intent*, not a port of it.
+layer** — on-demand dev containers, replacing the cc-sandbox workflow.
+Per operator direction (2026-06-01) this uses an **off-the-shelf external
+tool, not a bespoke build**. The report names the fit directly
+(report Appendix D, "Specific to the cc-sandbox-shape problem"):
+
+- **Coder** (https://coder.com/) — the primary choice. A "productized
+  cc-sandbox": OIDC login, templates that define environment shapes,
+  per-user/per-session workspaces as **Pods (or KubeVirt VMs)** with PVCs,
+  idle-timeout shutdown, web terminal + native SSH + IDE integrations,
+  resource quotas, and audit logs. Coder **is** the coordinator/control
+  plane — there's nothing to build; we deploy it (Helm chart) and write
+  templates.
+- **DevPod** (https://devpod.sh/) — lighter, CLI-driven alternative,
+  closer to current cc-sandbox UX, less bundled. The fallback if Coder's
+  control-plane footprint isn't wanted.
 
 This is also the **low-stakes workload the cluster starts with** — it runs
 **first**, before the dev-environment migration, and serves as the cluster
 shakedown that proves things before the daily-driver edith moves (see
-`k3s-dev-env-migration-plan.md`). It is therefore the one part of this plan
-pulled ahead of the dev-env migration; the rest (blog/game/CI) stays later.
+`k3s-dev-env-migration-plan.md`). It is the one part of this plan pulled
+ahead of the dev-env migration; the rest (blog/game/CI) stays later.
 
-Shape:
+Shape (assuming Coder):
 
-- **Dev containers (Pods), created on demand by a coordinator service.**
-  The coordinator is the cc-sandbox-api successor: it takes an
-  authenticated request and creates a per-session dev-container Pod via the
-  k8s API (a small k8s-native controller, or Flux-templated Pods), rather
-  than the old deployd-api/deployd-helper split. Containers, not VMs — this
-  is the lighter shape, which is part of why it's the low-stakes starter.
-- **Isolation via the cluster's runtime tiers.** Default to gVisor
-  (`runsc`) for the per-session containers; `kata-qemu` is available if a
-  session needs VM-grade isolation. Full nested-virt (`/dev/kvm`,
-  `kata-qemu`/`runc-kvm` running nested NixOS build VMs) is **only** needed
-  for sessions that must build/boot VMs — the exact thing that broke under
-  deployd, now fixed by the bare-metal agent — but it is not the default
-  for ordinary dev containers. (All tiers validated in bootstrap Phase 1.)
-- **OIDC-authenticated** session creation against the homelab provider
-  (Keycloak now, Authelia later), gated on a group — the same auth shape
-  cc-sandbox used.
+- **Deploy Coder via its Helm chart**, version-pinned. Open question: declare
+  it as a platform HelmChart (like cert-manager/Flux in the bootstrap plan,
+  since it's a control plane) vs. as a Flux-managed workload. Lean platform —
+  it's an always-present capability — but either works; the **templates and
+  workspaces** are the dynamic content regardless.
+- **Workspaces are dev containers (Pods)** provisioned from Coder templates
+  (e.g. a "claude-sandbox" template, a "rust-dev" template). Containers, not
+  VMs, is the lighter shape that makes this the low-stakes starter. Coder can
+  also provision **KubeVirt VM** workspaces later if a VM-shaped env is
+  wanted (ties into the dev-env plan's KubeVirt platform component).
+- **Isolation via the cluster's runtime tiers**, set per template: gVisor
+  (`runsc`) for ordinary workspaces; `kata-qemu` for stronger isolation.
+  Full nested-virt (`/dev/kvm`, `kata-qemu`/`runc-kvm` running nested NixOS
+  build VMs) is **only** for templates whose sessions build/boot VMs — the
+  exact thing that broke under deployd, now fixed by the bare-metal agent —
+  not the default. (All tiers validated in bootstrap Phase 1.)
+- **OIDC** against the homelab provider (Keycloak now, Authelia later),
+  gated on a group — Coder's native OIDC login.
 - **Repo integration** with Forgejo (`creil`) and the Nix substituter
-  (`zeiss` Attic) for fast dev-shell builds.
-- Persistent per-session/project state on democratic-csi (VolumeSnapshot
-  backups).
+  (`zeiss` Attic) for fast dev-shell builds; persistent workspace state on
+  democratic-csi PVCs (VolumeSnapshot backups); idle-shutdown to reclaim
+  resources.
 
-The coordinator service itself: decide whether it runs as a cluster
-workload (Pod) or a small NixOS-declared service that talks to the
-apiserver — lean toward a cluster workload to keep it in the dynamic layer.
-Treat the detailed design (session lifecycle, state model, coordinator API)
-as an open item to spec when this phase is picked up.
+What we lose vs. cc-sandbox: the hand-tuned cgroup/seccomp profile that was
+audited in `packages/deployd-helper/src/validation.rs` — Coder uses the
+cluster's RuntimeClass/PSS model instead. Acceptable, given cc-sandbox is
+unused and the cluster's isolation tiers cover the threat model. The
+remaining open item is **template design** (what environment shapes, which
+RuntimeClass each), not whether to build a coordinator.
 
 ## Phase 2 — the blog (optional)
 
@@ -199,9 +213,10 @@ newly public-facing service.
 
 - ~~CI architecture fork~~ — **resolved: hybrid** (Woodpecker server
   microvm + kubernetes-backend runners in-cluster). See above.
-- **AI coding layer design** (Phase A) — controller vs Flux-templated Pods,
-  session lifecycle, state model, runtime tier per session. Spec it when
-  picked up; it's the motivating workload but the design is open.
+- **AI coding layer** (Phase A) — Coder vs DevPod; Coder deployment
+  (platform HelmChart vs Flux workload); and template design (environment
+  shapes + RuntimeClass per template). Not "build a coordinator" — it's
+  configuring an off-the-shelf tool.
 - Dynamic-manifest repo layout (inherited from the bootstrap plan's open
   decision #4) — decide before Phase A (the first workload) lands.
 - Whether the blog is worth building at all, or Phase 2 is skipped.
