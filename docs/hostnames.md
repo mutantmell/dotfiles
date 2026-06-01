@@ -1,79 +1,87 @@
 ## Quick-reference DNS naming cheat sheet
 
+Naming + purpose overview only. Authoritative addresses, zones, and VLANs
+are derived from the network registry (`lib/common/data/network.nix`); do
+not duplicate IPs here. Names marked "(reserved)" are part of a host's
+Trails-themed name pool but not yet provisioned.
+
+In-flight k3s migration (see `llm-notes/plans/k3s-*-plan.md`) is noted
+inline with "→".
+
 ```
 VM HOSTS (Countries)
-├── erebonia          (GP host)
-│   ├── trista        (Incus VM) — Dev environment / task runner (backup)
-│   ├── saint-arkh    (microVM, planned) — Forgejo Actions CI/CD runners
-│   ├── heimdallr     (not allocated)
-│   ├── ordis         (not allocated)
-│   ├── roer          (not allocated)
-│   ├── legram        (not allocated)
-│   ├── ymir          (not allocated)
-│   └── leeves        (not allocated)
+├── erebonia          (GP / dynamic-compute host)
+│   ├── roer          (microVM) — deployd-api  → decommissioned with deployd
+│   ├── saint-arkh    (microVM) — CI runner (Forgejo Actions)  → Woodpecker CI server; build runners move into k3s
+│   ├── trista        (Incus VM) — NixOS dev workstation; SSH over wg-ba in DMZ  → KubeVirt VM
+│   ├── k3s-server    (microVM, planned) — k3s control plane (apiserver/kine); name TBD
+│   ├── heimdallr     (reserved)
+│   ├── ordis         (reserved)
+│   ├── legram        (reserved)
+│   ├── ymir          (reserved)
+│   └── leeves        (reserved)
 │
-├── calvard           (GP host)
-│   ├── messeldam     (microVM) — Keycloak OIDC identity provider
-│   ├── basel         (microVM) — step-ca PKI / certificate authority
-│   ├── langport      (microVM) — Reverse proxy, nginx, oauth2-proxy
-│   ├── oracion       (microVM) — Jellyfin media server
-│   ├── tharbad       (microVM) — Prometheus, Loki, Alertmanager, ntfy
-│   ├── edith         (Incus container) — Dev environment / task runner (primary)
-│   ├── creil         (microVM) — Forgejo git hosting
+├── calvard           (GP / static-fleet host)
+│   ├── messeldam     (microVM) — Keycloak OIDC identity provider (→ Authelia)
+│   ├── basel         (microVM) — step-ca PKI / SSH certificate authority
+│   ├── langport      (microVM) — reverse proxy / web gateway (nginx)
+│   ├── oracion       (microVM) — Jellyfin / Navidrome / Retrom media
+│   ├── tharbad       (microVM) — VictoriaMetrics, VictoriaLogs, Alertmanager, ntfy, Perses
+│   ├── creil         (microVM) — Forgejo git hosting + container registry
+│   ├── edith         (Incus VM) — NixOS dev workstation (primary)  → KubeVirt VM
 │   ├── altair        (microVM, planned) — Headscale control plane
 │   ├── longlai       (microVM, planned) — Tailscale subnet router
-│   └── nemeth        (not allocated)
+│   └── nemeth        (reserved)
 │
-├── liberl            (NAS host)
-│   ├── zeiss         (microVM) — Attic binary cache
-│   ├── ruan          (not allocated)
-│   ├── bose          (microVM) — Arr stack — UHD/4K (Sonarr, Radarr, Bazarr)
-│   ├── grancel       (not allocated)
-│   ├── rolent        (not allocated)
-│   └── ravennue      (microVM) — Arr stack — SD/1080p (Sonarr, Radarr)
+├── liberl            (NAS + VM host)
+│   ├── zeiss         (microVM) — Attic Nix binary cache
+│   ├── bose          (microVM) — Arr stack — UHD/4K (Sonarr, Radarr, Bazarr, Lidarr)
+│   ├── ravennue      (microVM) — Arr stack — SD/1080p (Sonarr, Radarr, Bazarr)
+│   ├── ruan          (reserved)
+│   ├── grancel       (reserved)
+│   └── rolent        (reserved)
 │
-├── northambria       (GP host)
-│   ├── haliask       (not allocated)
-│   ├── difwa         (not allocated)
-│   ├── szaborja      (not allocated)
-│   ├── standza       (not allocated)
-│   ├── yabori        (not allocated)
-│   └── kilva         (not allocated)
-│
-└── remiferia         (GP host)
-    ├── ardent        (not allocated)
-    ├── monrain       (not allocated)
-    ├── denai         (not allocated)
-    ├── lucent        (not allocated)
-    └── eyja          (not allocated)
+└── (northambria)     (reserved GP-host name — not provisioned)
 
 ROUTER (Extra-planar spaces)
 └── thebeyond         (Router)
-    └── phantasma     (Router VM guest)
+    └── phantasma     (microVM) — DNS (Blocky + Unbound), ad-blocking, internal proxy
 
 SWITCHES (Named vehicles)
-├── arseille          (Switch 1)
-└── courageous        (Switch 2)
+├── arseille          (L2 switch)
+└── courageous        (Switch, reserved)
 
 ACCESS POINTS (Named vehicles)
-├── bobcat            (AP 1)
-├── lusitania         (AP 2)
-├── merkabah          (AP 3)
-├── derfflinger       (AP 4)
-├── pantagruel        (AP 5)
-└── glorious          (AP 6)
+├── bobcat            (AP)
+├── lusitania         (AP)
+├── merkabah          (AP)
+├── derfflinger       (AP)
+├── pantagruel        (AP)
+└── glorious          (AP)
 
 PERSONAL COMPUTERS (Legendary weapons)
-├── kernviter         (NixOS-WSL Desktop)
-└── angbar            (NixOS Laptop — ThinkPad X1 Carbon 7th Gen)
+├── kernviter         (NixOS-WSL desktop)
+└── angbar            (NixOS laptop — ThinkPad X1 Carbon 7th Gen)
 
 UTILITY HOSTS (Artifacts)
-├── azoth             (not allocated)
-├── gospel
-└── gleipnir
+├── azoth             — Raspberry Pi (Home Assistant, MQTT)
+├── gospel            (reserved)
+└── gleipnir          (reserved)
 
 OTHER HOSTS (Orbments)
-├── arcus             (not allocated)
-├── enigma
-└── xipha
+├── arcus             — Steam Deck
+├── enigma            (reserved)
+└── xipha             (reserved)
 ```
+
+Notes:
+
+- The static service fleet lives on **calvard**; **erebonia** is the
+  dynamic-compute host (deployd today, k3s cluster planned). **liberl** is
+  the NAS and also hosts the media/cache microVMs.
+- Several old erebonia guest names (heimdallr, ordis, legram, ymir, and
+  formerly roer) were the pre-migration names of guests now on calvard
+  (oracion, langport, basel, tharbad, messeldam respectively). They are
+  free again on erebonia except **roer**, reused for deployd-api.
+- The removed **remiferia** NAS host (former home of ardent/monrain/denai)
+  is gone; its Attic cache moved to **zeiss** on liberl.
