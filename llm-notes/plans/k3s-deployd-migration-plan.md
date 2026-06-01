@@ -113,9 +113,10 @@ reliably in-cluster," not a fixed calendar.
 
 ## Stale-reference cleanup (do as part of this work)
 
-- `microvm-inventory.md` does not list the deployd `roer` microvm at all
-  (it conflates `roer` with the *renamed-to-messeldam* identity). Reconcile
-  when `roer` is removed.
+- `docs/hostnames.md` lists `roer` as "not allocated" under erebonia, but
+  `roer` is the live deployd-api microvm. Remove the `roer` entry there when
+  the guest is decommissioned (and fix the stale "not allocated" label
+  meanwhile if touched).
 
 ## Rollback
 
