@@ -116,8 +116,6 @@ reliably in-cluster," not a fixed calendar.
 - `microvm-inventory.md` does not list the deployd `roer` microvm at all
   (it conflates `roer` with the *renamed-to-messeldam* identity). Reconcile
   when `roer` is removed.
-- `feature-roadmap-analysis.md` still lists deployd as a live Authelia
-  consumer. Update once deployd is gone.
 
 ## Rollback
 

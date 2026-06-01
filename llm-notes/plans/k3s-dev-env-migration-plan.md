@@ -109,8 +109,8 @@ conflicting descriptions previously scattered across the repo:
   `macvlan` on `uplink.100` (DMZ placement — consistent with the role).
 - `microvm-inventory.md` → "Dev environment / task runner (backup)" —
   **stale**, still needs the same correction (flagged below).
-- `feature-roadmap-analysis.md` (vLAB) → "wg-ba mesh peer" — consistent
-  with the role.
+- `llm-notes/done/vlab-zone-plan.md` (vLAB) → "trista stays on DMZ, serves
+  wg-ba mesh peer" — consistent with the role.
 
 Migration shape: an SSH target + occasional task runner is
 **container-shaped** — if/when trista moves into the cluster, **Pod + PVC

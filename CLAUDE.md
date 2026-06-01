@@ -77,7 +77,7 @@ This is a NixOS flake-based infrastructure project managing a home network with 
 - **`hosts/`** — Per-host NixOS configurations. VM hosts have `guests/` subdirectories containing microVM definitions.
 - **`tests/modules/`** — NixOS VM integration tests (use `pkgs.testers.nixosTest`).
 - **`tests/lib/`** — Pure Nix evaluation tests (no VMs needed).
-- **`llm-notes/`** — Implementation plans and roadmap. See `feature-roadmap-analysis.md` for the master plan.
+- **`llm-notes/`** — Implementation plans, specs, guides, and reports. See `llm-notes/CONVENTIONS.md` for the directory layout and plan lifecycle.
 
 ### Flake Structure
 

@@ -32,9 +32,10 @@ Interacts with:
   built deployd game-server iSCSI add-on (its milestone D4) is replaced
   here by CSI VolumeSnapshot. deployd is being retired
   (`llm-notes/plans/k3s-deployd-migration-plan.md`).
-- Game-server hosting also appears in `feature-roadmap-analysis.md` (under
-  the Headscale/friend-access track) and `microvm-inventory.md` — both
-  predate the cluster direction and should be reconciled.
+- Friend-facing game-server access is tracked in
+  `llm-notes/plans/headscale-integration-plan.md` (Headscale/subnet-router
+  track) and the workloads here are inventoried in `microvm-inventory.md` —
+  both predate the cluster direction and should be reconciled with it.
 
 All three workloads land in the **dynamic layer** (Flux-watched manifests
 in the chosen dynamic-manifest path), **not** as NixOS modules.
@@ -55,10 +56,10 @@ workload is first exercises the same cluster-side plumbing.
 - Lowest-stakes exercise of the full stack: image pull, scheduling,
   ingress, public routing.
 
-The roadmap's "Deferred: Blog/Homepage Containers" item
-(`feature-roadmap-analysis.md`) said "provision a dedicated microVM when a
-website is ready." This plan supersedes that for the blog specifically:
-the cluster is the new home for it.
+The homelab's prior guidance was "provision a dedicated microVM when a
+website is ready to host again" (the blog/homepage OCI containers on ardent
+were retired during the service split). This plan supersedes that for the
+blog specifically: the cluster is the new home for it.
 
 ## Phase 3 — game server with CSI snapshot
 
