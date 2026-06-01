@@ -7,21 +7,14 @@ Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 
 Depends on:
 - `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (cluster + CSI).
-- **Cluster proven before moving the daily-driver edith.** cc-sandbox is
-  no longer the proving workload (it's unused and not migrated — see
-  `k3s-deployd-migration-plan.md`), so the shakedown should come from a
-  low-stakes workload run for a while first: a net-new
-  `k3s-cluster-workloads-plan.md` workload (the AI coding layer prototype
-  or a game server) and/or migrating the **secondary** workstation trista
-  (Phase 8) ahead of the **primary** edith (Phase 7). The report gated this
-  on its Phases 2–4 + ~3 months of cluster operation; the "let it run a
-  while first" intent holds even though the specific proving workload
-  changed.
-
-  > Note: this is mild tension with the "migrate existing before net-new"
-  > ordering — with cc-sandbox gone, there's no low-stakes *existing*
-  > workload left to prove the cluster, so a low-stakes *net-new* one (or
-  > trista-before-edith) fills that role. Operator's call.
+- **Cluster proven by the AI coding layer first.** The shakedown workload
+  is `k3s-cluster-workloads-plan.md` **Phase A** — dev containers created
+  via k3s + a coordinator service (the cc-sandbox successor). It runs before
+  this migration and exercises the cluster (scheduling, isolation runtimes,
+  CSI state, OIDC) at low stakes, so the daily-driver edith doesn't move
+  until the cluster has run something real for a while. (The report gated
+  this on its Phases 2–4 + ~3 months of operation; the "let it run a while
+  first" intent holds — the specific proving workload is now Phase A.)
 
 Relates to / eventually obsoletes:
 - **`llm-notes/done/incus-vm-migration.md`** — converted `edith` to an
@@ -133,13 +126,14 @@ Phase 7**: a KubeVirt `VirtualMachine` with a flake-built NixOS image on a
 DataVolume (liberl-backed CSI, VolumeSnapshot backups). The "Why edith and
 trista are KubeVirt VMs" reasoning above applies in full. Concretely:
 
-- **Ordering vs edith is an operator choice.** Two defensible orders:
+- **Ordering vs edith is an operator choice.** The AI coding layer
+  (Phase A) is the cluster shakedown, so KubeVirt itself is the only
+  unproven piece by the time these run. Two defensible orders:
   *edith-first* (prioritize the daily driver — the whole point of the
   migration — with trista as the confidence-builder before Incus sunset),
-  or *trista-first* (prove the KubeVirt path on the lower-stakes secondary
-  workstation before risking the daily driver — useful now that cc-sandbox
-  no longer shakes out the cluster; see the "Depends on" note). Either way
-  both land before Phase 9.
+  or *trista-first* (prove the KubeVirt VM path on the lower-stakes
+  secondary workstation before risking the daily driver). Either way both
+  land before Phase 9.
 - **DMZ placement + wg-ba mesh peering carry over cleanly** — a KubeVirt VM
   is host-shaped, so it can hold the wg-ba WireGuard peer the same way the
   Incus VM does today; no need to terminate wg-ba elsewhere (this was the
