@@ -240,8 +240,7 @@ usage — the current ctr + CNI workaround works for D0 validation.
 
 ### Phase D0: Prototype Validation — COMPLETE
 
-Manual validation on erebonia, using cc-sandbox on edith as the test client
-(see `llm-notes/wip/cc-sandbox-plan.md`):
+Manual validation on erebonia, using cc-sandbox on edith as the test client:
 
 1. [x] Kata Containers — verified VM boundary via containerd shimv2 (not Podman; see D1 note)
 2. [x] Systemd unit integration — deployd-helper generates nerdctl-based units, starts/stops via deployd-exec

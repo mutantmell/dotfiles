@@ -16,13 +16,14 @@ Supersedes / retires:
   system; add a forward-pointer (done as part of this work) and treat the
   cluster plans as the live dynamic-runtime design.
 
-Reworks:
-- **`llm-notes/done/cc-sandbox-plan.md`** — cc-sandbox is in `done/` but
-  its deploy backend (deployd-api on `roer` → deployd-helper →
-  containerd/kata on erebonia) is exactly what this plan replaces. The
-  user-facing cc-sandbox CLI / repo-fork / profile / state-volume model is
-  unchanged; only the deploy path moves to the k8s API. A forward-pointer
-  is added to that done plan.
+Reworks **cc-sandbox**'s deploy backend. (The original `cc-sandbox-plan.md`
+in `done/` was deleted once superseded — its deployd-based design had
+outlived its usefulness; git history retains it.) The user-facing
+cc-sandbox model is **unchanged** — repo fork on Forgejo/creil, project
+profiles, persistent Claude state volume, dev-shell build + `nix copy`,
+OIDC-authenticated sandbox creation. Only the deploy path changes: the old
+backend (deployd-api on `roer` → deployd-helper → containerd/kata on
+erebonia) is replaced by the k8s API, per Phase 5 below.
 
 ---
 
