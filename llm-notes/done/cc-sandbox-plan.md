@@ -1,5 +1,13 @@
 # cc-sandbox: Claude Code Sandbox Orchestrator
 
+> **Backend migration pending (2026-06-01).** cc-sandbox's user-facing
+> model (repo fork, project profiles, persistent Claude state, dev-shell
+> build + `nix copy`) is unchanged, but its deploy backend — deployd-api on
+> `roer` → deployd-helper → containerd/Kata — is being replaced by the k3s
+> cluster. The cutover is `llm-notes/plans/k3s-deployd-migration-plan.md`
+> (Phase 5). This document stays in `done/` as the historical cc-sandbox
+> design; treat the deployd-specific deploy path below as the *old* backend.
+
 ## Context
 
 cc-sandbox began as a test harness for validating deployd — the dynamic container
