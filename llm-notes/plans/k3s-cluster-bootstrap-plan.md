@@ -14,9 +14,9 @@ Foundation for (recommended execution order):
 1. `llm-notes/plans/k3s-deployd-migration-plan.md` (deployd decommission —
    trivial now; cc-sandbox is unused, so this can land early/anytime)
 2. `llm-notes/plans/k3s-cluster-workloads-plan.md` **Phase A** — AI coding
-   layer: on-demand dev containers via **Coder** (off-the-shelf; DevPod as
-   alternative). The **low-stakes starter and cluster shakedown**; the
-   cc-sandbox-workflow successor.
+   layer: on-demand dev containers via **DevPod** (off-the-shelf,
+   recommended; Coder if it goes multi-user). The **low-stakes starter and
+   cluster shakedown**; the cc-sandbox-workflow successor.
 3. `llm-notes/plans/k3s-dev-env-migration-plan.md` (edith + trista → KubeVirt,
    Incus sunset) — migrate the existing dev environments, once the cluster
    is proven by Phase A.

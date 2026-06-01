@@ -46,24 +46,38 @@ the chosen dynamic-manifest path), **not** as NixOS modules.
 
 ---
 
-## Phase A — AI coding layer via Coder (first workload, cluster shakedown)
+## Phase A — AI coding layer via DevPod (first workload, cluster shakedown)
 
 A motivating goal of the whole k3s effort: **a better AI-assisted coding
 layer** — on-demand dev containers, replacing the cc-sandbox workflow.
 Per operator direction (2026-06-01) this uses an **off-the-shelf external
-tool, not a bespoke build**. The report names the fit directly
-(report Appendix D, "Specific to the cc-sandbox-shape problem"):
+tool, not a bespoke build**. The report names two (Appendix D, "Specific to
+the cc-sandbox-shape problem"): **DevPod** and **Coder**.
 
-- **Coder** (https://coder.com/) — the primary choice. A "productized
-  cc-sandbox": OIDC login, templates that define environment shapes,
-  per-user/per-session workspaces as **Pods (or KubeVirt VMs)** with PVCs,
-  idle-timeout shutdown, web terminal + native SSH + IDE integrations,
-  resource quotas, and audit logs. Coder **is** the coordinator/control
-  plane — there's nothing to build; we deploy it (Helm chart) and write
-  templates.
-- **DevPod** (https://devpod.sh/) — lighter, CLI-driven alternative,
-  closer to current cc-sandbox UX, less bundled. The fallback if Coder's
-  control-plane footprint isn't wanted.
+**Recommendation: start with DevPod; adopt Coder only if dev environments
+go multi-user.** Both run the same dev-container Pods on the same
+gVisor/kata runtime tiers, so this is a control-plane-shape choice, not a
+security or capability one — and the homelab's principles tip it to DevPod:
+
+- **DevPod** (https://devpod.sh/) — **recommended.** Clientless, CLI-driven,
+  uses the open `devcontainer.json` spec checked into each repo. No
+  always-on server, no database — fits "infrastructure as LLM-readable text
+  in git, avoid opaque web-UI/DB runtime state" (the same principle behind
+  Perses-over-Grafana), and adds minimal platform surface for a low-stakes
+  shakedown. Its on-demand `devpod up` model maps cleanly onto "spin up an
+  isolated container for an AI coding session."
+- **Coder** (https://coder.com/) — the **upgrade path**, not the starting
+  point. A "productized cc-sandbox": OIDC login, Terraform templates,
+  per-user workspaces as Pods (or KubeVirt VMs) with PVCs, idle-shutdown,
+  web terminal + SSH + IDE, quotas, audit logs. Its value is **multi-user**
+  management (web provisioning UI, per-user quotas/audit) — overkill for a
+  single operator, and its Postgres + web-UI control plane is exactly the
+  mutable-runtime-state shape the homelab avoids. Adopt it if/when dev
+  environments expand beyond the operator (friends, collaborators,
+  workshops) or a managed web-IDE platform is wanted. The report led with
+  Coder because it assumed cc-sandbox's full feature set was being
+  preserved; with cc-sandbox dropped and Phase A scoped as the *minimal*
+  starter, that inverts.
 
 This is also the **low-stakes workload the cluster starts with** — it runs
 **first**, before the dev-environment migration, and serves as the cluster
@@ -71,37 +85,38 @@ shakedown that proves things before the daily-driver edith moves (see
 `k3s-dev-env-migration-plan.md`). It is the one part of this plan pulled
 ahead of the dev-env migration; the rest (blog/game/CI) stays later.
 
-Shape (assuming Coder):
+Shape (DevPod):
 
-- **Deploy Coder via its Helm chart**, version-pinned. Open question: declare
-  it as a platform HelmChart (like cert-manager/Flux in the bootstrap plan,
-  since it's a control plane) vs. as a Flux-managed workload. Lean platform —
-  it's an always-present capability — but either works; the **templates and
-  workspaces** are the dynamic content regardless.
-- **Workspaces are dev containers (Pods)** provisioned from Coder templates
-  (e.g. a "claude-sandbox" template, a "rust-dev" template). Containers, not
-  VMs, is the lighter shape that makes this the low-stakes starter. Coder can
-  also provision **KubeVirt VM** workspaces later if a VM-shaped env is
-  wanted (ties into the dev-env plan's KubeVirt platform component).
-- **Isolation via the cluster's runtime tiers**, set per template: gVisor
-  (`runsc`) for ordinary workspaces; `kata-qemu` for stronger isolation.
-  Full nested-virt (`/dev/kvm`, `kata-qemu`/`runc-kvm` running nested NixOS
-  build VMs) is **only** for templates whose sessions build/boot VMs — the
-  exact thing that broke under deployd, now fixed by the bare-metal agent —
-  not the default. (All tiers validated in bootstrap Phase 1.)
-- **OIDC** against the homelab provider (Keycloak now, Authelia later),
-  gated on a group — Coder's native OIDC login.
+- **No always-on control plane.** DevPod is a CLI with a **Kubernetes
+  provider**; `devpod up` builds/starts a workspace Pod on the cluster from
+  a repo's `devcontainer.json`. The cluster-side prerequisite is just access
+  (a kubeconfig/ServiceAccount scoped to a workspace namespace) — nothing to
+  declare as a platform HelmChart. The CLI itself runs wherever the operator
+  drives it (a trusted host, or inside another container).
+- **Workspaces are dev containers (Pods)** from per-repo `devcontainer.json`
+  in git (e.g. a "claude-sandbox" devcontainer). Containers, not VMs — the
+  lighter shape that makes this the low-stakes starter.
+- **Isolation via the cluster's runtime tiers**, selected per workspace
+  (`runtimeClassName` in the provider/pod options): gVisor (`runsc`) for
+  ordinary workspaces; `kata-qemu` for stronger isolation. Full nested-virt
+  (`/dev/kvm`, `kata-qemu`/`runc-kvm` running nested NixOS build VMs) is
+  **only** for workspaces that build/boot VMs — the exact thing that broke
+  under deployd, now fixed by the bare-metal agent — not the default. (All
+  tiers validated in bootstrap Phase 1.)
+- **Auth** is the operator's existing k8s access (OIDC `kubectl`/kubeconfig
+  from the bootstrap plan), not a separate login surface. Per-workspace
+  NetworkPolicy + router6 bound egress as usual.
 - **Repo integration** with Forgejo (`creil`) and the Nix substituter
   (`zeiss` Attic) for fast dev-shell builds; persistent workspace state on
-  democratic-csi PVCs (VolumeSnapshot backups); idle-shutdown to reclaim
-  resources.
+  democratic-csi PVCs (the DevPod k8s provider supports a persistent
+  workspace volume).
 
 What we lose vs. cc-sandbox: the hand-tuned cgroup/seccomp profile that was
-audited in `packages/deployd-helper/src/validation.rs` — Coder uses the
-cluster's RuntimeClass/PSS model instead. Acceptable, given cc-sandbox is
-unused and the cluster's isolation tiers cover the threat model. The
-remaining open item is **template design** (what environment shapes, which
-RuntimeClass each), not whether to build a coordinator.
+audited in `packages/deployd-helper/src/validation.rs` — the cluster's
+RuntimeClass/PSS model replaces it. Acceptable, given cc-sandbox is unused
+and the cluster's isolation tiers cover the threat model. The remaining open
+item is the **devcontainer/runtimeClass design** (which base images, which
+RuntimeClass per workspace), not whether to build a coordinator.
 
 ## Phase 2 — the blog (optional)
 
@@ -213,10 +228,10 @@ newly public-facing service.
 
 - ~~CI architecture fork~~ — **resolved: hybrid** (Woodpecker server
   microvm + kubernetes-backend runners in-cluster). See above.
-- **AI coding layer** (Phase A) — Coder vs DevPod; Coder deployment
-  (platform HelmChart vs Flux workload); and template design (environment
-  shapes + RuntimeClass per template). Not "build a coordinator" — it's
-  configuring an off-the-shelf tool.
+- ~~AI coding layer tool: Coder vs DevPod~~ — **resolved: DevPod** to
+  start (Coder is the multi-user upgrade path). See Phase A. Remaining:
+  the devcontainer/runtimeClass design (base images, RuntimeClass per
+  workspace) — configuring an off-the-shelf tool, not building one.
 - Dynamic-manifest repo layout (inherited from the bootstrap plan's open
   decision #4) — decide before Phase A (the first workload) lands.
 - Whether the blog is worth building at all, or Phase 2 is skipped.

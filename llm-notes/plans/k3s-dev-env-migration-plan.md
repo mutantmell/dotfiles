@@ -9,7 +9,7 @@ Depends on:
 - `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (cluster + CSI).
 - **Cluster proven by the AI coding layer first.** The shakedown workload
   is `k3s-cluster-workloads-plan.md` **Phase A** — on-demand dev containers
-  via **Coder** (off-the-shelf; the cc-sandbox successor). It runs before
+  via **DevPod** (off-the-shelf, recommended; the cc-sandbox successor). It runs before
   this migration and exercises the cluster (scheduling, isolation runtimes,
   CSI state, OIDC) at low stakes, so the daily-driver edith doesn't move
   until the cluster has run something real for a while. (The report gated
