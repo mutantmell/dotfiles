@@ -6,6 +6,7 @@
     ./fluent-bit.nix
     ./impermanence.nix
     ./incus.nix
+    ./internal-pki.nix
     ./microvm.nix
     ./networking.nix
     ./openssh.nix

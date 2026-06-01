@@ -88,7 +88,7 @@ in {
   };
   networking.firewall.allowedTCPPorts = [2022];
 
-  security.pki.certificates = [(builtins.readFile pkgs.mmell.lib.data.pki.root)];
+  common.internal-pki.enable = true;
 
   node-exporter-client.enable = true;
 

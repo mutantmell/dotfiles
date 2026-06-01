@@ -74,10 +74,7 @@ in {
     ''
     + net.mkExtraHosts ["messeldam" "basel" "langport" "oracion" "trista" "creil"];
 
-  security.pki.certificateFiles = [
-    pkgs.mmell.lib.data.pki.root
-    pkgs.mmell.lib.data.pki.intermediate
-  ];
+  common.internal-pki.enable = true;
 
   fluent-bit-agent.enable = true;
   node-exporter-client.enable = true;

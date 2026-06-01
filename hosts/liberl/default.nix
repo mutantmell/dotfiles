@@ -202,10 +202,7 @@ in {
     '';
   };
 
-  security.pki.certificateFiles = [
-    pkgs.mmell.lib.data.pki.root
-    pkgs.mmell.lib.data.pki.intermediate
-  ];
+  common.internal-pki.enable = true;
 
   fluent-bit-agent = {
     enable = true;
