@@ -107,10 +107,6 @@
     dmz = {
       vlanId = 100;
       gateway = "thebeyond";
-      # Explicit prefix4 override: keeps DMZ at 10.97.100.x through Phase 5 so
-      # remaining DMZ residents (langport, trista) don't re-IP until A.4 drops
-      # the override and renumbers them to 10.91.100.x.
-      prefix4 = "10.97.100";
       hosts = {
         trista = 51; # SSH bastion (erebonia Incus VM)
         langport = 41; # Reverse proxy (calvard)

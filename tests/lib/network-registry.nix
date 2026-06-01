@@ -28,10 +28,10 @@
   mgmtGateway4 = assertEq "management gateway4" mgmt.gateway4 "10.97.11.1";
   mgmtGateway6 = assertEq "management gateway6" mgmt.gateway6 "fdc6:55f2:0a5e:100b::1";
 
-  # dmz has explicit prefix4 = "10.97.100" override; thebeyond group 0, vlanId 100 → ULA "0064"
-  dmzSubnet4 = assertEq "dmz subnet4" dmz.subnet4 "10.97.100.0/24";
+  # dmz is thebeyond-owned (group 0, vlanId 100): prefix = "10.91.100", ULA = "0064"
+  dmzSubnet4 = assertEq "dmz subnet4" dmz.subnet4 "10.91.100.0/24";
   dmzSubnet6 = assertEq "dmz subnet6" dmz.subnet6 "fdc6:55f2:0a5e:0064::/64";
-  dmzGateway4 = assertEq "dmz gateway4" dmz.gateway4 "10.97.100.1";
+  dmzGateway4 = assertEq "dmz gateway4" dmz.gateway4 "10.91.100.1";
 
   # trusted is bt8gw-owned (group 1, vlanId 20): prefix = "10.97.20", ULA = "1014"
   trustedSubnet4 = assertEq "trusted subnet4" trusted.subnet4 "10.97.20.0/24";
@@ -65,7 +65,7 @@
   hostsHasLangport = assertEq "hosts has langport" (net.hosts ? langport) true;
   hostsThebeyondIpv4 = assertEq "thebeyond ipv4" net.hosts.thebeyond.ipv4 "10.91.10.1";
   hostsThebeyondZone = assertEq "thebeyond zone" net.hosts.thebeyond.zoneName "network";
-  hostsLangportIpv4 = assertEq "langport ipv4" net.hosts.langport.ipv4 "10.97.100.41";
+  hostsLangportIpv4 = assertEq "langport ipv4" net.hosts.langport.ipv4 "10.91.100.41";
   hostsLangportZone = assertEq "langport zone" net.hosts.langport.zoneName "dmz";
 
   # phantasma moved to network.hosts = 10 → IP 10.91.10.10
@@ -94,8 +94,8 @@
   forHostZoneSubnet = assertEq "forHost zone subnet4" forThebeyond.zone.subnet4 "10.91.10.0/24";
 
   forLangport = net.forHost "langport";
-  forHostDmzHost = assertEq "forHost langport ipv4" forLangport.host.ipv4 "10.97.100.41";
-  forHostDmzZone = assertEq "forHost langport zone gateway4" forLangport.zone.gateway4 "10.97.100.1";
+  forHostDmzHost = assertEq "forHost langport ipv4" forLangport.host.ipv4 "10.91.100.41";
+  forHostDmzZone = assertEq "forHost langport zone gateway4" forLangport.zone.gateway4 "10.91.100.1";
 
   # forHost throws on unknown host
   forHostUnknown =
@@ -197,9 +197,9 @@
     "management subnet6 (bt8gw group 1)" = mgmtSubnet6;
     "management gateway4" = mgmtGateway4;
     "management gateway6 (bt8gw group 1)" = mgmtGateway6;
-    "dmz subnet4 (prefix4 override)" = dmzSubnet4;
+    "dmz subnet4 (thebeyond group 0)" = dmzSubnet4;
     "dmz subnet6 (thebeyond group 0)" = dmzSubnet6;
-    "dmz gateway4 (prefix4 override)" = dmzGateway4;
+    "dmz gateway4 (thebeyond group 0)" = dmzGateway4;
     "trusted subnet4" = trustedSubnet4;
     "trusted subnet6 (bt8gw group 1)" = trustedSubnet6;
     "network gateway4 (thebeyond group 0)" = networkGateway4;
@@ -222,7 +222,7 @@
     "hosts contains langport" = hostsHasLangport;
     "thebeyond has correct ipv4 (network zone)" = hostsThebeyondIpv4;
     "thebeyond is in network zone" = hostsThebeyondZone;
-    "langport has correct ipv4 (dmz prefix4 override)" = hostsLangportIpv4;
+    "langport has correct ipv4 (dmz)" = hostsLangportIpv4;
     "langport is in dmz zone" = hostsLangportZone;
     "phantasma moved to network zone" = hostsPhantasmaIpv4;
     "phantasma is in network zone" = hostsPhantasmaZone;

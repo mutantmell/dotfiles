@@ -4,7 +4,11 @@
   lib,
   modulesPath,
   ...
-}: {
+}: let
+  hostname = "trista";
+  net = pkgs.mmell.lib.data.network;
+  inherit (net.forHost hostname) host zone;
+in {
   imports = [
     ./sops.nix
     (import ../../../../../profiles/disko/incus-vm.nix {})
@@ -18,11 +22,11 @@
 
   nix.settings.experimental-features = ["nix-command" "flakes"];
 
-  networking.hostName = "trista";
+  networking.hostName = hostname;
   networking.useNetworkd = true;
   networking.useDHCP = false;
 
-  # Static network configuration (VLAN 100 / DMZ, hostId 51)
+  # Static network configuration (VLAN 100 / DMZ)
   systemd.network.enable = true;
   services.resolved.enable = true;
   systemd.network.networks."50-enp5s0" = {
@@ -32,15 +36,12 @@
       IPv6AcceptRA = true;
       IPv6PrivacyExtensions = "yes";
     };
-    address = [
-      "10.97.100.51/24"
-      "fdc6:55f2:0a5e:64::33/64"
-    ];
+    address = [host.cidr4 host.cidr6];
     routes = [
-      {Gateway = "10.97.100.1";}
-      {Gateway = "fdc6:55f2:0a5e:64::1";}
+      {Gateway = zone.gateway4;}
+      {Gateway = zone.gateway6;}
     ];
-    dns = ["10.97.100.1" "fdc6:55f2:0a5e:64::1"];
+    dns = [zone.gateway4 zone.gateway6];
   };
 
   common.openssh = {

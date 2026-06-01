@@ -5,6 +5,8 @@
   ...
 }: let
   inherit (pkgs.mmell.lib.data.users.deployd) uid gid;
+  net = pkgs.mmell.lib.data.network;
+  dmz = net.networks.dmz;
 in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
@@ -35,10 +37,10 @@ in {
     bridge = {
       name = "deploy-dmz";
       uplink = "uplink.100";
-      subnet = "10.97.100.0/24";
-      gateway = "10.97.100.1";
-      poolStart = "10.97.100.128";
-      poolEnd = "10.97.100.191";
+      subnet = dmz.subnet4;
+      gateway = dmz.gateway4;
+      poolStart = "${dmz.prefix4}.128";
+      poolEnd = "${dmz.prefix4}.191";
     };
   };
   # Static UID — must match deployd-api UID in roer microVM for virtiofs socket access.
@@ -109,7 +111,7 @@ in {
 
   programs.ssh.extraConfig = ''
     Host trista
-      Hostname 10.97.100.51
+      Hostname trista.internal
       User root
       IdentityFile /etc/ssh/ssh_host_ed25519_key
       IdentitiesOnly yes
