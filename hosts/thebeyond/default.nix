@@ -72,7 +72,12 @@ in {
       ${phantasma.ipv4} phantasma phantasma.internal.mutantmell.net phantasma.internal
       ${phantasma.ipv6} phantasma.internal.mutantmell.net phantasma.internal
     ''
-    + net.mkExtraHosts ["messeldam" "basel" "langport" "oracion" "trista"];
+    + net.mkExtraHosts ["messeldam" "basel" "langport" "oracion" "trista" "creil"];
+
+  security.pki.certificateFiles = [
+    pkgs.mmell.lib.data.pki.root
+    pkgs.mmell.lib.data.pki.intermediate
+  ];
 
   fluent-bit-agent.enable = true;
   node-exporter-client.enable = true;
