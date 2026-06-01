@@ -4,12 +4,12 @@
 > by a k3s cluster, not deployd. The k3s rejection in the alternatives
 > table below (~line 47) was reversed — see
 > `llm-notes/reports/k8s-migration-evaluation.md` for the reasoning, and
-> the `llm-notes/plans/k3s-*-plan.md` set for the implementation. deployd
-> itself is shelved (`llm-notes/shelved/deployd-integration.md`) and its
-> removal is planned in `llm-notes/plans/k3s-deployd-migration-plan.md`.
-> This spec is kept for the deployd design record (static bridge
-> isolation, the nerdctl→containerd analysis, the iSCSI add-on concept now
-> replaced by CSI VolumeSnapshot).
+> the `llm-notes/plans/k3s-*-plan.md` set for the implementation. deployd's
+> removal from the flake is planned in
+> `llm-notes/plans/k3s-deployd-migration-plan.md`. This spec is kept as the
+> deployd design record; the separate deployd implementation-tracking doc
+> was deleted as obsolete (git history retains it, including the static
+> bridge isolation pattern and the nerdctl→containerd analysis).
 
 ## Design Specification and Implementation Plan
 

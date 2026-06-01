@@ -20,18 +20,18 @@ Depends on:
   proven by those migrations before new features land here.
 
 Interacts with:
-- **`llm-notes/plans/cicd-fleet-activation-plan.md`** — its Phase 1
-  replaces Forgejo Actions on `saint-arkh` with a **Woodpecker server
-  microvm + erebonia bare-metal agents**. This plan proposes Woodpecker
-  with the **kubernetes backend in-cluster** instead. These two CI shapes
-  conflict — see "CI architecture: decision needed" below.
+- **`llm-notes/plans/cicd-fleet-activation-plan.md`** — its Phase 1 makes
+  `saint-arkh` the **Woodpecker server microvm**. Under the **hybrid**
+  decided here, that server microvm stays, but build runners move into the
+  cluster via the Woodpecker **kubernetes backend** (replacing the
+  bare-metal-agent execution model). See "CI architecture: hybrid" below.
 - **`llm-notes/specs/cicd-fleet-management.md`** §9 (container
   integration) is written against deployd's API; it needs re-pointing at
   k8s deploy events.
 - **`llm-notes/specs/dynamic-container-layer.md`** — the planned-but-never-
   built deployd game-server iSCSI add-on (its milestone D4) is replaced
-  here by CSI VolumeSnapshot. deployd is shelved
-  (`llm-notes/shelved/deployd-integration.md`).
+  here by CSI VolumeSnapshot. deployd is being retired
+  (`llm-notes/plans/k3s-deployd-migration-plan.md`).
 - Game-server hosting also appears in `feature-roadmap-analysis.md` (under
   the Headscale/friend-access track) and `microvm-inventory.md` — both
   predate the cluster direction and should be reconciled.
@@ -67,9 +67,8 @@ the cluster is the new home for it.
   bootstrap plan).
 - Validate **suspend → VolumeSnapshot → resume**. This is the prototype
   that was originally going to be the deployd iSCSI add-on
-  (`dynamic-container-layer.md` milestone D4 / `deployd-integration.md`
-  D4 — never built). CSI VolumeSnapshot replaces the custom iSCSI
-  add-on entirely.
+  (`dynamic-container-layer.md` milestone D4 — never built). CSI
+  VolumeSnapshot replaces the custom iSCSI add-on entirely.
 - Friend-facing exposure stays consistent with the friend-access model
   (`llm-notes/reports/friend-access-schemes.md` and the roadmap's Headscale
   track) — routed/authenticated at the edge, not by opening the cluster.
@@ -95,39 +94,40 @@ CI build pushes target **creil** (Forgejo registry). The report flags
 Forgejo's bundled registry as basic — may need Harbor or similar as CI
 throughput grows; defer until measured pressure.
 
-### CI architecture: decision needed
+### CI architecture: hybrid (decided 2026-06-01)
 
-This is the most significant conflict with an **active** plan.
+The Woodpecker CI runtime and the cluster orchestrator are two different
+things with different roles, so they live on different surfaces:
 
-- `cicd-fleet-activation-plan.md` **Phase 1** (currently in `plans/`)
-  repurposes `saint-arkh` into the **Woodpecker server microvm** and runs
-  **agents on erebonia bare-metal** (containerd + kata), and removes the
-  Forgejo Actions runner module.
-- This plan / the report run **Woodpecker with the kubernetes backend**
-  (`WOODPECKER_BACKEND=kubernetes`) — per-step pods in-cluster — and
-  **decommission saint-arkh's planned role**, reclaiming its registry
-  allocation (`saint-arkh = 61`, app VLAN 50, labeled "Forgejo Actions
-  CI/CD runners" in `lib/common/data/network.nix:125`).
+- **Woodpecker server stays a microvm** — `saint-arkh` keeps its role from
+  `cicd-fleet-activation-plan.md` Phase 1 (the Woodpecker server microvm).
+  It is **not** decommissioned; the report's "decommission saint-arkh"
+  stance does not apply under the hybrid.
+- **Build runners move into the cluster** — Woodpecker uses the
+  **kubernetes backend** (`WOODPECKER_BACKEND=kubernetes`), so per-pipeline-
+  step pods schedule onto the k3s agent (erebonia bare-metal) with the
+  Appendix-A security stack (gVisor RuntimeClass, PSS Restricted,
+  NetworkPolicy, Kyverno). This replaces the
+  `cicd-fleet-activation-plan.md` Phase 1 "agents on erebonia bare-metal
+  via containerd+kata" execution model — the runners are k8s pods now, not
+  standalone agents.
+- **The NixOS fleet-activation coordinator is a third, separate role** —
+  the per-host Rust coordinator + NATS/Attic closure-delivery layer
+  (`cicd-fleet-management.md`) is unaffected by where CI runs and proceeds
+  independently. CI builds; the coordinator activates closures; the cluster
+  orchestrates build pods. Three roles, not one.
 
-Both are coherent; they are not both worth building. The report's stance
-is that the k8s backend supersedes the microvm-agent approach (better
-sandbox-runtime integration via containerd shims, autoscaling runner
-ecosystem). **Operator must choose** before Phase 4 lands:
+Net: this keeps both plans mostly intact — `cicd-fleet-activation-plan.md`
+keeps saint-arkh as the Woodpecker server, but its runner-execution
+substrate becomes the k3s kubernetes backend instead of bare-metal agents.
 
-1. **k8s backend supersedes** — move `cicd-fleet-activation-plan.md` Phase 1
-   to reflect Woodpecker-on-k8s; saint-arkh's planned role is dropped and
-   its NixOS fleet-activation core (NATS/Attic/coordinator) proceeds
-   independently of where CI runners execute.
-2. **Keep the microvm Woodpecker** from `cicd-fleet-activation-plan.md` and
-   *don't* run CI in the cluster — drop Phase 4 here.
-3. **Hybrid** — Woodpecker server stays a microvm (saint-arkh), but the
-   kubernetes backend schedules build pods into the cluster (server outside,
-   runners inside). This is arguably the cleanest reconciliation and keeps
-   both plans mostly intact.
-
-Whichever is chosen: the `saint-arkh` registry label ("Forgejo Actions")
-is stale either way — `cicd-fleet-management.md` already standardised on
-Woodpecker. Reconcile the registry comment when this lands.
+**Follow-up edits to land with this plan:**
+- Update `cicd-fleet-activation-plan.md` Phase 1 to set
+  `WOODPECKER_BACKEND=kubernetes` and drop the bare-metal-agent /
+  containerd+kata runner wiring (runners are cluster pods).
+- Reconcile the `saint-arkh` registry comment ("Forgejo Actions CI/CD
+  runners", `lib/common/data/network.nix:125`) to "Woodpecker CI server" —
+  `cicd-fleet-management.md` already standardised on Woodpecker.
 
 ### Reconcile cicd spec §9
 
@@ -148,7 +148,8 @@ newly public-facing service.
 
 ## Open decisions
 
-- The CI architecture fork above (blocking for Phase 4).
+- ~~CI architecture fork~~ — **resolved: hybrid** (Woodpecker server
+  microvm + kubernetes-backend runners in-cluster). See above.
 - Dynamic-manifest repo layout (inherited from the bootstrap plan's open
   decision #4) — decide before Phase 2.
 - Whether the blog is worth building at all, or Phase 2 is skipped.
