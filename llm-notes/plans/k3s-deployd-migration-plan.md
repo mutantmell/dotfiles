@@ -5,10 +5,14 @@ Status: Planned (not started)
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 5–6** — but reframed: see "What changed" below.
 
-Depends on: `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster is
-deployd's replacement context). deployd removal itself needs nothing from
-the cluster — it just needs the operator to be confident deployd isn't
-needed, which is already true (see below).
+Depends on: **nothing.** This runs **first** — before the k3s bootstrap.
+deployd removal needs nothing from the cluster; it just needs confidence
+that deployd isn't needed, which is already true (cc-sandbox is unused, see
+below). Removing it first means k3s lands on a clean erebonia with no
+deployd coexistence to manage (the bootstrap plan calls this out as its
+biggest simplification). The k3s cluster is the going-forward replacement
+context for any sandboxed-compute need (see
+`k3s-cluster-workloads-plan.md` Phase A).
 
 Supersedes / retires:
 - The deployd implementation itself. (Its tracking doc,
@@ -49,11 +53,11 @@ workload, so it is simply removed. No migration phase, no parallel-run.
 ## Decommission deployd
 
 deployd has no remaining workloads (cc-sandbox, its only consumer, is
-unused). It can be removed whenever convenient after the cluster exists —
-there is no workload-cutover to gate on. The previous "weeks-to-months
-cohabitation window" concern (two orchestrators competing for kata
-workloads on erebonia) largely evaporates because deployd isn't actually
-running anything; until removed, it just sits declared.
+unused), so it is removed **first — before k3s is stood up** — not cut over.
+There is no workload to preserve and no deployd↔k3s cohabitation period at
+all: by the time k3s lands, deployd is already gone, so the kata-config
+sharing, duplicate nested-KVM modprobe, and containerd/CNI/bridge/port
+audits that earlier drafts worried about simply don't arise.
 
 Removal steps:
 
@@ -67,11 +71,13 @@ Removal steps:
   the deployd-api host).
 - Reclaim the network allocation (`roer = 32`, management, in
   `lib/common/data/network.nix`).
-- The duplicate nested-KVM modprobe collapses to a single owner: erebonia's
-  host-level `boot.extraModprobeConfig` (`hosts/erebonia/default.nix:53`)
-  or the agent's containerd/kata config — the deployd copy is gone.
-- `/etc/kata-containers/configuration.toml` is left solely to k3s' runtime;
-  the kata-config coexistence footgun from the bootstrap plan collapses.
+- The duplicate nested-KVM modprobe collapses to a single owner: keep
+  erebonia's host-level `boot.extraModprobeConfig`
+  (`hosts/erebonia/default.nix:53`); the deployd copy is gone. (The k3s
+  agent later assumes this single declaration is already in place.)
+- `/etc/kata-containers/configuration.toml` and the system containerd are
+  freed up — so when k3s' agent lands afterward it owns the kata runtime
+  outright, with no config sharing to reconcile.
 
 ### cc-sandbox cleanup
 

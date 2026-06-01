@@ -6,13 +6,18 @@ Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 7–9**.
 
 Depends on:
-- `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (cluster + CSI).
+- `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster). **Note:
+  networked storage is *not* provided by bootstrap** — it's deferred there
+  (bootstrap uses local-path). **This plan stands up the liberl iSCSI
+  target + democratic-csi + external-snapshotter** (bootstrap section D),
+  because KubeVirt DataVolumes are the first workload that wants
+  VolumeSnapshots + NAS durability. See "Phase 6.5" below.
 - **Cluster proven by the AI coding layer first.** The shakedown workload
   is `k3s-cluster-workloads-plan.md` **Phase A** — on-demand dev containers
   via **DevPod** (off-the-shelf, recommended; the cc-sandbox successor). It runs before
   this migration and exercises the cluster (scheduling, isolation runtimes,
-  CSI state, OIDC) at low stakes, so the daily-driver edith doesn't move
-  until the cluster has run something real for a while. (The report gated
+  local-path storage, OIDC) at low stakes, so the daily-driver edith doesn't
+  move until the cluster has run something real for a while. (The report gated
   this on its Phases 2–4 + ~3 months of operation; the "let it run a while
   first" intent holds — the specific proving workload is now Phase A.)
 
@@ -68,6 +73,29 @@ the rejected alternative's tax to avoid.
   container" — stale, it's a `dev`-profile guest).
 - **Lives on calvard today**; the KubeVirt VM lands on **erebonia** (the
   cluster host) → this is a cross-host migration.
+
+## Phase 6.5 — stand up networked storage (CSI), deferred from bootstrap
+
+KubeVirt DataVolumes want VolumeSnapshots (mapping onto `incus snapshot`)
+and NAS-backed durability, which `local-path-provisioner` can't provide —
+so this is the phase that does the iSCSI/CSI work the bootstrap plan
+deferred (its section D). Do this before the first KubeVirt VM:
+
+- liberl iSCSI target (LIO/targetcli or scstadmin) + dedicated ZFS dataset
+  hierarchy on the `data` pool + service user with
+  `zfs allow create,destroy,snapshot,clone`; management endpoint (SSH/HTTP)
+  for democratic-csi, credentials in sops.
+- `external-snapshotter` then `democratic-csi` (`zfs-generic-iscsi`,
+  targeting liberl) as HelmCharts in the server microvm's manifests;
+  `pkgs.openiscsi` on the erebonia agent.
+- router6 cluster-zone forward rules: cluster → liberl TCP/3260 (iSCSI) +
+  SSH/HTTP mgmt endpoint (add to the zone defined in bootstrap E).
+- Validate the full lifecycle (provision → bind → snapshot → restore →
+  delete) against the real liberl before betting edith on it.
+
+(If game servers — `k3s-cluster-workloads-plan.md` Phase 3 — happen to land
+before this migration, they stand up CSI instead and this phase just
+verifies it's present.)
 
 ## Phase 7 — migrate edith into the cluster as a KubeVirt VM
 

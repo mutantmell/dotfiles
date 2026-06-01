@@ -14,10 +14,13 @@ cluster's *first* workloads; here Phase A is the first workload and the rest
 run after the dev-env migration, per operator priority.
 
 Depends on:
-- `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster, CSI,
-  runtimes, and Flux must exist first; the AI coding layer's optional
-  nested-virt sessions additionally need the kata-qemu/runc-kvm + `/dev/kvm`
-  path validated in bootstrap Phase 1).
+- `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster, runtimes,
+  and Flux must exist first; the AI coding layer's optional nested-virt
+  sessions additionally need the kata-qemu/runc-kvm + `/dev/kvm` path
+  validated in bootstrap Phase 1). **Storage:** Phase A uses bootstrap's
+  local-path; the **game server (Phase 3)** needs CSI — stood up by the
+  dev-env plan (Phase 6.5), which precedes it, or here if game servers
+  somehow land first.
 - **Phase A runs before** `llm-notes/plans/k3s-dev-env-migration-plan.md`
   (it's the shakedown that proves the cluster ahead of the edith move). The
   **remaining** features (Phases 2–4) land after the dev-env migration.
@@ -108,8 +111,10 @@ Shape (DevPod):
   NetworkPolicy + router6 bound egress as usual.
 - **Repo integration** with Forgejo (`creil`) and the Nix substituter
   (`zeiss` Attic) for fast dev-shell builds; persistent workspace state on
-  democratic-csi PVCs (the DevPod k8s provider supports a persistent
-  workspace volume).
+  **local-path** PVCs (the DevPod k8s provider supports a persistent
+  workspace volume). No CSI needed here — dev-container state is
+  reproducible/low-value, which is part of why Phase A is the low-stakes
+  starter; CSI comes later with the dev-env migration.
 
 What we lose vs. cc-sandbox: the hand-tuned cgroup/seccomp profile that was
 audited in `packages/deployd-helper/src/validation.rs` — the cluster's
@@ -141,8 +146,9 @@ blog specifically: the cluster is the new home for it.
 ## Phase 3 — game server with CSI snapshot
 
 - Pick the smallest planned game (likely Minecraft).
-- World volume on **democratic-csi** (liberl iSCSI backing, stood up in the
-  bootstrap plan).
+- World volume on **democratic-csi** (liberl iSCSI backing). CSI is stood
+  up by the dev-env plan (Phase 6.5), which precedes this; if for some
+  reason game servers land first, do the iSCSI/CSI work here (bootstrap D).
 - Validate **suspend → VolumeSnapshot → resume**. This is the prototype
   that was originally going to be the deployd iSCSI add-on
   (`dynamic-container-layer.md` milestone D4 — never built). CSI
@@ -218,8 +224,9 @@ scope for the build here, but flag it when touching the cicd plan.
 
 ## What lands in the dynamic layer vs NixOS
 
-NixOS/flake (already provided by the bootstrap plan): runtimes, Kyverno,
-CSI, Flux, ingress. **This plan's deliverables are all manifests** —
+NixOS/flake (provided by the bootstrap plan): runtimes, Kyverno, Flux,
+ingress, local-path storage. (CSI is added later — dev-env Phase 6.5.)
+**This plan's deliverables are all manifests** —
 Deployments/StatefulSets/Services/NetworkPolicies/ConfigMaps — in the
 Flux-watched path, plus langport nginx forwarding rules (NixOS) for any
 newly public-facing service.
