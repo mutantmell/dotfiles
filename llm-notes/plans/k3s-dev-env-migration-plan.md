@@ -98,32 +98,43 @@ rollback window is the mitigation for that risk.
 
 ## Phase 8 — reconcile trista's role
 
-trista's role is genuinely ambiguous across the repo, and the report's
-default is **leave it alone**:
+**Authoritative role (operator, 2026-06-01):** trista is an **SSH target
+that lives in DMZ and is reachable over the wg-ba mesh**. It **may also be
+a task runner**. It is **not** primarily a bastion. This supersedes the
+conflicting descriptions previously scattered across the repo:
 
-- `lib/common/data/network.nix:111` → `trista = 51`, dmz (VLAN 100),
-  comment **"SSH bastion (erebonia Incus VM)"**.
+- `lib/common/data/network.nix` comment said "SSH bastion" — **corrected**
+  to the role above as part of this work.
 - `hosts/erebonia/incus/guests/trista/default.nix` → profile **`dmz-vm`**,
-  `macvlan` on `uplink.100`.
-- `microvm-inventory.md` → "Dev environment / task runner (**backup**)".
-- `feature-roadmap-analysis.md` (vLAB) → "stays on DMZ (serves **wg-ba mesh
-  peer**)".
+  `macvlan` on `uplink.100` (DMZ placement — consistent with the role).
+- `microvm-inventory.md` → "Dev environment / task runner (backup)" —
+  **stale**, still needs the same correction (flagged below).
+- `feature-roadmap-analysis.md` (vLAB) → "wg-ba mesh peer" — consistent
+  with the role.
 
-Decision tree:
-- **Default: leave alone** (operator has indicated trista is currently
-  unused). No migration work.
-- If a future **bastion** role: keep on Incus, or follow the planned
-  calvard-hosted bastion (report Appendix B).
-- If a future **dev-environment** role: migrate as a KubeVirt VM exactly
-  like edith (VM-shaped).
-- If a future **bastion/task-runner migrating into the cluster**: Pod +
-  PVC with a thin init (no systemd-as-PID-1) — container-shaped, lighter
-  than KubeVirt. (PSS: a thin init + sshd works; PSS Baseline acceptable
-  for trusted-code workloads.)
+Migration shape: an SSH target + occasional task runner is
+**container-shaped** — if/when trista moves into the cluster, **Pod + PVC
+with a thin init + sshd** (no systemd-as-PID-1) is the right fit, lighter
+than KubeVirt. (PSS: thin init + sshd works; PSS Baseline is acceptable for
+trusted-code workloads. It is *not* edith-shaped, so KubeVirt is not
+warranted.)
 
-**Flag for operator:** trista's three different role descriptions should be
-reconciled in the registry/inventory regardless of migration — see the
-inconsistencies summary.
+The real complication is **wg-ba mesh peering**: a WireGuard mesh peer is
+naturally a host/VM, not a Pod. Two options when migration is actually
+wanted:
+- keep trista as a VM (Incus today, or KubeVirt) so wg-ba peering stays
+  host-native — simplest given the mesh role; or
+- run it as a Pod in the DMZ zone and terminate wg-ba elsewhere (e.g. on
+  the router / an existing mesh peer), routing SSH to the Pod via router6 +
+  NetworkPolicy.
+
+**No urgency.** trista has a live, low-churn role; there's no forced
+migration. Decide the shape only if/when consolidating off Incus (Phase 9)
+makes it worthwhile. Keeping it on Incus indefinitely is fine and is what
+defers Phase 9.
+
+**Follow-up:** correct the `microvm-inventory.md` trista entry to match the
+authoritative role above.
 
 ## Phase 9 — decommission Incus (if/when appropriate)
 
