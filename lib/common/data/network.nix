@@ -108,7 +108,7 @@
       vlanId = 100;
       gateway = "thebeyond";
       hosts = {
-        trista = 51; # SSH target in DMZ, reachable over wg-ba; may also be a task runner (erebonia Incus VM)
+        trista = 51; # NixOS workstation / dev environment, SSH over wg-ba in DMZ (erebonia Incus VM)
         langport = 41; # Reverse proxy (calvard)
       };
     };
