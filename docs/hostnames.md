@@ -41,7 +41,20 @@ VM HOSTS (Countries)
 │   ├── grancel       (reserved)
 │   └── rolent        (reserved)
 │
-└── (northambria)     (reserved GP-host name — not provisioned)
+├── northambria       (GP host — reserved, not provisioned)
+│   ├── haliask       (reserved)
+│   ├── difwa         (reserved)
+│   ├── szaborja      (reserved)
+│   ├── standza       (reserved)
+│   ├── yabori        (reserved)
+│   └── kilva         (reserved)
+│
+└── remiferia         (former NAS host — decommissioned; names free for reuse)
+    ├── ardent        (reserved — was Attic, now zeiss on liberl)
+    ├── monrain       (reserved — was cgit)
+    ├── denai         (reserved — was a dev VM)
+    ├── lucent        (reserved)
+    └── eyja          (reserved)
 
 ROUTER (Extra-planar spaces)
 └── thebeyond         (Router)
@@ -83,5 +96,8 @@ Notes:
   formerly roer) were the pre-migration names of guests now on calvard
   (oracion, langport, basel, tharbad, messeldam respectively). They are
   free again on erebonia except **roer**, reused for deployd-api.
-- The removed **remiferia** NAS host (former home of ardent/monrain/denai)
-  is gone; its Attic cache moved to **zeiss** on liberl.
+- **remiferia** was the former NAS host (home of ardent/monrain/denai); it
+  was decommissioned and its Attic cache moved to **zeiss** on liberl. Its
+  name and city-name pool are kept above, free for reuse on future devices.
+- "(reserved)" entries are unallocated Trails-themed names held for future
+  devices — kept here intentionally as the naming pool, not dead entries.
