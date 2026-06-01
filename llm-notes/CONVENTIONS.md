@@ -8,7 +8,6 @@ Plans flow through state directories as work progresses.
 ```
 llm-notes/
 ├── CONVENTIONS.md          ← this file
-├── feature-roadmap-analysis.md  ← top-level roadmap (not a plan)
 ├── microvm-inventory.md         ← top-level inventory (not a plan)
 │
 ├── plans/        ← drafted but not yet started
