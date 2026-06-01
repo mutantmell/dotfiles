@@ -7,14 +7,21 @@ Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 
 Depends on:
 - `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (cluster + CSI).
-- Cluster proven by `llm-notes/plans/k3s-deployd-migration-plan.md`
-  (cc-sandbox running reliably in-cluster). Per operator priority the
-  existing workloads are migrated before the net-new features in
-  `llm-notes/plans/k3s-cluster-workloads-plan.md`, so the cc-sandbox
-  migration — not the new workloads — is what proves the cluster ahead of
-  the edith move. (The report gated this on its Phases 2–4 + ~3 months of
-  cluster operation; the proving workload changes with the reordering, the
-  "let it run a while first" intent does not.)
+- **Cluster proven before moving the daily-driver edith.** cc-sandbox is
+  no longer the proving workload (it's unused and not migrated — see
+  `k3s-deployd-migration-plan.md`), so the shakedown should come from a
+  low-stakes workload run for a while first: a net-new
+  `k3s-cluster-workloads-plan.md` workload (the AI coding layer prototype
+  or a game server) and/or migrating the **secondary** workstation trista
+  (Phase 8) ahead of the **primary** edith (Phase 7). The report gated this
+  on its Phases 2–4 + ~3 months of cluster operation; the "let it run a
+  while first" intent holds even though the specific proving workload
+  changed.
+
+  > Note: this is mild tension with the "migrate existing before net-new"
+  > ordering — with cc-sandbox gone, there's no low-stakes *existing*
+  > workload left to prove the cluster, so a low-stakes *net-new* one (or
+  > trista-before-edith) fills that role. Operator's call.
 
 Relates to / eventually obsoletes:
 - **`llm-notes/done/incus-vm-migration.md`** — converted `edith` to an
@@ -126,9 +133,13 @@ Phase 7**: a KubeVirt `VirtualMachine` with a flake-built NixOS image on a
 DataVolume (liberl-backed CSI, VolumeSnapshot backups). The "Why edith and
 trista are KubeVirt VMs" reasoning above applies in full. Concretely:
 
-- Add it after edith is proven (edith is the daily driver and goes first);
-  trista is the secondary/backup workstation, so it's the lower-risk
-  second KubeVirt VM and a good confidence-builder before Incus sunset.
+- **Ordering vs edith is an operator choice.** Two defensible orders:
+  *edith-first* (prioritize the daily driver — the whole point of the
+  migration — with trista as the confidence-builder before Incus sunset),
+  or *trista-first* (prove the KubeVirt path on the lower-stakes secondary
+  workstation before risking the daily driver — useful now that cc-sandbox
+  no longer shakes out the cluster; see the "Depends on" note). Either way
+  both land before Phase 9.
 - **DMZ placement + wg-ba mesh peering carry over cleanly** — a KubeVirt VM
   is host-shaped, so it can hold the wg-ba WireGuard peer the same way the
   Incus VM does today; no need to terminate wg-ba elsewhere (this was the
