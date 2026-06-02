@@ -1,7 +1,7 @@
 {config, ...}: {
   sops = {
     defaultSopsFile = ./secrets/secrets.yaml;
-    age.sshKeyPaths = ["/static/etc/ssh/ssh_host_ed25519_key"];
+    age.keyFile = "/static/var/lib/sops-nix/key.txt";
     secrets = {
       "forgejo-admin-password" = {
         mode = "0400";
