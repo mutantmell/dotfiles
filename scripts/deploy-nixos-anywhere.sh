@@ -23,7 +23,7 @@ EXTRA_ARGS=("$@")
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # --- Dependency checks ---
-for cmd in jq ssh-keygen ssh-to-age sops nix openssl passage; do
+for cmd in jq ssh-keygen age-keygen sops nix openssl passage; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Required command not found: $cmd"
     exit 1
@@ -135,10 +135,23 @@ fi
 TARGET_HOST="${TARGET#*@}" # strip user@ prefix: "root@1.2.3.4" -> "1.2.3.4"
 ssh-keygen -R "$TARGET_HOST" 2>/dev/null || true
 
-# --- sops-nix integration: host age key ---
-AGE_KEY=$(ssh-to-age <"$SSH_KEY.pub")
+# --- sops-nix integration: host PQC age identity ---
+# The host decrypts its sops secrets with a native age hybrid post-quantum
+# identity (ML-KEM-768 + X25519), independent of the SSH host key above.
+# Reuse the identity from passage if present, else generate a fresh one.
+PQC_KEY="$KEYFILE_DIR/age.key"
+if passage show "hosts/$HOSTNAME/age.key" >"$PQC_KEY" 2>/dev/null; then
+  chmod 600 "$PQC_KEY"
+  echo "Using existing PQC age identity from passage:hosts/$HOSTNAME/age.key"
+else
+  rm -f "$PQC_KEY"
+  echo "Generating new PQC age identity..."
+  age-keygen -pq -o "$PQC_KEY" 2>/dev/null
+  chmod 600 "$PQC_KEY"
+fi
+AGE_KEY=$(age-keygen -y "$PQC_KEY")
 ANCHOR="&sv_$HOSTNAME"
-echo "Derived age key: $AGE_KEY"
+echo "Host age recipient: $AGE_KEY"
 
 SOPS_FILE="$REPO_ROOT/.sops.yaml"
 if grep -q "$ANCHOR" "$SOPS_FILE"; then
@@ -159,7 +172,11 @@ else
   echo ""
 fi
 
-# Re-encrypt host secrets with the updated key
+# Re-encrypt host secrets with the updated key.
+# NOTE: age refuses to encrypt to mixed classical + post-quantum recipients,
+# so this host's creation_rule in .sops.yaml must reference the PQ admin
+# anchor (*admin) alongside *sv_<host> — not the classical *ad_denai.
+# `sops updatekeys` will error on a mixed rule; fix the rule and re-run.
 SECRET_FILES=$(find "$REPO_ROOT/hosts/$HOSTNAME/secrets/" -name '*.yaml' 2>/dev/null || true)
 if [[ -n $SECRET_FILES ]]; then
   echo "Re-encrypting secrets for $HOSTNAME..."
@@ -208,6 +225,10 @@ fi
 if ! passage show "hosts/$HOSTNAME/ssh_host_ed25519_key" >/dev/null 2>&1; then
   passage insert -m -f "hosts/$HOSTNAME/ssh_host_ed25519_key" <"$SSH_KEY"
   echo "Stored SSH key in passage:hosts/$HOSTNAME/ssh_host_ed25519_key"
+fi
+if ! passage show "hosts/$HOSTNAME/age.key" >/dev/null 2>&1; then
+  passage insert -m -f "hosts/$HOSTNAME/age.key" <"$PQC_KEY"
+  echo "Stored PQC age identity in passage:hosts/$HOSTNAME/age.key"
 fi
 
 # --- Fleet enrollment key setup ---
@@ -331,6 +352,13 @@ cp "$SSH_KEY.pub" "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
 chmod 600 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key"
 chmod 644 "$EXTRA_FILES_DIR/persist/etc/ssh/ssh_host_ed25519_key.pub"
 
+# sops-nix PQC identity — persisted at /persist/var/lib/sops-nix/key.txt and
+# bind-mounted to /var/lib/sops-nix/key.txt by impermanence (see
+# modules/common/impermanence.nix). sops.nix reads it via age.keyFile.
+mkdir -p "$EXTRA_FILES_DIR/persist/var/lib/sops-nix"
+cp "$PQC_KEY" "$EXTRA_FILES_DIR/persist/var/lib/sops-nix/key.txt"
+chmod 0400 "$EXTRA_FILES_DIR/persist/var/lib/sops-nix/key.txt"
+
 # Fleet enrollment key — into impermanence persist path so it's available at
 # /var/lib/fleet-tls/enrollment.key on first boot (via impermanence bind mount).
 # fleet-enrollment-key.service skips via ConditionPathExists when key exists.
@@ -409,6 +437,7 @@ echo ""
 echo "Keys stored in passage store under hosts/$HOSTNAME/:"
 echo "  disk.key                  — LUKS encryption key"
 echo "  ssh_host_ed25519_key      — SSH host private key"
+echo "  age.key                   — sops-nix PQC decryption identity"
 echo "  fleet_enrollment_key      — fleet TLS enrollment private key"
 
 if [[ ${#UNSIGNED_ENROLLMENT_HOSTS[@]} -gt 0 ]]; then

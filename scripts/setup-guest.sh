@@ -51,7 +51,7 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # --- Dependency checks ---
-for cmd in jq ssh-keygen ssh-to-age sops openssl passage; do
+for cmd in jq ssh-keygen age-keygen sops openssl passage; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Required command not found: $cmd"
     exit 1
@@ -110,8 +110,21 @@ else
 fi
 update_host_key_registry "$GUEST" "$GUEST_SSH_KEY.pub"
 
-# --- sops-nix integration: derive age key ---
-GUEST_AGE_KEY=$(ssh-to-age <"$GUEST_SSH_KEY.pub")
+# --- sops-nix integration: guest PQC age identity ---
+# The guest decrypts its sops secrets with a native age hybrid post-quantum
+# identity (ML-KEM-768 + X25519), independent of the SSH host key above.
+# Reuse the identity from passage if present, else generate a fresh one.
+GUEST_PQC_KEY="$KEYFILE_DIR/${GUEST}-age.key"
+if passage show "hosts/$GUEST/age.key" >"$GUEST_PQC_KEY" 2>/dev/null; then
+  chmod 600 "$GUEST_PQC_KEY"
+  echo "Using existing PQC age identity from passage:hosts/$GUEST/age.key"
+else
+  rm -f "$GUEST_PQC_KEY"
+  echo "Generating new PQC age identity..."
+  age-keygen -pq -o "$GUEST_PQC_KEY" 2>/dev/null
+  chmod 600 "$GUEST_PQC_KEY"
+fi
+GUEST_AGE_KEY=$(age-keygen -y "$GUEST_PQC_KEY")
 GUEST_ANCHOR="&sv_${GUEST}"
 GUEST_ANCHOR_ESCAPED="${GUEST_ANCHOR//&/\\&}"
 
@@ -133,6 +146,9 @@ else
 fi
 
 # --- Re-encrypt guest secrets ---
+# NOTE: age refuses to encrypt to mixed classical + post-quantum recipients,
+# so this guest's creation_rule in .sops.yaml must reference the PQ admin
+# anchor (*admin) alongside *sv_<guest> — not the classical *ad_denai.
 if [[ -d $GUEST_SECRET_DIR ]]; then
   GUEST_SECRET_FILES=$(find "$GUEST_SECRET_DIR" -name '*.yaml' 2>/dev/null || true)
   if [[ -n $GUEST_SECRET_FILES ]]; then
@@ -228,6 +244,10 @@ if ! passage show "hosts/$GUEST/ssh_host_ed25519_key" >/dev/null 2>&1; then
   passage insert -m -f "hosts/$GUEST/ssh_host_ed25519_key" <"$GUEST_SSH_KEY"
   echo "Stored SSH key in passage:hosts/$GUEST/ssh_host_ed25519_key"
 fi
+if ! passage show "hosts/$GUEST/age.key" >/dev/null 2>&1; then
+  passage insert -m -f "hosts/$GUEST/age.key" <"$GUEST_PQC_KEY"
+  echo "Stored PQC age identity in passage:hosts/$GUEST/age.key"
+fi
 if ! passage show "hosts/$GUEST/fleet_enrollment_key" >/dev/null 2>&1; then
   passage insert -m -f "hosts/$GUEST/fleet_enrollment_key" <"$GUEST_ENROLLMENT_KEY"
   echo "Stored enrollment key in passage:hosts/$GUEST/fleet_enrollment_key"
@@ -243,6 +263,13 @@ place_guest_keys() {
   cp "$GUEST_SSH_KEY.pub" "$dest_dir/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
   chmod 600 "$dest_dir/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
   chmod 644 "$dest_dir/persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
+
+  # sops-nix PQC identity — exposed to the guest at
+  # /static/var/lib/sops-nix/key.txt via the static virtiofs share; the
+  # guest's sops.nix reads it via age.keyFile.
+  mkdir -p "$dest_dir/persist/guests/${GUEST}/static/var/lib/sops-nix"
+  cp "$GUEST_PQC_KEY" "$dest_dir/persist/guests/${GUEST}/static/var/lib/sops-nix/key.txt"
+  chmod 0400 "$dest_dir/persist/guests/${GUEST}/static/var/lib/sops-nix/key.txt"
 
   if [[ $GUEST_TYPE == "microvm" ]]; then
     mkdir -p "$dest_dir/persist/guests/${GUEST}/images"
@@ -276,6 +303,14 @@ elif [[ -n $TARGET ]]; then
   ssh "$TARGET" "chmod 600 /persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key"
   # shellcheck disable=SC2029
   ssh "$TARGET" "chmod 644 /persist/guests/${GUEST}/static/etc/ssh/ssh_host_ed25519_key.pub"
+
+  # sops-nix PQC identity
+  # shellcheck disable=SC2029
+  ssh "$TARGET" "mkdir -p /persist/guests/${GUEST}/static/var/lib/sops-nix"
+  scp "$DEPLOY_DIR/persist/guests/${GUEST}/static/var/lib/sops-nix/key.txt" \
+    "$TARGET:/persist/guests/${GUEST}/static/var/lib/sops-nix/key.txt"
+  # shellcheck disable=SC2029
+  ssh "$TARGET" "chmod 0400 /persist/guests/${GUEST}/static/var/lib/sops-nix/key.txt"
 
   if [[ $GUEST_TYPE == "microvm" ]]; then
     NIXOS_CFG="$REPO_ROOT#nixosConfigurations.$PARENT.config"

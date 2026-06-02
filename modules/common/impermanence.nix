@@ -46,6 +46,10 @@ in {
           "/etc/ssh/ssh_host_rsa_key"
           "/etc/ssh/ssh_host_rsa_key.pub"
           "/root/.ssh/known_hosts"
+          # sops-nix age (PQC) identity, placed at deploy time and read by
+          # sops-install-secrets via age.keyFile. Mirrors the SSH host key:
+          # persisted under /persist and bind-mounted into /var/lib/sops-nix.
+          "/var/lib/sops-nix/key.txt"
         ];
     };
 

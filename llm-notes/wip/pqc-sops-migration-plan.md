@@ -42,21 +42,22 @@ no extra binary on PATH.
   along with the classical anchors in `.sops.yaml`, and the rolled-back
   host generation reads it with its SSH-key path.
 - **Admin migration:** the admin generates a PQC identity at the start
-  and appends it to the existing `pki/ad_denai.key` passage entry,
+  and appends it to the existing `sops/key` passage entry,
   which from that point holds both classical and PQ identities — sops
   parses the entry contents the same way it parses a `keys.txt` file,
   so both are loaded on every invocation through the unchanged
-  `SOPS_AGE_KEY_CMD = "passage show pki/ad_denai.key"` set in the
+  `SOPS_AGE_KEY_CMD = "passage show sops/key"` set in the
   passage-prelude commit. Both halves stay in the same entry throughout
   the rollout because each per-host commit decrypts files with the
   classical admin and re-encrypts to the PQ admin. The classical
   `&ad_denai` anchor stays in `.sops.yaml`'s `keys:` section as long as
   any unmigrated rule references it; the last host's migration commit
-  removes it. After Phase 3 the classical half is extracted to a
-  passage archive path (kept for forensic decryption of historic
-  ciphertexts in git history, not used routinely) and trimmed out of
-  `pki/ad_denai.key`, leaving PQ-only. `SOPS_AGE_KEY_CMD` and
-  `home/hosts/edith.nix` are untouched throughout the migration.
+  removes it. After Phase 3 the classical half is trimmed out of
+  `sops/key`, leaving PQ-only; the prior (classical + PQ) version stays
+  recoverable from passage's git history if a historic ciphertext ever
+  needs forensic decryption, so no separate archive entry is made.
+  `SOPS_AGE_KEY_CMD` and `home/hosts/edith.nix` are untouched throughout
+  the migration.
 - **Per-host cutover style:** hard. One commit per host:
   1. Generates and stages the PQC identity (placed via `--extra-files`
      equivalent or pushed directly).
@@ -86,7 +87,7 @@ no extra binary on PATH.
     decryption — only the admin recipient matters.
   - Home-manager (`home/hosts/edith`): the admin identity (classical
     only before this plan, classical + PQ during Phase 1–3, PQ-only
-    from Phase 4 onward) lives in passage at `pki/ad_denai.key` and is
+    from Phase 4 onward) lives in passage at `sops/key` and is
     loaded into `sops` at invocation time via `SOPS_AGE_KEY_CMD` (set
     once in `home/hosts/edith.nix` as a passage-prelude before this
     plan starts, and not touched again by the migration). No admin
@@ -101,17 +102,19 @@ no extra binary on PATH.
     dependencies — verify on the first cutover host.
 - **Anchor naming:** during migration, classical and PQ recipients
   coexist as separate anchors: `&sv_<host>` (classical) and
-  `&sv_<host>_pqc` (PQ); `&ad_denai` (classical) and `&ad_denai_pqc` (PQ).
+  `&sv_<host>_pqc` (PQ); `&ad_denai` (classical) and `&admin` (PQ).
   Each `creation_rule` references one pair or the other — never mixed.
   Per-host migration is a single commit that flips that rule's anchor
   references and removes the now-unreferenced classical `&sv_<host>`
   anchor. After Phase 3, an optional cleanup commit drops the `_pqc`
-  suffix from the remaining anchors so the names are back to plain
-  `&sv_<host>` / `&ad_denai`. Renames don't require `sops updatekeys`
-  since anchor names don't appear in ciphertext.
+  suffix from the remaining host anchors so the names are back to plain
+  `&sv_<host>`. The PQ admin anchor is already named `&admin` and stays
+  that way; the classical `&ad_denai` anchor is gone by then. Renames
+  don't require `sops updatekeys` since anchor names don't appear in
+  ciphertext.
 - **Backup:** host PQC identity files are stored in `passage` at
   `hosts/<host>/age.key` (analogous to `hosts/<host>/ssh_host_ed25519_key`).
-  The admin identity lives in `passage` at `pki/ad_denai.key` — passage
+  The admin identity lives in `passage` at `sops/key` — passage
   is the source of truth there, not a backup, since the workstation
   resolves it via `SOPS_AGE_KEY_CMD`.
 
@@ -131,18 +134,19 @@ no extra binary on PATH.
   there are 16.
 
 ### `.sops.yaml` changes
-- Phase 1 adds two new anchors in the `keys:` section: `&ad_denai_pqc`
+- Phase 1 adds one new anchor in the `keys:` section: `&admin`
   (the new PQ admin recipient) — no rule references it yet.
 - Each per-host commit in Phase 3:
   - Adds `&sv_<host>_pqc` to `keys:`.
   - Changes that host's `creation_rule` from
-    `age: [*ad_denai, *sv_<host>]` to `age: [*ad_denai_pqc, *sv_<host>_pqc]`.
+    `age: [*ad_denai, *sv_<host>]` to `age: [*admin, *sv_<host>_pqc]`.
   - Deletes the now-unreferenced `&sv_<host>` (classical) anchor.
 - The last host's commit also deletes the classical `&ad_denai` anchor —
   it has just become unreferenced.
-- Optional cleanup commit at the end: rename `_pqc` suffixes back to plain
-  names (`&sv_<host>_pqc` → `&sv_<host>`, `&ad_denai_pqc` → `&ad_denai`).
-  No re-encryption needed since YAML anchor names don't appear in the
+- Optional cleanup commit at the end: rename the `_pqc` host suffixes back
+  to plain names (`&sv_<host>_pqc` → `&sv_<host>`). The admin anchor is
+  already `&admin` and is left as-is; the classical `&ad_denai` is gone by
+  then. No re-encryption needed since YAML anchor names don't appear in the
   encrypted output.
 
 ### Script changes
@@ -197,38 +201,38 @@ no extra binary on PATH.
 ### Phase 1 — Admin PQC identity (local-only setup)
 
 Precondition: `home/hosts/edith.nix` already sets
-`home.sessionVariables.SOPS_AGE_KEY_CMD = "passage show pki/ad_denai.key"`
+`home.sessionVariables.SOPS_AGE_KEY_CMD = "passage show sops/key"`
 and the classical admin identity lives in that passage entry (the
 passage-prelude commit). No `~/.config/sops/age/keys.txt` on the
 workstation. This Phase does not touch `home/hosts/edith.nix` or
 `SOPS_AGE_KEY_CMD` — only the passage entry contents and `.sops.yaml`.
 
 1. Generate the admin PQC identity to a temp file:
-   `age-keygen -pq -o /tmp/ad_denai_pqc.key`. Derive the recipient with
-   `age-keygen -y /tmp/ad_denai_pqc.key` → `age1pq1...`.
-2. Append the new identity to the existing `pki/ad_denai.key` passage
+   `age-keygen -pq -o /tmp/admin.key`. Derive the recipient with
+   `age-keygen -y /tmp/admin.key` → `age1pq1...`.
+2. Append the new identity to the existing `sops/key` passage
    entry. sops parses the entry contents the same way as a `keys.txt`
    file — multiple identities separated by a blank line work — so this
    becomes a multi-identity blob (classical + PQ) under the same path:
    ```bash
-   { passage show pki/ad_denai.key; printf '\n'; cat /tmp/ad_denai_pqc.key; } \
-     | passage insert -m -f pki/ad_denai.key
-   shred -u /tmp/ad_denai_pqc.key
+   { passage show sops/key; printf '\n'; cat /tmp/admin.key; } \
+     | passage insert -m -f sops/key
+   shred -u /tmp/admin.key
    ```
 3. Add the new recipient as a second anchor in `.sops.yaml`'s `keys:`
    section, but do **not** reference it from any `creation_rule` yet:
    ```yaml
-   - &ad_denai     age1mmqej3...     # classical, still used by all rules
-   - &ad_denai_pqc age1pq1...        # new, no rule references it yet
+   - &ad_denai age1mmqej3...   # classical, still used by all rules
+   - &admin    age1pq1...      # new, no rule references it yet
    ```
 4. Smoke test on a throwaway file: write a yaml, encrypt to
-   `*ad_denai_pqc` only, then decrypt with sops. Confirm the PQ admin
+   `*admin` only, then decrypt with sops. Confirm the PQ admin
    key works end-to-end. Also decrypt an existing classical-only file
    to confirm the multi-identity entry hasn't broken the classical path.
 5. Commit (`.sops.yaml` only — no secret-file re-encryption, no
    home-manager change).
 
-Exit criteria: PQ admin identity is appended to the `pki/ad_denai.key`
+Exit criteria: PQ admin identity is appended to the `sops/key`
 passage entry; the new anchor is declared in `.sops.yaml` but no
 `creation_rule` uses it yet; sops invocations on the workstation have
 both identities available via the unchanged `SOPS_AGE_KEY_CMD`.
@@ -270,7 +274,7 @@ recipients: the host's secret files transition from "classical-only" to
 4. Update `.sops.yaml`:
    - Add `&sv_<host>_pqc age1pq1...` to the `keys:` section.
    - In that host's `creation_rule`, swap the anchor references from
-     `[*ad_denai, *sv_<host>]` to `[*ad_denai_pqc, *sv_<host>_pqc]`.
+     `[*ad_denai, *sv_<host>]` to `[*admin, *sv_<host>_pqc]`.
    - Delete the now-unreferenced `&sv_<host>` (classical) anchor.
    - If this is the **last** host to migrate, also delete `&ad_denai`
      (which is no longer referenced by any rule).
@@ -278,7 +282,7 @@ recipients: the host's secret files transition from "classical-only" to
    commit batches a parent + its guests):
    `sops updatekeys --yes hosts/<host>/.../secrets/*.yaml`. sops decrypts
    with the local classical admin key and re-encrypts to
-   `{ad_denai_pqc, sv_<host>_pqc}` — both PQ. No mixed-recipient state.
+   `{admin, sv_<host>_pqc}` — both PQ. No mixed-recipient state.
 6. Update the host's `sops.nix`: change `age.sshKeyPaths = [...]` to
    `age.keyFile = "/var/lib/sops-nix/key.txt"` (or
    `"/static/var/lib/sops-nix/key.txt"` for guests).
@@ -295,27 +299,42 @@ generation match — no mixed state ever existed. Re-deploy when fixed.
 
 **Suggested host order** (lowest risk first; reorder freely):
 
-1. **arcus** — single-host, no guests, lowest blast radius. Burn-in target.
-2. **edith** (incus guest under calvard) — non-load-bearing personal box.
-3. **calvard guests** — messeldam, basel, langport, tharbad, creil — in
+1. **erebonia** (parent) — burn-in target. The services it hosts aren't
+   currently in use, so a botched cutover has near-zero blast radius, yet
+   it's a real bare-metal impermanence host and so exercises the full
+   `age.keyFile` + `/persist/var/lib/sops-nix/key.txt` bind-mount path that
+   Phase 2 wired into `modules/common/impermanence.nix`. Validate here that
+   `sops-install-secrets` reads the bind-mounted key before any consumer
+   starts. Taking erebonia down briefly stops its guests — fine, they're
+   idle.
+2. **erebonia guests** — roer, saint-arkh, trista. Validates the guest
+   `/static/var/lib/sops-nix/key.txt` virtiofs path.
+3. **edith** (incus guest under calvard) — non-load-bearing personal box.
+4. **calvard guests** — messeldam, basel, langport, tharbad, creil — in
    that order, batched as one commit each. langport carries WireGuard;
    verify its tunnels survive.
-4. **erebonia guests** — roer, saint-arkh, trista.
 5. **calvard** (parent) — taking calvard down for the cutover briefly stops
    its guests. Plan the window.
-6. **erebonia** (parent) — same.
-7. **liberl + its guests** (bose, ravennue, zeiss) — NFS host; takes ZFS
+6. **liberl + its guests** (bose, ravennue, zeiss) — NFS host; takes ZFS
    shares offline for the reboot.
-8. **phantasma** (microvm guest under thebeyond) — DNS resolver. Reboot
+7. **phantasma** (microvm guest under thebeyond) — DNS resolver. Reboot
    degrades DNS until kresd on thebeyond falls back, which is the
    documented designed behavior.
-9. **thebeyond** — last. Router. If anything goes wrong, everything is
+8. **thebeyond** — last. Router. If anything goes wrong, everything is
    down. Have a console / out-of-band recovery path ready before deploying.
 
-Admin identity handling during Phase 3: the `pki/ad_denai.key` passage
+   **arcus** (Steam Deck) — special case, migrate whenever convenient and
+   independent of the order above. It does not enable `common.impermanence`
+   (NetworkManager, normal persistent root, Jovian/gaming), so the Phase 2
+   bind-mount mechanism does not apply: its `age.keyFile` must point at a
+   path that persists directly on its root filesystem, and the key is
+   placed there rather than via the impermanence `files` list. Determine
+   the exact path at its cutover.
+
+Admin identity handling during Phase 3: the `sops/key` passage
 entry holds both the classical `ad_denai` identity and the new
-`ad_denai_pqc` identity throughout (appended in Phase 1). The unchanged
-`SOPS_AGE_KEY_CMD = "passage show pki/ad_denai.key"` emits both on
+`admin` identity throughout (appended in Phase 1). The unchanged
+`SOPS_AGE_KEY_CMD = "passage show sops/key"` emits both on
 every sops invocation. The classical key is needed to decrypt files
 for hosts that haven't migrated yet; the PQ key is needed to re-encrypt
 files for hosts that just have. The classical `&ad_denai` anchor stays
@@ -326,36 +345,30 @@ Exit criteria: every host runs on `age.keyFile` with a PQ identity, every
 secret file in the repo is encrypted to PQ recipients only, the classical
 `&ad_denai` anchor is gone from `.sops.yaml`.
 
-### Phase 4 — Admin classical identity archival
+### Phase 4 — Admin classical identity retirement
 This phase is local-only; no host deploys. `SOPS_AGE_KEY_CMD` and
 `home/hosts/edith.nix` are not touched — the change is entirely in the
-contents of the `pki/ad_denai.key` passage entry.
+contents of the `sops/key` passage entry.
 
-1. Extract the classical half of the `pki/ad_denai.key` entry and
-   store it at an archive path. The admin no longer needs it for
-   routine work — every active secret file is PQ-only — but keep it
-   available for forensic decryption of historic ciphertexts in git
-   history:
+1. Trim `sops/key` to contain only the PQ identity:
    ```bash
-   passage insert -m -f pki/archive/ad_denai_classical.key
-   # paste the classical identity block only (comments + AGE-SECRET-KEY-1...),
-   # then Ctrl-D
-   ```
-2. Trim `pki/ad_denai.key` to contain only the PQ identity:
-   ```bash
-   passage edit pki/ad_denai.key
+   passage edit sops/key
    # delete the classical identity block, save
    ```
-   `SOPS_AGE_KEY_CMD` is unchanged — the same command now emits only
-   the PQ identity because the entry contents changed. Smoke-test
-   `sops -d` on a PQ-encrypted secret.
-3. Optional `.sops.yaml` cleanup commit: rename `&ad_denai_pqc` →
-   `&ad_denai` and `&sv_<host>_pqc` → `&sv_<host>` throughout. Anchor
-   names don't appear in encrypted output, so no `sops updatekeys` is
-   needed — this is a pure rename for readability.
+   The admin no longer needs the classical half for routine work —
+   every active secret file is PQ-only. The prior (classical + PQ)
+   version of the entry stays recoverable from passage's git history
+   if a historic ciphertext ever needs forensic decryption, so no
+   separate archive entry is made. `SOPS_AGE_KEY_CMD` is unchanged —
+   the same command now emits only the PQ identity because the entry
+   contents changed. Smoke-test `sops -d` on a PQ-encrypted secret.
+2. Optional `.sops.yaml` cleanup commit: rename `&sv_<host>_pqc` →
+   `&sv_<host>` throughout. The admin anchor is already `&admin` and is
+   left as-is. Anchor names don't appear in encrypted output, so no
+   `sops updatekeys` is needed — this is a pure rename for readability.
 
-Exit criteria: classical admin identity is archived at
-`pki/archive/ad_denai_classical.key` in passage; `pki/ad_denai.key`
+Exit criteria: classical admin identity is removed from the live
+`sops/key` entry (still recoverable via passage git history); `sops/key`
 contains only the PQ identity; `SOPS_AGE_KEY_CMD` and
 `home/hosts/edith.nix` are unchanged from their passage-prelude state;
 optional anchor-name cleanup landed.
@@ -412,7 +425,7 @@ optional anchor-name cleanup landed.
   classical `ad_denai` is still a valid recipient for any unmigrated
   rule, so the admin keeps access to those files. Already-migrated rules
   would be unrecoverable without the PQ admin key. The PQ identity
-  lives only as the appended half of the `pki/ad_denai.key` passage
+  lives only as the appended half of the `sops/key` passage
   entry (no plaintext at rest on the workstation); the underlying risk
   reduces to the passage-store availability story, which is already
   load-bearing for `pki/ssh_host_ca_key`, `pki/fleet_x5c_ca_key`,
@@ -443,7 +456,7 @@ optional anchor-name cleanup landed.
 - 1 commit: Phase 0 verification notes (or a `reports/pqc-toolchain-check.md`
   if findings warrant it).
 - 1 commit: Phase 1 — admin PQC identity appended to the
-  `pki/ad_denai.key` passage entry (out-of-band), `&ad_denai_pqc`
+  `sops/key` passage entry (out-of-band), `&admin`
   anchor added to `.sops.yaml` (no rule references it yet). No
   home-manager change.
 - 1 commit: Phase 2 — script + helper updates, common-module impermanence
@@ -453,10 +466,10 @@ optional anchor-name cleanup landed.
   the host's secret files, drops the classical `&sv_<host>` anchor, and
   switches that host's `sops.nix` to `age.keyFile`. The last commit also
   drops `&ad_denai`.
-- 0–1 commits: Phase 4 — passage entry surgery (extract classical to
-  archive path, trim main entry to PQ-only) is out-of-band, no repo
-  change. The only in-repo commit is the optional `.sops.yaml`
-  anchor-name cleanup, if landed.
+- 0–1 commits: Phase 4 — passage entry surgery (trim the classical half
+  out of `sops/key`, leaving PQ-only; prior version stays in passage git
+  history) is out-of-band, no repo change. The only in-repo commit is the
+  optional `.sops.yaml` anchor-name cleanup, if landed.
 - 1 commit: Phase 5 — docs and cleanup.
 
 Move this plan to `wip/` when Phase 0 lands; to `done/` when Phase 5 lands.
