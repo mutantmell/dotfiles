@@ -1,7 +1,7 @@
 {config, ...}: {
   config.sops = {
     defaultSopsFile = ./secrets/secrets.yaml;
-    age.sshKeyPaths = ["/etc/ssh/ssh_host_ed25519_key"];
+    age.keyFile = "/persist/var/lib/sops-nix/key.txt";
     secrets = {
       "wg-vpn-privatekey" = {
         mode = "0440";

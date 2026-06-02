@@ -290,15 +290,18 @@ recipients: the host's secret files transition from "classical-only" to
    `{admin, sv_<host>}` — both PQ values. No mixed-recipient state.
 6. Update the host's `sops.nix`: replace `age.sshKeyPaths = [...]` with
    `age.keyFile = "..."` plus `age.sshKeyPaths = [];`. Set the keyFile to:
-   - `"/persist/var/lib/sops-nix/key.txt"` for a bare-metal host whose
-     SSH key is read from `/persist/etc/ssh/...` (calvard, erebonia).
-     The direct persist path is readable at activation time, so
-     `nixos-rebuild switch` decrypts without a reboot — guests stay up.
-   - `"/var/lib/sops-nix/key.txt"` (the impermanence bind-mounted path)
-     for a bare-metal host that reads SSH from `/etc/ssh/...` (thebeyond).
-     This path only materializes once the bind mount is up, which is
-     guaranteed at boot but not on a no-reboot `switch` — **reboot** that
-     host as part of the cutover.
+   - `"/persist/var/lib/sops-nix/key.txt"` for **every** bare-metal host
+     (calvard, erebonia, thebeyond). The direct persist path is readable
+     at activation time (`/persist` is `neededForBoot`), so `nixos-rebuild
+     switch` decrypts without a reboot — guests stay up. This supersedes
+     the earlier per-host distinction that pointed thebeyond at the
+     impermanence bind-mounted `/var/lib/sops-nix/key.txt`: once
+     `age.sshKeyPaths` is dropped, thebeyond's only difference from
+     erebonia (reading SSH from `/etc/ssh/...` vs `/persist/etc/ssh/...`)
+     is gone, so it uses the same persist-direct path erebonia's burn-in
+     already validated. A reboot of thebeyond is still recommended as
+     operational caution (last/highest-risk host, confirm clean unattended
+     boot) but is no longer technically required for decryption.
    - `"/static/var/lib/sops-nix/key.txt"` for microVM / Incus guests.
    Add `age.sshKeyPaths = [];` to fully decouple sops from the SSH key:
    sops-nix otherwise defaults `sshKeyPaths` to the host SSH keys, which
