@@ -13,7 +13,6 @@
 (import ./router6.nix {inherit pkgs lib;})
 // {
   # Incus integration tests
-  deployd = import ./modules/deployd.nix {inherit pkgs lib;};
   incus-container = import ./modules/incus-container.nix {inherit pkgs lib;};
   incus-vm = import ./modules/incus-vm.nix {inherit pkgs lib disko;};
 
@@ -54,16 +53,5 @@
     } ''
       echo "btrfs+l2arc disko profile validated successfully"
       echo "$profileJson" > $out
-    '';
-
-  # cc-sandbox unit tests
-  cc-sandbox = let
-    python = pkgs.python3.withPackages (ps: [ps.requests ps.pytest]);
-  in
-    pkgs.runCommand "cc-sandbox-tests" {} ''
-      cp ${../packages/cc-sandbox/cc_sandbox.py} cc_sandbox.py
-      cp ${../packages/cc-sandbox/test_cc_sandbox.py} test_cc_sandbox.py
-      ${python}/bin/python -m pytest test_cc_sandbox.py -v
-      echo ok > $out
     '';
 }

@@ -135,15 +135,17 @@ reasons:
 
 ---
 
-## PQC Age Key (Planned)
+## PQC Age Key
 
-**Purpose.** Decrypts sops-encrypted secrets at runtime. Replaces the
-current scheme where each host's SSH Ed25519 host key is converted to an
-X25519 age recipient via `ssh-to-age`.
+**Purpose.** Decrypts sops-encrypted secrets at runtime. Replaced the
+former scheme where each host's SSH Ed25519 host key was converted to an
+X25519 age recipient via `ssh-to-age`. See
+[`secrets.md`](secrets.md) for the operational details and
+`llm-notes/done/pqc-sops-migration-plan.md` for the migration.
 
-**Why a new key — why can't we keep using the SSH host key?**
+**Why a separate key — why couldn't we keep using the SSH host key?**
 
-The current scheme works only because Ed25519 (signing) and X25519 (key
+The former scheme worked only because Ed25519 (signing) and X25519 (key
 agreement) share the same underlying curve (Curve25519). `ssh-to-age` is a
 deterministic mapping from an Ed25519 keypair to an X25519 keypair. **No
 such mapping exists for post-quantum schemes.**
@@ -154,10 +156,10 @@ signing), and SLH-DSA (FIPS 205, hash-based signing). These are
 mathematically unrelated to Curve25519. There is no derivation that turns
 an Ed25519 SSH host key into an ML-KEM age recipient.
 
-When age adds first-class PQC support (likely as a plugin first, then
-core), each host will need its own dedicated PQC keypair. The SSH host
-key will continue to do its job (SSH host identity), and the PQC key will
-take over the sops-decryption job that SSH key had been moonlighting in.
+age v1.3 added first-class native PQC support (hybrid ML-KEM-768 + X25519),
+so each host now has its own dedicated PQC keypair. The SSH host key
+continues to do its job (SSH host identity), and the PQC key has taken
+over the sops-decryption job the SSH key had been moonlighting in.
 
 **The threat model.** Even before quantum computers exist, this matters
 because of "harvest now, decrypt later" attacks. Encrypted secrets in the
@@ -167,13 +169,16 @@ become vulnerable the moment a cryptographically relevant quantum computer
 is deployed against them. Migrating to PQC age while CRQCs are still
 hypothetical is the conservative move.
 
-**Operational shape.** Identical to the X5C enrollment key:
+**Operational shape.**
 
-- Generated on the host, on first boot. Private key never leaves the host.
-- Public key registered in `.sops.yaml` (still keyed by alias).
+- Generated at deploy time by `deploy-nixos-anywhere.sh` / `setup-guest.sh`
+  (`age-keygen -pq`), placed on the host at `age.keyFile`, and backed up to
+  `passage:hosts/<host>/age.key`.
+- The `age1pq1…` recipient is registered in `.sops.yaml` (keyed by `&sv_<host>`
+  alias).
 - No CA — the public key is the trust anchor, registered directly in repo.
-- Out-of-band delivery is trivially satisfied because the host generates
-  its own keypair and the operator copies the pubkey into `.sops.yaml`.
+- Rotation: generate a new identity, replace the recipient in `.sops.yaml`,
+  `sops updatekeys` the host's files, ship the new key file.
 
 **Why no CA for the age key?** Because age recipients are
 public-key-as-identity, not certificate-based. There is no rotation use

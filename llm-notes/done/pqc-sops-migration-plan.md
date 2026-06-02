@@ -1,5 +1,16 @@
 # PQC sops Migration Plan
 
+> **Status: DONE (2026-06-02).** All hosts migrated to native age hybrid PQC
+> (`age1pq1…`, ML-KEM-768 + X25519) on `age.keyFile`; classical `&ad_denai`
+> anchor and all `age.sshKeyPaths` removed. Phases 0–5 complete.
+> **Deviations:** the optional `modules/common/sops-pqc.nix` helper and the
+> `sops-pqc-rotate` script (Phase 2, both marked optional) were skipped — the
+> 16 `sops.nix` files were edited directly and rotation is the documented
+> manual recipe in `docs/secrets.md`. The one remaining classical recipient is
+> the OpenWrt/admin-only deploy key, which is out of scope (OpenWrt holds no
+> on-device decryption key). Docs rewritten: `docs/secrets.md`,
+> `docs/host-identity.md`.
+
 Move every sops recipient in this repo from classical X25519 (derived from
 ed25519 SSH host keys via `ssh-to-age`) to age's native hybrid post-quantum
 recipients (`age1pq1...`, ML-KEM-768 + X25519). Migrate the admin recipient
@@ -36,7 +47,7 @@ no extra binary on PATH.
   both classical X25519 and PQ recipients in one operation: a mixed file's
   effective security degrades to the weakest recipient, defeating the
   point of PQ, and age enforces this at the tooling level. The migration
-  is sequenced so every file is *fully classical* or *fully PQ* at every
+  is sequenced so every file is _fully classical_ or _fully PQ_ at every
   commit — never mixed. The rollback contract is git, not dual recipients:
   reverting the cutover commit restores ciphertext from the prior commit
   along with the classical anchors in `.sops.yaml`, and the rolled-back
@@ -102,7 +113,7 @@ no extra binary on PATH.
     dependencies — verify on the first cutover host.
 - **Anchor naming (in-place value flip, decided at the erebonia
   burn-in):** the host anchor keeps its plain name `&sv_<host>`
-  throughout; its *value* flips from the classical ssh-to-age recipient
+  throughout; its _value_ flips from the classical ssh-to-age recipient
   to the new `age1pq1...` recipient in the cutover commit. No `_pqc`
   suffix anchors and no end-of-migration rename cleanup — the PQ public
   keys are visually obvious (far longer), and flipping the value in
@@ -115,7 +126,7 @@ no extra binary on PATH.
   overwrites its `&sv_<host>` value to the PQ recipient. The classical
   `&ad_denai` anchor is removed by the last host's commit, once no rule
   references it. Re-encryption (`sops updatekeys`) is driven by the
-  recipient *values*, not anchor names, so changing a value requires a
+  recipient _values_, not anchor names, so changing a value requires a
   re-key while the rename-free naming needs no separate cleanup pass.
 - **Backup:** host PQC identity files are stored in `passage` at
   `hosts/<host>/age.key` (analogous to `hosts/<host>/ssh_host_ed25519_key`).
@@ -126,6 +137,7 @@ no extra binary on PATH.
 ## What changes in the repo
 
 ### Module / nix changes
+
 - `hosts/*/sops.nix` (16 files): replace
   `age.sshKeyPaths = ["…/ssh_host_ed25519_key"];` with
   `age.keyFile = "…/sops/age.key";` — one file per host, landed in that
@@ -139,10 +151,11 @@ no extra binary on PATH.
   there are 16.
 
 ### `.sops.yaml` changes
+
 - Phase 1 adds one new anchor in the `keys:` section: `&admin`
   (the new PQ admin recipient) — no rule references it yet.
 - Each per-host commit in Phase 3:
-  - Overwrites that host's `&sv_<host>` anchor *value* in `keys:` from the
+  - Overwrites that host's `&sv_<host>` anchor _value_ in `keys:` from the
     classical ssh-to-age recipient to the new `age1pq1...` recipient
     (in place — no new anchor, no `_pqc` suffix).
   - Changes that host's `creation_rule` from
@@ -154,6 +167,7 @@ no extra binary on PATH.
   encrypted output.
 
 ### Script changes
+
 - `scripts/deploy-nixos-anywhere.sh`:
   - Drop the `ssh-to-age` derivation for the host's age recipient.
   - Generate a PQC identity for the host with `age-keygen -pq -o "$PQC_KEY"`,
@@ -178,6 +192,7 @@ no extra binary on PATH.
   itself and for future rotations.
 
 ### Docs
+
 - `docs/secrets.md` rewrite of "How It Works" and the registry table:
   drop the `ssh-to-age` derivation column, replace with "PQC identity path
   on host", recipient column shows `age1pq1...`. The "Action required"
@@ -187,8 +202,9 @@ no extra binary on PATH.
 ## Phases
 
 ### Phase 0 — Toolchain verification (single commit, no deploys)
+
 - Confirm `pkgs.sops` ≥ 3.12 in the current `nixpkgs` pin: `nix eval
-  .#legacyPackages.x86_64-linux.sops.version` (or equivalent).
+.#legacyPackages.x86_64-linux.sops.version` (or equivalent).
 - Confirm `pkgs.age` ≥ 1.3.0 similarly.
 - Confirm `sops-install-secrets` from sops-nix vendors a sufficiently recent
   `filippo.io/age` (check sops-nix's go.mod at the pinned commit). If not,
@@ -226,8 +242,8 @@ workstation. This Phase does not touch `home/hosts/edith.nix` or
 3. Add the new recipient as a second anchor in `.sops.yaml`'s `keys:`
    section, but do **not** reference it from any `creation_rule` yet:
    ```yaml
-   - &ad_denai age1mmqej3...   # classical, still used by all rules
-   - &admin    age1pq1...      # new, no rule references it yet
+   - &ad_denai age1mmqej3... # classical, still used by all rules
+   - &admin age1pq1... # new, no rule references it yet
    ```
 4. Smoke test on a throwaway file: write a yaml, encrypt to
    `*admin` only, then decrypt with sops. Confirm the PQ admin
@@ -243,6 +259,7 @@ both identities available via the unchanged `SOPS_AGE_KEY_CMD`.
 Running hosts are unaffected.
 
 ### Phase 2 — Script and helper updates (single commit, no deploys)
+
 - Update `scripts/deploy-nixos-anywhere.sh` and `scripts/setup-guest.sh` as
   described above. New hosts deployed from this point forward get a PQC
   identity by default.
@@ -255,6 +272,7 @@ Exit criteria: a hypothetical fresh deploy would produce a PQC-only host.
 Existing hosts unaffected.
 
 ### Phase 3 — Per-host hard cutover
+
 For each host, in the order below, do these steps in a single commit +
 deploy cycle. The commit holds together because age refuses mixed
 recipients: the host's secret files transition from "classical-only" to
@@ -293,7 +311,7 @@ recipients: the host's secret files transition from "classical-only" to
    - `"/persist/var/lib/sops-nix/key.txt"` for **every** bare-metal host
      (calvard, erebonia, thebeyond). The direct persist path is readable
      at activation time (`/persist` is `neededForBoot`), so `nixos-rebuild
-     switch` decrypts without a reboot — guests stay up. This supersedes
+switch` decrypts without a reboot — guests stay up. This supersedes
      the earlier per-host distinction that pointed thebeyond at the
      impermanence bind-mounted `/var/lib/sops-nix/key.txt`: once
      `age.sshKeyPaths` is dropped, thebeyond's only difference from
@@ -303,10 +321,10 @@ recipients: the host's secret files transition from "classical-only" to
      operational caution (last/highest-risk host, confirm clean unattended
      boot) but is no longer technically required for decryption.
    - `"/static/var/lib/sops-nix/key.txt"` for microVM / Incus guests.
-   Add `age.sshKeyPaths = [];` to fully decouple sops from the SSH key:
-   sops-nix otherwise defaults `sshKeyPaths` to the host SSH keys, which
-   is harmless once secrets are PQ-only (the SSH-derived identity matches
-   no recipient) but leaves exactly the coupling this migration removes.
+     Add `age.sshKeyPaths = [];` to fully decouple sops from the SSH key:
+     sops-nix otherwise defaults `sshKeyPaths` to the host SSH keys, which
+     is harmless once secrets are PQ-only (the SSH-derived identity matches
+     no recipient) but leaves exactly the coupling this migration removes.
 7. `nixos-rebuild switch --flake .#<host> --target-host <host>` (or
    `deploy-rs`). Verify the new generation reaches `multi-user.target`,
    `sops-install-secrets` produces `/run/secrets/*` correctly, and the
@@ -367,6 +385,7 @@ secret file in the repo is encrypted to PQ recipients only, the classical
 `&ad_denai` anchor is gone from `.sops.yaml`.
 
 ### Phase 4 — Admin classical identity retirement
+
 This phase is local-only; no host deploys. `SOPS_AGE_KEY_CMD` and
 `home/hosts/edith.nix` are not touched — the change is entirely in the
 contents of the `sops/key` passage entry.
@@ -394,6 +413,7 @@ contains only the PQ identity; `SOPS_AGE_KEY_CMD` and
 optional anchor-name cleanup landed.
 
 ### Phase 5 — Cleanup and docs
+
 - Rewrite `docs/secrets.md` per the "Docs" section above.
 - Remove `ssh-to-age` from the dependency check lists in
   `deploy-nixos-anywhere.sh` and `setup-guest.sh` (no longer needed).
@@ -411,7 +431,7 @@ optional anchor-name cleanup landed.
   part of Phase 0 — that's a one-line change but a real prerequisite.
 - **deploy-rs / nixos-rebuild flow.** Confirm that on a host's first boot
   with the new generation, `sops-install-secrets.service` reads
-  `/persist/sops/age.key` *before* anything that consumes `/run/secrets`
+  `/persist/sops/age.key` _before_ anything that consumes `/run/secrets`
   starts. (sops-nix orders this correctly by default; verify on first
   cutover host.)
 - **microvm `/static/` ordering.** The PQC key lives in the parent's
@@ -433,11 +453,11 @@ optional anchor-name cleanup landed.
 - **Misplaced key on a host = bricked sops.** The host comes up but no
   secrets decrypt; services depending on them fail. Mitigation: hard
   rollback via `nixos-rebuild --rollback`. Place and verify the key file
-  *before* the rebuild that switches `sops.nix` to `age.keyFile`.
+  _before_ the rebuild that switches `sops.nix` to `age.keyFile`.
 - **thebeyond bricks the network.** Last in the order. Have console
   access (OOB) ready. Consider scheduling for a low-traffic window.
 - **Lost PQC identity = lost host secrets.** Same threat model as the
-  current SSH-derived key, but each host now has a *new* secret to back
+  current SSH-derived key, but each host now has a _new_ secret to back
   up. The passage backup at `hosts/<host>/age.key` is mandatory; the
   per-host commit (Phase 3 step 8) doesn't land until that backup exists
   (Phase 3 step 3).

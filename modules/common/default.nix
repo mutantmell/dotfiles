@@ -1,7 +1,6 @@
 {
   imports = [
     ./btrfs.nix
-    ./deployd.nix
     ./firewall.nix
     ./fluent-bit.nix
     ./impermanence.nix

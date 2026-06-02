@@ -20,10 +20,6 @@ in {
       uid = 400;
       gid = 400;
     };
-    deployd = {
-      uid = 401;
-      gid = 401;
-    };
     # Normal users (interactive role accounts).
     # Allocated at 1100+ to leave 1000-1099 free for personal accounts
     # (e.g., mutantmell is uid 1000 on edith).

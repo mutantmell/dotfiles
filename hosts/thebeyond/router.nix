@@ -284,7 +284,7 @@ in {
         ];
         # DMZ-initiated flows to management-zone services. Pre-Phase-3 these
         # were `forwardRules.management` (local on thebeyond, brDMZ → brINFRA);
-        # post-Phase-3 the destination IPs (messeldam/basel/tharbad/roer) live
+        # post-Phase-3 the destination IPs (messeldam/basel/tharbad) live
         # on BT8-gateway, so the path is brDMZ → brTRANSIT and the rules live
         # under `forwardRules.transit`. The daddr constraints still gate by
         # specific host so transit traffic to other zones isn't broadened.
@@ -567,60 +567,59 @@ in {
       logDropped = true;
 
       egressPolicy = "drop";
-      egressRules =
-        [
-          # DNS (kresd recursive queries)
-          {
-            udp.dport = 53;
-            verdict = "accept";
-            comment = "DNS recursive";
-          }
-          {
-            tcp.dport = 53;
-            verdict = "accept";
-            comment = "DNS recursive (TCP)";
-          }
-          # NTP
-          {
-            udp.dport = 123;
-            verdict = "accept";
-            comment = "NTP";
-          }
-          # DHCP client
-          {
-            udp.dport = 67;
-            verdict = "accept";
-            comment = "DHCP client";
-          }
-          {
-            udp.dport = 68;
-            verdict = "accept";
-            comment = "DHCP server response";
-          }
-          # DHCPv6
-          {
-            udp.dport = [546 547];
-            verdict = "accept";
-            comment = "DHCPv6";
-          }
-          # HTTP/HTTPS (system updates)
-          {
-            tcp.dport = 80;
-            verdict = "accept";
-            comment = "HTTP";
-          }
-          {
-            tcp.dport = 443;
-            verdict = "accept";
-            comment = "HTTPS";
-          }
-          # WireGuard
-          {
-            udp.dport = [38506 59362 51820];
-            verdict = "accept";
-            comment = "WireGuard";
-          }
-        ];
+      egressRules = [
+        # DNS (kresd recursive queries)
+        {
+          udp.dport = 53;
+          verdict = "accept";
+          comment = "DNS recursive";
+        }
+        {
+          tcp.dport = 53;
+          verdict = "accept";
+          comment = "DNS recursive (TCP)";
+        }
+        # NTP
+        {
+          udp.dport = 123;
+          verdict = "accept";
+          comment = "NTP";
+        }
+        # DHCP client
+        {
+          udp.dport = 67;
+          verdict = "accept";
+          comment = "DHCP client";
+        }
+        {
+          udp.dport = 68;
+          verdict = "accept";
+          comment = "DHCP server response";
+        }
+        # DHCPv6
+        {
+          udp.dport = [546 547];
+          verdict = "accept";
+          comment = "DHCPv6";
+        }
+        # HTTP/HTTPS (system updates)
+        {
+          tcp.dport = 80;
+          verdict = "accept";
+          comment = "HTTP";
+        }
+        {
+          tcp.dport = 443;
+          verdict = "accept";
+          comment = "HTTPS";
+        }
+        # WireGuard
+        {
+          udp.dport = [38506 59362 51820];
+          verdict = "accept";
+          comment = "WireGuard";
+        }
+      ];
       # Port forward SSH from wg-ba to trista (SSH bastion)
       portForwards = [
         {

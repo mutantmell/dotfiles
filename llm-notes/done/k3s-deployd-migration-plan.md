@@ -1,6 +1,19 @@
 # k3s deployd Decommission Plan
 
-Status: Planned (not started)
+> **Status: DONE (2026-06-02).** deployd fully removed from the flake:
+> `modules/deployd/`, `modules/common/deployd.nix`, `packages/deployd-api`,
+> `packages/deployd-helper`, the erebonia `common.deployd` block + helper UID
+> wiring, and the `roer` microVM (guest dir, network alloc `roer = 32`,
+> monitoredHosts entry, `&sv_roer` + creation rule in `.sops.yaml`, fleet/host
+> certs, `keys.json` entries). cc-sandbox retired alongside it
+> (`packages/cc-sandbox`, `packages/claude-sandbox-image`,
+> `home/modules/cc-sandbox.nix`, edith's home-manager config). The `deployd`
+> UID was dropped from the user registry; erebonia keeps its single host-level
+> nested-KVM modprobe. erebonia + edith-home configs and network checks all
+> evaluate clean. **Orphaned encrypted secret entries** (`deployd-capability-token`,
+> `cc-sandbox-forgejo-token`) were left for the operator to drop via `sops`;
+> the operator subsequently removed `hosts/erebonia/secrets/secrets.yaml`
+> entirely. erebonia lands clean for the k3s bootstrap.
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 5–6** — but reframed: see "What changed" below.

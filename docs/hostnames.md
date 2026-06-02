@@ -11,7 +11,6 @@ inline with "→".
 ```
 VM HOSTS (Countries)
 ├── erebonia          (GP / dynamic-compute host)
-│   ├── roer          (microVM) — deployd-api  → decommissioned with deployd
 │   ├── saint-arkh    (microVM) — CI runner (Forgejo Actions)  → Woodpecker CI server; build runners move into k3s
 │   ├── trista        (Incus VM) — NixOS dev workstation; SSH over wg-ba in DMZ  → KubeVirt VM
 │   ├── k3s-server    (microVM, planned) — k3s control plane (apiserver/kine); name TBD
@@ -90,12 +89,12 @@ OTHER HOSTS (Orbments)
 Notes:
 
 - The static service fleet lives on **calvard**; **erebonia** is the
-  dynamic-compute host (deployd today, k3s cluster planned). **liberl** is
+  dynamic-compute host (k3s cluster planned; deployd was decommissioned). **liberl** is
   the NAS and also hosts the media/cache microVMs.
-- Several old erebonia guest names (heimdallr, ordis, legram, ymir, and
-  formerly roer) were the pre-migration names of guests now on calvard
-  (oracion, langport, basel, tharbad, messeldam respectively). They are
-  free again on erebonia except **roer**, reused for deployd-api.
+- Several old erebonia guest names (heimdallr, ordis, legram, ymir, roer)
+  were the pre-migration names of guests now on calvard (oracion, langport,
+  basel, tharbad, messeldam respectively; roer hosted the now-removed
+  deployd-api). They are all free again on erebonia.
 - **remiferia** was the former NAS host (home of ardent/monrain/denai); it
   was decommissioned and its Attic cache moved to **zeiss** on liberl. Its
   name and city-name pool are kept above, free for reuse on future devices.

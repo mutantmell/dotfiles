@@ -3,11 +3,7 @@
   config,
   lib,
   ...
-}: let
-  inherit (pkgs.mmell.lib.data.users.deployd) uid gid;
-  net = pkgs.mmell.lib.data.network;
-  dmz = net.networks.dmz;
-in {
+}: {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./hardware-configuration.nix
@@ -24,28 +20,6 @@ in {
   boot.loader.efi.canTouchEfiVariables = true;
 
   common.impermanence.enable = true;
-  common.deployd.enable = true;
-  deployd = {
-    capabilityTokenFile = config.sops.secrets."deployd-capability-token".path;
-    vsockHostSocket = "/var/lib/microvms/roer/notify.vsock_7000";
-    vsockDirectoryService = "microvm@roer.service";
-    caddy.listenAddress = (pkgs.mmell.lib.data.network.forHost "erebonia").host.ipv4;
-    runtimes = {
-      allowed = ["kata" "runc"];
-      default = "kata";
-    };
-    bridge = {
-      name = "deploy-dmz";
-      uplink = "uplink.100";
-      subnet = dmz.subnet4;
-      gateway = dmz.gateway4;
-      poolStart = "${dmz.prefix4}.128";
-      poolEnd = "${dmz.prefix4}.191";
-    };
-  };
-  # Static UID — must match deployd-api UID in roer microVM for virtiofs socket access.
-  users.users.deployd-helper.uid = uid;
-  users.groups.deployd-helper.gid = gid;
   common.btrfs.enable = true;
   common.btrfs.keyfileUnlock.enable = true;
   common.btrfs.impermanence.enable = true;
