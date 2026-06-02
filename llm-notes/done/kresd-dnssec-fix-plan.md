@@ -1,6 +1,7 @@
 # Fix kresd DNSSEC validation on thebeyond
 
 **Status:** Shipped 2026-05. Both fixes landed:
+
 - Primary path switched to `policy.STUB` via `router6.dns.upstreamPolicy = "stub"` (`hosts/thebeyond/router.nix:584`).
 - Root KSK pinned via `pkgs.dns-root-data` in read-only mode (`modules/router6/dns.nix:181`).
 - `router6.dns.enableDNSSEC = true` on thebeyond (`hosts/thebeyond/router.nix:578`).

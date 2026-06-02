@@ -61,9 +61,9 @@ Tick each before touching LuCI.
       session will be used throughout.
 - [ ] **Take a sysupgrade backup** before any change:
       `sh
-    ssh root@10.91.10.4 'sysupgrade -b /tmp/pre-runbook-backup.tar.gz'
-    scp root@10.91.10.4:/tmp/pre-runbook-backup.tar.gz ~/
-    `
+  ssh root@10.91.10.4 'sysupgrade -b /tmp/pre-runbook-backup.tar.gz'
+  scp root@10.91.10.4:/tmp/pre-runbook-backup.tar.gz ~/
+  `
       Save with a name like `bt8bridge-2026-MM-DD-pre-runbook.tar.gz`
       in the operator secret store. This is your one-command rollback
       if anything in this runbook goes wrong.

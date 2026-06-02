@@ -167,11 +167,11 @@ when `oracion` (Jellyfin / Navidrome / Retrom) migrated from `10.97.100.52`
 
 Two new zone-pair forwarding directives + three per-flow accept rules:
 
-| Direction | Flow | Ports |
-| --- | --- | --- |
-| `transit → app` | wg-media (`10.100.20.0/24`) → oracion | tcp 443 |
-| `app → management` | oracion → basel | tcp 443 (ACME) |
-| `app → management` | oracion → tharbad | tcp 3100, 8427 (Loki + metrics push) |
+| Direction          | Flow                                  | Ports                                |
+| ------------------ | ------------------------------------- | ------------------------------------ |
+| `transit → app`    | wg-media (`10.100.20.0/24`) → oracion | tcp 443                              |
+| `app → management` | oracion → basel                       | tcp 443 (ACME)                       |
+| `app → management` | oracion → tharbad                     | tcp 3100, 8427 (Loki + metrics push) |
 
 **fw4 gotcha:** per-rule accepts alone weren't sufficient — fw4 only
 evaluates inter-zone rules when a matching `config forwarding`
@@ -194,17 +194,17 @@ Section A.
 
 Three new zone-pair forwarding directives + per-flow accept rules:
 
-| Direction | Flows | Ports |
-| --- | --- | --- |
-| `app → management` | creil/zeiss/saint-arkh → basel | tcp 443 (ACME) |
-| `app → management` | creil/zeiss/saint-arkh → tharbad | tcp 3100, 8427 (Loki + metrics push) |
-| `app → management` | saint-arkh → roer | tcp 443 (deployd API) |
-| `management → app` | management VLAN → creil | tcp 22, 443 (Forgejo) |
-| `management → app` | management VLAN → zeiss | tcp 443 (Attic cache) |
-| `trusted → app` | HOME (operator workstation) → app (broad) | (zone-pair accept; per-rule TBD) |
-| `lab → app` | edith → app (broad) | (zone-pair accept; per-rule TBD) |
+| Direction          | Flows                                     | Ports                                |
+| ------------------ | ----------------------------------------- | ------------------------------------ |
+| `app → management` | creil/zeiss/saint-arkh → basel            | tcp 443 (ACME)                       |
+| `app → management` | creil/zeiss/saint-arkh → tharbad          | tcp 3100, 8427 (Loki + metrics push) |
+| `app → management` | saint-arkh → roer                         | tcp 443 (deployd API)                |
+| `management → app` | management VLAN → creil                   | tcp 22, 443 (Forgejo)                |
+| `management → app` | management VLAN → zeiss                   | tcp 443 (Attic cache)                |
+| `trusted → app`    | HOME (operator workstation) → app (broad) | (zone-pair accept; per-rule TBD)     |
+| `lab → app`        | edith → app (broad)                       | (zone-pair accept; per-rule TBD)     |
 
-No `transit → app` per-flow rules needed for this batch — no wg-* flows
+No `transit → app` per-flow rules needed for this batch — no wg-\* flows
 currently target creil/zeiss/saint-arkh. `app → app` intra-zone flows
 (e.g. saint-arkh → zeiss Attic push) traverse the APP bridge directly
 without involving fw4.

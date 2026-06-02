@@ -20,6 +20,7 @@ to the bootstrap.
 
 Foundation for (recommended execution order, after deployd removal +
 bootstrap):
+
 1. `llm-notes/plans/k3s-cluster-workloads-plan.md` **Phase A** — AI coding
    layer: on-demand dev containers via **DevPod** (off-the-shelf,
    recommended; Coder if it goes multi-user). The **low-stakes starter and
@@ -83,7 +84,7 @@ cluster the split is largely security theater at real complexity cost:
   of where the apiserver runs. The microvm isn't on that path.
 - The deployd analogy doesn't transfer: deployd's security came from a
   **narrow, audited vsock protocol** + privilege-dropping in the helper,
-  not the microvm per se. The k3s agent↔server link is the *entire*
+  not the microvm per se. The k3s agent↔server link is the _entire_
   Kubernetes API spoken by a credentialed kubelet — not a narrow surface to
   confine.
 - The real isolation the homelab needs is **per-workload** (gVisor / kata /
@@ -97,7 +98,7 @@ split-reset semantics. We confine :6443 with the host firewall + router6
 budget into the runtime tiers. The only thing given up is the clean
 microvm-rebuild recovery for the control plane — replaced by routine
 kine/etcd snapshot backups, which we want anyway. (HA later can still add
-control-plane nodes on *other* hosts — see "Deferred — multi-node & HA".)
+control-plane nodes on _other_ hosts — see "Deferred — multi-node & HA".)
 
 ## Repo-grounding corrections to the report
 
@@ -111,7 +112,7 @@ plan corrects against the live repo:
   thebeyond's router config; erebonia's cluster traffic traverses the
   router like any other host.
 - **OIDC provider is currently Keycloak (`messeldam`), not Authelia.**
-  The report says "Authelia"; an Authelia migration is *planned*
+  The report says "Authelia"; an Authelia migration is _planned_
   (`llm-notes/plans/authelia-migration-plan.md`) but not done. kube
   apiserver OIDC should target whichever provider is live when Phase 1
   lands. See "Open decisions".
@@ -143,8 +144,8 @@ plan corrects against the live repo:
   mechanism that replaces the report's "rebuild the apiserver microvm."
 - **apiserver (:6443) network confinement via the host**, not a VM: bind it
   to erebonia's management interface and gate access with the host firewall
-  + the router6 `cluster` zone (E). Reachable from erebonia-local and
-  selected clients (optionally remote `kubectl` via langport's proxy).
+  - the router6 `cluster` zone (E). Reachable from erebonia-local and
+    selected clients (optionally remote `kubectl` via langport's proxy).
 - Host prerequisites on erebonia: gVisor `runsc` binary, `pkgs.kata-runtime`
   (deployd's module owned this before; with deployd removed first, k3s is
   the sole owner of the kata runtime and
@@ -158,8 +159,8 @@ plan corrects against the live repo:
   - `cert-manager` + a step-ca `ClusterIssuer` (step-ca runs on `basel`)
   - `kyverno` with ClusterPolicies scoped to the CI builds namespace only
   - `flux` bootstrapped against the dynamic-manifest path
-  - *(deferred — added with the first CSI-needing workload, see D:
-    `external-snapshotter` then `democratic-csi`)*
+  - _(deferred — added with the first CSI-needing workload, see D:
+    `external-snapshotter` then `democratic-csi`)_
 - **Storage:** k3s's bundled `local-path-provisioner` is the default
   StorageClass at bootstrap. Sufficient for the kine datastore, platform
   components, and DevPod workspaces (Phase A). No CSI yet.
@@ -238,7 +239,7 @@ top). On a clean erebonia:
 - k3s' agent owns containerd, the CNI, and
   `/etc/kata-containers/configuration.toml` outright — no sharing.
 - Settle the single owner of the nested-KVM modprobe (`options kvm_intel
-  nested=1`) — deployd's module set it and `hosts/erebonia/default.nix:53`
+nested=1`) — deployd's module set it and `hosts/erebonia/default.nix:53`
   also sets it; after deployd removal, keep just the host-level one (or
   move it under the k3s config). One declaration, not two.
 - Ports 6443/10250/10256/8472 are free (nothing else on erebonia uses them).
@@ -294,7 +295,7 @@ Recorded here because the control-plane topology is owned by this plan.
   workload scheduling (~1 GB/1 vCPU control-plane-only; etcd state on
   liberl's btrfs SSD root). More relevant than Phase 10 because it adds
   control-plane redundancy without inverting static-fleet isolation.
-  - Note: a *dedicated HA control-plane node on another host* may run as a
+  - Note: a _dedicated HA control-plane node on another host_ may run as a
     small microvm or bare-metal — that's orthogonal to (and not a
     reinstatement of) the rejected erebonia apiserver-in-microvm split. The
     split we declined was wrapping the single node's own apiserver; adding
@@ -317,7 +318,7 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
    oauth2-proxy-shaped adapter or static bearer token if it mismatches.)
 2. **kine datastore persistence + backup (on erebonia).** btrfs subvol vs
    impermanence for `/var/lib/rancher/k3s/server`; scheduled backup of the
-   kine SQLite file (separate from Velero, which protects cluster *state*,
+   kine SQLite file (separate from Velero, which protects cluster _state_,
    not the datastore underneath). This is now the primary control-plane
    recovery mechanism (it replaces the rejected microvm-rebuild path), so
    it matters more than before — settle it at bootstrap.

@@ -7,13 +7,14 @@ servers, CI) come **after** the dev-env migration.
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 2–4** and Appendix A (CI runner security). The AI coding layer is
-*not* in the report — it's the successor goal to cc-sandbox (which is
+_not_ in the report — it's the successor goal to cc-sandbox (which is
 unused and being retired, not migrated; see
 `k3s-deployd-migration-plan.md`). The report ran blog/game/CI as the
-cluster's *first* workloads; here Phase A is the first workload and the rest
+cluster's _first_ workloads; here Phase A is the first workload and the rest
 run after the dev-env migration, per operator priority.
 
 Depends on:
+
 - `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster, runtimes,
   and Flux must exist first; the AI coding layer's optional nested-virt
   sessions additionally need the kata-qemu/runc-kvm + `/dev/kvm` path
@@ -26,6 +27,7 @@ Depends on:
   **remaining** features (Phases 2–4) land after the dev-env migration.
 
 Interacts with:
+
 - **`llm-notes/plans/cicd-fleet-activation-plan.md`** — its Phase 1 makes
   `saint-arkh` the **Woodpecker server microvm**. Under the **hybrid**
   decided here, that server microvm stays, but build runners move into the
@@ -79,7 +81,7 @@ security or capability one — and the homelab's principles tip it to DevPod:
   environments expand beyond the operator (friends, collaborators,
   workshops) or a managed web-IDE platform is wanted. The report led with
   Coder because it assumed cc-sandbox's full feature set was being
-  preserved; with cc-sandbox dropped and Phase A scoped as the *minimal*
+  preserved; with cc-sandbox dropped and Phase A scoped as the _minimal_
   starter, that inverts.
 
 This is also the **low-stakes workload the cluster starts with** — it runs
@@ -206,6 +208,7 @@ keeps saint-arkh as the Woodpecker server, but its runner-execution
 substrate becomes the k3s kubernetes backend instead of bare-metal agents.
 
 **Follow-up edits to land with this plan:**
+
 - Update `cicd-fleet-activation-plan.md` Phase 1 to set
   `WOODPECKER_BACKEND=kubernetes` and drop the bare-metal-agent /
   containerd+kata runner wiring (runners are cluster pods).

@@ -6,8 +6,9 @@ Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 7–9**.
 
 Depends on:
+
 - `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster). **Note:
-  networked storage is *not* provided by bootstrap** — it's deferred there
+  networked storage is _not_ provided by bootstrap** — it's deferred there
   (bootstrap uses local-path). **This plan stands up the liberl iSCSI
   target + democratic-csi + external-snapshotter** (bootstrap section D),
   because KubeVirt DataVolumes are the first workload that wants
@@ -22,14 +23,15 @@ Depends on:
   first" intent holds — the specific proving workload is now Phase A.)
 
 Relates to / eventually obsoletes:
+
 - **`llm-notes/done/incus-vm-migration.md`** — converted `edith` to an
   Incus VM and documented the host-side-build + `nixos-rebuild
-  --target-host` update model. That model carries forward conceptually;
-  the Incus *substrate* is what this plan replaces.
+--target-host` update model. That model carries forward conceptually;
+  the Incus _substrate_ is what this plan replaces.
 - **`llm-notes/done/incus-module-overhaul.md`** — the `modules/incus/` +
   `modules/common/incus.nix` work this plan eventually removes from
   calvard/erebonia (Phase 9).
-- **`llm-notes/done/kata-cloud-hypervisor-migration.md`** — documents *why*
+- **`llm-notes/done/kata-cloud-hypervisor-migration.md`** — documents _why_
   mutable-NixOS-as-a-container failed (kata-agent vs systemd cgroup-v2
   `EBUSY`). That lesson is exactly why edith and trista go to **KubeVirt
   (real VMs)**, not Pod + PVC.
@@ -51,13 +53,13 @@ has two real frictions for that shape:
 2. The Coder / Gitpod / Codespaces precedents are container-shaped (thin
    inits), not systemd-as-PID-1 — they don't transfer 1:1.
 
-KubeVirt expresses these workloads directly (they *are* VMs), keeps NixOS
+KubeVirt expresses these workloads directly (they _are_ VMs), keeps NixOS
 as the guest OS without contortions, and maps CSI VolumeSnapshot cleanly
 onto the `incus snapshot` workflow both have today. The cost
 (kubevirt-operator + virt-handler DaemonSet + CRDs, ~150 MB) is real and is
 the rejected alternative's tax to avoid.
 
-> **Deviation from the report.** Report v20 kept trista as a *Pod*
+> **Deviation from the report.** Report v20 kept trista as a _Pod_
 > candidate (treating it as a bastion/task-runner), with KubeVirt reserved
 > for edith. The operator has since clarified trista is a NixOS workstation
 > just like edith, so it gets the **same KubeVirt treatment**. Phase 8 is
@@ -159,9 +161,9 @@ trista are KubeVirt VMs" reasoning above applies in full. Concretely:
 - **Ordering vs edith is an operator choice.** The AI coding layer
   (Phase A) is the cluster shakedown, so KubeVirt itself is the only
   unproven piece by the time these run. Two defensible orders:
-  *edith-first* (prioritize the daily driver — the whole point of the
+  _edith-first_ (prioritize the daily driver — the whole point of the
   migration — with trista as the confidence-builder before Incus sunset),
-  or *trista-first* (prove the KubeVirt VM path on the lower-stakes
+  or _trista-first_ (prove the KubeVirt VM path on the lower-stakes
   secondary workstation before risking the daily driver). Either way both
   land before Phase 9.
 - **DMZ placement + wg-ba mesh peering carry over cleanly** — a KubeVirt VM
@@ -173,7 +175,7 @@ trista are KubeVirt VMs" reasoning above applies in full. Concretely:
   DataVolume; parallel-run; keep the stopped Incus declaration as the
   rollback window; remove once confident.
 
-**No urgency on timing** — trista is low-churn. But the *shape* is settled:
+**No urgency on timing** — trista is low-churn. But the _shape_ is settled:
 KubeVirt VM, not Pod. Keeping it on Incus until edith is proven is fine.
 
 **Follow-up:** refresh the `docs/hostnames.md` trista entry to "NixOS

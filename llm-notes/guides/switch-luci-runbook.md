@@ -57,6 +57,7 @@ traffic.
 
       Name them `arseille-2026-MM-DD-pre.tar.gz` and
       `bt8gw-2026-MM-DD-pre.tar.gz` in the operator secret store.
+
 - [ ] **USB-serial cable + console pinouts** for **both** the GS108T
       and BT8-gateway as recovery channel.
 - [ ] **Second SSH session open** to arseille (for runtime checks like
@@ -111,15 +112,15 @@ arseille (10.97.12.12 on br-lan.12)
 
 ### Addressing table
 
-| What                | Old (VLAN 10)             | New (VLAN 12)                   |
-| ------------------- | ------------------------- | ------------------------------- |
-| Subnet              | `10.91.10.0/24`           | `10.97.12.0/24`                 |
-| ULA                 | `fdc6:55f2:0a5e:000a::/64`| `fdc6:55f2:0a5e:100c::/64`      |
-| arseille IP         | `10.91.10.12/24`          | `10.97.12.12/24`                |
-| Gateway             | `10.91.10.1` (thebeyond)  | `10.97.12.1` (BT8-gw)           |
-| DNS                 | `10.91.10.10` (phantasma) | `10.97.12.1` (BT8-gw forwarder) |
-| L3 owner            | thebeyond                 | BT8-gateway                     |
-| Zone                | `network`                 | `netmgmt`                       |
+| What        | Old (VLAN 10)              | New (VLAN 12)                   |
+| ----------- | -------------------------- | ------------------------------- |
+| Subnet      | `10.91.10.0/24`            | `10.97.12.0/24`                 |
+| ULA         | `fdc6:55f2:0a5e:000a::/64` | `fdc6:55f2:0a5e:100c::/64`      |
+| arseille IP | `10.91.10.12/24`           | `10.97.12.12/24`                |
+| Gateway     | `10.91.10.1` (thebeyond)   | `10.97.12.1` (BT8-gw)           |
+| DNS         | `10.91.10.10` (phantasma)  | `10.97.12.1` (BT8-gw forwarder) |
+| L3 owner    | thebeyond                  | BT8-gateway                     |
+| Zone        | `network`                  | `netmgmt`                       |
 
 `hostId` stays `12` in both; arseille just lands on the
 group-1-prefix version of its host slot.
@@ -292,7 +293,7 @@ Click **Create interface**. Then on the new interface's edit page:
 **Save**, then **Save & Apply** at the bottom of the Interfaces page.
 
 > **Why "Use default gateway = unchecked"** — leaving it checked
-> would install a *second* default route via `10.97.12.1`,
+> would install a _second_ default route via `10.97.12.1`,
 > competing with the existing default via `10.91.10.1`. With both
 > default routes equal-cost, Linux will load-balance and outbound
 > traffic from arseille will half-blackhole during the dual-stack
@@ -580,19 +581,19 @@ and whether the bridge itself terminates that VLAN (`local`).
 
 #### §Target state
 
-| VLAN | Name        | Trunk ports (tagged)            | Access ports (untagged) | Local on bridge |
-| ---- | ----------- | ------------------------------- | ----------------------- | --------------- |
-| 10   | network     | `lan1`–`lan8` (or trunk subset) | OPERATOR                | **no**          |
-| 11   | management  | `lan1`–`lan8`                   | OPERATOR                | no              |
-| 12   | netmgmt     | `lan1`–`lan8`                   | OPERATOR                | **yes**         |
-| 20   | trusted     | `lan1`–`lan8`                   | OPERATOR                | no              |
-| 21   | lab         | `lan1`–`lan8`                   | OPERATOR                | no              |
-| 30   | untrusted   | `lan1`–`lan8`                   | OPERATOR                | no              |
-| 31   | adu         | `lan1`–`lan8`                   | OPERATOR                | no              |
-| 40   | iot         | `lan1`–`lan8`                   | OPERATOR                | no              |
-| 41   | game        | `lan1`–`lan8`                   | OPERATOR                | no              |
-| 50   | app         | `lan1`–`lan8`                   | OPERATOR                | no              |
-| 100  | dmz         | `lan1`–`lan8`                   | OPERATOR                | no              |
+| VLAN | Name       | Trunk ports (tagged)            | Access ports (untagged) | Local on bridge |
+| ---- | ---------- | ------------------------------- | ----------------------- | --------------- |
+| 10   | network    | `lan1`–`lan8` (or trunk subset) | OPERATOR                | **no**          |
+| 11   | management | `lan1`–`lan8`                   | OPERATOR                | no              |
+| 12   | netmgmt    | `lan1`–`lan8`                   | OPERATOR                | **yes**         |
+| 20   | trusted    | `lan1`–`lan8`                   | OPERATOR                | no              |
+| 21   | lab        | `lan1`–`lan8`                   | OPERATOR                | no              |
+| 30   | untrusted  | `lan1`–`lan8`                   | OPERATOR                | no              |
+| 31   | adu        | `lan1`–`lan8`                   | OPERATOR                | no              |
+| 40   | iot        | `lan1`–`lan8`                   | OPERATOR                | no              |
+| 41   | game       | `lan1`–`lan8`                   | OPERATOR                | no              |
+| 50   | app        | `lan1`–`lan8`                   | OPERATOR                | no              |
+| 100  | dmz        | `lan1`–`lan8`                   | OPERATOR                | no              |
 
 **Only VLAN 12 has `local='1'`** — that's what creates the
 `switch.12` device the mgmt interface binds to. Every other VLAN is
@@ -601,8 +602,8 @@ without local L3 termination).
 
 #### §Transitional state (additional override)
 
-| VLAN | Name    | Trunk ports (tagged) | Access ports | Local on bridge |
-| ---- | ------- | -------------------- | ------------ | --------------- |
+| VLAN | Name    | Trunk ports (tagged) | Access ports | Local on bridge                                  |
+| ---- | ------- | -------------------- | ------------ | ------------------------------------------------ |
 | 10   | network | `lan1`–`lan8`        | OPERATOR     | **yes** (override; revert to `no` at retirement) |
 
 In the transitional state, VLAN 10's row has `local='1'` (so
@@ -863,7 +864,7 @@ bridge vlan show
 ```
 
 Per port, expect each carried VLAN listed with the `Egress Untagged`
-flag *absent* (since we tagged everything). VLAN 12 should be
+flag _absent_ (since we tagged everything). VLAN 12 should be
 listed as `local` somewhere in the output.
 
 #### Listening services
@@ -900,14 +901,14 @@ or STALE).
 
 After the runbook completes:
 
-| From subnet     | VLAN | To `10.91.10.12` (transitional)  | To `10.97.12.12` (target+transitional)  |
-| --------------- | ---- | -------------------------------- | --------------------------------------- |
-| `10.91.10.0/24` | 10   | direct (local)                   | indirect via BT8-gw (works)             |
-| `10.97.12.0/24` | 12   | (only arseille is in this VLAN)  | direct (local) — only BT8-gw is there   |
-| `10.97.11.0/24` | 11   | via thebeyond (existing rule)    | **blocked** until BT8-gw fw4 rule added |
-| `10.97.20.0/24` | 20   | via thebeyond (existing rule)    | **blocked** until BT8-gw fw4 rule added |
-| `10.97.21.0/24` | 21   | via thebeyond (existing rule)    | **blocked** until BT8-gw fw4 rule added |
-| other VLANs     | …    | blocked (by design)              | blocked (by design)                     |
+| From subnet     | VLAN | To `10.91.10.12` (transitional) | To `10.97.12.12` (target+transitional)  |
+| --------------- | ---- | ------------------------------- | --------------------------------------- |
+| `10.91.10.0/24` | 10   | direct (local)                  | indirect via BT8-gw (works)             |
+| `10.97.12.0/24` | 12   | (only arseille is in this VLAN) | direct (local) — only BT8-gw is there   |
+| `10.97.11.0/24` | 11   | via thebeyond (existing rule)   | **blocked** until BT8-gw fw4 rule added |
+| `10.97.20.0/24` | 20   | via thebeyond (existing rule)   | **blocked** until BT8-gw fw4 rule added |
+| `10.97.21.0/24` | 21   | via thebeyond (existing rule)   | **blocked** until BT8-gw fw4 rule added |
+| other VLANs     | …    | blocked (by design)             | blocked (by design)                     |
 
 The "blocked" cells are the deferred follow-up the operator
 accepted — add `src=trusted/lab/management dest=netmgmt` fw4
@@ -931,13 +932,13 @@ becomes authoritative.
 
 ### A.15 LuCI menu cheat-sheet
 
-| Task                                | LuCI path                              |
-| ----------------------------------- | -------------------------------------- |
-| Bridge VLAN filtering / trunk ports | Network → Interfaces → Devices         |
-| Mgmt interface IP                   | Network → Interfaces                   |
-| SSH listener / keys                 | System → Administration                |
-| Firewall (verify off)               | Network → Firewall                     |
-| Backup config                       | System → Backup / Flash Firmware       |
+| Task                                | LuCI path                        |
+| ----------------------------------- | -------------------------------- |
+| Bridge VLAN filtering / trunk ports | Network → Interfaces → Devices   |
+| Mgmt interface IP                   | Network → Interfaces             |
+| SSH listener / keys                 | System → Administration          |
+| Firewall (verify off)               | Network → Firewall               |
+| Backup config                       | System → Backup / Flash Firmware |
 
 ---
 
@@ -971,7 +972,7 @@ Phase 2.A or 2.B disturbed the existing VLAN 10 mgmt interface.
 2. Re-attempt Phase 2.A with a closer read — specifically, verify
    VLAN 10 wasn't dropped from the trunk's `t` (tagged) ports while
    you were adding VLAN 12.
-3. Verify 2.B added a *new* interface and didn't edit the existing
+3. Verify 2.B added a _new_ interface and didn't edit the existing
    one in place.
 
 ### Symptom: arseille starts ECMP-ing outbound across both default routes

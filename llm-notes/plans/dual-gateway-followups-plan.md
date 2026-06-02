@@ -3,16 +3,16 @@
 **Status:** Drafted, not started (some items gated on CI/CD activation).
 **Plan date:** 2026-05-31.
 **Successor to:** [`llm-notes/done/dual-gateway-app-vlan-plan.md`](../done/dual-gateway-app-vlan-plan.md)
-  — that plan shipped the dual-gateway topology (Phases 0–3) and proved
-  out APP with `oracion` (Phase 5.A). This plan picks up the remaining
-  Phase 5 service migrations, the deferred Phase 4 / 4.5 image-builder
-  codification, plus open items that accumulated during the dual-gateway
-  window.
+— that plan shipped the dual-gateway topology (Phases 0–3) and proved
+out APP with `oracion` (Phase 5.A). This plan picks up the remaining
+Phase 5 service migrations, the deferred Phase 4 / 4.5 image-builder
+codification, plus open items that accumulated during the dual-gateway
+window.
 **Related:** [`llm-notes/bt8-gateway-as-built.md`](../bt8-gateway-as-built.md)
-  remains the living anchor for BT8-gateway state until Phase 4 codifies
-  it. [`llm-notes/plans/cicd-fleet-activation-plan.md`](cicd-fleet-activation-plan.md)
-  is the gate for Phase 4 / 4.5 (see
-  [`project-phase-4-deferred-to-cicd`](../../../../home/mutantmell/.claude/projects/-home-mutantmell-git-dotfiles/memory/project_phase_4_deferred_to_cicd.md)).
+remains the living anchor for BT8-gateway state until Phase 4 codifies
+it. [`llm-notes/plans/cicd-fleet-activation-plan.md`](cicd-fleet-activation-plan.md)
+is the gate for Phase 4 / 4.5 (see
+[`project-phase-4-deferred-to-cicd`](../../../../home/mutantmell/.claude/projects/-home-mutantmell-git-dotfiles/memory/project_phase_4_deferred_to_cicd.md)).
 
 ---
 
@@ -36,7 +36,7 @@ additions for any new cross-zone flows.
   - [ ] `app → management` rule: creil → basel (ACME), creil → tharbad
         (Loki + metrics push) — same shape as oracion's
 - [ ] Remove the post-5.A temp rule `management → creil (SSH + Forgejo)
-      [via BT8-gateway]` in `hosts/thebeyond/router.nix` (currently noted
+    [via BT8-gateway]` in `hosts/thebeyond/router.nix` (currently noted
       as `# Remove after Phase 5.B`) — it becomes a BT8-gw-local
       management → app rule once creil is in APP
 - [ ] Retest: in-zone, cross-zone (management → creil for Forgejo
@@ -134,24 +134,24 @@ deploys are automated rather than hand-pushed. See
 
 Source for the gateway "golden output":
 [`../bt8-gateway-as-built.md`](../bt8-gateway-as-built.md)
-+ `temp/BT8-gw-current.uci` + `temp/BT8-gw-phase-5a-additions.uci`. The
-gateway type should produce UCI substantially identical to those files
-as a snapshot test.
 
-- [ ] Extend `lib/common/data/openwrt.nix`: add BT8 target/subtarget;
+- `temp/BT8-gw-current.uci` + `temp/BT8-gw-phase-5a-additions.uci`. The
+  gateway type should produce UCI substantially identical to those files
+  as a snapshot test.
+
+* [ ] Extend `lib/common/data/openwrt.nix`: add BT8 target/subtarget;
       pin Image Builder hash via `--update-pins`
-- [ ] Audit `meshVlans` table — every batman-trunked VLAN is now a mesh
+* [ ] Audit `meshVlans` table — every batman-trunked VLAN is now a mesh
       VLAN
-- [ ] Define `wirelessBridge` type (flat L2 bridge across wired uplink
-      + batman-adv mesh)
-- [ ] Define `gateway` type (per-VLAN bridges, fw4 zones, odhcpd,
+* [ ] Define `wirelessBridge` type (flat L2 bridge across wired uplink + batman-adv mesh)
+* [ ] Define `gateway` type (per-VLAN bridges, fw4 zones, odhcpd,
       batman participation, optional client APs)
-- [ ] Extend `meshAP` type to accept BT8 hardware
-- [ ] Generate fw4 UCI from structured zone description in Nix
-- [ ] Generate odhcpd UCI per VLAN from registry data
-- [ ] Pure-Nix evaluation snapshot tests under `tests/openwrt/`,
+* [ ] Extend `meshAP` type to accept BT8 hardware
+* [ ] Generate fw4 UCI from structured zone description in Nix
+* [ ] Generate odhcpd UCI per VLAN from registry data
+* [ ] Pure-Nix evaluation snapshot tests under `tests/openwrt/`,
       gating against the as-built `.uci` files
-- [ ] Cutover devices one at a time:
+* [ ] Cutover devices one at a time:
   - [ ] BT8-bridge — capture manual UCI as backup, build, deploy
   - [ ] BT8-gateway — capture manual UCI as backup, build, deploy
 
@@ -201,7 +201,7 @@ blocker for this fleet — hosts don't initiate to their own guests.
 **Known issue — observed 2026-06-02 on `saint-arkh` (failing since
 2026-05-31):** `saint-arkh` is already converted to `type = "macvtap"`
 (`macvtap.link = "uplink.50"`, `mode = "bridge"`, VLAN 50 / APP) — it
-moved to APP in A.3 and is currently the *only* macvtap guest in the
+moved to APP in A.3 and is currently the _only_ macvtap guest in the
 fleet (it's a microVM under erebonia, not Incus, contrary to C.2's
 phrasing). Its host-side oneshot is broken:
 
@@ -212,7 +212,7 @@ microvm@saint-arkh.service: Cannot add dependency job, ignoring: Unit microvm-ma
 
 The per-guest `microvm-macvtap-interfaces@<name>.service` is generating
 with an empty `ExecStart`, so systemd refuses to load it and
-`microvm@saint-arkh` starts *without* the macvtap link being created.
+`microvm@saint-arkh` starts _without_ the macvtap link being created.
 It went unnoticed because erebonia's services are idle (which is also
 why erebonia was chosen as the PQC-sops-migration burn-in host, where
 this surfaced). Root-cause the empty-`ExecStart` generation — likely a

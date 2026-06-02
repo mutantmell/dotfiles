@@ -115,7 +115,7 @@ cost of adding auth protection to new services:
 
 | Consumer                | Why unaffected                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------------------ |
-| Woodpecker ↔ Forgejo   | Uses Forgejo-native OAuth2, not Keycloak                                                               |
+| Woodpecker ↔ Forgejo    | Uses Forgejo-native OAuth2, not Keycloak                                                               |
 | NATS fleet activation   | Uses NKey credentials (Ed25519), no OIDC                                                               |
 | Attic binary cache      | Uses Attic tokens, no OIDC                                                                             |
 | AI agent Forgejo access | Uses personal access tokens or Forgejo-native OAuth2                                                   |

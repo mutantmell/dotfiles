@@ -28,6 +28,7 @@ context for any sandboxed-compute need (see
 `k3s-cluster-workloads-plan.md` Phase A).
 
 Supersedes / retires:
+
 - The deployd implementation itself, and its design docs. Both the
   implementation-tracking doc (`shelved/deployd-integration.md`) and the
   design spec (`specs/dynamic-container-layer.md`) were deleted as obsolete
@@ -39,7 +40,7 @@ Supersedes / retires:
 ## What changed (cc-sandbox is unused, not migrated)
 
 Earlier revisions of this plan treated **cc-sandbox** as a workload to
-*migrate* onto the cluster (parallel-run, re-point the deploy backend,
+_migrate_ onto the cluster (parallel-run, re-point the deploy backend,
 preserve the user-facing model). That's no longer the plan:
 
 - **cc-sandbox ended up not very useful** — the nested-virtualization
