@@ -100,18 +100,23 @@ no extra binary on PATH.
     to sidestep this ordering, but the bind-mounted path is preferable
     and ordering is already correct via sops-nix's default unit
     dependencies — verify on the first cutover host.
-- **Anchor naming:** during migration, classical and PQ recipients
-  coexist as separate anchors: `&sv_<host>` (classical) and
-  `&sv_<host>_pqc` (PQ); `&ad_denai` (classical) and `&admin` (PQ).
-  Each `creation_rule` references one pair or the other — never mixed.
-  Per-host migration is a single commit that flips that rule's anchor
-  references and removes the now-unreferenced classical `&sv_<host>`
-  anchor. After Phase 3, an optional cleanup commit drops the `_pqc`
-  suffix from the remaining host anchors so the names are back to plain
-  `&sv_<host>`. The PQ admin anchor is already named `&admin` and stays
-  that way; the classical `&ad_denai` anchor is gone by then. Renames
-  don't require `sops updatekeys` since anchor names don't appear in
-  ciphertext.
+- **Anchor naming (in-place value flip, decided at the erebonia
+  burn-in):** the host anchor keeps its plain name `&sv_<host>`
+  throughout; its *value* flips from the classical ssh-to-age recipient
+  to the new `age1pq1...` recipient in the cutover commit. No `_pqc`
+  suffix anchors and no end-of-migration rename cleanup — the PQ public
+  keys are visually obvious (far longer), and flipping the value in
+  place is exactly what `deploy-nixos-anywhere.sh` / `setup-guest.sh`
+  already do via `sed`. The admin side uses two distinct anchors,
+  `&ad_denai` (classical) and `&admin` (PQ), because both must coexist
+  while some hosts are unmigrated; each `creation_rule` references one
+  admin anchor or the other — never both. A host's cutover commit
+  changes its rule's admin reference from `*ad_denai` to `*admin` and
+  overwrites its `&sv_<host>` value to the PQ recipient. The classical
+  `&ad_denai` anchor is removed by the last host's commit, once no rule
+  references it. Re-encryption (`sops updatekeys`) is driven by the
+  recipient *values*, not anchor names, so changing a value requires a
+  re-key while the rename-free naming needs no separate cleanup pass.
 - **Backup:** host PQC identity files are stored in `passage` at
   `hosts/<host>/age.key` (analogous to `hosts/<host>/ssh_host_ed25519_key`).
   The admin identity lives in `passage` at `sops/key` — passage
@@ -137,16 +142,15 @@ no extra binary on PATH.
 - Phase 1 adds one new anchor in the `keys:` section: `&admin`
   (the new PQ admin recipient) — no rule references it yet.
 - Each per-host commit in Phase 3:
-  - Adds `&sv_<host>_pqc` to `keys:`.
+  - Overwrites that host's `&sv_<host>` anchor *value* in `keys:` from the
+    classical ssh-to-age recipient to the new `age1pq1...` recipient
+    (in place — no new anchor, no `_pqc` suffix).
   - Changes that host's `creation_rule` from
-    `age: [*ad_denai, *sv_<host>]` to `age: [*admin, *sv_<host>_pqc]`.
-  - Deletes the now-unreferenced `&sv_<host>` (classical) anchor.
+    `age: [*ad_denai, *sv_<host>]` to `age: [*admin, *sv_<host>]`.
 - The last host's commit also deletes the classical `&ad_denai` anchor —
   it has just become unreferenced.
-- Optional cleanup commit at the end: rename the `_pqc` host suffixes back
-  to plain names (`&sv_<host>_pqc` → `&sv_<host>`). The admin anchor is
-  already `&admin` and is left as-is; the classical `&ad_denai` is gone by
-  then. No re-encryption needed since YAML anchor names don't appear in the
+- No end-of-migration rename cleanup is needed: anchor names never carried
+  a `_pqc` suffix. (Anchor names don't appear in the
   encrypted output.
 
 ### Script changes
@@ -272,20 +276,34 @@ recipients: the host's secret files transition from "classical-only" to
      `/static/var/lib/sops-nix/key.txt`.
 3. Back up the identity to passage: `passage insert -m -f hosts/<host>/age.key`.
 4. Update `.sops.yaml`:
-   - Add `&sv_<host>_pqc age1pq1...` to the `keys:` section.
-   - In that host's `creation_rule`, swap the anchor references from
-     `[*ad_denai, *sv_<host>]` to `[*admin, *sv_<host>_pqc]`.
-   - Delete the now-unreferenced `&sv_<host>` (classical) anchor.
-   - If this is the **last** host to migrate, also delete `&ad_denai`
-     (which is no longer referenced by any rule).
+   - Overwrite the `&sv_<host>` anchor value in `keys:` in place, from the
+     classical recipient to the new `age1pq1...` recipient (no new anchor,
+     no `_pqc` suffix).
+   - In that host's `creation_rule`, swap the admin reference from
+     `[*ad_denai, *sv_<host>]` to `[*admin, *sv_<host>]`.
+   - If this is the **last** host to migrate, also delete the classical
+     `&ad_denai` anchor (no longer referenced by any rule).
 5. Re-key the host's secret files (and any guest secret files if this
    commit batches a parent + its guests):
    `sops updatekeys --yes hosts/<host>/.../secrets/*.yaml`. sops decrypts
    with the local classical admin key and re-encrypts to
-   `{admin, sv_<host>_pqc}` — both PQ. No mixed-recipient state.
-6. Update the host's `sops.nix`: change `age.sshKeyPaths = [...]` to
-   `age.keyFile = "/var/lib/sops-nix/key.txt"` (or
-   `"/static/var/lib/sops-nix/key.txt"` for guests).
+   `{admin, sv_<host>}` — both PQ values. No mixed-recipient state.
+6. Update the host's `sops.nix`: replace `age.sshKeyPaths = [...]` with
+   `age.keyFile = "..."` plus `age.sshKeyPaths = [];`. Set the keyFile to:
+   - `"/persist/var/lib/sops-nix/key.txt"` for a bare-metal host whose
+     SSH key is read from `/persist/etc/ssh/...` (calvard, erebonia).
+     The direct persist path is readable at activation time, so
+     `nixos-rebuild switch` decrypts without a reboot — guests stay up.
+   - `"/var/lib/sops-nix/key.txt"` (the impermanence bind-mounted path)
+     for a bare-metal host that reads SSH from `/etc/ssh/...` (thebeyond).
+     This path only materializes once the bind mount is up, which is
+     guaranteed at boot but not on a no-reboot `switch` — **reboot** that
+     host as part of the cutover.
+   - `"/static/var/lib/sops-nix/key.txt"` for microVM / Incus guests.
+   Add `age.sshKeyPaths = [];` to fully decouple sops from the SSH key:
+   sops-nix otherwise defaults `sshKeyPaths` to the host SSH keys, which
+   is harmless once secrets are PQ-only (the SSH-derived identity matches
+   no recipient) but leaves exactly the coupling this migration removes.
 7. `nixos-rebuild switch --flake .#<host> --target-host <host>` (or
    `deploy-rs`). Verify the new generation reaches `multi-user.target`,
    `sops-install-secrets` produces `/run/secrets/*` correctly, and the
@@ -362,10 +380,9 @@ contents of the `sops/key` passage entry.
    separate archive entry is made. `SOPS_AGE_KEY_CMD` is unchanged —
    the same command now emits only the PQ identity because the entry
    contents changed. Smoke-test `sops -d` on a PQ-encrypted secret.
-2. Optional `.sops.yaml` cleanup commit: rename `&sv_<host>_pqc` →
-   `&sv_<host>` throughout. The admin anchor is already `&admin` and is
-   left as-is. Anchor names don't appear in encrypted output, so no
-   `sops updatekeys` is needed — this is a pure rename for readability.
+   No `.sops.yaml` cleanup commit is needed — host anchors kept their
+   plain `&sv_<host>` names throughout (in-place value flips, no `_pqc`
+   suffix), and `&admin` / `&ad_denai` were always their final names.
 
 Exit criteria: classical admin identity is removed from the live
 `sops/key` entry (still recoverable via passage git history); `sops/key`
@@ -462,10 +479,12 @@ optional anchor-name cleanup landed.
 - 1 commit: Phase 2 — script + helper updates, common-module impermanence
   entry for `/var/lib/sops-nix`.
 - ~13 commits: Phase 3 — one per host (or one per guest batch + parent).
-  Each commit adds `&sv_<host>_pqc`, flips that rule's anchors, re-keys
-  the host's secret files, drops the classical `&sv_<host>` anchor, and
-  switches that host's `sops.nix` to `age.keyFile`. The last commit also
-  drops `&ad_denai`.
+  Each commit flips the host's `&sv_<host>` anchor value to the PQ
+  recipient in place, swaps the rule's admin ref `*ad_denai` → `*admin`,
+  re-keys the host's secret files, and switches that host's `sops.nix` to
+  `age.keyFile` + `age.sshKeyPaths = []`. The last commit also drops the
+  classical `&ad_denai` anchor. **erebonia (burn-in) is done** and
+  validated the approach end-to-end.
 - 0–1 commits: Phase 4 — passage entry surgery (trim the classical half
   out of `sops/key`, leaving PQ-only; prior version stays in passage git
   history) is out-of-band, no repo change. The only in-repo commit is the
