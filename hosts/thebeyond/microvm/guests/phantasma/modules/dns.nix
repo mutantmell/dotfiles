@@ -126,40 +126,14 @@ in {
           ''"internal.mutantmell.net." static'' # canonical internal: authoritative, never forwards
           ''"internal." static'' # short alias: authoritative, never forwards
         ];
-        local-data = let
-          registeredHosts = [
-            "thebeyond"
-            "phantasma"
-            "liberl"
-            "erebonia"
-            "trista"
-            "zeiss"
-            "azoth"
-            "calvard"
-            # network gear (OpenWrt) — only arseille is in the registry post phase 0a;
-            # remaining mesh APs will be re-added when OpenWrt configs are imported.
-            "arseille"
-            # calvard guests
-            "messeldam"
-            "basel"
-            "langport"
-            "oracion"
-            "tharbad"
-            "creil"
-            "edith"
-            # erebonia guests
-            "saint-arkh"
-            # liberl guests
-            "bose"
-            # client devices
-            "arcus"
-          ];
-        in
-          # Standard host records (<name>.internal.mutantmell.net + <name>.internal)
-          net.mkUnboundLocalData registeredHosts
+        local-data =
+          # Standard host records (<name>.internal.mutantmell.net + <name>.internal),
+          # derived from the network registry (net.dnsHosts) so a newly-added host
+          # resolves automatically. Opt a host out via dnsExcludedHosts in network.nix.
+          net.mkUnboundLocalData net.dnsHosts
           # Alias records (split-horizon, backward-compat, service aliases)
           # sourced from hostAliases in network.nix
-          ++ net.mkUnboundAliasData registeredHosts;
+          ++ net.mkUnboundAliasData net.dnsHosts;
       };
       remote-control.control-enable = true;
     };

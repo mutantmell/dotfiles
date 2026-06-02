@@ -368,6 +368,28 @@
     then throw "network registry: monitoredHosts: unknown hosts: ${lib.concatStringsSep ", " unknown}"
     else listed;
 
+  # Hosts that should NOT receive authoritative internal DNS records
+  # (<name>.internal[.mutantmell.net]). Empty by default — every registered
+  # host resolves. Add a name here only when a host must intentionally lack an
+  # A/AAAA record in the internal zone. Validated against the registry below.
+  dnsExcludedHosts = [
+    # bt8gw's only registry entry is in the transit /30 zone, so its record
+    # would point at the point-to-point 10.255.255.2 — reachable only from
+    # thebeyond's transit interface, not a general management path.
+    "bt8gw"
+  ];
+
+  # Hosts served by phantasma's authoritative internal DNS zone. Derived from
+  # the registry so a newly-added host resolves automatically — the previous
+  # hand-maintained allow-list in dns.nix silently NXDOMAINed any host someone
+  # forgot to add (this is how roer went missing). Subtract dnsExcludedHosts.
+  dnsHosts = let
+    unknown = lib.filter (name: !(hosts ? ${name})) dnsExcludedHosts;
+  in
+    if unknown != []
+    then throw "network registry: dnsExcludedHosts: unknown hosts: ${lib.concatStringsSep ", " unknown}"
+    else lib.filter (name: !(builtins.elem name dnsExcludedHosts)) (builtins.attrNames hosts);
+
   # Additional domain names per host, beyond the auto-derived
   # <name>.internal.mutantmell.net and <name>.internal.
   # These are the canonical source — dns.nix and mkExtraHosts reference this.
@@ -560,6 +582,7 @@ in {
     mkDualStackRules
     hostsFile
     monitoredHosts
+    dnsHosts
     ;
   inherit
     (display)
