@@ -198,6 +198,31 @@ adding it would muddle 5.A's rollback story. Per
 the main MACVLAN concern (host↔child L2 isolation) is not actually a
 blocker for this fleet — hosts don't initiate to their own guests.
 
+**Known issue — observed 2026-06-02 on `saint-arkh` (failing since
+2026-05-31):** `saint-arkh` is already converted to `type = "macvtap"`
+(`macvtap.link = "uplink.50"`, `mode = "bridge"`, VLAN 50 / APP) — it
+moved to APP in A.3 and is currently the *only* macvtap guest in the
+fleet (it's a microVM under erebonia, not Incus, contrary to C.2's
+phrasing). Its host-side oneshot is broken:
+
+```
+microvm-macvtap-interfaces@saint-arkh.service: Service has no ExecStart=, ExecStop=, or SuccessAction=. Refusing.
+microvm@saint-arkh.service: Cannot add dependency job, ignoring: Unit microvm-macvtap-interfaces@saint-arkh.service has a bad unit file setting.
+```
+
+The per-guest `microvm-macvtap-interfaces@<name>.service` is generating
+with an empty `ExecStart`, so systemd refuses to load it and
+`microvm@saint-arkh` starts *without* the macvtap link being created.
+It went unnoticed because erebonia's services are idle (which is also
+why erebonia was chosen as the PQC-sops-migration burn-in host, where
+this surfaced). Root-cause the empty-`ExecStart` generation — likely a
+microvm.nix host-module quirk for a lone macvtap instance, or a missing
+piece in how the template is parameterised per `%i` — **before**
+converting more guests in C.2; otherwise the whole fleet inherits the
+same silent breakage. Decide as part of this: keep macvtap and fix the
+unit, or revert `saint-arkh` to a plain `tap` (matching every other
+guest) until C lands.
+
 ### C.1 Design
 
 - [ ] Pick MACVLAN mode: default `bridge` (guest↔guest within parent
