@@ -15,7 +15,7 @@
 
   # sops-nix home-manager: derive age key from user's SSH ed25519 key
   sops = {
-    defaultSopsFile = ./edith/secrets.yaml;
+    defaultSopsFile = ./edith/secrets/secrets.yaml;
     age.keyFile = "${config.home.homeDirectory}/.config/sops/age/keys.txt";
     secrets."cc-sandbox-forgejo-token" = {};
   };

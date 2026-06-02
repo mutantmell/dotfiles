@@ -144,7 +144,7 @@ creation_rules:
         # OpenWrt devices don't need keys - secrets are pushed via SSH at deploy time
 
   # Users
-  - path_regex: home/hosts/edith/secrets.yaml
+  - path_regex: home/hosts/edith/secrets/[^/]+\.yaml$
     key_groups:
       - age:
           - *admin
