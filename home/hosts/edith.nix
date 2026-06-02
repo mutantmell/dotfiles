@@ -9,6 +9,10 @@
     ../modules/cc-sandbox.nix
   ];
 
+  # Interactive sops loads the admin identity from passage on each invocation
+  # (no plaintext at rest under ~/.config/sops/age/).
+  home.sessionVariables.SOPS_AGE_KEY_CMD = "passage show sops/ad_denai.key";
+
   # sops-nix home-manager: derive age key from user's SSH ed25519 key
   sops = {
     defaultSopsFile = ./edith/secrets.yaml;
