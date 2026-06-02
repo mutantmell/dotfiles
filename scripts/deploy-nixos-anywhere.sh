@@ -54,9 +54,12 @@ else
 fi
 echo "  Profile: $PROFILE"
 
-# Create temp directory for working copies of keys
-KEYFILE_DIR=$(mktemp -d)
-EXTRA_FILES_DIR=$(mktemp -d)
+# Create temp directories for working copies of keys. Prefer tmpfs (/dev/shm)
+# so private key material — disk key, SSH host/CA keys, X5C CA key, enrollment
+# keys, and the age identity — never lands on persistent storage; fall back to
+# $TMPDIR if /dev/shm is unavailable.
+KEYFILE_DIR=$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)
+EXTRA_FILES_DIR=$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)
 trap 'rm -rf "$KEYFILE_DIR" "$EXTRA_FILES_DIR"' EXIT
 
 SSH_KEY="$KEYFILE_DIR/ssh_host_ed25519_key"

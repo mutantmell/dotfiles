@@ -76,8 +76,10 @@ echo "Guest type: $GUEST_TYPE"
 
 SOPS_FILE="$REPO_ROOT/.sops.yaml"
 
-# Create temp directory for working copies of keys
-KEYFILE_DIR=$(mktemp -d)
+# Create temp directory for working copies of keys. Prefer tmpfs (/dev/shm)
+# so private key material — including the SSH/X5C CA keys this script pulls
+# from passage — never lands on persistent storage; fall back to $TMPDIR.
+KEYFILE_DIR=$(mktemp -d -p /dev/shm 2>/dev/null || mktemp -d)
 trap 'rm -rf "$KEYFILE_DIR"' EXIT
 
 # --- Helper: update keys.json host key registry ---
