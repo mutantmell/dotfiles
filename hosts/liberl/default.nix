@@ -20,6 +20,7 @@ in {
     ./sops.nix
     ./nas.nix
     ./monit.nix
+    ./wg-ba.nix
     ./microvm
   ];
 

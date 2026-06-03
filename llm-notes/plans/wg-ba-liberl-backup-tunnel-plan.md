@@ -26,7 +26,9 @@ the `network.nix` registry:
 |---------------------------|------------------|----------------------------------------|
 | remote wg peer            | `192.168.127.1`  | the peer's tunnel address              |
 | backup host (SSH target)  | `192.168.0.35`   | **behind** the peer, on the remote LAN |
-| liberl wg interface addr  | `192.168.127.x`  | **TBD — you provide** (peer is `.1`)   |
+| liberl wg interface addr  | `192.168.127.200/32` | liberl's address on the remote's wg subnet (`192.168.127.0/24`) |
+
+On the **remote** side, liberl's peer `AllowedIPs` must be `192.168.127.200/32`.
 
 IPv4-only (no v6 given for the remote). It's the **same physical box** as the
 existing thebeyond/trista wg-ba peer, but liberl uses the box's native
@@ -127,7 +129,7 @@ sops template renders the wg-quick `.conf`:
 ```
 [Interface]
 PrivateKey = <sops placeholder: wg-ba-privatekey>
-Address    = 192.168.127.x/32        # liberl's tunnel addr — YOU PROVIDE
+Address    = 192.168.127.200/32          # liberl's own wg address
 
 [Peer]
 PublicKey  = <remote pubkey — YOU PROVIDE (same O+WW… or new?)>
@@ -192,7 +194,7 @@ reference ba-tunnel/wg-ba, so this is contained.
 ### Phase 3 — Remote peer (off-repo, EXTERNAL) — NOT STARTED
 
 On the offsite box: add a `liberl` peer (liberl's new pubkey, AllowedIPs =
-liberl's tunnel addr `/32`); ensure it **listens** and the `wg-ba-endpoint` DDNS
+`192.168.127.200/32`); ensure it **listens** and the `wg-ba-endpoint` DDNS
 name resolves to it; SSH/borg target reachable at `192.168.0.35`. Existing
 `thebeyond` peer untouched.
 
@@ -238,7 +240,8 @@ tunnel; the router holds no wg-ba.
 
 ## Open items / inputs needed
 
-- **liberl's tunnel address** (`192.168.127.x` + prefix) — you provide.
+- **liberl's tunnel address** — resolved: `192.168.127.200/32` (remote must list this as
+  liberl's peer `AllowedIPs`).
 - **Remote pubkey** for liberl's peer — same `O+WW…` or a new one? — you provide.
 - **Key generation**: user generates liberl's wg keypair; privkey → liberl sops,
   pubkey → remote. (Per workflow, the user runs the secret/decrypt commands.)
