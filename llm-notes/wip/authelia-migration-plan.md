@@ -451,12 +451,19 @@ Repo changes landed (one commit, all on messeldam — Keycloak untouched):
 
 - `modules/lldap.nix` — lldap service, base DN `dc=mutantmell,dc=net`, admin
   password from sops via systemd `LoadCredential` (lldap is a DynamicUser),
-  SQLite persisted at `/var/lib/private/lldap`.
+  SQLite persisted at `/var/lib/private/lldap`. Plus a `lldap-bootstrap`
+  oneshot that declaratively seeds the base groups (`admin`, `media-users`,
+  `deploy`) and the read-only `authelia` bind user (in `lldap_strict_readonly`,
+  password synced from sops) via `lldap-cli` — so the directory is usable from
+  a cold boot with no manual web-UI step.
 - `modules/authelia.nix` — `services.authelia.instances.main`: lldap auth
   backend, SQLite storage, filesystem notifier, `access_control`, the
   `auth-request` authz endpoint (ready for Phase 2b/2e), both OIDC clients
   (step-ca, perses) via a sops template, and an `authelia.internal` nginx
-  vhost with step-ca ACME. SQLite + ACME state persisted.
+  vhost with step-ca ACME. SQLite + ACME state persisted. `authelia-main`
+  `requires`/`after` `lldap-bootstrap` so it never starts before the bind user
+  exists (its LDAP startup check is fatal). NTP startup check disabled (egress
+  blocks public NTP by design; host syncs time via the gateway).
 - `sops.nix` — new secret references + an operator runbook (in comments) for
   generating each value.
 - `default.nix` — imports the two new modules.
@@ -505,10 +512,11 @@ Repo changes landed (one commit, all on messeldam — Keycloak untouched):
    Phase 2a (perses) / 2c (step-ca); store only the hashes here.
 2. Deploy phantasma first (serves the internal DNS zone, so `authelia.internal`
    and `ldap.internal` resolve), then messeldam.
-3. After messeldam is up, browse `https://ldap.internal` from the management
-   zone (admin login = `lldap-admin-password`) and create: groups `admin` /
-   `media-users` / `deploy`; the `authelia` bind user (password =
-   `authelia-ldap-bind-password`); your own admin account.
+3. The base groups and the `authelia` bind user are seeded automatically by
+   `lldap-bootstrap` on boot. The only manual step is creating a *human* login
+   account for portal testing: browse `https://ldap.internal` from the
+   management zone (admin login = `lldap-admin-password`), create your user,
+   and add it to the `admin` group.
 
 **Validation:** discovery responds at
 `https://authelia.internal.mutantmell.net/.well-known/openid-configuration`;

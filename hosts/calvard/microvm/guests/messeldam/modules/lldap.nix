@@ -51,6 +51,78 @@ in {
     "admin-password:${config.sops.secrets."lldap-admin-password".path}"
   ];
 
+  # Declarative seed so the directory is usable from a cold boot with no manual
+  # web-UI step: ensures the base groups and the read-only `authelia` bind user
+  # exist (password kept in sync with sops). Authelia's startup check binds as
+  # this user and exits fatally if it's absent, so authelia-main is ordered
+  # after this unit (see authelia.nix). Idempotent — safe to re-run every boot.
+  systemd.services.lldap-bootstrap = {
+    description = "Seed lldap with base groups and the Authelia bind user";
+    after = ["lldap.service"];
+    requires = ["lldap.service"];
+    wantedBy = ["multi-user.target"];
+    path = [pkgs.lldap-cli pkgs.curl];
+    # Disable the start-rate limit so a persistent failure keeps the unit in
+    # "activating" (retrying) rather than landing in "failed" — which, since
+    # Authelia requires it, would otherwise fail the whole boot and (on this
+    # microvm) terminate the guest. Retrying-forever stays up and debuggable.
+    unitConfig.StartLimitIntervalSec = 0;
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      # Retry until lldap's HTTP API is accepting connections.
+      Restart = "on-failure";
+      RestartSec = 3;
+      LoadCredential = [
+        "admin-password:${config.sops.secrets."lldap-admin-password".path}"
+        "authelia-password:${config.sops.secrets."authelia-ldap-bind-password".path}"
+      ];
+    };
+    script = ''
+      set -euo pipefail
+
+      # lldap-cli authenticates to the HTTP API with these on every call.
+      export LLDAP_HTTPURL="http://127.0.0.1:17170"
+      export LLDAP_USERNAME="admin"
+      export LLDAP_PASSWORD="$(cat "$CREDENTIALS_DIRECTORY/admin-password")"
+      authelia_pw="$(cat "$CREDENTIALS_DIRECTORY/authelia-password")"
+
+      # Wait for the API to come up (lldap.service started, but the HTTP
+      # listener may not be ready the instant the unit goes active).
+      for _ in $(seq 1 60); do
+        if curl -sf -o /dev/null "$LLDAP_HTTPURL"; then break; fi
+        sleep 1
+      done
+
+      # Match against a space-normalised list so this works whether lldap-cli
+      # prints one name per line or in columns.
+      ensure_group() {
+        local existing
+        existing=" $(lldap-cli group list | tr '\n' ' ') "
+        case "$existing" in
+          *" $1 "*) ;;
+          *) lldap-cli group add "$1" ;;
+        esac
+      }
+      ensure_group admin
+      ensure_group media-users
+      ensure_group deploy
+
+      users=" $(lldap-cli user list uid | tr '\n' ' ') "
+      case "$users" in
+        *" authelia "*) lldap-cli user update set authelia password "$authelia_pw" ;;
+        *) lldap-cli user add authelia authelia@mutantmell.net -p "$authelia_pw" ;;
+      esac
+
+      # Read-only directory access for authentication lookups.
+      member=" $(lldap-cli user group list authelia | tr '\n' ' ') "
+      case "$member" in
+        *" lldap_strict_readonly "*) ;;
+        *) lldap-cli user group add authelia lldap_strict_readonly ;;
+      esac
+    '';
+  };
+
   # Admin web UI, management-zone only. security.acme is configured in
   # authelia.nix (defining it here too would conflict). The source allow/deny
   # sits on the "/" location, not server-wide, so the port-80 ACME challenge

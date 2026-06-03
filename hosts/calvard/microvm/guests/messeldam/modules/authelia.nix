@@ -51,6 +51,12 @@ in {
         format = "json"; # promtail/Loki-friendly (follow-up F2)
       };
 
+      # Skip Authelia's own startup clock-offset probe. It targets a public NTP
+      # server, which messeldam's egress filter blocks by design (NTP is
+      # gateway-only); the host already syncs time via the gateway, so this
+      # check is redundant noise.
+      ntp.disable_startup_check = true;
+
       authentication_backend = {
         refresh_interval = "1m";
         # lldap owns password management; Authelia never resets passwords and
@@ -95,6 +101,15 @@ in {
         ];
       };
     };
+  };
+
+  # Don't start Authelia until lldap is seeded — its `user` provider startup
+  # check binds as uid=authelia and exits fatally if the account isn't there
+  # yet. Hard requirement (not just ordering) so a cold boot can't race the
+  # seed and crash-loop.
+  systemd.services.authelia-main = {
+    after = ["lldap-bootstrap.service"];
+    requires = ["lldap-bootstrap.service"];
   };
 
   # OIDC clients rendered from sops. The client_secret values are pbkdf2-sha512
