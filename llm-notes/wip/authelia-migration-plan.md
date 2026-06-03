@@ -485,6 +485,18 @@ Repo changes landed (one commit, all on messeldam — Keycloak untouched):
    (`/api/oidc/jwks` in Authelia), not `/jwks.json`. Validate via the
    discovery doc's `jwks_uri`.
 
+4. **Portal/issuer is the FQDN `authelia.internal.mutantmell.net`, not the
+   short `authelia.internal`.** Authelia rejects a single-label cookie domain
+   ("must have at least a single period"), so the session cookie domain is
+   `internal.mutantmell.net` and the portal/issuer must live under it. The
+   short `authelia.internal` stays a resolving alias on the vhost, but
+   interactive login and the OIDC issuer must use the FQDN — consumers
+   (perses 2a, step-ca 2c) point their issuer at
+   `https://authelia.internal.mutantmell.net`. OIDC consumers' own callback
+   hostnames (e.g. `perses.internal`) are unaffected — the cookie domain only
+   constrains the portal and, later, auth_request-protected hosts, which must
+   be addressed as `*.internal.mutantmell.net`.
+
 **Operator steps before deploy:**
 
 1. Generate + store the new sops secrets — commands are in
@@ -499,9 +511,9 @@ Repo changes landed (one commit, all on messeldam — Keycloak untouched):
    `authelia-ldap-bind-password`); your own admin account.
 
 **Validation:** discovery responds at
-`https://authelia.internal/.well-known/openid-configuration`; the `jwks_uri`
-it advertises serves keys; portal login at `https://authelia.internal`
-succeeds with an lldap account.
+`https://authelia.internal.mutantmell.net/.well-known/openid-configuration`;
+the `jwks_uri` it advertises serves keys; portal login at
+`https://authelia.internal.mutantmell.net` succeeds with an lldap account.
 
 ### Phase 2: Migrate consumers one at a time
 
@@ -513,7 +525,7 @@ Order from lowest-risk to highest-risk:
 Update `hosts/calvard/microvm/guests/tharbad/modules/perses.nix`:
 
 - Change `issuer` URL from `https://auth.mutantmell.net/realms/homelab` to
-  `https://authelia.internal`
+  `https://authelia.internal.mutantmell.net`
 - Change `slug_id` and `name` from `keycloak` to `authelia`
 - Update `redirect_uri` callback path if needed
 - Update client secret in sops
@@ -532,9 +544,13 @@ Update `hosts/thebeyond/microvm/guests/phantasma/modules/proxy.nix`:
 - Remove `services.oauth2-proxy` configuration
 - Replace with Authelia `auth_request` in nginx config
 - Authelia runs on messeldam; phantasma's nginx sends auth_request to
-  `https://authelia.internal/api/authz/auth-request`
+  `https://authelia.internal.mutantmell.net/api/authz/auth-request`
+- Serve/access the protected vhost as `phantasma.internal.mutantmell.net` so
+  the SSO session cookie (domain `internal.mutantmell.net`) is presented — the
+  short `phantasma.internal` is a sibling of the cookie domain, not under it,
+  so SSO won't flow there. (The access_control rule already targets the FQDN.)
 
-**Validation:** Access Adguard Home at `phantasma.internal/adguard/`,
+**Validation:** Access Adguard Home at `phantasma.internal.mutantmell.net/adguard/`,
 get redirected to Authelia login, authenticate, access granted for
 admin group users.
 
@@ -543,7 +559,7 @@ admin group users.
 Update `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`:
 
 - Change OIDC provisioner `configurationEndpoint` to
-  `https://authelia.internal/.well-known/openid-configuration`
+  `https://authelia.internal.mutantmell.net/.well-known/openid-configuration`
 - Change provisioner `name` from `keycloak` to `authelia`
 - Update `clientID` and add client secret for Authelia
 - Update SSH template if it references Keycloak-specific claim paths
@@ -594,8 +610,9 @@ Once all consumers are on Authelia and validated:
 
 1. Update `auth.mutantmell.net` to point at Authelia (swap the primary nginx
    vhost on messeldam from Keycloak to Authelia)
-2. Update all consumers from `https://authelia.internal` to
-   `https://auth.mutantmell.net` (final issuer URL)
+2. Update all consumers from `https://authelia.internal.mutantmell.net` to
+   `https://auth.mutantmell.net` (final issuer URL), and add a `mutantmell.net`
+   session cookie domain alongside the `internal.mutantmell.net` one
 3. Remove Keycloak from messeldam:
    - Delete `modules/keycloak.nix`
    - Delete `homelab-realm.json`

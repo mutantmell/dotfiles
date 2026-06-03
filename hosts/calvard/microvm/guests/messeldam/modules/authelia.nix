@@ -1,5 +1,12 @@
 {config, ...}: let
-  certDomain = "authelia.internal";
+  # The session cookie domain must contain a period — Authelia rejects the
+  # bare single-label `internal`. internal.mutantmell.net is the shared parent
+  # of every internal host, so it's the valid cookie domain and also covers
+  # cross-host auth_request SSO later (Phase 2b/2e). The portal/issuer therefore
+  # lives at the FQDN; `authelia.internal` stays a convenience alias, but the
+  # canonical issuer URL consumers use is https://${portalHost}.
+  portalHost = "authelia.internal.mutantmell.net";
+  cookieDomain = "internal.mutantmell.net";
 in {
   # Authelia — OIDC provider + nginx auth_request backend. Runs alongside
   # Keycloak during the migration (Phase 1 coexistence): Keycloak keeps serving
@@ -58,13 +65,13 @@ in {
         };
       };
 
-      # Coexistence cookie domain: protects *.internal services via the
-      # authelia.internal portal. Phase 3 adds a mutantmell.net cookie and
-      # switches the portal to auth.mutantmell.net.
+      # Coexistence cookie domain: protects *.internal.mutantmell.net services
+      # via the FQDN portal. Phase 3 adds a mutantmell.net cookie and switches
+      # the portal to auth.mutantmell.net.
       session.cookies = [
         {
-          domain = "internal";
-          authelia_url = "https://${certDomain}";
+          domain = cookieDomain;
+          authelia_url = "https://${portalHost}";
         }
       ];
 
@@ -75,13 +82,13 @@ in {
         default_policy = "deny";
         rules = [
           {
-            domain = certDomain;
+            domain = portalHost;
             policy = "bypass";
           }
           # Admin UIs. Stays one_factor until MFA enrollment lands (follow-up
           # F1), which upgrades admin domains to two_factor.
           {
-            domain = "phantasma.internal";
+            domain = "phantasma.internal.mutantmell.net";
             policy = "one_factor";
             subject = ["group:admin"];
           }
@@ -134,9 +141,10 @@ in {
     acceptTerms = true;
   };
 
-  services.nginx.virtualHosts.${certDomain} = {
+  services.nginx.virtualHosts.${portalHost} = {
     forceSSL = true;
     enableACME = true;
+    serverAliases = ["authelia.internal"];
     locations."/" = {
       proxyPass = "http://127.0.0.1:9091";
       proxyWebsockets = true;
