@@ -138,17 +138,14 @@ in {
     locations."/" = {
       proxyPass = "http://127.0.0.1:17170";
       proxyWebsockets = true;
+      # Proxy headers come from services.nginx.recommendedProxySettings
+      # (host-wide); don't re-set Host here or nginx emits a duplicate.
       extraConfig = ''
         allow ${zone.subnet4};
         allow ${zone.subnet6};
         allow ${trustedZone.subnet4};
         allow ${trustedZone.subnet6};
         deny all;
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
       '';
     };
   };

@@ -160,15 +160,13 @@ in {
     forceSSL = true;
     enableACME = true;
     serverAliases = ["authelia.internal"];
+    # Proxy headers (Host, X-Real-IP, X-Forwarded-*) come from
+    # services.nginx.recommendedProxySettings (set host-wide). Don't re-set Host
+    # here: nginx emits both and Authelia's fasthttp parser rejects a request
+    # with duplicate Host headers ("too many Host headers" -> 400).
     locations."/" = {
       proxyPass = "http://127.0.0.1:9091";
       proxyWebsockets = true;
-      extraConfig = ''
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-      '';
     };
   };
 
