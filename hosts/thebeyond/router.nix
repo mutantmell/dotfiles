@@ -28,7 +28,6 @@
   inherit (net.hosts) phantasma;
   inherit (net.hosts) bt8bridge;
   inherit (net.hosts) langport;
-  inherit (net.hosts) trista;
   inherit (net.hosts) messeldam;
   inherit (net.hosts) basel;
   inherit (net.hosts) tharbad;
@@ -248,7 +247,7 @@ in {
       };
 
       dmz = {
-        # DMZ: restricted internet + selective cross-zone access (management services, ba-tunnel)
+        # DMZ: restricted internet + selective cross-zone access (management services)
         icmpEcho = "enable";
         accessTo = [];
         forwardRules.external = [
@@ -313,19 +312,6 @@ in {
           });
       };
 
-      ba-tunnel = {
-        # wg-ba: mesh peer tunnel, locked down to trista SSH bastion only
-        icmpEcho = "disable";
-        accessTo = [];
-        forwardRules.dmz = ds {
-          daddr = trista;
-          tcp.dport = 22;
-          verdict = "accept";
-          comment = "wg-ba -> trista SSH";
-        };
-        inputRules = [];
-      };
-
       isolated = {
         # No forwarding, no router services (available for future use)
         icmpEcho = "disable";
@@ -382,12 +368,12 @@ in {
 
       # Transit (point-to-point /30 + /64 to BT8-gateway). Entry point for
       # ALL office-side traffic destined for thebeyond-resident zones (DMZ,
-      # external/NAT, ba-tunnel). Source-zone attribution is lost across the
+      # external/NAT). Source-zone attribution is lost across the
       # gateway split: BT8-gateway's fw4 is the source-zone enforcer; transit
       # gates by destination + source subnet/host only.
       transit = {
         icmpEcho = "enable";
-        accessTo = ["external" "ba-tunnel"];
+        accessTo = ["external"];
         # DNS inputRules double as the kresd-on-transit binding signal —
         # `dnsInterfaces` in router6/lib.nix auto-binds kresd to any interface
         # in a zone whose inputRules allow DNS. No separate listen config.
@@ -620,24 +606,6 @@ in {
           comment = "WireGuard";
         }
       ];
-      # Port forward SSH from wg-ba to trista (SSH bastion)
-      portForwards = [
-        {
-          proto = "tcp";
-          sourcePort = 22;
-          destination = "${trista.ipv4}:22";
-          sourceInterface = "wg-ba";
-          destinationInterface = "brDMZ";
-        }
-      ];
-
-      extraNatPostroutingRules = [
-        # Wireguard BA tunnel masquerading
-        {
-          oifname = "wg-ba";
-          masquerade = true;
-        }
-      ];
     };
 
     topology =
@@ -680,32 +648,6 @@ in {
           };
           network.type = "disabled";
           vlans = allBat0Vlans;
-        };
-
-        # Wireguard - BA tunnel (mesh peer, trista SSH only)
-        "wg-ba" = {
-          kind = "wireguard";
-          network = {
-            type = "static";
-            addresses = [
-              "${wg."wg-ba".gateway4}/24"
-              "${wg."wg-ba".gateway6}/64"
-            ];
-            zone = "ba-tunnel";
-            required = false;
-          };
-          wireguard = {
-            privateKeyFile = config.sops.secrets."wg-ba-privatekey".path;
-            port = 38506;
-            openFirewall = true;
-            peers = [
-              {
-                publicKey = "O+WWPlhy6Lg9YT3hYqq+/8gZ48PpRXaUTl4eFFwgTVA=";
-                allowedIPs = let h = wg."wg-ba".hosts.remote; in [h.cidr4 h.cidr6];
-                persistentKeepalive = 25;
-              }
-            ];
-          };
         };
 
         # WireGuard - VPN for mobile devices

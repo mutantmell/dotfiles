@@ -7,10 +7,6 @@
         mode = "0440";
         inherit (config.users.users."systemd-network") group;
       };
-      "wg-ba-privatekey" = {
-        mode = "0440";
-        inherit (config.users.users."systemd-network") group;
-      };
       "wg-media-privatekey" = {
         mode = "0440";
         inherit (config.users.users."systemd-network") group;

@@ -297,14 +297,9 @@
   # WireGuard tunnel subnets.
   # All WG tunnels share the 10.100.x.x IPv4 space and fdc6:55f2:0a5e:64xx:: ULA space.
   # subnetId is both the IPv4 third octet and the lower two hex digits of the IPv6 segment.
-  #   wg-ba:    subnetId=0  → 10.100.0.x/24,  fdc6:55f2:0a5e:6400::/64
   #   wg-vpn:   subnetId=10 → 10.100.10.x/24, fdc6:55f2:0a5e:640a::/64
   #   wg-media: subnetId=20 → 10.100.20.x/24, fdc6:55f2:0a5e:6414::/64
   rawWgNetworks = {
-    "wg-ba" = {
-      subnetId = 0;
-      hosts = {remote = 3;};
-    };
     "wg-vpn" = {
       subnetId = 10;
       hosts = {
