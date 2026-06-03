@@ -57,10 +57,13 @@ in {
   ];
 
   # Declarative seed so the directory is usable from a cold boot with no manual
-  # web-UI step: ensures the base groups and the read-only `authelia` bind user
-  # exist (password kept in sync with sops). Authelia's startup check binds as
-  # this user and exits fatally if it's absent, so authelia-main is ordered
-  # after this unit (see authelia.nix). Idempotent — safe to re-run every boot.
+  # web-UI step: ensures the base groups and the read-only `authelia` and
+  # `jellyfin` bind users exist (passwords kept in sync with sops). Authelia's
+  # startup check binds as `authelia` and exits fatally if it's absent, so
+  # authelia-main is ordered after this unit (see authelia.nix). `jellyfin` is
+  # the bind account oracion's LDAP plugin uses in Phase 2d — seeded here so the
+  # flake never depends on a manual web-UI step. Idempotent — safe to re-run
+  # every boot.
   systemd.services.lldap-bootstrap = {
     description = "Seed lldap with base groups and the Authelia bind user";
     after = ["lldap.service"];
@@ -81,6 +84,7 @@ in {
       LoadCredential = [
         "admin-password:${config.sops.secrets."lldap-admin-password".path}"
         "authelia-password:${config.sops.secrets."authelia-ldap-bind-password".path}"
+        "jellyfin-password:${config.sops.secrets."jellyfin-ldap-bind-password".path}"
       ];
     };
     script = ''
@@ -91,6 +95,7 @@ in {
       export LLDAP_USERNAME="admin"
       export LLDAP_PASSWORD="$(cat "$CREDENTIALS_DIRECTORY/admin-password")"
       authelia_pw="$(cat "$CREDENTIALS_DIRECTORY/authelia-password")"
+      jellyfin_pw="$(cat "$CREDENTIALS_DIRECTORY/jellyfin-password")"
 
       # Wait for the API to come up (lldap.service started, but the HTTP
       # listener may not be ready the instant the unit goes active).
@@ -113,18 +118,25 @@ in {
       ensure_group media-users
       ensure_group deploy
 
-      users=" $(lldap-cli user list uid | tr '\n' ' ') "
-      case "$users" in
-        *" authelia "*) lldap-cli user update set authelia password "$authelia_pw" ;;
-        *) lldap-cli user add authelia authelia@mutantmell.net -p "$authelia_pw" ;;
-      esac
-
-      # Read-only directory access for authentication lookups.
-      member=" $(lldap-cli user group list authelia | tr '\n' ' ') "
-      case "$member" in
-        *" lldap_strict_readonly "*) ;;
-        *) lldap-cli user group add authelia lldap_strict_readonly ;;
-      esac
+      # Seed a read-only bind account (create or re-assert its password) and
+      # ensure it's in lldap_strict_readonly — a directory query/bind identity,
+      # never a portal login. Used for the Authelia auth backend and the
+      # Jellyfin LDAP plugin.
+      ensure_readonly_user() {
+        local uid="$1" email="$2" pw="$3" users member
+        users=" $(lldap-cli user list uid | tr '\n' ' ') "
+        case "$users" in
+          *" $uid "*) lldap-cli user update set "$uid" password "$pw" ;;
+          *) lldap-cli user add "$uid" "$email" -p "$pw" ;;
+        esac
+        member=" $(lldap-cli user group list "$uid" | tr '\n' ' ') "
+        case "$member" in
+          *" lldap_strict_readonly "*) ;;
+          *) lldap-cli user group add "$uid" lldap_strict_readonly ;;
+        esac
+      }
+      ensure_readonly_user authelia authelia@mutantmell.net "$authelia_pw"
+      ensure_readonly_user jellyfin jellyfin@mutantmell.net "$jellyfin_pw"
     '';
   };
 

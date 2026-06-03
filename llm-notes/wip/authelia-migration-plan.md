@@ -595,10 +595,19 @@ Configure Jellyfin to authenticate against lldap via the official LDAP plugin.
 This replaces Jellyfin's built-in user management with the shared lldap
 directory, giving media users one set of credentials across all services.
 
+> **Bind account already seeded (landed in Phase 1 follow-up).** The read-only
+> `jellyfin` bind user (in `lldap_strict_readonly`) is created declaratively by
+> `lldap-bootstrap` on messeldam, alongside `authelia` — see `modules/lldap.nix`
+> (`ensure_readonly_user`). Its password is the `jellyfin-ldap-bind-password`
+> sops secret on messeldam; the **same value must be present in oracion's sops**
+> for the plugin to bind. No manual web-UI account creation is needed for the
+> bind identity — only the human `media-users` accounts below.
+
 Update `hosts/calvard/microvm/guests/oracion/`:
 
 - Install the official `jellyfin-plugin-ldap` plugin
-- Configure LDAP connection to messeldam:3890
+- Configure LDAP connection to messeldam:3890 (bind DN
+  `uid=jellyfin,ou=people,dc=mutantmell,dc=net`, password from oracion sops)
 - Map lldap `media-users` group to Jellyfin access
 - Add firewall rule: oracion → messeldam TCP 3890
 - Test with all client types (web, mobile, TV apps)
