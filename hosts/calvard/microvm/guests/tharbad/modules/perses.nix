@@ -102,9 +102,9 @@
 in {
   networking.firewall.allowedTCPPorts = [80 443];
 
-  # Perses fatally exits if it can't reach the OIDC provider (Keycloak on
-  # messeldam) at startup. Give it time to retry during boot while Keycloak
-  # is still coming up.
+  # Perses fatally exits if it can't reach the OIDC provider (Authelia on
+  # messeldam) at startup. Give it time to retry during boot while messeldam /
+  # the internal DNS zone (phantasma) are still coming up.
   systemd.services.perses = {
     serviceConfig = {
       RestartSec = "5s";
@@ -125,12 +125,12 @@ in {
         encryption_key._secret = config.sops.secrets."perses-encryption-key".path;
         authentication.providers.oidc = [
           {
-            slug_id = "keycloak";
-            name = "Keycloak";
+            slug_id = "authelia";
+            name = "Authelia";
             client_id = "perses";
             client_secret._secret = config.sops.secrets."perses-oidc-client-secret".path;
-            issuer = "https://auth.mutantmell.net/realms/homelab";
-            redirect_uri = "https://perses.internal/api/auth/providers/oidc/keycloak/callback";
+            issuer = "https://authelia.internal.mutantmell.net";
+            redirect_uri = "https://perses.internal/api/auth/providers/oidc/authelia/callback";
             scopes = ["openid" "profile" "email" "groups"];
           }
         ];
