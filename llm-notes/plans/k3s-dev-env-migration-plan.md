@@ -166,11 +166,17 @@ trista are KubeVirt VMs" reasoning above applies in full. Concretely:
   or _trista-first_ (prove the KubeVirt VM path on the lower-stakes
   secondary workstation before risking the daily driver). Either way both
   land before Phase 9.
-- **DMZ placement + wg-ba mesh peering carry over cleanly** — a KubeVirt VM
-  is host-shaped, so it can hold the wg-ba WireGuard peer the same way the
-  Incus VM does today; no need to terminate wg-ba elsewhere (this was the
-  awkward part of the rejected Pod approach). Bridge the VM into the
-  cluster CNI on the DMZ zone; route SSH/wg-ba via router6.
+- **DMZ placement carries over cleanly; wg-ba must be rebuilt, not carried
+  over.** A KubeVirt VM is host-shaped, so it can hold a wg-ba WireGuard peer
+  natively (this was the awkward part of the rejected Pod approach). **Update
+  (2026-06-03):** the old router-terminated wg-ba (thebeyond `ba-tunnel` zone +
+  SSH DNAT to trista) has been **removed** — see
+  `wg-ba-liberl-backup-tunnel-plan.md` Phase 0 (commit `7358bcf`). trista holds
+  no wg peer of its own today, so there is nothing to "carry over via router6":
+  when migrated, give trista its **own direct per-host wg tunnel**, following the
+  liberl pattern (`hosts/liberl/wg-ba.nix`: wg-quick + sops-templated `.conf` +
+  tunnel-scoped nftables egress). Bridge the VM into the cluster CNI on the DMZ
+  zone; SSH reaches trista directly over that tunnel (no router6 DNAT).
 - Cutover mirrors edith: `incus export` the Incus trista → import as a
   DataVolume; parallel-run; keep the stopped Incus declaration as the
   rollback window; remove once confident.

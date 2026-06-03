@@ -1,6 +1,8 @@
 # wg-ba: liberl offsite backup tunnel (per-host, tunnel-scoped egress)
 
-Status: NOT STARTED — drafted, no code merged.
+Status: DONE — tunnel committed and verified live on liberl (Phase 0 = `7358bcf`).
+Deferred futures relocated: #1 → `dual-gateway-followups` C.4, #2 → `B.4`, #3 →
+`k3s-dev-env-migration` Phase 8. Kept as a historical record.
 
 ## Goal
 
@@ -157,7 +159,7 @@ stale (`pkgs.wireguard-tools` ships a `contrib/reresolve-dns` script). Cadence
 > liberl's tunnel needs no registry change (external addressing). Phase 0 is an
 > independent router-side cleanup; Phases 1–4 are liberl's tunnel.
 
-### Phase 0 — Remove thebeyond's stale wg-ba (router-side cleanup) — NOT STARTED
+### Phase 0 — Remove thebeyond's stale wg-ba (router-side cleanup) — COMPLETE
 
 Independent of liberl's tunnel; do as its own commit. `remote → trista` SSH is
 confirmed unused, and the config is wired to the stale `10.100.0.3` addressing.
@@ -175,7 +177,7 @@ In `hosts/thebeyond/router.nix`:
 Run `./scripts/run-checks.sh` (router6 + registry checks). No test fixtures
 reference ba-tunnel/wg-ba, so this is contained.
 
-### Phase 1 — liberl tunnel — NOT STARTED
+### Phase 1 — liberl tunnel — COMPLETE
 
 - `hosts/liberl/secrets/secrets.yaml`: add `wg-ba-privatekey`, `wg-ba-endpoint`.
 - `hosts/liberl/sops.nix`: declare secrets + `sops.templates."wg-ba.conf"` (with
@@ -184,21 +186,21 @@ reference ba-tunnel/wg-ba, so this is contained.
   `wg-quick.interfaces.wg-ba.configFile = …templates."wg-ba.conf".path;` + the
   reresolve-dns service+timer. Self-contained for cheap future removal.
 
-### Phase 2 — Tunnel-scoped egress filter — NOT STARTED
+### Phase 2 — Tunnel-scoped egress filter — COMPLETE
 
 - Add the `networking.nftables.tables.wg-ba` output chain limiting `oifname
   "wg-ba"` egress to `192.168.0.35:22`. Optionally add the `wg-ba` input drop.
 - `policy accept` → liberl's non-tunnel egress is untouched (no NAS-breakage
   risk). Full default-drop host lockdown is Future #1.
 
-### Phase 3 — Remote peer (off-repo, EXTERNAL) — NOT STARTED
+### Phase 3 — Remote peer (off-repo, EXTERNAL) — COMPLETE (verified live)
 
 On the offsite box: add a `liberl` peer (liberl's new pubkey, AllowedIPs =
 `192.168.127.200/32`); ensure it **listens** and the `wg-ba-endpoint` DDNS
 name resolves to it; SSH/borg target reachable at `192.168.0.35`. Existing
 `thebeyond` peer untouched.
 
-### Phase 4 — Validation — NOT STARTED
+### Phase 4 — Validation — COMPLETE (verified live on liberl)
 
 - `nix build .#nixosConfigurations.liberl…`.
 - Live: `wg show wg-ba` shows a recent handshake; borg-over-SSH to `192.168.0.35`
@@ -211,32 +213,27 @@ name resolves to it; SSH/borg target reachable at `192.168.0.35`. Existing
 
 ## Future
 
-### Future #1 — Full host egress lockdown (after the VM-host MACVLAN rework)
+### Future #1 — Full host egress lockdown — RELOCATED to dual-gateway-followups C.4
 
-Today we only filter the tunnel. The MACVLAN rework is what makes a strict
-whole-host posture tractable: liberl's **ingress** tightens to **NFS + SMB only**,
-and its **egress** moves to a default-drop allowlist (the repo's `mkEgressFilter`)
-— DNS, NTP, fluent-bit→tharbad, internal attic (`zeiss`) substituter, plus the
-over-tunnel rule, which folds in. (Doing it now means enumerating a live NAS's
-egress with breakage risk — hence deferred.)
+liberl's whole-host ingress→NFS/SMB + default-drop egress, gated on the MACVLAN
+rework, now lives in `dual-gateway-followups-plan.md` **C.4**. Why it was deferred
+(enumerating a live NAS's egress carries breakage risk; only the tunnel is
+filtered today) is preserved in "Direction + egress enforcement" above.
 
-### Future #2 — Move liberl's tunnel to a gateway (likely bt8gw)
+### Future #2 — Move liberl's tunnel to bt8gw — RELOCATED to dual-gateway-followups B.4
 
-To stop liberl touching the WAN at all, move termination to **bt8gw** — liberl's
-*actual* default gateway (preferable to thebeyond): single hop (no transit
-crossing), bt8gw is already the management-zone egress enforcer, liberl needs zero
-wg config, and OpenWRT brings native WireGuard + netifd DDNS re-resolution + a
-build-time secrets path. Contingencies: bt8gw under declarative management (not
-yet — dual-gateway in-flight); confirm BT8 WG throughput is a non-issue (likely —
-offsite backup is WAN-upload-bound). Contained because liberl's tunnel is isolated
-in `hosts/liberl/wg-ba.nix`.
+Relocating termination to bt8gw (liberl's real gateway → zero WAN on liberl) now
+lives in `dual-gateway-followups-plan.md` **B.4**, gated on bt8gw being codified
+in the Image Builder (B.1). Rationale preserved in "Why per-host now, not the
+router" above.
 
-### Future #3 — Direct tunnel to trista (when the server is ready)
+### Future #3 — Direct tunnel to trista — TRACKED IN k3s-dev-env Phase 8
 
-When the k3s re-tooling stands trista up, give it its own direct per-host tunnel
-(same pattern as liberl). The thebeyond-side `ba-tunnel`/`wg-ba` it would have
-replaced is already gone (Phase 0). End state: liberl and trista each own a direct
-tunnel; the router holds no wg-ba.
+trista's wg-ba is owned by `k3s-dev-env-migration-plan.md` **Phase 8** (its
+KubeVirt migration), where this is now documented. When trista is rebuilt there,
+give it its own direct per-host tunnel (this liberl pattern). The thebeyond-side
+`ba-tunnel`/`wg-ba` it would have replaced is already gone (Phase 0); the router
+holds no wg-ba. **No further trista work is tracked in this plan.**
 
 ## Open items / inputs needed
 

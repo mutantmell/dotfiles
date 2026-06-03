@@ -181,6 +181,27 @@ the zone-pair policy itself on this fw4 version.
       give back strict-by-default at the zone-pair level. May be a
       no-op if the per-flow list stays small.
 
+### B.4 — Move liberl's wg-ba backup tunnel onto BT8-gateway
+
+Relocated from `wg-ba-liberl-backup-tunnel-plan.md` (done/) Future #2. Once
+BT8-gateway is codified in the Image Builder (B.1) and the management-WAN egress
+drops to zero, move liberl's offsite backup tunnel from the host onto
+BT8-gateway — liberl's actual default gateway — so liberl emits zero WAN packets.
+Today it's a per-host `wg-quick` tunnel (`hosts/liberl/wg-ba.nix`).
+
+- [ ] On BT8-gw (OpenWRT): UCI WireGuard interface to the offsite remote, with
+      native netifd DDNS re-resolution + the endpoint injected via the
+      `--secrets-file` build path
+- [ ] Scoped fw4 egress for liberl → the backup target; liberl reaches it
+      internally via its gateway
+- [ ] On liberl: remove `hosts/liberl/wg-ba.nix` (one file + import) + its sops
+      secrets + the tunnel-scoped egress table
+- [ ] Remote operator: re-peer to BT8-gw (new pubkey + AllowedIPs) instead of
+      liberl
+
+Contingencies: BT8-gw under declarative management (B.1); confirm BT8 WG
+throughput is a non-issue (likely — offsite backup is WAN-upload-bound).
+
 ---
 
 ## Section C — Microvm MACVLAN migration
@@ -259,6 +280,20 @@ Per-host conversion (each host independent):
       configs
 - [ ] VM test that boots a microvm with macvtap and confirms basic L2
       forwarding (or accept that NixOS upstream coverage is enough)
+
+### C.4 — liberl host-firewall tightening (enabled by the rework)
+
+Relocated from `wg-ba-liberl-backup-tunnel-plan.md` (done/) Future #1. Removing
+liberl's bridge/`br_netfilter` surface (C.2) makes a strict whole-host firewall
+tractable; this also lands with the management-WAN egress drop (Section B gate).
+Today only liberl's wg-ba *tunnel* egress is filtered (`hosts/liberl/wg-ba.nix`'s
+`wgBa` table) — this generalizes it to the whole host.
+
+- [ ] liberl ingress → NFS + SMB only (retire the broad SSH-from-gateway allow
+      once a management access path is settled)
+- [ ] liberl egress → default-drop allowlist via `mkEgressFilter` (DNS, NTP,
+      fluent-bit→tharbad, internal attic/`zeiss` substituter, the wg-ba
+      transport; the existing over-tunnel rule folds in)
 
 ---
 
