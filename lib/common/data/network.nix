@@ -402,7 +402,7 @@
       # Keycloak here until the Phase 3 cutover folds it onto auth.mutantmell.net.
       "authelia.internal.mutantmell.net"
       "authelia.internal"
-      # lldap admin web UI (management-zone only, nginx-fronted on messeldam).
+      # lldap admin web UI (management + trusted zones, nginx-fronted on messeldam).
       "ldap.internal.mutantmell.net"
       "ldap.internal"
     ];

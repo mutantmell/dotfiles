@@ -7,6 +7,11 @@
   # messeldam lives in the management zone, so its own zone subnets are the
   # management subnets — used to gate the admin web UI below.
   inherit (net.forHost "messeldam") zone;
+  # Trusted (VLAN 20) is also allowed to reach the admin UI for now, to admin
+  # lldap from a daily-driver workstation without tunnelling. This widens the
+  # mutation surface to all trusted client devices — tighten to a single admin
+  # host (or back to management-only) once initial user setup is done.
+  trustedZone = net.networks.trusted;
 in {
   # lldap — lightweight LDAP directory. Shared source of truth for both
   # Authelia (authentication + group lookup) and, in Phase 2d, Jellyfin
@@ -123,7 +128,7 @@ in {
     '';
   };
 
-  # Admin web UI, management-zone only. security.acme is configured in
+  # Admin web UI, management + trusted zones. security.acme is configured in
   # authelia.nix (defining it here too would conflict). The source allow/deny
   # sits on the "/" location, not server-wide, so the port-80 ACME challenge
   # location stays reachable for basel to validate.
@@ -136,6 +141,8 @@ in {
       extraConfig = ''
         allow ${zone.subnet4};
         allow ${zone.subnet6};
+        allow ${trustedZone.subnet4};
+        allow ${trustedZone.subnet6};
         deny all;
 
         proxy_set_header Host $host;
