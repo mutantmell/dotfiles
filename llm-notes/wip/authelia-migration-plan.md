@@ -7,8 +7,9 @@ Moved to wip: 2026-06-02
 **Phase status:**
 
 - Phase 0 — N/A (cc-sandbox retired)
-- Phase 1 — REPO CHANGES COMPLETE, awaiting operator secret-setup + deploy
-  (see "Phase 1 — implementation notes" below)
+- Phase 1 — COMPLETE, deployed + validated 2026-06-03 (discovery, JWKS, and
+  portal login all confirmed against lldap; see "Phase 1 — implementation
+  notes" below). Keycloak still running unchanged on auth.mutantmell.net.
 - Phase 2a–2e — NOT STARTED (per-consumer migration)
 - Phase 3 — NOT STARTED (cutover, remove Keycloak)
 - Phase 4 — NOT STARTED (doc cleanup)
@@ -522,6 +523,16 @@ Repo changes landed (one commit, all on messeldam — Keycloak untouched):
 `https://authelia.internal.mutantmell.net/.well-known/openid-configuration`;
 the `jwks_uri` it advertises serves keys; portal login at
 `https://authelia.internal.mutantmell.net` succeeds with an lldap account.
+
+**Post-deploy fix (2026-06-03):** the portal returned `400` on first deploy.
+Cause: `services.nginx.recommendedProxySettings` (set host-wide) already emits
+`Host` + `X-Forwarded-*`, and the portal/`ldap.internal` vhosts re-set `Host`
+in `extraConfig`. nginx sent two `Host` headers; Authelia's fasthttp parser
+rejects that (`too many Host headers` → 400). Keycloak's Undertow tolerated the
+same duplicate, which is why it never surfaced before. Fix: drop the redundant
+`proxy_set_header` blocks (commit "don't double set proxy headers"). **Carry
+into Phase 2b/2e:** the new `auth_request`-protected vhosts must rely on
+`recommendedProxySettings` for `Host`/`X-Forwarded-*` and not re-set them.
 
 ### Phase 2: Migrate consumers one at a time
 
