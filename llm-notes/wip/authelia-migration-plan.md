@@ -1,6 +1,37 @@
 # Authelia Migration Plan: Replace Keycloak with Authelia
 
 Plan date: 2026-04-19
+Refreshed: 2026-06-02
+Moved to wip: 2026-06-02
+
+**Phase status:**
+
+- Phase 0 — N/A (cc-sandbox retired)
+- Phase 1 — REPO CHANGES COMPLETE, awaiting operator secret-setup + deploy
+  (see "Phase 1 — implementation notes" below)
+- Phase 2a–2e — NOT STARTED (per-consumer migration)
+- Phase 3 — NOT STARTED (cutover, remove Keycloak)
+- Phase 4 — NOT STARTED (doc cleanup)
+- F1–F5 — NOT STARTED (independent follow-ups)
+
+> **Execution approach: repo changes only — operator deploys.** Claude makes
+> all the Nix/config changes for each phase and hands the operator the
+> `nixos-rebuild`/validation commands to run; Claude does not run deploys
+> against live hosts. This is live auth for the whole homelab, so each consumer
+> migration lands as its own reviewable commit and is validated before the next.
+>
+> **Scope change (post deployd decommission, 2026-06-02):** deployd and
+> cc-sandbox were retired (see
+> [`llm-notes/done/k3s-deployd-migration-plan.md`](../done/k3s-deployd-migration-plan.md)).
+> Two consumers this plan originally migrated are **gone**, not migrated:
+> - **deployd-api (roer)** — host removed; no OIDC client needed.
+> - **cc-sandbox CLI** — retired; no OIDC client needed. Phase 0 (its
+>   auth-code refactor) is therefore moot.
+>
+> The `deploy` group is no longer consumed by anything today (its only users
+> were deployd-api and cc-sandbox). It is kept in lldap as a forward-looking
+> group for future CI/CD machine identity, but no access-control rule depends
+> on it yet.
 
 ## Motivation
 
@@ -107,9 +138,11 @@ cost of adding auth protection to new services:
 | oauth2-proxy (internal)    | phantasma | Auth Code             | Group `admin`           | Native (replaces oauth2-proxy entirely)    |
 | step-ca OIDC provisioner   | basel     | Auth Code + localhost | Token issuer, signature | Yes (standard OIDC discovery + JWKS)       |
 | Perses OIDC                | tharbad   | Auth Code             | OIDC groups             | Yes (standard OIDC client)                 |
-| deployd-api JWT validation | roer      | Bearer token (JWKS)   | Group `deploy`, issuer  | Yes (standard JWKS endpoint)               |
-| cc-sandbox CLI             | client    | Auth Code + PKCE      | Group `deploy`          | Yes (Phase 0 complete — OIDC discovery)    |
 | Jellyfin (built-in auth)   | oracion   | Local accounts        | Jellyfin-internal users | Migrated to lldap via official LDAP plugin |
+
+> ~~deployd-api JWT validation (roer)~~ and ~~cc-sandbox CLI~~ were consumers in
+> the original plan; both were retired in the deployd decommission (2026-06-02)
+> and are no longer migrated.
 
 ### Consumer not affected by this migration
 
@@ -123,22 +156,12 @@ cost of adding auth protection to new services:
 
 ## Gap analysis
 
-### Device code flow (cc-sandbox)
+### Device code flow (cc-sandbox) — N/A
 
-**Status:** Resolved. cc-sandbox uses provider-agnostic OIDC discovery and
-dispatches to the best available flow at runtime:
-
-- **Browser available:** auth code + PKCE with localhost callback server
-- **Headless + provider supports RFC 8628:** device code grant (short code
-  entry on any device — best headless UX)
-- **Headless + no device support:** auth code + PKCE with URL paste fallback
-
-Device code flow was re-added after Authelia v4.39.0 shipped RFC 8628 support
-([authelia/authelia#8082](https://github.com/authelia/authelia/pull/8082),
-released March 2025). Detection is automatic via the OIDC discovery response
-(`device_authorization_endpoint`), so cc-sandbox works without configuration
-changes against any provider — Keycloak, Authelia ≥4.39.0, or any future
-provider.
+cc-sandbox was retired in the deployd decommission (2026-06-02), so its
+device-code / OIDC-discovery requirements no longer constrain provider choice.
+(For the record, Authelia v4.39.0 did ship RFC 8628 device-code support, so a
+future headless OIDC client would be covered.)
 
 ### Client credentials grant (cicd-deploy)
 
@@ -230,7 +253,7 @@ Managed via lldap's web UI or its API. Groups mirror the current structure:
 | Group         | Purpose                     | Used by                                |
 | ------------- | --------------------------- | -------------------------------------- |
 | `admin`       | Full access to everything   | Authelia access control, step-ca SSH   |
-| `deploy`      | CI/CD and deployment        | deployd-api JWT validation             |
+| `deploy`      | CI/CD and deployment        | none yet (was deployd-api/cc-sandbox; kept for future CI/CD) |
 | `media-users` | Jellyfin and media services | Jellyfin LDAP, Authelia access control |
 
 ### Secrets
@@ -282,30 +305,15 @@ identity_providers:
         client_name: "Perses Monitoring"
         client_secret: "$pbkdf2-sha512$..."
         redirect_uris:
-          - "https://tharbad.internal/api/auth/providers/oidc/authelia/callback"
+          - "https://perses.internal/api/auth/providers/oidc/authelia/callback"
         scopes: [openid, profile, email, groups]
         grant_types: [authorization_code]
         response_types: [code]
-
-      - client_id: deployd-api
-        client_name: "deployd Container API"
-        # Bearer-only validation — deployd-api only checks JWKS, doesn't initiate flows
-        # Still needs a client registration for Authelia to include it in token audience
-        client_secret: "$pbkdf2-sha512$..."
-        scopes: [openid, groups]
-        grant_types: [authorization_code]
-        response_types: [code]
-
-      - client_id: cc-sandbox
-        client_name: "Claude Code Sandbox CLI"
-        public: true
-        redirect_uris:
-          - "http://127.0.0.1:*"
-        scopes: [openid, profile, email, groups]
-        grant_types: [authorization_code]
-        pkce_challenge_method: S256
-        require_pkce: true
 ```
+
+Only two OIDC clients remain (step-ca, perses). The `deployd-api` and
+`cc-sandbox` clients from the original plan are dropped — both consumers were
+retired in the deployd decommission (2026-06-02).
 
 ## Authelia as nginx auth gateway (replaces oauth2-proxy)
 
@@ -391,24 +399,11 @@ Resource reduction:
 
 ## Migration phases
 
-### Phase 0: cc-sandbox auth code migration (pre-requisite) — COMPLETE
+### Phase 0: cc-sandbox auth code migration — N/A (cc-sandbox retired)
 
-cc-sandbox refactored to be provider-agnostic via OIDC discovery, with
-runtime dispatch to the best available auth flow. Changes:
-
-- `packages/cc-sandbox/cc_sandbox.py`: OIDC discovery (lazy-loaded from
-  `.well-known/openid-configuration`), scope updated to `"openid groups"`,
-  three auth paths dispatched by `_authenticate()`:
-  - browser → auth code + PKCE with localhost server
-  - headless + RFC 8628 supported → device code grant
-  - headless + no device support → auth code + PKCE with URL paste fallback
-- `packages/cc-sandbox/test_cc_sandbox.py`: tests for OIDC discovery, all
-  three auth paths, scope, device grant polling/error handling
-- `home/modules/cc-sandbox.nix`: description updates (Keycloak → OIDC)
-
-The implementation works against any OIDC provider — Keycloak (all flows),
-Authelia ≥4.39.0 (all flows), or older Authelia (paste fallback). No Keycloak
-client changes needed.
+Originally a prerequisite that refactored cc-sandbox to provider-agnostic OIDC
+discovery. cc-sandbox was retired in the deployd decommission (2026-06-02), so
+this phase no longer applies and there is no remaining client to migrate.
 
 ### Phase 1: Deploy Authelia + lldap alongside Keycloak (coexistence)
 
@@ -450,6 +445,64 @@ individually without downtime.
   `https://authelia.internal/jwks.json`
 - Authelia login works with lldap-stored credentials
 
+### Phase 1 — implementation notes (2026-06-02)
+
+Repo changes landed (one commit, all on messeldam — Keycloak untouched):
+
+- `modules/lldap.nix` — lldap service, base DN `dc=mutantmell,dc=net`, admin
+  password from sops via systemd `LoadCredential` (lldap is a DynamicUser),
+  SQLite persisted at `/var/lib/private/lldap`.
+- `modules/authelia.nix` — `services.authelia.instances.main`: lldap auth
+  backend, SQLite storage, filesystem notifier, `access_control`, the
+  `auth-request` authz endpoint (ready for Phase 2b/2e), both OIDC clients
+  (step-ca, perses) via a sops template, and an `authelia.internal` nginx
+  vhost with step-ca ACME. SQLite + ACME state persisted.
+- `sops.nix` — new secret references + an operator runbook (in comments) for
+  generating each value.
+- `default.nix` — imports the two new modules.
+- `network.nix` — `authelia.internal[.mutantmell.net]` aliases on messeldam.
+
+**Deviations from the plan as written, and why:**
+
+1. **lldap web UI at `ldap.internal`, management-zone only; LDAP port stays
+   localhost.** The registry has no `vHOME`/`vINFRA` zone (loose names in this
+   doc — messeldam is in `management`). The web UI binds to localhost and is
+   fronted by nginx at `https://ldap.internal`, restricted via L7 `allow`/`deny`
+   to the management subnet (pulled from the registry, not hardcoded). messeldam
+   does its own source filtering because langport (DMZ) can reach it directly.
+   The LDAP port (3890) stays localhost-only until Phase 2d rebinds it and adds
+   the oracion→messeldam:3890 rules for Jellyfin. No new firewall ports (443/80
+   already open). Caveat: the `allow` list covers the management subnet only —
+   an operator browsing from a wg-vpn tunnel address would be denied; add the
+   wg-vpn subnet to the `allow` list if that's the access path.
+
+2. **Both OIDC clients defined now, not deferred to their Phase 2 commits.**
+   Keeps Phase 2a/2c pure consumer-side switches against an already-proven
+   provider. Costs the operator two client-secret hashes up front.
+
+3. **`authelia.internal/jwks.json`** — the real path is
+   `/.well-known/openid-configuration` → `jwks_uri`
+   (`/api/oidc/jwks` in Authelia), not `/jwks.json`. Validate via the
+   discovery doc's `jwks_uri`.
+
+**Operator steps before deploy:**
+
+1. Generate + store the new sops secrets — commands are in
+   `hosts/calvard/microvm/guests/messeldam/secrets/secrets.yaml`'s sibling
+   `sops.nix` comment block. Keep the two OIDC client *plaintexts* for
+   Phase 2a (perses) / 2c (step-ca); store only the hashes here.
+2. Deploy phantasma first (serves the internal DNS zone, so `authelia.internal`
+   and `ldap.internal` resolve), then messeldam.
+3. After messeldam is up, browse `https://ldap.internal` from the management
+   zone (admin login = `lldap-admin-password`) and create: groups `admin` /
+   `media-users` / `deploy`; the `authelia` bind user (password =
+   `authelia-ldap-bind-password`); your own admin account.
+
+**Validation:** discovery responds at
+`https://authelia.internal/.well-known/openid-configuration`; the `jwks_uri`
+it advertises serves keys; portal login at `https://authelia.internal`
+succeeds with an lldap account.
+
 ### Phase 2: Migrate consumers one at a time
 
 Migrate each consumer from Keycloak to Authelia, testing after each switch.
@@ -467,25 +520,10 @@ Update `hosts/calvard/microvm/guests/tharbad/modules/perses.nix`:
 
 **Validation:** Log into Perses via OIDC, verify admin role assignment.
 
-#### 2b. deployd-api (roer) — low risk, JWT validation only
+> ~~2b. deployd-api~~ and ~~2c. cc-sandbox~~ removed — both consumers retired in
+> the deployd decommission (2026-06-02). Remaining consumers renumbered below.
 
-Update `packages/deployd-api/src/config.rs` (or deployment config):
-
-- Change `oidc_issuer` to `https://authelia.internal`
-- JWKS URL auto-discovered from issuer
-
-**Validation:** cc-sandbox (pointed at Authelia) deploys a container
-successfully, deployd-api validates the JWT and accepts the `deploy` group.
-
-#### 2c. cc-sandbox — moderate risk, user-facing CLI
-
-Update `home/modules/cc-sandbox.nix`:
-
-- Change `authBaseUrl` to the Authelia issuer URL
-
-**Validation:** Full cc-sandbox deploy cycle works end-to-end.
-
-#### 2d. oauth2-proxy on phantasma — moderate risk, internal only
+#### 2b. oauth2-proxy on phantasma — moderate risk, internal only
 
 Replace oauth2-proxy with Authelia's native nginx `auth_request` integration.
 
@@ -500,7 +538,7 @@ Update `hosts/thebeyond/microvm/guests/phantasma/modules/proxy.nix`:
 get redirected to Authelia login, authenticate, access granted for
 admin group users.
 
-#### 2e. step-ca OIDC provisioner (basel) — higher risk, SSH certs
+#### 2c. step-ca OIDC provisioner (basel) — higher risk, SSH certs
 
 Update `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`:
 
@@ -516,7 +554,7 @@ receives a valid SSH certificate with correct principals.
 Note: This also requires updating `modules/common/ssh-cert-client.nix` to
 change `provisioner = "keycloak"` to `provisioner = "authelia"`.
 
-#### 2f. Jellyfin LDAP (oracion) — moderate risk, media service
+#### 2d. Jellyfin LDAP (oracion) — moderate risk, media service
 
 Configure Jellyfin to authenticate against lldap via the official LDAP plugin.
 This replaces Jellyfin's built-in user management with the shared lldap
@@ -536,7 +574,7 @@ credentials. Verify group-based access (media-users group grants access).
 Note: Existing Jellyfin-local users may need migration or recreation in
 lldap. Plan for a brief transition where both auth methods are active.
 
-#### 2g. oauth2-proxy on langport — highest risk, external-facing
+#### 2e. oauth2-proxy on langport — highest risk, external-facing
 
 Replace oauth2-proxy with Authelia's native nginx `auth_request` integration.
 
@@ -730,17 +768,15 @@ infrastructure to support it already exists.
 ## Implementation sequence
 
 ```
-Phase 0 ──── cc-sandbox auth code migration (can start immediately)
+Phase 0 ──── N/A (cc-sandbox retired in the deployd decommission)
               │
 Phase 1 ──── Deploy lldap + Authelia on messeldam alongside Keycloak
               │
 Phase 2a ─── Perses → Authelia
-Phase 2b ─── deployd-api → Authelia
-Phase 2c ─── cc-sandbox → Authelia
-Phase 2d ─── phantasma oauth2-proxy → Authelia auth_request
-Phase 2e ─── step-ca OIDC → Authelia
-Phase 2f ─── Jellyfin → lldap (official LDAP plugin)
-Phase 2g ─── langport oauth2-proxy → Authelia auth_request
+Phase 2b ─── phantasma oauth2-proxy → Authelia auth_request
+Phase 2c ─── step-ca OIDC → Authelia
+Phase 2d ─── Jellyfin → lldap (official LDAP plugin)
+Phase 2e ─── langport oauth2-proxy → Authelia auth_request
               │
 Phase 3 ──── Remove Keycloak, shrink messeldam
               │
@@ -754,6 +790,5 @@ F4 ────────── Token revocation / incident response runbook
 F5 ────────── Document no-mTLS as conscious decision
 ```
 
-Phases 2a–2g are sequential (one consumer at a time, validate between each).
-Phase 0 is independent and can be done in parallel with Phase 1.
+Phases 2a–2e are sequential (one consumer at a time, validate between each).
 Follow-ups F1–F5 are independent of each other and can be done in any order.

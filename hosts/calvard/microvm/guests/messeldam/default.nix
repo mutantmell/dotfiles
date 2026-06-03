@@ -12,6 +12,8 @@ in {
     ./microvm.nix
     ./sops.nix
     ./modules/keycloak.nix
+    ./modules/lldap.nix
+    ./modules/authelia.nix
   ];
 
   networking.hostName = hostname;

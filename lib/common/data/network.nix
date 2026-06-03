@@ -396,7 +396,16 @@
       "internal.mutantmell.net"
       "internal"
     ];
-    messeldam = ["auth.mutantmell.net"];
+    messeldam = [
+      "auth.mutantmell.net"
+      # Authelia coexistence hostname (Phase 1). Authelia runs alongside
+      # Keycloak here until the Phase 3 cutover folds it onto auth.mutantmell.net.
+      "authelia.internal.mutantmell.net"
+      "authelia.internal"
+      # lldap admin web UI (management-zone only, nginx-fronted on messeldam).
+      "ldap.internal.mutantmell.net"
+      "ldap.internal"
+    ];
     langport = ["mutantmell.net"];
     # Transition aliases: keep old DNS names resolving during migration
     liberl = [
