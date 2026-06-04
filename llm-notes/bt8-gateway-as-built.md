@@ -209,6 +209,24 @@ currently target creil/zeiss/saint-arkh. `app → app` intra-zone flows
 (e.g. saint-arkh → zeiss Attic push) traverse the APP bridge directly
 without involving fw4.
 
+## Phase 2d addition — oracion → messeldam LDAP
+
+UCI source: `temp/BT8-gw-phase-2d-additions.uci`. Companion to the Authelia
+migration (`wip/authelia-migration-plan.md` Phase 2d). Added when oracion's
+Jellyfin LDAP plugin started authenticating media users against lldap on
+messeldam.
+
+One per-flow accept rule — the `app → management` forwarding directive already
+exists (Phase 5.A), so no new `config forwarding` was needed:
+
+| Direction          | Flow                | Ports                          |
+| ------------------ | ------------------- | ------------------------------ |
+| `app → management` | oracion → messeldam | tcp 3890 (lldap LDAP, v4 only) |
+
+IPv4-only: lldap on messeldam binds `0.0.0.0` (IPv4) and its host firewall
+admits only oracion's IPv4, so there's no v6 path to open. Add a v6 dest_ip
+plus a matching messeldam-side input rule only if lldap is later dual-stacked.
+
 ## Loose ends / follow-ups
 
 - **NETMGMT/12 not yet trunked.** Add when the OpenWRT homelab L2 switch

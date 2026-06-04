@@ -85,6 +85,12 @@ in {
         comment = "ACME certs from basel";
       }
       {
+        host = "messeldam";
+        proto = "tcp";
+        port = 3890;
+        comment = "lldap LDAP bind (Jellyfin LDAP plugin auth, Phase 2d)";
+      }
+      {
         host = "tharbad";
         proto = "tcp";
         port = 3100;

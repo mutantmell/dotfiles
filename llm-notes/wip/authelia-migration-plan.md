@@ -41,17 +41,17 @@ Moved to wip: 2026-06-02
     principals** and every cert login (`root`/`mutantmell` map to principal
     `admin`) was rejected — confirmed in a live cutover 2026-06-04. Fix: a
     `with_groups` claims policy (`id_token: [groups, email, preferred_username,
-    name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
+name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
     Keycloak put groups in the ID Token, which is why this only surfaced on
     cutover. **Any future OIDC consumer that reads groups from the ID Token (not
     userinfo) needs this claims policy.**
-  - **Granted-scope gotcha (the *other* half — needed two redeploys to find):**
+  - **Granted-scope gotcha (the _other_ half — needed two redeploys to find):**
     the claims policy is necessary but NOT sufficient. Authelia only copies a
-    claim into the ID Token *if the relevant scope was granted*, and step-ca's
+    claim into the ID Token _if the relevant scope was granted_, and step-ca's
     OIDC provisioner requests only `["openid" "email"]` by default — so `groups`
     was never granted and the cert still came back with `Principals: (none)`
     even with the claims policy deployed. Keycloak masked this by force-adding
-    `groups` as a *default client scope* regardless of the request; Authelia
+    `groups` as a _default client scope_ regardless of the request; Authelia
     follows the spec and only grants requested scopes. Fix: set
     `scopes = ["openid" "email" "profile" "groups"]` on basel's step-ca OIDC
     provisioner (`step-ca.nix`). Both the provisioner `scopes` **and** the
@@ -66,7 +66,24 @@ Moved to wip: 2026-06-02
     secret. SSH OIDC template needed no change (`.Token.groups` is emitted by
     both providers via the `groups` scope). `step-ca-oidc-retry` was repointed
     at Authelia and stays (see Phase 3 note below).
-- Phase 2d–2e — NOT STARTED (Jellyfin LDAP, langport).
+- Phase 2d (Jellyfin LDAP, oracion) — repo-COMPLETE, pending deploy + manual
+  plugin config. **Scope decision:** the Jellyfin LDAP plugin is not packaged in
+  nixpkgs and its config XML (`LDAP-Auth.xml`) is mutable state the server
+  rewrites, so the operator manages the plugin **manually via the Jellyfin
+  dashboard** rather than declaratively — that drops the planned oracion sops
+  bootstrap entirely (the bind password is typed into the UI, not stored in
+  oracion's sops; only messeldam holds `jellyfin-ldap-bind-password`). The
+  in-flake changes are firewall/binding only: messeldam's lldap LDAP port
+  rebinds `127.0.0.1` → `0.0.0.0` with a source-restricted input rule for
+  oracion (`lldap.nix`), and oracion gets an egress rule to messeldam:3890
+  (`default.nix`). The inter-zone (`app → management`) opening is an operator
+  action on the **BT8-gateway** (out of flake): a single per-flow accept rule
+  (`temp/BT8-gw-phase-2d-additions.uci`) — the zone-pair forwarding directive
+  already exists from Phase 5.A. **IPv4-only** end to end: lldap binds v4, the
+  messeldam input rule and bt8gw rule are v4, and the plugin is pointed at
+  messeldam's IPv4 literal. Only one local Jellyfin account exists, so LDAP is
+  added alongside it (no cutover needed).
+- Phase 2e — NOT STARTED (langport oauth2-proxy → Authelia auth_request).
 - Phase 3 — NOT STARTED (cutover, remove Keycloak)
 - Phase 4 — NOT STARTED (doc cleanup)
 - F1–F5 — NOT STARTED (independent follow-ups)
@@ -724,6 +741,58 @@ credentials. Verify group-based access (media-users group grants access).
 
 Note: Existing Jellyfin-local users may need migration or recreation in
 lldap. Plan for a brief transition where both auth methods are active.
+
+##### 2d — implementation notes (2026-06-04)
+
+**Deviation from the plan as written: the plugin is operator-managed, not
+declarative, and oracion gets no sops.** The Jellyfin LDAP plugin isn't in
+nixpkgs, and its config lives in a mutable `LDAP-Auth.xml` the server rewrites
+at runtime — declaratively templating it fights Jellyfin. With only one local
+account to carry, the cost/benefit favours UI management. Consequences:
+
+- **No oracion sops bootstrap.** The strikethrough above ("password from oracion
+  sops") no longer applies. The bind password is the `jellyfin-ldap-bind-password`
+  value the operator already generated for messeldam; it's typed straight into
+  the Jellyfin dashboard, so oracion needs no sops setup (it had none, and this
+  keeps it that way). messeldam remains the only holder of that secret.
+- **Repo changes are firewall/binding only:**
+  - `messeldam/modules/lldap.nix` — `ldap_host` `127.0.0.1` → `0.0.0.0` (so the
+    management-interface address is reachable while Authelia keeps using
+    `127.0.0.1`), plus `networking.firewall.extraInputRules` admitting only
+    oracion's IPv4 to tcp 3890. The bind is wide; the firewall is the boundary.
+  - `oracion/default.nix` — egress rule `host = "messeldam"; tcp 3890`.
+- **Inter-zone opening is on the BT8-gateway (out of flake).** oracion (`app`)
+  → messeldam (`management`) needs one per-flow accept rule on bt8gw; the
+  `app → management` forwarding directive already exists (Phase 5.A). UCI in
+  `temp/BT8-gw-phase-2d-additions.uci`; recorded in
+  `bt8-gateway-as-built.md`.
+- **IPv4-only end to end.** lldap binds v4, the messeldam input rule and the
+  bt8gw rule are v4, and the plugin is pointed at messeldam's **IPv4 literal**
+  (`10.97.11.6`) to avoid the DNS dual-stack picking an AAAA the v4 bind won't
+  answer. (oracion's egress auto-dual-stacks; the v6 allowance is just unused.)
+
+**Operator steps (after deploying messeldam + oracion):**
+
+1. Apply `temp/BT8-gw-phase-2d-additions.uci` on the BT8-gateway (LuCI →
+   Network → Firewall → Traffic Rules, or `uci` import + `fw4 reload`).
+2. Jellyfin dashboard → Plugins → Catalog → install **LDAP Authentication** →
+   restart Jellyfin.
+3. Dashboard → Plugins → LDAP-Auth → configure:
+   - LDAP Server: `10.97.11.6`, Port `3890`, no SSL/StartTLS.
+   - Bind DN `uid=jellyfin,ou=people,dc=mutantmell,dc=net`, password =
+     `jellyfin-ldap-bind-password` plaintext.
+   - Base DN `dc=mutantmell,dc=net`; user filter
+     `(objectClass=person)`; admin/enabled filter scoped to the
+     `media-users` group (e.g. `memberOf=cn=media-users,ou=groups,dc=mutantmell,dc=net`).
+   - "Test LDAP Server/Settings" should bind cleanly and find users.
+4. lldap web UI (`https://ldap.internal`): ensure each human media user exists
+   and is in `media-users`.
+5. Leave the existing local account enabled (added-alongside, not cutover).
+
+**Validation:** Log into Jellyfin web UI and a mobile/TV app with an lldap
+account in `media-users`; confirm access. From oracion,
+`nc -z 10.97.11.6 3890` succeeds; from a host outside `app` it should not reach
+3890 (messeldam input rule + bt8gw both v4-scope it to oracion).
 
 #### 2e. oauth2-proxy on langport — highest risk, external-facing
 

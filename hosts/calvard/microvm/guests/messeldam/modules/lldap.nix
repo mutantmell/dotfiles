@@ -17,9 +17,11 @@ in {
   # Authelia (authentication + group lookup) and, in Phase 2d, Jellyfin
   # (official LDAP plugin).
   #
-  # Phase 1 (coexistence): the LDAP port (3890) binds to localhost only — only
-  # Authelia (co-located) needs it. Phase 2d rebinds it to messeldam's address
-  # and adds the oracion -> messeldam:3890 firewall/forward rules for Jellyfin.
+  # Phase 2d: the LDAP port (3890) now binds to all interfaces so oracion's
+  # Jellyfin LDAP plugin can reach it over the management interface (Authelia
+  # stays on 127.0.0.1). Who can actually reach it is scoped by the
+  # source-restricted host firewall rule below; the matching inter-zone
+  # (app -> management) forward rule lives on the BT8-gateway (out of flake).
   #
   # The admin web UI binds to localhost too, but is fronted by nginx at
   # https://ldap.internal and restricted to the management zone (see vhost
@@ -29,7 +31,11 @@ in {
   services.lldap = {
     enable = true;
     settings = {
-      ldap_host = "127.0.0.1";
+      # 0.0.0.0 (not a specific IP) so localhost still works for the co-located
+      # Authelia backend while the management-interface address becomes reachable
+      # for oracion's Jellyfin plugin. The firewall, not the bind, is the access
+      # boundary (see extraInputRules below).
+      ldap_host = "0.0.0.0";
       ldap_port = 3890;
       http_host = "127.0.0.1";
       http_port = 17170;
@@ -47,6 +53,16 @@ in {
       force_ldap_user_pass_reset = "always";
     };
   };
+
+  # LDAP queries (port 3890) from oracion only — its Jellyfin LDAP plugin binds
+  # as uid=jellyfin to authenticate media users (Phase 2d). lldap listens on all
+  # interfaces (ldap_host above), so this rule is what actually scopes access.
+  # IPv4-only: lldap's 0.0.0.0 bind is IPv4 and the plugin is pointed at
+  # messeldam's IPv4 literal, so there's no v6 path to allow. The inter-zone
+  # forward (app -> management) is gated separately on the BT8-gateway.
+  networking.firewall.extraInputRules = ''
+    ip saddr ${net.hosts.oracion.ipv4} tcp dport 3890 accept
+  '';
 
   # lldap runs as a DynamicUser, so its UID isn't known at build time and the
   # 0400 root-owned sops secret can't be chowned to it. systemd credentials
