@@ -21,8 +21,10 @@ Moved to wip: 2026-06-02
   stale Adguard comments are all removed. Pre-removal checks (no
   phantasma→messeldam forward rule; blocky metrics never traversed nginx) both
   cleared.
-- Phase 2c (step-ca OIDC, basel) — repo-COMPLETE, pending deploy. **In-place
-  swap**: basel's single OIDC provisioner moves from `keycloak` to `authelia`.
+- Phase 2c (step-ca OIDC, basel) — COMPLETE, deployed + validated 2026-06-04
+  (`step ssh login` issues a cert carrying `Principals: admin`; cert-based SSH to
+  calvard/edith restored). **In-place swap**: basel's single OIDC provisioner
+  moved from `keycloak` to `authelia`.
   - **Side-by-side coexistence was attempted and is NOT possible.** step-ca keys
     a provisioner's unique id off its `clientID`, so a `keycloak` and an
     `authelia` OIDC provisioner both with `clientID=step-ca` collide:
