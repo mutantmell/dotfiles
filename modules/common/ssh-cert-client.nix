@@ -23,7 +23,7 @@ in {
       ca-url = "https://basel.internal";
       fingerprint = rootCaFingerprint;
       root = "/etc/ssl/certs/ca-certificates.crt";
-      provisioner = "keycloak";
+      provisioner = "authelia";
     };
 
     environment.variables.STEPPATH = "/etc/step-cli";

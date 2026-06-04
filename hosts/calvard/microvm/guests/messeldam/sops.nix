@@ -18,9 +18,9 @@
       # by PID1 — no owner needed). The same value must be pasted into oracion's
       # sops for the Jellyfin LDAP plugin in Phase 2d.
       "jellyfin-ldap-bind-password" = {};
-      # OIDC client secret *hashes* — consumed only via the sops template below
-      # (substituted by sops as root), so no owner is needed.
-      "authelia-oidc-step-ca-secret-hash" = {};
+      # OIDC client secret *hash* — consumed only via the sops template below
+      # (substituted by sops as root), so no owner is needed. Only confidential
+      # clients need one; step-ca is a public client (no secret).
       "authelia-oidc-perses-secret-hash" = {};
 
       # --- lldap ---
@@ -44,11 +44,11 @@
 #   # OIDC token-signing key (RSA 4096 PEM) — paste the whole PEM block
 #   authelia-oidc-issuer-private-key: openssl genrsa 4096
 #
-#   # Per-client secrets — generate a plaintext, hash it. Store the HASH here;
-#   # keep the PLAINTEXT for the consumer (perses on tharbad in 2a, step-ca on
-#   # basel in 2c). Repeat once per client:
+#   # Per-client secrets (confidential clients only) — generate a plaintext,
+#   # hash it. Store the HASH here; keep the PLAINTEXT for the consumer (perses
+#   # on tharbad in 2a). step-ca (basel, 2c) is a public client and needs no
+#   # secret. Repeat once per confidential client:
 #   PT=$(openssl rand -hex 32); echo "plaintext: $PT"
 #   nix run nixpkgs#authelia -- crypto hash generate pbkdf2 --variant sha512 --password "$PT"
-#   authelia-oidc-step-ca-secret-hash : <Digest line from the hash output>
 #   authelia-oidc-perses-secret-hash  : <Digest line from the hash output>
 

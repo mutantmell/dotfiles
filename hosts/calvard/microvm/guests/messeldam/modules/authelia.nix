@@ -111,26 +111,34 @@ in {
     requires = ["lldap-bootstrap.service"];
   };
 
-  # OIDC clients rendered from sops. The client_secret values are pbkdf2-sha512
-  # *hashes* (Authelia stores the hash, the consumer holds the plaintext); see
-  # sops.nix for how the operator generates them.
+  # OIDC clients rendered from sops. Confidential clients (perses) carry a
+  # pbkdf2-sha512 client_secret *hash* (Authelia stores the hash, the consumer
+  # holds the plaintext); see sops.nix for how the operator generates them.
+  # step-ca is public (no secret) — see the note on its client below.
   sops.templates."authelia-oidc-clients.yml" = {
     owner = "authelia-main";
     content = ''
       identity_providers:
         oidc:
           clients:
+            # step-ca is a native-app / public client. step-cli runs the
+            # authorization-code + PKCE flow on a loopback redirect, and step-ca
+            # republishes any provisioner client secret via its public
+            # /provisioners API (RFC 8252 / BCP 212) — a confidential secret
+            # would be exposed by design. So it's a public client with PKCE,
+            # matching how Keycloak had it registered (publicClient: true).
             - client_id: step-ca
               client_name: "SSH Certificate CA"
-              client_secret: "${config.sops.placeholder."authelia-oidc-step-ca-secret-hash"}"
-              public: false
+              public: true
               authorization_policy: one_factor
               redirect_uris:
                 - "http://127.0.0.1:10000"
               scopes: [openid, profile, email, groups]
               grant_types: [authorization_code]
               response_types: [code]
-              token_endpoint_auth_method: client_secret_basic
+              token_endpoint_auth_method: none
+              require_pkce: true
+              pkce_challenge_method: S256
             - client_id: perses
               client_name: "Perses Monitoring"
               client_secret: "${config.sops.placeholder."authelia-oidc-perses-secret-hash"}"

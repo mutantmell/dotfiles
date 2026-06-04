@@ -81,9 +81,13 @@ in {
             }
             {
               type = "OIDC";
-              name = "keycloak";
+              name = "authelia";
               clientID = "step-ca";
-              configurationEndpoint = "https://auth.mutantmell.net/realms/homelab/.well-known/openid-configuration";
+              # Public client (no clientSecret): step-cli does authorization-code
+              # + PKCE on the loopback redirect, and step-ca would publish any
+              # secret via its /provisioners API anyway. Matches the public
+              # client registered in messeldam's authelia.nix.
+              configurationEndpoint = "https://authelia.internal.mutantmell.net/.well-known/openid-configuration";
               listenAddress = "127.0.0.1:10000";
               claims = {
                 enableSSHCA = true;
@@ -114,11 +118,16 @@ in {
   };
 
   # Retry OIDC provisioner initialization after boot.
-  # step-ca and keycloak (messeldam) have a circular dependency:
-  # step-ca needs keycloak for OIDC init, keycloak needs step-ca for ACME certs.
-  # step-ca gracefully degrades (serves ACME with OIDC disabled), so keycloak
-  # can get its certs. This service checks that keycloak is reachable, then
-  # restarts step-ca to re-initialize the OIDC provisioner.
+  # step-ca and the OIDC provider (Authelia on messeldam) have a circular
+  # dependency: step-ca fetches Authelia's OIDC discovery doc at provisioner
+  # init, but Authelia's discovery is served over TLS by nginx using an ACME
+  # cert issued by *this* step-ca. So on a cold boot step-ca must serve ACME
+  # before Authelia can present a valid cert, before step-ca can complete OIDC
+  # discovery. step-ca gracefully degrades (serves ACME with OIDC disabled) so
+  # Authelia can get its cert; this service then waits for Authelia to be
+  # reachable and restarts step-ca to re-initialize the OIDC provisioner.
+  # (This is structural to the ACME chicken-and-egg, not a Keycloak-JVM-speed
+  # workaround — it survives the Keycloak->Authelia migration.)
   systemd.services.step-ca-oidc-retry = {
     description = "Retry step-ca OIDC provisioner initialization";
     after = ["step-ca.service"];
@@ -133,20 +142,21 @@ in {
       RestartSteps = 5;
     };
     # Only restart step-ca if OIDC isn't already working.
-    # step-ca exposes provisioners at /provisioners — if keycloak appears,
-    # OIDC initialized successfully and no restart is needed.
+    # step-ca exposes provisioners at /provisioners — if the authelia
+    # provisioner appears, OIDC initialized successfully and no restart is
+    # needed.
     script = ''
-      # Wait for keycloak to be reachable
+      # Wait for Authelia to be reachable
       ${pkgs.curl}/bin/curl -sf --max-time 5 \
-        https://auth.mutantmell.net/realms/homelab/.well-known/openid-configuration \
+        https://authelia.internal.mutantmell.net/.well-known/openid-configuration \
         -o /dev/null
 
       # Check if step-ca already has the OIDC provisioner initialized.
       # The /provisioners endpoint includes a "state" field when a provisioner
-      # failed to initialize — only skip restart if keycloak has no such field.
+      # failed to initialize — only skip restart if authelia has no such field.
       if ${pkgs.curl}/bin/curl -sf --max-time 5 \
         https://localhost:443/provisioners 2>/dev/null \
-        | ${pkgs.jq}/bin/jq -e '.provisioners[] | select(.name == "keycloak") | has("state") | not' \
+        | ${pkgs.jq}/bin/jq -e '.provisioners[] | select(.name == "authelia") | has("state") | not' \
         >/dev/null 2>&1; then
         echo "OIDC provisioner already initialized, skipping restart"
         exit 0

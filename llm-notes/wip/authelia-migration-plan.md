@@ -21,7 +21,19 @@ Moved to wip: 2026-06-02
   stale Adguard comments are all removed. Pre-removal checks (no
   phantasma→messeldam forward rule; blocky metrics never traversed nginx) both
   cleared.
-- Phase 2c–2e — NOT STARTED (step-ca, Jellyfin LDAP, langport).
+- Phase 2c (step-ca OIDC, basel) — repo-COMPLETE, pending deploy. step-ca's
+  OIDC provisioner now points at Authelia. **Design correction:** Phase 1
+  registered the `step-ca` client as confidential, but step-ca is a native-app
+  **public** client (step-cli does authorization-code+PKCE on a loopback
+  redirect, and step-ca republishes any provisioner secret via its public
+  `/provisioners` API — RFC 8252). Keycloak had it as `publicClient: true`. So
+  2c flips the Authelia client to `public: true` + `require_pkce`/`S256`, drops
+  the `authelia-oidc-step-ca-secret-hash` sops secret, and basel needs no
+  client secret. SSH OIDC template needed no change (`.Token.groups` is emitted
+  by both providers via the `groups` scope). The `step-ca-oidc-retry` service
+  was repointed at Authelia (see Phase 3 note below). `ssh-cert-client.nix`
+  default provisioner keycloak → authelia.
+- Phase 2d–2e — NOT STARTED (Jellyfin LDAP, langport).
 - Phase 3 — NOT STARTED (cutover, remove Keycloak)
 - Phase 4 — NOT STARTED (doc cleanup)
 - F1–F5 — NOT STARTED (independent follow-ups)
@@ -625,8 +637,15 @@ Update `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`:
 - Change OIDC provisioner `configurationEndpoint` to
   `https://authelia.internal.mutantmell.net/.well-known/openid-configuration`
 - Change provisioner `name` from `keycloak` to `authelia`
-- Update `clientID` and add client secret for Authelia
-- Update SSH template if it references Keycloak-specific claim paths
+- Keep `clientID = "step-ca"`; **no client secret** — step-ca is a public
+  client (see design correction in the phase-status header). The corresponding
+  Authelia client in `authelia.nix` is flipped to `public: true` +
+  `require_pkce`/`pkce_challenge_method: S256`, and the
+  `authelia-oidc-step-ca-secret-hash` sops secret is dropped.
+- SSH template needs no change: `oidc.tpl` reads `.Token.groups`, which Authelia
+  emits via the `groups` scope (same as Keycloak).
+- Repoint the `step-ca-oidc-retry` service (reachability URL + `/provisioners`
+  name filter) at Authelia. It stays — see the Phase 3 step 5 note.
 
 **Validation:** `step ssh login --provisioner authelia` completes successfully,
 receives a valid SSH certificate with correct principals.
@@ -700,8 +719,16 @@ Once all consumers are on Authelia and validated:
    - `microvm.vcpu`: 2 → 1
    - Shrink or recreate persist volume (100 GB → 1 GB)
 5. Remove boot-time workarounds that existed for Keycloak's slow JVM startup:
-   - `step-ca-oidc-retry` service on basel
-     (`hosts/calvard/microvm/guests/basel/modules/step-ca.nix`)
+   - ~~`step-ca-oidc-retry` service on basel~~ — **do NOT remove.** Re-examined
+     in Phase 2c: this is not a JVM-speed workaround, it's structural to an
+     ACME chicken-and-egg. step-ca fetches the OIDC discovery doc at provisioner
+     init, but Authelia's discovery is served over TLS by nginx using a cert
+     ACME-issued by *this same* step-ca — so on a cold boot step-ca must serve
+     ACME (OIDC degraded) before Authelia can present a valid cert, before
+     step-ca can complete OIDC discovery. The circular dependency survives the
+     Keycloak→Authelia switch unchanged; the retry service was repointed at
+     Authelia in 2c and should stay. (A cleaner fix would be a proper
+     systemd ordering/health-gate, but that's out of scope for this migration.)
    - `RestartSec`/`StartLimitBurst` retry config on oauth2-proxy in langport
      (`hosts/calvard/microvm/guests/langport/proxy.nix`) — oauth2-proxy
      itself is also removed in step 6
