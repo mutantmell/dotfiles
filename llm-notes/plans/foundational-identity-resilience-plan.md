@@ -1,30 +1,37 @@
-# Foundational Identity Decoupling Plan
+# Foundational Identity Resilience Plan
 
 Status: Planned (not started)
 
 Date: 2026-06-04
 
+> Reframed 2026-06-04 from an earlier "decoupling so the IdP can move up"
+> draft. **The rich IdP (lldap + Authelia) stays foundational** — moving it
+> into the planned k3s cluster has been considered and rejected (see "Rejected:
+> moving the IdP into the cluster"). The valuable, buildable content (Phases
+> A–C) is pure resilience and never required the move.
+
 ## What this is
 
-A plan to make the homelab's **foundational operator access** fully
-independent of the **rich identity provider** (lldap + Authelia), so that the
-rich IdP can later move "up a layer" — out of the foundational microvm fleet
-and (eventually) into the planned k3s cluster — without making operational
-access to tier-1 hosts depend on the thing being moved.
+Make the homelab's **foundational operator access** (SSH; monitoring)
+**resilient to an outage of the rich identity provider** (lldap + Authelia on
+`messeldam`). The rich IdP **stays foundational**; this plan adds *break-glass*
+paths beneath the services that currently route through it, so that when
+Authelia/lldap are down — or merely cold-booting — operators can still obtain
+SSH certificates and read dashboards.
 
-The driving principle (developed across the identity discussion that
-produced this plan): **operational access to layer N must root in identity at
-layer ≤ N, never upward.** The rich IdP is the one piece of identity that we
-*want* to be dynamic; everything the foundation needs to be operated must keep
-working with the rich IdP down.
+Driving principle: **operational access to a layer must not hinge on a single
+service that can be unavailable exactly when you need access most.** The rich
+IdP is a single point of failure that step-ca's SSH-cert path and Perses login
+currently sit on top of; this plan adds IdP-independent fallbacks underneath
+them.
 
 ## Relationship to other plans
 
-- **Enables / unblocks** `llm-notes/plans/k3s-cluster-bootstrap-plan.md` —
-  specifically its identity open-decisions (operator `kubectl` access path and
-  PKI overlap). Moving lldap/Authelia into the cluster is only safe once the
-  foundation no longer depends on them; this plan establishes that
-  precondition. The bootstrap plan cross-references this document.
+- **Informs** `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (identity
+  open-decision): the cluster's `kubectl` OIDC can point at the **foundational**
+  Authelia — tier-2 → tier-1, the correct dependency direction, **no circular
+  dependency** — with the on-disk x509 admin kubeconfig as the cluster's own
+  break-glass. The bootstrap plan cross-references this document.
 - **Depends on / follows** `llm-notes/wip/authelia-migration-plan.md` — that
   migration made Authelia the live OIDC provider for step-ca (Phase 2c,
   2026-06-04). This plan builds on that end-state. Keycloak removal
@@ -53,40 +60,42 @@ else the foundation needs to be operated already works with the rich IdP down:
 | Secrets | sops + per-host age keys | `.sops.yaml`, host age key on disk | **No** |
 | **SSH _user_ certs** | step-ca **OIDC "authelia"** provisioner → Authelia → lldap | `…/basel/modules/step-ca.nix` (`authelia`), `templates/oidc.tpl` | **Yes** ← the one coupling |
 
-So the work is small and well-bounded: **sever that one coupling (Phase A),
-harden the floor (Phase B), give the one non-foundational-but-incident-critical
-consumer its own floor (Phase C, Perses)** — after which the rich IdP is free to
-move up (Phase D, target-state).
+So the work is small and well-bounded: **add an IdP-independent SSH-cert path
+(Phase A), harden the floor (Phase B), and give Perses its own login floor
+(Phase C).** All three are resilience measures against the rich IdP being
+unavailable; **none requires relocating it.**
 
-### Important framing correction (current vs. target)
+### Framing: current state only (no cluster yet)
 
-**There is no k3s cluster in the repo today.** k3s exists only as plans under
-`llm-notes/plans/k3s-*.md`. Phases A–C below are **buildable now** against the
-current microvm fleet and stand on their own merits (they remove a real
-cold-boot fragility regardless of k3s — see the PKI appendix). Phase D is
-**target-state design** contingent on the cluster existing and is labelled as
-such. Do not read Phase D as a description of the current system.
+**There is no k3s cluster in the repo today** — k3s exists only as plans under
+`llm-notes/plans/k3s-*.md`. Phases A–C are **buildable now** against the current
+microvm fleet and stand on their own merits: they remove a **real, present-day
+fragility** — the step-ca↔Authelia cold-boot circular dependency, and Perses
+fatally exiting without Authelia. Nothing in this plan is contingent on k3s.
 
 ---
 
-## The two-criteria foundational test
+## The two-criteria foundational test (and where the rich IdP lands)
 
-The earlier "does the cluster depend on it?" test is necessary but not
-sufficient. There are **two independent reasons** a service stays foundational:
+There are **two independent reasons** a service stays foundational:
 
 1. **Dependency criterion** — the cluster / lower layers depend on it to
    function or be administered. → **PKI** (step-ca on `basel`), **DNS**
-   (phantasma on `thebeyond`), **identity floor**.
+   (phantasma on `thebeyond`), and **the rich IdP** (see below).
 2. **Failure-domain / incident-survivability criterion** — you need it to
    *survive and observe* an outage of the very thing it watches. →
    **observability + alerting** (VictoriaMetrics / VictoriaLogs / vmalert →
    Alertmanager → ntfy, and the Perses read surface) on `tharbad`.
 
-PKI and DNS are foundational under (1). The observability stack is foundational
-under (2) even though nothing *depends* on it. Both conclusions are the same:
-**don't put these in the cluster they're meant to back or watch.** Only the
-**rich identity** (lldap + Authelia) fails both tests and is therefore the thing
-that moves up.
+**Where the rich IdP lands: foundational, by criterion 1.** step-ca's
+SSH-user-cert path depends on Authelia today, and the planned cluster's
+`kubectl` OIDC would too. A thing the control plane *and* the cluster both
+depend on belongs **below** them, not inside the cluster. (This corrects an
+earlier draft that scored the IdP "fails both tests → moves up" — it actually
+*satisfies* criterion 1.) So the rich IdP **stays a foundational microvm**,
+matching `llm-notes/reports/k8s-migration-evaluation.md`'s settled decision
+(*"auth … → microvm.nix; per-service failure domain matters; Authelia stays in
+its own microvm"*). What this plan changes is **resilience**, not placement.
 
 ---
 
@@ -119,7 +128,7 @@ that moves up.
   `step-ca-oidc-retry.service` handles the fact that step-ca must serve ACME
   before Authelia can present its (ACME-issued) TLS cert before step-ca can
   complete OIDC discovery. So the OIDC SSH path is fragile not only when the IdP
-  is *down* but at *every cold boot* — independent motivation for Phase A.
+  is *down* but at *every cold boot* — the core motivation for Phase A.
 
 ### Human SSH floor
 
@@ -131,7 +140,7 @@ This is Ring 0 today.
 
 ### Rich IdP (lldap + Authelia, `messeldam`)
 
-- Authelia → lldap over `ldap://127.0.0.1:3890`; cleanly separable.
+- Authelia → lldap over `ldap://127.0.0.1:3890`.
 - lldap durable state: SQLite at `/var/lib/private/lldap` (users / groups /
   password hashes; small, but exact size not repo-verifiable).
 - `lldap-bootstrap` oneshot **declaratively seeds** the `admin`, `deploy`, and
@@ -139,7 +148,7 @@ This is Ring 0 today.
   `admin`/`deploy` groups are exactly what feed SSH principals via the OIDC
   template — load-bearing.
 
-### Other rich-IdP consumers (none foundational by criterion 1)
+### Other rich-IdP consumers
 
 - **Perses** (tharbad, monitoring UI) → Authelia OIDC. Foundational by
   *criterion 2* (Phase C).
@@ -150,73 +159,79 @@ This is Ring 0 today.
 
 ---
 
-## Target state (aspirational — contingent on k3s)
+## Rejected: moving the IdP into the cluster
 
-Once Phases A–C are done, the rich IdP can move up:
+An earlier draft of this plan proposed relocating lldap + Authelia "up" into the
+k3s cluster as tier-2 workloads. **Rejected.** Reasons:
 
-- **lldap + Authelia → tier-2 cluster workloads** (KubeVirt VM or Pod+PVC), with
-  lldap's durable state on CSI + VolumeSnapshot. They are already separable.
-- **The cluster gets its own Ring-0 floor**: the on-disk x509 **k3s admin
-  kubeconfig** (no OIDC). This is the analogue of the SSH raw-key floor, one
-  layer up. **Hard requirement:** it must be provably **OIDC-free and
-  DNS-independent** (IP-addressable API server), and tested — otherwise moving
-  the IdP into the cluster creates a cold-boot circular dependency
-  (kubectl-via-OIDC can't authenticate to fix the cluster whose IdP pods are
-  down). This decision is owned jointly with
-  `k3s-cluster-bootstrap-plan.md` open decision #1.
-- **DNS / firewall re-pointing**: consumers resolve the IdP via
-  `authelia.internal.mutantmell.net` / `ldap.internal` (phantasma). Moving up =
-  re-point DNS + convert the messeldam-targeted rules into router6 `cluster`
-  zone rules (the cluster zone the bootstrap plan introduces).
+- **It would create a dependency loop.** The cluster's `kubectl` OIDC (and
+  step-ca's SSH path) depend on the IdP. Putting the IdP *inside* the cluster
+  means cluster-down ⇒ can't authenticate to fix the cluster, which then
+  requires a carefully-guaranteed OIDC-free admin-kubeconfig to *break* the loop.
+  Keeping the IdP foundational means the cluster simply depends on a lower tier
+  (correct direction) with **no loop to engineer around in the first place.**
+- **Per-service failure domain is stronger on a microvm** than as a cluster pod
+  sharing the cluster's failure domain.
+- **It already works and is already as-code.** Authelia OIDC clients and lldap
+  groups are declarative (NixOS modules + `lldap-bootstrap` + sops). Moving to
+  the cluster buys nothing on the "infrastructure-as-text" axis.
+- **It contradicts the settled design.**
+  `llm-notes/reports/k8s-migration-evaluation.md` classifies auth as a
+  foundational microvm service that explicitly does *not* migrate.
 
-What **stays foundational regardless**: PKI (`basel`), DNS (phantasma on
-`thebeyond`), and the **whole observability stack** on `tharbad` (Perses
-included — see the two-criteria test).
+The cluster still benefits without the move: its `kubectl` OIDC points at the
+foundational Authelia (tier-2 → tier-1), and it keeps the standard on-disk x509
+admin kubeconfig as its *own* break-glass — a k3s-bootstrap concern, owned by
+`k3s-cluster-bootstrap-plan.md`, not this plan. Nothing about the cluster
+requires the IdP to live inside it.
 
 ---
 
 ## The three-ring operator-access model
 
-| Ring | Credential | Proves | Available when IdP/cluster is… |
+| Ring | Credential | Proves | Available when the rich IdP is… |
 | --- | --- | --- | --- |
 | 0 | raw SSH key (`keys.json`) | static, not identity-bound | always |
-| 1 | **foundational step-ca JWK SSH cert** (Phase A) | "an authorized operator" — real cert, `admin` principal | always (cluster-independent) |
-| 2 | OIDC → Authelia SSH cert | *you*, as a directory user in `admin` (audited, per-user) | only when the IdP is up |
+| 1 | **foundational step-ca JWK SSH cert** (Phase A) | "an authorized operator" — real cert, `admin` principal | always (IdP-independent) |
+| 2 | OIDC → Authelia SSH cert | *you*, as a directory user in `admin` (audited, per-user) | only when Authelia is up |
 
-Per-user, directory-backed identity (Ring 2) is inherently only as available as
-the directory — if the directory moves into the cluster, Ring 2 is only as
-available as the cluster. That is *by design*: Ring 1 is the cluster-independent
-credentialed path that keeps "cluster down" from meaning "raw break-glass," and
-Ring 0 stays the rare cold path. (SSH user certs are short-lived ~1h, so a
-cached cert is not a fallback during an outage — the *issuer* needs a
-cluster-independent path, which is what Phase A provides.)
+Ring 2 (per-user directory identity) is only ever as available as the directory
+— that's inherent. Ring 1 is the IdP-independent credentialed path that keeps
+"Authelia down / cold-booting" from forcing a fall to raw break-glass; Ring 0
+stays the rare cold path. (SSH user certs are short-lived ~1h, so a cached cert
+is *not* a fallback during an outage — the *issuer* needs an IdP-independent
+path, which is exactly what Phase A provides.)
 
 ---
 
 ## Phase A — foundational JWK SSH-user-cert provisioner (the main work)
 
-**Goal:** operator SSH cert login works with Authelia/lldap (and, later, the
-cluster) **down**, via a provisioner gated by an offline secret rather than
-OIDC. This is buildable today and is the single highest-value change.
+**Goal:** operator SSH cert login works with Authelia/lldap **down** (or
+cold-booting), via a provisioner gated by an offline secret rather than OIDC.
+Buildable today; the single highest-value change.
 
-Add a **JWK** provisioner to `step-ca.nix` (alongside the existing `acme`,
-`authelia`, `fleet-x5c`):
+Add a **JWK** provisioner to `step-ca.nix` alongside the existing `acme`,
+`authelia`, `fleet-x5c`:
 
-- **JWK, not X5C.** step-ca already holds the SSH user CA key (`ssh.userKey`),
-  so this is purely a provisioner addition — no new CA, no new key material.
-  Use a dedicated JWK keypair whose password is held offline (sops + operator
-  vault). **Do not reuse the `fleet-x5c` CA for human admin** — that would
-  conflate the machine and human trust domains; keep them separate.
-- `claims.enableSSHCA = true` so it can issue SSH **user** certs (confirmed
-  supported by step-ca; JWK can issue SSH user certs without OIDC).
+- **Two distinct keys — don't conflate them.** A JWK provisioner has its **own
+  JWK auth keypair** (the provisioner credential that *authorizes* a request,
+  encrypted under an offline password). That is **separate** from the **SSH user
+  CA** (`ssh.userKey`) that *signs* the issued certificate. So: **you do add new
+  key material — the JWK provisioner keypair — but you do _not_ add a new signing
+  CA;** step-ca reuses its existing SSH user CA to sign. (This corrects an
+  earlier draft that said "no new key material.") Hold the JWK password offline
+  (sops + operator vault). **Do not reuse the `fleet-x5c` CA for human admin** —
+  keep the machine and human trust domains separate.
+- `claims.enableSSHCA = true` so it can issue SSH **user** certs (step-ca
+  supports SSH user certs from a JWK provisioner, not only via OIDC).
 - **Pin the principal in a per-provisioner SSH template.** This is the critical
   detail: with JWK the requester can pass `--principal`, and the default
   principal is the token subject — there is no `groups` claim to constrain it.
-  Safety must not rest solely on the existing
+  Safety must **not** rest solely on the existing
   `policy.ssh.user.allow.principals = ["admin" "deploy"]` allowlist. Ship a
   template (sibling to `templates/oidc.tpl`) that **hard-codes** the emitted
   principal(s) to `admin` rather than trusting requester input. The policy
-  allowlist remains as defense-in-depth, but the template is the primary gate.
+  allowlist remains as defense-in-depth; the template is the primary gate.
 - **No renewal via JWK** — JWK can't renew/rekey SSH certs (would need a
   companion SSHPOP provisioner). For ~1h break-glass certs this is fine:
   re-issue, don't renew. State this in the runbook.
@@ -224,13 +239,13 @@ Add a **JWK** provisioner to `step-ca.nix` (alongside the existing `acme`,
 Keep the `authelia` OIDC provisioner as the **daily convenience / SSO path**
 (per-user, audited, group-derived principals). `ssh-cert-client.nix` keeps
 `provisioner = "authelia"` as the default; document the JWK provisioner as the
-cluster-independent path (`step ssh login --provisioner <jwk-name>` /
+IdP-independent path (`step ssh login --provisioner <jwk-name>` /
 `step ssh certificate`).
 
 **Optional stronger posture (recommended, decide in open decisions):** make the
 JWK provisioner the *routine* path for tier-1 host SSH and reserve OIDC for
 cluster/app SSO + `kubectl`. Then routine SSH to foundational hosts never
-depends on the cluster at all, up or down.
+depends on the rich IdP at all, up or down.
 
 **Validation:**
 
@@ -249,19 +264,19 @@ Today the daily keys (`deploy`/`home`/`edith` in `keys.json`) *are* Ring 0 —
 the floor already exists. Optionally add a **dedicated break-glass key** to
 `root`'s authorized_keys on the foundational hosts whose private half lives
 offline (not on the daily workstation), so a cold path survives even
-workstation/cluster compromise. Small change; sequencing-independent of Phase A.
+workstation compromise. Small change; sequencing-independent of Phase A.
 
 ---
 
-## Phase C — Perses break-glass auth (decouple monitoring from the rich IdP)
+## Phase C — Perses login floor (resilience for monitoring)
 
 **Why:** Perses (tharbad) is foundational by criterion 2 but today authenticates
 **OIDC-only** to Authelia, and **fatally exits at startup** if it can't reach
 Authelia (there is already systemd retry hardening for this in `perses.nix`). So
-a "foundational" Perses whose login depends on a cluster-hosted IdP is not
-*really* foundational. "Existing sessions degrade gracefully" is **not**
-reliable — tokens are short (15m/24h) and a Perses restart during an outage
-locks you out entirely.
+a "foundational" monitoring surface whose login routes through the same IdP that
+might be down is not *really* resilient. "Existing sessions degrade gracefully"
+is **not** reliable — tokens are short (15m/24h) and a Perses restart during an
+outage locks you out entirely.
 
 **Fix (as-code, fits the dashboards-as-code ethos):** in
 `hosts/calvard/microvm/guests/tharbad/modules/perses.nix`:
@@ -299,24 +314,9 @@ instead. Also re-check whether the "fatal exit if OIDC unreachable at startup"
 behavior persists once a native provider is also configured; if native presence
 makes startup tolerant of a down OIDC, the retry hardening can relax.
 
-This makes Perses survive a cluster/IdP outage in both compute (stays on
-tharbad) and auth (native floor) — so moving the rich IdP up no longer degrades
-observability.
-
----
-
-## Phase D — move the rich IdP up (target-state, contingent on k3s)
-
-Only after A–C. Per "Target state" above: relocate lldap + Authelia to the
-cluster (state on CSI + VolumeSnapshot), establish the cluster's x509
-admin-kubeconfig floor (OIDC-free, DNS-independent, tested), re-point DNS, and
-convert messeldam-targeted firewall rules into router6 `cluster`-zone rules.
-This phase is owned jointly with `k3s-cluster-bootstrap-plan.md`.
-
-A softer interim variant: keep lldap + Authelia on a microvm but *reclassify*
-the dependency posture (same host, no longer treated as foundational) once A–C
-guarantee nothing foundational depends on them. This captures most of the
-decoupling benefit without requiring the cluster.
+This makes Perses survive an Authelia/messeldam outage in both compute (it stays
+on tharbad) and auth (native floor) — so an IdP outage no longer takes out
+monitoring login.
 
 ---
 
@@ -326,35 +326,31 @@ decoupling benefit without requiring the cluster.
 | --- | --- | --- | --- |
 | PKI — step-ca (`basel`) | Yes | dependency | stays; add JWK provisioner (Phase A) |
 | DNS — phantasma (`thebeyond`) | Yes | dependency | stays |
-| Observability stack (`tharbad`, incl. Perses) | Yes | failure-domain | stays; add native floor (Phase C) |
+| Observability stack (`tharbad`, incl. Perses) | Yes | failure-domain | stays; add native login floor (Phase C) |
 | Human SSH floor (`keys.json`, host certs) | Yes | — (already declarative) | stays |
 | Machine mTLS (fleet X5C) | Yes | — (already IdP-independent) | stays |
-| **lldap + Authelia (rich identity)** | **No** | fails both | **moves up** (Phase D) |
-| Jellyfin / langport oauth2-proxy | No | — | follow the IdP wherever it lands |
+| **lldap + Authelia (rich identity)** | **Yes** | **dependency** (step-ca SSH + planned cluster `kubectl` depend on it) | **stays foundational; add IdP-independent fallbacks (Phases A, C)** |
+| Jellyfin / langport oauth2-proxy | No | — | unchanged |
 
 ---
 
 ## Open decisions
 
 1. **Routine tier-1 SSH path.** Make the Phase-A JWK provisioner the *routine*
-   path for foundational-host SSH (recommended — fully roots tier-1 ops in
-   tier ≤ 1), or keep OIDC as routine and JWK as break-glass only?
-2. **Cluster admin-kubeconfig floor (Phase D).** Exact mechanism guaranteeing it
-   is OIDC-free and DNS-independent (IP-addressable API server); how it's stored
-   and tested. Shared with `k3s-cluster-bootstrap-plan.md` open decision #1.
-3. **Where lldap state lands (Phase D).** CSI-backed PVC in-cluster vs.
-   microvm-with-reclassified-posture (the softer interim).
-4. **Perses anonymous read (Phase C).** Enable management-VLAN anonymous
+   path for foundational-host SSH (recommended — fully roots tier-1 ops in a
+   layer at or below the host), or keep OIDC as routine and JWK as break-glass
+   only?
+2. **Perses anonymous read (Phase C).** Enable management-VLAN anonymous
    read-only, or native-admin + OIDC only?
-5. **Fleet mTLS cert lifetime** (see appendix) — shorten from 365d, or add
+3. **Fleet mTLS cert lifetime** (see appendix) — shorten from 365d, or add
    revocation?
 
 ---
 
 ## Appendix: PKI hygiene (surfaced during review, fold into the work)
 
-These are pre-existing concerns independent of the decoupling, worth fixing
-while touching step-ca:
+Pre-existing concerns independent of the resilience work, worth fixing while
+touching step-ca:
 
 - **Root + intermediate expire in 2032** (issued 2022) — already ~4 years aged,
   not "10 years fresh." A homelab root expiring takes down *all* internal TLS at
@@ -363,30 +359,27 @@ while touching step-ca:
   user certs and 45–90d ACME certs, but **365d fleet mTLS certs** (and the
   ~5-year X5C enrollment certs) have **no revocation path** — a compromised
   fleet host's client cert is valid for up to a year. Shorten the fleet mTLS
-  lifetime or add a revocation mechanism (open decision #5).
+  lifetime or add a revocation mechanism (open decision #3).
 - **badger DB** is single-process and corruption-prone on disk-full; smallstep
   recommends `badgerv2` or a SQL backend for anything load-bearing. step-ca is
   foundational here, so note it / consider migrating.
-- **Boot-ordering dependencies** that must be preserved if services move:
+- **Boot-ordering facts** worth keeping in view:
   - sops/age: every secret (incl. step-ca's CA keys and Authelia's) decrypts via
-    the host age key on disk. Moving services up changes secret delivery —
-    preserve the age-key provisioning order or the whole chain fails to decrypt.
+    the host age key on disk.
   - DNS-before-TLS: step-ca, fleet mTLS, and ACME all resolve `*.internal` via
-    phantasma *before* TLS. This deepens cold-boot ordering and is why DNS stays
-    foundational.
+    phantasma *before* TLS — one reason DNS stays foundational.
   - The step-ca↔Authelia cold-boot circular dependency
     (`step-ca-oidc-retry.service`) is real today; Phase A's non-OIDC path
-    reduces its blast radius (operator access no longer waits on that retry
+    reduces its blast radius (operator SSH access no longer waits on that retry
     loop).
 
 ---
 
 ## Why each phase stands alone
 
-- **Phase A** removes a real cold-boot fragility (operator cert access currently
-  waits on the OIDC retry loop) — valuable even if k3s never happens.
+- **Phase A** removes a real, present-day fragility — operator cert access
+  currently waits on the step-ca OIDC retry loop and fails when Authelia is down
+  or cold-booting. Valuable independent of k3s.
 - **Phase B** is pure hardening.
-- **Phase C** makes monitoring survive *any* IdP outage — valuable today (a
+- **Phase C** makes monitoring login survive an IdP outage — valuable today (a
   messeldam reboot currently knocks out Perses login).
-- **Phase D** is the only cluster-contingent phase, and it's the one this whole
-  plan exists to make safe.
