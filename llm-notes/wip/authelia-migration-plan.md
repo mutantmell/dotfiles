@@ -21,29 +21,26 @@ Moved to wip: 2026-06-02
   stale Adguard comments are all removed. Pre-removal checks (no
   phantasma→messeldam forward rule; blocky metrics never traversed nginx) both
   cleared.
-- Phase 2c (step-ca OIDC, basel) — split into two coexistence sub-steps for a
-  no-revert rollback path:
-  - **2c step i — repo-COMPLETE, pending deploy.** basel runs the `keycloak`
-    and `authelia` OIDC provisioners **side by side** (both `clientID=step-ca`,
-    sharing loopback `127.0.0.1:10000`; step-cli binds it per login so no
-    conflict). The `ssh-cert-client.nix` default stays `keycloak`, so the
-    default `step ssh login` path is unchanged; Authelia is verified explicitly
-    via `step ssh login --provisioner authelia`. `step-ca-oidc-retry` now waits
-    on both discovery endpoints and restarts unless both provisioners init'd
-    cleanly. Fall back by just not using `--provisioner authelia` — no revert.
-  - **2c step ii — NOT STARTED.** Once Authelia is verified: remove the
-    `keycloak` provisioner from basel and flip the `ssh-cert-client.nix` default
-    to `authelia`.
-  - **Design correction (applies to both sub-steps):** Phase 1 registered the
-    `step-ca` client as confidential, but step-ca is a native-app **public**
-    client (step-cli does authorization-code+PKCE on a loopback redirect, and
-    step-ca republishes any provisioner secret via its public `/provisioners`
-    API — RFC 8252). Keycloak had it as `publicClient: true`. So 2c flips the
-    Authelia client to `public: true` + `require_pkce`/`S256`, drops the
+- Phase 2c (step-ca OIDC, basel) — repo-COMPLETE, pending deploy. **In-place
+  swap**: basel's single OIDC provisioner moves from `keycloak` to `authelia`.
+  - **Side-by-side coexistence was attempted and is NOT possible.** step-ca keys
+    a provisioner's unique id off its `clientID`, so a `keycloak` and an
+    `authelia` OIDC provisioner both with `clientID=step-ca` collide:
+    `cannot add multiple provisioners with the same id` → step-ca exits 2 at
+    startup and crash-loops (which also starves messeldam's ACME, since basel
+    issues its cert). Confirmed in a live deploy 2026-06-04. Coexistence would
+    require registering a _second_ Authelia client under a distinct `client_id`;
+    not worth it. Rollback is reverting this commit while Keycloak keeps running.
+  - **Design correction:** Phase 1 registered the `step-ca` client as
+    confidential, but step-ca is a native-app **public** client (step-cli does
+    authorization-code+PKCE on a loopback redirect, and step-ca republishes any
+    provisioner secret via its public `/provisioners` API — RFC 8252). Keycloak
+    had it as `publicClient: true`. So 2c flips the Authelia client to
+    `public: true` + `require_pkce`/`S256`, drops the
     `authelia-oidc-step-ca-secret-hash` sops secret, and basel needs no client
     secret. SSH OIDC template needed no change (`.Token.groups` is emitted by
-    both providers via the `groups` scope). `step-ca-oidc-retry` stays (see
-    Phase 3 note below).
+    both providers via the `groups` scope). `step-ca-oidc-retry` was repointed
+    at Authelia and stays (see Phase 3 note below).
 - Phase 2d–2e — NOT STARTED (Jellyfin LDAP, langport).
 - Phase 3 — NOT STARTED (cutover, remove Keycloak)
 - Phase 4 — NOT STARTED (doc cleanup)
@@ -59,6 +56,7 @@ Moved to wip: 2026-06-02
 > cc-sandbox were retired (see
 > [`llm-notes/done/k3s-deployd-migration-plan.md`](../done/k3s-deployd-migration-plan.md)).
 > Two consumers this plan originally migrated are **gone**, not migrated:
+>
 > - **deployd-api (roer)** — host removed; no OIDC client needed.
 > - **cc-sandbox CLI** — retired; no OIDC client needed. Phase 0 (its
 >   auth-code refactor) is therefore moot.
@@ -167,13 +165,13 @@ cost of adding auth protection to new services:
 
 ## Current Keycloak consumers
 
-| Consumer                   | Host      | Auth flow             | What it checks          | Authelia support                           |
-| -------------------------- | --------- | --------------------- | ----------------------- | ------------------------------------------ |
-| oauth2-proxy (external)    | langport  | Auth Code             | Group membership        | Native (replaces oauth2-proxy entirely)    |
-| oauth2-proxy (internal)    | phantasma | Auth Code             | Group `admin`           | Native (replaces oauth2-proxy entirely)    |
-| step-ca OIDC provisioner   | basel     | Auth Code + localhost | Token issuer, signature | Yes (standard OIDC discovery + JWKS)       |
-| Perses OIDC                | tharbad   | Auth Code             | OIDC groups             | Yes (standard OIDC client)                 |
-| Jellyfin (built-in auth)   | oracion   | Local accounts        | Jellyfin-internal users | Migrated to lldap via official LDAP plugin |
+| Consumer                 | Host      | Auth flow             | What it checks          | Authelia support                           |
+| ------------------------ | --------- | --------------------- | ----------------------- | ------------------------------------------ |
+| oauth2-proxy (external)  | langport  | Auth Code             | Group membership        | Native (replaces oauth2-proxy entirely)    |
+| oauth2-proxy (internal)  | phantasma | Auth Code             | Group `admin`           | Native (replaces oauth2-proxy entirely)    |
+| step-ca OIDC provisioner | basel     | Auth Code + localhost | Token issuer, signature | Yes (standard OIDC discovery + JWKS)       |
+| Perses OIDC              | tharbad   | Auth Code             | OIDC groups             | Yes (standard OIDC client)                 |
+| Jellyfin (built-in auth) | oracion   | Local accounts        | Jellyfin-internal users | Migrated to lldap via official LDAP plugin |
 
 > ~~deployd-api JWT validation (roer)~~ and ~~cc-sandbox CLI~~ were consumers in
 > the original plan; both were retired in the deployd decommission (2026-06-02)
@@ -285,11 +283,11 @@ User Filter: (objectClass=person)
 
 Managed via lldap's web UI or its API. Groups mirror the current structure:
 
-| Group         | Purpose                     | Used by                                |
-| ------------- | --------------------------- | -------------------------------------- |
-| `admin`       | Full access to everything   | Authelia access control, step-ca SSH   |
+| Group         | Purpose                     | Used by                                                      |
+| ------------- | --------------------------- | ------------------------------------------------------------ |
+| `admin`       | Full access to everything   | Authelia access control, step-ca SSH                         |
 | `deploy`      | CI/CD and deployment        | none yet (was deployd-api/cc-sandbox; kept for future CI/CD) |
-| `media-users` | Jellyfin and media services | Jellyfin LDAP, Authelia access control |
+| `media-users` | Jellyfin and media services | Jellyfin LDAP, Authelia access control                       |
 
 ### Secrets
 
@@ -544,12 +542,12 @@ Repo changes landed (one commit, all on messeldam — Keycloak untouched):
 
 1. Generate + store the new sops secrets — commands are in
    `hosts/calvard/microvm/guests/messeldam/secrets/secrets.yaml`'s sibling
-   `sops.nix` comment block. Keep the two OIDC client *plaintexts* for
+   `sops.nix` comment block. Keep the two OIDC client _plaintexts_ for
    Phase 2a (perses) / 2c (step-ca); store only the hashes here.
 2. Deploy phantasma first (serves the internal DNS zone, so `authelia.internal`
    and `ldap.internal` resolve), then messeldam.
 3. The base groups and the `authelia` bind user are seeded automatically by
-   `lldap-bootstrap` on boot. The only manual step is creating a *human* login
+   `lldap-bootstrap` on boot. The only manual step is creating a _human_ login
    account for portal testing: browse `https://ldap.internal` from the
    management zone (admin login = `lldap-admin-password`), create your user,
    and add it to the `admin` group.
@@ -643,43 +641,35 @@ resolution is unaffected (Blocky + Unbound untouched).
 
 #### 2c. step-ca OIDC provisioner (basel) — higher risk, SSH certs
 
-Done as two coexistence sub-steps so rollback never needs a revert.
+**In-place swap** — a single OIDC provisioner moves from Keycloak to Authelia.
+Side-by-side coexistence is impossible (step-ca rejects two provisioners with
+the same `clientID`; see the phase-status header). Rollback is reverting this
+commit while Keycloak keeps running.
 
-**Step i — add `authelia` alongside `keycloak`** (`step-ca.nix`):
+Update `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`:
 
-- Add a second OIDC provisioner `name = "authelia"`, `clientID = "step-ca"`,
-  `configurationEndpoint =
-  https://authelia.internal.mutantmell.net/.well-known/openid-configuration`,
-  **no client secret** (public client — see design correction in the
-  phase-status header). Keep the existing `keycloak` provisioner untouched.
-  Both share `listenAddress = 127.0.0.1:10000`; step-cli binds it transiently
-  per login, so two provisioners on the same loopback port don't conflict.
-- The corresponding Authelia client in `authelia.nix` is flipped to
-  `public: true` + `require_pkce`/`pkce_challenge_method: S256`, and the
+- Change the OIDC provisioner `name` from `keycloak` to `authelia` and its
+  `configurationEndpoint` to
+  `https://authelia.internal.mutantmell.net/.well-known/openid-configuration`.
+- Keep `clientID = "step-ca"`; **no client secret** (public client — see the
+  design correction in the phase-status header). The corresponding Authelia
+  client in `authelia.nix` is flipped to `public: true` +
+  `require_pkce`/`pkce_challenge_method: S256`, and the
   `authelia-oidc-step-ca-secret-hash` sops secret is dropped.
 - SSH template needs no change: `oidc.tpl` reads `.Token.groups`, which Authelia
   emits via the `groups` scope (same as Keycloak).
-- `step-ca-oidc-retry` now waits on **both** discovery endpoints and restarts
-  step-ca unless both provisioners init'd cleanly. It stays — see the Phase 3
-  step 5 note.
-- `modules/common/ssh-cert-client.nix` default provisioner **stays `keycloak`**
-  in this step.
-
-**Step i validation:** `step ssh login --provisioner authelia` completes and
-issues a valid SSH cert with correct principals, while the default
-`step ssh login` (still keycloak) keeps working. `https://basel.internal/provisioners`
-shows both `keycloak` and `authelia` without a `state` (error) field after boot
-settles. Rollback during this window is trivial: just don't pass
-`--provisioner authelia` — no redeploy/revert needed.
-
-**Step ii — remove keycloak provisioner** (after step i is verified):
-
-- Delete the `keycloak` OIDC provisioner from `step-ca.nix`.
+- Repoint `step-ca-oidc-retry` (reachability URL + `/provisioners` name filter)
+  at Authelia. It stays — see the Phase 3 step 5 note.
 - Flip `modules/common/ssh-cert-client.nix` default `provisioner` to `authelia`.
-- Simplify `step-ca-oidc-retry` back to a single provider (authelia only).
 
-**Step ii validation:** default `step ssh login` (now authelia) issues a valid
-cert; `/provisioners` no longer lists `keycloak`.
+**Validation:** after the calvard redeploy, `https://basel.internal/provisioners`
+lists `authelia` (not `keycloak`) without a `state` (error) field once boot
+settles; `step ssh login` issues a valid SSH cert with correct principals. If
+step-ca is still degraded, check that messeldam is serving
+`authelia.internal.mutantmell.net` over a valid (step-ca-issued) cert — the
+ACME circular dependency means basel can't complete OIDC discovery until it has
+first issued messeldam's cert; `step-ca-oidc-retry` resolves this on its own
+within a few minutes.
 
 #### 2d. Jellyfin LDAP (oracion) — moderate risk, media service
 
@@ -751,7 +741,7 @@ Once all consumers are on Authelia and validated:
      in Phase 2c: this is not a JVM-speed workaround, it's structural to an
      ACME chicken-and-egg. step-ca fetches the OIDC discovery doc at provisioner
      init, but Authelia's discovery is served over TLS by nginx using a cert
-     ACME-issued by *this same* step-ca — so on a cold boot step-ca must serve
+     ACME-issued by _this same_ step-ca — so on a cold boot step-ca must serve
      ACME (OIDC degraded) before Authelia can present a valid cert, before
      step-ca can complete OIDC discovery. The circular dependency survives the
      Keycloak→Authelia switch unchanged; the retry service was repointed at

@@ -23,12 +23,7 @@ in {
       ca-url = "https://basel.internal";
       fingerprint = rootCaFingerprint;
       root = "/etc/ssl/certs/ca-certificates.crt";
-      # Stays "keycloak" during Phase 2c step i (coexistence): the default
-      # `step ssh login` path keeps using the known-good provider while authelia
-      # is verified explicitly via `step ssh login --provisioner authelia`.
-      # Flips to "authelia" in step ii once verified, when the keycloak
-      # provisioner is removed.
-      provisioner = "keycloak";
+      provisioner = "authelia";
     };
 
     environment.variables.STEPPATH = "/etc/step-cli";
