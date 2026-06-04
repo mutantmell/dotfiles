@@ -73,7 +73,7 @@ in {
   common.openssh = {
     enable = true;
     users = ["mutantmell" "root"];
-    keys = ["home" "deploy" "calvard"];
+    keys = ["home" "deploy" "calvard" "ios"];
     allowPassword = true;
     principals = {
       root = ["admin"];

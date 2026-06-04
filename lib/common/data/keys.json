@@ -5,7 +5,8 @@
     "liberl": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFc95ROxFt8eNrMdQrg01UXMYeJpKfWcIF7mSwWTD4+O malaguy@gmail.com",
     "erebonia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJqOeAuTSDE4SAzqZGxAieyxL/4LIhwdkI3jt8aUNEBc root@muspelheim",
     "calvard": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPPrAJtcSgkYA6Lju5AOjYU+xBJipuczEJafpZs1yUSQ root@jotunheimr",
-    "edith": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgpU3TfPTQS/+qf9wETOLFanwfQAh7xHsy6ZHCpyJYT malaguy@gmail.com"
+    "edith": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgpU3TfPTQS/+qf9wETOLFanwfQAh7xHsy6ZHCpyJYT malaguy@gmail.com",
+    "ios": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIENSrjzeMRMMqPdzDemj+90QOgYXwfxJJJ42JWbHUwU1 ios-rootshell"  
   },
   "hostKeys": {
     "calvard": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPPrAJtcSgkYA6Lju5AOjYU+xBJipuczEJafpZs1yUSQ root@jotunheimr",
