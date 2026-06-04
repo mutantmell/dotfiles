@@ -96,6 +96,13 @@ in {
               # client registered in messeldam's authelia.nix.
               configurationEndpoint = "https://authelia.internal.mutantmell.net/.well-known/openid-configuration";
               listenAddress = "127.0.0.1:10000";
+              # step requests only ["openid" "email"] by default, so Authelia
+              # would never grant the groups scope and the SSH cert template's
+              # `.Token.groups` would be empty → certs with no principals. (Keycloak
+              # masked this by force-adding groups as a default client scope.)
+              # Must request `groups` explicitly; the `with_groups` claims policy
+              # in messeldam's authelia.nix then copies it into the ID Token.
+              scopes = ["openid" "email" "profile" "groups"];
               claims = {
                 enableSSHCA = true;
               };

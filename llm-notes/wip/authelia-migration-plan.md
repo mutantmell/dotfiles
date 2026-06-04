@@ -43,6 +43,17 @@ Moved to wip: 2026-06-02
     Keycloak put groups in the ID Token, which is why this only surfaced on
     cutover. **Any future OIDC consumer that reads groups from the ID Token (not
     userinfo) needs this claims policy.**
+  - **Granted-scope gotcha (the *other* half — needed two redeploys to find):**
+    the claims policy is necessary but NOT sufficient. Authelia only copies a
+    claim into the ID Token *if the relevant scope was granted*, and step-ca's
+    OIDC provisioner requests only `["openid" "email"]` by default — so `groups`
+    was never granted and the cert still came back with `Principals: (none)`
+    even with the claims policy deployed. Keycloak masked this by force-adding
+    `groups` as a *default client scope* regardless of the request; Authelia
+    follows the spec and only grants requested scopes. Fix: set
+    `scopes = ["openid" "email" "profile" "groups"]` on basel's step-ca OIDC
+    provisioner (`step-ca.nix`). Both the provisioner `scopes` **and** the
+    `with_groups` claims policy are required.
   - **Design correction:** Phase 1 registered the `step-ca` client as
     confidential, but step-ca is a native-app **public** client (step-cli does
     authorization-code+PKCE on a loopback redirect, and step-ca republishes any
