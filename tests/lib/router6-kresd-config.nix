@@ -274,7 +274,8 @@
           }
           {
             cidr = "fdc6:55f2:0a5e:1e::/64";
-            upstream = ["[fdc6:55f2:0a5e:a::a]@5335"];
+            # No brackets — kresd's addr2sock inet_pton's the bare address.
+            upstream = ["fdc6:55f2:0a5e:a::a@5335"];
           }
         ];
       };
@@ -543,7 +544,7 @@
       (contains "local sr_noblock_1 = policy.STUB({'10.0.10.10@5335'})" extraM))
 
     (assertTrue "M: hoists the v6 no-block action with upstreamPolicy"
-      (contains "local sr_noblock_2 = policy.STUB({'[fdc6:55f2:0a5e:a::a]@5335'})" extraM))
+      (contains "local sr_noblock_2 = policy.STUB({'fdc6:55f2:0a5e:a::a@5335'})" extraM))
 
     (assertTrue "M: registers a view.rule_src rule for the v4 source CIDR"
       (contains "view.rule_src(function (state, req) if primary_down then return fallback(state, req) end return sr_noblock_1(state, req) end, '10.0.30.0/24')" extraM))

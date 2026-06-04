@@ -184,6 +184,16 @@ in
                 cidr = "10.0.10.50/32";
                 upstream = ["10.0.10.30"];
               }
+              # Load-time parse guard: a real kresd must accept an IPv6
+              # `addr@port` upstream at config load. The guest client is IPv4,
+              # so this v6 CIDR never matches a query — it only forces kresd to
+              # parse the v6 form. Catches the bracketed `[addr]@port` mistake
+              # that addr2sock (policy.lua) rejects, which a string-only eval
+              # test cannot see. NO brackets.
+              {
+                cidr = "fd00:0:0:1e::/64";
+                upstream = ["fd00:0:0:a::30@5335"];
+              }
             ];
           };
 

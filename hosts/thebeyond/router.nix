@@ -544,7 +544,9 @@ in {
         }
         {
           cidr = net.networks.untrusted.subnet6;
-          upstream = ["[${phantasma.ipv6}]@5335"];
+          # kresd splits upstream on `@` then inet_pton's the address, which
+          # rejects brackets — so it's `addr@port`, NOT `[addr]@port`.
+          upstream = ["${phantasma.ipv6}@5335"];
         }
       ];
       interception = {

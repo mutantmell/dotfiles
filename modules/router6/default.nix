@@ -588,7 +588,9 @@ in {
                   example = ["10.91.10.10@5335"];
                   description = ''
                     Upstream(s) to forward matching queries to. Use kresd's
-                    `addr@port` syntax (IPv6 as `[addr]@port`).
+                    `addr@port` syntax. IPv6 takes NO brackets
+                    (`fdc6::a@5335`, not `[fdc6::a]@5335`) — kresd splits on
+                    `@` and `inet_pton`s the bare address.
                   '';
                 };
               };
