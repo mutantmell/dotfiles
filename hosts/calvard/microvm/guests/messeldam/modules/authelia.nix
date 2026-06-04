@@ -91,13 +91,12 @@ in {
             domain = portalHost;
             policy = "bypass";
           }
-          # Admin UIs. Stays one_factor until MFA enrollment lands (follow-up
-          # F1), which upgrades admin domains to two_factor.
-          {
-            domain = "phantasma.internal.mutantmell.net";
-            policy = "one_factor";
-            subject = ["group:admin"];
-          }
+          # No auth_request-protected hosts yet. phantasma had the only internal
+          # admin UI (AdGuard Home), retired in the blocky migration; its rule
+          # was removed with phantasma's proxy stack (Phase 2b). The first
+          # auth_request consumer arrives in Phase 2e (langport, external).
+          # When MFA enrollment lands (follow-up F1), admin domains added here
+          # move to the two_factor policy.
         ];
       };
     };

@@ -10,7 +10,18 @@ Moved to wip: 2026-06-02
 - Phase 1 — COMPLETE, deployed + validated 2026-06-03 (discovery, JWKS, and
   portal login all confirmed against lldap; see "Phase 1 — implementation
   notes" below). Keycloak still running unchanged on auth.mutantmell.net.
-- Phase 2a–2e — NOT STARTED (per-consumer migration)
+- Phase 1 follow-up — `jellyfin` LDAP bind user now auto-seeded by
+  lldap-bootstrap (deployed 2026-06-03), ahead of Phase 2d.
+- Phase 2a (Perses) — COMPLETE, deployed (commit `1e76e1a`). Perses OIDC points
+  at Authelia.
+- Phase 2b (phantasma) — repo-COMPLETE, pending deploy. Became a **removal**,
+  not a migration: AdGuard Home was retired in the blocky migration, so
+  phantasma's oauth2-proxy/nginx stack guarded nothing. proxy.nix, the
+  oauth2-proxy secret ref, the dead messeldam access_control rule, and the
+  stale Adguard comments are all removed. Pre-removal checks (no
+  phantasma→messeldam forward rule; blocky metrics never traversed nginx) both
+  cleared.
+- Phase 2c–2e — NOT STARTED (step-ca, Jellyfin LDAP, langport).
 - Phase 3 — NOT STARTED (cutover, remove Keycloak)
 - Phase 4 — NOT STARTED (doc cleanup)
 - F1–F5 — NOT STARTED (independent follow-ups)
@@ -459,7 +470,8 @@ Repo changes landed (one commit, all on messeldam — Keycloak untouched):
   a cold boot with no manual web-UI step.
 - `modules/authelia.nix` — `services.authelia.instances.main`: lldap auth
   backend, SQLite storage, filesystem notifier, `access_control`, the
-  `auth-request` authz endpoint (ready for Phase 2b/2e), both OIDC clients
+  `auth-request` authz endpoint (ready for Phase 2e — langport; 2b became a
+  removal, no longer an auth_request consumer), both OIDC clients
   (step-ca, perses) via a sops template, and an `authelia.internal` nginx
   vhost with step-ca ACME. SQLite + ACME state persisted. `authelia-main`
   `requires`/`after` `lldap-bootstrap` so it never starts before the bind user
@@ -531,8 +543,9 @@ in `extraConfig`. nginx sent two `Host` headers; Authelia's fasthttp parser
 rejects that (`too many Host headers` → 400). Keycloak's Undertow tolerated the
 same duplicate, which is why it never surfaced before. Fix: drop the redundant
 `proxy_set_header` blocks (commit "don't double set proxy headers"). **Carry
-into Phase 2b/2e:** the new `auth_request`-protected vhosts must rely on
+into Phase 2e:** the new `auth_request`-protected langport vhosts must rely on
 `recommendedProxySettings` for `Host`/`X-Forwarded-*` and not re-set them.
+(2b no longer applies — it became a removal, not an auth_request migration.)
 
 ### Phase 2: Migrate consumers one at a time
 
@@ -554,24 +567,56 @@ Update `hosts/calvard/microvm/guests/tharbad/modules/perses.nix`:
 > ~~2b. deployd-api~~ and ~~2c. cc-sandbox~~ removed — both consumers retired in
 > the deployd decommission (2026-06-02). Remaining consumers renumbered below.
 
-#### 2b. oauth2-proxy on phantasma — moderate risk, internal only
+#### 2b. oauth2-proxy on phantasma — removal, not migration
 
-Replace oauth2-proxy with Authelia's native nginx `auth_request` integration.
+**Premise obsolete (verified against config 2026-06-03).** This phase
+originally migrated phantasma's oauth2-proxy to Authelia `auth_request` to keep
+protecting the **AdGuard Home web UI**. AdGuard Home is gone — the blocky
+migration (`llm-notes/done/blocky-migration-plan.md`) replaced phantasma's DNS
+stack with **Blocky + Unbound**. There is no `services.adguardhome` on the guest
+anymore, and nothing listens on `127.0.0.1:3000`. The surviving `proxy.nix`
+fronts a dead upstream: the oauth2-proxy guards a `/adguard/` location that
+proxies to a port nothing binds. Blocky's only HTTP surface is its metrics/REST
+API on `127.0.0.1:4000` (loopback-only) — not a user-facing UI and not
+something to gate with auth.
 
-Update `hosts/thebeyond/microvm/guests/phantasma/modules/proxy.nix`:
+So phantasma has no web UI to protect. **Delete the proxy stack rather than
+convert it.** This also drops an oauth2-proxy instance outright (one fewer
+`auth_request` integration to build and validate) instead of moving it.
 
-- Remove `services.oauth2-proxy` configuration
-- Replace with Authelia `auth_request` in nginx config
-- Authelia runs on messeldam; phantasma's nginx sends auth_request to
-  `https://authelia.internal.mutantmell.net/api/authz/auth-request`
-- Serve/access the protected vhost as `phantasma.internal.mutantmell.net` so
-  the SSO session cookie (domain `internal.mutantmell.net`) is presented — the
-  short `phantasma.internal` is a sibling of the cookie domain, not under it,
-  so SSO won't flow there. (The access_control rule already targets the FQDN.)
+Remove on `hosts/thebeyond/microvm/guests/phantasma/`:
 
-**Validation:** Access Adguard Home at `phantasma.internal.mutantmell.net/adguard/`,
-get redirected to Authelia login, authenticate, access granted for
-admin group users.
+- `modules/proxy.nix` **in its entirety** — `services.nginx`,
+  `services.oauth2-proxy`, the `/adguard/` and `/oauth2/` locations, the
+  `phantasma.internal` vhost, `security.acme`, and the firewall ports 80/443.
+  Drop the module import from `default.nix`.
+- The `oauth2-proxy-internal-keyfile` sops secret (`sops.nix`).
+- The `/var/lib/acme` persistence entry, if it lived in `proxy.nix` and nothing
+  else on the guest uses ACME.
+- Fix the stale `microvm.mem` comment ("Adguard + Unbound are lightweight").
+
+Then remove the now-dead consumer-side config:
+
+- The `phantasma.internal.mutantmell.net` rule in messeldam's `authelia.nix`
+  `access_control.rules` — it points at a host that serves nothing.
+
+**Pre-removal checks — both resolved (2026-06-04), deletion is guest-local:**
+
+- **phantasma → messeldam forward rule — none exists.** The only OIDC forward
+  rule on the router is `langport → messeldam` (`router.nix:291-297`).
+  Phantasma's oauth2-proxy pointed its issuer at the public `auth.mutantmell.net`
+  (langport ingress), not a direct cross-zone path, so there is no
+  phantasma→messeldam rule to remove. Deleting `proxy.nix` requires no router
+  change; phantasma's remaining forward rules are all DNS-related.
+- **Blocky metrics scraping — never traversed nginx.** Blocky's HTTP/metrics
+  endpoint is `127.0.0.1:4000` (loopback-only, `dns.nix:39`). nginx only ever
+  exposed `/adguard` and `/oauth2/`, never `/metrics`/`:4000`. Metrics are
+  push-model anyway (phantasma's `fluent-bit-agent` + `node-exporter-client`
+  ship to vmsingle). Removing nginx has zero metrics impact.
+
+**Validation:** after redeploy, phantasma serves only DNS (53). Ports 80/443 are
+closed, no nginx/oauth2-proxy units exist, and the homelab's `*.internal`
+resolution is unaffected (Blocky + Unbound untouched).
 
 #### 2c. step-ca OIDC provisioner (basel) — higher risk, SSH certs
 
@@ -660,15 +705,14 @@ Once all consumers are on Authelia and validated:
    - `RestartSec`/`StartLimitBurst` retry config on oauth2-proxy in langport
      (`hosts/calvard/microvm/guests/langport/proxy.nix`) — oauth2-proxy
      itself is also removed in step 6
-   - `RestartSec`/`StartLimitBurst` retry config on oauth2-proxy in phantasma
-     (`hosts/thebeyond/microvm/guests/phantasma/modules/proxy.nix`) —
-     oauth2-proxy itself is also removed in step 6
-6. Remove oauth2-proxy entirely from phantasma and langport:
+   - (phantasma's oauth2-proxy and its retry config are already gone — removed
+     wholesale in Phase 2b, since its only consumer, AdGuard Home, no longer
+     exists.)
+6. Remove oauth2-proxy entirely from langport (phantasma was handled in 2b):
    - `services.oauth2-proxy` config blocks
-   - `oauth2-proxy-internal-keyfile` sops secret on phantasma
    - `oauth-2-proxy-keyfile` sops secret on langport
    - All `oauth2/` nginx location blocks (replaced by `auth_request` to
-     Authelia in Phase 2d/2f)
+     Authelia in Phase 2e)
 7. Update `lib/common/data/network.nix` comment:
    `messeldam = 6; # Authelia OIDC (calvard)`
 8. Update documentation and plan references
@@ -818,7 +862,7 @@ Phase 0 ──── N/A (cc-sandbox retired in the deployd decommission)
 Phase 1 ──── Deploy lldap + Authelia on messeldam alongside Keycloak
               │
 Phase 2a ─── Perses → Authelia
-Phase 2b ─── phantasma oauth2-proxy → Authelia auth_request
+Phase 2b ─── Remove phantasma oauth2-proxy/nginx (AdGuard Home retired; nothing to protect)
 Phase 2c ─── step-ca OIDC → Authelia
 Phase 2d ─── Jellyfin → lldap (official LDAP plugin)
 Phase 2e ─── langport oauth2-proxy → Authelia auth_request

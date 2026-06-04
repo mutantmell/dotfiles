@@ -13,8 +13,6 @@ in {
     ./microvm.nix
     ./sops.nix
     ./modules/dns.nix
-    # TODO: Re-enable after thebeyond hardware is deployed (phantasma runs on thebeyond)
-    # ./modules/proxy.nix
   ];
 
   networking.hostName = hostname;
@@ -91,11 +89,6 @@ in {
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
-      {
-        directory = "/var/lib/acme";
-        user = "acme";
-        group = "acme";
-      }
       "/var/lib/private/blocky" # Blocky state (DynamicUser backing dir)
     ];
   };
