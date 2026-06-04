@@ -316,6 +316,12 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
    both? (Report flags Authelia↔kube-apiserver OIDC compatibility as a
    risk — validate `kubectl oidc-login` in Phase 1; fall back to
    oauth2-proxy-shaped adapter or static bearer token if it mismatches.)
+   **The cluster's OIDC-free, DNS-independent admin-kubeconfig break-glass
+   floor, and the precondition for moving lldap/Authelia into the cluster at
+   all, are worked out in
+   `llm-notes/plans/foundational-identity-decoupling-plan.md` (Phase D + open
+   decision #2). The rich IdP can only land in the cluster once that plan's
+   Phases A–C have severed the foundation's dependence on it.**
 2. **kine datastore persistence + backup (on erebonia).** btrfs subvol vs
    impermanence for `/var/lib/rancher/k3s/server`; scheduled backup of the
    kine SQLite file (separate from Velero, which protects cluster _state_,
