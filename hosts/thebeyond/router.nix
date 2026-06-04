@@ -558,10 +558,11 @@ in {
     };
 
     dyndns = {
-      enable = false; # Still need to set up w/ the new host once we have it.
+      enable = true;
       protocol = "namecheap";
       server = "https://dynamicdns.park-your-domain.com";
-      hosts = ["@"];
+      # Hostnames live in sops too — read at runtime so they never hit the store.
+      hostsFile = config.sops.secrets."dyndns-host-name".path;
       domainFile = config.sops.secrets."dyndns-host-domain".path;
       passwordFile = config.sops.secrets."dyndns-host-password".path;
     };

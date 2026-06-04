@@ -26,7 +26,10 @@ in {
       if dyndns.interface != null
       then dyndns.interface
       else inferredIface;
-    hostsList = concatStringsSep " " (map (h: ''"${h}"'') dyndns.hosts);
+    hostsExpr =
+      if dyndns.hostsFile != null
+      then "$(cat ${dyndns.hostsFile})"
+      else concatStringsSep " " dyndns.hosts;
   in {
     systemd.services.router6-dyndns = {
       description = "Dynamic DNS updater";
@@ -50,6 +53,7 @@ in {
             else "$(cat ${dyndns.domainFile})"
           }"
           DDNS_PASSWORD="$(cat ${dyndns.passwordFile})"
+          DDNS_HOSTS="${hostsExpr}"
 
           LAST_IP=""
           if [ -f "$STATE_DIR/last-ip" ]; then
@@ -62,7 +66,7 @@ in {
           fi
 
           ERRORS=0
-          for DDNS_HOST in ${hostsList}; do
+          for DDNS_HOST in $DDNS_HOSTS; do
             DDNS_FQDN="$DDNS_HOST.$DDNS_DOMAIN"
             if [ "$DDNS_HOST" = "@" ]; then
               DDNS_FQDN="$DDNS_DOMAIN"

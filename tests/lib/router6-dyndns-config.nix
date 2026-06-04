@@ -143,6 +143,19 @@
     dyndns.enable = false;
   });
 
+  # Config F: hostsFile instead of baked hosts list
+  evalF = evalConfig (mkConfig {
+    dyndns = {
+      enable = true;
+      protocol = "namecheap";
+      server = "https://dynamicdns.park-your-domain.com";
+      hostsFile = "/run/secrets/ddns-hosts";
+      domainFile = "/run/secrets/ddns-domain";
+      passwordFile = "/run/secrets/ddns-password";
+    };
+  });
+  scriptF = evalF.systemd.services.router6-dyndns.script;
+
   tests = [
     # Config A: Basic Namecheap dyndns
     (assertTrue "A: router6-dyndns service exists"
@@ -168,11 +181,8 @@
     (assertTrue "A: script contains example.com domain"
       (contains "example.com" scriptA))
 
-    (assertTrue "A: script contains host @"
-      (contains ''"@"'' scriptA))
-
-    (assertTrue "A: script contains host www"
-      (contains ''"www"'' scriptA))
+    (assertTrue "A: script sets DDNS_HOSTS from baked list"
+      (contains ''DDNS_HOSTS="@ www"'' scriptA))
 
     # Config B: Explicit interface
     (assertTrue "B: script contains ip -4 a show wan"
@@ -194,6 +204,13 @@
     # Config E: dyndns disabled
     (assertTrue "E: router6-dyndns service absent"
       (!(builtins.hasAttr "router6-dyndns" evalE.systemd.services)))
+
+    # Config F: hostsFile
+    (assertTrue "F: script reads hosts from file at runtime"
+      (contains ''DDNS_HOSTS="$(cat /run/secrets/ddns-hosts)"'' scriptF))
+
+    (assertTrue "F: hostnames are not baked into the store"
+      (!(contains "DDNS_HOSTS=\"@" scriptF)))
   ];
 
   allPass = lib.all (x: x) tests;

@@ -13,6 +13,7 @@
       };
       "dyndns-host-domain" = {};
       "dyndns-host-password" = {};
+      "dyndns-host-name" = {};
     };
   };
 }

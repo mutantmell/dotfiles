@@ -684,8 +684,20 @@ in {
             default = [];
             description = ''
               DNS hostnames to update. Use "@" for the bare domain.
+              Mutually exclusive with hostsFile. Baked into the nix store —
+              use hostsFile if the hostnames are sensitive.
             '';
             example = ["@" "www"];
+          };
+
+          hostsFile = mkOption {
+            type = types.nullOr types.str;
+            default = null;
+            description = ''
+              Path to a file containing whitespace-separated DNS hostnames to
+              update (read at runtime, so the names stay out of the nix store).
+              Use "@" for the bare domain. Mutually exclusive with hosts.
+            '';
           };
 
           renewPeriod = mkOption {
@@ -931,8 +943,12 @@ in {
           message = "router6.dyndns: domain and domainFile are mutually exclusive";
         }
         {
-          assertion = cfg.dyndns.hosts != [];
-          message = "router6.dyndns: at least one host must be specified";
+          assertion = cfg.dyndns.hosts != [] || cfg.dyndns.hostsFile != null;
+          message = "router6.dyndns: either hosts or hostsFile must be set";
+        }
+        {
+          assertion = !(cfg.dyndns.hosts != [] && cfg.dyndns.hostsFile != null);
+          message = "router6.dyndns: hosts and hostsFile are mutually exclusive";
         }
         {
           assertion = cfg.dyndns.server != "";
