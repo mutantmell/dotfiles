@@ -21,18 +21,29 @@ Moved to wip: 2026-06-02
   stale Adguard comments are all removed. Pre-removal checks (no
   phantasma→messeldam forward rule; blocky metrics never traversed nginx) both
   cleared.
-- Phase 2c (step-ca OIDC, basel) — repo-COMPLETE, pending deploy. step-ca's
-  OIDC provisioner now points at Authelia. **Design correction:** Phase 1
-  registered the `step-ca` client as confidential, but step-ca is a native-app
-  **public** client (step-cli does authorization-code+PKCE on a loopback
-  redirect, and step-ca republishes any provisioner secret via its public
-  `/provisioners` API — RFC 8252). Keycloak had it as `publicClient: true`. So
-  2c flips the Authelia client to `public: true` + `require_pkce`/`S256`, drops
-  the `authelia-oidc-step-ca-secret-hash` sops secret, and basel needs no
-  client secret. SSH OIDC template needed no change (`.Token.groups` is emitted
-  by both providers via the `groups` scope). The `step-ca-oidc-retry` service
-  was repointed at Authelia (see Phase 3 note below). `ssh-cert-client.nix`
-  default provisioner keycloak → authelia.
+- Phase 2c (step-ca OIDC, basel) — split into two coexistence sub-steps for a
+  no-revert rollback path:
+  - **2c step i — repo-COMPLETE, pending deploy.** basel runs the `keycloak`
+    and `authelia` OIDC provisioners **side by side** (both `clientID=step-ca`,
+    sharing loopback `127.0.0.1:10000`; step-cli binds it per login so no
+    conflict). The `ssh-cert-client.nix` default stays `keycloak`, so the
+    default `step ssh login` path is unchanged; Authelia is verified explicitly
+    via `step ssh login --provisioner authelia`. `step-ca-oidc-retry` now waits
+    on both discovery endpoints and restarts unless both provisioners init'd
+    cleanly. Fall back by just not using `--provisioner authelia` — no revert.
+  - **2c step ii — NOT STARTED.** Once Authelia is verified: remove the
+    `keycloak` provisioner from basel and flip the `ssh-cert-client.nix` default
+    to `authelia`.
+  - **Design correction (applies to both sub-steps):** Phase 1 registered the
+    `step-ca` client as confidential, but step-ca is a native-app **public**
+    client (step-cli does authorization-code+PKCE on a loopback redirect, and
+    step-ca republishes any provisioner secret via its public `/provisioners`
+    API — RFC 8252). Keycloak had it as `publicClient: true`. So 2c flips the
+    Authelia client to `public: true` + `require_pkce`/`S256`, drops the
+    `authelia-oidc-step-ca-secret-hash` sops secret, and basel needs no client
+    secret. SSH OIDC template needed no change (`.Token.groups` is emitted by
+    both providers via the `groups` scope). `step-ca-oidc-retry` stays (see
+    Phase 3 note below).
 - Phase 2d–2e — NOT STARTED (Jellyfin LDAP, langport).
 - Phase 3 — NOT STARTED (cutover, remove Keycloak)
 - Phase 4 — NOT STARTED (doc cleanup)
@@ -632,26 +643,43 @@ resolution is unaffected (Blocky + Unbound untouched).
 
 #### 2c. step-ca OIDC provisioner (basel) — higher risk, SSH certs
 
-Update `hosts/calvard/microvm/guests/basel/modules/step-ca.nix`:
+Done as two coexistence sub-steps so rollback never needs a revert.
 
-- Change OIDC provisioner `configurationEndpoint` to
-  `https://authelia.internal.mutantmell.net/.well-known/openid-configuration`
-- Change provisioner `name` from `keycloak` to `authelia`
-- Keep `clientID = "step-ca"`; **no client secret** — step-ca is a public
-  client (see design correction in the phase-status header). The corresponding
-  Authelia client in `authelia.nix` is flipped to `public: true` +
-  `require_pkce`/`pkce_challenge_method: S256`, and the
+**Step i — add `authelia` alongside `keycloak`** (`step-ca.nix`):
+
+- Add a second OIDC provisioner `name = "authelia"`, `clientID = "step-ca"`,
+  `configurationEndpoint =
+  https://authelia.internal.mutantmell.net/.well-known/openid-configuration`,
+  **no client secret** (public client — see design correction in the
+  phase-status header). Keep the existing `keycloak` provisioner untouched.
+  Both share `listenAddress = 127.0.0.1:10000`; step-cli binds it transiently
+  per login, so two provisioners on the same loopback port don't conflict.
+- The corresponding Authelia client in `authelia.nix` is flipped to
+  `public: true` + `require_pkce`/`pkce_challenge_method: S256`, and the
   `authelia-oidc-step-ca-secret-hash` sops secret is dropped.
 - SSH template needs no change: `oidc.tpl` reads `.Token.groups`, which Authelia
   emits via the `groups` scope (same as Keycloak).
-- Repoint the `step-ca-oidc-retry` service (reachability URL + `/provisioners`
-  name filter) at Authelia. It stays — see the Phase 3 step 5 note.
+- `step-ca-oidc-retry` now waits on **both** discovery endpoints and restarts
+  step-ca unless both provisioners init'd cleanly. It stays — see the Phase 3
+  step 5 note.
+- `modules/common/ssh-cert-client.nix` default provisioner **stays `keycloak`**
+  in this step.
 
-**Validation:** `step ssh login --provisioner authelia` completes successfully,
-receives a valid SSH certificate with correct principals.
+**Step i validation:** `step ssh login --provisioner authelia` completes and
+issues a valid SSH cert with correct principals, while the default
+`step ssh login` (still keycloak) keeps working. `https://basel.internal/provisioners`
+shows both `keycloak` and `authelia` without a `state` (error) field after boot
+settles. Rollback during this window is trivial: just don't pass
+`--provisioner authelia` — no redeploy/revert needed.
 
-Note: This also requires updating `modules/common/ssh-cert-client.nix` to
-change `provisioner = "keycloak"` to `provisioner = "authelia"`.
+**Step ii — remove keycloak provisioner** (after step i is verified):
+
+- Delete the `keycloak` OIDC provisioner from `step-ca.nix`.
+- Flip `modules/common/ssh-cert-client.nix` default `provisioner` to `authelia`.
+- Simplify `step-ca-oidc-retry` back to a single provider (authelia only).
+
+**Step ii validation:** default `step ssh login` (now authelia) issues a valid
+cert; `/provisioners` no longer lists `keycloak`.
 
 #### 2d. Jellyfin LDAP (oracion) — moderate risk, media service
 
