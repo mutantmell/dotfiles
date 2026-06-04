@@ -575,6 +575,42 @@ in {
             description = "Static fallback resolvers when fallbackFromLease is null or unavailable.";
           };
 
+          sourceRoutes = mkOption {
+            type = types.listOf (types.submodule {
+              options = {
+                cidr = mkOption {
+                  type = types.str;
+                  example = "10.91.30.0/24";
+                  description = "Client source CIDR this route matches on.";
+                };
+                upstream = mkOption {
+                  type = types.listOf types.str;
+                  example = ["10.91.10.10@5335"];
+                  description = ''
+                    Upstream(s) to forward matching queries to. Use kresd's
+                    `addr@port` syntax (IPv6 as `[addr]@port`).
+                  '';
+                };
+              };
+            });
+            default = [];
+            description = ''
+              Per-source-CIDR forward overrides. Queries whose client source
+              address matches `cidr` are forwarded to `upstream`, bypassing the
+              default forward chain. Evaluated before the primary/fallback
+              dispatcher (first match wins), so a matched query never reaches
+              the default upstream.
+
+              The same validation policy as the primary upstream
+              (`upstreamPolicy`) is applied — these routes are alternate
+              trusted upstreams (e.g. a guest VLAN routed straight to a
+              recursive resolver, skipping an ad-block layer).
+
+              Internally-originated queries (e.g. the fallback health probe)
+              have no client source address and never match a source route.
+            '';
+          };
+
           interception = mkOption {
             type = types.submodule {
               options = {

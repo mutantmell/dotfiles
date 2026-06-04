@@ -326,7 +326,35 @@ Update `tests/modules/phantasma-dns.nix` and `phantasma-dns-real.nix`:
 Also update `tests/lib/blocky-config.nix` if it asserts the conditional
 mapping contents.
 
-## Phase 3 — Per-VLAN bypass for GUEST (tag 30)
+## Phase 3 — Per-VLAN bypass for GUEST (tag 30) **(IMPLEMENTED)**
+
+> **Status:** Implemented independently of Phase 2 (the no-block path is
+> just direct-to-Unbound, which already holds the `.internal` data, so it
+> doesn't depend on the authoritative-data migration). As-shipped:
+>
+> - `router6.dns.sourceRoutes` option (`modules/router6/default.nix`)
+>   expresses per-CIDR forward overrides; rendered in
+>   `modules/router6/dns.nix` as `view.rule_src` policy rules placed ahead
+>   of the strict-failover dispatcher (first-match-wins; internal probe
+>   queries have no `qsource.addr` and never match). Uses `view.rule_src`
+>   from kresd's `view` module rather than the `view:addr` /
+>   `policy.suffix_common` sketch below.
+> - **Breaker-aware fallback (added beyond the original sketch):** because
+>   the no-block upstream (Unbound:5335) shares its backend with the
+>   primary path (Blocky → same Unbound), a phantasma/Unbound outage would
+>   otherwise leave GUEST SERVFAILing while every other client failed over.
+>   The source-route rule therefore reuses the primary breaker's
+>   `primary_down` flag: healthy → Unbound:5335; tripped → the same ISP
+>   fallback as everyone else (still unfiltered, so the no-block intent is
+>   preserved). Covered by sections A2/B2/C2 of
+>   `tests/modules/router6-dns-fallback.nix`.
+> - Unbound exposed on phantasma's brMGMT `:5335` with `ip-freebind`
+>   (tolerates the static address not being up at boot) and
+>   `access-control` restricted to thebeyond's gateway + loopback;
+>   `hosts/thebeyond/router.nix` adds the `sourceRoutes` wiring and the
+>   kresd→phantasma:5335 egress rule.
+>
+> Original design sketch below is preserved for context.
 
 **Goal:** GUEST VLAN (`10.91.30.0/24` + matching IPv6 ULA) bypasses the
 Blocky blocklist. ADU/IOT/GAME (tags 31/40/41 — same `untrusted` zone

@@ -4,13 +4,15 @@
   ...
 }: let
   net = pkgs.mmell.lib.data.network;
-  inherit (net.forHost "phantasma") host;
+  inherit (net.forHost "phantasma") host zone;
 in {
   networking.firewall.allowedUDPPorts = [
     53 # DNS
+    5335 # Unbound direct (GUEST VLAN ad-block bypass, kresd-on-thebeyond only)
   ];
   networking.firewall.allowedTCPPorts = [
     53 # DNS
+    5335 # Unbound direct (GUEST VLAN ad-block bypass, kresd-on-thebeyond only)
   ];
 
   # Blocky binds the externally-routable v4+v6 addresses; Unbound owns
@@ -86,13 +88,37 @@ in {
     settings = {
       server = {
         # Listen on 127.0.0.1:53 (so libc and Blocky reach Unbound via the
-        # default port) and 127.0.0.1:5335 (kept as a readability alias —
-        # makes Unbound easy to spot in netstat/logs separate from Blocky).
-        interface = ["127.0.0.1" "127.0.0.1@5335"];
+        # default port) and on :5335 — both loopback (readability alias,
+        # separates Unbound from Blocky in netstat/logs) and the brMGMT
+        # addresses. The brMGMT :5335 endpoint is the no-block path: kresd
+        # on thebeyond forwards GUEST-VLAN queries here, bypassing Blocky's
+        # blocklist. Port 53 stays loopback-only (Blocky owns the external
+        # :53), so external clients can't skip Blocky except via this
+        # explicit, source-restricted 5335 endpoint.
+        interface = [
+          "127.0.0.1"
+          "127.0.0.1@5335"
+          "${host.ipv4}@5335"
+          "${host.ipv6}@5335"
+        ];
         port = 53;
+        # The brMGMT addresses are statically assigned by networkd; on a cold
+        # boot Unbound can start before they land. ip-freebind lets it bind
+        # those addresses regardless, so a missing/late address doesn't fail
+        # the whole service (one unbindable interface otherwise aborts startup,
+        # which would also take down Blocky's 127.0.0.1:53 upstream). It does
+        # not widen the bind — Unbound still listens only on these addresses.
+        ip-freebind = true;
+        # Defense in depth alongside the firewall: only loopback (Blocky,
+        # libc) and thebeyond's brMGMT gateway (kresd) may query Unbound.
+        # Everything else is refused even if it reaches the socket.
         access-control = [
           "127.0.0.0/8 allow"
+          "::1 allow"
+          "${zone.gateway4} allow" # thebeyond brMGMT (kresd)
+          "${zone.gateway6} allow"
           "0.0.0.0/0 refuse"
+          "::/0 refuse"
         ];
         aggressive-nsec = true;
 

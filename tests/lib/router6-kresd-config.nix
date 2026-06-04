@@ -257,6 +257,29 @@
       };
     };
 
+  # Config M: source routes (GUEST VLAN ad-block bypass) layered on the
+  # strict-failover dispatcher. Verifies per-CIDR overrides emit view.rule_src
+  # policy rules ahead of the dispatcher.
+  configM =
+    baseTopology
+    // {
+      dns = {
+        upstream = ["10.0.0.1"];
+        upstreamPolicy = "stub";
+        fallbackFromLease = "eth0";
+        sourceRoutes = [
+          {
+            cidr = "10.0.30.0/24";
+            upstream = ["10.0.10.10@5335"];
+          }
+          {
+            cidr = "fdc6:55f2:0a5e:1e::/64";
+            upstream = ["[fdc6:55f2:0a5e:a::a]@5335"];
+          }
+        ];
+      };
+    };
+
   extraA = (evalConfig configA).services.kresd.extraConfig;
   extraD = (evalConfig configD).services.kresd.extraConfig;
   extraE = (evalConfig configE).services.kresd.extraConfig;
@@ -267,8 +290,27 @@
   evalJ = evalConfig configJ;
   extraI = evalI.services.kresd.extraConfig;
   extraJ = evalJ.services.kresd.extraConfig;
+  # Config N: sourceRoutes WITHOUT a fallback. The route is static — no
+  # breaker, so its action must not reference primary_down/fallback.
+  configN =
+    baseTopology
+    // {
+      dns = {
+        upstream = ["10.0.0.1"];
+        upstreamPolicy = "stub";
+        sourceRoutes = [
+          {
+            cidr = "10.0.30.0/24";
+            upstream = ["10.0.10.10@5335"];
+          }
+        ];
+      };
+    };
+
   extraK = (evalConfig configK).services.kresd.extraConfig;
   extraL = (evalConfig configL).services.kresd.extraConfig;
+  extraM = (evalConfig configM).services.kresd.extraConfig;
+  extraN = (evalConfig configN).services.kresd.extraConfig;
 
   tests = [
     # Config A: Simple upstream — module default is upstreamPolicy = "forward",
@@ -483,6 +525,67 @@
       in
         contains "9.9.9.9" scriptText
         && contains "149.112.112.112" scriptText))
+
+    # Config A baseline: no sourceRoutes → no view module, no source-route rules
+    (assertTrue "A: does not load view module when no sourceRoutes"
+      (notContains "modules.load('view')" extraA))
+
+    (assertTrue "A: emits no view.rule_src without sourceRoutes"
+      (notContains "view.rule_src" extraA))
+
+    # Config M: sourceRoutes present (with fallback) — must load view, hoist
+    # the no-block action with the configured upstreamPolicy (STUB here), and
+    # register a breaker-aware view.rule_src per route.
+    (assertTrue "M: loads the view module"
+      (contains "modules.load('view')" extraM))
+
+    (assertTrue "M: hoists the v4 no-block action with upstreamPolicy"
+      (contains "local sr_noblock_1 = policy.STUB({'10.0.10.10@5335'})" extraM))
+
+    (assertTrue "M: hoists the v6 no-block action with upstreamPolicy"
+      (contains "local sr_noblock_2 = policy.STUB({'[fdc6:55f2:0a5e:a::a]@5335'})" extraM))
+
+    (assertTrue "M: registers a view.rule_src rule for the v4 source CIDR"
+      (contains "view.rule_src(function (state, req) if primary_down then return fallback(state, req) end return sr_noblock_1(state, req) end, '10.0.30.0/24')" extraM))
+
+    (assertTrue "M: registers a view.rule_src rule for the v6 source CIDR"
+      (contains "view.rule_src(function (state, req) if primary_down then return fallback(state, req) end return sr_noblock_2(state, req) end, 'fdc6:55f2:0a5e:1e::/64')" extraM))
+
+    (assertTrue "M: wraps source routes in policy.add"
+      (contains "policy.add(view.rule_src" extraM))
+
+    # The breaker-aware route must fail over to the SAME ISP fallback when the
+    # primary breaker trips — that is the VLAN-outage guarantee.
+    (assertTrue "M: source route falls back to ISP on primary_down"
+      (contains "if primary_down then return fallback(state, req) end" extraM))
+
+    # Source routes must be registered BEFORE the dispatcher's policy.add so a
+    # match short-circuits the default forward chain (first-match-wins). The
+    # text preceding the dispatcher's load marker must already hold the rules.
+    (assertTrue "M: source-route rules precede the strict-failover dispatcher"
+      (let
+        beforeDispatcher = lib.head (lib.splitString "strict-failover dispatcher loaded" extraM);
+      in
+        contains "view.rule_src" beforeDispatcher))
+
+    # The breaker state the source route reads must be defined BEFORE the route
+    # (Lua upvalue capture); `local primary_down` precedes the rule text.
+    (assertTrue "M: breaker state precedes the source-route rules"
+      (let
+        beforeRule = lib.head (lib.splitString "view.rule_src" extraM);
+      in
+        contains "local primary_down" beforeRule))
+
+    # Config N: sourceRoutes without fallback — static route, no breaker. The
+    # action is the bare hoisted local; it must NOT reference the breaker.
+    (assertTrue "N: hoists the no-block action"
+      (contains "local sr_noblock_1 = policy.STUB({'10.0.10.10@5335'})" extraN))
+
+    (assertTrue "N: registers a plain view.rule_src (no breaker wrap)"
+      (contains "policy.add(view.rule_src(sr_noblock_1, '10.0.30.0/24'))" extraN))
+
+    (assertTrue "N: static source route does not reference the breaker"
+      (notContains "primary_down" extraN))
   ];
 
   allPass = lib.all (x: x) tests;
