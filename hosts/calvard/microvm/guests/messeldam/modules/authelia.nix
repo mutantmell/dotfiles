@@ -120,6 +120,16 @@ in {
     content = ''
       identity_providers:
         oidc:
+          # Authelia 4.39 stopped putting non-standard claims (groups, email,
+          # name, …) in the ID Token by default — they now only appear at the
+          # userinfo endpoint unless a claims policy restores them. step-ca reads
+          # `.Token.groups` straight from the ID Token JWT (it never calls
+          # userinfo), so without this the SSH cert template gets empty
+          # principals and every cert-based login is rejected. Keycloak put
+          # groups in the ID Token, which is why this only broke on cutover.
+          claims_policies:
+            with_groups:
+              id_token: [groups, email, preferred_username, name]
           clients:
             # step-ca is a native-app / public client. step-cli runs the
             # authorization-code + PKCE flow on a loopback redirect, and step-ca
@@ -131,6 +141,7 @@ in {
               client_name: "SSH Certificate CA"
               public: true
               authorization_policy: one_factor
+              claims_policy: with_groups
               redirect_uris:
                 - "http://127.0.0.1:10000"
               scopes: [openid, profile, email, groups]
@@ -144,6 +155,7 @@ in {
               client_secret: "${config.sops.placeholder."authelia-oidc-perses-secret-hash"}"
               public: false
               authorization_policy: one_factor
+              claims_policy: with_groups
               redirect_uris:
                 - "https://perses.internal/api/auth/providers/oidc/authelia/callback"
               scopes: [openid, profile, email, groups]

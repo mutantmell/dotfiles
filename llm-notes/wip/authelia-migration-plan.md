@@ -31,6 +31,18 @@ Moved to wip: 2026-06-02
     issues its cert). Confirmed in a live deploy 2026-06-04. Coexistence would
     require registering a _second_ Authelia client under a distinct `client_id`;
     not worth it. Rollback is reverting this commit while Keycloak keeps running.
+  - **ID-token groups claim (Authelia 4.39):** 4.39 stopped emitting
+    non-standard claims (`groups`, `email`, …) in the **ID Token** by default —
+    they only appear at the userinfo endpoint unless a `claims_policies` entry
+    restores them. step-ca reads `.Token.groups` from the ID Token JWT and never
+    calls userinfo, so the first Authelia-issued SSH cert came back with **empty
+    principals** and every cert login (`root`/`mutantmell` map to principal
+    `admin`) was rejected — confirmed in a live cutover 2026-06-04. Fix: a
+    `with_groups` claims policy (`id_token: [groups, email, preferred_username,
+    name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
+    Keycloak put groups in the ID Token, which is why this only surfaced on
+    cutover. **Any future OIDC consumer that reads groups from the ID Token (not
+    userinfo) needs this claims policy.**
   - **Design correction:** Phase 1 registered the `step-ca` client as
     confidential, but step-ca is a native-app **public** client (step-cli does
     authorization-code+PKCE on a loopback redirect, and step-ca republishes any
