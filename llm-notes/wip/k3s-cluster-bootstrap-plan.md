@@ -1,8 +1,9 @@
 # k3s Cluster Bootstrap Plan
 
 Status: In progress (Phase 0 COMPLETE; open decisions settled; chunks 1a/1b/2
-deployed & validated; chunk 1c pending; **chunk 3 dropped** — the cluster needs
-**no router6 or bt8gw firewall changes** at bootstrap; see deliverable E)
+deployed & validated; chunk 1c eval-validated, awaiting operator deploy;
+**chunk 3 dropped** — the cluster needs **no router6 or bt8gw firewall changes**
+at bootstrap; see deliverable E)
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20).
 This plan implements **Phase 0–1** of that report, plus the deferred
@@ -353,6 +354,7 @@ Chunk map:
 - **1a** — k3s control plane (datastore, snapshots, firewall, access). DONE.
 - **1b** — runtime-tier baseline: gVisor + kata-qemu + runc-kvm + RuntimeClasses.
 - **1c** — kata on cloud-hypervisor (`kata-clh`), via a nixpkgs override.
+  DONE (eval-validated; awaiting operator deploy).
 - **2** — platform HelmCharts: cert-manager + step-ca `ClusterIssuer`, Kyverno
   (builds-namespace policies), Flux against a placeholder dynamic path. All
   erebonia-local (auto-apply manifests / `services.k3s.autoDeployCharts`).
@@ -446,7 +448,7 @@ vmx). This is an AI-coding-layer architecture decision, **not** a bootstrap
 blocker — see the note under Phase 1 validation and
 `project_kata_guest_kernel_no_nested_kvm`.
 
-### Chunk 1c — kata on Cloud Hypervisor (`kata-clh`) — AFTER 1b
+### Chunk 1c — kata on Cloud Hypervisor (`kata-clh`) — DONE (eval-validated)
 
 Swap the Kata VMM from QEMU to **cloud-hypervisor**. Split out from 1b because
 it depends on 1b's _validated_ containerd/RuntimeClass plumbing **and** a
@@ -485,6 +487,49 @@ Hypervisor; nixpkgs ships v52.0. If incompatible, pin a matching clh. This is
 why 1b validates `kata-qemu` before 1c swaps the VMM. Needs `/dev/kvm` + nested
 KVM (already on erebonia). See `project_nixpkgs_kata_qemu_only_clh_override`
 memory.
+
+**Implementation log (eval-validated 2026-06-05, branch
+`k3s-bootstrap-erebonia`):** landed in `hosts/erebonia/k3s/runtimes.nix`
+alongside the 1b runtimes (all runtime-tier registration in one file). The
+researched approach held exactly:
+
+- The override (`kata-runtime.overrideAttrs` appending a `postInstall` symlink
+  of `${pkgs.cloud-hypervisor}/bin/cloud-hypervisor` → `$out/bin/`) builds
+  clean. Verified against the live nixpkgs pin: kata `3.29.0`, clh `52.0`,
+  `containerd-shim-kata-clh-v2` already shipped, `configuration-clh.toml`
+  shipped, no `cloud-hypervisor` binary in the stock package — all as the plan
+  predicted.
+- **The clh toml's `path` / `valid_hypervisor_paths` are self-referential to
+  the derivation's own `$out`** (confirmed by reading the built toml), so the
+  override's *new* out is exactly where the toml looks — the shipped toml
+  resolves as-is with zero editing. Built and checked: the toml's `path` now
+  resolves through the symlink to the real `cloud-hypervisor-52.0` binary;
+  `kernel`/`image`/`virtio_fs_daemon` (kata-images, virtiofsd) were already
+  valid and are unchanged.
+- The rendered containerd drop-in registers `kata-clh`
+  (`io.containerd.kata-clh.v2`) with `ConfigPath` → the **override's** clh toml
+  (distinct store path from the plain-runtime kata-qemu `ConfigPath` — verified
+  in the rendered `10-extra-runtimes.toml`). The shim is found from the
+  existing `pkgs.kata-runtime` on the k3s `PATH` (the kata shim binary is
+  unchanged by the override, so qemu/clh shims are interchangeable; only
+  `ConfigPath` selects the hypervisor). A `kata-clh` RuntimeClass manifest was
+  added next to `runsc`/`kata-qemu`/`runc-kvm`.
+- `nixosConfigurations.erebonia` toplevel evaluates clean; `kubectl get
+  runtimeclass` will show `kata-clh` after deploy.
+
+**Operator deploy-validation (config is eval-clean only):**
+
+- `nixos-rebuild switch` on erebonia; `kubectl get runtimeclass` → `kata-clh`
+  present alongside the 1b classes.
+- A `kata-clh`-class pod boots under cloud-hypervisor (check the kata logs /
+  `ps` for `cloud-hypervisor`, not `qemu`). If it fails to boot, the prime
+  suspect is the clh **version-compat** risk above — confirm by reading the
+  shim/clh error and, if needed, pin a kata-matched clh.
+- **Nested virt INSIDE the kata-clh pod is still NOT expected** — same stock
+  guest-kernel limitation as kata-qemu (`# CONFIG_VIRTUALIZATION is not set`,
+  no `/dev/kvm` in-pod). clh shares `vmlinux.container`. The reason to prefer
+  clh is leaner/faster ephemeral boots, not nested KVM. See
+  `project_kata_guest_kernel_no_nested_kvm`.
 
 ### Chunk 2 — platform HelmCharts — DONE (deployed & validated 2026-06-05)
 
@@ -593,7 +638,7 @@ deferred.) Validation:
 - `kubectl get nodes` → erebonia Ready (single node, control-plane+worker).
 - `kubectl get pods -A` → k3s system pods + cert-manager, Kyverno, Flux all
   Running. (No external-snapshotter/democratic-csi — deferred.)
-- `kubectl get runtimeclass` → runc, runsc, kata-qemu, runc-kvm present.
+- `kubectl get runtimeclass` → runc, runsc, kata-qemu, kata-clh, runc-kvm present.
 - runsc test pod is sandboxed (gVisor kernel string ✅); kata-qemu test pod
   runs as a KVM VM (runtime handler works ✅).
   - **Nested virt is NOT achievable with stock kata** (corrected): the nixpkgs
