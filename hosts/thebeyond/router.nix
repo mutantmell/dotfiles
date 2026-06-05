@@ -715,11 +715,11 @@ in {
             openFirewall = true;
             peers = [
               {
-                publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
+                publicKey = "8g4r9czA23tS/XTOajuIa/BNfDE2x4GwdXXi+udE6gY=";
                 allowedIPs = let h = wg."wg-vpn".hosts.laptop; in [h.cidr4 h.cidr6];
               }
               {
-                publicKey = "8g4r9czA23tS/XTOajuIa/BNfDE2x4GwdXXi+udE6gY=";
+                publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
                 allowedIPs = let h = wg."wg-vpn".hosts.mobile; in [h.cidr4 h.cidr6];
               }
             ];
