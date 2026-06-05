@@ -266,6 +266,66 @@ Captured on the live, deployd-free erebonia:
   `nixos-rebuild switch --rollback` or boot the prior generation from the
   boot menu (erebonia has a known-good generation 16/prior).
 
+## Phase 1 implementation log (branch `k3s-bootstrap-erebonia`)
+
+Phase 1 is being landed in reviewable chunks. The operator's constraint:
+**erebonia-local changes first, the router6 `cluster` zone (E) as a separate
+reviewed change**, and the cluster must be testable from a workstation. That
+test path works *without* the router6 change because bt8-gateway already grants
+VLAN 20/21 full access to VLAN 11 (management, erebonia's zone) — see
+`project_bt8gw_vlan_20_21_to_11_access` memory — so only erebonia's host
+firewall needs to open `:6443`.
+
+### Chunk 1a — k3s control plane — DONE (eval-validated, not yet deployed)
+
+`hosts/erebonia/k3s/default.nix` (imported from `hosts/erebonia/default.nix`):
+
+- `services.k3s` `role = "server"` (agent included), pinned `pkgs.k3s_1_33`
+  (nixpkgs default is `1_35`; pinned minor, bump deliberately).
+- `--data-dir=/persist/k3s` on a dedicated btrfs subvolume created via
+  `systemd.tmpfiles` `v` (decision #2). Survives the `@root` rollback (lives on
+  `@persist`) and is independently snapshottable.
+- `k3s-datastore-snapshot` oneshot + daily timer: read-only `btrfs subvolume
+  snapshot` of the data-dir, keep newest 14, prune older. Crash-consistent for
+  the kine SQLite/WAL. Off-host copy to liberl deferred (CI/CD plan).
+- `--tls-san` for `erebonia` / `erebonia.internal` / mgmt IPv4 / ULA so
+  `kubectl` works by name/IP from a lab/trusted workstation.
+- Host firewall: `trustedInterfaces = [cni0 flannel.1]` (pod→host traffic) and
+  `:6443` opened from the management/lab/trusted subnets via `extraInputRules`
+  (merges with the existing SSH-tightening rule in `microvm/default.nix`).
+- `--write-kubeconfig-mode=0640`; `kubectl` + `KUBECONFIG` on the host.
+
+**Deploy-test risks (operator validates — config is eval-clean only):** k3s
+flannel/kube-proxy (iptables-nft) coexisting with incus's nftables + the
+microvm macvtap networking on one host is the main integration unknown; verify
+pod networking and that existing incus/microvm guests stay reachable after the
+rebuild. Rollback is a prior generation.
+
+### Chunk 1b — runtime tiers (gVisor / Kata / runc-kvm + RuntimeClasses) — NEXT
+
+Deferred from 1a deliberately: k3s 1.33 bundles **containerd 2.0**, whose
+runtime-config format differs from 1.x, so the runtime registration is verified
+against the bundled containerd rather than hand-guessed.
+
+**Kata-on-Cloud-Hypervisor (operator question, researched 2026-06-05):**
+running the Kata VM under **cloud-hypervisor (`kata-clh`)** instead of QEMU is
+**meaningfully easier under k3s than it was for deployd** — k3s uses standard
+containerd, so it's the mainstream path (register a `kata-clh` runtime handler
+`io.containerd.kata-clh.v2` + a `kata-clh` RuntimeClass; the shim symlink
+`containerd-shim-kata-clh-v2` already exists in nixpkgs). The residual friction
+is **nixpkgs packaging, not k3s**: `kata-runtime` 3.29.0 is built
+`HYPERVISORS=qemu` only (installs `configuration-qemu.toml`, wires only
+QEMUPATH; no `configuration-clh.toml`, no cloud-hypervisor path). `kata-images`
+pulls the upstream `kata-static` bundle (includes the CLH `vmlinux` kernel +
+rootfs) and `pkgs.cloud-hypervisor` (v52.0) exists, so images/VMM binaries are
+**not** the blocker. To enable clh: override `kata-runtime` to build
+`HYPERVISORS="qemu clh"`, add the `cloud-hypervisor` input, and sed-patch
+`configuration-clh.toml` paths the way the qemu toml is already patched (or
+hand-author the clh toml). Needs `/dev/kvm` + nested KVM (already on erebonia).
+**Plan:** land `kata-qemu` first as the baseline (cleanly supported), validate
+the containerd/RuntimeClass plumbing once, then add `kata-clh` via the override.
+See `project_nixpkgs_kata_qemu_only_clh_override` memory.
+
 ## Phase 1 — land the cluster
 
 Apply with `nixos-rebuild switch` on erebonia. (No liberl change — CSI is

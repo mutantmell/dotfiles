@@ -14,6 +14,7 @@
     ./sops.nix
     ./microvm
     ./incus
+    ./k3s
   ];
 
   boot.loader.systemd-boot.enable = true;
