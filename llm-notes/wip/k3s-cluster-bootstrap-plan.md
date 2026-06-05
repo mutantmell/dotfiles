@@ -1,14 +1,15 @@
 # k3s Cluster Bootstrap Plan
 
-Status: Planned (not started)
+Status: In progress (Phase 0 COMPLETE; open decisions settled; Phase 1 config drafting)
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20).
 This plan implements **Phase 0–1** of that report, plus the deferred
 multi-node / HA topology (Phases 10–11) as a forward-looking section.
 
-Depends on: nothing in-repo (greenfield). Optional dependency on
-`llm-notes/plans/authelia-migration-plan.md` if OIDC `kubectl` access is
-wanted at bootstrap (see "Open decisions").
+Depends on: nothing in-repo (greenfield). The Authelia migration is **done**
+(`llm-notes/done/authelia-migration-plan.md`), so OIDC `kubectl` access at
+bootstrap can target the live foundational Authelia — open decision #1 is now
+resolved (Authelia OIDC + on-disk x509 admin kubeconfig as break-glass).
 
 **Prerequisite — DONE: deployd is removed.** deployd has been fully
 decommissioned (no remaining `.nix` references; see
@@ -242,14 +243,28 @@ erebonia:
   one declaration either way.
 - Ports 6443/10250/10256/8472 are free (nothing else on erebonia uses them).
 
-## Phase 0 — resource inventory & rollback check (prerequisite)
+## Phase 0 — resource inventory & rollback check (prerequisite) — COMPLETE (2026-06-05)
 
-- Capture erebonia resources (`free -h`, `nproc`, `lscpu`, disk). Project
-  the workload sum on the now-deployd-free host: `saint-arkh` + `trista`
-  (until it migrates) + k3s overhead (4–8 GB) + cluster workloads. Confirm
-  headroom. (deployd/`roer` are gone, freeing their footprint.)
-- Verify NixOS rollback: known-good prior generation in the boot menu;
-  document the "Phase 1 broke erebonia" recovery procedure.
+Captured on the live, deployd-free erebonia:
+
+- **CPU:** 11th Gen i5-1135G7, 4 cores / 8 threads. Fine for single-node.
+- **RAM:** 15 GiB total, **~11 GiB available** under current load (Incus
+  `trista` VM + `saint-arkh` microvm + system; swap is 0). k3s control plane
+  + system pods (cert-manager, Kyverno, Flux, Traefik, coredns,
+  metrics-server, local-path) realistically run ~2–3 GiB, leaving headroom
+  for bootstrap **and** Phase A (a DevPod workspace). **Flag for the
+  downstream dev-env plan, not this one:** the migration runs Incus
+  (`trista`) and k3s *concurrently* before the Incus sunset reclaims memory —
+  watch RAM there; bootstrap + Phase A are comfortable.
+- **Disk:** 466 GB LUKS `cryptroot`, **415 GB free** — ample for the
+  `local-path` provisioner and the datastore subvolume.
+- **Filesystem:** **btrfs + impermanence confirmed** (`profiles/disko/btrfs.nix`,
+  `common.btrfs.* ` in `hosts/erebonia/default.nix`). Decision #2's persisted
+  btrfs subvolume + local btrfs snapshots is implementable as specified.
+- **Rollback:** 17+ NixOS system generations present
+  (`/nix/var/nix/profiles/system-*-link`). Recovery from a broken Phase 1 is
+  `nixos-rebuild switch --rollback` or boot the prior generation from the
+  boot menu (erebonia has a known-good generation 16/prior).
 
 ## Phase 1 — land the cluster
 
@@ -308,8 +323,9 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
 
 ## Open decisions (need operator input)
 
-1. **kube apiserver OIDC target.** Keycloak now, Authelia later
-   (`authelia-migration-plan.md`)? And the operator `kubectl` access path:
+1. **kube apiserver OIDC target. — RESOLVED.** Authelia is now the live IdP
+   (Keycloak removed; `llm-notes/done/authelia-migration-plan.md`). The
+   `kubectl` access path:
    OIDC via `kubectl oidc-login`, static kubeconfig on a trusted host, or
    both? (Report flags Authelia↔kube-apiserver OIDC compatibility as a
    risk — validate `kubectl oidc-login` in Phase 1; fall back to
@@ -321,20 +337,24 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
    admin kubeconfig is the cluster's own break-glass. That plan also adds an
    IdP-independent SSH-cert path so operator access to tier-1 hosts survives an
    Authelia outage.**
-2. **kine datastore persistence + backup (on erebonia).** btrfs subvol vs
-   impermanence for `/var/lib/rancher/k3s/server`; scheduled backup of the
-   kine SQLite file (separate from Velero, which protects cluster _state_,
-   not the datastore underneath). This is now the primary control-plane
-   recovery mechanism (it replaces the rejected microvm-rebuild path), so
-   it matters more than before — settle it at bootstrap.
-3. **PKI overlap.** k3s' internal control-plane CA as a second trust root
-   alongside step-ca (acceptable, just document), or make k3s' CA a
-   step-ca-signed intermediate?
+2. **kine datastore persistence + backup (on erebonia). — RESOLVED.**
+   Dedicated **persisted btrfs subvolume** for `/var/lib/rancher/k3s/server`
+   with **scheduled local btrfs snapshots** at bootstrap. **Off-host backup to
+   liberl is deferred** — explored alongside the CI/CD plan (where closure/state
+   durability is already in scope), not blocking bootstrap. Accepted risk: a
+   disk loss on erebonia before the off-host story lands loses the datastore;
+   acceptable for a greenfield single-node cluster whose platform is fully
+   re-derivable from the flake.
+3. **PKI overlap. — RESOLVED.** Standalone k3s control-plane CA, kept as a
+   second trust root and **documented** as such. step-ca is bridged only for
+   *workload* certs via the cert-manager `ClusterIssuer`; we do not make k3s'
+   CA a step-ca intermediate (avoids fighting k3s' built-in cert rotation).
 4. **Dynamic-manifest repo layout.** Monorepo path
    (`cluster/manifests/{infrastructure,apps}/`) vs separate repo. Not
    load-bearing for Phase 1; decide before the workloads plan.
-5. **External-facing TLS.** Terminate Let's Encrypt at langport's nginx
-   (existing pattern, simpler) vs in-cluster Traefik + separate ACME.
+5. **External-facing TLS. — RESOLVED.** Terminate Let's Encrypt at **langport's
+   nginx** (existing pattern), proxying to erebonia's k3s ingress. No in-cluster
+   ACME / separate public-TLS path.
 
 ## Rollback
 
