@@ -153,9 +153,10 @@ This is Ring 0 today.
 - **Perses** (tharbad, monitoring UI) → Authelia OIDC. Foundational by
   _criterion 2_ (Phase C).
 - **Jellyfin** (oracion) → lldap bind. Not foundational (media).
-- **langport** oauth2-proxy still points at **old Keycloak**
-  (`auth.mutantmell.net/realms/homelab`), and is currently commented out —
-  migration mid-flight. Not foundational.
+- **langport** — its oauth2-proxy reverse-proxy stack was **removed entirely**
+  (authelia-migration Phase 2e, 2026-06-05), not migrated; external ingress for
+  `mutantmell.net`/`auth.mutantmell.net` is a deferred cloud-host workstream.
+  Nothing here is foundational.
 
 ---
 
@@ -330,7 +331,7 @@ monitoring login.
 | Human SSH floor (`keys.json`, host certs)     | Yes           | — (already declarative)                                               | stays                                                               |
 | Machine mTLS (fleet X5C)                      | Yes           | — (already IdP-independent)                                           | stays                                                               |
 | **lldap + Authelia (rich identity)**          | **Yes**       | **dependency** (step-ca SSH + planned cluster `kubectl` depend on it) | **stays foundational; add IdP-independent fallbacks (Phases A, C)** |
-| Jellyfin / langport oauth2-proxy              | No            | —                                                                     | unchanged                                                           |
+| Jellyfin (lldap bind)                         | No            | —                                                                     | unchanged (langport oauth2-proxy removed, Phase 2e)                 |
 
 ---
 

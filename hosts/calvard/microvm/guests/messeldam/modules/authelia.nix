@@ -180,7 +180,14 @@ in {
               scopes: [openid, profile, email, groups]
               grant_types: [authorization_code]
               response_types: [code]
-              token_endpoint_auth_method: client_secret_basic
+              # Perses' OIDC relying party (zitadel/oidc) sends the client
+              # credentials in the token-request body (client_secret_post) and
+              # exposes no knob to switch to HTTP Basic, so the Authelia client
+              # must register that method or the code→token exchange fails with
+              # invalid_client ("client registration does not allow
+              # client_secret_post"). Equivalent security to basic over TLS —
+              # the secret is still required, just carried in the body.
+              token_endpoint_auth_method: client_secret_post
     '';
   };
 

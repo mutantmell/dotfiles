@@ -1,16 +1,29 @@
 # Headscale Integration Plan — Game Server Access for Friends
 
-> **Status:** Planning. Depends on the OIDC infrastructure (Authelia, replacing Keycloak —
+> **Status:** Planning. Depends on the OIDC infrastructure (Authelia —
 > see [authelia-migration-plan](../wip/authelia-migration-plan.md)). Can be implemented
 > incrementally alongside other plans.
 >
-> **Note (2026-04-19):** This plan references Keycloak throughout. Keycloak is being
-> replaced by Authelia (see authelia-migration-plan.md). The OIDC flows are identical
-> (authorization code grant, groups claim, JWKS validation) — all Keycloak references
-> in this plan should be read as "Authelia" and will be updated when the migration is
-> complete. The friend-access report's recommendation of pre-authkeys for friend
-> enrollment means the OIDC integration only affects admin login to headscale, not
-> friend access.
+> **Note (updated 2026-06-05): the Keycloak→Authelia migration is complete and
+> Keycloak is removed.** This plan was written against Keycloak and still uses
+> Keycloak terminology throughout; it has **not** been rewritten line by line.
+> Read it with this translation — the OIDC flows are identical (authorization
+> code grant, `groups` claim, JWKS validation), only the provider changed:
+>
+> | This plan says…                          | Read as / current reality                                                        |
+> | ---------------------------------------- | -------------------------------------------------------------------------------- |
+> | Keycloak (the IdP)                       | **Authelia** on `messeldam`                                                       |
+> | `auth.mutantmell.net/realms/homelab` (issuer) | `https://authelia.internal.mutantmell.net` internally (external `auth.mutantmell.net` is the deferred cloud-host cutover) |
+> | "Keycloak account / admin console"       | **lldap** user/group (lldap web UI at `ldap.internal`; Authelia has no admin console) |
+> | "register a client in Keycloak"          | add an OIDC client to `authelia.nix` (declarative, sops-hashed secret)            |
+> | `keycloak-oauth-oidc-plan.md` (linked)   | **deleted** — that plan no longer exists; this plan + authelia-migration-plan are the references |
+> | Keycloak PostgreSQL                       | n/a — Authelia/lldap use SQLite                                                   |
+> | langport oauth2-proxy as the external proxy | **removed** (authelia-migration Phase 2e); external ingress is the deferred cloud-host workstream |
+>
+> The friend-access report's recommendation of pre-authkeys for friend
+> enrollment means the OIDC integration only affects admin login to headscale,
+> not friend access. A full rewrite of this plan to Authelia terminology is
+> deferred until headscale work actually starts.
 
 ## Motivation
 
@@ -373,7 +386,7 @@ specific ports."
 ## Keycloak OIDC Integration
 
 Headscale becomes another OIDC client of Keycloak, following the same pattern as
-oauth2-proxy and step-ca in the [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md).
+oauth2-proxy and step-ca in the [authelia-migration-plan](../wip/authelia-migration-plan.md) (was: Keycloak OIDC plan, removed).
 
 ### Keycloak client registration
 
@@ -663,7 +676,7 @@ firewall.extraForwardRules = [
 ```
 
 This follows the same pattern as the langport → Keycloak rule in the
-[Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md).
+[authelia-migration-plan](../wip/authelia-migration-plan.md) (was: Keycloak OIDC plan, removed).
 
 **Note:** Subnet router → headscale is now intra-zone on vDMZ, so no router-level
 forwarding rule is needed for that path.
@@ -1049,7 +1062,7 @@ ready.
 
 ### Relationship to other plan file changes
 
-The [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) should be updated to include:
+The [authelia-migration-plan](../wip/authelia-migration-plan.md) (was: Keycloak OIDC plan, removed) should be updated to include:
 
 - `headscale` in the client registration table
 - `gamers` in the groups table

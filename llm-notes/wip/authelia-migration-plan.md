@@ -12,8 +12,18 @@ Moved to wip: 2026-06-02
   notes" below). Keycloak still running unchanged on auth.mutantmell.net.
 - Phase 1 follow-up — `jellyfin` LDAP bind user now auto-seeded by
   lldap-bootstrap (deployed 2026-06-03), ahead of Phase 2d.
-- Phase 2a (Perses) — COMPLETE, deployed (commit `1e76e1a`). Perses OIDC points
-  at Authelia.
+- Phase 2a (Perses) — deployed (commit `1e76e1a`), Perses OIDC points at
+  Authelia. **Token-endpoint auth-method fix (2026-06-05):** Perses login failed
+  the code→token exchange with `invalid_client` — "client registration does not
+  allow `client_secret_post`". Perses' OIDC relying party (zitadel/oidc) sends
+  client credentials in the request body (`client_secret_post`) and exposes no
+  knob to use HTTP Basic, but the Authelia `perses` client was registered
+  `token_endpoint_auth_method: client_secret_basic`. Flipped the Authelia client
+  to `client_secret_post` (`authelia.nix`); equivalent security over TLS (secret
+  still required, just in the body). This was a latent Phase 2a defect — the
+  original "validated" claim never actually exercised the token exchange end to
+  end. **Repo-fixed; pending messeldam redeploy + a real Perses login to
+  confirm.**
 - Phase 2b (phantasma) — repo-COMPLETE, pending deploy. Became a **removal**,
   not a migration: AdGuard Home was retired in the blocky migration, so
   phantasma's oauth2-proxy/nginx stack guarded nothing. proxy.nix, the
@@ -108,8 +118,12 @@ name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
   step-ca point at `authelia.internal`; langport's proxy is gone), so the
   Keycloak *removal* half of Phase 3 is unblocked and decoupled from the still-
   deferred external `auth.mutantmell.net` → Authelia cutover.
-- Phase 3 — **removal half repo-COMPLETE, pending deploy** (2026-06-05); external
-  cutover half still DEFERRED. The Keycloak *removal* (steps 3–7) is done in the
+- Phase 3 — **removal half DEPLOYED + validated** (2026-06-05); external cutover
+  half still DEFERRED. Deployed to `calvard`; `step ssh login` confirmed still
+  issuing SSH certs (step-ca→Authelia path intact post-Keycloak-removal). A
+  Perses-login regression surfaced during validation and was fixed — see the
+  "Perses token-endpoint auth-method" note under Phase 2a below (repo-fixed,
+  pending messeldam redeploy + retest). The Keycloak *removal* (steps 3–7) is done in the
   repo: `keycloak.nix` + `homelab-realm.json` deleted, the two `keycloak_*` sops
   secrets dropped (sops sync also pruned their ciphertext from `secrets.yaml`),
   messeldam reduced to 512MB/1 vCPU, and the `messeldam = 6` registry comment +
@@ -129,8 +143,21 @@ name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
   corrected a pre-existing stale `network-helpers` test (it asserted messeldam
   had 1 alias; it's had 5 since Phase 1 — unrelated to Keycloak, fixed in
   passing).
-- Phase 4 — NOT STARTED (doc cleanup)
-- F1–F5 — NOT STARTED (independent follow-ups)
+- Phase 4 — **COMPLETE** (2026-06-05, doc cleanup). `keycloak-oauth-oidc-plan.md`
+  was already gone (item 1 moot); the `.nix` tree has no `oauth2-proxy` refs and
+  langport's `secrets/` is already removed (item 5 clean). Updated
+  `headscale-integration-plan.md` with a Keycloak→Authelia translation table +
+  fixed its dead `keycloak-oauth-oidc-plan.md` links (item 4 / follow-up F3), and
+  fixed stale langport/Keycloak references in
+  `foundational-identity-resilience-plan.md`. Historical `done/` plans that
+  mention Keycloak are left as-is per `llm-notes/CONVENTIONS.md` (done/ is a
+  historical record).
+- F1–F5 — **dispatched** (2026-06-05). F3 (headscale terminology) handled in
+  Phase 4. F1 (MFA), F2 (audit trail — already largely handled via
+  journald→VictoriaLogs shipping; only a dashboard remains), F4 (revocation /
+  incident runbook), and F5 (no-mTLS decision record) moved to their own plan:
+  [`../plans/authelia-hardening-followups-plan.md`](../plans/authelia-hardening-followups-plan.md).
+  See that plan; the detailed F1–F5 write-ups below are retained for context.
 
 > **Execution approach: repo changes only — operator deploys.** Claude makes
 > all the Nix/config changes for each phase and hands the operator the
