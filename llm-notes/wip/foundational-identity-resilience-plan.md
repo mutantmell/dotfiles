@@ -1,6 +1,6 @@
 # Foundational Identity Resilience Plan
 
-Status: Planned (not started)
+Status: In progress — Phase A COMPLETE (2026-06-05); Phases B, C NOT STARTED
 
 Date: 2026-06-04
 
@@ -205,7 +205,17 @@ path, which is exactly what Phase A provides.)
 
 ---
 
-## Phase A — foundational JWK SSH-user-cert provisioner (the main work)
+## Phase A — foundational JWK SSH-user-cert provisioner (the main work) — COMPLETE
+
+> **COMPLETE (2026-06-05).** Shipped the `admin-jwk` JWK provisioner on
+> `basel` (`hosts/calvard/microvm/guests/basel/modules/step-ca.nix`) with a
+> principal-pinning template (`templates/admin-jwk.tpl` → `["admin"]`) and key
+> material in `lib/common/data/pki/` (`adminJwk` in
+> `lib/common/data/default.nix`). **Validated live:** break-glass issuance
+> against the running CA succeeds, emits an `admin`-principal cert, and works
+> with Authelia stopped on messeldam. Operator runbook:
+> [`guides/step-ca-jwk-break-glass.md`](../guides/step-ca-jwk-break-glass.md).
+> Design sketch below retained for reference.
 
 **Goal:** operator SSH cert login works with Authelia/lldap **down** (or
 cold-booting), via a provisioner gated by an offline secret rather than OIDC.
@@ -239,9 +249,10 @@ Add a **JWK** provisioner to `step-ca.nix` alongside the existing `acme`,
 
 Keep the `authelia` OIDC provisioner as the **daily convenience / SSO path**
 (per-user, audited, group-derived principals). `ssh-cert-client.nix` keeps
-`provisioner = "authelia"` as the default; document the JWK provisioner as the
-IdP-independent path (`step ssh login --provisioner <jwk-name>` /
-`step ssh certificate`).
+`provisioner = "authelia"` as the default; the JWK provisioner is documented as
+the IdP-independent path in
+[`guides/step-ca-jwk-break-glass.md`](../guides/step-ca-jwk-break-glass.md)
+(operator runbook — issue, no-renewal, key rotation, validation).
 
 **Optional stronger posture (recommended, decide in open decisions):** make the
 JWK provisioner the _routine_ path for tier-1 host SSH and reserve OIDC for
@@ -259,7 +270,7 @@ depends on the rich IdP at all, up or down.
 
 ---
 
-## Phase B — break-glass hardening (optional)
+## Phase B — break-glass hardening (optional) — NOT STARTED
 
 Today the daily keys (`deploy`/`home`/`edith` in `keys.json`) _are_ Ring 0 —
 the floor already exists. Optionally add a **dedicated break-glass key** to
@@ -269,7 +280,7 @@ workstation compromise. Small change; sequencing-independent of Phase A.
 
 ---
 
-## Phase C — Perses login floor (resilience for monitoring)
+## Phase C — Perses login floor (resilience for monitoring) — NOT STARTED
 
 **Why:** Perses (tharbad) is foundational by criterion 2 but today authenticates
 **OIDC-only** to Authelia, and **fatally exits at startup** if it can't reach

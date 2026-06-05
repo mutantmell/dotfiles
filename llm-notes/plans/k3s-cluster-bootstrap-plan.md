@@ -315,7 +315,7 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
    risk — validate `kubectl oidc-login` in Phase 1; fall back to
    oauth2-proxy-shaped adapter or static bearer token if it mismatches.)
    **The rich IdP (lldap + Authelia) stays foundational — see
-   `llm-notes/plans/foundational-identity-resilience-plan.md`, which rejects
+   `llm-notes/wip/foundational-identity-resilience-plan.md`, which rejects
    moving it into the cluster. So `kubectl` OIDC here points at the foundational
    Authelia (tier-2 → tier-1, no circular dependency), and the on-disk x509
    admin kubeconfig is the cluster's own break-glass. That plan also adds an

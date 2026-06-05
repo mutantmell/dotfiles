@@ -19,7 +19,7 @@ a Keycloak→Authelia translation table at the top.
 
 ## Related plans
 
-- [`foundational-identity-resilience-plan.md`](./foundational-identity-resilience-plan.md)
+- [`foundational-identity-resilience-plan.md`](../wip/foundational-identity-resilience-plan.md)
   — IdP **availability** (break-glass SSH/monitoring when Authelia/lldap are
   down). Distinct axis from this plan, which is about AuthN **strength**, audit,
   and incident response. The two intersect on revocation (see F4 vs. that plan's
@@ -88,6 +88,13 @@ This becomes operationally valuable once friends are on the network (headscale)
 and "who accessed what, when" has real incident-response weight.
 
 ## F4 — Token revocation & incident-response runbook
+
+**DONE — drafted as [`guides/authelia-incident-response.md`](../guides/authelia-incident-response.md)
+(2026-06-05).** Companion to the break-glass runbook
+[`guides/step-ca-jwk-break-glass.md`](../guides/step-ca-jwk-break-glass.md).
+The runbook covers everything below; the validate-on-first-use caveat is that
+the SQLite session-table delete (§2) needs the pinned Authelia version's schema
+confirmed before running. Original F4 outline retained for reference:
 
 There is no documented procedure for "a user's OIDC session or account is
 compromised — what now?" Authelia supports session revocation and short token
