@@ -295,17 +295,30 @@ Chunk map:
 
 - `services.k3s` `role = "server"` (agent included), pinned `pkgs.k3s_1_33`
   (nixpkgs default is `1_35`; pinned minor, bump deliberately).
-- `--data-dir=/persist/k3s` on a dedicated btrfs subvolume created via
-  `systemd.tmpfiles` `v` (decision #2). Survives the `@root` rollback (lives on
-  `@persist`) and is independently snapshottable.
+- Data on a dedicated btrfs subvolume `/persist/k3s` (`tmpfiles` `v`, decision
+  #2) — survives the `@root` rollback (lives on `@persist`), independently
+  snapshottable. Reached via a **symlink** `/var/lib/rancher/k3s → /persist/k3s`
+  (`tmpfiles` `L+`), **not** `--data-dir`. Why: the NixOS k3s module hardcodes
+  the auto-apply dirs (`manifestDir`/`chartDir`/`imageDir`/containerd-template)
+  to the default `/var/lib/rancher/k3s/...` with no dataDir option, so
+  `--data-dir` moved where k3s *reads* but not where the module *writes* —
+  RuntimeClass/HelmChart manifests landed in an ignored dir (caught on the 1b
+  deploy: the runtime RuntimeClasses didn't appear). The symlink makes the
+  module's writes and k3s' reads coincide while keeping data on the subvolume;
+  `/var` is on rolled-back `@root`, so tmpfiles recreates the symlink each boot.
 - `k3s-datastore-snapshot` oneshot + daily timer: read-only `btrfs subvolume
   snapshot` of the data-dir, keep newest 14, prune older. Crash-consistent for
   the kine SQLite/WAL. Off-host copy to liberl deferred (CI/CD plan).
 - `--tls-san` for `erebonia` / `erebonia.internal` / mgmt IPv4 / ULA so
   `kubectl` works by name/IP from a lab/trusted workstation.
 - Host firewall: `trustedInterfaces = [cni0 flannel.1]` (pod→host traffic) and
-  `:6443` opened from the management/lab/trusted subnets via `extraInputRules`
-  (merges with the existing SSH-tightening rule in `microvm/default.nix`).
+  `:6443` opened from **trusted (VLAN 20) + lab (VLAN 21) only** via
+  `extraInputRules` (merges with the existing SSH-tightening rule in
+  `microvm/default.nix`). Management is **not** opened — host-local kubectl uses
+  loopback, and no other mgmt host needs the kube API; untrusted (VLAN 30, where
+  most devices live) is excluded. apiserver is the cluster root-of-trust, so its
+  reach is scoped to the operator's kubectl-source zones. Network reach still
+  requires a client cert/token to authenticate.
 - `--write-kubeconfig-mode=0640`; `kubectl` + `KUBECONFIG` on the host.
 
 **Deploy-test risks (operator validates — config is eval-clean only):** k3s
@@ -358,26 +371,31 @@ RuntimeClass. The shim symlink `containerd-shim-kata-clh-v2` already exists in
 nixpkgs. deployd was a bespoke runtime, so the same goal meant hand-integrating
 the shim into a non-standard stack; that friction is gone.
 
-**The residual friction is nixpkgs packaging, not k3s.** `kata-runtime` 3.29.0
-is built `HYPERVISORS=qemu` only (installs `configuration-qemu.toml`, wires only
-QEMUPATH; **no** `configuration-clh.toml`, no cloud-hypervisor path). Not the
-blockers: `kata-images` pulls the upstream `kata-static` bundle (includes the
-CLH direct-boot `vmlinux` kernel + rootfs) and `pkgs.cloud-hypervisor` (v52.0)
-exists. So the work is:
+**The fix is small — verified by inspecting the built package** (not just the
+build flags). Despite building `HYPERVISORS=qemu`, `kata-runtime` 3.29.0 **ships
+`configuration-clh.toml`**, and it is **fully Nix-pathed**: `kernel` →
+kata-images `vmlinux.container` (present), `image` → `kata-containers.img`
+(present), `virtio_fs_daemon` → nixpkgs virtiofsd (present). The **only** broken
+reference is the hypervisor binary: `path = "${kata-runtime}/bin/cloud-hypervisor"`
+(+ `valid_hypervisor_paths`), but the package ships no `cloud-hypervisor` in
+`$out/bin`. So the work is:
 
-1. Override `kata-runtime`: build `HYPERVISORS="qemu clh"`, add the
-   `cloud-hypervisor` input, and sed-patch `configuration-clh.toml` paths (clh
-   binary, kata-images kernel/rootfs, virtiofsd) the way the package already
-   patches the qemu toml — or hand-author the clh toml from upstream pointing at
-   the nixpkgs paths.
-2. Register a `kata-clh` containerd runtime handler (ConfigPath → the clh toml).
+1. `kata-runtime.overrideAttrs` with a `postInstall` symlinking
+   `${pkgs.cloud-hypervisor}/bin/cloud-hypervisor` → `$out/bin/cloud-hypervisor`.
+   That's the whole packaging fix — no `HYPERVISORS=` rebuild, no toml editing;
+   the shipped `configuration-clh.toml` then resolves as-is.
+2. Register a `kata-clh` containerd runtime handler (drop-in, like 1b) with
+   `ConfigPath` → `$out/share/defaults/kata-containers/configuration-clh.toml`.
 3. Add a `kata-clh` RuntimeClass manifest.
 4. Validate: a `kata-clh` pod boots under cloud-hypervisor and reaches
    `/dev/kvm`; nested test VM boots. CLH boots leaner/faster than QEMU — the
    reason to prefer it for the AI-coding-layer ephemeral sessions.
 
-Needs `/dev/kvm` + nested KVM (already on erebonia). See
-`project_nixpkgs_kata_qemu_only_clh_override` memory.
+**Residual risk:** clh **version compat** — kata 3.29 targets a specific Cloud
+Hypervisor; nixpkgs ships v52.0. If incompatible, pin a matching clh. This is
+why 1b validates `kata-qemu` before 1c swaps the VMM. Needs `/dev/kvm` + nested
+KVM (already on erebonia). See `project_nixpkgs_kata_qemu_only_clh_override`
+memory.
 
 ## Phase 1 — land the cluster
 
