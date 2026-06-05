@@ -18,6 +18,8 @@
   snapshotDir = "/persist/.k3s-snapshots";
   snapshotKeep = 14;
 in {
+  imports = [./runtimes.nix];
+
   # ── Datastore subvolume ────────────────────────────────────────────────────
   # `v` creates a btrfs subvolume (falls back to a plain dir on non-btrfs). Runs
   # at systemd-tmpfiles-setup, ordered before k3s.service, so the subvolume
