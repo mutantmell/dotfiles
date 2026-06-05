@@ -1,9 +1,43 @@
 # k3s Cluster Bootstrap Plan
 
-Status: In progress (Phase 0 COMPLETE; open decisions settled; chunks 1a/1b/2
-deployed & validated; chunk 1c eval-validated, awaiting operator deploy;
-**chunk 3 dropped** — the cluster needs **no router6 or bt8gw firewall changes**
-at bootstrap; see deliverable E)
+Status: **COMPLETE (shipped 2026-06-05).** The single-node bare-metal k3s
+cluster is bootstrapped and deploy-validated on erebonia. All five open
+decisions are resolved.
+
+**Shipped:** chunks 1a (control plane: k3s server, persisted btrfs datastore
+subvolume + daily snapshots, host-firewall :6443 scoping), 1b (runtime tiers
+runsc / kata-qemu / runc-kvm + RuntimeClasses), 1c (kata-clh via the
+cloud-hypervisor override, deploy-validated — pod boots under cloud-hypervisor;
+`restartTriggers` makes runtime-registration changes apply on rebuild), and 2a/
+2b/2c (cert-manager + step-ca ClusterIssuer Ready, Kyverno with builds-scoped
+ClusterPolicies, Flux controllers healthy). **Chunk 3 dropped** — the cluster
+masquerades behind erebonia's mgmt IP and erebonia is bt8gw-side, so **no
+router6 or bt8gw firewall change is needed** (deliverable E).
+
+**Deviations from the original plan (shipped as deferred, by design):**
+
+- **OIDC kubectl access (decision #1) was NOT wired at bootstrap.** The apiserver
+  has no `--oidc-*` flags; the **on-disk x509 admin kubeconfig is the bootstrap
+  access path** (decision #1 resolved the *target* as foundational Authelia, but
+  break-glass x509 works today, so OIDC wiring + the `kubectl oidc-login`
+  compat-validation are deferred until non-break-glass operator access is
+  actually wanted). Not a blocker for Phase A.
+- **Nested virt inside kata is not achievable** with the stock guest kernel
+  (`# CONFIG_VIRTUALIZATION is not set`); kata-clh's win is leaner/faster boots,
+  not in-pod KVM. A custom kata guest kernel (or the runc-kvm host-passthrough
+  tier) is owned by the AI-coding-layer workload, not bootstrap.
+
+**Deferred out of bootstrap to downstream plans (forward path, never in this
+plan's scope to ship):** Flux `GitRepository`/`Kustomization` source (decision #4
+resolved → **monorepo path** `cluster/manifests/{infrastructure,apps}/`; source
+created in the workloads plan); liberl iSCSI + democratic-csi + external-
+snapshotter (D — dev-env plan, triggered by the first VolumeSnapshot need);
+public ingress langport→erebonia + the bt8gw `transit→management` rule, and
+per-cluster egress confinement (E — first public / first untrusted workload);
+off-host datastore backup to liberl (CI/CD plan); multi-node / HA (Phases 10–11,
+capacity-driven). **Next work:** `llm-notes/plans/k3s-cluster-workloads-plan.md`
+**Phase A** — the DevPod AI-coding layer (the cluster shakedown on local
+storage).
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20).
 This plan implements **Phase 0–1** of that report, plus the deferred
@@ -613,12 +647,13 @@ intermediate)` from `data.pki` inline.
   controllers disabled (registry tag-watching, unused); helm/kustomize/source/
   notification kept.
 - **Controllers only.** The `GitRepository` + `Kustomization` pointing Flux at
-  the dynamic-manifest path are deliberately **not** created — open decision #4
-  (monorepo path vs. separate repo, repo URL/auth) is unresolved and deferred to
-  the workloads plan; wiring a concrete source now would prematurely decide it.
-  Bootstrap milestone is the controllers Running/healthy; the source lands with
-  decision #4. (This refines the "Flux reconciles a placeholder path"
-  done-criterion below to "controllers healthy; source deferred to #4".)
+  the dynamic-manifest path are deliberately **not** created here. Decision #4 is
+  now **resolved — monorepo path** (`cluster/manifests/{infrastructure,apps}/` in
+  this repo), but the concrete source (repo URL + read auth, branch/tag) is an
+  implementation detail still owned by the workloads plan and sequenced after the
+  DevPod shakedown — so the bootstrap milestone stays "controllers Running/
+  healthy; source created in the workloads plan." (Refines the "Flux reconciles a
+  placeholder path" done-criterion below.)
 
 **Deploy-test risks (operator validates — config is eval-clean only):** chart
 images pull from public registries (quay.io/ghcr.io) on first start — needs
@@ -728,9 +763,17 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
    second trust root and **documented** as such. step-ca is bridged only for
    _workload_ certs via the cert-manager `ClusterIssuer`; we do not make k3s'
    CA a step-ca intermediate (avoids fighting k3s' built-in cert rotation).
-4. **Dynamic-manifest repo layout.** Monorepo path
-   (`cluster/manifests/{infrastructure,apps}/`) vs separate repo. Not
-   load-bearing for Phase 1; decide before the workloads plan.
+4. **Dynamic-manifest repo layout. — RESOLVED.** **Monorepo path** (not a
+   separate repo): the cluster's dynamic manifests live in *this* dotfiles repo
+   under a structured path — `cluster/manifests/{infrastructure,apps}/` — and
+   Flux reconciles that subtree. Rationale: one source of truth alongside the
+   Nix platform definition; no second repo to provision, mirror, or auth
+   separately. **Still to nail in the workloads plan** (implementation detail,
+   not a decision): the `GitRepository` URL Flux points at + its read auth
+   (deploy key / token for this repo's forge), and whether Flux watches a branch
+   or tag. Creating the `GitRepository`/`Kustomization` source remains deferred
+   to the workloads plan (see the Chunk 2c log) — it's no longer *blocked on a
+   decision*, just sequenced after the DevPod shakedown.
 5. **External-facing TLS. — RESOLVED.** Terminate Let's Encrypt at **langport's
    nginx** (existing pattern), proxying to erebonia's k3s ingress. No in-cluster
    ACME / separate public-TLS path.

@@ -15,7 +15,7 @@ run after the dev-env migration, per operator priority.
 
 Depends on:
 
-- `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster, runtimes,
+- `llm-notes/done/k3s-cluster-bootstrap-plan.md` (the cluster, runtimes,
   and Flux must exist first; the AI coding layer's optional nested-virt
   sessions additionally need the kata-qemu/runc-kvm + `/dev/kvm` path
   validated in bootstrap Phase 1). **Storage:** Phase A uses bootstrap's

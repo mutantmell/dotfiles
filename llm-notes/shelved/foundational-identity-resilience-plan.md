@@ -32,7 +32,7 @@ them.
 
 ## Relationship to other plans
 
-- **Informs** `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (identity
+- **Informs** `llm-notes/done/k3s-cluster-bootstrap-plan.md` (identity
   open-decision): the cluster's `kubectl` OIDC can point at the **foundational**
   Authelia — tier-2 → tier-1, the correct dependency direction, **no circular
   dependency** — with the on-disk x509 admin kubeconfig as the cluster's own

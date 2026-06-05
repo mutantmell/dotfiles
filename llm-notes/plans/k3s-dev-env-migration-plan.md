@@ -7,7 +7,7 @@ Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 
 Depends on:
 
-- `llm-notes/plans/k3s-cluster-bootstrap-plan.md` (the cluster). **Note:
+- `llm-notes/done/k3s-cluster-bootstrap-plan.md` (the cluster). **Note:
   networked storage is _not_ provided by bootstrap** — it's deferred there
   (bootstrap uses local-path). **This plan stands up the liberl iSCSI
   target + democratic-csi + external-snapshotter** (bootstrap section D),

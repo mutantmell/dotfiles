@@ -13,7 +13,7 @@ Replaces: `llm-notes/plans/ci-cd-plan.md`
 > "deployd workloads" line, and the `deployd + Kata → modules/common/deployd.nix`
 > current-state row no longer hold. The CI work that referenced deployd's
 > containerd/Kata now targets a clean erebonia (see
-> `llm-notes/plans/k3s-cluster-bootstrap-plan.md`).
+> `llm-notes/done/k3s-cluster-bootstrap-plan.md`).
 
 ## Overview
 
