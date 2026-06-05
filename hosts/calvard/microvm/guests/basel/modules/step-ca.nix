@@ -5,7 +5,6 @@
   ...
 }: let
   inherit (pkgs.mmell.lib) data;
-  fleetX5cCAExists = data.pki.fleetX5cCA != null;
 in {
   # step-ca serves TLS directly on port 443 without an nginx reverse proxy.
   # Unlike most services, step-ca is a certificate authority — TLS is its core
@@ -25,6 +24,10 @@ in {
     };
     "step-ca/templates/ssh/oidc.tpl" = {
       source = ./templates/oidc.tpl;
+      mode = "0444";
+    };
+    "step-ca/templates/ssh/admin-jwk.tpl" = {
+      source = ./templates/admin-jwk.tpl;
       mode = "0444";
     };
   };
@@ -69,54 +72,90 @@ in {
         userKey = config.sops.secrets."ssh_user_ca_key".path;
       };
       authority = {
-        provisioners =
-          [
-            {
-              type = "ACME";
-              name = "acme";
-              claims = {
-                defaultTLSCertDuration = "1080h";
-                maxTLSCertDuration = "2160h";
+        provisioners = [
+          {
+            type = "ACME";
+            name = "acme";
+            claims = {
+              defaultTLSCertDuration = "1080h";
+              maxTLSCertDuration = "2160h";
+            };
+          }
+          # In-place swap to Authelia (Phase 2c). Side-by-side keycloak +
+          # authelia provisioners is NOT possible: step-ca keys a provisioner's
+          # unique id off its clientID, and both would be "step-ca" ->
+          # "cannot add multiple provisioners with the same id" (step-ca exits
+          # 2 at startup). Coexistence would need a second Authelia client
+          # under a distinct client_id; not worth it — rollback is reverting
+          # this commit while Keycloak keeps running.
+          {
+            type = "OIDC";
+            name = "authelia";
+            clientID = "step-ca";
+            # Public client (no clientSecret): step-cli does authorization-code
+            # + PKCE on the loopback redirect, and step-ca would publish any
+            # secret via its /provisioners API anyway. Matches the public
+            # client registered in messeldam's authelia.nix.
+            configurationEndpoint = "https://authelia.internal.mutantmell.net/.well-known/openid-configuration";
+            listenAddress = "127.0.0.1:10000";
+            # step requests only ["openid" "email"] by default, so Authelia
+            # would never grant the groups scope and the SSH cert template's
+            # `.Token.groups` would be empty → certs with no principals. (Keycloak
+            # masked this by force-adding groups as a default client scope.)
+            # Must request `groups` explicitly; the `with_groups` claims policy
+            # in messeldam's authelia.nix then copies it into the ID Token.
+            scopes = ["openid" "email" "profile" "groups"];
+            claims = {
+              enableSSHCA = true;
+            };
+            options = {
+              ssh = {
+                templateFile = "/etc/step-ca/templates/ssh/oidc.tpl";
               };
-            }
-            # In-place swap to Authelia (Phase 2c). Side-by-side keycloak +
-            # authelia provisioners is NOT possible: step-ca keys a provisioner's
-            # unique id off its clientID, and both would be "step-ca" ->
-            # "cannot add multiple provisioners with the same id" (step-ca exits
-            # 2 at startup). Coexistence would need a second Authelia client
-            # under a distinct client_id; not worth it — rollback is reverting
-            # this commit while Keycloak keeps running.
-            {
-              type = "OIDC";
-              name = "authelia";
-              clientID = "step-ca";
-              # Public client (no clientSecret): step-cli does authorization-code
-              # + PKCE on the loopback redirect, and step-ca would publish any
-              # secret via its /provisioners API anyway. Matches the public
-              # client registered in messeldam's authelia.nix.
-              configurationEndpoint = "https://authelia.internal.mutantmell.net/.well-known/openid-configuration";
-              listenAddress = "127.0.0.1:10000";
-              # step requests only ["openid" "email"] by default, so Authelia
-              # would never grant the groups scope and the SSH cert template's
-              # `.Token.groups` would be empty → certs with no principals. (Keycloak
-              # masked this by force-adding groups as a default client scope.)
-              # Must request `groups` explicitly; the `with_groups` claims policy
-              # in messeldam's authelia.nix then copies it into the ID Token.
-              scopes = ["openid" "email" "profile" "groups"];
-              claims = {
-                enableSSHCA = true;
+            };
+          }
+          # JWK break-glass SSH-user-cert provisioner (foundational-identity-
+          # resilience Phase A). IdP-independent path: gated by an offline JWK
+          # password (operator passage vault) instead of OIDC, so operator cert
+          # login works when Authelia/lldap are down or cold-booting. Reuses the
+          # existing SSH *user* CA (ssh.userKey) to sign — the JWK keypair only
+          # *authorizes* the request, it is not a second signing CA. Initializes
+          # with no network (no OIDC discovery), so it is unaffected by the
+          # step-ca <-> Authelia cold-boot loop that step-ca-oidc-retry handles.
+          {
+            type = "JWK";
+            name = "admin-jwk";
+            key = builtins.fromJSON (builtins.readFile data.pki.adminJwk.key);
+            # `step crypto jwk create` emits the encrypted private key as JWE
+            # JSON serialization; step-ca's encryptedKey wants compact form.
+            # Join the five base64url segments with "." to convert.
+            encryptedKey = let
+              jwe = builtins.fromJSON (builtins.readFile data.pki.adminJwk.encryptedKey);
+            in
+              lib.concatStringsSep "." [
+                jwe.protected
+                jwe.encrypted_key
+                jwe.iv
+                jwe.ciphertext
+                jwe.tag
+              ];
+            claims = {
+              enableSSHCA = true;
+            };
+            options = {
+              ssh = {
+                # admin-jwk.tpl hard-codes the emitted principal to "admin"
+                # regardless of requester input — the primary gate, since JWK has
+                # no groups claim and a requester could otherwise pass --principal.
+                # policy.ssh.user.allow.principals remains as defense-in-depth.
+                templateFile = "/etc/step-ca/templates/ssh/admin-jwk.tpl";
               };
-              options = {
-                ssh = {
-                  templateFile = "/etc/step-ca/templates/ssh/oidc.tpl";
-                };
-              };
-            }
-          ]
-          ++ (lib.optional fleetX5cCAExists {
-            # X5C: fleet hosts self-enroll for x.509 client certs using their
-            # pre-signed enrollment cert (signed by the offline fleet_x5c_ca) as the
-            # X5C trust anchor. Provisioner activates once fleet_x5c_ca.crt is committed.
+            };
+          }
+          # X5C: fleet hosts self-enroll for x.509 client certs using their
+          # pre-signed enrollment cert (signed by the offline fleet_x5c_ca) as the
+          # X5C trust anchor.
+          {
             type = "X5C";
             name = "fleet-x5c";
             roots = builtins.readFile (pkgs.runCommand "fleet-x5c-ca-b64" {} ''
@@ -126,7 +165,8 @@ in {
               defaultTLSCertDuration = "8760h";
               maxTLSCertDuration = "8760h";
             };
-          });
+          }
+        ];
       };
     };
   };

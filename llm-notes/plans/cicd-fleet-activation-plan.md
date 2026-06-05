@@ -4,6 +4,17 @@ Plan date: 2026-04-03
 Specification: `llm-notes/specs/cicd-fleet-management.md`
 Replaces: `llm-notes/plans/ci-cd-plan.md`
 
+> **Stale snapshot (flagged 2026-06-05).** This plan's "current state"
+> tables predate the dual-gateway re-IP and the deployd removal. Re-ground
+> before execution. Known drift: the NAS/Attic host is **liberl/zeiss**, not
+> `remiferia`/`ardent`; DMZ residents moved off `10.97.100.x` (langport/trista
+> now `10.91.100.x`, other services into APP `10.97.50.x`); and **deployd is
+> removed** — the §1.3 "erebonia already has deployd/Kata" basis, the §1.8
+> "deployd workloads" line, and the `deployd + Kata → modules/common/deployd.nix`
+> current-state row no longer hold. The CI work that referenced deployd's
+> containerd/Kata now targets a clean erebonia (see
+> `llm-notes/plans/k3s-cluster-bootstrap-plan.md`).
+
 ## Overview
 
 This plan implements the CI/CD pipeline and fleet activation system specified in

@@ -10,16 +10,14 @@ Depends on: nothing in-repo (greenfield). Optional dependency on
 `llm-notes/plans/authelia-migration-plan.md` if OIDC `kubectl` access is
 wanted at bootstrap (see "Open decisions").
 
-**Prerequisite (do this first): remove deployd.** Since cc-sandbox is
-unused, deployd has no workload — decommission it **before** standing up
-k3s (see `llm-notes/plans/k3s-deployd-migration-plan.md`). Doing this first
-means k3s lands on a clean erebonia with **no deployd coexistence to
-manage** (no shared kata config, no duplicate nested-KVM modprobe, no
-containerd/CNI/bridge/port audit). This is the single biggest simplification
-to the bootstrap.
+**Prerequisite — DONE: deployd is removed.** deployd has been fully
+decommissioned (no remaining `.nix` references; see
+`llm-notes/done/k3s-deployd-migration-plan.md`). k3s therefore lands on a
+clean erebonia with **no deployd coexistence to manage** (no shared kata
+config, no duplicate nested-KVM modprobe, no containerd/CNI/bridge/port
+audit) — the single biggest simplification to the bootstrap, already banked.
 
-Foundation for (recommended execution order, after deployd removal +
-bootstrap):
+Foundation for (recommended execution order):
 
 1. `llm-notes/plans/k3s-cluster-workloads-plan.md` **Phase A** — AI coding
    layer: on-demand dev containers via **DevPod** (off-the-shelf,
@@ -34,17 +32,17 @@ bootstrap):
 3. The **rest** of `k3s-cluster-workloads-plan.md` (blog, game servers, CI)
    — remaining net-new features. Game servers also use CSI (already up).
 
-Rationale: remove deployd first (no workload), then bootstrap on a clean
-host. The AI coding layer (dev containers) is built first as a low-stakes
-shakedown on local storage that proves the cluster before the daily-driver
-edith moves. This reorders the report's phase numbering (it ran net-new
-workloads as Phases 2–4 before the migrations).
+Rationale: with deployd already gone, bootstrap on a clean host. The AI
+coding layer (dev containers) is built first as a low-stakes shakedown on
+local storage that proves the cluster before the daily-driver edith moves.
+This reorders the report's phase numbering (it ran net-new workloads as
+Phases 2–4 before the migrations).
 
 Reverses the earlier k3s rejection that motivated deployd (the
 dynamic-container-layer spec, since deleted — see the report
 `llm-notes/reports/k8s-migration-evaluation.md` for the reversal). deployd
-is being retired in favour of this direction — see
-`llm-notes/plans/k3s-deployd-migration-plan.md`.
+was retired in favour of this direction — see
+`llm-notes/done/k3s-deployd-migration-plan.md`.
 
 ---
 
@@ -147,7 +145,7 @@ plan corrects against the live repo:
   - the router6 `cluster` zone (E). Reachable from erebonia-local and
     selected clients (optionally remote `kubectl` via langport's proxy).
 - Host prerequisites on erebonia: gVisor `runsc` binary, `pkgs.kata-runtime`
-  (deployd's module owned this before; with deployd removed first, k3s is
+  (deployd's module owned this before; with deployd already removed, k3s is
   the sole owner of the kata runtime and
   `/etc/kata-containers/configuration.toml`), and a containerd shim
   configuration registering `runsc` and `kata-qemu`.
@@ -228,20 +226,20 @@ Egress allows (translated from the report's example to live host roles):
   token is needed (there's no separate agent).
   (democratic-csi credentials are deferred with the CSI work, D.)
 
-## No deployd coexistence (removed first)
+## No deployd coexistence (already removed)
 
 Earlier drafts carried a deployd↔k3s coexistence audit (containerd socket
 paths, CNI conflist dirs, bridge names, the shared kata config, duplicate
-nested-KVM modprobe, port conflicts). **All of that goes away** because
-deployd is decommissioned before k3s lands (see the prerequisite at the
-top). On a clean erebonia:
+nested-KVM modprobe, port conflicts). **All of that is moot** — deployd is
+already decommissioned (see the prerequisite at the top). On the clean
+erebonia:
 
 - k3s' agent owns containerd, the CNI, and
   `/etc/kata-containers/configuration.toml` outright — no sharing.
-- Settle the single owner of the nested-KVM modprobe (`options kvm_intel
-nested=1`) — deployd's module set it and `hosts/erebonia/default.nix:53`
-  also sets it; after deployd removal, keep just the host-level one (or
-  move it under the k3s config). One declaration, not two.
+- The nested-KVM modprobe (`options kvm_intel nested=1`) now has a single
+  owner at `hosts/erebonia/default.nix:53` (deployd's module that also set
+  it is gone). Keep the host-level one, or move it under the k3s config —
+  one declaration either way.
 - Ports 6443/10250/10256/8472 are free (nothing else on erebonia uses them).
 
 ## Phase 0 — resource inventory & rollback check (prerequisite)
@@ -341,7 +339,6 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
 ## Rollback
 
 Every step is a NixOS generation. `nixos-rebuild switch --rollback` or
-boot the prior generation. deployd is removed in the prerequisite step
-(its own commit) — if for any reason the dynamic-runtime is wanted back
-before k3s is ready, revert that commit; but since cc-sandbox is unused,
-no rollback to deployd is expected.
+boot the prior generation. deployd was already removed in its own prior
+commit; if the dynamic-runtime were ever wanted back, revert that commit —
+but since cc-sandbox is unused, no rollback to deployd is expected.

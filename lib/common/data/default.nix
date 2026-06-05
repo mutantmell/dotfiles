@@ -32,14 +32,21 @@ in {
     intermediate = pki + "/intermediate_ca.crt";
     sshUserCA = pki + "/ssh_user_ca.pub";
     sshHostCA = pki + "/ssh_host_ca.pub";
-    # Null until operator generates and commits the offline CA cert.
-    # Once fleet_x5c_ca.crt is committed, the X5C provisioner on basel activates.
-    fleetX5cCA = let
-      path = pki + "/fleet_x5c_ca.crt";
-    in
-      if builtins.pathExists path
-      then path
-      else null;
+    # Offline-generated fleet X5C CA cert; gates machine mTLS enrollment.
+    # The X5C provisioner on basel and the fleet enrollment-cert assertions
+    # both reference this directly.
+    fleetX5cCA = pki + "/fleet_x5c_ca.crt";
+    # JWK break-glass SSH-user-cert provisioner material (foundational-identity-
+    # resilience Phase A). `key` is the public JWK; `encryptedKey` is the
+    # password-encrypted private JWK as JWE JSON serialization (as emitted by
+    # `step crypto jwk create`; step-ca.nix joins its segments into the compact
+    # form step-ca wants). Both are safe to commit — the offline JWK password
+    # (operator passage vault) is the actual secret. Generate with:
+    #   step crypto jwk create admin_jwk.pub.json admin_jwk.enc --kty EC --crv P-256
+    adminJwk = {
+      key = pki + "/admin_jwk.pub.json";
+      encryptedKey = pki + "/admin_jwk.enc";
+    };
   };
   fleetEnrollmentCerts = let
     certDir = ./fleet-x5c-certs;

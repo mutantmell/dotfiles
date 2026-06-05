@@ -10,10 +10,6 @@
   caUrl = "https://basel.internal";
   caRoot = pki.root;
   hasTls = config.fluent-bit-agent.tls.certFile != null;
-  # True once the operator has generated and committed the fleet X5C CA cert.
-  # Enrollment cert assertions are suppressed until then to allow the initial
-  # transition deploy before any certs are signed.
-  x5cActive = pki.fleetX5cCA != null;
   hostname = config.networking.hostName;
 in {
   config = lib.mkIf config.fluent-bit-agent.enable (lib.mkMerge [
@@ -29,11 +25,10 @@ in {
           message = "fluent-bit-agent on '${hostname}' requires an SSH host cert at lib/common/data/host-certs/${hostname}-cert.pub. Sign one with: nix run .#ssh-host-cert-sign -- --sign ${hostname}";
         }
         {
-          # X5C enrollment cert must be present once the fleet X5C CA is active.
-          # Suppressed when fleetX5cCA is null (pre-CA-generation transition period).
+          # X5C enrollment cert must be present for any host using fleet mTLS.
           # Gate on hasTls so a fresh host can deploy with tls.certFile = null for
           # the first pass, generate its enrollment key, then get the cert signed.
-          assertion = !hasTls || !x5cActive || (fleetEnrollmentCerts ? ${hostname});
+          assertion = !hasTls || (fleetEnrollmentCerts ? ${hostname});
           message = "fluent-bit-agent on '${hostname}' uses mTLS via X5C enrollment, but no enrollment cert is registered at lib/common/data/fleet-x5c-certs/${hostname}.crt. Register the key and sign: nix run .#fleet-x5c-cert-sign -- --sign ${hostname}";
         }
       ];

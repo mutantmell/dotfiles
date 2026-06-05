@@ -38,8 +38,8 @@ Interacts with:
   k8s deploy events.
 - The planned-but-never-built deployd game-server iSCSI add-on (deployd
   milestone "D4", from the now-deleted dynamic-container-layer spec) is
-  replaced here by CSI VolumeSnapshot. deployd is being retired
-  (`llm-notes/plans/k3s-deployd-migration-plan.md`).
+  replaced here by CSI VolumeSnapshot. deployd has been retired
+  (`llm-notes/done/k3s-deployd-migration-plan.md`).
 - Friend-facing game-server access is tracked in
   `llm-notes/plans/headscale-integration-plan.md` (Headscale/subnet-router
   track), which predates the cluster direction — game servers are now
@@ -220,7 +220,7 @@ substrate becomes the k3s kubernetes backend instead of bare-metal agents.
 
 `cicd-fleet-management.md` §9 ("Future Direction: Container Integration")
 builds container deploys on `builds.containers.*` events calling the
-**deployd API** (depends on deployd D3/D1c). With deployd shelved, that
+**deployd API** (depends on deployd D3/D1c). With deployd removed, that
 section should be rewritten to target k8s deploy events (Flux
 reconciliation or a small apiserver-talking controller) instead. Out of
 scope for the build here, but flag it when touching the cicd plan.
