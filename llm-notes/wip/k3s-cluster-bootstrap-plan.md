@@ -1,7 +1,8 @@
 # k3s Cluster Bootstrap Plan
 
 Status: In progress (Phase 0 COMPLETE; open decisions settled; chunks 1a/1b/2
-deployed & validated; chunk 1c pending; chunk 3 pending)
+deployed & validated; chunk 1c pending; **chunk 3 dropped** — the cluster needs
+**no router6 or bt8gw firewall changes** at bootstrap; see deliverable E)
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20).
 This plan implements **Phase 0–1** of that report, plus the deferred
@@ -108,9 +109,9 @@ plan corrects against the live repo:
 
 - **router6 lives on `thebeyond`, not erebonia.** Zones are defined in
   `hosts/thebeyond/router.nix` (`router6.zones`, ~line 173). erebonia
-  does **not** import router6. The new `cluster` zone is added to
-  thebeyond's router config; erebonia's cluster traffic traverses the
-  router like any other host.
+  does **not** import router6. *(An early draft added a `cluster` zone here;
+  that was dropped — erebonia is bt8gw-side and the cluster masquerades behind
+  its mgmt IP, so thebeyond can't see it as a distinct zone. See deliverable E.)*
 - **OIDC provider is currently Keycloak (`messeldam`), not Authelia.**
   The report says "Authelia"; an Authelia migration is _planned_
   (`llm-notes/plans/authelia-migration-plan.md`) but not done. kube
@@ -142,10 +143,12 @@ plan corrects against the live repo:
   **backup** story for the SQLite file (scheduled snapshot/copy; this is the
   cluster's source of truth, see "Open decisions"). This is the recovery
   mechanism that replaces the report's "rebuild the apiserver microvm."
-- **apiserver (:6443) network confinement via the host**, not a VM: bind it
-  to erebonia's management interface and gate access with the host firewall
-  - the router6 `cluster` zone (E). Reachable from erebonia-local and
-    selected clients (optionally remote `kubectl` via langport's proxy).
+- **apiserver (:6443) network confinement via the host firewall**, not a VM and
+  not a router zone: bind it to erebonia's management interface and gate access
+  with erebonia's **host firewall** (Chunk 1a opens :6443 from trusted/VLAN 20 +
+  lab/VLAN 21 only). bt8gw already routes those zones to management (VLAN 11),
+  so kubectl from a workstation works with no router change; see deliverable E
+  (a router6 `cluster` zone is **not** used — it isn't implementable here).
 - Host prerequisites on erebonia: gVisor `runsc` binary, `pkgs.kata-runtime`
   (deployd's module owned this before; with deployd already removed, k3s is
   the sole owner of the kata runtime and
@@ -196,26 +199,90 @@ it lands (owned by the dev-env plan), the work is:
 - `external-snapshotter` then `democratic-csi` (`zfs-generic-iscsi`) as
   HelmCharts in the k3s server manifests directory
   (`/var/lib/rancher/k3s/server/manifests/`); `pkgs.openiscsi` on erebonia.
-- liberl's iSCSI portal reachable from the cluster zone (router6 forward
-  rule: cluster → liberl TCP/3260; management endpoint over SSH/22 or HTTP)
-  — add these rules to the cluster zone (E) at that time, not now.
+- liberl's iSCSI portal (TCP/3260) + SSH/HTTP mgmt endpoint: **no firewall
+  rule needed** — liberl is in `management`/VLAN 11, the same subnet as erebonia,
+  so iSCSI and the ZFS-mgmt endpoint are intra-VLAN L2 (same as basel/tharbad).
+  The masqueraded cluster reaches them on erebonia's mgmt identity. (Confirm
+  liberl's own host firewall admits the cluster/erebonia source on :3260 + the
+  mgmt port when the CSI work lands — that's a liberl-host change, not a
+  router/gateway one. See deliverable E.)
 - Validate the **full** lifecycle (provision → bind → snapshot → restore →
   delete) against the real liberl before betting workloads on it.
 
-### E. router6 `cluster` zone (on thebeyond)
+### E. Cluster network reachability — NO router6 zone, NO new firewall rules (re-scoped)
 
-Add a `cluster` zone to `hosts/thebeyond/router.nix` (`router6.zones`).
-Derive all addresses from the network registry via `forHost` — do **not**
-hardcode IPs (the report's example hardcoded an incorrect phantasma IP).
-Egress allows (translated from the report's example to live host roles):
+The report (and earlier drafts of this plan) wanted a `cluster` zone on
+thebeyond's router6 with per-target egress allows. **Dropped — it rests on a
+false premise.** Two facts independently kill it:
 
-- → `phantasma` (network zone) UDP/TCP 53 — DNS
-- → `creil`, `langport` (dmz) TCP 443
-- → `tharbad` (management) for metrics push (VictoriaMetrics ingest)
-- → `liberl` (management) TCP 3260 (iSCSI) + SSH/HTTP mgmt endpoint —
-  **deferred**, add with the CSI work (D), not at bootstrap.
-- input: public-facing cluster services arrive via langport's nginx →
-  erebonia k3s ingress (NodePort range or Traefik), not directly.
+1. **The cluster has no network identity off-host.** k3s/flannel masquerades
+   (SNAT) all pod egress to erebonia's management IP (`10.97.11.31`) before it
+   leaves the host. Anywhere downstream — bt8gw or thebeyond — "cluster traffic"
+   is indistinguishable from "erebonia host traffic." There is no pod-CIDR to
+   build a zone around.
+2. **erebonia is bt8gw-side; thebeyond never sees it as a distinct zone.**
+   erebonia lives in `management`/VLAN 11, whose `gateway = "bt8gw"`. To
+   thebeyond, everything from bt8gw-side hosts arrives over the transit /30 and
+   is classified as the single `transit` zone (`hosts/thebeyond/router.nix:364`;
+   the comment is explicit — *"BT8-gateway's fw4 is the source-zone enforcer"*).
+   thebeyond cannot match a `cluster` zone against traffic it only ever sees as
+   `transit`.
+
+So the cluster inherits erebonia's existing reachability. Each flow the report
+wanted, mapped to the path it actually takes and what already permits it:
+
+| Flow | Target zone | Path | Already permitted by |
+|---|---|---|---|
+| basel:443 (cert-manager ACME) | management/11 | **intra-VLAN-11** (same subnet as erebonia) | L2 — no forward chain. Proven: Chunk 2a issuer reached Ready. |
+| tharbad (metrics/logs push) | management/11 | **intra-VLAN-11** | L2 — no forward chain. erebonia already in the fluent-bit push set. |
+| liberl:3260 (iSCSI, deferred) | management/11 | **intra-VLAN-11** | L2 — no forward chain (when CSI lands). |
+| creil:443/80/22 (registry) | app/50 | bt8gw `management → app` | **Existing** `Allow-management-to-creil-forgejo` (src `10.97.11.0/24`). |
+| phantasma:53 (DNS) | network/10 (thebeyond) | bt8gw `management → transit` → thebeyond | **Existing** management→transit (erebonia resolves DNS today). |
+| internet (chart/image pulls) | external | bt8gw `management → transit` → thebeyond WAN | **Existing & proven** — Chunk 2 pulled quay.io/ghcr.io images. |
+| kubectl :6443 ingress | from trusted/20, lab/21 | bt8gw trusted/lab → management | **Existing** (VLAN 20/21 → 11 access; `project_bt8gw_vlan_20_21_to_11_access`). |
+
+**bt8gw firewall rules required for the cluster: NONE.** Every flow maps to a
+`config forwarding` zone-pair directive that already exists on bt8gw
+(`management → app`, `management → transit`, `trusted/lab → management`) or is
+intra-VLAN-11 (no forward chain at all). On this fw4 version the zone-pair
+directive is what actually permits traffic; per-flow `config rule` entries are
+documentation/audit anchors only (see `BT8-gw-section-a-additions.uci` header).
+The masqueraded cluster rides erebonia's host identity — and erebonia-the-host
+already has all these flows. Chunk 2's successful deploy (public image pulls +
+basel ACME registration) is the live proof.
+
+  - *Optional audit anchor (not required):* if the operator wants the cluster's
+    intended flows documented in bt8gw's fw4 in the established style, the only
+    non-redundant anchor is erebonia → creil — and even that is already covered
+    by the subnet-scoped `Allow-management-to-creil-forgejo` rule. So there is
+    genuinely nothing to add.
+
+**thebeyond firewall rules required: NONE at bootstrap.** The only future
+thebeyond/transit touch is **public ingress**: when a public-facing cluster
+service lands, langport's nginx (dmz/100, thebeyond-side) proxies to erebonia's
+k3s ingress; that path crosses thebeyond `dmz → transit` **and** bt8gw
+`transit → management` (which does not exist today and would be added then).
+Deferred to the first public workload — decision #5 already terminates external
+TLS at langport. No bootstrap workload is public (DevPod/Phase A is local;
+dev-env is internal).
+
+**Egress confinement — re-homed, optional, post-bootstrap.** The one legitimate
+security goal buried in the original deliverable E — stop a compromised
+CI/AI-coding pod from reaching the whole network/internet — **cannot** be
+enforced on thebeyond (it can't see the cluster as distinct) and is only weakly
+enforceable on bt8gw (it sees the cluster as erebonia-the-host, so tightening
+there would also constrain the host). Real per-cluster egress confinement must
+live **where pod traffic is still identifiable**:
+
+- erebonia-local: host nftables on the flannel / pod-CIDR path, or an
+  egress-enforcing CNI (Calico/Cilium — flannel can't), or
+- a dedicated source identity for the cluster on bt8gw (don't masquerade the pod
+  CIDR; route it and give it its own fw4 zone) — heavier, still bt8gw-side.
+
+This matches the plan's deviation-from-report stance: put the security budget
+into per-workload runtime tiers (kata/gVisor, landed in 1b), not network
+gymnastics. Picked up if/when untrusted CI workloads actually land — not at
+bootstrap.
 
 ### F. Network registry + secrets
 
@@ -270,12 +337,16 @@ Captured on the live, deployd-free erebonia:
 ## Phase 1 implementation log (branch `k3s-bootstrap-erebonia`)
 
 Phase 1 is being landed in reviewable chunks. The operator's constraint:
-**erebonia-local changes first, the router6 `cluster` zone (E) as a separate
-reviewed change**, and the cluster must be testable from a workstation. That
-test path works _without_ the router6 change because bt8-gateway already grants
-VLAN 20/21 full access to VLAN 11 (management, erebonia's zone) — see
+**erebonia-local changes first**, with any router/gateway change as a separate
+reviewed step, and the cluster must be testable from a workstation. That test
+path works with **no** router or gateway change at all: bt8-gateway already
+grants VLAN 20/21 full access to VLAN 11 (management, erebonia's zone) — see
 `project_bt8gw_vlan_20_21_to_11_access` memory — so only erebonia's host
-firewall needs to open `:6443`.
+firewall needs to open `:6443`. The originally-planned router6 `cluster` zone
+(Chunk 3) was subsequently **dropped** once it became clear the cluster
+masquerades behind erebonia's bt8gw-side management IP and thebeyond therefore
+can't see it as a distinct zone — see deliverable E. **Phase 1 is entirely
+erebonia-local.**
 
 Chunk map:
 
@@ -287,9 +358,14 @@ Chunk map:
   erebonia-local (auto-apply manifests / `services.k3s.autoDeployCharts`).
   DONE (deployed & validated); split into **2a** (cert-manager), **2b**
   (Kyverno), **2c** (Flux).
-- **3** — router6 `cluster` zone on thebeyond (deliverable E). Separate reviewed
-  change touching the live router; egress (DNS/443/metrics), input via langport.
-  External-TLS termination at langport (decision #5) lands with/after this.
+- **3** — ~~router6 `cluster` zone on thebeyond~~ **DROPPED** (deliverable E,
+  re-scoped). The cluster masquerades behind erebonia's management IP and
+  erebonia is bt8gw-side, so thebeyond never sees a distinct cluster zone and
+  bt8gw already forwards every flow the cluster needs (management→app,
+  management→transit, trusted/lab→management; intra-VLAN-11 for basel/tharbad/
+  liberl). **No router6 or bt8gw firewall change at bootstrap.** Public ingress
+  (langport→erebonia) and any egress-confinement hardening are deferred to the
+  first untrusted/public workload — see deliverable E.
 
 ### Chunk 1a — k3s control plane — DONE (eval-validated, not yet deployed)
 
@@ -446,17 +522,21 @@ mutantmell.net/acme/acme/directory`). Chosen over step-issuer/JWK precisely
   seeds only the host), so the issuer carries `caBundle = base64(root ‖
 intermediate)` from `data.pki` inline.
 - **What validates now vs. later:** the issuer reaches **Ready** once
-  cert-manager registers an ACME account against basel — that needs only
-  erebonia→basel:443 egress, no ingress/solver. Issuing an actual `Certificate`
-  also needs the declared **HTTP-01 solver** (Traefik ingressClass) to be
-  reachable by step-ca, which depends on cluster ingress + the router6 `cluster`
-  zone (**Chunk 3**). So the bootstrap milestone is _issuer Ready_; the
-  end-to-end "issues a Certificate" check moves to Chunk 3.
-- **Flag for Chunk 3 / deliverable E:** add a `cluster → basel (management)
-TCP 443` egress allow. At bootstrap, cert-manager→basel SNATs to erebonia's
-  mgmt IP (flannel masquerade) and rides intra-management reachability, but once
-  the cluster zone identifies pod-CIDR traffic, basel:443 must be in the
-  allowlist alongside the creil/langport:443 rules already listed in E.
+  cert-manager registers an ACME account against basel — and basel is in
+  VLAN 11, the **same subnet** as erebonia, so that's intra-VLAN L2 with no
+  firewall involved (validated in Chunk 2a). Issuing an actual `Certificate`
+  also needs the declared **HTTP-01 solver** (Traefik ingressClass) reachable
+  by step-ca, which depends on cluster **ingress** (langport → erebonia). With
+  Chunk 3 dropped, that end-to-end check moves to the **first public/ingress
+  workload**, not a router zone. So the bootstrap milestone is _issuer Ready_.
+- **basel:443 needs NO firewall rule (correction to an earlier flag).** An
+  earlier draft flagged a `cluster → basel TCP 443` egress allow for Chunk 3.
+  That was wrong: basel is in `management`/VLAN 11, the **same subnet** as
+  erebonia, so cert-manager→basel (SNAT'd to erebonia's mgmt IP) is pure
+  intra-VLAN L2 — no router, no gateway, no forward chain. This very validation
+  (issuer reached Ready via ACME against basel, with no router change) is the
+  proof. There is no "cluster zone identifying pod-CIDR traffic" anywhere — the
+  pod CIDR is masqueraded away on-host. See deliverable E.
 
 #### Chunk 2b — Kyverno + `woodpecker-builds` ClusterPolicies (`k3s/kyverno.nix`)
 
@@ -527,12 +607,17 @@ deferred.) Validation:
 - **local-path** PVC provisions, binds, and a pod mounts it (the storage
   path Phase A uses). VolumeSnapshot testing is deferred to the CSI work.
 - cert-manager: the `step-ca` ClusterIssuer reaches **Ready** (ACME account
-  registered against basel — needs erebonia→basel:443). Issuing an actual
-  Certificate end-to-end needs the HTTP-01 solver reachable (cluster ingress +
-  the router6 `cluster` zone), so that check moves to **Chunk 3** (see the
+  registered against basel — intra-VLAN-11, no firewall change). Issuing an
+  actual Certificate end-to-end needs the HTTP-01 solver reachable (cluster
+  ingress, langport → erebonia), so that check moves to the **first
+  public/ingress workload** (Chunk 3 dropped — see deliverable E and the
   Chunk 2a log).
-- Network policy behaves: pod↔pod ok, pod→host default-deny,
-  pod→internet only via router6 allows.
+- Pod networking behaves: pod↔pod ok, pod→host default-deny (host firewall
+  `trustedInterfaces = [cni0 flannel.1]` from Chunk 1a). Pod egress is
+  **masqueraded to erebonia's mgmt IP** and rides erebonia's existing
+  reachability (DNS/internet/registry) — no router6 allow is involved and none
+  is added (deliverable E). Per-cluster egress *confinement*, if wanted later,
+  is erebonia-local (CNI/nftables), not a router change.
 - Appendix-A hostile test runs cleanly under runsc.
 
 **Done when** the cluster comes up cleanly from a fresh rebuild, all
