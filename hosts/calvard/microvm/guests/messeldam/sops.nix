@@ -41,11 +41,19 @@
 #   # OIDC token-signing key (RSA 4096 PEM) — paste the whole PEM block
 #   authelia-oidc-issuer-private-key: openssl genrsa 4096
 #
-#   # Per-client secrets (confidential clients only) — generate a plaintext,
-#   # hash it. Store the HASH here; keep the PLAINTEXT for the consumer (perses
-#   # on tharbad in 2a). step-ca (basel, 2c) is a public client and needs no
-#   # secret. Repeat once per confidential client:
-#   PT=$(openssl rand -hex 32); echo "plaintext: $PT"
-#   nix run nixpkgs#authelia -- crypto hash generate pbkdf2 --variant sha512 --password "$PT"
-#   authelia-oidc-perses-secret-hash  : <Digest line from the hash output>
+#   # Per-client secrets (confidential clients only) — generate ONE plaintext,
+#   # hash it. The HASH goes here; the SAME PLAINTEXT goes in the consumer's sops
+#   # (perses on tharbad: `perses-oidc-client-secret`). They MUST correspond — the
+#   # consumer sends the plaintext and Authelia hashes it and compares. step-ca
+#   # (basel, 2c) is a public client and needs no secret.
+#   #
+#   #   PT=$(openssl rand -hex 32); echo "plaintext: $PT"   # → tharbad sops
+#   #   nix run nixpkgs#authelia -- crypto hash generate pbkdf2 \
+#   #       --variant sha512 --no-confirm --password "$PT" | sed 's/^Digest: //'
+#   #
+#   # Store ONLY the digest, which begins with `$pbkdf2-sha512$…`. Do NOT include
+#   # the `Digest: ` label the command prints, and no surrounding quotes/newline —
+#   # a malformed hash makes Authelia reject every login with `invalid_client`
+#   # (and logs a client-secret-format warning at authelia-main startup).
+#   authelia-oidc-perses-secret-hash  : $pbkdf2-sha512$…(digest only)
 
