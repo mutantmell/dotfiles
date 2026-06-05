@@ -327,7 +327,7 @@ microvm macvtap networking on one host is the main integration unknown; verify
 pod networking and that existing incus/microvm guests stay reachable after the
 rebuild. Rollback is a prior generation.
 
-### Chunk 1b — runtime-tier baseline (gVisor + kata-qemu + runc-kvm) — NEXT
+### Chunk 1b — runtime-tier baseline (gVisor + kata-qemu + runc-kvm) — DONE
 
 The cleanly-packaged runtimes and their RuntimeClasses, registered against the
 **containerd 2.0** that k3s 1.33 bundles. Deferred from 1a deliberately:
@@ -352,10 +352,21 @@ generates the containerd handlers + RuntimeClasses, or whether we register them
 explicitly via `containerdConfigTemplate` / manifests. Verify against the
 bundled containerd; prefer explicit + pinned if auto-detect is partial.
 
-**Done when** the Phase-1 validation runtime checks pass: `kubectl get
-runtimeclass` shows `runc`/`runsc`/`kata-qemu`/`runc-kvm`; a `runsc` pod is
-sandboxed (gVisor kernel string); a `kata-qemu` pod runs in a KVM VM and
-reaches `/dev/kvm`, with a nested NixOS test VM booting inside it.
+**DONE (validated on erebonia 2026-06-05):** `kubectl get runtimeclass` shows
+`runsc`/`kata-qemu`/`runc-kvm` (after the data-dir symlink fix — see 1a);
+a `runsc` pod is sandboxed (`Starting gVisor...`); a `kata-qemu` pod runs as a
+VM (runtime handler works).
+
+**Correction to the original Phase-1 validation:** that line expected the
+`kata-qemu` pod to reach `/dev/kvm` and boot a nested VM. **The stock nixpkgs
+kata guest kernel cannot do this** — it is built `# CONFIG_VIRTUALIZATION is not
+set`, so there is no `/dev/kvm` inside a kata pod (confirmed: `ls /dev/kvm` →
+absent). Nested virt in kata needs a **custom guest kernel** (VIRTUALIZATION +
+KVM + KVM_INTEL), and **kata-clh has the same limitation** (same
+`vmlinux.container`). The host side is fine (nested KVM on, `-cpu host` exposes
+vmx). This is an AI-coding-layer architecture decision, **not** a bootstrap
+blocker — see the note under Phase 1 validation and
+`project_kata_guest_kernel_no_nested_kvm`.
 
 ### Chunk 1c — kata on Cloud Hypervisor (`kata-clh`) — AFTER 1b
 
@@ -408,10 +419,16 @@ deferred.) Validation:
 - `kubectl get pods -A` → k3s system pods + cert-manager, Kyverno, Flux all
   Running. (No external-snapshotter/democratic-csi — deferred.)
 - `kubectl get runtimeclass` → runc, runsc, kata-qemu, runc-kvm present.
-- runsc test pod is sandboxed (gVisor kernel string); kata-qemu test pod
-  runs in a KVM VM and can reach `/dev/kvm`, and a nested NixOS test VM
-  boots inside it (the nested-virt path the AI coding layer needs — the
-  thing deployd couldn't do).
+- runsc test pod is sandboxed (gVisor kernel string ✅); kata-qemu test pod
+  runs as a KVM VM (runtime handler works ✅).
+  - **Nested virt is NOT achievable with stock kata** (corrected): the nixpkgs
+    kata guest kernel is built `# CONFIG_VIRTUALIZATION is not set`, so there is
+    no `/dev/kvm` inside a kata pod, and clh has the same limitation. The
+    "boot a VM inside the sandbox" path the AI coding layer wants needs either a
+    **custom kata guest kernel** (VIRTUALIZATION+KVM) or the **runc-kvm**
+    host-`/dev/kvm`-passthrough tier (single-level). This is an AI-coding-layer
+    (workloads Phase A) architecture decision, not a bootstrap gate. See
+    `project_kata_guest_kernel_no_nested_kvm`.
 - **local-path** PVC provisions, binds, and a pod mounts it (the storage
   path Phase A uses). VolumeSnapshot testing is deferred to the CSI work.
 - cert-manager issues a Certificate from step-ca.
