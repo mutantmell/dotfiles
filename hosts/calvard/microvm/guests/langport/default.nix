@@ -10,12 +10,6 @@ in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
     ./microvm.nix
-    ./sops.nix
-    # TODO: re-enable after cloud host is deployed (Step 4 Phase 3)
-    # proxy.nix serves external domains (mutantmell.net, auth.mutantmell.net) but
-    # step-ca HTTP-01 can't validate public domains on an internal-only host.
-    # Needs cloud host with Let's Encrypt for external TLS termination.
-    # ./proxy.nix
   ];
 
   environment.systemPackages = [
@@ -54,7 +48,7 @@ in {
       {Gateway = zone.gateway6;}
     ];
   };
-  networking.extraHosts = net.mkExtraHosts ["phantasma" "messeldam" "basel" "oracion"];
+  networking.extraHosts = net.mkExtraHosts ["phantasma"];
 
   common.internal-pki.enable = true;
 
@@ -71,24 +65,6 @@ in {
         gateway = true;
         proto = "tcp";
         port = 53;
-      }
-      {
-        host = "messeldam";
-        proto = "tcp";
-        port = 443;
-        comment = "OIDC auth to messeldam";
-      }
-      {
-        host = "basel";
-        proto = "tcp";
-        port = 443;
-        comment = "ACME certs from basel";
-      }
-      {
-        host = "oracion";
-        proto = "tcp";
-        port = [80 443];
-        comment = "Backend proxy to oracion";
       }
       {
         host = "tharbad";

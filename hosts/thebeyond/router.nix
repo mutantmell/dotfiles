@@ -27,8 +27,6 @@
   inherit (net.forHost "thebeyond") host;
   inherit (net.hosts) phantasma;
   inherit (net.hosts) bt8bridge;
-  inherit (net.hosts) langport;
-  inherit (net.hosts) messeldam;
   inherit (net.hosts) basel;
   inherit (net.hosts) tharbad;
   inherit (net.hosts) oracion;
@@ -283,21 +281,13 @@ in {
         ];
         # DMZ-initiated flows to management-zone services. Pre-Phase-3 these
         # were `forwardRules.management` (local on thebeyond, brDMZ → brINFRA);
-        # post-Phase-3 the destination IPs (messeldam/basel/tharbad) live
-        # on BT8-gateway, so the path is brDMZ → brTRANSIT and the rules live
-        # under `forwardRules.transit`. The daddr constraints still gate by
-        # specific host so transit traffic to other zones isn't broadened.
+        # post-Phase-3 the destination IPs (basel/tharbad) live on BT8-gateway,
+        # so the path is brDMZ → brTRANSIT and the rules live under
+        # `forwardRules.transit`. The daddr constraints still gate by specific
+        # host so transit traffic to other zones isn't broadened.
         forwardRules.transit =
-          # langport → messeldam (OIDC token exchange)
-          (ds {
-            saddr = langport;
-            daddr = messeldam;
-            tcp.dport = 443;
-            verdict = "accept";
-            comment = "langport -> messeldam (OIDC) [via BT8-gateway]";
-          })
           # DMZ → basel (ACME certificate issuance)
-          ++ (ds {
+          (ds {
             daddr = basel;
             tcp.dport = 443;
             verdict = "accept";

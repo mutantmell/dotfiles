@@ -1,7 +1,7 @@
 # Authelia Migration Plan: Replace Keycloak with Authelia
 
 Plan date: 2026-04-19
-Refreshed: 2026-06-02
+Refreshed: 2026-06-05
 Moved to wip: 2026-06-02
 
 **Phase status:**
@@ -83,7 +83,31 @@ name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
   messeldam input rule and bt8gw rule are v4, and the plugin is pointed at
   messeldam's IPv4 literal. Only one local Jellyfin account exists, so LDAP is
   added alongside it (no cutover needed).
-- Phase 2e — NOT STARTED (langport oauth2-proxy → Authelia auth_request).
+- Phase 2e (langport) — **REMOVED, not migrated** (repo-COMPLETE 2026-06-05,
+  pending deploy). Became a **removal** like 2b: langport's entire reverse-proxy
+  stack is deleted rather than converted to Authelia `auth_request`. **Why:**
+  langport's `proxy.nix` was already disabled (commented out of `default.nix`)
+  pending a cloud host with Let's Encrypt — step-ca HTTP-01 can't validate the
+  public `mutantmell.net`/`auth.mutantmell.net` domains on an internal-only host.
+  Authelia `auth_request` does not lift that dependency (protecting
+  `mutantmell.net` externally still needs the external TLS terminator, a
+  `mutantmell.net` session-cookie domain, and an externally-reachable portal),
+  so 2e is gated on the same not-yet-built cloud host. Rather than carry a
+  parked, half-migrated stack, the operator chose to delete it now and revisit
+  external ingress when the cloud host lands. Deleted: `langport/proxy.nix`
+  (nginx + oauth2-proxy + the `mutantmell.net`/`auth.mutantmell.net` vhosts +
+  ACME + firewall 80/443), the commented `./proxy.nix` import, the
+  `oauth-2-proxy-keyfile` sops **reference** (`langport/sops.nix`), the now-dead
+  langport egress rules to messeldam (OIDC) / basel (ACME) / oracion (backend),
+  and the `langport → messeldam (OIDC)` transit forward rule on the router
+  (`thebeyond/router.nix`, plus its unused `langport`/`messeldam` bindings).
+  langport had no other secrets, so `secrets/secrets.yaml` and `sops.nix` were
+  removed entirely and the `./sops.nix` import dropped — langport now carries no
+  sops state at all (same pattern as oracion/bose/ravennue). No operator
+  secrets follow-up remains. **Knock-on for Phase 3:** Keycloak now has **zero live consumers** (perses and
+  step-ca point at `authelia.internal`; langport's proxy is gone), so the
+  Keycloak *removal* half of Phase 3 is unblocked and decoupled from the still-
+  deferred external `auth.mutantmell.net` → Authelia cutover.
 - Phase 3 — NOT STARTED (cutover, remove Keycloak)
 - Phase 4 — NOT STARTED (doc cleanup)
 - F1–F5 — NOT STARTED (independent follow-ups)
@@ -794,19 +818,46 @@ account in `media-users`; confirm access. From oracion,
 `nc -z 10.97.11.6 3890` succeeds; from a host outside `app` it should not reach
 3890 (messeldam input rule + bt8gw both v4-scope it to oracion).
 
-#### 2e. oauth2-proxy on langport — highest risk, external-facing
+#### 2e. langport reverse proxy — REMOVAL, not migration (2026-06-05)
 
-Replace oauth2-proxy with Authelia's native nginx `auth_request` integration.
+**Originally** this phase replaced langport's oauth2-proxy with Authelia's
+native nginx `auth_request`. **It became a removal instead**, for the reason
+captured in the phase-status header: langport's `proxy.nix` was already disabled
+(commented out of `default.nix`) pending a cloud host with Let's Encrypt for
+public-domain TLS, and Authelia `auth_request` doesn't lift that dependency —
+protecting `mutantmell.net` externally still needs the external TLS terminator,
+a `mutantmell.net` session-cookie domain, and an externally-reachable Authelia
+portal (today the portal is internal-only at `authelia.internal.mutantmell.net`).
+So 2e was gated on the same not-yet-built cloud host as the disabled proxy. The
+operator chose to **delete the parked proxy stack now** and revisit external
+ingress (cloud host + portal reachability + `mutantmell.net` cookie domain) as
+its own workstream when that host lands.
 
-Update `hosts/calvard/microvm/guests/langport/proxy.nix`:
+Deleted (`hosts/calvard/microvm/guests/langport/`):
 
-- Remove `services.oauth2-proxy` configuration
-- Add Authelia `auth_request` to the `mutantmell.net` vhost
-- Switch `auth.mutantmell.net` vhost from proxying Keycloak to proxying Authelia
+- `proxy.nix` **in its entirety** — `services.nginx`, `services.oauth2-proxy`,
+  the `mutantmell.net` (Jellyfin) and `auth.mutantmell.net` (Keycloak portal)
+  vhosts, `security.acme`, the oauth2-proxy `RestartSec`/`StartLimitBurst` retry
+  config, and firewall ports 80/443. (The module was already not imported.)
+- The commented-out `./proxy.nix` import in `default.nix`.
+- The `oauth-2-proxy-keyfile` sops reference — and, since it was langport's only
+  secret, `sops.nix` and `secrets/secrets.yaml` in full (the `./sops.nix` import
+  dropped too). langport now carries no sops state, like oracion/bose/ravennue.
+- The now-dead langport egress rules to **messeldam** (OIDC), **basel** (ACME),
+  and **oracion** (backend proxy) in `default.nix`; trimmed `extraHosts` to drop
+  those three proxy targets. DNS + tharbad (Loki/metrics) egress stays.
 
-**Validation:** Access `https://mutantmell.net` from external network,
-get redirected to `auth.mutantmell.net` (now Authelia), authenticate,
-access Jellyfin.
+Deleted (`hosts/thebeyond/`):
+
+- The `langport → messeldam (OIDC)` transit forward rule in `router.nix` (a
+  stale cross-zone accept for a flow that no longer exists), plus the now-unused
+  `langport`/`messeldam` `inherit` bindings. No router test asserted this rule.
+
+**Validation:** `calvard` (langport guest) and `thebeyond` (router) both
+eval-build clean; no `oauth2-proxy` reference remains anywhere in the Nix tree.
+After redeploy, langport runs no nginx/oauth2-proxy (only its log/metrics
+agents) and ports 80/443 are closed; nothing externally serves `mutantmell.net`
+or `auth.mutantmell.net` until the external-ingress workstream is picked up.
 
 ### Phase 3: Cutover — remove Keycloak
 
@@ -841,17 +892,17 @@ Once all consumers are on Authelia and validated:
      Keycloak→Authelia switch unchanged; the retry service was repointed at
      Authelia in 2c and should stay. (A cleaner fix would be a proper
      systemd ordering/health-gate, but that's out of scope for this migration.)
-   - `RestartSec`/`StartLimitBurst` retry config on oauth2-proxy in langport
-     (`hosts/calvard/microvm/guests/langport/proxy.nix`) — oauth2-proxy
-     itself is also removed in step 6
+   - ~~`RestartSec`/`StartLimitBurst` retry config on oauth2-proxy in langport~~
+     — **already gone**: langport's `proxy.nix` (with the retry config) was
+     deleted wholesale in Phase 2e.
    - (phantasma's oauth2-proxy and its retry config are already gone — removed
      wholesale in Phase 2b, since its only consumer, AdGuard Home, no longer
      exists.)
-6. Remove oauth2-proxy entirely from langport (phantasma was handled in 2b):
-   - `services.oauth2-proxy` config blocks
-   - `oauth-2-proxy-keyfile` sops secret on langport
-   - All `oauth2/` nginx location blocks (replaced by `auth_request` to
-     Authelia in Phase 2e)
+6. ~~Remove oauth2-proxy entirely from langport~~ — **done in Phase 2e**
+   (langport's whole proxy stack was deleted, not migrated). The
+   `oauth-2-proxy-keyfile` secret is fully gone — `sops.nix` and
+   `secrets/secrets.yaml` were removed (langport now has no sops state). No
+   `oauth2-proxy` references remain in any `.nix`.
 7. Update `lib/common/data/network.nix` comment:
    `messeldam = 6; # Authelia OIDC (calvard)`
 8. Update documentation and plan references
@@ -864,7 +915,10 @@ Once all consumers are on Authelia and validated:
    roadmap doc deleted (superseded by the plans/wip/done lifecycle)
 3. ~~Update deployd auth references~~ — n/a, deployd retired (superseded by k8s; plan doc deleted)
 4. Update `llm-notes/plans/headscale-integration-plan.md` Keycloak references
-5. Verify all `oauth2-proxy` references are removed from the codebase
+5. Verify all `oauth2-proxy` references are removed from the codebase —
+   **`.nix` tree is already clean** as of Phase 2e (2026-06-05); remaining
+   sweep is non-Nix (docs/plans, e.g. headscale plan per F3) plus the orphaned
+   `langport/secrets/secrets.yaml` key.
 
 ## Rollback plan
 
@@ -1004,9 +1058,11 @@ Phase 2a ─── Perses → Authelia
 Phase 2b ─── Remove phantasma oauth2-proxy/nginx (AdGuard Home retired; nothing to protect)
 Phase 2c ─── step-ca OIDC → Authelia
 Phase 2d ─── Jellyfin → lldap (official LDAP plugin)
-Phase 2e ─── langport oauth2-proxy → Authelia auth_request
+Phase 2e ─── Remove langport reverse proxy (was: → Authelia auth_request;
+             external ingress deferred to the cloud-host workstream)
               │
-Phase 3 ──── Remove Keycloak, shrink messeldam
+Phase 3 ──── Remove Keycloak, shrink messeldam (removal half now unblocked —
+             Keycloak has no live consumers)
               │
 Phase 4 ──── Documentation cleanup
               │
