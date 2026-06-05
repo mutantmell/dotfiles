@@ -1,7 +1,8 @@
 # k3s Cluster Bootstrap Plan
 
-Status: In progress (Phase 0 COMPLETE; open decisions settled; chunk 1a built &
-deploying; chunks 1b/1c/2/3 pending)
+Status: In progress (Phase 0 COMPLETE; open decisions settled; chunks 1a/1b
+deployed, 1c pending; chunk 2 built & eval-validated, not yet deployed; chunk 3
+pending)
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20).
 This plan implements **Phase 0–1** of that report, plus the deferred
@@ -251,12 +252,12 @@ Captured on the live, deployd-free erebonia:
 - **CPU:** 11th Gen i5-1135G7, 4 cores / 8 threads. Fine for single-node.
 - **RAM:** 15 GiB total, **~11 GiB available** under current load (Incus
   `trista` VM + `saint-arkh` microvm + system; swap is 0). k3s control plane
-  + system pods (cert-manager, Kyverno, Flux, Traefik, coredns,
-  metrics-server, local-path) realistically run ~2–3 GiB, leaving headroom
-  for bootstrap **and** Phase A (a DevPod workspace). **Flag for the
-  downstream dev-env plan, not this one:** the migration runs Incus
-  (`trista`) and k3s *concurrently* before the Incus sunset reclaims memory —
-  watch RAM there; bootstrap + Phase A are comfortable.
+  - system pods (cert-manager, Kyverno, Flux, Traefik, coredns,
+    metrics-server, local-path) realistically run ~2–3 GiB, leaving headroom
+    for bootstrap **and** Phase A (a DevPod workspace). **Flag for the
+    downstream dev-env plan, not this one:** the migration runs Incus
+    (`trista`) and k3s _concurrently_ before the Incus sunset reclaims memory —
+    watch RAM there; bootstrap + Phase A are comfortable.
 - **Disk:** 466 GB LUKS `cryptroot`, **415 GB free** — ample for the
   `local-path` provisioner and the datastore subvolume.
 - **Filesystem:** **btrfs + impermanence confirmed** (`profiles/disko/btrfs.nix`,
@@ -272,7 +273,7 @@ Captured on the live, deployd-free erebonia:
 Phase 1 is being landed in reviewable chunks. The operator's constraint:
 **erebonia-local changes first, the router6 `cluster` zone (E) as a separate
 reviewed change**, and the cluster must be testable from a workstation. That
-test path works *without* the router6 change because bt8-gateway already grants
+test path works _without_ the router6 change because bt8-gateway already grants
 VLAN 20/21 full access to VLAN 11 (management, erebonia's zone) — see
 `project_bt8gw_vlan_20_21_to_11_access` memory — so only erebonia's host
 firewall needs to open `:6443`.
@@ -284,7 +285,9 @@ Chunk map:
 - **1c** — kata on cloud-hypervisor (`kata-clh`), via a nixpkgs override.
 - **2** — platform HelmCharts: cert-manager + step-ca `ClusterIssuer`, Kyverno
   (builds-namespace policies), Flux against a placeholder dynamic path. All
-  erebonia-local (auto-apply manifests / `services.k3s.charts`).
+  erebonia-local (auto-apply manifests / `services.k3s.autoDeployCharts`).
+  Built & eval-validated; split into **2a** (cert-manager), **2b** (Kyverno),
+  **2c** (Flux).
 - **3** — router6 `cluster` zone on thebeyond (deliverable E). Separate reviewed
   change touching the live router; egress (DNS/443/metrics), input via langport.
   External-TLS termination at langport (decision #5) lands with/after this.
@@ -301,13 +304,13 @@ Chunk map:
   (`tmpfiles` `L+`), **not** `--data-dir`. Why: the NixOS k3s module hardcodes
   the auto-apply dirs (`manifestDir`/`chartDir`/`imageDir`/containerd-template)
   to the default `/var/lib/rancher/k3s/...` with no dataDir option, so
-  `--data-dir` moved where k3s *reads* but not where the module *writes* —
+  `--data-dir` moved where k3s _reads_ but not where the module _writes_ —
   RuntimeClass/HelmChart manifests landed in an ignored dir (caught on the 1b
   deploy: the runtime RuntimeClasses didn't appear). The symlink makes the
   module's writes and k3s' reads coincide while keeping data on the subvolume;
   `/var` is on rolled-back `@root`, so tmpfiles recreates the symlink each boot.
 - `k3s-datastore-snapshot` oneshot + daily timer: read-only `btrfs subvolume
-  snapshot` of the data-dir, keep newest 14, prune older. Crash-consistent for
+snapshot` of the data-dir, keep newest 14, prune older. Crash-consistent for
   the kine SQLite/WAL. Off-host copy to liberl deferred (CI/CD plan).
 - `--tls-san` for `erebonia` / `erebonia.internal` / mgmt IPv4 / ULA so
   `kubectl` works by name/IP from a lab/trusted workstation.
@@ -371,7 +374,7 @@ blocker — see the note under Phase 1 validation and
 ### Chunk 1c — kata on Cloud Hypervisor (`kata-clh`) — AFTER 1b
 
 Swap the Kata VMM from QEMU to **cloud-hypervisor**. Split out from 1b because
-it depends on 1b's *validated* containerd/RuntimeClass plumbing **and** a
+it depends on 1b's _validated_ containerd/RuntimeClass plumbing **and** a
 separate nixpkgs package override — different work, different risk.
 
 **Why this is easier under k3s than it was for deployd (operator question,
@@ -408,6 +411,92 @@ why 1b validates `kata-qemu` before 1c swaps the VMM. Needs `/dev/kvm` + nested
 KVM (already on erebonia). See `project_nixpkgs_kata_qemu_only_clh_override`
 memory.
 
+### Chunk 2 — platform HelmCharts — BUILT (eval-validated, not yet deployed)
+
+All three components use the NixOS k3s module's `services.k3s.autoDeployCharts`
+(fetches the chart `.tgz` at build time as a hash-pinned FOD, hands it to k3s'
+helm-controller as a `HelmChart` CR — no in-cluster chart fetch, no imperative
+`helm install`) plus `services.k3s.manifests.<name>.content` for the plain CRs.
+Strictly **erebonia-local**: no basel/router change. Each chart's version + SRI
+hash is pinned in-flake; bump deliberately. Chart FODs and rendered manifests
+build clean; full deploy is the operator's to validate.
+
+Files (imported from `hosts/erebonia/k3s/default.nix`):
+
+#### Chunk 2a — cert-manager + step-ca `ClusterIssuer` (`k3s/cert-manager.nix`)
+
+- `cert-manager` chart `v1.20.2` (jetstack), `crds.enabled = true`, single
+  replica per component (homelab). Namespace `cert-manager` (created).
+- A **`step-ca` `ClusterIssuer`** issued as a _separate_ auto-apply manifest
+  (not the chart's `extraDeploy`), so k3s' deploy controller re-applies it until
+  cert-manager's CRDs + webhook are serving, then it sticks — avoids the
+  same-release admit-before-webhook race.
+- **ACME against basel's existing `acme` provisioner** (`https://basel.internal.
+mutantmell.net/acme/acme/directory`). Chosen over step-issuer/JWK precisely
+  because it needs **no new provisioner on basel** — keeps Chunk 2 erebonia-local.
+  Honors open decision #3: k3s keeps its own control-plane CA; step-ca is bridged
+  in only for _workload_ certs via this issuer (two trust roots, documented).
+- cert-manager pods don't inherit the host trust store (`common.internal-pki`
+  seeds only the host), so the issuer carries `caBundle = base64(root ‖
+intermediate)` from `data.pki` inline.
+- **What validates now vs. later:** the issuer reaches **Ready** once
+  cert-manager registers an ACME account against basel — that needs only
+  erebonia→basel:443 egress, no ingress/solver. Issuing an actual `Certificate`
+  also needs the declared **HTTP-01 solver** (Traefik ingressClass) to be
+  reachable by step-ca, which depends on cluster ingress + the router6 `cluster`
+  zone (**Chunk 3**). So the bootstrap milestone is _issuer Ready_; the
+  end-to-end "issues a Certificate" check moves to Chunk 3.
+- **Flag for Chunk 3 / deliverable E:** add a `cluster → basel (management)
+TCP 443` egress allow. At bootstrap, cert-manager→basel SNATs to erebonia's
+  mgmt IP (flannel masquerade) and rides intra-management reachability, but once
+  the cluster zone identifies pod-CIDR traffic, basel:443 must be in the
+  allowlist alongside the creil/langport:443 rules already listed in E.
+
+#### Chunk 2b — Kyverno + `woodpecker-builds` ClusterPolicies (`k3s/kyverno.nix`)
+
+- `kyverno` chart `3.8.1` (appVersion 1.18.1). **Lean install** — only the
+  admission controller (1 replica); background/reports/cleanup controllers
+  disabled (policy-report generation, mutate-existing, CleanupPolicy — none
+  needed by admission-time Enforce). Namespace `kyverno` (created).
+- Two `ClusterPolicy`s, **scoped to the `woodpecker-builds` namespace only**
+  (the report's load-bearing warning: cluster-wide image/runtimeClass
+  enforcement would deadlock bootstrap — kube-system/flux-system/cert-manager/
+  kyverno would all be rejected). They're inert until that namespace exists:
+  - `require-runsc-in-builds` — Pods must set `runtimeClassName: runsc`.
+  - `restrict-image-registry-in-builds` — all containers (+ optional init/
+    ephemeral) images must start with `creil.internal/`. **Confirm this prefix
+    matches Woodpecker's actual registry push target** when CI lands (creil's
+    Forgejo registry answers to both `creil.internal` and `forgejo.internal`).
+  - Rule-level `validate.failureAction: Enforce`, `background: false` (the
+    background controller is off). PSS-covered checks (hostPath/hostNet/
+    privileged/root) are left to the namespace's PSS `restricted` labels.
+- **Not created here** (belong to the CI workload — workloads-plan Phase 4 /
+  report Appendix A): the `woodpecker-builds` namespace itself, its PSS labels,
+  the NetworkPolicy, and the Woodpecker server/runners. Bootstrap ships only the
+  engine + the scoped policies.
+
+#### Chunk 2c — Flux controllers (`k3s/flux.nix`)
+
+- `flux2` chart `2.18.4` (CNCF Flux upstream, community chart; appVersion
+  2.8.8). Namespace `flux-system` (created). Image-automation + image-reflector
+  controllers disabled (registry tag-watching, unused); helm/kustomize/source/
+  notification kept.
+- **Controllers only.** The `GitRepository` + `Kustomization` pointing Flux at
+  the dynamic-manifest path are deliberately **not** created — open decision #4
+  (monorepo path vs. separate repo, repo URL/auth) is unresolved and deferred to
+  the workloads plan; wiring a concrete source now would prematurely decide it.
+  Bootstrap milestone is the controllers Running/healthy; the source lands with
+  decision #4. (This refines the "Flux reconciles a placeholder path"
+  done-criterion below to "controllers healthy; source deferred to #4".)
+
+**Deploy-test risks (operator validates — config is eval-clean only):** chart
+images pull from public registries (quay.io/ghcr.io) on first start — needs
+erebonia outbound; cert-manager webhook readiness gates the ClusterIssuer's
+first successful apply (expect a few retries in the deploy controller log before
+it goes Ready); the ACME account registration needs erebonia→basel:443. RAM:
+the three platforms + their webhooks land within the Phase-0 ~2–3 GiB control-
+plane budget, but watch the admission/webhook pods on the 11 GiB node.
+
 ## Phase 1 — land the cluster
 
 Apply with `nixos-rebuild switch` on erebonia. (No liberl change — CSI is
@@ -431,14 +520,20 @@ deferred.) Validation:
     `project_kata_guest_kernel_no_nested_kvm`.
 - **local-path** PVC provisions, binds, and a pod mounts it (the storage
   path Phase A uses). VolumeSnapshot testing is deferred to the CSI work.
-- cert-manager issues a Certificate from step-ca.
+- cert-manager: the `step-ca` ClusterIssuer reaches **Ready** (ACME account
+  registered against basel — needs erebonia→basel:443). Issuing an actual
+  Certificate end-to-end needs the HTTP-01 solver reachable (cluster ingress +
+  the router6 `cluster` zone), so that check moves to **Chunk 3** (see the
+  Chunk 2a log).
 - Network policy behaves: pod↔pod ok, pod→host default-deny,
   pod→internet only via router6 allows.
 - Appendix-A hostile test runs cleanly under runsc.
 
 **Done when** the cluster comes up cleanly from a fresh rebuild, all
-validations pass, and Flux reconciles a (placeholder) dynamic-manifest
-path.
+validations pass, and the Flux controllers are Running/healthy. (Flux
+reconciling an actual dynamic-manifest path is gated on open decision #4 — the
+`GitRepository`/`Kustomization` source is deferred to the workloads plan; see
+the Chunk 2c log.)
 
 ## Deferred — multi-node & HA (report Phases 10–11)
 
@@ -495,7 +590,7 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
    re-derivable from the flake.
 3. **PKI overlap. — RESOLVED.** Standalone k3s control-plane CA, kept as a
    second trust root and **documented** as such. step-ca is bridged only for
-   *workload* certs via the cert-manager `ClusterIssuer`; we do not make k3s'
+   _workload_ certs via the cert-manager `ClusterIssuer`; we do not make k3s'
    CA a step-ca intermediate (avoids fighting k3s' built-in cert rotation).
 4. **Dynamic-manifest repo layout.** Monorepo path
    (`cluster/manifests/{infrastructure,apps}/`) vs separate repo. Not

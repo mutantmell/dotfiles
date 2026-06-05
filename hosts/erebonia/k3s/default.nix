@@ -29,7 +29,13 @@
   snapshotDir = "/persist/.k3s-snapshots";
   snapshotKeep = 14;
 in {
-  imports = [./runtimes.nix];
+  imports = [
+    ./runtimes.nix
+    # Chunk 2 — platform HelmCharts (all erebonia-local auto-apply manifests).
+    ./cert-manager.nix
+    ./kyverno.nix
+    ./flux.nix
+  ];
 
   # ── Datastore subvolume + default-path symlink ──────────────────────────────
   # `v` creates a btrfs subvolume (falls back to a plain dir on non-btrfs).
