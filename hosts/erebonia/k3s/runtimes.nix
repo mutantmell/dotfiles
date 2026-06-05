@@ -90,6 +90,15 @@ in {
   # (it execs `containerd-shim-<rt>-v*` from the k3s.service PATH).
   systemd.services.k3s.path = [pkgs.gvisor pkgs.kata-runtime];
 
+  # containerd only reads the drop-in below at *startup*. The drop-in is reached
+  # via a tmpfiles symlink, and changing its target does NOT alter the k3s unit
+  # definition — so `nixos-rebuild switch` would update the symlink but leave the
+  # running containerd on its old runtime config (RuntimeClass objects would
+  # apply, but their containerd handlers would be missing until a manual restart).
+  # Tie the unit's restart to the runtimes file so any change to the registered
+  # runtimes bounces k3s and containerd re-reads them on rebuild.
+  systemd.services.k3s.restartTriggers = [extraRuntimes];
+
   # Drop the extra-runtimes handlers into the imported `config-v3.toml.d`. Runs
   # at tmpfiles-setup, before k3s.service, so containerd sees them on first start.
   systemd.tmpfiles.rules = [
