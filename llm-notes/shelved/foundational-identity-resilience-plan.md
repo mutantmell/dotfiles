@@ -1,6 +1,11 @@
 # Foundational Identity Resilience Plan
 
-Status: In progress — Phase A COMPLETE (2026-06-05); Phases B, C NOT STARTED
+Status: **Shelved** (2026-06-05). Phase A COMPLETE + validated live; Phases B,
+C and the open decisions / PKI-hygiene appendix are **deliberately deferred**.
+**Revisit when:** work begins on exposing internal services externally via
+langport (the deferred external-ingress workstream) — that's when the broader
+AuthN/AuthZ surface (admin MFA, audited per-user access, Perses login floor)
+starts to carry real weight. Not blocked on anything external; paused by choice.
 
 Date: 2026-06-04
 
@@ -271,6 +276,13 @@ depends on the rich IdP at all, up or down.
 ---
 
 ## Phase B — break-glass hardening (optional) — NOT STARTED
+
+> **Note (2026-06-05):** the offline key custody — the hard part — is already
+> handled: the operator holds a dedicated break-glass key in a password manager
+> that is offline of the daily workstation. What remains for Phase B is the
+> **declarative wiring** (add its public half to `root`'s `authorized_keys` via
+> `keys.json` on the foundational hosts). That lands together with the
+> operator-tracked `keys.json` cert-only pruning, not as separate work here.
 
 Today the daily keys (`deploy`/`home`/`edith` in `keys.json`) _are_ Ring 0 —
 the floor already exists. Optionally add a **dedicated break-glass key** to

@@ -19,7 +19,7 @@ a Keycloak→Authelia translation table at the top.
 
 ## Related plans
 
-- [`foundational-identity-resilience-plan.md`](../wip/foundational-identity-resilience-plan.md)
+- [`foundational-identity-resilience-plan.md`](../shelved/foundational-identity-resilience-plan.md)
   — IdP **availability** (break-glass SSH/monitoring when Authelia/lldap are
   down). Distinct axis from this plan, which is about AuthN **strength**, audit,
   and incident response. The two intersect on revocation (see F4 vs. that plan's

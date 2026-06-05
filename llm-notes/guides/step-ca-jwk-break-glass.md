@@ -2,7 +2,7 @@
 
 **Status:** operator-facing runbook for the IdP-independent SSH-user-cert
 path on `basel` (step-ca). Companion to
-[`foundational-identity-resilience-plan.md`](../wip/foundational-identity-resilience-plan.md)
+[`foundational-identity-resilience-plan.md`](../shelved/foundational-identity-resilience-plan.md)
 (Phase A, which shipped this provisioner).
 
 ## When to use this
