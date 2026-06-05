@@ -1,8 +1,7 @@
 # k3s Cluster Bootstrap Plan
 
-Status: In progress (Phase 0 COMPLETE; open decisions settled; chunks 1a/1b
-deployed, 1c pending; chunk 2 built & eval-validated, not yet deployed; chunk 3
-pending)
+Status: In progress (Phase 0 COMPLETE; open decisions settled; chunks 1a/1b/2
+deployed & validated; chunk 1c pending; chunk 3 pending)
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20).
 This plan implements **Phase 0–1** of that report, plus the deferred
@@ -286,8 +285,8 @@ Chunk map:
 - **2** — platform HelmCharts: cert-manager + step-ca `ClusterIssuer`, Kyverno
   (builds-namespace policies), Flux against a placeholder dynamic path. All
   erebonia-local (auto-apply manifests / `services.k3s.autoDeployCharts`).
-  Built & eval-validated; split into **2a** (cert-manager), **2b** (Kyverno),
-  **2c** (Flux).
+  DONE (deployed & validated); split into **2a** (cert-manager), **2b**
+  (Kyverno), **2c** (Flux).
 - **3** — router6 `cluster` zone on thebeyond (deliverable E). Separate reviewed
   change touching the live router; egress (DNS/443/metrics), input via langport.
   External-TLS termination at langport (decision #5) lands with/after this.
@@ -411,7 +410,14 @@ why 1b validates `kata-qemu` before 1c swaps the VMM. Needs `/dev/kvm` + nested
 KVM (already on erebonia). See `project_nixpkgs_kata_qemu_only_clh_override`
 memory.
 
-### Chunk 2 — platform HelmCharts — BUILT (eval-validated, not yet deployed)
+### Chunk 2 — platform HelmCharts — DONE (deployed & validated 2026-06-05)
+
+**Validated on erebonia:** all three `HelmChart` installs Completed; pods Running
+in `cert-manager`/`kyverno`/`flux-system`; the `step-ca` ClusterIssuer reached
+`Ready=True` (ACME account registered against basel); Kyverno's two policies
+deny a non-runsc/non-creil pod in `woodpecker-builds` under
+`--dry-run=server` while admitting the same pod in `default` (scoping holds);
+Flux controllers healthy with no source (deferred to #4, as designed).
 
 All three components use the NixOS k3s module's `services.k3s.autoDeployCharts`
 (fetches the chart `.tgz` at build time as a hash-pinned FOD, hands it to k3s'
