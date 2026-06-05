@@ -14,9 +14,10 @@ Egress **over the tunnel** is firewalled to only the backup host:port; liberl's
 other egress is left untouched for now (full host lockdown deferred — see Future).
 
 Trust + posture:
+
 - **liberl → remote only.** The remote must **not** initiate back into liberl.
   (Already true — liberl's source-restricted input firewall blocks it; see below.)
-- **Limited tunnel egress.** Over `wg-ba`, liberl may reach *only* `192.168.0.35`
+- **Limited tunnel egress.** Over `wg-ba`, liberl may reach _only_ `192.168.0.35`
   on SSH (`tcp/22`); all other over-tunnel egress is dropped.
 
 ### Remote addressing (external — not our registry)
@@ -24,11 +25,11 @@ Trust + posture:
 The remote is an **external box with its own networks**, so none of this lives in
 the `network.nix` registry:
 
-| thing                     | address          | notes                                  |
-|---------------------------|------------------|----------------------------------------|
-| remote wg peer            | `192.168.127.1`  | the peer's tunnel address              |
-| backup host (SSH target)  | `192.168.0.35`   | **behind** the peer, on the remote LAN |
-| liberl wg interface addr  | `192.168.127.200/32` | liberl's address on the remote's wg subnet (`192.168.127.0/24`) |
+| thing                    | address              | notes                                                           |
+| ------------------------ | -------------------- | --------------------------------------------------------------- |
+| remote wg peer           | `192.168.127.1`      | the peer's tunnel address                                       |
+| backup host (SSH target) | `192.168.0.35`       | **behind** the peer, on the remote LAN                          |
+| liberl wg interface addr | `192.168.127.200/32` | liberl's address on the remote's wg subnet (`192.168.127.0/24`) |
 
 On the **remote** side, liberl's peer `AllowedIPs` must be `192.168.127.200/32`.
 
@@ -46,8 +47,9 @@ independent (its own keypair, the remote's native addressing); trista gets a
 fresh direct tunnel later (Future #3).
 
 Three things are explicitly **deferred and documented** (see "Future"):
+
 1. **Full host egress lockdown on liberl** — easier after the **MACVLAN rework of
-   the VM hosts**, which is also when liberl's *ingress* tightens to NFS+SMB only.
+   the VM hosts**, which is also when liberl's _ingress_ tightens to NFS+SMB only.
 2. **Move liberl's tunnel to a gateway, likely bt8gw** (liberl's real gateway).
 3. **Give trista its own direct tunnel**, replacing the interim router path.
 
@@ -56,9 +58,9 @@ Three things are explicitly **deferred and documented** (see "Future"):
 - The router6 "dynamic layer" we'd otherwise build only exists to get secret
   config materialized at runtime — which a **sops-nix template** already does.
 - liberl is on **VLAN 11 (management), gateway = bt8gw**. Router termination on
-  *thebeyond* would force liberl→remote across the transit /30 with a scoped
+  _thebeyond_ would force liberl→remote across the transit /30 with a scoped
   forward rule + bt8gw route/fw4. Per-host deletes that. (If we later move to a
-  gateway, bt8gw — liberl's *real* gateway — is the right one; see Future #2.)
+  gateway, bt8gw — liberl's _real_ gateway — is the right one; see Future #2.)
 - Blast radius: backups don't depend on thebeyond / the transit link, and a key
   compromise is contained to liberl.
 
@@ -74,7 +76,8 @@ source-restricted: SSH only from `{bt8gw, vHOME}` with a `tcp dport 22 drop`
 catch-all; NFS/SMB/WSDD pinned to specific hosts/subnets. The remote
 (`192.168.0.35` / `192.168.127.1`) matches none, so its inbound falls through to
 the default drop.
-- *Optional future-proofing* (recommended, cheap): an explicit `iifname "wg-ba"`
+
+- _Optional future-proofing_ (recommended, cheap): an explicit `iifname "wg-ba"`
   input drop so a future globally-opened port can never be exposed over the tunnel.
 
 **Egress over the tunnel: scoped, leaving the rest of liberl untouched.** A
@@ -104,6 +107,7 @@ networking.nftables.tables.wg-ba = {
 ```
 
 Two layers of "limited egress over the wireguard connection":
+
 1. **Destination** is pinned by wg `AllowedIPs` (only `192.168.127.1/32` +
    `192.168.0.35/32` route over the tunnel).
 2. **Service** is pinned to `192.168.0.35:22` by the output rule — note the peer
@@ -118,7 +122,7 @@ filtered.
 
 **SSH + borg** (borg transports over SSH). Only **SSH `tcp/22`** is needed, so the
 over-tunnel rule pins dport 22 to `192.168.0.35`. Adjustable over time. Because we
-are *not* doing the WAN underlay pinhole now, no nft rule references the remote's
+are _not_ doing the WAN underlay pinhole now, no nft rule references the remote's
 DDNS endpoint, so the endpoint host **and** port both stay fully in sops.
 
 ## Secrets + wg-quick conf (liberl)
@@ -164,6 +168,7 @@ stale (`pkgs.wireguard-tools` ships a `contrib/reresolve-dns` script). Cadence
 Independent of liberl's tunnel; do as its own commit. `remote → trista` SSH is
 confirmed unused, and the config is wired to the stale `10.100.0.3` addressing.
 In `hosts/thebeyond/router.nix`:
+
 - Delete the `ba-tunnel` zone (`:316`–`:327`).
 - Drop `"ba-tunnel"` from `transit.accessTo` (`:390`) → `["external"]`.
 - Delete the `wg-ba` topology entry (`:686`–`:709`).
@@ -189,7 +194,7 @@ reference ba-tunnel/wg-ba, so this is contained.
 ### Phase 2 — Tunnel-scoped egress filter — COMPLETE
 
 - Add the `networking.nftables.tables.wg-ba` output chain limiting `oifname
-  "wg-ba"` egress to `192.168.0.35:22`. Optionally add the `wg-ba` input drop.
+"wg-ba"` egress to `192.168.0.35:22`. Optionally add the `wg-ba` input drop.
 - `policy accept` → liberl's non-tunnel egress is untouched (no NAS-breakage
   risk). Full default-drop host lockdown is Future #1.
 

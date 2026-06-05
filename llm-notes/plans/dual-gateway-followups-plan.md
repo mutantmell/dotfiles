@@ -36,7 +36,7 @@ additions for any new cross-zone flows.
   - [ ] `app → management` rule: creil → basel (ACME), creil → tharbad
         (Loki + metrics push) — same shape as oracion's
 - [ ] Remove the post-5.A temp rule `management → creil (SSH + Forgejo)
-    [via BT8-gateway]` in `hosts/thebeyond/router.nix` (currently noted
+  [via BT8-gateway]` in `hosts/thebeyond/router.nix` (currently noted
       as `# Remove after Phase 5.B`) — it becomes a BT8-gw-local
       management → app rule once creil is in APP
 - [ ] Retest: in-zone, cross-zone (management → creil for Forgejo
@@ -286,7 +286,7 @@ Per-host conversion (each host independent):
 Relocated from `wg-ba-liberl-backup-tunnel-plan.md` (done/) Future #1. Removing
 liberl's bridge/`br_netfilter` surface (C.2) makes a strict whole-host firewall
 tractable; this also lands with the management-WAN egress drop (Section B gate).
-Today only liberl's wg-ba *tunnel* egress is filtered (`hosts/liberl/wg-ba.nix`'s
+Today only liberl's wg-ba _tunnel_ egress is filtered (`hosts/liberl/wg-ba.nix`'s
 `wgBa` table) — this generalizes it to the whole host.
 
 - [ ] liberl ingress → NFS + SMB only (retire the broad SSH-from-gateway allow

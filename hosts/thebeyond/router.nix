@@ -572,70 +572,87 @@ in {
       logDropped = true;
 
       egressPolicy = "drop";
-      egressRules = [
-        # DNS (kresd recursive queries)
-        {
-          udp.dport = 53;
+      egressRules =
+        [
+          # DNS (kresd recursive queries)
+          {
+            udp.dport = 53;
+            verdict = "accept";
+            comment = "DNS recursive";
+          }
+          {
+            tcp.dport = 53;
+            verdict = "accept";
+            comment = "DNS recursive (TCP)";
+          }
+          # DNS no-block path: kresd → phantasma Unbound:5335 (GUEST VLAN bypass)
+          {
+            udp.dport = 5335;
+            verdict = "accept";
+            comment = "DNS no-block (Unbound direct)";
+          }
+          {
+            tcp.dport = 5335;
+            verdict = "accept";
+            comment = "DNS no-block (Unbound direct, TCP)";
+          }
+          # NTP
+          {
+            udp.dport = 123;
+            verdict = "accept";
+            comment = "NTP";
+          }
+          # DHCP client
+          {
+            udp.dport = 67;
+            verdict = "accept";
+            comment = "DHCP client";
+          }
+          {
+            udp.dport = 68;
+            verdict = "accept";
+            comment = "DHCP server response";
+          }
+          # DHCPv6
+          {
+            udp.dport = [546 547];
+            verdict = "accept";
+            comment = "DHCPv6";
+          }
+          # HTTP/HTTPS (system updates)
+          {
+            tcp.dport = 80;
+            verdict = "accept";
+            comment = "HTTP";
+          }
+          {
+            tcp.dport = 443;
+            verdict = "accept";
+            comment = "HTTPS";
+          }
+          # WireGuard
+          {
+            udp.dport = [38506 59362 51820];
+            verdict = "accept";
+            comment = "WireGuard";
+          }
+        ]
+        # fluent-bit-agent: thebeyond originates log/metric pushes to tharbad
+        # (calvard, management/11 → 10.97.11.5 via BT8-gateway). These are
+        # output-chain flows, so the DMZ→tharbad forwardRules don't cover them —
+        # the router needs its own egress allowance. Scoped to tharbad's IPs.
+        ++ (ds {
+          daddr = tharbad;
+          tcp.dport = 8427;
           verdict = "accept";
-          comment = "DNS recursive";
-        }
-        {
-          tcp.dport = 53;
+          comment = "fluent-bit -> tharbad (VictoriaMetrics remote_write) [via BT8-gateway]";
+        })
+        ++ (ds {
+          daddr = tharbad;
+          tcp.dport = 3100;
           verdict = "accept";
-          comment = "DNS recursive (TCP)";
-        }
-        # DNS no-block path: kresd → phantasma Unbound:5335 (GUEST VLAN bypass)
-        {
-          udp.dport = 5335;
-          verdict = "accept";
-          comment = "DNS no-block (Unbound direct)";
-        }
-        {
-          tcp.dport = 5335;
-          verdict = "accept";
-          comment = "DNS no-block (Unbound direct, TCP)";
-        }
-        # NTP
-        {
-          udp.dport = 123;
-          verdict = "accept";
-          comment = "NTP";
-        }
-        # DHCP client
-        {
-          udp.dport = 67;
-          verdict = "accept";
-          comment = "DHCP client";
-        }
-        {
-          udp.dport = 68;
-          verdict = "accept";
-          comment = "DHCP server response";
-        }
-        # DHCPv6
-        {
-          udp.dport = [546 547];
-          verdict = "accept";
-          comment = "DHCPv6";
-        }
-        # HTTP/HTTPS (system updates)
-        {
-          tcp.dport = 80;
-          verdict = "accept";
-          comment = "HTTP";
-        }
-        {
-          tcp.dport = 443;
-          verdict = "accept";
-          comment = "HTTPS";
-        }
-        # WireGuard
-        {
-          udp.dport = [38506 59362 51820];
-          verdict = "accept";
-          comment = "WireGuard";
-        }
-      ];
+          comment = "fluent-bit -> tharbad (Loki) [via BT8-gateway]";
+        });
     };
 
     topology =
