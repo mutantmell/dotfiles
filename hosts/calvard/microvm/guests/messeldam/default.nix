@@ -11,7 +11,6 @@ in {
   imports = [
     ./microvm.nix
     ./sops.nix
-    ./modules/keycloak.nix
     ./modules/lldap.nix
     ./modules/authelia.nix
   ];

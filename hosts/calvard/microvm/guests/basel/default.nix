@@ -82,7 +82,7 @@ in {
         host = "messeldam";
         proto = "tcp";
         port = 443;
-        comment = "OIDC token validation (Keycloak)";
+        comment = "OIDC token validation (Authelia)";
       }
       {
         host = "tharbad";

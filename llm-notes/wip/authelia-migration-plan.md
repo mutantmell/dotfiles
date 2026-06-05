@@ -108,7 +108,27 @@ name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
   step-ca point at `authelia.internal`; langport's proxy is gone), so the
   Keycloak *removal* half of Phase 3 is unblocked and decoupled from the still-
   deferred external `auth.mutantmell.net` → Authelia cutover.
-- Phase 3 — NOT STARTED (cutover, remove Keycloak)
+- Phase 3 — **removal half repo-COMPLETE, pending deploy** (2026-06-05); external
+  cutover half still DEFERRED. The Keycloak *removal* (steps 3–7) is done in the
+  repo: `keycloak.nix` + `homelab-realm.json` deleted, the two `keycloak_*` sops
+  secrets dropped (sops sync also pruned their ciphertext from `secrets.yaml`),
+  messeldam reduced to 512MB/1 vCPU, and the `messeldam = 6` registry comment +
+  the basel/tharbad egress comments flipped to Authelia. nginx `enable` +
+  `recommendedTls/ProxySettings` + firewall 80/443 were **relocated from
+  keycloak.nix into authelia.nix** (the portal/ldap vhosts depend on them);
+  messeldam now evals clean with `keycloak.enable = false`,
+  `postgresql.enable = false`, nginx still up serving only the authelia portal +
+  ldap vhosts. The **persist volume stays at 100GB** (sparse; it now holds the
+  only copy of live lldap/authelia/ACME state, so recreating it to reclaim the
+  cap would wipe auth — reclaim deliberately deferred, see microvm.nix comment).
+  Steps 1–2 (point external `auth.mutantmell.net` at Authelia + add the
+  `mutantmell.net` session-cookie domain) remain **deferred** to the external-
+  ingress / cloud-host workstream — the internal portal stays at
+  `authelia.internal.mutantmell.net`. Step 5 (`step-ca-oidc-retry`) stays as
+  decided in 2c; step 6 (langport oauth2-proxy) was already done in 2e. Also
+  corrected a pre-existing stale `network-helpers` test (it asserted messeldam
+  had 1 alias; it's had 5 since Phase 1 — unrelated to Keycloak, fixed in
+  passing).
 - Phase 4 — NOT STARTED (doc cleanup)
 - F1–F5 — NOT STARTED (independent follow-ups)
 
@@ -906,6 +926,113 @@ Once all consumers are on Authelia and validated:
 7. Update `lib/common/data/network.nix` comment:
    `messeldam = 6; # Authelia OIDC (calvard)`
 8. Update documentation and plan references
+
+#### Phase 3 — implementation notes (removal half, 2026-06-05)
+
+Repo changes landed (removal half only; the external `auth.mutantmell.net`
+cutover, steps 1–2, stays deferred to the cloud-host workstream):
+
+- **`keycloak.nix` deleted in full** and **`homelab-realm.json` deleted.** The
+  module was Keycloak-specific *except* for `services.nginx.enable` +
+  `recommendedTlsSettings`/`recommendedProxySettings` and
+  `networking.firewall.allowedTCPPorts = [80 443]`, which the Authelia portal
+  vhost and lldap's admin vhost both depend on (they rely on
+  `recommendedProxySettings` host-wide and deliberately don't re-set `Host`).
+  **Those four were relocated into `authelia.nix`**, the natural nginx/portal
+  coordination point (it already owns `security.acme`). Everything else went
+  away with the module: the `auth.mutantmell.net` vhost, the manual
+  `step-tls-bootstrap`/`-renew` cert services + `/var/lib/step-tls` tmpfiles &
+  persistence (Authelia uses the ACME module → `/var/lib/acme`, already
+  persisted), the `JAVA_OPTS_APPEND` heap cap, the keycloak systemd overrides,
+  the `keycloak-admin-env` sops template, the PostgreSQL persistence dir, and
+  the `step-ca/data/intermediate_ca.crt` etc entry (CA trust comes from
+  `common.internal-pki.enable`, already set in default.nix — that etc copy was
+  Keycloak-only).
+- **`default.nix`** — dropped the `./modules/keycloak.nix` import.
+- **`sops.nix`** — removed `keycloak_password_file` + `keycloak_admin_password`.
+  A repo sops-sync also re-encrypted `secrets/secrets.yaml` to prune those two
+  ciphertext entries (re-MAC'd), so no manual `sops edit` is needed.
+- **`microvm.nix`** — `mem` 2048→512, `vcpu` 2→1. **Persist volume left at
+  100GB** on purpose: it's sparse (PostgreSQL was the only large consumer and
+  its persist dir is gone, so real usage is now <1GB) and it now holds the only
+  copy of live auth state (lldap users + Authelia keys/sessions + ACME certs).
+  Recreating it to reclaim the cap would wipe that state, so the reclaim is
+  deferred — the unused cap costs nothing on a sparse image. (Plan step 4's
+  "shrink to 1GB" predates lldap/authelia living on this volume.)
+- **`network.nix`** — `messeldam = 6` comment Keycloak→Authelia; the messeldam
+  `auth.mutantmell.net` alias **kept** (it's the eventual external portal name;
+  cutover deferred, not cancelled) with its comment updated.
+- **Egress-rule comments** flipped Keycloak→Authelia on basel and tharbad
+  (`default.nix`) and the calvard microvm boot-ordering comment; the rules
+  themselves (messeldam:443) are unchanged — those hosts already talk to
+  Authelia at the same address.
+- **`tests/lib/network-helpers.nix`** — corrected a stale assertion (messeldam
+  domain/alias counts were still the pre-Phase-1 `4`/`2`; messeldam has had 5
+  aliases since Phase 1, so `8`/`10`). Pre-existing failure, unrelated to
+  Keycloak removal, fixed in passing.
+
+**Keycloak→Authelia parity audit (2026-06-05).** Reviewed the deleted
+`homelab-realm.json` + `keycloak.nix` line by line against the Authelia+lldap
+setup. Findings:
+
+- **All OIDC claims the live consumers use are covered.** perses requests
+  `[openid profile email groups]` and binds roles on `preferred_username` /
+  email-prefix + the `groups` claim; step-ca reads `.Token.groups` → principals.
+  Authelia's profile/email/groups scopes + the `with_groups` claims_policy (2c)
+  emit `sub`, `preferred_username`, `email`, `name`, `groups`. The extra Keycloak
+  `profile` sub-claims (`given_name`, `family_name`, `locale`, `updated_at`) are
+  emitted by no consumer — no gap.
+- **All dropped clients are intentional:** `oauth2-proxy` (langport, removed 2e),
+  `oauth2-proxy-internal` (phantasma, removed 2b), `grafana` (tharbad — Grafana
+  was replaced by Perses, no longer deployed), `cicd-deploy` (CI/CD uses NATS
+  NKeys, not OIDC), `deployd-api` + `deployd-operator` (deployd retired). Only
+  `step-ca` + `perses` remain, both present in `authelia.nix`.
+- **Groups** (`admin`, `media-users`, `deploy`) are seeded by `lldap-bootstrap`.
+- **Token/session lifespans:** Keycloak `accessTokenLifespan 300s` /
+  `ssoSessionMaxLifespan 12h` vs Authelia defaults (session 1h expiry / 5m
+  inactivity; OIDC token 1h). Authelia is stricter — benign, not a gap.
+- **`sslRequired: all`** → nginx `forceSSL`. **Admin-console / master-realm
+  hardening** (R1/R4) → structurally gone (Authelia has no admin console). **TLS
+  cert bootstrap** → ACME module. All non-gaps.
+- **One real gap, now closed — brute-force regulation.** Keycloak's homelab
+  realm had `bruteForceProtected: true` (failureFactor 10, maxFailureWaitSeconds
+  900 → temporary account lockout). Authelia's validator defaults `find_time`
+  and `ban_time` but **not** `max_retries`, and the regulator treats
+  `max_retries == 0` as disabled — so an omitted `regulation` block leaves the
+  portal login unthrottled. Added `regulation { modes = [user]; max_retries =
+  10; find_time = "15 minutes"; ban_time = "15 minutes"; }` to `authelia.nix`,
+  matching Keycloak's policy (per-account lockout; ban records persist in the
+  authelia-main SQLite). Lower urgency today since the portal is internal-only,
+  but it becomes load-bearing the moment the deferred external cutover exposes
+  the portal — so it's set now rather than left for that workstream. (Note: much
+  of the realm's brute-force rationale was tied to Keycloak's own internet-facing
+  exposure / admin surface, which Authelia eliminates; this restores only the
+  distinct online-password-guessing defense for user logins.)
+
+**Validation (repo-side):** `calvard`'s messeldam guest evals clean
+(`keycloak.enable = false`, `postgresql.enable = false`, `nginx.enable = true`
+with `recommendedProxySettings`, firewall `[80 443]`, `mem = 512`, `vcpu = 1`,
+nginx vhosts = authelia portal + ldap only). `network-helpers` + `network-registry`
+checks pass.
+
+**Operator steps (deploy):**
+
+1. Redeploy `calvard` (rebuilds the messeldam guest). On boot messeldam runs
+   only Authelia + lldap + nginx; Keycloak/PostgreSQL are gone and the VM now
+   has 512MB/1 vCPU.
+2. Confirm the internal portal still works:
+   `https://authelia.internal.mutantmell.net/.well-known/openid-configuration`
+   responds and portal login succeeds; perses (2a) and `step ssh login` (2c)
+   still authenticate (they point at the internal portal, untouched here).
+3. Nothing serves `auth.mutantmell.net` after this — that's expected until the
+   external-ingress workstream lands. No external consumer depends on it today
+   (langport's portal vhost was removed in 2e).
+
+**Still deferred (Phase 3 steps 1–2 / external-ingress workstream):** point
+`auth.mutantmell.net` at Authelia (external TLS terminator on the cloud host),
+add the `mutantmell.net` session-cookie domain alongside `internal.mutantmell.net`,
+and repoint consumers' issuer from `authelia.internal.mutantmell.net` to
+`auth.mutantmell.net`. Gated on the not-yet-built cloud host (same gate as 2e).
 
 ### Phase 4: Post-migration cleanup
 

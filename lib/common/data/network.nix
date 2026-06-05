@@ -55,7 +55,7 @@
       vlanId = 11;
       gateway = "bt8gw";
       hosts = {
-        messeldam = 6; # Keycloak OIDC (calvard)
+        messeldam = 6; # Authelia OIDC (calvard)
         basel = 7; # step-ca / PKI (calvard)
         tharbad = 5; # Prometheus+Loki+Alertmanager+ntfy (calvard)
         liberl = 20; # NAS — before VM hosts
@@ -392,9 +392,11 @@
       "internal"
     ];
     messeldam = [
+      # auth.mutantmell.net resolves to messeldam, but nothing serves it yet:
+      # Keycloak (which used to) was removed in Phase 3, and folding the Authelia
+      # portal onto this external name is the deferred external-ingress
+      # workstream. Until then the portal lives at the FQDN alias below.
       "auth.mutantmell.net"
-      # Authelia coexistence hostname (Phase 1). Authelia runs alongside
-      # Keycloak here until the Phase 3 cutover folds it onto auth.mutantmell.net.
       "authelia.internal.mutantmell.net"
       "authelia.internal"
       # lldap admin web UI (management + trusted zones, nginx-fronted on messeldam).

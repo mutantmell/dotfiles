@@ -60,7 +60,9 @@
   domainsBaselCount = assertEq "domainsBasel count" (builtins.length domainsBasel) 3;
 
   domainsMesseldam = net.domainsForHost "messeldam";
-  domainsMesseldamCount = assertEq "domainsMesseldam count" (builtins.length domainsMesseldam) 4;
+  # 3 base domains + 5 aliases (auth.mutantmell.net + the authelia/ldap internal
+  # names added in the Authelia migration's Phase 1) = 8.
+  domainsMesseldamCount = assertEq "domainsMesseldam count" (builtins.length domainsMesseldam) 8;
   domainsMesseldamAlias = builtins.elem "auth.mutantmell.net" domainsMesseldam;
 
   domainsThebeyond = net.domainsForHost "thebeyond";
@@ -75,8 +77,8 @@
   aliasDataMesseldam = net.mkUnboundAliasData ["messeldam"];
   aliasDataMesseldamA = builtins.elem ''"auth.mutantmell.net. A ${net.hosts.messeldam.ipv4}"'' aliasDataMesseldam;
   aliasDataMesseldamAAAA = builtins.elem ''"auth.mutantmell.net. AAAA ${net.hosts.messeldam.ipv6}"'' aliasDataMesseldam;
-  # 1 alias × 2 records each (A + AAAA) = 2
-  aliasDataMesseldamCount = assertEq "aliasDataMesseldam count" (builtins.length aliasDataMesseldam) 2;
+  # 5 aliases × 2 records each (A + AAAA) = 10
+  aliasDataMesseldamCount = assertEq "aliasDataMesseldam count" (builtins.length aliasDataMesseldam) 10;
 
   aliasDataThebeyond = net.mkUnboundAliasData ["thebeyond"];
   # 2 aliases × 2 records each (A + AAAA) = 4

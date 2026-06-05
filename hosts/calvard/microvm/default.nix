@@ -12,7 +12,7 @@ in {
   };
 
   # Boot ordering: start ACME-dependent guests after basel (step-ca),
-  # and OIDC-dependent guests after messeldam (Keycloak).
+  # and OIDC-dependent guests after messeldam (Authelia).
   # Uses Wants (not Requires) so guests still start if a dependency is
   # down — they'll retry or run degraded rather than refusing to start.
   systemd.services = let

@@ -88,12 +88,12 @@ in {
         port = 443;
         comment = "ACME certs from basel";
       }
-      # Perses OIDC token exchange with Keycloak
+      # Perses OIDC token exchange with Authelia
       {
         host = "messeldam";
         proto = "tcp";
         port = 443;
-        comment = "Keycloak OIDC";
+        comment = "Authelia OIDC";
       }
     ]
   );

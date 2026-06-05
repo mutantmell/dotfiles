@@ -8,11 +8,12 @@
   portalHost = "authelia.internal.mutantmell.net";
   cookieDomain = "internal.mutantmell.net";
 in {
-  # Authelia — OIDC provider + nginx auth_request backend. Runs alongside
-  # Keycloak during the migration (Phase 1 coexistence): Keycloak keeps serving
-  # auth.mutantmell.net while Authelia is reachable on the internal-only
-  # authelia.internal vhost. Consumers move over one at a time (Phase 2), then
-  # Phase 3 flips auth.mutantmell.net to Authelia and removes Keycloak.
+  # Authelia — OIDC provider + nginx auth_request backend, and now the sole auth
+  # server on messeldam: Keycloak was removed in Phase 3 (all consumers — perses,
+  # step-ca — moved to the internal portal in Phase 2). The portal is still
+  # internal-only at authelia.internal.mutantmell.net; folding it onto the
+  # external auth.mutantmell.net (and adding a mutantmell.net session-cookie
+  # domain) is the deferred external-ingress workstream, gated on the cloud host.
   services.authelia.instances.main = {
     enable = true;
 
@@ -56,6 +57,24 @@ in {
       # gateway-only); the host already syncs time via the gateway, so this
       # check is redundant noise.
       ntp.disable_startup_check = true;
+
+      # Brute-force / online-password-guessing protection on the portal's
+      # first-factor login, restoring the control Keycloak's homelab realm had
+      # (bruteForceProtected: true, failureFactor 10, maxFailureWaitSeconds 900).
+      # This must be set explicitly: Authelia's validator defaults find_time and
+      # ban_time but NOT max_retries, and the regulator treats max_retries == 0
+      # as "disabled" (regulator.go: `MaxRetries > 0`). So an omitted regulation
+      # block silently leaves the portal unthrottled — unlike Keycloak. modes
+      # `user` mirrors Keycloak's per-account lockout (no IP banning, which would
+      # misfire on shared egress); ban records live in the already-persisted
+      # authelia-main SQLite, so nothing extra to persist. Matters most once the
+      # portal is externally reachable (the deferred auth.mutantmell.net cutover).
+      regulation = {
+        modes = ["user"];
+        max_retries = 10;
+        find_time = "15 minutes";
+        ban_time = "15 minutes";
+      };
 
       authentication_backend = {
         refresh_interval = "1m";
@@ -175,19 +194,33 @@ in {
     acceptTerms = true;
   };
 
-  services.nginx.virtualHosts.${portalHost} = {
-    forceSSL = true;
-    enableACME = true;
-    serverAliases = ["authelia.internal"];
-    # Proxy headers (Host, X-Real-IP, X-Forwarded-*) come from
-    # services.nginx.recommendedProxySettings (set host-wide). Don't re-set Host
-    # here: nginx emits both and Authelia's fasthttp parser rejects a request
-    # with duplicate Host headers ("too many Host headers" -> 400).
-    locations."/" = {
-      proxyPass = "http://127.0.0.1:9091";
-      proxyWebsockets = true;
+  # nginx fronts every internal vhost on messeldam: this Authelia portal,
+  # lldap's admin UI (lldap.nix), and the port-80 ACME challenge endpoint.
+  # `enable` + the recommended settings used to live in keycloak.nix; they moved
+  # here when Keycloak was removed (Phase 3). Both the portal vhost and lldap's
+  # vhost deliberately rely on recommendedProxySettings being set host-wide and
+  # do NOT re-set Host (nginx would emit a duplicate and Authelia's fasthttp
+  # parser rejects "too many Host headers" -> 400).
+  services.nginx = {
+    enable = true;
+    recommendedTlsSettings = true;
+    recommendedProxySettings = true;
+
+    virtualHosts.${portalHost} = {
+      forceSSL = true;
+      enableACME = true;
+      serverAliases = ["authelia.internal"];
+      locations."/" = {
+        proxyPass = "http://127.0.0.1:9091";
+        proxyWebsockets = true;
+      };
     };
   };
+
+  # 443 serves the portal/lldap vhosts; 80 is the ACME http-01 challenge port
+  # basel hits to validate the *.internal certs. Relocated from keycloak.nix
+  # when Keycloak was removed (Phase 3).
+  networking.firewall.allowedTCPPorts = [80 443];
 
   environment.persistence."/persist".directories = [
     {
