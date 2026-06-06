@@ -59,6 +59,14 @@
             "--oidc-extra-scope=email"
             "--oidc-extra-scope=groups"
             "--certificate-authority=${kubeDir}/step-ca-root.crt"
+            # Headless/SSH-friendly login: print the auth URL and read the code
+            # back from the keyboard instead of spawning a browser + a localhost
+            # callback server (unreachable when SSH'd into a remote host with no
+            # local browser). Open the URL on any machine that can reach Authelia,
+            # authenticate, then paste the code from the redirect URL. The
+            # `kubernetes` client's registered redirect_uris (localhost:8000) are
+            # what the redirect lands on, so no Authelia change is needed.
+            "--grant-type=authcode-keyboard"
           ];
           # Only pop a browser for commands run interactively; scripted calls
           # reuse the cached token rather than hanging on a login prompt.
