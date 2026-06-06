@@ -259,6 +259,49 @@ Deployments/StatefulSets/Services/NetworkPolicies/ConfigMaps — in the
 Flux-watched path, plus langport nginx forwarding rules (NixOS) for any
 newly public-facing service.
 
+## Control-plane CA/token ownership — follow-up (do before declaring the k3s migration finished)
+
+Surfaced during Phase A: DevPod's kubeconfig needs to trust the apiserver,
+which exposed that k3s' control-plane CAs + server token were
+cluster-generated and not owned by the flake (edith was copying the CA out
+of erebonia by hand). That ownership transfer has since **landed in code**:
+the flake now owns and reproduces erebonia's control-plane roots —
+`hosts/erebonia/k3s/ca-adoption.nix` (sops keys + a seed-if-absent step into
+`server/tls`), `lib/common/data/k3s/erebonia/` (public CA certs, exposed as
+`data.k3s.erebonia`), and `services.k3s.tokenFile`. edith now trusts
+`server-ca.crt` from the flake (`home/modules/kube.nix`) — no manual copy.
+
+- **Owned (operator-lifecycle; codified):** 5 CAs (server / client /
+  request-header / etcd-server / etcd-peer) + `service.key` (SA issuer
+  anchor) + `server-token` (PBKDF2 root of the datastore bootstrap).
+- **NOT owned (k3s-autonomous; excluded):** all leaf certs,
+  `service.current.key`, `node-token`/`agent-token` (derived from the token).
+- **Deciding test:** autonomous rotation by k3s ⇒ k3s-owned; operator-only
+  rotation ⇒ ours. "Has a rotate verb" alone is not the test — CAs and the
+  token both rotate via operator-run k3s verbs and stay ours.
+
+**Open action — secret-rotation helper.** k3s does not watch cert files;
+rotation is repo-authored but **operator-applied** via k3s verbs (the seed is
+deliberately seed-if-absent, so editing a secret never auto-rotates). Add a
+small script that, on deploy, detects a changed owned secret (hash vs. a
+stored applied-hash on `/persist`) and dispatches to the correct verb rather
+than overwriting files:
+
+- **token / `service.key`** — automate: read the live value, take the new
+  value from sops, run `k3s token rotate --new-token=…` (token) / the SA-key
+  rotation procedure (`service.key`). Tractable to do safely.
+- **CA certs/keys** — **keep manual** (runbook, not the hook): `k3s
+  certificate rotate-ca` + restart + client redistribution (`home-manager
+  switch` for edith's `server-ca`) has too large a blast radius for a
+  fire-and-forget trigger.
+
+Until the helper lands, the safe model is: rotate on the cluster with the k3s
+verb, then re-capture the new material into the repo (same flow as the
+initial adoption). Optional cleaner end-state at a future erebonia reinit:
+**Regime B** — generate the CA material in the flake and feed it to k3s via
+custom-CA seeding on a fresh init, so the repo is the authoritative origin
+(same owned files; only the origin flips repo→cluster).
+
 ## Open decisions
 
 - ~~CI architecture fork~~ — **resolved: hybrid** (Woodpecker server
