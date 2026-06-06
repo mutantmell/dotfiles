@@ -48,6 +48,25 @@ in {
       encryptedKey = pki + "/admin_jwk.enc";
     };
   };
+  # k3s control-plane CAs — cluster-scoped (erebonia's own self-signed roots),
+  # deliberately distinct from the homelab-wide step-ca trust in `pki` above
+  # (bootstrap decision #3: k3s keeps its own CA root, not a step-ca
+  # intermediate). Only the public CA *certs* live here; the matching private
+  # keys are sops (hosts/erebonia/secrets/k3s-ca.yaml). The flake owns these so a
+  # rebuilt/recovered erebonia regenerates its leaf certs under the *same* CAs
+  # (trust reproduces; edith's kubeconfig + any client certs stay valid) and so
+  # clients trust :6443 without a post-boot copy. Adopted from erebonia's already
+  # initialized cluster — k3s requires CA data not change once initialized, so
+  # these are imported as-is, never regenerated.
+  k3s.erebonia = let
+    d = ./k3s/erebonia;
+  in {
+    serverCa = d + "/server-ca.crt";
+    clientCa = d + "/client-ca.crt";
+    requestHeaderCa = d + "/request-header-ca.crt";
+    etcdServerCa = d + "/etcd-server-ca.crt";
+    etcdPeerCa = d + "/etcd-peer-ca.crt";
+  };
   fleetEnrollmentCerts = let
     certDir = ./fleet-x5c-certs;
     certFiles =

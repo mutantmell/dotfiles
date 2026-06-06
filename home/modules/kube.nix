@@ -20,6 +20,12 @@
   # intermediate in its chain, so the root alone completes verification).
   stepCaRoot = ../../lib/common/data/pki/root_ca.crt;
 
+  # k3s apiserver serving-cert CA — the cluster's own control-plane root (kept
+  # separate from step-ca; bootstrap decision #3). Flake-owned and committed
+  # (lib/common/data/k3s/erebonia, adopted from erebonia's initialized cluster),
+  # so this is distributed declaratively like stepCaRoot — no post-boot copy.
+  k3sServerCa = ../../lib/common/data/k3s/erebonia/server-ca.crt;
+
   kubeDir = "${config.home.homeDirectory}/.kube";
 
   kubeconfig = {
@@ -31,10 +37,9 @@
         cluster = {
           server = "https://erebonia.internal:6443";
           # The apiserver presents a k3s-CA-signed serving cert (k3s keeps its
-          # own control-plane CA — bootstrap decision #3). That CA is generated
-          # at first boot and isn't in this flake, so copy it once out of
-          # erebonia:/etc/rancher/k3s/k3s.yaml (certificate-authority-data,
-          # base64-decoded) into the path below. It is not secret.
+          # own control-plane CA — bootstrap decision #3). The public server CA
+          # is now flake-owned (k3sServerCa) and written to ~/.kube below, so no
+          # manual copy out of erebonia is needed.
           certificate-authority = "${kubeDir}/erebonia-ca.crt";
         };
       }
@@ -80,6 +85,9 @@ in {
 
   # step-ca root for kubelogin to trust Authelia's TLS during the OIDC flow.
   home.file.".kube/step-ca-root.crt".source = stepCaRoot;
+
+  # k3s apiserver CA — distributed from the flake (was a one-time manual copy).
+  home.file.".kube/erebonia-ca.crt".source = k3sServerCa;
 
   # Standalone kubeconfig — kept out of ~/.kube/config so it never clobbers a
   # config managed elsewhere. Select it with `export KUBECONFIG=~/.kube/

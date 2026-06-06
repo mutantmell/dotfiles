@@ -54,6 +54,9 @@
 in {
   imports = [
     ./runtimes.nix
+    # Flake-owned control-plane CAs (adopted from erebonia's initialized cluster;
+    # seeded into server/tls if absent so a rebuild reproduces the same trust).
+    ./ca-adoption.nix
     # Chunk 2 — platform HelmCharts (all erebonia-local auto-apply manifests).
     ./cert-manager.nix
     ./kyverno.nix
