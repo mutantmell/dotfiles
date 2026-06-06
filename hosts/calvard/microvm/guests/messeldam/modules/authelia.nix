@@ -188,6 +188,31 @@ in {
               # client_secret_post"). Equivalent security to basic over TLS —
               # the secret is still required, just carried in the body.
               token_endpoint_auth_method: client_secret_post
+            # k3s API server, driven by `kubectl oidc-login` (int128 kubelogin).
+            # Public client + PKCE on a loopback redirect, exactly the step-ca
+            # native-app shape: kubelogin runs the auth-code flow locally and has
+            # no safe place to keep a confidential secret. claims_policy
+            # with_groups is load-bearing — the kube apiserver reads `groups`
+            # from the ID Token (same as step-ca), and Authelia 4.39 omits it
+            # there unless the policy copies it in; without it every OIDC login
+            # authenticates with no groups and the cluster-admin RoleBinding
+            # (keyed on the `k8s-admins` group) never matches. kubelogin's
+            # default loopback listener is 127.0.0.1:8000; both host spellings
+            # are registered so either redirect URL validates.
+            - client_id: kubernetes
+              client_name: "k3s API server (kubectl oidc-login)"
+              public: true
+              authorization_policy: one_factor
+              claims_policy: with_groups
+              redirect_uris:
+                - "http://localhost:8000"
+                - "http://127.0.0.1:8000"
+              scopes: [openid, profile, email, groups]
+              grant_types: [authorization_code]
+              response_types: [code]
+              token_endpoint_auth_method: none
+              require_pkce: true
+              pkce_challenge_method: S256
     '';
   };
 

@@ -6,6 +6,7 @@
 }: {
   imports = [
     ./modules/java-versions.nix
+    ./modules/kube.nix
   ];
 
   home.packages = with pkgs; [

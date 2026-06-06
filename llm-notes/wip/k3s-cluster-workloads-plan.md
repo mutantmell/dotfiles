@@ -1,9 +1,33 @@
 # k3s Cluster Workloads Plan (AI coding layer, game servers, CI, blog)
 
-Status: Planned (not started). **Phase A (AI coding layer / dev containers)
-runs first** as the cluster's low-stakes starter and shakedown — ahead of
-the dev-environment migration. The remaining net-new features (blog, game
-servers, CI) come **after** the dev-env migration.
+Status: **In progress.** **Phase A (AI coding layer / dev containers) runs
+first** as the cluster's low-stakes starter and shakedown — ahead of the
+dev-environment migration. The remaining net-new features (blog, game servers,
+CI) come **after** the dev-env migration.
+
+**Done so far:**
+
+- **Phase A prerequisite — apiserver OIDC auth (2026-06-05).** Phase A's auth
+  model is "the operator's existing k8s access (OIDC kubectl/kubeconfig)", but
+  bootstrap only shipped the x509 break-glass kubeconfig and deferred OIDC
+  (open decision #1 chose the foundational Authelia as the target but did not
+  implement it). This chunk wired it: a public+PKCE `kubernetes` OIDC client on
+  the foundational Authelia (`messeldam`, `…/messeldam/modules/authelia.nix`)
+  carrying `claims_policy: with_groups` (k8s reads groups from the ID Token —
+  same gotcha step-ca hit); the k3s apiserver `oidc-*` flags + step-ca
+  `oidc-ca-file` and an `oidc:k8s-admins`→cluster-admin ClusterRoleBinding
+  (`hosts/erebonia/k3s/default.nix`); the `k8s-admins` lldap group
+  (`…/messeldam/modules/lldap.nix`, operator adds their account via the lldap
+  UI); and the workstation `kubectl oidc-login` config + kubelogin-oidc
+  (`home/modules/kube.nix`). erebonia↔messeldam:443 is intra-VLAN-11, so no
+  router6 change. x509 admin kubeconfig stays the break-glass path, so a
+  bad/unreachable issuer degrades to "OIDC login fails", never a lockout.
+  **Operator validation pending:** rebuild messeldam (lldap seeds `k8s-admins`)
+  + erebonia, add your lldap account to `k8s-admins`, copy the k3s server CA to
+  `~/.kube/erebonia-ca.crt`, then `KUBECONFIG=~/.kube/erebonia-oidc.yaml kubectl
+  get nodes` should auth via the browser and land as cluster-admin. (This is
+  decision #1's "validate `kubectl oidc-login` in Phase 1" — if Authelia↔kube
+  OIDC mismatches, fall back to an oauth2-proxy adapter or static token.)
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 2–4** and Appendix A (CI runner security). The AI coding layer is
@@ -108,8 +132,9 @@ Shape (DevPod):
   **only** for workspaces that build/boot VMs — the exact thing that broke
   under deployd, now fixed by running k3s on erebonia bare-metal — not the
   default. (All tiers validated in bootstrap Phase 1.)
-- **Auth** is the operator's existing k8s access (OIDC `kubectl`/kubeconfig
-  from the bootstrap plan), not a separate login surface. Per-workspace
+- **Auth** is the operator's existing k8s access (OIDC `kubectl`/kubeconfig),
+  not a separate login surface — **wired in the prerequisite chunk above**
+  (Authelia OIDC + `oidc:k8s-admins`→cluster-admin). Per-workspace
   NetworkPolicy + router6 bound egress as usual.
 - **Repo integration** with Forgejo (`creil`) and the Nix substituter
   (`zeiss` Attic) for fast dev-shell builds; persistent workspace state on

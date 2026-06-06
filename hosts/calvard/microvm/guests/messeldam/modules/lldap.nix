@@ -133,6 +133,12 @@ in {
       ensure_group admin
       ensure_group media-users
       ensure_group deploy
+      # k3s cluster-admin via OIDC: members of this group map to the kube
+      # `oidc:k8s-admins` group (apiserver oidc-groups-prefix) and are bound to
+      # the cluster-admin ClusterRole on erebonia. Kept separate from `admin` so
+      # kube superuser is granted explicitly, not as a side effect of general
+      # admin membership. The operator adds their account to it via the lldap UI.
+      ensure_group k8s-admins
 
       # Seed a read-only bind account (create or re-assert its password) and
       # ensure it's in lldap_strict_readonly — a directory query/bind identity,

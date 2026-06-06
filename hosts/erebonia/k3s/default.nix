@@ -6,6 +6,29 @@
 }: let
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost "erebonia") host;
+  inherit (pkgs.mmell.lib.data) pki;
+
+  # ── apiserver OIDC against the foundational Authelia (open decision #1) ──────
+  # Auth for the cluster is the operator's existing identity: `kubectl
+  # oidc-login` against Authelia on messeldam (the tier-1 IdP — NOT moved into
+  # the cluster; see foundational-identity-resilience-plan). This is the
+  # prerequisite for the workloads plan's Phase A (DevPod), whose auth model is
+  # "the operator's existing k8s access". The on-disk x509 admin kubeconfig stays
+  # the break-glass path, so a wrong/unreachable issuer degrades to "OIDC login
+  # doesn't work" rather than locking the cluster out.
+  #
+  # The issuer string must match Authelia's `iss` exactly — same host step-ca
+  # already discovers against (basel/.../step-ca.nix configurationEndpoint).
+  oidcIssuer = "https://authelia.internal.mutantmell.net";
+  oidcClientId = "kubernetes";
+
+  # Authelia's portal TLS is step-ca-issued; the apiserver does not get the
+  # host's system trust store, so point oidc-ca-file at the step-ca root+
+  # intermediate bundle (public certs — a plain /nix/store path is fine). Mirrors
+  # the inline caBundle cert-manager uses for the same ACME endpoint.
+  oidcCaBundle = pkgs.runCommand "authelia-oidc-ca-bundle" {} ''
+    cat ${pki.root} ${pki.intermediate} > $out
+  '';
 
   # k3s data lives on a dedicated btrfs subvolume under /persist — the
   # impermanence-persistent subvolume that is NOT rolled back on boot (see
@@ -68,8 +91,20 @@ in {
       "--tls-san=${host.ipv6}"
       # group-readable kubeconfig at /etc/rancher/k3s/k3s.yaml for the operator
       # to copy out (rewrite server: https://erebonia.internal:6443 on the
-      # workstation copy).
+      # workstation copy). This stays the x509 break-glass path alongside OIDC.
       "--write-kubeconfig-mode=0640"
+
+      # OIDC authentication against Authelia (see the let-block notes). usernames
+      # and groups are namespaced with an `oidc:` prefix so they can never
+      # collide with the cluster's built-in/x509 subjects; the cluster-admin
+      # binding below is keyed on the resulting `oidc:k8s-admins` group.
+      "--kube-apiserver-arg=oidc-issuer-url=${oidcIssuer}"
+      "--kube-apiserver-arg=oidc-client-id=${oidcClientId}"
+      "--kube-apiserver-arg=oidc-username-claim=preferred_username"
+      "--kube-apiserver-arg=oidc-username-prefix=oidc:"
+      "--kube-apiserver-arg=oidc-groups-claim=groups"
+      "--kube-apiserver-arg=oidc-groups-prefix=oidc:"
+      "--kube-apiserver-arg=oidc-ca-file=${oidcCaBundle}"
     ];
   };
 
@@ -127,6 +162,32 @@ in {
       ip6 saddr { ${net.networks.trusted.subnet6}, ${net.networks.lab.subnet6} } tcp dport 6443 accept
     '';
   };
+
+  # ── OIDC cluster-admin binding ──────────────────────────────────────────────
+  # Members of the lldap `k8s-admins` group (seeded in messeldam's lldap.nix)
+  # arrive as the `oidc:k8s-admins` group (oidc-groups-prefix above) and are
+  # granted the built-in cluster-admin ClusterRole. Group-keyed, so adding/
+  # removing operators is an lldap membership change — no cluster edit. Auto-
+  # applied from the k3s server manifests dir like the runtimeclasses/issuer.
+  services.k3s.manifests.oidc-admin-rbac.content = [
+    {
+      apiVersion = "rbac.authorization.k8s.io/v1";
+      kind = "ClusterRoleBinding";
+      metadata.name = "oidc-k8s-admins";
+      roleRef = {
+        apiGroup = "rbac.authorization.k8s.io";
+        kind = "ClusterRole";
+        name = "cluster-admin";
+      };
+      subjects = [
+        {
+          apiGroup = "rbac.authorization.k8s.io";
+          kind = "Group";
+          name = "oidc:k8s-admins";
+        }
+      ];
+    }
+  ];
 
   # `kubectl`/`crictl` on the host point at the bundled kubeconfig by default.
   environment.systemPackages = [pkgs.kubectl];
