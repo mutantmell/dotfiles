@@ -46,7 +46,7 @@ in {
     networkConfig = {
       Address = [host.cidr4 host.cidr6];
       Gateway = zone.gateway4;
-      DNS = ["127.0.0.1"]; # Use local DNS (Blocky -> Unbound)
+      DNS = ["127.0.0.1"]; # Use local DNS (Unbound)
       # Static v4 and v6 addresses + explicit routes — we don't need RA.
       # Leaving IPv6AcceptRA on stalls systemd-networkd-wait-online for
       # ~2 minutes if no router advertises on brMGMT yet.
@@ -89,7 +89,6 @@ in {
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
-      "/var/lib/private/blocky" # Blocky state (DynamicUser backing dir)
     ];
   };
 

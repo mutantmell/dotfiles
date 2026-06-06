@@ -18,58 +18,12 @@
 
   hasFallback = cfg.dns.fallbackFromLease != null;
   hasPrimary = cfg.dns.upstream != [];
-  hasSourceRoutes = cfg.dns.sourceRoutes != [];
   upstreamServers = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.upstream);
 
   # kresd's policy.* identifiers are uppercase (FORWARD, STUB). The option
   # values are lowercase to match Nix-attr convention.
   primaryPolicyFn = "policy.${lib.toUpper cfg.dns.upstreamPolicy}";
   fallbackPolicyFn = "policy.${lib.toUpper cfg.dns.fallbackPolicy}";
-
-  # Per-source-CIDR forward overrides (e.g. GUEST VLAN ad-block bypass).
-  # Implemented as ordinary policy rules using the view module's source-CIDR
-  # matcher (view.rule_src), so they share the single policy chain with the
-  # primary/fallback dispatcher instead of fighting it across layers. They are
-  # spliced ahead of the dispatcher's policy.add below, and view.rule_src
-  # returns nil on a non-match, so the chain falls through to the dispatcher.
-  # Matching upstreamPolicy keeps validation identical to the default path.
-  #
-  # `wrapAction` maps the hoisted no-block action (a local Lua name) to the
-  # action actually registered, letting the fallback build wrap it in breaker
-  # awareness. Internally-originated queries (the health probe) carry no
-  # qsource.addr, so view.rule_src never matches them — they always reach the
-  # dispatcher and keep probing the primary.
-  loadViewLua = optionalString hasSourceRoutes "modules.load('view')\n";
-  mkSourceRouteRules = wrapAction:
-    concatStringsSep "\n" (lib.imap1 (
-        i: route: let
-          servers = concatStringsSep ", " (map (s: "'${s}'") route.upstream);
-          name = "sr_noblock_${toString i}";
-        in ''
-          local ${name} = ${primaryPolicyFn}({${servers}})
-          policy.add(view.rule_src(${wrapAction name}, '${route.cidr}'))''
-      )
-      cfg.dns.sourceRoutes);
-
-  # Static source routes: register the no-block action verbatim. Used when no
-  # ISP fallback exists — a matched client gets the no-block upstream or
-  # SERVFAILs with it (same fate as the primary path, which also has no
-  # fallback in this mode).
-  staticSourceRoutesLua = optionalString hasSourceRoutes (mkSourceRouteRules (name: name));
-
-  # Breaker-aware source routes: the no-block upstream (e.g. recursive
-  # Unbound) shares its backend with the primary path (Blocky → same Unbound),
-  # so they fail together. Reuse the primary breaker's `primary_down` flag —
-  # while the primary is healthy, matched clients get the no-block upstream;
-  # once the breaker trips (phantasma/Unbound outage), they fail over to the
-  # same ISP `fallback` as everyone else. The fallback is unfiltered too, so
-  # the no-block intent is preserved. This closes the gap where a guest VLAN
-  # would otherwise SERVFAIL through an outage while every other client failed
-  # over. `primary_down`/`fallback` are upvalues from breakerPreludeLua, which
-  # is emitted before these rules.
-  breakerAwareSourceRoutesLua = optionalString hasSourceRoutes (mkSourceRouteRules (
-    name: "function (state, req) if primary_down then return fallback(state, req) end return ${name}(state, req) end"
-  ));
 
   # kresd 5.x policy.FORWARD returns a closure that synchronously sets request
   # flags and the nslist, then returns `state`. It does NOT block on the
@@ -79,10 +33,8 @@
   # event.recurrent / worker.resolve and dispatch each user query based on a
   # cached primary_down flag. Probe outcome reads req.state / answer:rcode().
   #
-  # Split into three parts so breaker-aware source routes (which reference
-  # `primary_down`/`fallback`) can be spliced between the state prelude and the
-  # dispatcher's policy.add — source-route rules must precede the dispatcher in
-  # the policy chain for first-match-wins, but must follow the state they read.
+  # Split into prelude / dispatcher / schedule so the dispatcher's policy.add
+  # follows the state it reads and the probe scheduling follows the dispatcher.
   breakerPreludeLua = ''
     local primary_servers = {${upstreamServers}}
     local primary = ${primaryPolicyFn}(primary_servers)
@@ -159,8 +111,7 @@
     end
   '';
 
-  # Default dispatcher — registered AFTER source routes so a matched client
-  # short-circuits here. Internal probe queries (no qsource.addr) reach this.
+  # Default dispatcher — every user query and the internal probe reach this.
   breakerDispatchLua = ''
     policy.add(function(_, _)
       if probe_in_flight then
@@ -204,24 +155,20 @@ in {
 
       extraConfig = ''
         modules.load('policy')
-        ${loadViewLua}
         ${
           if hasPrimary && hasFallback
           then ''
             ${breakerPreludeLua}
-            ${breakerAwareSourceRoutesLua}
             ${breakerDispatchLua}
             ${breakerScheduleLua}
           ''
           else if hasPrimary
           then ''
-            ${staticSourceRoutesLua}
             policy.add(policy.all(${primaryPolicyFn}({${upstreamServers}})))
           ''
           else if hasFallback
           then ''
             local fallback_dns = dofile('/run/knot-resolver/isp-dns.lua')
-            ${staticSourceRoutesLua}
             policy.add(policy.all(${fallbackPolicyFn}(fallback_dns)))
           ''
           else ""

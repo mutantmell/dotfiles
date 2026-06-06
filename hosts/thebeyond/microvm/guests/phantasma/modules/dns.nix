@@ -7,111 +7,58 @@
   inherit (net.forHost "phantasma") host zone;
 in {
   networking.firewall.allowedUDPPorts = [
-    53 # DNS
-    5335 # Unbound direct (GUEST VLAN ad-block bypass, kresd-on-thebeyond only)
+    53 # DNS (Unbound)
   ];
   networking.firewall.allowedTCPPorts = [
-    53 # DNS
-    5335 # Unbound direct (GUEST VLAN ad-block bypass, kresd-on-thebeyond only)
+    53 # DNS (Unbound)
   ];
 
-  # Blocky binds the externally-routable v4+v6 addresses; Unbound owns
-  # 127.0.0.1:53. Result: libc on phantasma resolves directly through
-  # Unbound and never depends on Blocky being up. NixOS's networkd
-  # module defaults services.resolved.enable=true, which binds
-  # 127.0.0.53:53 and (more importantly) rewrites /etc/resolv.conf to
-  # point at that stub — both of which we need to keep clear.
+  # NixOS's networkd module defaults services.resolved.enable=true, which
+  # binds 127.0.0.53:53 and (more importantly) rewrites /etc/resolv.conf to
+  # point at that stub — both of which we need to keep clear so Unbound can
+  # own 127.0.0.1:53 and libc resolves through it.
   services.resolved.enable = false;
 
-  # libc → 127.0.0.1:53 → Unbound directly (Blocky is on the external
-  # IPs only). Keeps system DNS resolvable even if Blocky fails or
-  # restarts. Phantasma is a server — bypassing ad-blocking for its
-  # own queries is fine.
+  # libc -> 127.0.0.1:53 -> Unbound directly.
   networking.nameservers = ["127.0.0.1"];
 
-  # Blocky — declarative DNS proxy with ad-blocking
-  services.blocky = {
-    enable = true;
-    settings = {
-      ports = {
-        # Bind only the externally-routable addresses (v4 and v6).
-        # NOT 0.0.0.0/[::]:53 — that would capture loopback and force
-        # phantasma's own libc through Blocky again.
-        dns = "${host.ipv4}:53,[${host.ipv6}]:53";
-        http = "127.0.0.1:4000"; # metrics + REST API on loopback only
-      };
-
-      # Forward all queries to local Unbound (recursive + split-horizon).
-      upstreams.groups.default = ["127.0.0.1:53"];
-
-      # Blocky short-circuits RFC 6761 + ICANN special-use domains
-      # (including the recently-added `.internal`) to NXDOMAIN unless they
-      # have a conditional upstream. Without this, the entire
-      # homelab's `*.internal` and split-horizon `*.mutantmell.net`
-      # resolution would break.
-      conditional = {
-        fallbackUpstream = false;
-        mapping = {
-          "internal" = "127.0.0.1:53";
-          "internal.mutantmell.net" = "127.0.0.1:53";
-          "mutantmell.net" = "127.0.0.1:53";
-        };
-      };
-
-      # Source-IP allowlisting is the firewall's job (allowedUDPPorts above).
-      # No Blocky-side client allowlist.
-
-      blocking = {
-        # Denylist is pinned via flake input (stevenblack-hosts) and
-        # exposed as a store path through the mmell overlay. Avoids the
-        # bootstrap chicken-and-egg where Blocky tries to resolve the
-        # denylist URL through itself before it's ready.
-        denylists.ads = ["${pkgs.mmell.stevenblack-hosts}/hosts"];
-        clientGroupsBlock.default = ["ads"];
-      };
-
-      prometheus.enable = true;
-
-      log = {
-        level = "info";
-        format = "json";
-      };
-    };
-  };
-
-  # Unbound - recursive DNS resolver. DNSSEC validation is intentionally
-  # ON here: this is the recursive resolver in the chain, and the
-  # router-side kresd-fragility note in hosts/thebeyond/router.nix is
-  # specific to kresd's taupd trust-anchor refresh, not to Unbound.
+  # Unbound - recursive DNS resolver with split-horizon. This is the single
+  # resolver phantasma exposes: thebeyond's kresd forwards here over brMGMT,
+  # and phantasma's own libc resolves through it on loopback.
+  #
+  # Ad-blocking is intentionally NOT done here. It lives in a separate Blocky
+  # resolver outside thebeyond's kresd cache so blocked answers can never
+  # poison the shared cache that fronts every VLAN (the failure mode that
+  # made the old per-VLAN Blocky bypass leak across clients).
+  #
+  # DNSSEC validation is intentionally ON: this is the recursive resolver in
+  # the chain. The router-side kresd-fragility note in
+  # hosts/thebeyond/router.nix is specific to kresd's ta_update trust-anchor
+  # refresh, not to Unbound.
   services.unbound = {
     enable = true;
     settings = {
       server = {
-        # Listen on 127.0.0.1:53 (so libc and Blocky reach Unbound via the
-        # default port) and on :5335 — both loopback (readability alias,
-        # separates Unbound from Blocky in netstat/logs) and the brMGMT
-        # addresses. The brMGMT :5335 endpoint is the no-block path: kresd
-        # on thebeyond forwards GUEST-VLAN queries here, bypassing Blocky's
-        # blocklist. Port 53 stays loopback-only (Blocky owns the external
-        # :53), so external clients can't skip Blocky except via this
-        # explicit, source-restricted 5335 endpoint.
+        # Loopback for libc, and the brMGMT addresses for thebeyond's kresd.
+        # Port 53 throughout — there is no longer a separate :5335 endpoint
+        # (that existed only for the old GUEST-VLAN no-block bypass).
         interface = [
           "127.0.0.1"
-          "127.0.0.1@5335"
-          "${host.ipv4}@5335"
-          "${host.ipv6}@5335"
+          "${host.ipv4}"
+          "${host.ipv6}"
         ];
         port = 53;
         # The brMGMT addresses are statically assigned by networkd; on a cold
         # boot Unbound can start before they land. ip-freebind lets it bind
         # those addresses regardless, so a missing/late address doesn't fail
-        # the whole service (one unbindable interface otherwise aborts startup,
-        # which would also take down Blocky's 127.0.0.1:53 upstream). It does
-        # not widen the bind — Unbound still listens only on these addresses.
+        # the whole service (one unbindable interface otherwise aborts
+        # startup, which would take down libc's 127.0.0.1:53 resolver too). It
+        # does not widen the bind — Unbound still listens only on these
+        # addresses.
         ip-freebind = true;
-        # Defense in depth alongside the firewall: only loopback (Blocky,
-        # libc) and thebeyond's brMGMT gateway (kresd) may query Unbound.
-        # Everything else is refused even if it reaches the socket.
+        # Defense in depth alongside the firewall: only loopback (libc) and
+        # thebeyond's brMGMT gateway (kresd) may query Unbound. Everything
+        # else is refused even if it reaches the socket.
         access-control = [
           "127.0.0.0/8 allow"
           "::1 allow"
@@ -163,23 +110,6 @@ in {
       };
       remote-control.control-enable = true;
     };
-  };
-
-  # Ensure Unbound is listening before Blocky starts answering. Without
-  # this, Blocky on a cold boot can accept queries while its upstream
-  # (127.0.0.1:53) is still being bound by Unbound, producing SERVFAIL
-  # bursts for any device that connects in that window. Unbound is
-  # Type=notify on NixOS, so After= only releases once it's listening.
-  #
-  # Also add `After=network-online.target`: Blocky now binds specific
-  # external addresses (${host.ipv4}:53 / [${host.ipv6}]:53) instead of
-  # 0.0.0.0:53, so the tap interface must be up and the addresses
-  # assigned before Blocky's bind() succeeds. Upstream's NixOS module
-  # has wants= but not after= for network-online, which leaves a race
-  # we'd hit on cold boot before the v6 address leaves tentative.
-  systemd.services.blocky = {
-    after = ["network-online.target" "unbound.service"];
-    wants = ["unbound.service"];
   };
 
   environment.systemPackages = with pkgs; [

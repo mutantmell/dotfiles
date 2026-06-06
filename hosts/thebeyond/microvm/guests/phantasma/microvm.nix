@@ -28,12 +28,12 @@
       autoCreate = true;
       mountPoint = "/persist";
       image = "/persist/guests/phantasma/images/persist.img";
-      size = 10 * 1024; # 10GB - Blocky query logs + Unbound cache state
+      size = 10 * 1024; # 10GB - Unbound cache state + logs
     }
   ];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
-  microvm.mem = 512; # 512MB - Blocky + Unbound are lightweight
+  microvm.mem = 512; # 512MB - Unbound is lightweight
   microvm.vcpu = 1;
 
   microvm.interfaces = [

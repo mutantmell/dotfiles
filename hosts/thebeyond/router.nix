@@ -521,24 +521,12 @@ in {
       # locally re-validates anything coming back from the ISP resolver.
       upstreamPolicy = "stub";
       fallbackFromLease = "enp4s0";
-      # GUEST VLAN (untrusted / tag 30) ad-block bypass: forward these clients'
-      # queries straight to phantasma's recursive Unbound (:5335), skipping
-      # Blocky's blocklist. Other untrusted-zone subnets (adu/31, iot/40,
-      # game/41) are NOT listed here, so they stay on the default Blocky path.
-      # Same trusted upstream over trusted brMGMT, so STUB (upstreamPolicy)
-      # applies — see sourceRoutes docs.
-      sourceRoutes = [
-        {
-          cidr = net.networks.untrusted.subnet4;
-          upstream = ["${phantasma.ipv4}@5335"];
-        }
-        {
-          cidr = net.networks.untrusted.subnet6;
-          # kresd splits upstream on `@` then inet_pton's the address, which
-          # rejects brackets — so it's `addr@port`, NOT `[addr]@port`.
-          upstream = ["${phantasma.ipv6}@5335"];
-        }
-      ];
+      # phantasma exposes plain Unbound (no ad-blocking), so every client gets
+      # clean, validated recursion through the single kresd cache. Ad-blocking
+      # will be reintroduced as a separate Blocky resolver that clients reach
+      # directly (its own cache, off the kresd path) — never as a kresd
+      # per-source upstream override, which the shared cache makes leak across
+      # clients (the reason the old sourceRoutes feature was removed).
       interception = {
         enable = true;
         extraExcludeAddresses = [phantasma.ipv6];
@@ -574,17 +562,6 @@ in {
             tcp.dport = 53;
             verdict = "accept";
             comment = "DNS recursive (TCP)";
-          }
-          # DNS no-block path: kresd → phantasma Unbound:5335 (GUEST VLAN bypass)
-          {
-            udp.dport = 5335;
-            verdict = "accept";
-            comment = "DNS no-block (Unbound direct)";
-          }
-          {
-            tcp.dport = 5335;
-            verdict = "accept";
-            comment = "DNS no-block (Unbound direct, TCP)";
           }
           # NTP
           {
