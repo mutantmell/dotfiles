@@ -73,7 +73,10 @@
     current-context = "erebonia";
   };
 in {
-  home.packages = [pkgs.kubectl pkgs.kubelogin-oidc];
+  # devpod drives on-demand dev-container workspaces against the cluster's
+  # Kubernetes provider (workloads plan Phase A). It's a client CLI that talks
+  # straight to the apiserver using the kubeconfig below — no in-cluster server.
+  home.packages = [pkgs.kubectl pkgs.kubelogin-oidc pkgs.devpod];
 
   # step-ca root for kubelogin to trust Authelia's TLS during the OIDC flow.
   home.file.".kube/step-ca-root.crt".source = stepCaRoot;
