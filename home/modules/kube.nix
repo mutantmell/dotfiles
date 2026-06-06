@@ -63,10 +63,17 @@
             # back from the keyboard instead of spawning a browser + a localhost
             # callback server (unreachable when SSH'd into a remote host with no
             # local browser). Open the URL on any machine that can reach Authelia,
-            # authenticate, then paste the code from the redirect URL. The
-            # `kubernetes` client's registered redirect_uris (localhost:8000) are
-            # what the redirect lands on, so no Authelia change is needed.
+            # authenticate, then copy the `code` from the redirect URL's address
+            # bar (the localhost page itself won't load) and paste it back.
             "--grant-type=authcode-keyboard"
+            # authcode-keyboard does NOT derive a redirect_uri from
+            # --listen-address (that is authcode-only), so it must be set
+            # explicitly — otherwise the auth request omits redirect_uri and
+            # Authelia rejects it ("redirect_uri is required"). http://localhost:8000
+            # is a registered redirect on the `kubernetes` client, so it validates
+            # with no Authelia change; nothing actually listens there — the code is
+            # copied by hand from the address bar.
+            "--oidc-redirect-url=http://localhost:8000"
           ];
           # Only pop a browser for commands run interactively; scripted calls
           # reuse the cached token rather than hanging on a login prompt.
