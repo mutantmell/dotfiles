@@ -150,6 +150,41 @@ and the cluster's isolation tiers cover the threat model. The remaining open
 item is the **devcontainer/runtimeClass design** (which base images, which
 RuntimeClass per workspace), not whether to build a coordinator.
 
+### Phase A PoC — VALIDATED (2026-06-06)
+
+End-to-end path proven on edith → erebonia: OIDC-authed `kubectl`
+(`authcode-keyboard` headless login) → DevPod kubernetes provider → workspace
+Pod scheduled, image pulled, container started. Ran the stock
+`mcr.microsoft.com/devcontainers/python:3` image and confirmed
+`runtimeClassName: kata-clh` actually took on the Pod — so the workspace ran
+in a Cloud Hypervisor microVM, not a plain container. Client wiring landed in
+`home/modules/kube.nix` (kubeconfig, server CA, step-ca root, and the
+kata-clh `POD_MANIFEST_TEMPLATE` partial); the provider is configured
+imperatively (operator choice while experimenting), not in home-manager.
+
+**Immediate follow-up — devcontainer definition + custom image for this repo.**
+The PoC used a generic upstream image; the actual coding layer needs a
+`devcontainer.json` checked into this flake repo plus a purpose-built image so
+sessions land with the homelab's tooling, not a stock Python container.
+
+- **`devcontainer.json` in the repo root** (DevPod's per-repo model): pin the
+  custom image, set `runtimeClassName`/options as needed, and declare the
+  workspace shape (mounts, post-create). This is the artifact `devpod up`
+  consumes — the repo becomes self-describing for AI coding sessions.
+- **Custom image** carrying the flake's dev tooling — Nix + this flake's dev
+  shell, `kubectl`, `claude-code`, and the usual CLIs — so a workspace can
+  build/eval the flake immediately. Build it with Nix tooling, **nixpkgs
+  packages over `npm install`** in the image (see
+  [[feedback_nixpkgs_over_npm]]), and push to the homelab registry (`creil`
+  Forgejo) for the provider to pull. Wire the flake dev-shell + Attic
+  substituter (`zeiss`) so in-workspace builds hit the cache.
+- **RuntimeClass per workspace:** default to `kata-clh` (validated). The
+  nested-virt tier (`/dev/kvm` for workspaces that build/boot VMs) stays a
+  separate, opt-in shape — out of scope for this immediate follow-up.
+
+This is the remaining substance of Phase A: the runtime is proven, what's left
+is making the workspace *useful* and reproducible from the repo.
+
 ## Phase 2 — the blog (optional)
 
 Genuinely optional — the blog isn't a homelab priority. Build it if

@@ -104,6 +104,19 @@ in {
   # k3s apiserver CA — distributed from the flake (was a one-time manual copy).
   home.file.".kube/erebonia-ca.crt".source = k3sServerCa;
 
+  # DevPod pod-manifest template — merged onto the generated workspace pod by the
+  # kubernetes provider (POD_MANIFEST_TEMPLATE option). Sole purpose: run the
+  # workspace inside a Cloud Hypervisor microVM via the kata-clh RuntimeClass
+  # instead of a plain container. The provider itself is added imperatively
+  # (`devpod provider add kubernetes --option POD_MANIFEST_TEMPLATE=...`) and
+  # points at this stable path.
+  home.file.".kube/devpod-kata-clh.yaml".text = ''
+    apiVersion: v1
+    kind: Pod
+    spec:
+      runtimeClassName: kata-clh
+  '';
+
   # Standalone kubeconfig — kept out of ~/.kube/config so it never clobbers a
   # config managed elsewhere. Select it with `export KUBECONFIG=~/.kube/
   # erebonia-oidc.yaml` (or list it in a KUBECONFIG colon-path to merge).
