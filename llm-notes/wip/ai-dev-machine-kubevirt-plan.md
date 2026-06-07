@@ -347,6 +347,40 @@ key/cert:
   (Calico/Cilium, or erebonia-local nftables on the pod-CIDR path) is the
   documented next step.
 
+## Known latent items (not blockers)
+
+- **claude.ai account connectors reach the sandbox via the operator's OAuth.**
+  The sandbox authenticates claude-code with the operator's Claude.ai OAuth
+  (scope `user:mcp_servers`), so claude.ai advertises its first-party connectors
+  (Gmail / Google Drive / Calendar) into every session — observed as
+  `mcp__claude_ai_*__authenticate` tools + a `mcp-needs-auth-cache.json` entry,
+  routed through `mcp-proxy.anthropic.com`. **Not a live exposure today:** the
+  connectors are *unauthenticated* (the operator has never granted them), so the
+  only tools surfaced are `authenticate`/`complete_authentication`, which need an
+  interactive browser consent an autonomous sandbox agent cannot complete — there
+  is no data to read. **Why it's latent, not closed:** authorization is
+  *account-level*, not per-sandbox. If the operator ever connects Gmail/Drive/
+  Calendar on their claude.ai account (for any unrelated reason), *every* sandbox
+  session silently inherits that access — no per-sandbox opt-in. It also
+  interacts with the OAuth-token exposure below: a stolen token's worst case
+  stays bounded only while the account has no connectors authorized.
+  **Decision (2026-06-07): accept as a known latent item, do not fix now.** The
+  defense-in-depth fix (bake a connector-disabling claude-code `settings.json`
+  into the dev image so connectors never load regardless of injected creds) is
+  cheap and reserved for if/when the account gains connectors.
+- **The Claude.ai OAuth refresh token is accepted in-sandbox.** The sandbox
+  holds the operator's `claudeAiOauth` access + refresh token
+  (`~/.claude/.credentials.json`). The refresh token grants **no additional
+  scope** over the access token — both are the same Pro identity with scopes
+  `user:inference`, `user:mcp_servers`, `user:profile`, `user:file_upload`,
+  `user:sessions:claude_code` (no API-billing, no org/admin scope) — it only
+  makes the credential *durable* (re-mints access tokens past the ~8h access-token
+  TTL until revoked). **Accepted (2026-06-07):** sessions may legitimately run
+  longer than the access-token TTL for long/complex tasks, so the refresh token
+  must persist. With connectors unauthorized (above), the token's worst case is
+  "burn the operator's Pro quota + read profile" — tolerable. The Phase-5 egress
+  lockdown is what bounds exfiltration of it.
+
 ## Bring-up fixes (first end-to-end run, 2026-06-07)
 
 Getting the chain to actually clone, build the devcontainer, and run a nested
