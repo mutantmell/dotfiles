@@ -7,6 +7,7 @@
   imports = [
     ./modules/java-versions.nix
     ./modules/kube.nix
+    ./modules/dev-machine.nix
   ];
 
   home.packages = with pkgs; [

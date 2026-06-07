@@ -1,8 +1,11 @@
 # Locked-down AI Dev Machines on KubeVirt (devpod + devcontainer.json)
 
-Status: In progress — Phase 1 (KubeVirt platform + thin base VM image) and
-Phase 2 (`devcontainer.json` + custom Nix dev image) landed. Next: Phase 3
-(devpod wiring + operator scripting).
+Status: In progress — Phase 1 (KubeVirt platform + thin base VM image),
+Phase 2 (`devcontainer.json` + custom Nix dev image), and Phase 3 (devpod
+wiring + operator scripting) landed. Next: Phase 4 (scoped git push
+credential) + Phase 5 (network lockdown), which together make the sandbox
+actually locked down — Phase 3 brings the chain up end-to-end but the VM still
+has open egress until Phase 5's NetworkPolicy lands.
 
 **What this is:** ephemeral, locked-down **dev machines** for LLM coding
 agents — spin up a VM-isolated workspace from a repo's `devcontainer.json`,
@@ -169,7 +172,60 @@ Original spec:
    standard skopeo / `nix2container` `copyTo` (or a CI job) — **not** a bespoke
    build/push CLI.
 
-## Phase 3 — devpod wiring + operator scripting (item 3)
+## Phase 3 — devpod wiring + operator scripting (item 3) — DONE
+
+Landed as `home/modules/dev-machine.nix` (imported via `home/common.nix`): a
+single `dev-machine` `writeShellApplication` with `up`/`ssh`/`list`/`down`
+subcommands plus `publish-base`, thin over `kubectl` + `virtctl` (from
+`pkgs.kubevirt`) + `devpod` + `skopeo`. The "Start" path, not the custom
+provider. Implementation decisions:
+
+- **SSH reaches the VM via `virtctl port-forward`, not a pod/host route.**
+  flannel gives the VM no off-host identity, so `up` nohup-backgrounds
+  `virtctl port-forward vmi/dm-<name> <port>:22` (deterministic local port per
+  machine) binding `127.0.0.1:<port>`, and points a **per-machine devpod ssh
+  provider** at `dev@127.0.0.1:<port>`. `ensure_portforward` revives a dead
+  tunnel on `ssh`. State (port + pid) lives in `$XDG_STATE_HOME/dev-machine/<name>`.
+- **Key injection is KubeVirt AccessCredentials (qemuGuestAgent), not the
+  devpod ssh provider's own key.** `up` creates a `dm-<name>-ssh-key` Secret
+  from the operator's pubkey; the VM's guest agent drops it into `dev`'s
+  authorized_keys. `USE_BUILTIN_SSH=false` + `StrictHostKeyChecking=no` /
+  `UserKnownHostsFile=/dev/null` because the ephemeral VMs reuse `127.0.0.1:<port>`.
+- **Nested KVM is requested at the VMI here**, not in the base image:
+  `domain.cpu.model: host-passthrough` surfaces the host `vmx` flag into the
+  guest (erebonia is `kvm_intel nested=1`), and `masquerade` binding puts the
+  VM behind the virt-launcher pod IP for the Phase 5 NetworkPolicy.
+- **The VM manifest is a Nix attrset, not interpolated YAML.** It is authored
+  in the module (repo idiom — cf. `kubevirt.nix`'s CR), `builtins.toJSON`'d to a
+  store file (valid by construction), and the wrapper `jq`-patches only the
+  per-session fields (name, secret, cpu via `--argjson`, memory) before
+  `kubectl apply`. The apply stays imperative — these VMs are ephemeral/per-
+  session, so the manifest is deliberately NOT a committed
+  `services.k3s.manifests` resource.
+- **Image freshness via rebuild-on-`up`** (the documented workaround until CI):
+  `up` `nix build`s `.#dev-machine-dev-image` and `skopeo copy`s it to creil by
+  default (`--no-rebuild` to skip).
+- **Registry auth is a preflight, not a buried failure.** A one-time `skopeo
+  login forgejo.internal` is still required (durable workstation `auth.json`,
+  not per-session state this tool owns), but `require_login` checks it up front
+  via `skopeo login --get-login` and prints the exact command instead of letting
+  a raw registry-auth error surface mid-`up`.
+- **The base containerDisk is auto-published on demand.** `up` `skopeo
+  inspect`s the base ref and builds+pushes it if absent (first use / GC'd), so
+  it is no longer a manual prerequisite. The base changes rarely and KubeVirt
+  caches it, so this only fires when actually missing; the explicit
+  `publish-base` subcommand stays for forcing a re-push after a base-config bump
+  (a presence check can't see a changed `:latest`).
+- **The superseded devpod kubernetes-driver + kata-clh wiring was removed from
+  `home/modules/kube.nix`** (the `devpod-kata-clh.yaml` POD_MANIFEST_TEMPLATE
+  and the `pkgs.devpod` package, which moved here). `kube.nix` keeps only
+  `kubectl` + the OIDC plugin for cluster admin.
+- **Lockdown still pending Phase 5.** These wrappers prove the full chain end
+  to end, but the VM has open pod egress until the namespace NetworkPolicy
+  lands, and the sandbox holds no scoped push credential until Phase 4 — so
+  this is "works", not yet "locked down".
+
+Original spec:
 
 - **Form: home-manager wrappers on the operator's workstation only** — NOT in
   the VM/container image. This keeps `devpod`/`kubectl`/`virtctl` and the
