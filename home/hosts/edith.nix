@@ -28,6 +28,17 @@
     # creil's API + the internal step-ca root so curl trusts forgejo.internal.
     caCert = "${pkgs.mmell.lib.data.pki.root}";
     forgejoTokenFile = config.sops.secrets."dev-machine-forgejo-token".path;
+    # Authenticate to forgejo as the `cc` bot (forgejoUser default) — that drives
+    # branch protection + blast-radius scoping — but author commits under the
+    # operator's real identity so history is meaningful (cc@forgejo.internal means
+    # nothing to anyone). Author email is independent of the auth identity and adds
+    # no credential to the sandbox. Commit signing is deliberately NOT enabled: a
+    # signing key would be a second, operator-identity credential in the sandbox
+    # (the one thing the lockdown keeps out) and is exfiltratable until Phase 5 —
+    # defer it to post-Phase-5. Register malaguy@gmail.com on the forgejo account
+    # for the commits to link to a profile.
+    commitName = "mutantmell";
+    commitEmail = "malaguy@gmail.com";
   };
 
   # skopeo (dev-machine's image pushes) refuses to `copy` without a containers
