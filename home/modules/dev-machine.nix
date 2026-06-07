@@ -1,11 +1,14 @@
-# Phase 3 — devpod wiring + operator scripting for the locked-down LLM dev
-# machines (llm-notes/wip/ai-dev-machine-kubevirt-plan.md).
+# Phase 3 + Phase 4 — devpod wiring, operator scripting, and the scoped git-push
+# credential for the locked-down LLM dev machines
+# (llm-notes/wip/ai-dev-machine-kubevirt-plan.md).
 #
-# These wrappers live ONLY on the operator's workstation — deliberately NOT in
-# the VM/devcontainer image and NOT a top-level repo Justfile. devpod/virtctl/
-# kubectl and the whole orchestration stay off the PATH *inside* the sandbox, so
-# an agent in a dev machine can't see devpod, recursively spawn sandboxes, or
-# reach the cluster. That is the core lockdown intent.
+# Shipped as a home-manager integration: `programs.dev-machine.enable` (plus a
+# few config knobs) installs a single `dev-machine` wrapper on the operator's
+# workstation. The wrapper lives ONLY here — deliberately NOT in the
+# VM/devcontainer image and NOT a top-level repo Justfile. devpod/virtctl/kubectl
+# and the whole orchestration stay off the PATH *inside* the sandbox, so an agent
+# in a dev machine can't see devpod, recursively spawn sandboxes, or reach the
+# cluster. That is the core lockdown intent.
 #
 # Shape (plan "Start" path — SSH provider to a VM we create; a thin custom
 # KubeVirt devpod provider is the documented graduation, only if the manual
@@ -16,10 +19,15 @@
 #                           pubkey via the guest agent, tunnels to its sshd with
 #                           `virtctl port-forward`, points a per-machine devpod
 #                           ssh provider at 127.0.0.1:<port>, and `devpod up`s the
-#                           repo's devcontainer.json inside the VM.
+#                           repo's devcontainer.json inside the VM. For a creil
+#                           repo it then mints a per-session SSH key on the `cc`
+#                           bot account (Forgejo API) and injects it as the
+#                           sandbox's ONLY git-push credential — pushes go out as
+#                           `cc` (Phase 4).
 #   dev-machine ssh  <name> drop into the running devcontainer (`devpod ssh`).
 #   dev-machine list        VMs + devpod workspaces.
-#   dev-machine down <name> tear the workspace + VM + secret + tunnel down.
+#   dev-machine down <name> tear the workspace + VM + secret + tunnel down, and
+#                           revoke the cc SSH key.
 #   dev-machine publish-base (re)build + push the thin base containerDisk to creil
 #                           (a prerequisite for `up`; run once / on base bumps).
 #
@@ -27,6 +35,22 @@
 # the Phase-2.2 dev image to creil by default so every session starts on a current
 # claude-code (cheap — claude comes prebuilt from numtide's cache, so it's a
 # cache-pull + push, not a real build). `--no-rebuild` skips it for fast iteration.
+#
+# PUSH CREDENTIAL (Phase 4): the sandbox holds EXACTLY ONE credential and it is
+# NOT the operator identity — it is the **`cc` bot user**. `up` generates a fresh
+# ed25519 keypair per session and registers the public half as an **SSH key on the
+# cc account** (Forgejo `POST /user/keys`, authed with cc's own token — read from
+# the file at `forgejoTokenFile`, a sops-decrypted tmpfs path that never enters the
+# sandbox), then injects the private half into the devcontainer with git pinned to
+# push forgejo over SSH. Pushes therefore authenticate **as cc**, so the blast
+# radius is whatever cc can write to — keep cc's repo access scoped to bound it.
+# `down` deletes the key. devpod's own host-credential forwarding is disabled on
+# the ssh path (`--start-services=false`) so the operator's git/docker creds are
+# never proxied into the session — the cc key is the only push path. Branch
+# protection on creil (push feature branches, no direct protected-main merge) is
+# the complementary server-side control; configure it once per repo in Forgejo.
+# NOTE: the SSH push path makes forgejo SSH (:22) a required egress for the
+# not-yet-landed Phase 5 NetworkPolicy.
 #
 # Auth: everything drives the cluster with the operator's Authelia OIDC identity
 # via the standalone kubeconfig from kube.nix (KUBECONFIG exported below). Pushing
@@ -37,27 +61,12 @@
   lib,
   ...
 }: let
-  # Dedicated namespace — Phase 5 hangs a default-deny-egress NetworkPolicy off
-  # this same namespace; `up` creates it plainly for now.
-  namespace = "dev-machines";
+  cfg = config.programs.dev-machine;
 
   # creil (Forgejo) registry holding both the base containerDisk and the dev image.
-  registry = "forgejo.internal/mutantmell";
-  registryHost = builtins.head (lib.splitString "/" registry);
-  baseImage = "${registry}/dev-machine-base:latest";
-  devImage = "${registry}/dev-machine-dev:latest";
-
-  # The dotfiles flake the images are built from (operator workstation checkout).
-  flake = "${config.home.homeDirectory}/git/dotfiles";
-
-  # Standalone OIDC kubeconfig from kube.nix (kept out of ~/.kube/config on purpose).
-  kubeconfig = "${config.home.homeDirectory}/.kube/erebonia-oidc.yaml";
-
-  # Pubkey the guest agent injects into the VM's `dev` user (AccessCredentials).
-  sshPubKey = "${config.home.homeDirectory}/.ssh/id_ed25519.pub";
-
-  defaultMemory = "8Gi";
-  defaultCpu = "4";
+  registryHost = builtins.head (lib.splitString "/" cfg.registry);
+  baseImage = "${cfg.registry}/dev-machine-base:latest";
+  devImage = "${cfg.registry}/dev-machine-dev:latest";
 
   # The dev-machine VirtualMachine, authored as a Nix attrset (the repo idiom —
   # cf. kubevirt.nix's KubeVirt CR) and rendered to a guaranteed-valid JSON store
@@ -76,7 +85,7 @@
     kind = "VirtualMachine";
     metadata = {
       name = "PLACEHOLDER";
-      namespace = namespace;
+      inherit (cfg) namespace;
       labels.app = "dev-machine";
     };
     spec = {
@@ -141,23 +150,31 @@
       kubevirt # provides virtctl (port-forward tunnel to the VM sshd)
       devpod # builds/runs the devcontainer.json inside the VM over SSH
       skopeo # push the Nix-built images to creil
-      openssh # sshd readiness probe before handing off to devpod
+      openssh # sshd readiness probe + ssh-keygen for the per-session deploy key
+      curl # Forgejo API (mint/revoke the deploy key)
+      git # read a local checkout's origin to resolve its creil owner/repo
       jq # patch the per-session fields into the VM manifest skeleton
       coreutils
       gnused
       gawk
     ];
     text = ''
-      export KUBECONFIG="${kubeconfig}"
-      NAMESPACE="${namespace}"
+      export KUBECONFIG="${cfg.kubeconfig}"
+      NAMESPACE="${cfg.namespace}"
       BASE_IMAGE="${baseImage}"
       DEV_IMAGE="${devImage}"
       REGISTRY_HOST="${registryHost}"
-      FLAKE="${flake}"
-      SSH_PUBKEY="${sshPubKey}"
-      DEFAULT_MEMORY="${defaultMemory}"
-      DEFAULT_CPU="${defaultCpu}"
+      FLAKE="${cfg.flake}"
+      SSH_PUBKEY="${cfg.sshPubKey}"
+      DEFAULT_MEMORY="${cfg.defaultMemory}"
+      DEFAULT_CPU="${cfg.defaultCpu}"
       VM_MANIFEST="${vmManifest}"
+      FORGEJO_API="${cfg.forgejoApi}"
+      FORGEJO_USER="${cfg.forgejoUser}"
+      FORGEJO_TOKEN_FILE="${cfg.forgejoTokenFile}"
+      CACERT="${cfg.caCert}"
+      COMMIT_NAME="${cfg.commitName}"
+      COMMIT_EMAIL="${cfg.commitEmail}"
       STATE="''${XDG_STATE_HOME:-$HOME/.local/state}/dev-machine"
 
       # DNS-1123-safe machine name derived from a repo/path basename.
@@ -210,6 +227,115 @@
           "$stream" | skopeo copy docker-archive:/dev/stdin "docker://$ref"
       }
 
+      # ── Phase 4: per-session scoped git-push key on the cc bot account ──────
+      # The cc bot's Forgejo token lives in a sops-decrypted tmpfs file
+      # (forgejoTokenFile); read it on demand. It is used ONLY to add/remove cc's
+      # own SSH keys (POST/DELETE /user/keys) and never enters the VM/sandbox.
+      forgejo_token() {
+          if [[ -z "$FORGEJO_TOKEN_FILE" || ! -f "$FORGEJO_TOKEN_FILE" ]]; then
+              echo "Forgejo token unavailable (programs.dev-machine.forgejoTokenFile)." >&2
+              echo "add 'dev-machine-forgejo-token' to the edith sops secrets and" >&2
+              echo "re-run home-manager switch, or pass --no-push-cred." >&2
+              return 1
+          fi
+          cat "$FORGEJO_TOKEN_FILE"
+      }
+
+      # curl against the Forgejo API, trusting the internal CA when configured.
+      curl_fj() {
+          local args=(-fsS)
+          [[ -n "$CACERT" ]] && args+=(--cacert "$CACERT")
+          curl "''${args[@]}" "$@"
+      }
+
+      # Map a workspace source (creil URL or local checkout's origin) to its
+      # forgejo owner/repo; empty for non-creil sources (which get no push cred).
+      # Used only to gate provisioning + for messaging — the cc key is account-
+      # level, so the push works for any repo cc can write to.
+      parse_repo() {
+          local src=$1 url rr
+          if [[ -d "$src" ]]; then
+              url=$(git -C "$src" remote get-url origin 2>/dev/null) || return 0
+          else
+              url=$src
+          fi
+          case "$url" in
+              *forgejo.internal*) : ;;
+              *) return 0 ;;
+          esac
+          rr=$(echo "$url" | sed -E 's#.*forgejo\.internal[:/]+##; s#/+$##; s#\.git$##')
+          if [[ "$rr" =~ ^[^/]+/[^/]+$ ]]; then echo "$rr"; fi
+      }
+
+      # Delete any of cc's SSH keys whose title matches (idempotent re-up).
+      delete_keys_by_title() {
+          local title=$1 token=$2
+          curl_fj -H "Authorization: token $token" "$FORGEJO_API/user/keys" 2>/dev/null \
+              | jq -r --arg t "$title" '.[] | select(.title==$t) | .id' \
+              | while read -r kid; do
+                  curl_fj -X DELETE -H "Authorization: token $token" \
+                      "$FORGEJO_API/user/keys/$kid" >/dev/null 2>&1 || true
+                done
+      }
+
+      # Generate a fresh per-session keypair, register the pubkey as an SSH key on
+      # the cc bot account, record the key id for revoke, and inject the private
+      # key into the devcontainer. $3 = token.
+      provision_push_cred() {
+          local name=$1 statedir=$2 token=$3
+          local keyfile title pub resp id
+          keyfile="$statedir/deploy_key"
+          title="dev-machine-$name"
+          mkdir -p "$statedir"
+          rm -f "$keyfile" "$keyfile.pub"
+          ssh-keygen -t ed25519 -N "" -C "$title" -f "$keyfile" >/dev/null
+          delete_keys_by_title "$title" "$token" || true
+          pub=$(cat "$keyfile.pub")
+          resp=$(curl_fj -X POST -H "Authorization: token $token" \
+              -H "Content-Type: application/json" \
+              "$FORGEJO_API/user/keys" \
+              -d "$(jq -n --arg t "$title" --arg k "$pub" \
+                    '{title:$t, key:$k}')") || {
+              echo "failed to register SSH key on the $FORGEJO_USER account" >&2
+              return 1
+          }
+          id=$(echo "$resp" | jq -r '.id')
+          printf '%s\n' "$id" >"$statedir/deploy_key_id"
+          inject_deploy_key "$name" "$keyfile"
+      }
+
+      # Push the private key + git config into the running devcontainer. Two
+      # one-shot devpod execs (start-services=false so devpod forwards NONE of the
+      # operator's host git/docker credentials): the first streams the key in over
+      # stdin (never in argv); the second pins forgejo to SSH so pushes use ONLY
+      # this cc key (authenticating as cc), and sets the cc commit identity.
+      inject_deploy_key() {
+          local name=$1 keyfile=$2
+          devpod ssh "$name" --start-services=false \
+              --command 'umask 077; mkdir -p ~/.ssh; cat > ~/.ssh/dm_deploy_key; chmod 600 ~/.ssh/dm_deploy_key' \
+              <"$keyfile"
+          devpod ssh "$name" --start-services=false --command "
+              { echo 'Host forgejo.internal'
+                echo '  IdentityFile ~/.ssh/dm_deploy_key'
+                echo '  IdentitiesOnly yes'
+                echo '  StrictHostKeyChecking accept-new'
+              } >> ~/.ssh/config
+              chmod 600 ~/.ssh/config
+              git config --global url.'git@forgejo.internal:'.insteadOf 'https://forgejo.internal/'
+              git config --global user.name '$COMMIT_NAME'
+              git config --global user.email '$COMMIT_EMAIL'
+          "
+      }
+
+      # Revoke a previously-minted cc SSH key (recorded in the state dir). $2=token.
+      revoke_push_cred() {
+          local statedir=$1 token=$2 id
+          [[ -f "$statedir/deploy_key_id" ]] || return 0
+          id=$(cat "$statedir/deploy_key_id")
+          curl_fj -X DELETE -H "Authorization: token $token" \
+              "$FORGEJO_API/user/keys/$id" >/dev/null 2>&1 || true
+      }
+
       create_vm() {
           local name=$1 memory=$2 cpu=$3
           local vm="dm-$name" secret="dm-$name-ssh-key"
@@ -246,13 +372,15 @@
       }
 
       cmd_up() {
-          local source="" name="" rebuild=1 memory cpu
+          local source="" name="" rebuild=1 memory cpu repo="" push_cred=1
           memory="$DEFAULT_MEMORY"
           cpu="$DEFAULT_CPU"
           while [[ $# -gt 0 ]]; do
               case "$1" in
                   --no-rebuild) rebuild=0; shift ;;
+                  --no-push-cred) push_cred=0; shift ;;
                   --name) name="$2"; shift 2 ;;
+                  --repo) repo="$2"; shift 2 ;;
                   --memory) memory="$2"; shift 2 ;;
                   --cpu) cpu="$2"; shift 2 ;;
                   -*) echo "unknown flag: $1" >&2; return 1 ;;
@@ -268,7 +396,7 @@
               esac
           done
           [[ -n "$source" ]] || {
-              echo "usage: dev-machine up <repo-url-or-path> [--name N] [--no-rebuild] [--memory 8Gi] [--cpu 4]" >&2
+              echo "usage: dev-machine up <repo-url-or-path> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4]" >&2
               return 1
           }
           if [[ -z "$name" ]]; then
@@ -279,6 +407,20 @@
           local vm="dm-$name" provider="dm-$name" port statedir
           port=$(port_for "$name")
           statedir="$STATE/$name"
+
+          # Phase 4: resolve the target creil repo + operator Forgejo token up
+          # front, so a missing token fails before we build images / boot a VM.
+          # Non-creil sources (or --no-push-cred) just get no push credential.
+          local token=""
+          if [[ "$push_cred" -eq 1 ]]; then
+              [[ -n "$repo" ]] || repo=$(parse_repo "$source")
+              if [[ -n "$repo" ]]; then
+                  token=$(forgejo_token) || return 1
+              else
+                  echo "note: no creil repo detected for '$source'; the sandbox will" >&2
+                  echo "      have no git-push credential (pass --repo owner/name)." >&2
+              fi
+          fi
 
           # Trigger OIDC login (interactive) up front so the backgrounded virtctl
           # later reuses the cached token instead of stalling on a browser prompt.
@@ -342,6 +484,14 @@
           echo "==> bringing the workspace up (devcontainer.json inside the VM)"
           devpod up "$source" --id "$name" --provider "$provider" --ide none
 
+          # Phase 4: mint + inject the scoped deploy key (the sandbox's ONLY push
+          # credential). Only when a creil repo was resolved and a token is present.
+          if [[ -n "$repo" && -n "$token" ]]; then
+              echo "==> provisioning scoped push credential ($FORGEJO_USER SSH key for $repo)"
+              provision_push_cred "$name" "$statedir" "$token" \
+                  || echo "warning: $FORGEJO_USER SSH-key provisioning failed; sandbox has no push credential" >&2
+          fi
+
           echo
           echo "dev machine '$name' is up. Connect with:  dev-machine ssh $name"
       }
@@ -353,7 +503,11 @@
           local statedir="$STATE/$name"
           [[ -d "$statedir" ]] || { echo "no such dev machine: $name" >&2; return 1; }
           ensure_portforward "$name" "$(cat "$statedir/port")" "$statedir"
-          devpod ssh "$name"
+          # start-services=false: do NOT proxy the operator's host git/docker
+          # credentials into the session — the injected deploy key is the only
+          # push path (Phase 4 lockdown). This also forgoes devpod port-forwarding;
+          # run `devpod ssh <name>` directly if you need that.
+          devpod ssh "$name" --start-services=false
       }
 
       cmd_list() {
@@ -368,12 +522,23 @@
           local name
           name=$(sanitize "''${1:-}")
           [[ -n "$name" ]] || { echo "usage: dev-machine down <name>" >&2; return 1; }
+          local statedir="$STATE/$name"
+
+          # Phase 4: revoke the per-session deploy key on creil before teardown.
+          if [[ -f "$statedir/deploy_key_id" ]]; then
+              local token
+              if token=$(forgejo_token 2>/dev/null); then
+                  revoke_push_cred "$statedir" "$token"
+              else
+                  echo "warning: no Forgejo token; deploy key not revoked (revoke it manually)" >&2
+              fi
+          fi
+
           echo "==> tearing down $name"
           devpod delete "$name" --force 2>/dev/null || true
           devpod provider delete "dm-$name" 2>/dev/null || true
           kubectl delete vm "dm-$name" -n "$NAMESPACE" --ignore-not-found
           kubectl delete secret "dm-$name-ssh-key" -n "$NAMESPACE" --ignore-not-found
-          local statedir="$STATE/$name"
           if [[ -f "$statedir/portforward.pid" ]]; then
               kill "$(cat "$statedir/portforward.pid")" 2>/dev/null || true
           fi
@@ -389,7 +554,7 @@
           cat >&2 <<'USAGE'
       dev-machine — locked-down LLM dev machines on KubeVirt
 
-        dev-machine up <repo> [--name N] [--no-rebuild] [--memory 8Gi] [--cpu 4]
+        dev-machine up <repo> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4]
         dev-machine ssh <name>
         dev-machine list
         dev-machine down <name>
@@ -411,5 +576,103 @@
     '';
   };
 in {
-  home.packages = [dev-machine];
+  options.programs.dev-machine = {
+    enable = lib.mkEnableOption "the locked-down KubeVirt LLM dev-machine wrappers";
+
+    namespace = lib.mkOption {
+      type = lib.types.str;
+      default = "dev-machines";
+      description = "k8s namespace the dev-machine VMs + secrets live in (Phase 5 hangs a default-deny-egress NetworkPolicy off it).";
+    };
+
+    registry = lib.mkOption {
+      type = lib.types.str;
+      default = "forgejo.internal/mutantmell";
+      description = "creil (Forgejo) registry path holding the base containerDisk and the dev image.";
+    };
+
+    flake = lib.mkOption {
+      type = lib.types.str;
+      default = "${config.home.homeDirectory}/git/dotfiles";
+      description = "Path to the dotfiles flake the images are built from.";
+    };
+
+    kubeconfig = lib.mkOption {
+      type = lib.types.str;
+      default = "${config.home.homeDirectory}/.kube/erebonia-oidc.yaml";
+      description = "Standalone OIDC kubeconfig (kept out of ~/.kube/config on purpose; see kube.nix).";
+    };
+
+    sshPubKey = lib.mkOption {
+      type = lib.types.str;
+      default = "${config.home.homeDirectory}/.ssh/id_ed25519.pub";
+      description = "Pubkey the guest agent injects into the VM's `dev` user (KubeVirt AccessCredentials).";
+    };
+
+    defaultMemory = lib.mkOption {
+      type = lib.types.str;
+      default = "8Gi";
+      description = "Default VM memory request.";
+    };
+
+    defaultCpu = lib.mkOption {
+      type = lib.types.str;
+      default = "4";
+      description = "Default VM vCPU cores.";
+    };
+
+    forgejoApi = lib.mkOption {
+      type = lib.types.str;
+      default = "https://forgejo.internal/api/v1";
+      description = "Forgejo (creil) API base URL used to mint/revoke the per-session deploy key.";
+    };
+
+    forgejoTokenFile = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = ''
+        Path to a file holding the bot user's (forgejoUser) Forgejo token
+        (write:user scope). Used ONLY to add/remove that user's per-session SSH
+        keys (POST/DELETE /user/keys); it never enters the VM/sandbox. The keys
+        live on the bot account, so pushes authenticate as it — scope that user's
+        repo access to bound the blast radius. Point this at a sops-decrypted tmpfs
+        secret path, e.g. config.sops.secrets."dev-machine-forgejo-token".path.
+      '';
+    };
+
+    forgejoUser = lib.mkOption {
+      type = lib.types.str;
+      default = "cc";
+      description = ''
+        The Forgejo bot user the dev machines push as — the owner of the token in
+        forgejoTokenFile. Drives the default commit identity and user-facing
+        messages; the per-session SSH key actually lands on whichever account owns
+        that token (/user/keys), so keep this in sync with the token's owner.
+      '';
+    };
+
+    commitName = lib.mkOption {
+      type = lib.types.str;
+      default = cfg.forgejoUser;
+      defaultText = lib.literalExpression "config.programs.dev-machine.forgejoUser";
+      description = "git user.name set inside the sandbox (commit author). Defaults to the bot user.";
+    };
+
+    commitEmail = lib.mkOption {
+      type = lib.types.str;
+      default = "${cfg.forgejoUser}@forgejo.internal";
+      defaultText = lib.literalExpression ''"''${config.programs.dev-machine.forgejoUser}@forgejo.internal"'';
+      description = "git user.email set inside the sandbox. Set to one of the bot user's Forgejo emails so commits map to it.";
+    };
+
+    caCert = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = "Optional CA certificate path for TLS verification of the Forgejo API (internal step-ca root).";
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+    home.packages = [dev-machine];
+  };
 }

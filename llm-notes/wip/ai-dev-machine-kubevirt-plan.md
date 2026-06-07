@@ -1,11 +1,12 @@
 # Locked-down AI Dev Machines on KubeVirt (devpod + devcontainer.json)
 
 Status: In progress — Phase 1 (KubeVirt platform + thin base VM image),
-Phase 2 (`devcontainer.json` + custom Nix dev image), and Phase 3 (devpod
-wiring + operator scripting) landed. Next: Phase 4 (scoped git push
-credential) + Phase 5 (network lockdown), which together make the sandbox
-actually locked down — Phase 3 brings the chain up end-to-end but the VM still
-has open egress until Phase 5's NetworkPolicy lands.
+Phase 2 (`devcontainer.json` + custom Nix dev image), Phase 3 (devpod wiring +
+operator scripting), and Phase 4 (scoped git push credential) landed. Next:
+Phase 5 (network lockdown) — the last piece. Phases 1–4 bring the chain up end
+to end with the sandbox holding exactly one scoped push credential, but the VM
+still has open pod egress until Phase 5's NetworkPolicy lands. **Phase 5 must
+allow forgejo SSH (`:22`) egress** — the Phase-4 deploy key pushes over SSH.
 
 **What this is:** ephemeral, locked-down **dev machines** for LLM coding
 agents — spin up a VM-isolated workspace from a repo's `devcontainer.json`,
@@ -256,7 +257,54 @@ Original spec:
   fast iteration. This is build-on-the-operator-workstation, so it stays off the
   sandbox PATH and respects the lockdown. Fold into CI later when CI exists.
 
-## Phase 4 — scoped git push credential (item 4)
+## Phase 4 — scoped git push credential (item 4) — DONE
+
+Landed in `home/modules/dev-machine.nix` (the wrapper, now refactored into a
+`programs.dev-machine` home-manager module) + `home/hosts/edith.nix` (enable +
+the sops secret). Resolved decisions (2026-06-07):
+
+- **Credential = a per-session SSH key on the `cc` bot account (SSH), minted via
+  the API.** `cc` is the Forgejo user the dev machines run/push as. `dev-machine
+  up` generates a fresh ed25519 keypair and `POST`s the public half as an **SSH
+  key on the cc account** (`/api/v1/user/keys`, authed with cc's own token),
+  records the key id, and `down` `DELETE`s it. Pushes authenticate **as cc**, so
+  the blast radius is whatever cc can write to — bound it by scoping cc's repo
+  access (e.g. cc only collaborates on the intended repos / lives in a bounded
+  org). Chosen over repo deploy keys because the SSH keys must be associated with
+  the cc runtime user (operator clarification 2026-06-07).
+- **The cc token is stored in SOPS, decrypted to tmpfs.** The standard sops-nix
+  home-manager mechanism (`sops.secrets."dev-machine-forgejo-token"`) decrypts it
+  to `~/.config/sops-nix/secrets/…` (tmpfs) at `home-manager switch`; the wrapper
+  reads that path (`forgejoTokenFile`). Token scope = **`write:user`** (manage
+  cc's own keys, NOT site-admin); it is used **only** to add/remove cc's SSH keys
+  and **never enters the VM/sandbox**. This is the cc-sandbox `forgejoTokenFile`
+  pattern. (Operator step: generate cc's token —
+  `forgejo admin user generate-access-token --username cc --scopes write:user
+  --token-name dev-machine` — then `sops home/hosts/edith/secrets/secrets.yaml` →
+  `dev-machine-forgejo-token: …`.)
+- **Injection: private key → devcontainer over two one-shot `devpod ssh` execs**
+  (`--start-services=false`). The first streams the key in over stdin (never in
+  argv); the second writes `~/.ssh/config` pinning the key to forgejo and sets
+  `git config --global url."git@forgejo.internal:".insteadOf
+  "https://forgejo.internal/"` so **pushes use ONLY this cc key over SSH** (and
+  route around devpod's HTTP credential helper), plus the cc commit identity
+  (`commitName`/`commitEmail` options, default `cc`).
+- **devpod host-credential forwarding is disabled** (`--start-services=false` on
+  the `ssh` path too) so the operator's git/docker credentials are never proxied
+  into the session — the deploy key is the sandbox's *only* push path, keeping
+  the "exactly one credential, never the operator identity" guarantee
+  ([[project_keysjson_certonly_endstate]]).
+- **Consequence for Phase 5:** the deploy-key push path needs **forgejo SSH
+  (`:22`) egress** allowed in the namespace NetworkPolicy (alongside DNS +
+  registry HTTPS).
+- **Branch protection** on creil (push feature branches, no direct protected-main
+  merge) is the complementary server-side control — a one-time per-repo Forgejo
+  config, not code.
+- Sources that aren't on creil (or `--no-push-cred`) simply get no push
+  credential; `--repo owner/name` forces one when auto-detection from the
+  source/local-`origin` can't.
+
+Original spec:
 
 The sandbox holds **exactly one** credential, and it is **not** a homelab SSH
 key/cert:
