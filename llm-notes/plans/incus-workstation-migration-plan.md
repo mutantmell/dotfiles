@@ -1,6 +1,19 @@
-# k3s Dev-Environment Migration Plan (edith + trista → KubeVirt, Incus sunset)
+# Incus Workstation Migration Plan (edith + trista → KubeVirt, Incus sunset)
 
 Status: Planned (not started)
+
+**Scope:** this plan is **only** about migrating the two existing
+**fully-fledged, long-lived NixOS workstations** — `edith` (the operator's
+daily driver) and `trista` — off the Incus substrate onto KubeVirt VMs, and
+then sunsetting Incus. These are mutable operator environments where the
+operator runs things; they are **not** the ephemeral, locked-down AI coding
+sandboxes.
+
+> Not to be confused with **`ai-dev-machine-kubevirt-plan.md`** — that plan
+> covers *ephemeral, locked-down dev machines for LLM agents* (push-to-a-branch,
+> no homelab reach). It shares **only** the KubeVirt platform component with
+> this plan (see that plan's Phase 1 and this plan's Phase 7.1); coordinate
+> which lands the platform HelmChart first.
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 7–9**.
@@ -102,13 +115,16 @@ verifies it's present.)
 
 ## Phase 7 — migrate edith into the cluster as a KubeVirt VM
 
-1. **Add KubeVirt to the platform.** HelmChart resource in the k3s server
-   manifests directory (`/var/lib/rancher/k3s/server/manifests/` on
-   erebonia; declared in the flake, pinned). kubevirt-operator +
-   virt-handler DaemonSet (virt-handler runs on erebonia, the single node);
-   CRDs: `VirtualMachine`, `VirtualMachineInstance`, `DataVolume`. One new
-   platform component on the update cadence. Reversible — revert the
-   HelmChart and edith stays on Incus.
+1. **KubeVirt platform — depend on it, don't re-land it.** The kubevirt-operator
+   + virt-handler HelmChart is **owned by
+   `llm-notes/plans/ai-dev-machine-kubevirt-plan.md`** (which lands it first on
+   disposable dev-machine VMs to de-risk this daily-driver move). This phase
+   assumes the platform is present and adds only what edith needs on top:
+   `DataVolume` support (the CDI / containerized-data-importer component, beyond
+   the dev-machine containerDisk path) for the liberl-backed boot disk. If for
+   some reason this migration runs first, land the platform HelmChart here
+   instead — pinned, declared in the flake, reversible (revert and edith stays
+   on Incus).
 2. **Build the edith VM image** from the flake: a pre-built NixOS disk
    image (qcow2/raw) via `nixos-generators` or the flake-native
    equivalent, reproducible across rebuilds. (cloud-init into a blank

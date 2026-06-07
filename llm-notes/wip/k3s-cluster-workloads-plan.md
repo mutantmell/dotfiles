@@ -46,7 +46,7 @@ Depends on:
   local-path; the **game server (Phase 3)** needs CSI — stood up by the
   dev-env plan (Phase 6.5), which precedes it, or here if game servers
   somehow land first.
-- **Phase A runs before** `llm-notes/plans/k3s-dev-env-migration-plan.md`
+- **Phase A runs before** `llm-notes/plans/incus-workstation-migration-plan.md`
   (it's the shakedown that proves the cluster ahead of the edith move). The
   **remaining** features (Phases 2–4) land after the dev-env migration.
 
@@ -111,7 +111,7 @@ security or capability one — and the homelab's principles tip it to DevPod:
 This is also the **low-stakes workload the cluster starts with** — it runs
 **first**, before the dev-environment migration, and serves as the cluster
 shakedown that proves things before the daily-driver edith moves (see
-`k3s-dev-env-migration-plan.md`). It is the one part of this plan pulled
+`incus-workstation-migration-plan.md`). It is the one part of this plan pulled
 ahead of the dev-env migration; the rest (blog/game/CI) stays later.
 
 Shape (DevPod):
@@ -161,6 +161,17 @@ in a Cloud Hypervisor microVM, not a plain container. Client wiring landed in
 `home/modules/kube.nix` (kubeconfig, server CA, step-ca root, and the
 kata-clh `POD_MANIFEST_TEMPLATE` partial); the provider is configured
 imperatively (operator choice while experimenting), not in home-manager.
+
+**Immediate follow-up — SUPERSEDED by
+`llm-notes/plans/ai-dev-machine-kubevirt-plan.md`.** The substance below
+(devcontainer.json + custom image + scripting) is carried forward there, but
+the *runtime substrate decision changed*: dev machines run as **KubeVirt VMs**
+(regular kernel, native nested `/dev/kvm`) with devpod running the
+`devcontainer.json` as a runc container *inside* the VM — **not** `kata-clh`
+pods with the custom nested guest kernel. The PoC above still stands as proof
+the cluster + OIDC + devpod path works; the `kata-clh`/runtimeClass guidance in
+this section is historical. That plan covers all five open items (substrate,
+image, scripting, scoped git credential, network lockdown).
 
 **Immediate follow-up — devcontainer definition + custom image for this repo.**
 The PoC used a generic upstream image; the actual coding layer needs a

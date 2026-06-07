@@ -62,7 +62,7 @@ Foundation for (recommended execution order):
    recommended; Coder if it goes multi-user). The **low-stakes starter and
    cluster shakedown**; the cc-sandbox-workflow successor. Uses local
    storage (no CSI needed yet).
-2. `llm-notes/plans/k3s-dev-env-migration-plan.md` (edith + trista → KubeVirt,
+2. `llm-notes/plans/incus-workstation-migration-plan.md` (edith + trista → KubeVirt,
    Incus sunset) — migrate the existing dev environments, once the cluster
    is proven by Phase A. **This is where networked storage (liberl iSCSI +
    democratic-csi) gets stood up**, since KubeVirt DataVolumes want NAS

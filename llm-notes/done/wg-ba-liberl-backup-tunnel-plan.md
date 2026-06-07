@@ -234,7 +234,7 @@ router" above.
 
 ### Future #3 — Direct tunnel to trista — TRACKED IN k3s-dev-env Phase 8
 
-trista's wg-ba is owned by `k3s-dev-env-migration-plan.md` **Phase 8** (its
+trista's wg-ba is owned by `incus-workstation-migration-plan.md` **Phase 8** (its
 KubeVirt migration), where this is now documented. When trista is rebuilt there,
 give it its own direct per-host tunnel (this liberl pattern). The thebeyond-side
 `ba-tunnel`/`wg-ba` it would have replaced is already gone (Phase 0); the router
