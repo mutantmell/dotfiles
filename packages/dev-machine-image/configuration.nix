@@ -85,6 +85,21 @@
   # is a small, local re-add of a cloudInitNoCloud path.
   services.qemuGuest.enable = true;
 
+  # Compressed in-RAM swap, so a memory spike degrades instead of tripping the
+  # guest OOM killer — which would reap sshd / the devpod agent and leave the VM
+  # up-but-unreachable (the failure mode `dev-machine ssh --recover` / `down
+  # --no-agent` exist to clean up after). This VM runs memory-spiky workloads:
+  # the flake's nixosTest suite boots nested QEMU VMs inside the 8Gi guest. zram
+  # is RAM-backed, so it only buys headroom on compressible pages (build output,
+  # page cache, anon memory) — it keeps sshd/the agent alive through a spike
+  # rather than raising the real ceiling. It stays within the guest's allocation,
+  # so it adds no pressure on the (full, swap-0) erebonia node. For real capacity,
+  # reclaim node RAM and/or run the tests at low concurrency.
+  zramSwap = {
+    enable = true;
+    memoryPercent = 50;
+  };
+
   # The container runtime devpod's SSH provider targets natively (docker socket +
   # `docker` group). Rootless isn't needed — the VM is the boundary (decision 4).
   virtualisation.docker = {
