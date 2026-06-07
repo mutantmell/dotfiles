@@ -381,6 +381,77 @@ key/cert:
   "burn the operator's Pro quota + read profile" — tolerable. The Phase-5 egress
   lockdown is what bounds exfiltration of it.
 
+## PR creation — AGit flow (resolved 2026-06-07)
+
+**Decision: the sandbox opens/updates PRs with Forgejo's builtin AGit flow
+(`git push … HEAD:refs/for/<branch>`), NOT an injected Forgejo API token or a
+`tea` CLI in the dev image.** The AGit push authenticates with the **existing
+per-session `cc` SSH key** (Phase 4), so PR creation adds **zero new credential**
+and preserves the "exactly one credential, never the operator identity"
+guarantee. It also needs **no new egress** — AGit rides forgejo SSH (`:22`),
+which Phase 4 already requires Phase 5 to allow; the dropped token path would
+have needed extra registry/API HTTPS egress.
+
+Why this over an in-sandbox API token (the "Path B" explored and **dropped**
+2026-06-07 — research):
+
+- **Forgejo can't mint a token via token-auth** — `/users/{name}/tokens`
+  requires password BasicAuth ([gitea#21186]), so true per-session token minting
+  would force `cc`'s *account password* into sops (a far more powerful secret
+  than a scoped token).
+- **The short-lived auto-mint primitives are Actions-job-only.** The Actions
+  per-job auto-token and Forgejo **v15** OIDC-for-Actions mint scoped, ephemeral
+  creds with no stored secret — but only *inside* an Actions job, not for an
+  external client like the dev-machine VM. Forgejo has **no GitHub-App
+  installation-token equivalent**.
+- AGit sidesteps all of it: PR creation happens at the **git push layer** with
+  the credential the sandbox already holds.
+
+Mechanism: `git push origin HEAD:refs/for/<target>/<topic>` (or `-o topic=…`)
+opens a PR; re-pushing the **same topic** updates it (`-o force-push=true` for
+rebases/amends); `-o title=` / `-o description=` set the metadata. Works over SSH
+(the sandbox's transport) and is **on by default** in Forgejo — confirm there's
+no `ENABLE_AGIT` override on creil. **Composes with branch protection:** AGit
+pushes to `refs/for/*`, never the protected branch directly, so the agent can
+only *propose*, never merge protected `main`.
+
+Division of labor (resolved):
+
+- **PR creation → AGit** (builtin, git layer, zero infra/credential).
+- **Automated checks** (this flake's nixosTests, image builds) → **Woodpecker**
+  (saint-arkh is being converted to a Woodpecker runner; its current
+  `forgejo-runner` in `hosts/erebonia/microvm/guests/saint-arkh/modules/runner.nix`
+  is interim), triggered by the branch push. **Verify Woodpecker fires on
+  AGit-created PRs** — AGit PRs are treated like fork PRs for action triggering
+  ([gitea#23884]); key checks on the `push` event (always fires) if the
+  `pull_request` trigger doesn't pick them up.
+- **Forgejo Actions → NOT adopted** for this use case. With Woodpecker as the CI
+  substrate, a Forgejo Actions runner would *overlap/conflict* (two
+  run-CI-on-push engines competing for the same events and posting duplicate
+  commit statuses). Revisit only if **event-driven forge glue** (auto-label,
+  comment-triggered bots, CODEOWNERS gating) is later wanted — and weigh that
+  against a Woodpecker step first.
+- **Agent reading PR feedback in-session → deferred.** Not needed for creation
+  or checks. If/when wanted, a Forgejo **v15 repository-scoped, read-only token**
+  (`read:repository` + `read:issue`, single repo) injected per-session is the
+  minimal-blast-radius path (no password, read-only, one repo) — and should be
+  gated behind Phase 5.
+
+Wiring impact (small — that's the point):
+
+- **dev image** (`packages/dev-machine-dev-image`): **no change.** The Path-B
+  `tea` + token additions are not made.
+- **dev-machine wrapper / injected git config** (`home/modules/dev-machine.nix`,
+  `inject_deploy_key`): add an AGit convenience so the agent need not hand-type
+  the refspec — e.g. a `git config --global alias.pr` wrapping
+  `git push origin HEAD:refs/for/<branch>` — and/or document the push-to-PR idiom
+  in the repo's `CLAUDE.md` so the agent uses it.
+- **creil** (`hosts/calvard/microvm/guests/creil/modules/forgejo.nix`): confirm
+  AGit is enabled (default); no module change expected.
+
+[gitea#21186]: https://github.com/go-gitea/gitea/issues/21186
+[gitea#23884]: https://github.com/go-gitea/gitea/pull/23884
+
 ## Bring-up fixes (first end-to-end run, 2026-06-07)
 
 Getting the chain to actually clone, build the devcontainer, and run a nested

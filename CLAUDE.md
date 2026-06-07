@@ -64,6 +64,36 @@ nix run .#openwrt-show-config -- <device-name>
 ./scripts/setup-guest.sh <parent-hostname> <guest-name> --output-dir <dir>
 ```
 
+## Submitting changes (PRs via AGit)
+
+This repo uses Forgejo's **AGit flow** for pull requests — the expected model on
+the locked-down dev machine. **Do not** push directly to `main`, and do not look
+for a PR-creation API token, `tea`, `gh`, or the web UI: the dev machine holds
+exactly one git credential (a push-only SSH key), and AGit creates PRs through a
+plain `git push`, so that key is all you need.
+
+```bash
+# Open a PR from your current commits against main. Pick a stable <topic>
+# (a short kebab-case slug for the task) — it identifies the PR.
+git push origin HEAD:refs/for/main -o topic="<topic>" \
+  -o title="<title>" -o description="<markdown body>"
+
+# Update that same PR after more commits: push the SAME topic again.
+git push origin HEAD:refs/for/main -o topic="<topic>"
+
+# After a rebase/amend, add force-push so the update lands instead of erroring.
+git push origin HEAD:refs/for/main -o topic="<topic>" -o force-push=true
+```
+
+- `refs/for/main` is a magic ref Forgejo turns into a PR; it does **not** create
+  a branch named `main` and never writes to protected `main` directly — you can
+  only propose, review/merge stays human.
+- Reuse the same `<topic>` for the life of a task so iterations land on one PR
+  rather than spawning new ones.
+- Run `./scripts/run-checks.sh` (or the relevant `nix build .#checks…`) locally
+  before pushing — CI gates mergeability, but fast local feedback is the point of
+  the dev machine's nested `/dev/kvm`.
+
 ## Architecture
 
 This is a NixOS flake-based infrastructure project managing a home network with a router, multiple VM hosts, and microVMs. Trails series naming theme (countries, cities, persons).
