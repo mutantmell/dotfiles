@@ -42,6 +42,13 @@
   # Serial console — `virtctl console` attaches to ttyS0.
   boot.kernelParams = ["console=ttyS0"];
 
+  # Debug affordance: root autologin on the (serial) console. The VM is reachable
+  # ONLY via `virtctl console` (cluster/operator access) and is a disposable
+  # sandbox, so an unauthenticated serial shell is acceptable — and necessary to
+  # diagnose boot/sshd/network issues, since root has no password and `dev` is
+  # key-only. Revisit once the path is solid.
+  services.getty.autologinUser = lib.mkDefault "root";
+
   # KubeVirt `masquerade` binding hands the VM a DHCP lease on its single virtio
   # NIC; the namespace NetworkPolicy (Phase 5) governs its egress.
   networking.useDHCP = lib.mkForce true;
