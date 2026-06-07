@@ -192,8 +192,13 @@
           echo $(( 18000 + (sum % 1000) ))
       }
 
-      # Start (or revive) the virtctl port-forward backing 127.0.0.1:<port> -> VM:22.
-      # nohup'd so it outlives the `up`/`ssh` invocation for the session's life.
+      # Start (or revive) the port-forward backing 127.0.0.1:<port> -> VM:22.
+      # We forward to the VM's virt-launcher POD (kubectl port-forward), NOT via
+      # `virtctl port-forward vmi/...`: masquerade DNATs the pod's :22 to the guest
+      # sshd, whereas the vmi path mis-dials the guest here — the guest's docker0
+      # (172.17.0.1) and the reported pod IP shadow the masquerade 10.0.2.2, so it
+      # refused with an empty-host `dial tcp :22`. nohup'd so the tunnel outlives the
+      # `up`/`ssh` invocation for the session's life.
       ensure_portforward() {
           local name=$1 port=$2 statedir=$3
           local pidfile="$statedir/portforward.pid"
@@ -201,7 +206,23 @@
               return 0
           fi
           mkdir -p "$statedir"
-          nohup virtctl port-forward "vmi/dm-$name" -n "$NAMESPACE" "$port:22" \
+          # Resolve the active virt-launcher pod via the VMI uid (the canonical
+          # kubevirt.io/created-by label — the pod is NOT labelled by domain name).
+          local uid pod
+          uid=$(kubectl get vmi "dm-$name" -n "$NAMESPACE" -o jsonpath='{.metadata.uid}' 2>/dev/null)
+          [[ -n "$uid" ]] || {
+              echo "VMI dm-$name not found" >&2
+              return 1
+          }
+          pod=$(kubectl get pods -n "$NAMESPACE" \
+              -l kubevirt.io/created-by="$uid" \
+              --field-selector=status.phase=Running \
+              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+          [[ -n "$pod" ]] || {
+              echo "no running virt-launcher pod for dm-$name" >&2
+              return 1
+          }
+          nohup kubectl port-forward "pod/$pod" -n "$NAMESPACE" "$port:22" \
               >"$statedir/portforward.log" 2>&1 &
           echo $! >"$pidfile"
           sleep 1
