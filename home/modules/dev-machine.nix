@@ -510,6 +510,20 @@
           devpod ssh "$name" --start-services=false
       }
 
+      # Serial console to the VM — uses the pinned virtctl + the wrapper's OIDC
+      # kubeconfig, avoiding the version skew / missing-KUBECONFIG that an ad-hoc
+      # `nix shell nixpkgs#kubevirt -c virtctl console` hits. Handy for debugging a
+      # VM whose sshd/network never came up (the base image has serial autologin).
+      cmd_console() {
+          local name
+          name=$(sanitize "''${1:-}")
+          [[ -n "$name" ]] || {
+              echo "usage: dev-machine console <name>" >&2
+              return 1
+          }
+          virtctl console "vmi/dm-$name" -n "$NAMESPACE"
+      }
+
       cmd_list() {
           echo "VMs:"
           kubectl get vm -n "$NAMESPACE" 2>/dev/null || true
@@ -556,9 +570,14 @@
 
         dev-machine up <repo> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4]
         dev-machine ssh <name>
+        dev-machine console <name>
         dev-machine list
         dev-machine down <name>
         dev-machine publish-base
+
+      escape hatches (run with the wrapper's pinned tools + OIDC kubeconfig):
+        dev-machine kubectl <args...>
+        dev-machine virtctl <args...>
       USAGE
       }
 
@@ -567,9 +586,12 @@
       case "$cmd" in
           up) cmd_up "$@" ;;
           ssh) cmd_ssh "$@" ;;
+          console) cmd_console "$@" ;;
           list | ls) cmd_list "$@" ;;
           down | rm) cmd_down "$@" ;;
           publish-base) cmd_publish_base "$@" ;;
+          kubectl) kubectl "$@" ;;
+          virtctl) virtctl "$@" ;;
           "" | -h | --help | help) usage ;;
           *) echo "unknown command: $cmd" >&2; usage; exit 1 ;;
       esac
