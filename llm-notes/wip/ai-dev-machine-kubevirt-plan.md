@@ -370,9 +370,21 @@ nixosTest surfaced concrete requirements, all landed:
 
 **Dev image** (`packages/dev-machine-dev-image/`):
 
-- `dockerTools.fakeNss` (`/etc/passwd` — docker/runc won't run a container as root
-  without it) + `dockerTools.usrBinEnv` (`/usr/bin/env` for shebangs). (`/bin/sh`
-  already comes from bashInteractive.)
+- A custom `nss` (passwd/group/nsswitch) — like `dockerTools.fakeNss` but with
+  **root's home = `/root`**. fakeNss hardcodes `/var/empty`, and OpenSSH resolves
+  `~` via getpwuid (NOT `$HOME`), so ssh looked for the cc key under
+  `/var/empty/.ssh`, never offered it, and the push failed at auth. Plus
+  `dockerTools.usrBinEnv` (`/usr/bin/env` for shebangs; `/bin/sh` already comes
+  from bashInteractive — docker/runc also need the root passwd entry to run as root).
+
+**git-over-SSH to forgejo:**
+
+- The clone-URL SSH user is `forgejoSshUser` (default **`forgejo`**, NOT `git`) —
+  creil's forgejo serves git SSH through the OS sshd as its RUN_USER.
+- cc needs **Write on each target repo** — separate from the token's `write:user`
+  scope (which only manages cc's keys); this per-repo grant is the blast-radius
+  control. Branch protection on `main` blocks direct pushes while feature-branch
+  pushes work — the intended Phase-4 posture, confirmed end-to-end 2026-06-07.
 
 **Wrapper** (`home/modules/dev-machine.nix`):
 
