@@ -253,6 +253,24 @@
           sleep 1
       }
 
+      # Force the interactive OIDC token mint up front, with stderr VISIBLE. The
+      # OIDC kubeconfig authenticates via an exec plugin (kubectl-oidc_login,
+      # authcode-keyboard): when the cached token has lapsed it prints an Authelia
+      # URL and waits on stdin for the pasted code. That prompt rides kubectl's
+      # stderr, so any cluster call that suppresses stderr (e.g. cmd_list's
+      # `get vm 2>/dev/null`) or runs backgrounded (the port-forward) silently
+      # dead-hangs waiting for a code the operator never sees. Run one cheap,
+      # foreground, stderr-visible call here first, so an expired session surfaces
+      # the prompt before the real work and every later call reuses the warm token.
+      # `version` contacts the apiserver (which runs the exec plugin) but needs no
+      # RBAC. Call it at the top of every cluster-touching command.
+      dm_login() {
+          if ! kubectl version >/dev/null; then
+              echo "cluster OIDC login failed; complete the Authelia prompt and retry" >&2
+              return 1
+          fi
+      }
+
       # Pushing/inspecting images on creil needs a one-time `skopeo login`; the
       # credential is durable workstation state (auth.json), not a per-session
       # thing this tool owns. Fail fast with the exact command instead of letting
@@ -479,9 +497,10 @@
               fi
           fi
 
-          # Trigger OIDC login (interactive) up front so the backgrounded virtctl
-          # later reuses the cached token instead of stalling on a browser prompt.
-          kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 || true
+          # Surface the OIDC login prompt up front (stderr visible) so the later
+          # backgrounded port-forward + stderr-suppressed cluster calls reuse a
+          # warm token instead of dead-hanging on an unseen auth-code prompt.
+          dm_login || return 1
 
           # Anything that touches creil (the rebuild push, the base presence check,
           # the base publish) needs the registry login — check once, up front.
@@ -575,6 +594,7 @@
           [[ -n "$name" ]] || { echo "usage: dev-machine ssh <name> [--recover]" >&2; return 1; }
           local statedir="$STATE/$name"
           [[ -d "$statedir" ]] || { echo "no such dev machine: $name" >&2; return 1; }
+          dm_login || return 1
           ensure_portforward "$name" "$(cat "$statedir/port")" "$statedir" || return 1
 
           # --recover: the in-VM devpod agent/container is gone — typically after
@@ -616,10 +636,12 @@
               echo "usage: dev-machine console <name>" >&2
               return 1
           }
+          dm_login || return 1
           virtctl console "vmi/dm-$name" -n "$NAMESPACE"
       }
 
       cmd_list() {
+          dm_login || return 1
           echo "VMs:"
           kubectl get vm -n "$NAMESPACE" 2>/dev/null || true
           echo
@@ -642,6 +664,7 @@
           name=$(sanitize "$name")
           [[ -n "$name" ]] || { echo "usage: dev-machine down <name> [--no-agent]" >&2; return 1; }
           local statedir="$STATE/$name"
+          dm_login || return 1
 
           # Phase 4: revoke the per-session deploy key on creil before teardown.
           if [[ -f "$statedir/deploy_key_id" ]]; then
