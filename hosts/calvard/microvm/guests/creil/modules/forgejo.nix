@@ -38,6 +38,18 @@ in {
         proxyPass = "http://127.0.0.1:3000";
         proxyWebsockets = true;
       };
+      # The OCI container registry (/v2/) ships multi-GB image layers — the
+      # dev-machine images alone have a >2.5GiB layer, which the 512m server-level
+      # cap rejects with 413. Lift the body limit for the registry path only (the
+      # web UI / git stay bounded), and stream large blobs straight through instead
+      # of buffering the whole upload to a temp file first.
+      locations."/v2/" = {
+        proxyPass = "http://127.0.0.1:3000";
+        extraConfig = ''
+          client_max_body_size 0;
+          proxy_request_buffering off;
+        '';
+      };
     };
   in {
     enable = true;
