@@ -100,6 +100,36 @@
     memoryPercent = 50;
   };
 
+  # OOM containment. The flake's nixosTest suite boots nested QEMU VMs inside
+  # this 8Gi guest; an overrun used to trip the guest kernel OOM killer, which
+  # reaped session-critical processes (sshd, the devpod agent) at random and
+  # left the VM up-but-unreachable — the failure mode `dev-machine ssh --recover`
+  # / `down --no-agent` exist to clean up after. Two layers:
+  #
+  #   1. systemd-oomd kills under MEMORY PRESSURE inside user.slice only. The
+  #      dev user's shell + workload (run-checks.sh, the nixosTest's nested
+  #      QEMUs) all live there; sshd, docker, and qemu-guest-agent live in
+  #      system.slice and are excluded (enableRootSlice / enableSystemSlice
+  #      stay off). So a runaway test is killed EARLY (PSI-driven, not at hard
+  #      exhaustion) and the session-critical services keep running — the VM
+  #      stays reachable for `dev-machine ssh`.
+  #   2. Low OOMScoreAdjust on sshd / qemu-guest-agent / dockerd as a backstop
+  #      for the kernel OOM killer (in case PSI never spikes hard enough for
+  #      oomd to act first): kernel-level reaping skips them and targets the
+  #      workload instead.
+  #
+  # Pairs with zramSwap above: compressed swap absorbs a spike, which raises
+  # memory pressure and gives oomd time to act before hard exhaustion. The real
+  # capacity ceiling (~8Gi guest on a full node) is unchanged — these just turn
+  # the failure mode from "session is gone" into "the test got killed".
+  systemd.oomd = {
+    enable = true;
+    enableUserSlices = true;
+  };
+  systemd.services.sshd.serviceConfig.OOMScoreAdjust = -900;
+  systemd.services.qemu-guest-agent.serviceConfig.OOMScoreAdjust = -900;
+  systemd.services.docker.serviceConfig.OOMScoreAdjust = -500;
+
   # The container runtime devpod's SSH provider targets natively (docker socket +
   # `docker` group). Rootless isn't needed — the VM is the boundary (decision 4).
   virtualisation.docker = {
