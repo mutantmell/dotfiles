@@ -1,6 +1,7 @@
 This document is for me (the operator) to put down open questions. LLM Agents can resolve items in here by adding, at the end of a line, either (resolved) for items that are resolved, or (planned) for items that are captured in plans, but MUST NOT do any further editing. It is important that this remain a place I can put down raw notes.
 
 - dev-machine up enhancements:
+  - add zellij and wezterm?
   - don't unconditionally push the image (detect when not changed?)
   - have a "refresh" command to tear down and setup?0
   - check the current repo for a git reference if a url isn't provided?
