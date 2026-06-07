@@ -33,6 +33,11 @@
     inherit (baseSystem) config;
     format = "qcow2";
     partitionTableType = "legacy";
+    # Root holds only the base OS. docker's data-root (the dev image + every
+    # in-container build, incl. nixosTest VM images) lives on a separate ephemeral
+    # scratch disk — see configuration.nix's /var/lib/docker mount + the VMI's
+    # emptyDisk — so "auto" (closure-sized) is right and the disk-image build stays
+    # small and fast (a large diskSize OOM-panics the make-disk-image builder VM).
     diskSize = "auto";
     installBootLoader = true;
   };

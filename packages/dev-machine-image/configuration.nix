@@ -39,6 +39,17 @@
     autoResize = true;
   };
 
+  # Runtime scratch — a KubeVirt emptyDisk (ephemeral, sized at the VMI). docker's
+  # data-root lives here, so the dev image and every in-container build (incl.
+  # nixosTest VM images) get the space while the OS root stays small. Formatted on
+  # first boot; the VMI sets the disk serial "scratch" for a stable by-id name.
+  # systemd-makefs (autoFormat) + the mount are ordered before docker via local-fs.
+  fileSystems."/var/lib/docker" = {
+    device = "/dev/disk/by-id/virtio-scratch";
+    fsType = "ext4";
+    autoFormat = true;
+  };
+
   # Serial console — `virtctl console` attaches to ttyS0.
   boot.kernelParams = ["console=ttyS0"];
 

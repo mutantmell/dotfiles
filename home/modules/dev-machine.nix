@@ -109,6 +109,13 @@
                   name = "rootdisk";
                   disk.bus = "virtio";
                 }
+                {
+                  name = "scratch";
+                  # serial → /dev/disk/by-id/virtio-scratch in the guest, which the
+                  # base image autoFormats + mounts at /var/lib/docker.
+                  serial = "scratch";
+                  disk.bus = "virtio";
+                }
               ];
               interfaces = [
                 {
@@ -135,7 +142,19 @@
           volumes = [
             {
               name = "rootdisk";
-              containerDisk.image = baseImage;
+              # Always re-pull the base :latest so a freshly `publish-base`d image
+              # is picked up — otherwise the node can boot a cached older layer.
+              containerDisk = {
+                image = baseImage;
+                imagePullPolicy = "Always";
+              };
+            }
+            {
+              name = "scratch";
+              # Ephemeral runtime scratch for docker data-root (dev image +
+              # in-container builds). Dies with the VM (no CSI); the base image
+              # formats + mounts it at /var/lib/docker.
+              emptyDisk.capacity = "60Gi";
             }
           ];
         };
