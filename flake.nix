@@ -45,6 +45,15 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
+    # AI coding agents (claude-code, codex, …) for the locked-down dev machines.
+    # Updated daily and prebuilt in cache.numtide.com — nixpkgs lags multiple
+    # claude-code releases (nixpkgs 2.1.148 vs numtide 2.1.168 at wiring time).
+    # NOT `follows`-ing our nixpkgs: numtide only builds/tests against their
+    # pinned nixpkgs-unstable, and keeping it is what gives cache hits (their
+    # packages are built against that pin). Pinned via flake.lock, so their daily
+    # cadence only reaches us on a deliberate `nix flake update`.
+    # ai-dev-machine-kubevirt-plan.md.
+    llm-agents.url = "github:numtide/llm-agents.nix";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -82,6 +91,7 @@
     rust-overlay,
     retrom,
     stevenblack-hosts,
+    llm-agents,
   }: let
     pkgsFor = basepkgs: system:
       import basepkgs {
@@ -136,6 +146,15 @@
       # a streamLayeredImage script; `skopeo copy` it to creil to publish.
       dev-machine-image = import packages/dev-machine-image {
         inherit nixpkgs system;
+      };
+      # Phase 2.2 — custom dev image (devcontainer.json pins it). Nix-built OCI
+      # image carrying the dev tooling; devpod runs it as a runc container inside
+      # the VM. Output is a streamLayeredImage script; `skopeo copy` it to creil.
+      dev-machine-dev-image = import packages/dev-machine-dev-image {
+        inherit pkgs;
+        # claude-code from numtide (fresh + cached) instead of laggy nixpkgs;
+        # scoped to this image only, not a global overlay override.
+        claude-code = llm-agents.packages.${system}.claude-code;
       };
       mk-volume = import packages/mk-volume.nix {
         inherit (pkgs) writeShellScriptBin;

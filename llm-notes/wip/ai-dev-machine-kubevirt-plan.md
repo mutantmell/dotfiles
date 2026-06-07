@@ -1,6 +1,8 @@
 # Locked-down AI Dev Machines on KubeVirt (devpod + devcontainer.json)
 
-Status: Planned (not started)
+Status: In progress — Phase 1 (KubeVirt platform + thin base VM image) and
+Phase 2 (`devcontainer.json` + custom Nix dev image) landed. Next: Phase 3
+(devpod wiring + operator scripting).
 
 **What this is:** ephemeral, locked-down **dev machines** for LLM coding
 agents — spin up a VM-isolated workspace from a repo's `devcontainer.json`,
@@ -114,7 +116,43 @@ operator workstation                 erebonia (k3s + KubeVirt)
    *dev tooling* lives in the devcontainer image (Phase 2), not the VM. VM =
    boundary + docker + sshd.
 
-## Phase 2 — `devcontainer.json` + custom dev image (item 2)
+## Phase 2 — `devcontainer.json` + custom dev image (item 2) — DONE
+
+Landed as `.devcontainer/devcontainer.json` (image pinned to
+`forgejo.internal/mutantmell/dev-machine-dev:latest`, `runArgs:
+["--device=/dev/kvm"]`, no features) + `packages/dev-machine-dev-image/`
+(`dockerTools.streamLayeredImage`, `includeNixDB = true`), exposed as the
+`dev-machine-dev-image` flake package. Publish is the operator/CI `skopeo copy`
+step documented in the package header. Implementation decisions:
+
+- **`kubectl` excluded** from the image — Phase 3's lockdown wins over the
+  Phase-2.2 listing; cluster tooling stays off the sandbox PATH.
+- **Attic (`zeiss`) substituter deferred** — the cache isn't set up yet, so the
+  image ships no substituter wiring; the first in-container `nix build` is
+  uncached. Re-add the URL/key to the image nix.conf when `zeiss` lands.
+- nix builds single-user as root (`build-users-group =`, `sandbox = false`) —
+  the VM is the boundary; nixosTests get isolation from the surfaced `/dev/kvm`.
+- **Agents from `numtide/llm-agents.nix`, not nixpkgs.** claude-code (and any
+  future codex/opencode) come from numtide's daily-updated, cache-prebuilt
+  packages (nixpkgs lagged 2.1.148 vs numtide 2.1.168 at wiring). Added as a
+  flake input (no `follows` — their cache only hits against their pinned
+  nixpkgs); scoped to this image (passed as the `claude-code` arg), NOT a global
+  overlay override. The build host / CI needs `cache.numtide.com` as a
+  substituter (key in the package header) — build-host only, never a sandbox
+  egress allowance.
+- **Claude freshness = republish cadence, NOT runtime self-update.** The image
+  is baked, the self-updater is disabled (`DISABLE_AUTOUPDATER=1` + read-only
+  store), and currency comes from a CI job that bumps the input and re-pushes
+  `:latest` (cheap via numtide's cache). That CI job is **documented-intent, not
+  built** (CI is deferred); until it exists the Phase 3 wrapper can carry the
+  cadence (see Phase 3). Runtime update is rejected here: it
+  needs egress Phase 5 forbids and would mutate the toolchain mid-session,
+  losing image-digest ↔ claude-version auditability. The lockdown-respecting
+  runtime path (mirror to creil, pull at session start) is reserved for the
+  *persistent* workstation track, not these ephemeral sessions.
+
+Original spec:
+
 
 1. **`devcontainer.json` in the repo root.** Pin the custom image (Phase 2.2)
    from `creil`. Set `"runArgs": ["--device=/dev/kvm"]`. Keep `postCreate`
@@ -151,6 +189,16 @@ operator workstation                 erebonia (k3s + KubeVirt)
 - **Start:** wrapper creates the VM + `devpod up --provider ssh --ide none`.
   **Graduate:** thin custom devpod KubeVirt provider (Phase 1 decision) so
   `devpod up`/`down` manages the VM lifecycle.
+- **Image-freshness workaround (until CI lands).** The Phase 2 dev image's
+  currency is meant to come from a CI republish job that doesn't exist yet. The
+  wrapper can carry that cadence in the meantime: have `dev-machine up`
+  **build + push the dev image on create by default** (`nix build
+  .#dev-machine-dev-image` → `skopeo copy` to creil) before bringing the
+  workspace up. It's cheap — claude comes prebuilt from numtide's cache, so it's
+  a cache-pull + push, not a real build — and it guarantees each session starts
+  on a current claude with no CI dependency. A `--no-rebuild` flag skips it for
+  fast iteration. This is build-on-the-operator-workstation, so it stays off the
+  sandbox PATH and respects the lockdown. Fold into CI later when CI exists.
 
 ## Phase 4 — scoped git push credential (item 4)
 

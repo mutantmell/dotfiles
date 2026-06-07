@@ -1,0 +1,22 @@
+// Phase 2.1 — devcontainer.json for the locked-down LLM dev machines
+// (llm-notes/plans/ai-dev-machine-kubevirt-plan.md). devpod's SSH provider
+// builds/runs this as a plain runc container *inside* the KubeVirt VM, which is
+// the security boundary — so the container itself needs no isolation hardening.
+//
+// The image is built with Nix (packages/dev-machine-dev-image) and pinned from
+// creil; it carries the dev tooling. NO devcontainer "features" — features
+// apt-install at build time, which is exactly the heavyweight path the plan
+// rejects; everything is baked into the Nix image instead.
+{
+  "name": "dotfiles-dev-machine",
+  "image": "forgejo.internal/mutantmell/dev-machine-dev:latest",
+
+  // Surface the VM's /dev/kvm into the inner container so this flake's nixosTest
+  // suite (./scripts/run-checks.sh) runs nested with fast local feedback — the
+  // hard requirement that drove the whole KubeVirt-VM substrate decision.
+  "runArgs": ["--device=/dev/kvm"],
+
+  // Keep postCreate minimal (plan). The workspace is bind-mounted, so git would
+  // otherwise refuse to operate on a dir owned by a different uid.
+  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}"
+}
