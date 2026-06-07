@@ -25,9 +25,13 @@
 #                           sandbox's ONLY git-push credential — pushes go out as
 #                           `cc` (Phase 4).
 #   dev-machine ssh  <name> drop into the running devcontainer (`devpod ssh`).
+#                           `--recover` restarts a dead in-VM agent/container
+#                           (`devpod up`) first — for a VM that crashed + rebooted.
 #   dev-machine list        VMs + devpod workspaces.
 #   dev-machine down <name> tear the workspace + VM + secret + tunnel down, and
-#                           revoke the cc SSH key.
+#                           revoke the cc SSH key. `--no-agent` skips the in-VM
+#                           devpod teardown when the VM is crashed/OOM-killed (the
+#                           normal teardown blocks on the dead agent tunnel).
 #   dev-machine publish-base (re)build + push the thin base containerDisk to creil
 #                           (a prerequisite for `up`; run once / on base bumps).
 #
@@ -556,12 +560,40 @@
       }
 
       cmd_ssh() {
-          local name
-          name=$(sanitize "''${1:-}")
-          [[ -n "$name" ]] || { echo "usage: dev-machine ssh <name>" >&2; return 1; }
+          local name="" recover=0
+          while [[ $# -gt 0 ]]; do
+              case "$1" in
+                  --recover) recover=1; shift ;;
+                  -*) echo "unknown flag: $1" >&2; return 1 ;;
+                  *)
+                      if [[ -z "$name" ]]; then name="$1"; shift
+                      else echo "unexpected arg: $1" >&2; return 1; fi
+                      ;;
+              esac
+          done
+          name=$(sanitize "$name")
+          [[ -n "$name" ]] || { echo "usage: dev-machine ssh <name> [--recover]" >&2; return 1; }
           local statedir="$STATE/$name"
           [[ -d "$statedir" ]] || { echo "no such dev machine: $name" >&2; return 1; }
-          ensure_portforward "$name" "$(cat "$statedir/port")" "$statedir"
+          ensure_portforward "$name" "$(cat "$statedir/port")" "$statedir" || return 1
+
+          # --recover: the in-VM devpod agent/container is gone — typically after
+          # the VM crashed and runStrategy=Always booted a fresh one (the scratch
+          # docker data-root is an emptyDisk, so it comes back blank). `devpod up`
+          # on the existing workspace id re-runs the agent and rebuilds the
+          # devcontainer over the (re-established) tunnel, which is what gets the
+          # `devpod ssh` below working again. NOTE: the rebuilt container is fresh,
+          # so the per-session cc push key injected by `up` is gone — re-run
+          # `dev-machine up <source>` if you need to push again; --recover just
+          # gets you a working shell back.
+          if [[ "$recover" -eq 1 ]]; then
+              echo "==> --recover: restarting the devcontainer agent (devpod up)"
+              devpod up "$name" --provider "dm-$name" --ide none || {
+                  echo "recover failed — the VM itself may be down/looping." >&2
+                  echo "check 'dev-machine list' and 'dev-machine console $name'." >&2
+                  return 1
+              }
+          fi
           # Lockdown flags: --start-services=false stops devpod proxying the
           # operator's git/docker credentials into the session, and
           # --agent-forwarding=false stops forwarding the operator's SSH agent in
@@ -596,9 +628,19 @@
       }
 
       cmd_down() {
-          local name
-          name=$(sanitize "''${1:-}")
-          [[ -n "$name" ]] || { echo "usage: dev-machine down <name>" >&2; return 1; }
+          local name="" no_agent=0
+          while [[ $# -gt 0 ]]; do
+              case "$1" in
+                  --no-agent) no_agent=1; shift ;;
+                  -*) echo "unknown flag: $1" >&2; return 1 ;;
+                  *)
+                      if [[ -z "$name" ]]; then name="$1"; shift
+                      else echo "unexpected arg: $1" >&2; return 1; fi
+                      ;;
+              esac
+          done
+          name=$(sanitize "$name")
+          [[ -n "$name" ]] || { echo "usage: dev-machine down <name> [--no-agent]" >&2; return 1; }
           local statedir="$STATE/$name"
 
           # Phase 4: revoke the per-session deploy key on creil before teardown.
@@ -612,13 +654,32 @@
           fi
 
           echo "==> tearing down $name"
-          devpod delete "$name" --force 2>/dev/null || true
-          devpod provider delete "dm-$name" 2>/dev/null || true
-          kubectl delete vm "dm-$name" -n "$NAMESPACE" --ignore-not-found
-          kubectl delete secret "dm-$name-ssh-key" -n "$NAMESPACE" --ignore-not-found
-          if [[ -f "$statedir/portforward.pid" ]]; then
-              kill "$(cat "$statedir/portforward.pid")" 2>/dev/null || true
+          # `devpod delete` normally SSHes into the VM to run the in-container
+          # agent teardown. When the VM has crashed/OOM-killed that tunnel is dead,
+          # and the call blocks on the unreachable agent — which is why ordinary
+          # `down` wedges. --no-agent skips the in-VM teardown: we drop the VM +
+          # secret FIRST (the container dies with the VM regardless, so the agent
+          # teardown is moot), which makes the SSH target provably gone, then
+          # `devpod delete --force` only has to clear devpod's local bookkeeping
+          # (connection refused → fast fail → --force removes local state). The
+          # `timeout` is a backstop so a wedged devpod can never re-hang `down`.
+          if [[ "$no_agent" -eq 1 ]]; then
+              echo "    (--no-agent: skipping in-VM devpod teardown)"
+              kubectl delete vm "dm-$name" -n "$NAMESPACE" --ignore-not-found
+              kubectl delete secret "dm-$name-ssh-key" -n "$NAMESPACE" --ignore-not-found
+              if [[ -f "$statedir/portforward.pid" ]]; then
+                  kill "$(cat "$statedir/portforward.pid")" 2>/dev/null || true
+              fi
+              timeout 30 devpod delete "$name" --force 2>/dev/null || true
+          else
+              devpod delete "$name" --force 2>/dev/null || true
+              kubectl delete vm "dm-$name" -n "$NAMESPACE" --ignore-not-found
+              kubectl delete secret "dm-$name-ssh-key" -n "$NAMESPACE" --ignore-not-found
+              if [[ -f "$statedir/portforward.pid" ]]; then
+                  kill "$(cat "$statedir/portforward.pid")" 2>/dev/null || true
+              fi
           fi
+          devpod provider delete "dm-$name" 2>/dev/null || true
           rm -rf "$statedir"
       }
 
@@ -632,10 +693,10 @@
       dev-machine — locked-down LLM dev machines on KubeVirt
 
         dev-machine up <repo> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]
-        dev-machine ssh <name>
+        dev-machine ssh <name> [--recover]   (--recover: restart a dead devcontainer agent before ssh)
         dev-machine console <name>
         dev-machine list
-        dev-machine down <name>
+        dev-machine down <name> [--no-agent] (--no-agent: skip in-VM devpod teardown for a crashed/OOM VM)
         dev-machine publish-base
 
       escape hatches (run with the wrapper's pinned tools + OIDC kubeconfig):

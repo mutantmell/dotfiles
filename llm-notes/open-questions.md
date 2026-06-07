@@ -21,6 +21,7 @@ This document is for me (the operator) to put down open questions. LLM Agents ca
   - we want a non-flake managed set of flux dependencies to install, so that CI can own a particular path for doing dependency updates, and we can auto-reject changes that stray outside that narrow path
   - what in general is the dividing line between 'autoDeployCharts' and flux?
 - how do we move the forgejo backing data to be stored on liberl via NFS?
+- now that keycloak is split into lldap and authelia, authelia should be safe to move into the app tier for more general access (it's essentially read-only)
 
 errors:
 17:48:26 info Creating devcontainer...
