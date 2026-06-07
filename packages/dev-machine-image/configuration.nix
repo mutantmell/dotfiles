@@ -90,6 +90,12 @@
     extraGroups = ["docker"];
   };
 
+  # devpod's SSH provider clones the workspace repo on the agent HOST (this VM)
+  # before handing off to the devcontainer, so it needs `git` here — without it
+  # devpod tries (and fails) to apt/apk-install it. This is the one dev tool the
+  # base carries; the actual toolchain lives in the devcontainer image.
+  environment.systemPackages = [pkgs.git];
+
   # Keep the closure lean — this is a disposable sandbox base, not a workstation.
   documentation.enable = lib.mkForce false;
 

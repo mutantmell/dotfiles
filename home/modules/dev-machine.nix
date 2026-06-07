@@ -474,11 +474,17 @@
 
           mkdir -p "$statedir"
           echo "$port" >"$statedir/port"
-          ensure_portforward "$name" "$port" "$statedir"
 
+          # The guest needs ~10-30s after AgentConnected to finish DHCP before its
+          # sshd is reachable through the masquerade pod (an early connect fails
+          # "no route to host" while the guest network is still coming up), and
+          # `kubectl port-forward` *exits* on that failure. So (re)establish the
+          # tunnel each iteration — ensure_portforward is a no-op while it's alive
+          # and revives it if it died.
           echo "==> waiting for sshd"
           local ready=0
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 45); do
+              ensure_portforward "$name" "$port" "$statedir"
               if ssh -p "$port" -o StrictHostKeyChecking=no \
                   -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 \
                   -o BatchMode=yes dev@127.0.0.1 true 2>/dev/null; then
