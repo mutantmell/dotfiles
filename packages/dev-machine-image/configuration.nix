@@ -76,7 +76,15 @@
 
   # The container runtime devpod's SSH provider targets natively (docker socket +
   # `docker` group). Rootless isn't needed — the VM is the boundary (decision 4).
-  virtualisation.docker.enable = true;
+  virtualisation.docker = {
+    enable = true;
+    # Use containerd's image store rather than the legacy graphdriver: enables
+    # BuildKit's registry cache + lazy pulls (devpod warns when it's off) and
+    # writes /etc/docker/daemon.json declaratively, silencing devpod's "could not
+    # find docker daemon config file" notice. It's the direction docker is heading
+    # (default in newer releases) and fits pulling/caching the devcontainer image.
+    daemon.settings.features.containerd-snapshotter = true;
+  };
 
   # The service user devpod targets: passwordless SSH (key injected at runtime)
   # and the `docker` group so the provider can build/run the devcontainer. That

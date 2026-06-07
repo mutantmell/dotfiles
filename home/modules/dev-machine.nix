@@ -325,22 +325,28 @@
           inject_deploy_key "$name" "$keyfile"
       }
 
-      # Push the private key + git config into the running devcontainer. Two
-      # one-shot devpod execs (start-services=false so devpod forwards NONE of the
-      # operator's host git/docker credentials): the first streams the key in over
-      # stdin (never in argv); the second pins forgejo to SSH so pushes use ONLY
-      # this cc key (authenticating as cc), and sets the cc commit identity.
+      # Push the private key + git config into the running devcontainer in a SINGLE
+      # one-shot exec (start-services + agent-forwarding off, so devpod forwards
+      # NONE of the operator's git/docker creds or SSH agent). The key is base64'd
+      # INTO the command rather
+      # than streamed over stdin — `devpod ssh --command` does not reliably forward
+      # stdin, and the key is legitimately the sandbox's own, so inline is fine.
+      # Pins forgejo to SSH so pushes use ONLY this cc key (authenticating as cc),
+      # and sets the cc commit identity.
       inject_deploy_key() {
-          local name=$1 keyfile=$2
-          devpod ssh "$name" --start-services=false \
-              --command 'umask 077; mkdir -p ~/.ssh; cat > ~/.ssh/dm_deploy_key; chmod 600 ~/.ssh/dm_deploy_key' \
-              <"$keyfile"
-          devpod ssh "$name" --start-services=false --command "
+          local name=$1 keyfile=$2 b64
+          b64=$(base64 -w0 "$keyfile")
+          devpod ssh "$name" --start-services=false --agent-forwarding=false --command "
+              set -e
+              umask 077
+              mkdir -p ~/.ssh
+              printf %s '$b64' | base64 -d > ~/.ssh/dm_deploy_key
+              chmod 600 ~/.ssh/dm_deploy_key
               { echo 'Host forgejo.internal'
                 echo '  IdentityFile ~/.ssh/dm_deploy_key'
                 echo '  IdentitiesOnly yes'
                 echo '  StrictHostKeyChecking accept-new'
-              } >> ~/.ssh/config
+              } > ~/.ssh/config
               chmod 600 ~/.ssh/config
               git config --global url.'git@forgejo.internal:'.insteadOf 'https://forgejo.internal/'
               git config --global user.name '$COMMIT_NAME'
@@ -530,11 +536,15 @@
           local statedir="$STATE/$name"
           [[ -d "$statedir" ]] || { echo "no such dev machine: $name" >&2; return 1; }
           ensure_portforward "$name" "$(cat "$statedir/port")" "$statedir"
-          # start-services=false: do NOT proxy the operator's host git/docker
-          # credentials into the session — the injected deploy key is the only
-          # push path (Phase 4 lockdown). This also forgoes devpod port-forwarding;
-          # run `devpod ssh <name>` directly if you need that.
-          devpod ssh "$name" --start-services=false
+          # Lockdown flags: --start-services=false stops devpod proxying the
+          # operator's git/docker credentials into the session, and
+          # --agent-forwarding=false stops forwarding the operator's SSH agent in
+          # (devpod defaults it ON) — the injected cc key is the sandbox's only
+          # identity. Disabling agent-forwarding also avoids devpod's noisy teardown
+          # error on logout (the forwarded-agent channel closing without a clean
+          # exit-status). Trade-off: start-services=false also forgoes devpod
+          # port-forwarding; run `devpod ssh <name>` directly if you need that.
+          devpod ssh "$name" --start-services=false --agent-forwarding=false
       }
 
       # Serial console to the VM — uses the pinned virtctl + the wrapper's OIDC

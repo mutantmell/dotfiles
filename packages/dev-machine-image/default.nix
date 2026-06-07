@@ -1,6 +1,12 @@
 {
   nixpkgs,
   system ? "x86_64-linux",
+  # Extra CA certificates (PEM paths) added to the guest trust store. The base
+  # config is host-agnostic, but in practice the VM must trust creil's step-ca to
+  # clone the workspace over HTTPS and to docker-pull the dev image from
+  # forgejo.internal. Injected here at the flake boundary so configuration.nix
+  # stays standalone (cf. how the dev image takes claude-code as a param).
+  caCerts ? [],
 }: let
   inherit (nixpkgs) lib;
 
@@ -10,7 +16,10 @@
   # an x86_64 guest regardless of which `packages.<system>` attr exposes it.
   baseSystem = nixpkgs.lib.nixosSystem {
     inherit system;
-    modules = [./configuration.nix];
+    modules = [
+      ./configuration.nix
+      {security.pki.certificateFiles = caCerts;}
+    ];
   };
 
   inherit (baseSystem) pkgs;

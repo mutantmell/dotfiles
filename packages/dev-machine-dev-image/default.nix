@@ -90,6 +90,20 @@
       gawk
       less
       openssh
+
+      # System files a minimal Nix image lacks, via dockerTools' own helpers rather
+      # than hand-rolled /etc entries or symlinks (this image is a streamLayeredImage,
+      # not a NixOS system, so `users.users` etc. don't apply — that's the base VM
+      # image's job):
+      #   fakeNss   — /etc/passwd + /etc/group + /etc/nsswitch.conf (root + nobody).
+      #               docker/runc won't run a container as "root" without a passwd
+      #               entry, and nix/git/ssh need user + host resolution. root's
+      #               $HOME stays /root via the image Env above.
+      #   usrBinEnv — /usr/bin/env for `#!/usr/bin/env` shebangs (./scripts/*,
+      #               run-checks.sh, much tooling). (/bin/sh already comes from
+      #               bashInteractive, so no binSh needed.)
+      dockerTools.fakeNss
+      dockerTools.usrBinEnv
     ]);
 in
   pkgs.dockerTools.streamLayeredImage {

@@ -146,6 +146,9 @@
       # a streamLayeredImage script; `skopeo copy` it to creil to publish.
       dev-machine-image = import packages/dev-machine-image {
         inherit nixpkgs system;
+        # The guest must trust creil's step-ca to clone the workspace over HTTPS
+        # and to docker-pull the dev image from forgejo.internal.
+        caCerts = with pkgs.mmell.lib.data.pki; [root intermediate];
       };
       # Phase 2.2 — custom dev image (devcontainer.json pins it). Nix-built OCI
       # image carrying the dev tooling; devpod runs it as a runc container inside
