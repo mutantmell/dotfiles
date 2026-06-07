@@ -187,9 +187,11 @@
       SSH_PUBKEY="${cfg.sshPubKey}"
       DEFAULT_MEMORY="${cfg.defaultMemory}"
       DEFAULT_CPU="${cfg.defaultCpu}"
+      DEFAULT_DISK="${cfg.defaultDisk}"
       VM_MANIFEST="${vmManifest}"
       FORGEJO_API="${cfg.forgejoApi}"
       FORGEJO_USER="${cfg.forgejoUser}"
+      FORGEJO_SSH_USER="${cfg.forgejoSshUser}"
       FORGEJO_TOKEN_FILE="${cfg.forgejoTokenFile}"
       CACERT="${cfg.caCert}"
       COMMIT_NAME="${cfg.commitName}"
@@ -362,12 +364,13 @@
               printf %s '$b64' | base64 -d > ~/.ssh/dm_deploy_key
               chmod 600 ~/.ssh/dm_deploy_key
               { echo 'Host forgejo.internal'
+                echo '  User $FORGEJO_SSH_USER'
                 echo '  IdentityFile ~/.ssh/dm_deploy_key'
                 echo '  IdentitiesOnly yes'
                 echo '  StrictHostKeyChecking accept-new'
               } > ~/.ssh/config
               chmod 600 ~/.ssh/config
-              git config --global url.'git@forgejo.internal:'.insteadOf 'https://forgejo.internal/'
+              git config --global url.'$FORGEJO_SSH_USER@forgejo.internal:'.insteadOf 'https://forgejo.internal/'
               git config --global user.name '$COMMIT_NAME'
               git config --global user.email '$COMMIT_EMAIL'
           "
@@ -383,7 +386,7 @@
       }
 
       create_vm() {
-          local name=$1 memory=$2 cpu=$3
+          local name=$1 memory=$2 cpu=$3 disk=$4
           local vm="dm-$name" secret="dm-$name-ssh-key"
 
           [[ -f "$SSH_PUBKEY" ]] || {
@@ -408,19 +411,22 @@
               --arg secret "$secret" \
               --arg memory "$memory" \
               --argjson cpu "$cpu" \
+              --arg disk "$disk" \
               '.metadata.name = $vm
                | .spec.template.metadata.labels."dev-machine" = $name
                | .spec.template.spec.domain.cpu.cores = $cpu
                | .spec.template.spec.domain.resources.requests.memory = $memory
+               | (.spec.template.spec.volumes[] | select(.name == "scratch").emptyDisk.capacity) = $disk
                | .spec.template.spec.accessCredentials[0].sshPublicKey.source.secret.secretName = $secret' \
               "$VM_MANIFEST" \
               | kubectl apply -f -
       }
 
       cmd_up() {
-          local source="" name="" rebuild=1 memory cpu repo="" push_cred=1
+          local source="" name="" rebuild=1 memory cpu disk repo="" push_cred=1
           memory="$DEFAULT_MEMORY"
           cpu="$DEFAULT_CPU"
+          disk="$DEFAULT_DISK"
           while [[ $# -gt 0 ]]; do
               case "$1" in
                   --no-rebuild) rebuild=0; shift ;;
@@ -429,6 +435,7 @@
                   --repo) repo="$2"; shift 2 ;;
                   --memory) memory="$2"; shift 2 ;;
                   --cpu) cpu="$2"; shift 2 ;;
+                  --disk) disk="$2"; shift 2 ;;
                   -*) echo "unknown flag: $1" >&2; return 1 ;;
                   *)
                       if [[ -z "$source" ]]; then
@@ -442,7 +449,7 @@
               esac
           done
           [[ -n "$source" ]] || {
-              echo "usage: dev-machine up <repo-url-or-path> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4]" >&2
+              echo "usage: dev-machine up <repo-url-or-path> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]" >&2
               return 1
           }
           if [[ -z "$name" ]]; then
@@ -490,7 +497,7 @@
           fi
 
           echo "==> creating VM $vm"
-          create_vm "$name" "$memory" "$cpu"
+          create_vm "$name" "$memory" "$cpu" "$disk"
 
           echo "==> waiting for VM to be ready"
           kubectl wait "vm/$vm" -n "$NAMESPACE" --for=condition=Ready --timeout=300s
@@ -624,7 +631,7 @@
           cat >&2 <<'USAGE'
       dev-machine — locked-down LLM dev machines on KubeVirt
 
-        dev-machine up <repo> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4]
+        dev-machine up <repo> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]
         dev-machine ssh <name>
         dev-machine console <name>
         dev-machine list
@@ -699,10 +706,27 @@ in {
       description = "Default VM vCPU cores.";
     };
 
+    defaultDisk = lib.mkOption {
+      type = lib.types.str;
+      default = "60Gi";
+      description = "Default capacity of the ephemeral scratch disk backing docker's data-root (dev image + in-container builds, incl. nixosTest VM images). Override per-session with `--disk`.";
+    };
+
     forgejoApi = lib.mkOption {
       type = lib.types.str;
       default = "https://forgejo.internal/api/v1";
       description = "Forgejo (creil) API base URL used to mint/revoke the per-session deploy key.";
+    };
+
+    forgejoSshUser = lib.mkOption {
+      type = lib.types.str;
+      default = "forgejo";
+      description = ''
+        SSH login user for git-over-SSH to forgejo (the `<user>@forgejo.internal` in
+        rewritten clone URLs). A Forgejo using the OS sshd + authorized-keys
+        integration uses its RUN_USER here (default `forgejo`), NOT `git`. The key
+        still identifies the actual account (forgejoUser); this is only the transport.
+      '';
     };
 
     forgejoTokenFile = lib.mkOption {

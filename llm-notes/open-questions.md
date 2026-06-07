@@ -6,11 +6,11 @@ This document is for me (the operator) to put down open questions. LLM Agents ca
   - how can we clean up the image repo, so it doesn't get gunked up with garbage?
   - clean up errors on startup (see below)
   - other enhancements/changes (CLI improvements?)
+  - better authelia integration (without copy/pasting a token from a uri)
+  - how do I access a dev machine from rootpod? Should we be giving them generated host-names and DNS entries?
+  - prevent nix shell from being able to install additional things into the container, while allowing the flake in this dotfiles to be build
 - macvlan on erebonia for all of k3s (to enable better lockdowns)
 - once this is enabled, we should figure out what containers go to what VLANs (everything lives off of erebonia's MGMT ip address, it bypasses a lot)
-- how do I access a dev machine from rootpod? Should we be giving them generated host-names and DNS entries?
-- better authelia integration (without copy/pasting a token from a uri)
-- prevent nix shell from being able to install additional things into the container, while allowing the flake in this dotfiles to be build
 - how can we better handle versions and versioning in the k3s system? Ideally no versions/hashes in the core hosts definition, similar to how the nixpkgs integration goes.
 - do we want to move things away from 'services.k3s.autoDeployCharts' and move them to flux2 integrations?
   - we want a non-flake managed set of flux dependencies to install, so that CI can own a particular path for doing dependency updates, and we can auto-reject changes that stray outside that narrow path

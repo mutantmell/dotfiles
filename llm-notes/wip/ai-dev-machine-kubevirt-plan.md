@@ -347,6 +347,51 @@ key/cert:
   (Calico/Cilium, or erebonia-local nftables on the pod-CIDR path) is the
   documented next step.
 
+## Bring-up fixes (first end-to-end run, 2026-06-07)
+
+Getting the chain to actually clone, build the devcontainer, and run a nested
+nixosTest surfaced concrete requirements, all landed:
+
+**Base VM image** (`packages/dev-machine-image/`):
+
+- Trust creil's step-ca (`caCerts` = pki root+intermediate, threaded from the
+  flake boundary so `configuration.nix` stays standalone) — needed to clone the
+  workspace over HTTPS and to docker-pull the dev image.
+- `git` on the VM — devpod's SSH provider clones the repo on the agent *host*.
+- A separate ephemeral **`scratch` emptyDisk (default 60Gi, `--disk`) mounted at
+  `/var/lib/docker`** (autoFormat). The OS root stays `auto`-sized; docker data +
+  in-container builds (the nixosTest VM images) live on scratch. Bloating the root
+  qcow2 instead OOM-panics the make-disk-image builder VM.
+- `containerd-snapshotter = true` (declarative `daemon.settings`) for devpod's
+  registry cache; `imagePullPolicy: Always` on the base containerDisk so a fresh
+  `publish-base` is actually booted.
+- Serial-console root autologin (`getty.autologinUser`, `mkDefault`) — a debug
+  affordance for an operator-only VM; revisit if a tighter posture is wanted.
+
+**Dev image** (`packages/dev-machine-dev-image/`):
+
+- `dockerTools.fakeNss` (`/etc/passwd` — docker/runc won't run a container as root
+  without it) + `dockerTools.usrBinEnv` (`/usr/bin/env` for shebangs). (`/bin/sh`
+  already comes from bashInteractive.)
+
+**Wrapper** (`home/modules/dev-machine.nix`):
+
+- Reach the VM sshd via **`kubectl port-forward` to the virt-launcher pod**, NOT
+  `virtctl port-forward vmi/...` — the vmi path mis-dials the guest (the guest's
+  `docker0` + the reported pod IP shadow the masquerade `10.0.2.2`). The tunnel is
+  re-established each wait-loop iteration (kubectl pf exits on the guest's
+  transient boot-time "no route to host").
+- Inject the cc key in a single base64'd exec (`devpod ssh --command` does not
+  forward stdin); `--agent-forwarding=false` (devpod defaults it ON) keeps the
+  operator's SSH agent out of the sandbox and clears a teardown error on logout.
+- `console` subcommand + `kubectl`/`virtctl` passthroughs (pinned tools + OIDC
+  kubeconfig) for debugging a VM whose sshd/network didn't come up.
+
+**creil** (`hosts/calvard/microvm/guests/creil/modules/forgejo.nix`):
+
+- nginx `client_max_body_size 0` (+ `proxy_request_buffering off`) on `/v2/` — the
+  dev image's multi-GB layers exceeded the 512m cap (413).
+
 ## What we drop / lessons carried
 
 - **kata-clh from-source nested kernel** (`runtimes.nix` `nestedKataKernel*`,

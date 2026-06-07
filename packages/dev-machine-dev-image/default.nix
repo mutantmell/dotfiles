@@ -7,6 +7,31 @@
 }: let
   inherit (pkgs) lib;
 
+  # NSS files (passwd/group/nsswitch) — like dockerTools.fakeNss BUT with root's
+  # home as /root. fakeNss hardcodes /var/empty, which breaks OpenSSH: ssh resolves
+  # `~` via getpwuid (NOT $HOME), so it looks for ~/.ssh/{config,key} under
+  # /var/empty and never finds the injected cc key in /root/.ssh. A root passwd
+  # entry is also required for docker/runc to run the container as root, and
+  # nix/git/ssh need user + host resolution. /bin/sh comes from bashInteractive.
+  nss = pkgs.symlinkJoin {
+    name = "dev-machine-nss";
+    paths = [
+      (pkgs.writeTextDir "etc/passwd" ''
+        root:x:0:0:root:/root:/bin/bash
+        nobody:x:65534:65534:nobody:/var/empty:/bin/false
+      '')
+      (pkgs.writeTextDir "etc/group" ''
+        root:x:0:
+        nobody:x:65534:
+      '')
+      (pkgs.writeTextDir "etc/nsswitch.conf" ''
+        passwd: files
+        group: files
+        hosts: files dns
+      '')
+    ];
+  };
+
   # ── Phase 2.2 — custom dev image for the locked-down LLM dev machines ────────
   # (ai-dev-machine-kubevirt-plan.md). devpod's SSH provider builds/runs this as
   # a plain runc container *inside* the KubeVirt VM (the security boundary); the
@@ -66,6 +91,8 @@
     [
       # The agent — from numtide (param), not nixpkgs. See header.
       claude-code
+      # /etc/passwd (root home /root) + /etc/group + /etc/nsswitch.conf — see `nss`.
+      nss
     ]
     ++ (with pkgs; [
       # Nix itself (flakes enabled via nix.conf below) + the repo's formatters
@@ -91,18 +118,10 @@
       less
       openssh
 
-      # System files a minimal Nix image lacks, via dockerTools' own helpers rather
-      # than hand-rolled /etc entries or symlinks (this image is a streamLayeredImage,
-      # not a NixOS system, so `users.users` etc. don't apply — that's the base VM
-      # image's job):
-      #   fakeNss   — /etc/passwd + /etc/group + /etc/nsswitch.conf (root + nobody).
-      #               docker/runc won't run a container as "root" without a passwd
-      #               entry, and nix/git/ssh need user + host resolution. root's
-      #               $HOME stays /root via the image Env above.
-      #   usrBinEnv — /usr/bin/env for `#!/usr/bin/env` shebangs (./scripts/*,
-      #               run-checks.sh, much tooling). (/bin/sh already comes from
-      #               bashInteractive, so no binSh needed.)
-      dockerTools.fakeNss
+      # /usr/bin/env for `#!/usr/bin/env` shebangs (./scripts/*, run-checks.sh, much
+      # tooling); /bin/sh already comes from bashInteractive. (passwd/group/nsswitch
+      # come from `nss` above, NOT dockerTools.fakeNss — its /var/empty root home
+      # breaks OpenSSH key lookup.)
       dockerTools.usrBinEnv
     ]);
 in
