@@ -61,6 +61,10 @@ in {
     ./cert-manager.nix
     ./kyverno.nix
     ./flux.nix
+    # Phase 1 — KubeVirt VM substrate for the locked-down LLM dev machines
+    # (ai-dev-machine-kubevirt-plan.md). This plan owns the platform component;
+    # the workstation-migration plan depends on it.
+    ./kubevirt.nix
   ];
 
   # ── Datastore subvolume + default-path symlink ──────────────────────────────

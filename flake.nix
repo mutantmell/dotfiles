@@ -131,6 +131,12 @@
       jenv = import packages/jenv.nix {
         inherit (pkgs) lib stdenv fetchFromGitHub installShellFiles;
       };
+      # Phase 1.3 — thin base VM image (KubeVirt containerDisk) for the
+      # locked-down LLM dev machines. ai-dev-machine-kubevirt-plan.md. Output is
+      # a streamLayeredImage script; `skopeo copy` it to creil to publish.
+      dev-machine-image = import packages/dev-machine-image {
+        inherit nixpkgs system;
+      };
       mk-volume = import packages/mk-volume.nix {
         inherit (pkgs) writeShellScriptBin;
       };

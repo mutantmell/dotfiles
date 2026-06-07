@@ -25,6 +25,10 @@
   common.btrfs.keyfileUnlock.enable = true;
   common.btrfs.impermanence.enable = true;
 
+  # Nested virtualization: surfaces /dev/kvm inside guest VMs. Load-bearing for
+  # the KubeVirt dev-machine substrate (k3s/kubevirt.nix) — the dev VM runs the
+  # flake's nixosTest suite nested, on real KVM. Do not drop without retiring
+  # that path.
   boot.extraModprobeConfig = "options kvm_intel nested=1";
 
   nix.settings.auto-optimise-store = true;
