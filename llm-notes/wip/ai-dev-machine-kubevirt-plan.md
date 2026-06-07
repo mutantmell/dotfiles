@@ -289,6 +289,11 @@ the sops secret). Resolved decisions (2026-06-07):
   "https://forgejo.internal/"` so **pushes use ONLY this cc key over SSH** (and
   route around devpod's HTTP credential helper), plus the cc commit identity
   (`commitName`/`commitEmail` options, default `cc`).
+  - **Resolved 2026-06-07: author commits as the operator, not `cc`.** edith sets
+    `commitName`/`commitEmail` to the operator's real identity — auth stays `cc`
+    (branch protection unchanged), only the author metadata moves, adding no
+    credential. Commit *signing* is deferred to post-Phase-5 (a signing key would
+    be a second, operator-identity, exfiltratable credential in the sandbox).
 - **devpod host-credential forwarding is disabled** (`--start-services=false` on
   the `ssh` path too) so the operator's git/docker credentials are never proxied
   into the session — the deploy key is the sandbox's *only* push path, keeping
