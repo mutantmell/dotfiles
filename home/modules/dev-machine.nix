@@ -16,7 +16,9 @@
 #
 #   dev-machine up <repo>   creates a KubeVirt VirtualMachine from the thin base
 #                           containerDisk (Phase 1.3), injects the operator's SSH
-#                           pubkey via the guest agent, tunnels to its sshd with
+#                           pubkey(s) via the guest agent (Phase 6: `sshPubKeys`
+#                           may carry several — operator + mobile — so a phone can
+#                           mosh in alongside the workstation), tunnels to its sshd with
 #                           `virtctl port-forward`, points a per-machine devpod
 #                           ssh provider at 127.0.0.1:<port>, and `devpod up`s the
 #                           repo's devcontainer.json inside the VM. For a creil
@@ -198,7 +200,12 @@
       DEV_IMAGE="${devImage}"
       REGISTRY_HOST="${registryHost}"
       FLAKE="${cfg.flake}"
-      SSH_PUBKEY="${cfg.sshPubKey}"
+      # Phase 6: ALL operator pubkeys the guest agent should inject into `dev`'s
+      # authorized_keys (operator workstation + mobile, etc.), as a bash array of
+      # paths rendered from cfg.sshPubKeys (each path Nix-quoted so spaces survive).
+      # Multiple keys let a mobile operator attach WITHOUT an image rebuild — the
+      # AccessCredentials secret carries every line and KubeVirt appends each.
+      SSH_PUBKEYS=(${lib.concatMapStringsSep " " (p: "\"${p}\"") cfg.sshPubKeys})
       DEFAULT_MEMORY="${cfg.defaultMemory}"
       DEFAULT_CPU="${cfg.defaultCpu}"
       DEFAULT_DISK="${cfg.defaultDisk}"
@@ -512,18 +519,34 @@
           local name=$1 memory=$2 cpu=$3 disk=$4
           local vm="dm-$name" secret="dm-$name-ssh-key"
 
-          [[ -f "$SSH_PUBKEY" ]] || {
-              echo "missing SSH pubkey: $SSH_PUBKEY" >&2
+          [[ "''${#SSH_PUBKEYS[@]}" -gt 0 ]] || {
+              echo "no SSH pubkeys configured (programs.dev-machine.sshPubKeys)" >&2
               return 1
           }
+          local k
+          for k in "''${SSH_PUBKEYS[@]}"; do
+              [[ -f "$k" ]] || {
+                  echo "missing SSH pubkey: $k" >&2
+                  return 1
+              }
+          done
 
           kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 \
               || kubectl create namespace "$NAMESPACE"
 
           # The pubkey secret KubeVirt's AccessCredentials reads; apply-style so a
-          # re-`up` of the same name refreshes it.
+          # re-`up` of the same name refreshes it. Phase 6: concatenate ALL the
+          # configured pubkeys into one authorized_keys blob — KubeVirt's guest
+          # agent appends each line, so every listed key (operator + mobile) gets
+          # injected into `dev`'s authorized_keys. cat preserves each file's
+          # trailing newline so the lines don't merge.
+          local blob
+          blob=$(mktemp)
+          # shellcheck disable=SC2064
+          trap "rm -f '$blob'" RETURN
+          cat "''${SSH_PUBKEYS[@]}" >"$blob"
           kubectl create secret generic "$secret" -n "$NAMESPACE" \
-              --from-file=key="$SSH_PUBKEY" --dry-run=client -o yaml \
+              --from-file=key="$blob" --dry-run=client -o yaml \
               | kubectl apply -f -
 
           # Patch the per-session fields into the Nix-authored skeleton (valid JSON
@@ -1124,7 +1147,26 @@ in {
     sshPubKey = lib.mkOption {
       type = lib.types.str;
       default = "${config.home.homeDirectory}/.ssh/id_ed25519.pub";
-      description = "Pubkey the guest agent injects into the VM's `dev` user (KubeVirt AccessCredentials).";
+      description = ''
+        The operator's primary pubkey the guest agent injects into the VM's `dev`
+        user (KubeVirt AccessCredentials). Kept for backward compatibility; it is
+        the default sole entry of `sshPubKeys`. To inject more than one key
+        (e.g. operator + mobile), set `sshPubKeys` instead.
+      '';
+    };
+
+    sshPubKeys = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [cfg.sshPubKey];
+      defaultText = lib.literalExpression "[ config.programs.dev-machine.sshPubKey ]";
+      description = ''
+        Phase 6: ALL pubkey paths the guest agent injects into the VM's `dev`
+        user (KubeVirt AccessCredentials), letting a mobile operator key attach
+        ALONGSIDE the workstation key without an image rebuild. `create_vm`
+        concatenates these into one authorized_keys blob the AccessCredentials
+        secret carries; the guest agent appends every line. Defaults to just
+        `[ sshPubKey ]`, so single-key setups need no change.
+      '';
     };
 
     defaultMemory = lib.mkOption {

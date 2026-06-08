@@ -4,7 +4,33 @@
   pkgs,
   modulesPath,
   ...
-}: {
+}: let
+  # ── Phase 6 — attach helper for a mobile/remote operator (attach-only) ───────
+  # A mobile mosh session runs this as its remote command to land DIRECTLY in the
+  # agent's persistent in-container zellij, skipping the operator wrapper (which
+  # lives only on the workstation, off this VM by design). It finds the running
+  # devcontainer the same way the wrapper's extract_via_docker does — the one
+  # container with a /workspaces/*/.git — then attaches to a zellij session named
+  # `main` (create-or-attach, so the first attach starts it and later ones rejoin
+  # the agent's live session). Read-only/attach-only: it never creates VMs or
+  # touches the cluster.
+  dev-attach = pkgs.writeShellScriptBin "dev-attach" ''
+    set -euo pipefail
+    cid=""
+    for c in $(docker ps -q); do
+      if docker exec "$c" sh -c 'ls -d /workspaces/*/.git' >/dev/null 2>&1; then
+        cid=$c
+        break
+      fi
+    done
+    if [ -z "$cid" ]; then
+      echo "dev-attach: no running devcontainer with a /workspaces git repo found" >&2
+      echo "            (bring one up from the operator workstation: dev-machine up)" >&2
+      exit 1
+    fi
+    exec docker exec -it "$cid" zellij attach -c main
+  '';
+in {
   # ── Phase 1.3 — thin base VM image for the locked-down LLM dev machines ──────
   # (ai-dev-machine-kubevirt-plan.md). This is the KubeVirt VM that is the
   # security boundary: a deliberately thin NixOS carrying ONLY what devpod's SSH
@@ -64,6 +90,16 @@
   # NIC; the namespace NetworkPolicy (Phase 5) governs its egress.
   networking.useDHCP = lib.mkForce true;
   networking.firewall.allowedTCPPorts = [22];
+  # mosh (Phase 6 mobile access) carries its session over UDP; mosh-server picks a
+  # port in this range per connection. 60000-61000 is mosh's conventional range and
+  # matches the wg-vpn->cluster router rule the isolation plan opens, so the guest
+  # firewall never drops a session the router allowed (a narrower guest range would).
+  networking.firewall.allowedUDPPortRanges = [
+    {
+      from = 60000;
+      to = 61000;
+    }
+  ];
 
   # ── What devpod's SSH provider needs, and nothing else ──────────────────────
   services.openssh = {
@@ -154,11 +190,32 @@
     extraGroups = ["docker"];
   };
 
+  # mosh (Phase 6 mobile access) needs a UTF-8 locale: mosh-server refuses to
+  # start unless the session has a UTF-8 locale ("The locale requested by ...
+  # isn't available here") and falls back to a broken state otherwise. This image
+  # rides profiles/minimal.nix, which narrows i18n.supportedLocales (via
+  # mkDefault) to ONLY the default locale's charset line — so the glibc locale
+  # archive would otherwise carry just that one entry. Pin the default to
+  # en_US.UTF-8 AND list it explicitly in supportedLocales so the locale archive
+  # actually contains en_US.UTF-8 for mosh-server to inherit/select.
+  i18n.defaultLocale = "en_US.UTF-8";
+  i18n.supportedLocales = ["en_US.UTF-8/UTF-8"];
+
   # devpod's SSH provider clones the workspace repo on the agent HOST (this VM)
   # before handing off to the devcontainer, so it needs `git` here — without it
-  # devpod tries (and fails) to apt/apk-install it. This is the one dev tool the
+  # devpod tries (and fails) to apt/apk-install it. `git` is the one dev tool the
   # base carries; the actual toolchain lives in the devcontainer image.
-  environment.systemPackages = [pkgs.git];
+  #
+  # mosh + dev-attach are Phase 6 (remote/mobile operator access, attach-only): a
+  # mobile operator mosh's into this VM (roaming/low-latency over flaky links) and
+  # runs `dev-attach` to drop straight into the agent's persistent in-container
+  # zellij. Both belong on the BASE image because mosh-server and the docker
+  # socket live on the VM, not inside the devcontainer.
+  environment.systemPackages = [
+    pkgs.git
+    pkgs.mosh
+    dev-attach
+  ];
 
   # Keep the closure lean — this is a disposable sandbox base, not a workstation.
   documentation.enable = lib.mkForce false;
