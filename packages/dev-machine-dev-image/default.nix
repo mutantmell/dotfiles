@@ -3,8 +3,8 @@
   # claude-code is sourced from numtide/llm-agents.nix (daily-updated, prebuilt
   # in cache.numtide.com), passed in by flake.nix — nixpkgs lags multiple
   # releases. Defaults to nixpkgs so the package still evaluates standalone.
-  claude-code ? pkgs.claude-code,
-  codex ? pkgs.codex-acp,
+  claude-code,
+  codex,
 }: let
   inherit (pkgs) lib;
 
