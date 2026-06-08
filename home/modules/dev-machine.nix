@@ -28,6 +28,16 @@
 #                           `--recover` restarts a dead in-VM agent/container
 #                           (`devpod up`) first — for a VM that crashed + rebooted.
 #   dev-machine list        VMs + devpod workspaces.
+#   dev-machine rescue <name> best-effort RECOVERY of a wedged-but-alive VM back
+#                           to a working devcontainer (guest-side OOM reaped the
+#                           agent/container but the OOM-protected sshd survived):
+#                           takes a safety backup of the working tree (git bundle +
+#                           patch + untracked, to $STATE/<name>/rescue/), then
+#                           `devpod up`s the session back. `--no-revive` backs up
+#                           only. Non-destructive. Detects + reports when the VMI was
+#                           pod-restarted (emptyDisk scratch wiped — machine
+#                           rebuildable, work gone); durable fix is a persistent-
+#                           scratch PVC, deferred until iSCSI lands.
 #   dev-machine down <name> tear the workspace + VM + secret + tunnel down, and
 #                           revoke the cc SSH key. `--no-agent` skips the in-VM
 #                           devpod teardown when the VM is crashed/OOM-killed (the
@@ -407,6 +417,97 @@
               "$FORGEJO_API/user/keys/$id" >/dev/null 2>&1 || true
       }
 
+      # ── rescue: extract uncommitted work from a still-alive dev machine ────────
+      # The in-container extraction script, delivered either through the VM's sshd
+      # + docker (extract_via_docker) or through devpod (extract_via_devpod). It
+      # finds the git workspace under /workspaces, packs a bundle of ALL refs (so
+      # committed-but-unpushed history survives), a working-tree patch, the git
+      # status, and the NON-IGNORED untracked files into one tarball, then base64s
+      # it to stdout. Untracked uses --exclude-standard so build junk on scratch
+      # (the nixosTest images, docker layers) is skipped. Deliberately contains NO
+      # single quotes, so it survives being passed as a devpod `--command` string.
+      extract_script() {
+          # Built with printf (not a heredoc) on purpose: a second here-doc
+          # inside this Nix indented string fights the indentation-strip the
+          # usage() here-doc relies on. Each line is a single-quoted arg, so
+          # nothing here is expanded locally — it all runs in the container/VM.
+          # shellcheck disable=SC2016
+          printf '%s\n' \
+              'set -e' \
+              'ws=' \
+              'for d in /workspaces/*; do' \
+              '  if [ -d "$d/.git" ]; then ws=$d; break; fi' \
+              'done' \
+              'if [ -z "$ws" ]; then echo "no git workspace under /workspaces" >&2; exit 3; fi' \
+              'cd "$ws"' \
+              'tmp=$(mktemp -d)' \
+              'printf %s "$ws" > "$tmp/workspace_path"' \
+              'git bundle create "$tmp/rescue.bundle" --all >/dev/null 2>&1 || true' \
+              'git diff HEAD > "$tmp/working.patch" 2>/dev/null || true' \
+              'git status --porcelain=v1 > "$tmp/git-status.txt" 2>/dev/null || true' \
+              'git ls-files --others --exclude-standard -z 2>/dev/null | tar --null --no-recursion -czf "$tmp/untracked.tar.gz" --files-from=- 2>/dev/null || true' \
+              'tar -C "$tmp" -czf - . | base64' \
+              'rm -rf "$tmp"'
+      }
+
+      # Raw VM ssh + docker exec: find the running devcontainer (the one with a
+      # /workspaces/*/.git) and run the extraction inside it, script on stdin to
+      # `sh -s` (no quoting to get wrong). The most robust path — it never touches
+      # devpod's (observed-fragile) tunnel, only the OOM-protected VM sshd.
+      extract_via_docker() {
+          local port=$1 cid
+          cid=$(ssh -p "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o ConnectTimeout=5 -o BatchMode=yes dev@127.0.0.1 \
+              'for c in $(docker ps -q); do if docker exec "$c" sh -c "ls -d /workspaces/*/.git" >/dev/null 2>&1; then echo "$c"; break; fi; done' \
+              2>/dev/null)
+          [[ -n "$cid" ]] || {
+              echo "no running devcontainer with a /workspaces git repo found" >&2
+              return 1
+          }
+          extract_script | ssh -p "$port" -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes \
+              dev@127.0.0.1 "docker exec -i $cid sh -s"
+      }
+
+      # Fallback: deliver the same script through devpod's in-container shell. Used
+      # only when the docker path finds nothing — e.g. the container is stopped and
+      # the revive brought it back under devpod but a plain `docker ps` raced it.
+      extract_via_devpod() {
+          local name=$1 script
+          script=$(extract_script)
+          devpod ssh "$name" --start-services=false --agent-forwarding=false \
+              --command "$script"
+      }
+
+      # Capture the workspace (git bundle of all refs + working-tree patch +
+      # non-ignored untracked files) from the live VM into $rescuedir, unpacked.
+      # Tries the robust raw-docker path first, then devpod. Returns 0 only when
+      # a non-empty payload was unpacked. This is the INSURANCE taken around a
+      # recovery attempt — never the end goal on its own. $rescuedir must exist.
+      rescue_backup() {
+          local name=$1 port=$2 rescuedir=$3 out=""
+          out=$(extract_via_docker "$port" 2>>"$rescuedir/extract.log") || out=""
+          if [[ -z "$out" ]]; then
+              out=$(extract_via_devpod "$name" 2>>"$rescuedir/extract.log") || out=""
+          fi
+          [[ -n "$out" ]] || return 1
+          if ! printf '%s' "$out" | base64 -d >"$rescuedir/rescue.tar.gz" 2>/dev/null; then
+              printf '%s' "$out" >"$rescuedir/rescue.b64"
+              return 1
+          fi
+          tar -C "$rescuedir" -xzf "$rescuedir/rescue.tar.gz" && rm -f "$rescuedir/rescue.tar.gz"
+      }
+
+      # How to graft a rescued backup back onto a fresh checkout of the repo.
+      rescue_print_reapply() {
+          local rescuedir=$1
+          [[ -f "$rescuedir/workspace_path" ]] && echo "  (workspace was: $(cat "$rescuedir/workspace_path"))"
+          echo "  re-apply into a fresh checkout of the repo:"
+          echo "    git fetch \"$rescuedir/rescue.bundle\" \"+refs/heads/*:refs/heads/rescue/*\"  # recover commits"
+          echo "    git apply \"$rescuedir/working.patch\"   # restore dirty tracked files"
+          echo "    tar -C . -xzf \"$rescuedir/untracked.tar.gz\"   # restore untracked files"
+      }
+
       create_vm() {
           local name=$1 memory=$2 cpu=$3 disk=$4
           local vm="dm-$name" secret="dm-$name-ssh-key"
@@ -529,6 +630,12 @@
 
           mkdir -p "$statedir"
           echo "$port" >"$statedir/port"
+          # Record the VMI uid so `rescue` can tell a wedged-but-alive VM (scratch
+          # intact, recoverable) apart from one whose virt-launcher pod was OOM-
+          # killed and recreated by runStrategy=Always (scratch emptyDisk wiped,
+          # nothing left to rescue). A changed uid means the latter.
+          kubectl get vmi "$vm" -n "$NAMESPACE" -o jsonpath='{.metadata.uid}' \
+              >"$statedir/vmi_uid" 2>/dev/null || true
 
           # The guest needs ~10-30s after AgentConnected to finish DHCP before its
           # sshd is reachable through the masquerade pod (an early connect fails
@@ -640,6 +747,162 @@
           virtctl console "vmi/dm-$name" -n "$NAMESPACE"
       }
 
+      # Best-effort RECOVERY of a wedged-but-alive dev machine back to a working
+      # devcontainer session — with a safety backup of the working tree taken
+      # around the attempt. Targets failure mode 1: a guest-side OOM/oomd kill
+      # reaped the devcontainer or the devpod agent (sshd + qemu-guest-agent are
+      # pinned OOMScoreAdjust=-900, so they survive), leaving the VM up and the
+      # scratch disk — and the workspace on it — intact, but the session dead.
+      # The cure is the same `devpod up` the in-VM agent needs to come back;
+      # rescue wraps it with an honest diagnosis and an insurance copy first, so
+      # the PREFERRED outcome is a usable machine again, not a pile of salvaged
+      # files. (Heavier sibling of `ssh --recover`: it diagnoses + backs up.)
+      #
+      # It CANNOT recover the WORK after failure mode 2: a NODE-level OOM kill of
+      # the virt-launcher pod. runStrategy=Always recreates the VMI and scratch
+      # is a KubeVirt emptyDisk (tied to the pod), so the workspace is destroyed
+      # the instant the pod dies — before any rescue could run. Stage 0 detects
+      # that (recorded VMI uid no longer matches) and says so: the machine can be
+      # rebuilt, but the uncommitted work is gone. Durable fix is persistent
+      # scratch (a PVC), deferred until iSCSI lands.
+      #
+      # Non-destructive: never deletes the VM or local state. It restarts the
+      # devcontainer and copies a backup OUT to $STATE/<name>/rescue/<ts>/.
+      #   default      back up, then `devpod up` to restore a working session.
+      #   --no-revive  back up only (when you intend to tear the VM down after).
+      cmd_rescue() {
+          local name="" revive=1
+          while [[ $# -gt 0 ]]; do
+              case "$1" in
+                  --no-revive) revive=0; shift ;;
+                  -*) echo "unknown flag: $1" >&2; return 1 ;;
+                  *)
+                      if [[ -z "$name" ]]; then name="$1"; shift
+                      else echo "unexpected arg: $1" >&2; return 1; fi
+                      ;;
+              esac
+          done
+          name=$(sanitize "$name")
+          [[ -n "$name" ]] || { echo "usage: dev-machine rescue <name> [--no-revive]" >&2; return 1; }
+          local statedir="$STATE/$name"
+          [[ -d "$statedir" ]] || { echo "no such dev machine: $name" >&2; return 1; }
+          dm_login || return 1
+
+          # ── Stage 0: assess — and diagnose honestly when work can't be saved ──
+          local vm="dm-$name" cur_uid rec_uid phase
+          cur_uid=$(kubectl get vmi "$vm" -n "$NAMESPACE" -o jsonpath='{.metadata.uid}' 2>/dev/null || true)
+          if [[ -z "$cur_uid" ]]; then
+              echo "VMI $vm not found — the VM is gone." >&2
+              echo "rebuild from scratch with: dev-machine up <repo> --name $name" >&2
+              echo "(clear leftover local state first: dev-machine down $name --no-agent)" >&2
+              return 1
+          fi
+          rec_uid=$(cat "$statedir/vmi_uid" 2>/dev/null || true)
+          if [[ -n "$rec_uid" && "$rec_uid" != "$cur_uid" ]]; then
+              echo "the VM was restarted (VMI uid changed: $rec_uid -> $cur_uid)." >&2
+              echo "scratch is an emptyDisk tied to the virt-launcher pod, so the" >&2
+              echo "devcontainer filesystem — and any uncommitted work — was wiped by" >&2
+              echo "the restart. The machine can be rebuilt, but that work is gone:" >&2
+              echo "  dev-machine ssh $name --recover   # rebuild the devcontainer (fresh clone)" >&2
+              return 1
+          fi
+          phase=$(kubectl get vmi "$vm" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+          if [[ "$phase" != "Running" ]]; then
+              echo "VMI $vm phase is '$phase' (not Running); cannot reach the guest yet." >&2
+              echo "retry once it is Running, or inspect with 'dev-machine console $name'." >&2
+              return 1
+          fi
+
+          # ── Stage 1: VM sshd reachable → extract over the OOM-protected sshd ───
+          local port
+          port=$(cat "$statedir/port" 2>/dev/null || true)
+          [[ -n "$port" ]] || { echo "no recorded port for $name" >&2; return 1; }
+
+          echo "==> probing VM sshd"
+          local reachable=0 _
+          for _ in $(seq 1 10); do
+              ensure_portforward "$name" "$port" "$statedir" || true
+              if ssh -p "$port" -o StrictHostKeyChecking=no \
+                  -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 \
+                  -o BatchMode=yes dev@127.0.0.1 true 2>/dev/null; then
+                  reachable=1
+                  break
+              fi
+              sleep 2
+          done
+          if [[ "$reachable" -ne 1 ]]; then
+              # VM is Running but its sshd is unreachable (rare — sshd is
+              # OOM-protected). Fall back to a manual recover/pull over the
+              # serial console.
+              echo "VM sshd is unreachable, though the VM is Running (rare — sshd is" >&2
+              echo "OOM-protected). Recover/extract manually over the serial console:" >&2
+              echo "  dev-machine console $name      # root autologin, then e.g.:" >&2
+              echo "  #   docker ps; docker start <id>" >&2
+              echo "  #   docker cp <id>:/workspaces/$name /root/$name-rescue" >&2
+              return 1
+          fi
+
+          local rescuedir
+          rescuedir="$statedir/rescue/$(date +%Y%m%d-%H%M%S)"
+          mkdir -p "$rescuedir"
+
+          # Safety backup BEFORE we touch the container, in case recovery
+          # surprises us. Works only against a RUNNING container; if the
+          # container was killed this no-ops now and we retry after the revive.
+          echo "==> backing up the working tree (safety net)"
+          local backed_up=0
+          rescue_backup "$name" "$port" "$rescuedir" && backed_up=1
+
+          # --no-revive: stop here; the caller only wanted the data out.
+          if [[ "$revive" -eq 0 ]]; then
+              if [[ "$backed_up" -eq 1 ]]; then
+                  echo
+                  echo "backed up '$name' into: $rescuedir"
+                  echo "  contents:"
+                  find "$rescuedir" -maxdepth 1 -mindepth 1 -printf '    %f\n'
+                  rescue_print_reapply "$rescuedir"
+                  echo "the VM is untouched; tear down with 'dev-machine down $name --no-agent'."
+                  return 0
+              fi
+              echo "nothing running to back up; drop --no-revive to restart it first." >&2
+              return 1
+          fi
+
+          # ── Recover the devcontainer itself (the preferred outcome) ───────────
+          # devpod up restarts a stopped/killed container and re-injects a dead
+          # agent over the (re-established) tunnel. Stage 0 proved scratch wasn't
+          # wiped, so the workspace persists across this — no work is lost.
+          echo "==> recovering the devcontainer (devpod up)"
+          if ! devpod up "$name" --provider "dm-$name" --ide none; then
+              echo >&2
+              echo "could not restore a working devcontainer." >&2
+              if [[ "$backed_up" -eq 1 ]]; then
+                  echo "your work is safe in $rescuedir; rebuild, then re-apply it:" >&2
+                  echo "  dev-machine down $name --no-agent && dev-machine up <repo> --name $name" >&2
+                  rescue_print_reapply "$rescuedir" >&2
+              else
+                  echo "and no backup could be taken (container unreadable)." >&2
+                  echo "try the serial console: dev-machine console $name" >&2
+              fi
+              return 1
+          fi
+
+          # Container is back; grab the safety copy now if the pre-revive one
+          # no-op'd (the container had been stopped, so docker couldn't read it).
+          if [[ "$backed_up" -eq 0 ]]; then
+              echo "==> backing up the working tree (post-recovery safety net)"
+              rescue_backup "$name" "$port" "$rescuedir" && backed_up=1
+          fi
+
+          echo
+          echo "dev machine '$name' recovered. Connect with:  dev-machine ssh $name"
+          if [[ "$backed_up" -eq 1 ]]; then
+              echo "a safety backup of the working tree is in: $rescuedir"
+          else
+              echo "(note: a working-tree backup could not be captured — commit early.)"
+          fi
+      }
+
       cmd_list() {
           dm_login || return 1
           echo "VMs:"
@@ -719,6 +982,7 @@
         dev-machine ssh <name> [--recover]   (--recover: restart a dead devcontainer agent before ssh)
         dev-machine console <name>
         dev-machine list
+        dev-machine rescue <name> [--no-revive] (recover a wedged-but-alive VM to a working devcontainer; backs up the working tree first. --no-revive: back up only)
         dev-machine down <name> [--no-agent] (--no-agent: skip in-VM devpod teardown for a crashed/OOM VM)
         dev-machine publish-base
 
@@ -734,6 +998,7 @@
           up) cmd_up "$@" ;;
           ssh) cmd_ssh "$@" ;;
           console) cmd_console "$@" ;;
+          rescue) cmd_rescue "$@" ;;
           list | ls) cmd_list "$@" ;;
           down | rm) cmd_down "$@" ;;
           publish-base) cmd_publish_base "$@" ;;
