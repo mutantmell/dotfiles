@@ -633,9 +633,16 @@
           # Record the VMI uid so `rescue` can tell a wedged-but-alive VM (scratch
           # intact, recoverable) apart from one whose virt-launcher pod was OOM-
           # killed and recreated by runStrategy=Always (scratch emptyDisk wiped,
-          # nothing left to rescue). A changed uid means the latter.
-          kubectl get vmi "$vm" -n "$NAMESPACE" -o jsonpath='{.metadata.uid}' \
-              >"$statedir/vmi_uid" 2>/dev/null || true
+          # nothing left to rescue). A changed uid means the latter. Best-effort:
+          # the machine is already up, so a bookkeeping miss here must not abort
+          # `up` — but warn rather than silently leaving rescue half-blind, and
+          # don't leave an empty file behind to be misread as a recorded uid.
+          if ! kubectl get vmi "$vm" -n "$NAMESPACE" -o jsonpath='{.metadata.uid}' \
+              >"$statedir/vmi_uid"; then
+              rm -f "$statedir/vmi_uid"
+              echo "warning: could not record VMI uid; 'rescue' won't be able to" >&2
+              echo "         detect a pod-restart scratch wipe for this machine" >&2
+          fi
 
           # The guest needs ~10-30s after AgentConnected to finish DHCP before its
           # sshd is reachable through the masquerade pod (an early connect fails
@@ -789,15 +796,24 @@
           dm_login || return 1
 
           # ── Stage 0: assess — and diagnose honestly when work can't be saved ──
+          # --ignore-not-found makes "VMI absent" an empty string with exit 0, so a
+          # genuine cluster/auth error (any other non-zero) still aborts under set
+          # -e with kubectl's own message — rather than being misreported as "the
+          # VM is gone".
           local vm="dm-$name" cur_uid rec_uid phase
-          cur_uid=$(kubectl get vmi "$vm" -n "$NAMESPACE" -o jsonpath='{.metadata.uid}' 2>/dev/null || true)
+          cur_uid=$(kubectl get vmi "$vm" -n "$NAMESPACE" --ignore-not-found -o jsonpath='{.metadata.uid}')
           if [[ -z "$cur_uid" ]]; then
               echo "VMI $vm not found — the VM is gone." >&2
               echo "rebuild from scratch with: dev-machine up <repo> --name $name" >&2
               echo "(clear leftover local state first: dev-machine down $name --no-agent)" >&2
               return 1
           fi
-          rec_uid=$(cat "$statedir/vmi_uid" 2>/dev/null || true)
+          # vmi_uid is optional state (absent for machines created before this
+          # existed, or if `up`'s best-effort record failed). Treat absence as
+          # "can't tell" and skip the wipe check; only read it when present, so a
+          # real read error on an existing file is not swallowed.
+          rec_uid=""
+          [[ -f "$statedir/vmi_uid" ]] && rec_uid=$(cat "$statedir/vmi_uid")
           if [[ -n "$rec_uid" && "$rec_uid" != "$cur_uid" ]]; then
               echo "the VM was restarted (VMI uid changed: $rec_uid -> $cur_uid)." >&2
               echo "scratch is an emptyDisk tied to the virt-launcher pod, so the" >&2
@@ -806,7 +822,9 @@
               echo "  dev-machine ssh $name --recover   # rebuild the devcontainer (fresh clone)" >&2
               return 1
           fi
-          phase=$(kubectl get vmi "$vm" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+          # The VMI exists (cur_uid is set), so this is not a not-found; a non-zero
+          # here is a real error and should abort.
+          phase=$(kubectl get vmi "$vm" -n "$NAMESPACE" -o jsonpath='{.status.phase}')
           if [[ "$phase" != "Running" ]]; then
               echo "VMI $vm phase is '$phase' (not Running); cannot reach the guest yet." >&2
               echo "retry once it is Running, or inspect with 'dev-machine console $name'." >&2
@@ -814,13 +832,21 @@
           fi
 
           # ── Stage 1: VM sshd reachable → extract over the OOM-protected sshd ───
+          [[ -f "$statedir/port" ]] || {
+              echo "no recorded port for $name; was it created by 'dev-machine up'?" >&2
+              return 1
+          }
           local port
-          port=$(cat "$statedir/port" 2>/dev/null || true)
-          [[ -n "$port" ]] || { echo "no recorded port for $name" >&2; return 1; }
+          port=$(cat "$statedir/port")
 
           echo "==> probing VM sshd"
           local reachable=0 _
           for _ in $(seq 1 10); do
+              # Tolerated, not swallowed: a transient failure here (e.g. the
+              # port-forward target not up for a beat) is expected mid-retry, and
+              # ensure_portforward prints its own reason to stderr. The ssh probe
+              # below is the real success gate; the post-loop check reports if it
+              # never came up.
               ensure_portforward "$name" "$port" "$statedir" || true
               if ssh -p "$port" -o StrictHostKeyChecking=no \
                   -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 \
@@ -881,7 +907,7 @@
                   echo "  dev-machine down $name --no-agent && dev-machine up <repo> --name $name" >&2
                   rescue_print_reapply "$rescuedir" >&2
               else
-                  echo "and no backup could be taken (container unreadable)." >&2
+                  echo "and no backup could be taken (see $rescuedir/extract.log)." >&2
                   echo "try the serial console: dev-machine console $name" >&2
               fi
               return 1
@@ -899,7 +925,8 @@
           if [[ "$backed_up" -eq 1 ]]; then
               echo "a safety backup of the working tree is in: $rescuedir"
           else
-              echo "(note: a working-tree backup could not be captured — commit early.)"
+              echo "(note: a working-tree backup could not be captured — commit early;" >&2
+              echo " see $rescuedir/extract.log for why.)" >&2
           fi
       }
 
