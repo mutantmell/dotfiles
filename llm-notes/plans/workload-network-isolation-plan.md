@@ -19,7 +19,9 @@ Depends on / interacts with:
   lesser-privileged **cluster VLAN with no host access** (Multus+bridge, multus-
   only) **plus** a NetworkPolicy egress allowlist. The VLAN-shift half is
   delivered here (Phases 1, 2, 4); the NetworkPolicy half is shared (Phase 6).
-  Completing those unblocks it.
+  Completing those unblocks it. That plan's **Phase 6** (attach-only mobile/iPad
+  access) also depends on this plan: it needs the routable VM + DNS (registry/DNS
+  integration) **and** the `wg-vpn → cluster` firewall rider on Phase 4 below.
 - `llm-notes/wip/k3s-cluster-workloads-plan.md` — the workloads that will want
   routable service IPs (blog, game servers, CI) and the dev layer. LB-IPAM here
   is how those become reachable.
@@ -252,6 +254,17 @@ on the cluster being healthy.
    the cluster VLAN; default dev-machines to multus-only; pin static IPs +
    registry/DNS for the named ones. (**Unblocks
    `ai-dev-machine-kubevirt-plan.md` Phase 5**, together with Phases 1–2.)
+   - **Rider — `wg-vpn → cluster` allowance for mobile dev-machine access**
+     (unblocks `ai-dev-machine-kubevirt-plan.md` **Phase 6**, the attach-only
+     mobile/iPad path). Once the named dev VMs are routable + DNS'd (above), add
+     a **scoped** `wg-vpn → cluster` forward rule: `daddr` = the dev-machines
+     host band on VLAN 51, **TCP `:22`** (mosh/ssh session bootstrap) **+ UDP
+     `60000–61000`** (mosh data). Keep it narrowed to the dev-machines band, not
+     the whole `cluster` zone — the `wg-vpn` zone today reaches only
+     `dmz`/`external`/`transit`, and this is the one deliberate hole into
+     `cluster`. The mobile reuses the existing `wg-vpn` `mobile` peer
+     (`10.100.10.21`); no new VPN infra. Lifecycle stays on edith, so this opens
+     no path to the control plane.
 5. **Service routability.** Install LB-IPAM (MetalLB L2 to start); pool on the
    cluster VLAN; external-dns or static DNS.
 6. **NetworkPolicy default-deny** (kubevirt-plan Phase 5).

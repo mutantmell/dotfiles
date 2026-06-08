@@ -9,6 +9,12 @@ chain is usable but **not locked down**: the VM still has open pod egress and
 SNATs onto erebonia's management VLAN. **Phase 5 must allow forgejo SSH (`:22`)
 egress** — the Phase-4 deploy key pushes over SSH.
 
+**Phase 6 (remote/mobile operator access — attach-only)** is newly added and
+**partially blocked**: its session-ergonomics half (mosh in the base image,
+zellij in the dev image, multi-key injection, the attach helper) is
+implementable **today** and works over the edith-jump interim; its *direct*
+mobile path is blocked on the **same** routable-VM + DNS dependency as Phase 5.
+
 ## Blocked on
 
 `llm-notes/plans/workload-network-isolation-plan.md`.
@@ -403,6 +409,107 @@ actively wrong posture — the sandbox must not *be* in the management zone.
   off-host confinement is wanted later, the bootstrap plan's **deliverable E**
   (Calico/Cilium, or erebonia-local nftables on the pod-CIDR path) is the
   documented next step.
+
+## Phase 6 — remote/mobile operator access (attach-only) — PARTIALLY BLOCKED
+
+**Goal.** Reach a *running* dev machine from a mobile device (iPad/phone)
+**directly**, instead of the current two-hop (SSH into edith, then run
+`dev-machine ssh` which port-forwards from edith). This is the operator-access
+successor to Phase 3's wrapper — a new *access surface*, not new orchestration.
+
+**Scope decision — attach-only.** The mobile only *attaches to and drives* an
+already-running machine. Lifecycle (`up`/`down`/`rescue`/`refresh`) **stays on
+edith**. This is deliberate and load-bearing: the mobile therefore never needs
+the cc Forgejo token or the per-session key-mint path, so Phase 4's "**exactly
+one credential, edith-minted, never the operator identity**" invariant is
+preserved untouched ([[project_keysjson_certonly_endstate]]). Full
+lifecycle-from-mobile was considered and **declined** — it would either
+replicate the cc-token mint path onto a less-trusted device or require reaching
+edith's wrapper anyway; "attach-only + edith owns lifecycle" is strictly
+smaller.
+
+**Transport decision — own `wg-vpn`, not Tailscale.** Reuse the existing
+`mobile` WireGuard peer (`10.100.10.21`, already in `network.nix`'s `wg-vpn`),
+not new mesh infra. The mobile reaches the VM over wg + the router zone firewall
+— the same policy plane the isolation plan already enforces. Tailscale/headscale
+was considered (NAT traversal, MagicDNS, ephemeral keys) and **declined as new
+infrastructure + a second identity adjacent to the boundary**; we already run wg.
+
+**Client decision — Rootshell (iOS) + mosh + zellij.**
+
+- **mosh for the transport.** Rootshell ships a native mosh-compatible client
+  (Swift SSP implementation) that works with **any standard `mosh-server`**, so
+  the server side is just `pkgs.mosh` in the base VM image — no bespoke piece.
+  mosh gives WiFi↔cellular roaming without dropping and resume-after-app-restart;
+  inside wg the addressing is already stable, so mosh's STUN/NAT traversal is
+  moot and a *fixed* UDP **60000–61000** range is all the firewall must open.
+- **zellij for session persistence.** A named zellij session **in the
+  devcontainer** is what keeps the agent alive across disconnects (mosh makes the
+  *transport* resilient; zellij makes the *session* durable — both are needed).
+  Resolves the open-questions "add zellij?" item. zellij on the VM would persist
+  only a shell outside the container, so it goes in the **dev image**, not the
+  base.
+- **Split:** mosh terminates on the VM's `dev` user (where sshd is); an attach
+  helper then `docker exec`s into the running devcontainer's named zellij. mosh
+  in the *container* would need its UDP range forwarded out of the VM — avoided.
+- **Secure-Enclave-backed mobile key.** Rootshell can generate a key whose
+  private half never leaves the Secure Enclave (also FIDO2/YubiKey PIV). Use that
+  for the injected mobile pubkey — a real strengthening of the AccessCredentials
+  path: a lost device can't leak the key, and it's individually revocable.
+- **tssh noted as an upgrade path, not adopted.** Rootshell's tssh (QUIC/KCP UDP,
+  lower latency, survives device *reboot*) is a credible step up but needs a
+  `tsshd` counterpart in the image and has a more dynamic UDP-port story that
+  complicates the tight zone rule. Stay on mosh for the first cut.
+
+**Pieces — implementable today (edith-jump interim; no wait on the block):**
+
+1. **`pkgs.mosh` in the base VM image** (`packages/dev-machine-image/`). Ensure
+   an `en_US.UTF-8` locale is present — mosh refuses to start without a UTF-8
+   locale, and the image rides the `minimal` profile.
+2. **zellij in the dev image** (`packages/dev-machine-dev-image/`), launched as a
+   named session (`zellij attach -c main`) so the agent persists across drops.
+3. **Multi-key AccessCredentials.** Widen `programs.dev-machine.sshPubKey` from a
+   single path to a *list* (operator + mobile pubkeys); `create_vm` builds the
+   injected secret from all of them. KubeVirt rotates AccessCredentials live, so
+   adding/revoking a device needs **no image rebuild**.
+4. **An attach helper** on the VM (e.g. `dev-attach`) that `docker exec -it`s into
+   the running devcontainer's zellij, invoked as the mosh remote command and
+   saved as a one-tap Rootshell host.
+
+**Pieces — blocked on the same dependency as Phase 5:**
+
+5. **Routable VM + DNS.** Direct mobile→VM needs the VM addressable as
+   `dev-machine.internal` on the cluster VLAN — delivered by
+   `workload-network-isolation-plan.md` (its registry/DNS integration + Phases
+   1–2, 4: VLAN 51, static IP, `mkUnboundLocalData`). Same block as Phase 5.
+6. **Scoped `wg-vpn → cluster` firewall allowance** — TCP `:22` (session
+   bootstrap) **+ UDP `60000–61000`** (mosh), `daddr` restricted to the
+   dev-machines host band on VLAN 51. This rule is **owned by the isolation
+   plan** (it owns the `wg-vpn` zone policy + VLAN 51); see that plan's
+   next-steps Phase 4 rider. Cross-references this phase the way Phase 5 does.
+
+**Interim that works today (no new networking):** the mobile SSHes edith and
+runs the existing wrapper / hops to the VM. mosh + in-container zellij already
+help here; flipping to the direct path is purely the reachability half (5–6)
+landing.
+
+**Agent-from-a-phone caveat.** Pre-set the agent's permission posture before
+launching it in zellij — clearing per-action approval prompts from a tablet is
+impractical, and the VM boundary is what bounds risk anyway. Relates to the
+open-questions "how do we get claude to one-shot things … now that we're not on
+an operator machine" item; orthogonal to this phase but surfaced by it.
+
+**Explicitly NOT doing:**
+
+- **devpod (or any orchestration) installed *on* the VM** to drive the container
+  from mobile. That re-adds to the boundary exactly what Phase 3 keeps off it
+  (devpod/virtctl/kubectl off the sandbox PATH). Attaching needs only ssh +
+  `docker exec`/zellij; lifecycle reaches edith's wrapper.
+- **Keys baked into the image.** Use the live-rotatable AccessCredentials path
+  (piece 3), never `configuration.nix`.
+- **Rootshell's on-device MCP server** to run the agent. That runs the agent on
+  the device, outside the VM boundary — keep the agent server-side in the
+  devcontainer's zellij and only attach.
 
 ## Known latent items (not blockers)
 
