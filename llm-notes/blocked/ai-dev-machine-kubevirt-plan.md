@@ -1,12 +1,39 @@
 # Locked-down AI Dev Machines on KubeVirt (devpod + devcontainer.json)
 
-Status: In progress — Phase 1 (KubeVirt platform + thin base VM image),
-Phase 2 (`devcontainer.json` + custom Nix dev image), Phase 3 (devpod wiring +
-operator scripting), and Phase 4 (scoped git push credential) landed. Next:
-Phase 5 (network lockdown) — the last piece. Phases 1–4 bring the chain up end
-to end with the sandbox holding exactly one scoped push credential, but the VM
-still has open pod egress until Phase 5's NetworkPolicy lands. **Phase 5 must
-allow forgejo SSH (`:22`) egress** — the Phase-4 deploy key pushes over SSH.
+Status: **Blocked** — Phases 1–4 (KubeVirt platform + thin base VM image;
+`devcontainer.json` + custom Nix dev image; devpod wiring + operator scripting;
+scoped git push credential) **landed**, and the chain runs end to end with the
+sandbox holding exactly one scoped push credential. The last piece, **Phase 5
+(network lockdown)**, is **blocked** — see `## Blocked on`. Until it lands the
+chain is usable but **not locked down**: the VM still has open pod egress and
+SNATs onto erebonia's management VLAN. **Phase 5 must allow forgejo SSH (`:22`)
+egress** — the Phase-4 deploy key pushes over SSH.
+
+## Blocked on
+
+`llm-notes/plans/workload-network-isolation-plan.md`.
+
+Phase 5's lockdown has been **revised** (see Phase 5 below) from "NetworkPolicy
+alone over flannel masquerade" to **defense-in-depth**: shift the dev-machine VM
+onto a **lesser-privileged cluster VLAN with no host access** (Multus + bridge,
+multus-only) **and** layer the NetworkPolicy egress allowlist on top — so the
+**router zone firewall**, not just an in-cluster policy, enforces off-host
+confinement, and the sandbox is never *in* the management zone. The cluster VLAN,
+cluster-egress-off-VLAN-11, and the KubeVirt Multus+bridge attachment are
+**deliverables of the isolation plan** (its Phases 1, 2, 4; the NetworkPolicy
+half is its shared Phase 6).
+
+**Unblocks when** the isolation plan has delivered: the `cluster` zone in the
+registry, cluster egress off VLAN 11, and the KubeVirt Multus+bridge (host-IP-
+less, multus-only) attachment. Phase 5 then = put the VM on that VLAN + layer the
+egress allowlist.
+
+**Interim option (if we choose not to wait):** the original NetworkPolicy-only
+lockdown (preserved in Phase 5) is implementable **today** on flannel and fully
+confines *destinations*; it just leaves the VM SNAT'd onto the management VLAN
+(single enforcement layer, wrong-zone posture). Shipping it would move this plan
+back to `wip/` as an interim and fold the VLAN shift in when the isolation plan
+lands.
 
 **What this is:** ephemeral, locked-down **dev machines** for LLM coding
 agents — spin up a VM-isolated workspace from a repo's `devcontainer.json`,
@@ -327,7 +354,33 @@ key/cert:
   ([[project_keysjson_certonly_endstate]]): it never holds the operator
   identity.
 
-## Phase 5 — network lockdown (item 5)
+## Phase 5 — network lockdown (item 5) — BLOCKED (decision revised)
+
+**Decision revised — defense-in-depth (supersedes the original NetworkPolicy-
+only stance kept below).** Blocked on
+`llm-notes/plans/workload-network-isolation-plan.md` (see `## Blocked on`). The
+lockdown is now two layers:
+
+- **Layer 1 — router-enforced VLAN shift (new; the blocking dependency).** The
+  VM attaches via **Multus + bridge** (host-IP-less bridge over the **cluster
+  VLAN**), **multus-only** (drop the flannel primary), so it is a routable host
+  in a **lesser-privileged zone** governed by the router6 zone firewall and
+  **isolated from erebonia's host / management VLAN by construction** — exactly
+  what the original Phase 5 could not do behind the shared mgmt IP. Note this
+  uses Multus+bridge, **not** `masquerade` binding; the `masquerade` decision
+  below applies only to the NetworkPolicy-only interim.
+- **Layer 2 — NetworkPolicy (the original control, now complementary).**
+  Dedicated namespace, **default-deny egress**, allow only cluster DNS, `creil`
+  (git over SSH `:22`), `zeiss` (Attic). In-cluster enforcement independent of
+  the router.
+
+**Why the calculus changed from "VLAN-per-VM declined":** (1) the isolation plan
+stands up the cluster VLAN + KubeVirt Multus+bridge as **shared infrastructure**,
+so the shift is no longer a disproportionate one-off; (2) the planned **removal
+of WAN from VLAN 11** makes SNAT'ing the sandbox onto the *management* VLAN an
+actively wrong posture — the sandbox must not *be* in the management zone.
+
+### Original decision — NetworkPolicy-only (superseded; kept for rationale, and viable as an interim)
 
 - **Reality:** k3s uses **flannel**. Pod / virt-launcher egress SNATs to
   erebonia's management IP (`10.97.11.31`); flannel gives pods **no off-host

@@ -163,7 +163,7 @@ kata-clh `POD_MANIFEST_TEMPLATE` partial); the provider is configured
 imperatively (operator choice while experimenting), not in home-manager.
 
 **Immediate follow-up — SUPERSEDED by
-`llm-notes/plans/ai-dev-machine-kubevirt-plan.md`.** The substance below
+`llm-notes/blocked/ai-dev-machine-kubevirt-plan.md`.** The substance below
 (devcontainer.json + custom image + scripting) is carried forward there, but
 the _runtime substrate decision changed_: dev machines run as **KubeVirt VMs**
 (regular kernel, native nested `/dev/kvm`) with devpod running the
@@ -172,6 +172,17 @@ pods with the custom nested guest kernel. The PoC above still stands as proof
 the cluster + OIDC + devpod path works; the `kata-clh`/runtimeClass guidance in
 this section is historical. That plan covers all five open items (substrate,
 image, scripting, scoped git credential, network lockdown).
+
+> **Now blocked.** That plan's Phases 1–4 landed, but its last piece — **Phase 5
+> (network lockdown)** — is **blocked on
+> `llm-notes/plans/workload-network-isolation-plan.md`** and the plan has moved
+> to `blocked/`. Phase 5 was revised to a defense-in-depth lockdown that shifts
+> the dev-machine VM onto a lesser-privileged **cluster VLAN with no host
+> access** (Multus+bridge) plus a NetworkPolicy egress allowlist; the VLAN-shift
+> half is a deliverable of the isolation plan. **Consequence for Phase A here:**
+> the dev/AI-coding layer is usable end to end but **not fully locked down** until
+> that lands (or the isolation plan's documented NetworkPolicy-only interim is
+> shipped). Net-new workloads below (blog, game servers, CI) are unaffected.
 
 **Immediate follow-up — devcontainer definition + custom image for this repo.**
 The PoC used a generic upstream image; the actual coding layer needs a
