@@ -102,12 +102,12 @@ This is what makes routable identity "simplify dev-machine integration" rather
 than add bespoke plumbing:
 
 1. **Add a dedicated low-trust `cluster` zone** to
-   `lib/common/data/network.nix` (a `bt8gw`-owned VLAN — `11/12/20/21/50` are
-   taken; `13`/`14` are free, TBD). This is **one new zone for the low-trust
-   tier** (dev-machine sandboxes, future friend-facing workloads) — **not** a
-   general cluster zone for everything. See "Why a dedicated zone, not `app`"
-   below; trusted, app-natured cluster services may instead attach to the
-   existing `app` zone.
+   `lib/common/data/network.nix` on **VLAN 51** (`bt8gw`-owned, adjacent to
+   `app`/50 → `10.97.51.0/24`, ULA `fdc6:55f2:0a5e:1033::/64`). This is **one
+   new zone for the low-trust tier** (dev-machine sandboxes, future
+   friend-facing workloads) — **not** a general cluster zone for everything. See
+   "Why a dedicated zone, not `app`" below; trusted, app-natured cluster
+   services may instead attach to the existing `app` zone.
 2. **Delegate a subnet range** to cluster IPAM: reserve a low band of host IDs
    for **pinned** workloads (registry-registered), and let IPAM (Whereabouts,
    or DHCP-via-Kea) own the churn above it.
@@ -258,9 +258,9 @@ on the cluster being healthy.
 
 ## Open questions
 
-- **Cluster VLAN id** — `13`/`14` free under bt8gw. **Resolved:** one new
-  low-trust `cluster` zone (not `app`, not two zones) — see "Why a dedicated
-  zone, not `app`". Only the id is open.
+- **Cluster VLAN id** — **Resolved: VLAN 51** (bt8gw-owned, adjacent to
+  `app`/50). One new low-trust `cluster` zone (not `app`, not two zones) — see
+  "Why a dedicated zone, not `app`".
 - **IPAM** — Whereabouts (cluster-native) vs DHCP-via-Kea (free DNS, reuses
   router infra). DHCP-via-Kea is the more "in-grain" choice; confirm Kea can
   serve the cluster VLAN cleanly.
