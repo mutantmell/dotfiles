@@ -19,7 +19,10 @@ Depends on / interacts with:
   lesser-privileged **cluster VLAN with no host access** (Multus+bridge, multus-
   only) **plus** a NetworkPolicy egress allowlist. The VLAN-shift half is
   delivered here (Phases 1, 2, 4); the NetworkPolicy half is shared (Phase 6).
-  Completing those unblocks it. That plan's **Phase 6** (attach-only mobile/iPad
+  Completing those unblocks it. **But note the defense-in-depth caveat below:**
+  for a *multus-only* VM the NetworkPolicy half is inert (it governs only the
+  flannel/pod plane), so the lockdown is really *router-enforced single-layer* —
+  the two plans should reconcile that framing. That plan's **Phase 6** (attach-only mobile/iPad
   access) also depends on this plan: it needs the routable VM + DNS (registry/DNS
   integration) **and** the `wg-vpn → cluster` firewall rider on Phase 4 below.
 - `llm-notes/wip/k3s-cluster-workloads-plan.md` — the workloads that will want
@@ -90,13 +93,13 @@ multi-node/HA makes the constraints real.
 
 | Decision | Choice | Rationale |
 | --- | --- | --- |
-| microVM attachment | **macvtap for all** guests; **vepa or private** mode where sibling isolation is wanted | Host-isolated by construction; mode forces guest↔guest through the router. Already used for VLAN 50/100. |
+| microVM attachment | **macvtap for all** guests; **vepa or private** mode where sibling isolation is wanted | Host-isolated by construction. `private` blocks same-host siblings outright; `vepa` forces them up to the **upstream switch** (router mediation only for *inter-zone*/inter-subnet hops — the router never routes intra-subnet, and same-VLAN reflection needs switch reflective-relay support). Already used for VLAN 50/100. |
 | Retire shared br11 for guests | **Yes** — guests never sit on the host's management segment | br11 is the one weak isolation point (host mgmt IP shares L2). Guests move to their own zones. |
 | KubeVirt VM attachment | **Multus + bridge CNI** on a **dedicated, host-IP-less bridge** over a VLAN subinterface | KubeVirt **cannot use macvlan/ipvlan** (it needs the pod iface MAC; bridge moves MAC to the VM). Bridge on a host-IP-less L2 → L3-isolated from host. |
 | KubeVirt host-isolation completeness | **Per-VM choice:** *multus-only* (drop flannel primary → fully isolated, VLAN-native, no native cluster Service/DNS) **vs** *pod-network + bridge* (cluster-integrated, but flannel primary keeps host adjacency). Default dev-machines to **multus-only** (trista-in-k8s shape). | Out of the box a KubeVirt VM keeps the flannel pod NIC, and the host's `cni0` is adjacent. Only dropping it matches macvtap-grade isolation. |
 | Container service routability | **LB-IPAM** (MetalLB **L2 mode** or Cilium LB-IPAM) handing out VIPs from a pool on the cluster VLAN; `external-dns` or static DNS for records | Most containers want a routable *service* IP, not a routable *pod* IP. Pods stay on flannel; only ingress gets an address. |
-| Cluster egress off VLAN 11 | New **cluster zone/VLAN**; cluster data-plane egress rides it (per-pod via the LB/bridge VLANs they sit on; flannel-overlay egress optionally policy-routed out the cluster zone). Router6 governs the zone like any other. | Makes "remove WAN from VLAN 11" a one-line zone change, not a cluster rebuild. |
-| Intra-cluster isolation | **NetworkPolicy** (kubevirt-plan Phase 5), default-deny per namespace | Defense-in-depth complement to the router doing inter-zone. |
+| Cluster egress off VLAN 11 | New **cluster zone/VLAN**; each tier reaches VLAN 51 by its own mechanism — dev VMs via multus+bridge (own IP), services via LB-IPAM VIPs, **plain flannel pods via source-based policy routing + masquerade onto a host VLAN-51 egress address** (concrete design in "The three tiers" below). **VLAN 51 terminates on bt8gw, so the enforcing firewall is bt8gw's fw4 (manual UCI), not router6** — see "Where VLAN 51 terminates" below. | Makes "remove WAN from VLAN 11" a contained fw4 change on bt8gw, not a cluster rebuild. |
+| Intra-cluster isolation | **NetworkPolicy** (kubevirt-plan Phase 5), default-deny per namespace | Complements the router for **pod-network (flannel) workloads**. NB: it does **not** govern a multus-only VM's bridge data plane — see limitation #4 and the defense-in-depth caveat below. |
 
 ### Network registry & DNS integration
 
@@ -110,9 +113,17 @@ than add bespoke plumbing:
    friend-facing workloads) — **not** a general cluster zone for everything. See
    "Why a dedicated zone, not `app`" below; trusted, app-natured cluster
    services may instead attach to the existing `app` zone.
-2. **Delegate a subnet range** to cluster IPAM: reserve a low band of host IDs
-   for **pinned** workloads (registry-registered), and let IPAM (Whereabouts,
-   or DHCP-via-Kea) own the churn above it.
+2. **Delegate a subnet range** to cluster IPAM, with a non-overlapping host-ID
+   map for VLAN 51: `.1` = bt8gw gateway; an **erebonia flannel-egress** address
+   (see "The three tiers"); a **LB-IPAM VIP pool**; a **pinned dev-VM band**
+   (registry-registered); and a **dynamic pool** above it owned by IPAM
+   (Whereabouts, or bt8gw DHCP). **Registry constraint:** erebonia's egress
+   address **cannot** be a `cluster`-zone registry host under the name
+   `erebonia` — `network.nix`'s `dupHostnames` check throws on a hostname that
+   already exists in another zone (erebonia is in `management`). So make it a
+   hardcoded static in erebonia's networkd, or register it under a distinct name
+   (e.g. `erebonia-cluster`). Same rule applies to any host that needs both a
+   management and a cluster identity.
 3. **Pinned workloads** (dev-machines, key services) → **static IP** → registry
    entry → `mkUnboundLocalData` → phantasma authoritative DNS — the *same path*
    trista and saint-arkh already use. A dev VM becomes `dev-machine.internal`
@@ -121,6 +132,108 @@ than add bespoke plumbing:
 4. **Ephemeral pods** → dynamic pool, no DNS (or a delegated `*.k8s.internal`).
    If IPAM = **DHCP-via-Kea**, DNS falls out of the existing DHCP→DNS pipeline
    for free (natural for KubeVirt VMs, which DHCP like any machine).
+
+### Where VLAN 51 terminates — bt8gw fw4, not router6
+
+VLAN 51 is currently **unowned**; it will be **bt8gw-owned and bt8gw-terminated**
+(its address space is `10.97.x`, and it sits adjacent to `app`/50, which already
+terminates on bt8gw). erebonia — where the cluster runs — is itself bt8gw-side
+(VLAN 11). So the natural and intended L3 home for VLAN 51 is **bt8gw**, and that
+has consequences this plan must own, because **bt8gw runs OpenWrt fw4, not
+router6, and its firewall is hand-managed via UCI/LuCI** (`guides/bt8-gateway-
+luci-runbook.md`, `bt8-gateway-as-built.md`) — it is **not built from this
+flake**.
+
+Concretely:
+
+- **router6 holds only a naming stub.** The `cluster` zone is declared in
+  thebeyond's `router6.zones` purely so cross-zone references can name it —
+  exactly as the `app` zone is today (`hosts/thebeyond/router.nix`: "no
+  interface on thebeyond binds to this zone"). thebeyond does **not** enforce
+  the cluster policy.
+- **The real enforcement is bt8gw fw4 (manual UCI).** `cluster → app: allow
+  creil:{22,443}, zeiss:443` + DNS + `cluster → *: deny`, and "cluster egress
+  off VLAN 11",
+  are **fw4 rules on bt8gw**, authored in the established UCI style (cf. the
+  dual-gateway checklist's `temp/BT8-gw-phase-5a-additions.uci` + as-built
+  notes), not Nix. Budget this as LuCI/UCI runbook work, not a router6 edit.
+- **DHCP for VLAN 51 is bt8gw's, not router6's Kea.** A bt8gw-terminated VLAN is
+  served by bt8gw's odhcpd/dnsmasq. The "DHCP-via-Kea → free DNS pipeline" idea
+  in the registry section only holds if Kea actually owns the segment — which it
+  does **not** if VLAN 51 terminates on bt8gw. See the IPAM open question.
+- **Standing up the VLAN is multi-device L2 work.** Not just "add `uplink.51` on
+  erebonia": bt8gw needs the tag in its `br0` bridge-vlan filtering (+ an
+  L2-passthrough bridge), and the mesh trunk must carry tag 51 to erebonia (cf.
+  the VLAN-11/20/21 deviation note in the dual-gateway checklist), before
+  erebonia's subinterface/bridge exists.
+
+This does not change the *design* — the router is still the policy plane and the
+cluster lives in a real zone — but the plan's "router6 governs it" / "one-line
+zone change" phrasing is wrong about the *work surface*. The enforcing device is
+bt8gw, and its config is manual.
+
+### The three tiers of VLAN 51 identity (and what stays on flannel)
+
+"Cluster on VLAN 51" is **not** one mechanism. flannel is unchanged — it still
+masquerades pod egress — so nothing becomes VLAN-51-routable by virtue of being a
+pod. Three distinct tiers each gain a VLAN 51 presence a different way, and
+erebonia's **management identity stays entirely on VLAN 11** throughout
+(`10.97.11.31`: apiserver `:6443`, SSH, NFS←liberl, fluent-bit).
+
+| Tier | VLAN 51 identity | Mechanism |
+| --- | --- | --- |
+| Dev-machine VMs (multus-only) | **own real IP** (`10.97.51.<pinned>`) | multus+bridge; flannel bypassed entirely for the VM. Pinned → registry → DNS. bt8gw firewalls each VM distinctly. |
+| Container services | **LB VIP** on VLAN 51 | LB-IPAM (MetalLB L2) — node ARPs the VIP, kube-proxy DNATs. Pods behind it stay on flannel + SNAT internally; only the ingress VIP is on 51. |
+| General flannel pods | **SNAT'd to the host egress IP** (`10.97.51.31`) | source-based policy routing + flannel's existing masquerade (below). All pods appear to bt8gw as this one source. |
+| erebonia (host) | **egress-only `10.97.51.31`, input default-drop** | static addr on a *separate* iface from the VM bridge; host is L3-firewalled off VLAN 51 (below). |
+| erebonia management | **stays VLAN 11** (`10.97.11.31`) | unchanged. |
+
+**General-pod egress — concrete design.** This replaces the old "optionally
+policy-routed" hand-wave; it is required (not optional) once WAN leaves VLAN 11,
+because that is the only thing that gets ordinary pod egress off VLAN 11. On
+erebonia:
+
+1. **Static VLAN-51 egress address**, e.g. `10.97.51.31/24` — present but **not**
+   a default route (the host's default stays VLAN 11). Put it on an interface
+   **separate from the KubeVirt VM bridge** (a macvlan on `uplink.51`, or
+   `uplink.51` itself L3 while the VM bridge is its own construct) so the **VM
+   bridge stays host-IP-less** — otherwise the host's L3 lands on the guests'
+   bridge and that is a (milder, low-trust) br11 recurrence.
+2. **Source-based policy routing** for the pod CIDR: `ip rule add from
+   10.42.0.0/16 lookup cluster-egress`, with table `cluster-egress` carrying
+   `default via 10.97.51.1 dev <egress-iface>` (bt8gw is the VLAN 51 gateway).
+3. **Scope it so pod→pod and pod→Service stay on-cluster** — add higher-priority
+   `from 10.42.0.0/16 to 10.42.0.0/16 lookup main` and `… to 10.43.0.0/16 lookup
+   main` (or replicate the cluster routes into `cluster-egress`). Without this
+   the lone `default` swallows overlay and ClusterIP traffic. **This is the
+   fiddliest bit.**
+4. **No flannel change.** flannel already masquerades `10.42.0.0/16 →
+   !10.42.0.0/16`; once the route sends that traffic out the VLAN-51 iface, the
+   masquerade source becomes `10.97.51.31` automatically. The custom `ip
+   rule`/route + static addr are bespoke networkd/nftables on erebonia that must
+   coexist with flannel's iptables and survive flannel restarts — budget it as
+   real config, not a k3s flag.
+
+**Host firewalled completely off VLAN 51 — and it costs nothing.** erebonia
+**default-drops all input** on the VLAN-51 egress iface (it is **not** a
+`trustedInterface`; flannel only needs `cni0`/`flannel.1` trusted, which it
+already has). This does not break pod egress: pod traffic is **FORWARD** (+ SNAT
+in POSTROUTING), and conntrack reverses the SNAT *before* the routing decision on
+replies, so return traffic is also FORWARD — **neither hits the INPUT chain**.
+Only a *new* connection addressed to `10.97.51.31` itself hits INPUT, which is
+exactly what we drop. apiserver `:6443` and SSH are already allowlisted to
+trusted+lab only, so VLAN 51 cannot reach them regardless. Net: the host's VLAN
+51 presence is a pure egress NAT address in the low-trust zone, with zero
+inbound surface.
+
+**Residual.** All flannel pods share one source IP at bt8gw, so the router
+cannot tell pods apart — fine for general workloads, and precisely why the
+locked-down dev sandbox stays **multus-only with its own IP** (so bt8gw *can*
+firewall it distinctly); per-pod control inside the cluster stays NetworkPolicy's
+job. Host and VMs remain L2-adjacent on VLAN 51, but in the low-trust zone with
+the host L3-firewalled off — categorically smaller than br11 (which shared the
+*management* identity). The only strictly-better option is Kube-OVN underlay
+(real per-pod IPs, no SNAT) — future state B.
 
 ### Why a dedicated zone, not the existing `app` tier
 
@@ -136,8 +249,12 @@ The cluster's general *services* could ride `app` (VLAN 50) — but the
   zero router mediation** — Layer 1 evaporates and the lockdown collapses to
   NetworkPolicy-only (the posture the block exists to fix).
 - **Router-enforced lockdown requires the sandbox in a *different* zone than its
-  targets:** `cluster → app: allow creil:22, zeiss:443` + `cluster → *: deny`.
-  That rule is only expressible across a zone boundary.
+  targets:** `cluster → app: allow creil:{22,443}, zeiss:443` + DNS + `cluster →
+  *: deny`. That rule is only expressible across a zone boundary.
+  (`creil:22` = git SSH push; `creil:443` = HTTPS workspace clone **and**
+  container-registry pull of the dev image — the bring-up notes' `/v2/`
+  large-layer path; `zeiss:443` = Attic. DNS to the VLAN-51 resolver, since a
+  multus-only VM has **no** in-cluster DNS.)
 - **Blast radius:** `app` holds operator-controlled infra (Forgejo, Attic,
   Jellyfin, CI). Co-locating untrusted agent code L2-adjacent to it (ARP games,
   any-port reach) is strictly worse than letting the router mediate. The same
@@ -168,10 +285,34 @@ These do not bite today (one node). They become real at multi-node/HA.
    (failover, not balancing), and speaker nodes must have an interface on the LB
    VLAN. The *pods* still schedule anywhere (kube-proxy forwards). Constrains
    the *path*, not *where the workload runs*.
-4. **KubeVirt host-isolation is a choice, not a default.** Keeping the flannel
-   primary leaves host adjacency; only *multus-only* VMs are macvtap-grade
-   isolated (at the cost of native in-cluster Service/DNS).
+4. **KubeVirt host-isolation is a choice, not a default — and it trades off
+   against NetworkPolicy.** Keeping the flannel primary leaves host adjacency;
+   only *multus-only* VMs are macvtap-grade isolated (at the cost of native
+   in-cluster Service/DNS). **Crucially, the two postures are near-mutually-
+   exclusive on this stack:** k3s NetworkPolicy (kube-router) only enforces on
+   the flannel/pod network, so a **multus-only VM's VLAN-51 egress is outside
+   NetworkPolicy entirely** — the router (bt8gw fw4) is its *sole* enforcer.
+   Conversely, pod-network+bridge gets real NetworkPolicy but weakens Layer 1.
+   You cannot get strong-Layer-1 **and** Layer-2 on the same VM here; genuine
+   two-layer on a secondary network needs Multi-NetworkPolicy or a policy engine
+   that covers secondary nets (Calico multi-net / Kube-OVN — future state B).
+   This is **not latent** — it bites on the single node today. See the
+   defense-in-depth caveat below.
 5. **Plain containers on flannel: no constraint** — freely schedulable. Good.
+
+> **Defense-in-depth caveat (reconcile with kubevirt-plan Phase 5).** That
+> plan's revised Phase 5 sells *Layer 1 (multus-only VLAN shift) **plus** Layer 2
+> (NetworkPolicy default-deny egress)* as two enforced layers on the **same**
+> dev VM. Per limitation #4 that is not achievable on k3s+flannel+kube-router:
+> defaulting dev-machines to multus-only makes Layer 2 **inert for their data
+> plane**, leaving bt8gw fw4 as the single (strong) enforcer. This is a fine
+> posture — but it is **router-enforced single-layer**, not defense-in-depth.
+> The plans should agree on one story per VM: either (a) multus-only +
+> router-only (recommended for the dev sandboxes; accept Service/DNS loss and
+> drop the NetworkPolicy-on-the-same-VM claim), or (b) pod-network+bridge +
+> NetworkPolicy (weaker Layer 1). The shared "Phase 6 NetworkPolicy half" below
+> only meaningfully unblocks kubevirt Phase 5 under posture (b), or for
+> *other* pod-network workloads in the namespace — not for a multus-only VM.
 
 ### The decision axis
 
@@ -193,11 +334,15 @@ Incremental hardening that does not require replacing the CNI:
 - **Default KubeVirt dev-machines to multus-only** (drop the flannel primary) so
   they are VLAN-native and host-isolated like the microVMs; reach cluster
   services via routed/LB paths rather than the pod network.
-- **macvtap vepa/private everywhere** for microVMs so sibling traffic is forced
-  through the router (currently `bridge` mode allows direct guest↔guest).
-- **Tighten the cluster zone in router6** — explicit `accessTo`/`inputRules`,
-  deny cluster→management except the few required flows (apiserver is already
-  scoped to trusted+lab in `k3s/default.nix`).
+- **macvtap vepa/private everywhere** for microVMs so sibling traffic stops
+  going direct (currently `bridge` mode allows direct guest↔guest). `private`
+  blocks same-host siblings; `vepa` hairpins them to the upstream switch (router
+  mediation applies only across zones/subnets, not within a VLAN).
+- **Tighten the cluster zone on bt8gw fw4** (the enforcing device — see "Where
+  VLAN 51 terminates") — explicit per-flow accepts, deny cluster→management
+  except the few required flows (apiserver is already scoped to trusted+lab in
+  `k3s/default.nix`'s host firewall; the dev VM, being in `cluster` not
+  trusted/lab, cannot reach it — intended).
 - **NetworkPolicy default-deny** per namespace (kubevirt-plan Phase 5).
 
 ## Future state B — multi-node without host-pinned workloads (Kube-OVN underlay)
@@ -232,7 +377,7 @@ on the cluster being healthy.
 
 | Trigger | Change |
 | --- | --- |
-| Removing WAN from VLAN 11 | Stand up the cluster zone + move cluster egress off VLAN 11 (current-plan item) — do this **first**, independent of everything else. |
+| Removing WAN from VLAN 11 | Stand up the cluster zone + the host-side flannel-egress redirect onto VLAN 51 (Phase 2 — L2 + bt8gw fw4 + erebonia policy-routing/masquerade) — do this **first**, independent of everything else. The host-side redirect is **required, not optional**: it is the only thing that gets ordinary pod egress off VLAN 11. |
 | A dev VM must survive node maintenance / live-migrate | Move *that class* of VM to **Kube-OVN underlay** (future state B). |
 | Adding a 2nd/3rd node for HA | Either replicate VLAN/bridge/NAD per node + accept restart-not-migrate, **or** adopt Kube-OVN underlay. Prefer underlay if VMs must roam. |
 | LB L2 single-node ingress becomes a bottleneck | Switch LB to **BGP mode** (needs thebeyond/bt8gw to speak BGP). |
@@ -245,9 +390,24 @@ on the cluster being healthy.
 1. **Cluster zone in the registry.** Add `cluster` (and optionally a 2nd
    segment) to `network.nix`; pick the VLAN id; reserve a static host-ID band;
    decide IPAM (Whereabouts vs DHCP-via-Kea). *No behavior change yet.*
-2. **Cluster egress off VLAN 11.** Add `uplink.<vlan>` on erebonia; route
-   cluster data-plane egress out it; add the `cluster` zone to router6 with
-   explicit access. Unblocks the VLAN-11 WAN removal.
+2. **Cluster egress off VLAN 11.** Three sub-steps (see "Where VLAN 51
+   terminates" + "The three tiers of VLAN 51 identity"):
+   - **L2 plumbing.** Trunk tag 51 across bt8gw (`br0` bridge-vlan +
+     L2-passthrough bridge) and the mesh to erebonia, then add `uplink.51` on
+     erebonia.
+   - **bt8gw fw4 (manual UCI).** Terminate VLAN 51 there (it owns the
+     `10.97.51.1` gateway + DHCP), add the `cluster` zone, and grant it the WAN
+     + cross-zone flows general pods need. Add the matching **naming stub** to
+     thebeyond's `router6.zones` (like `app`) so cross-zone refs resolve.
+   - **erebonia host-side flannel egress.** Static `10.97.51.31` on an iface
+     **separate from the VM bridge** (keep that bridge host-IP-less);
+     source-based policy routing of the pod CIDR out VLAN 51 (scoped so
+     pod→pod/Service stay on-cluster); flannel's masquerade then sources from
+     `10.97.51.31`; **default-drop all input on the VLAN-51 iface** (host fully
+     firewalled off — pod traffic is FORWARD, so this costs nothing). Concrete
+     `ip rule`/table design in "The three tiers."
+
+   Unblocks the VLAN-11 WAN removal.
 3. **microVM cleanup.** Convert remaining bridge guests to macvtap (vepa/
    private); retire guest use of br11.
 4. **KubeVirt attachment.** Multus + bridge NAD on a host-IP-less bridge over
@@ -257,14 +417,18 @@ on the cluster being healthy.
    - **Rider — `wg-vpn → cluster` allowance for mobile dev-machine access**
      (unblocks `ai-dev-machine-kubevirt-plan.md` **Phase 6**, the attach-only
      mobile/iPad path). Once the named dev VMs are routable + DNS'd (above), add
-     a **scoped** `wg-vpn → cluster` forward rule: `daddr` = the dev-machines
-     host band on VLAN 51, **TCP `:22`** (mosh/ssh session bootstrap) **+ UDP
-     `60000–61000`** (mosh data). Keep it narrowed to the dev-machines band, not
-     the whole `cluster` zone — the `wg-vpn` zone today reaches only
-     `dmz`/`external`/`transit`, and this is the one deliberate hole into
-     `cluster`. The mobile reuses the existing `wg-vpn` `mobile` peer
-     (`10.100.10.21`); no new VPN infra. Lifecycle stays on edith, so this opens
-     no path to the control plane.
+     a **scoped** rule: `daddr` = the dev-machines host band on VLAN 51, **TCP
+     `:22`** (mosh/ssh session bootstrap) **+ UDP `60000–61000`** (mosh data).
+     **Enforcement is on bt8gw, not thebeyond.** `wg-vpn` terminates on
+     thebeyond and `cluster` on bt8gw, and `wg-vpn.accessTo` already includes
+     `transit`, so thebeyond *already* forwards `wg-vpn → 10.97.0.0/16` broadly
+     (gated only by bt8gw fw4 — the standard cross-gateway model). The new rule
+     is therefore a **bt8gw fw4** `transit → cluster` accept with `saddr =
+     10.100.10.21` (the `mobile` peer) scoped to the dev-machines band + those
+     ports — **not** a router6 `wg-vpn` zone edit. Keep it narrowed to the band,
+     not the whole `cluster` zone; this is the one deliberate hole into
+     `cluster`. The mobile reuses the existing `wg-vpn` `mobile` peer; no new VPN
+     infra. Lifecycle stays on edith, so this opens no path to the control plane.
 5. **Service routability.** Install LB-IPAM (MetalLB L2 to start); pool on the
    cluster VLAN; external-dns or static DNS.
 6. **NetworkPolicy default-deny** (kubevirt-plan Phase 5).
@@ -274,9 +438,32 @@ on the cluster being healthy.
 - **Cluster VLAN id** — **Resolved: VLAN 51** (bt8gw-owned, adjacent to
   `app`/50). One new low-trust `cluster` zone (not `app`, not two zones) — see
   "Why a dedicated zone, not `app`".
-- **IPAM** — Whereabouts (cluster-native) vs DHCP-via-Kea (free DNS, reuses
-  router infra). DHCP-via-Kea is the more "in-grain" choice; confirm Kea can
-  serve the cluster VLAN cleanly.
+- **IPAM (low-stakes — only the ephemeral tier)** — **Whereabouts**
+  (cluster-native) vs **bt8gw DHCP** (same dnsmasq/odhcpd bt8gw already runs for
+  VLAN 20, etc.). The original "DHCP-via-Kea → free DNS pipeline" framing is
+  **dead**: Kea runs in router6 on **thebeyond**, but VLAN 51 terminates on
+  **bt8gw**, and — more fundamentally — **no DHCP server here feeds DNS for
+  free.** Network-wide resolution goes kresd→**phantasma authoritative
+  `.internal`**, not through any DHCP server; a bt8gw lease yields an address but
+  no resolvable `.internal` record (same as VLAN 20 today — azoth resolves only
+  because it's a registry host → `mkUnboundLocalData`, not because bt8gw leased
+  it). Consequences:
+  - **Named hosts are static + registry + `mkUnboundLocalData` regardless of the
+    IPAM choice** (this is what mobile-by-name access needs).
+  - **DHCP only serves the ephemeral, no-DNS tier** — and VLAN 51 barely has one:
+    pinned VMs are static, LB VIPs come from MetalLB, flannel pods use flannel
+    IPAM, erebonia's egress is static. So DHCP matters only if/when unpinned
+    ephemeral VMs run — and those get random MACs, so DHCP *reservations* don't
+    give stable identity anyway (use cloud-init static or Whereabouts).
+  - **Whereabouts** keeps allocation in-cluster (no bt8gw lease churn, no
+    coupling to a hand-managed non-flake device); **bt8gw DHCP** reuses existing
+    infra but the dynamic pool must be hand-carved clear of the static band / LB
+    pool / erebonia egress, and bt8gw must remain the *sole* DHCP server on the
+    VLAN-51 L2 (a multus `dhcp`-IPAM VM is a client; don't also run an in-cluster
+    DHCP server).
+
+  **Leaning:** default named workloads to static+registry; pick Whereabouts for
+  any ephemeral pool unless reusing bt8gw DHCP is clearly simpler at the time.
 - **Do the dev-machine VMs need to roam?** — the axis that decides whether
   future state B is ever needed. Current assumption: **no** (pets), so the
   non-invasive plan stands and Kube-OVN stays deferred.

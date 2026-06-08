@@ -20,14 +20,17 @@ mobile path is blocked on the **same** routable-VM + DNS dependency as Phase 5.
 `llm-notes/plans/workload-network-isolation-plan.md`.
 
 Phase 5's lockdown has been **revised** (see Phase 5 below) from "NetworkPolicy
-alone over flannel masquerade" to **defense-in-depth**: shift the dev-machine VM
-onto a **lesser-privileged cluster VLAN with no host access** (Multus + bridge,
-multus-only) **and** layer the NetworkPolicy egress allowlist on top — so the
-**router zone firewall**, not just an in-cluster policy, enforces off-host
-confinement, and the sandbox is never *in* the management zone. The cluster VLAN,
+alone over flannel masquerade" to a **router-enforced VLAN shift**: move the
+dev-machine VM onto a **lesser-privileged cluster VLAN with no host access**
+(Multus + bridge, multus-only) so the **router zone firewall** (bt8gw fw4, which
+owns VLAN 51), not an in-cluster policy, enforces off-host confinement, and the
+sandbox is never *in* the management zone. **Note:** because the VM is
+multus-only it has no flannel NIC, so a namespace NetworkPolicy does **not**
+govern its data plane — the router is the *sole* (and stronger) enforcer for the
+VM; this was initially mis-framed as "VLAN shift **plus** NetworkPolicy"
+defense-in-depth (see the reconciliation in Phase 5). The cluster VLAN,
 cluster-egress-off-VLAN-11, and the KubeVirt Multus+bridge attachment are
-**deliverables of the isolation plan** (its Phases 1, 2, 4; the NetworkPolicy
-half is its shared Phase 6).
+**deliverables of the isolation plan** (its Phases 1, 2, 4).
 
 **Unblocks when** the isolation plan has delivered: the `cluster` zone in the
 registry, cluster egress off VLAN 11, and the KubeVirt Multus+bridge (host-IP-
@@ -362,23 +365,43 @@ key/cert:
 
 ## Phase 5 — network lockdown (item 5) — BLOCKED (decision revised)
 
-**Decision revised — defense-in-depth (supersedes the original NetworkPolicy-
-only stance kept below).** Blocked on
+**Decision revised — router-enforced VLAN shift (supersedes the original
+NetworkPolicy-only stance kept below).** Blocked on
 `llm-notes/plans/workload-network-isolation-plan.md` (see `## Blocked on`). The
-lockdown is now two layers:
+revision moves the *primary* enforcement from an in-cluster policy to the
+**router (bt8gw fw4)**. It was originally framed as "defense-in-depth = VLAN
+shift **plus** NetworkPolicy," but per the reconciliation below the NetworkPolicy
+layer does **not** apply to a multus-only VM, so for the default dev-machine this
+is **single-layer router enforcement**, which is stronger than the
+NetworkPolicy-only interim it replaces:
 
 - **Layer 1 — router-enforced VLAN shift (new; the blocking dependency).** The
   VM attaches via **Multus + bridge** (host-IP-less bridge over the **cluster
-  VLAN**), **multus-only** (drop the flannel primary), so it is a routable host
-  in a **lesser-privileged zone** governed by the router6 zone firewall and
+  VLAN 51**), **multus-only** (drop the flannel primary), so it is a routable
+  host in a **lesser-privileged zone** governed by the cluster-zone firewall and
   **isolated from erebonia's host / management VLAN by construction** — exactly
-  what the original Phase 5 could not do behind the shared mgmt IP. Note this
-  uses Multus+bridge, **not** `masquerade` binding; the `masquerade` decision
-  below applies only to the NetworkPolicy-only interim.
-- **Layer 2 — NetworkPolicy (the original control, now complementary).**
-  Dedicated namespace, **default-deny egress**, allow only cluster DNS, `creil`
-  (git over SSH `:22`), `zeiss` (Attic). In-cluster enforcement independent of
-  the router.
+  what the original Phase 5 could not do behind the shared mgmt IP. The enforcing
+  firewall is **bt8gw's fw4** (VLAN 51 is bt8gw-owned/terminated — see the
+  isolation plan's "Where VLAN 51 terminates"), **not** router6 on thebeyond.
+  Note this uses Multus+bridge, **not** `masquerade` binding; the `masquerade`
+  decision below applies only to the NetworkPolicy-only interim.
+- **Layer 2 — NetworkPolicy — DOES NOT APPLY to the multus-only VM.** This is the
+  reconciliation with the isolation plan's "defense-in-depth caveat" (and the
+  egress allowlist — `creil:{22,443}` [SSH push + HTTPS clone/registry pull],
+  `zeiss:443`, DNS — is the **bt8gw fw4 `cluster → app`** rule owned by the
+  isolation plan, not a NetworkPolicy, for the multus-only VM): k3s
+  NetworkPolicy (kube-router) enforces only on the **flannel/pod network**, but a
+  multus-only VM has **no flannel NIC** — its entire data plane is the VLAN-51
+  bridge, which NetworkPolicy does not see. So for the default dev-machine the
+  lockdown is **router-enforced single-layer (bt8gw fw4)**, not two independent
+  layers. Genuine two-layer would require either keeping the flannel primary
+  (pod-network + bridge — weakens Layer 1, reintroduces host adjacency) or a
+  policy engine that covers secondary networks (Multi-NetworkPolicy / Calico
+  multi-net / Kube-OVN — the isolation plan's future state B). **Decision:** for
+  the dev sandboxes, accept router-only (Layer 1) and drop the same-VM
+  NetworkPolicy claim. NetworkPolicy default-deny still applies to **other
+  pod-network workloads** in the namespace (e.g. any helper pods that *are* on
+  flannel) — it just doesn't govern the multus-only VM itself.
 
 **Why the calculus changed from "VLAN-per-VM declined":** (1) the isolation plan
 stands up the cluster VLAN + KubeVirt Multus+bridge as **shared infrastructure**,
@@ -485,8 +508,11 @@ infrastructure + a second identity adjacent to the boundary**; we already run wg
 6. **Scoped `wg-vpn → cluster` firewall allowance** — TCP `:22` (session
    bootstrap) **+ UDP `60000–61000`** (mosh), `daddr` restricted to the
    dev-machines host band on VLAN 51. This rule is **owned by the isolation
-   plan** (it owns the `wg-vpn` zone policy + VLAN 51); see that plan's
-   next-steps Phase 4 rider. Cross-references this phase the way Phase 5 does.
+   plan** and is enforced on **bt8gw fw4** as a `transit → cluster` accept (the
+   `mobile` peer `10.100.10.21` reaches the cluster VLAN cross-gateway; `wg-vpn`
+   terminates on thebeyond, `cluster` on bt8gw), **not** a router6 `wg-vpn` zone
+   edit; see that plan's next-steps Phase 4 rider. Cross-references this phase the
+   way Phase 5 does.
 
 **Interim that works today (no new networking):** the mobile SSHes edith and
 runs the existing wrapper / hops to the VM. mosh + in-container zellij already
