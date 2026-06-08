@@ -16,6 +16,7 @@ This document is for me (the operator) to put down open questions. LLM Agents ca
   - how do we get claude to better be able to one-shot things, without requiring many permissions checks, now that we're not running on an operator machine?
   - run on cloud-hypervisor, not qemu?
 - macvlan on erebonia for all of k3s (to enable better lockdowns)
+- remove kata entirely (unless needed, but current use-cases are supported better by KubeVirt)
 - once this is enabled, we should figure out what containers go to what VLANs (everything lives off of erebonia's MGMT ip address, it bypasses a lot)
 - how can we better handle versions and versioning in the k3s system? Ideally no versions/hashes in the core hosts definition, similar to how the nixpkgs integration goes.
 - do we want to move things away from 'services.k3s.autoDeployCharts' and move them to flux2 integrations?
