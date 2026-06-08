@@ -4,7 +4,7 @@
   # in cache.numtide.com), passed in by flake.nix — nixpkgs lags multiple
   # releases. Defaults to nixpkgs so the package still evaluates standalone.
   claude-code ? pkgs.claude-code,
-  codex ? pkgs.codex-acp;
+  codex ? pkgs.codex-acp,
 }: let
   inherit (pkgs) lib;
 
