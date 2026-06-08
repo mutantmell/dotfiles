@@ -387,6 +387,11 @@ on the cluster being healthy.
 
 ## Phases / next steps (current plan)
 
+> **Execution.** The dev-machine / mobile critical path through these phases
+> (Phases 1, 2-without-the-flannel-redirect, 4 + rider) is tracked step-by-step
+> in the companion [`cluster-vlan-bringup-checklist.md`](cluster-vlan-bringup-checklist.md)
+> — it unblocks `ai-dev-machine-kubevirt-plan.md` Phase 5 and Phase 6 pieces 5–6.
+
 1. **Cluster zone in the registry.** Add `cluster` (and optionally a 2nd
    segment) to `network.nix`; pick the VLAN id; reserve a static host-ID band;
    decide IPAM (Whereabouts vs DHCP-via-Kea). *No behavior change yet.*
