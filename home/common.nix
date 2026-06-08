@@ -52,10 +52,6 @@
     enable = true;
   };
 
-  programs.claude-code = {
-    enable = true;
-  };
-
   programs.jujutsu = {
     enable = true;
   };

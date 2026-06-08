@@ -4,6 +4,7 @@
   # in cache.numtide.com), passed in by flake.nix — nixpkgs lags multiple
   # releases. Defaults to nixpkgs so the package still evaluates standalone.
   claude-code ? pkgs.claude-code,
+  codex ? pkgs.codex-acp;
 }: let
   inherit (pkgs) lib;
 
@@ -89,8 +90,9 @@
   # blocks the API regardless, but we don't ship the tool either.
   devTools =
     [
-      # The agent — from numtide (param), not nixpkgs. See header.
+      # Coding agents — from numtide (param), not nixpkgs. See header.
       claude-code
+      codex
       # /etc/passwd (root home /root) + /etc/group + /etc/nsswitch.conf — see `nss`.
       nss
     ]

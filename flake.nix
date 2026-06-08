@@ -157,7 +157,7 @@
         inherit pkgs;
         # claude-code from numtide (fresh + cached) instead of laggy nixpkgs;
         # scoped to this image only, not a global overlay override.
-        claude-code = llm-agents.packages.${system}.claude-code;
+        inherit (llm-agents.packages.${system}) claude-code codex;
       };
       mk-volume = import packages/mk-volume.nix {
         inherit (pkgs) writeShellScriptBin;
