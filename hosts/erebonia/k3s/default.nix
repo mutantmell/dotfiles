@@ -85,7 +85,7 @@ in {
   services.k3s = {
     enable = true;
     role = "server";
-    package = pkgs.k3s_1_33; # pinned minor; bump deliberately (nixpkgs default is 1_35)
+    package = pkgs.k3s_1_36; # pinned minor; bump deliberately (nixpkgs default is 1_35)
     extraFlags = [
       # No --data-dir: k3s uses the default /var/lib/rancher/k3s, which tmpfiles
       # symlinks onto the persistent subvolume (see the dataDir comment above).
