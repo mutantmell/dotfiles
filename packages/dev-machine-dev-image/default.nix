@@ -156,16 +156,30 @@ in
     # nix.conf + a couple of dirs nix builds expect. The container runs as its
     # own root (devpod's runc container under the VM's docker), and the VM is the
     # security boundary (decision 4), so nix builds single-user as root with no
-    # nixbld group. sandbox is off because an in-container build can't open a
-    # nested build sandbox; the nixosTests get isolation from /dev/kvm instead,
-    # surfaced via the devcontainer.json `runArgs: ["--device=/dev/kvm"]`.
+    # nixbld group.
+    #
+    # sandbox = true: the container gets CAP_SYS_ADMIN via the devcontainer.json
+    #   `runArgs` (`--cap-add=SYS_ADMIN`), which lifts docker's default-seccomp
+    #   block on the namespace/mount syscalls Nix's sandbox needs. (An earlier
+    #   note here claimed in-container sandboxing was impossible — that test was
+    #   run WITHOUT the cap; the VM kernel does support userns,
+    #   max_user_namespaces is non-zero.) Sandboxing matters beyond purity: it is
+    #   what keeps /homeless-shelter (the build's fake $HOME) inside each build's
+    #   private mount namespace instead of leaking onto the real container fs and
+    #   wedging later builds when one is killed mid-flight.
+    # extra-sandbox-paths = /dev/kvm: the sandbox otherwise exposes only a minimal
+    #   /dev, which would hide /dev/kvm from the nixosTest suite's nested QEMU —
+    #   the whole reason /dev/kvm is surfaced into the container. This keeps it
+    #   reachable from inside the build sandbox. (system-features already
+    #   auto-detects `kvm`/`nixos-test` from the device node.)
     fakeRootCommands = ''
       mkdir -p etc/nix tmp root/workspaces
       chmod 1777 tmp
       cat > etc/nix/nix.conf <<EOF
       experimental-features = nix-command flakes
       build-users-group =
-      sandbox = false
+      sandbox = true
+      extra-sandbox-paths = /dev/kvm
       EOF
     '';
   }
