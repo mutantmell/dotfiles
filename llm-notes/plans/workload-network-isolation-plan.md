@@ -101,9 +101,13 @@ multi-node/HA makes the constraints real.
 This is what makes routable identity "simplify dev-machine integration" rather
 than add bespoke plumbing:
 
-1. **Add a `cluster` zone** to `lib/common/data/network.nix` (a `bt8gw`-owned
-   VLAN — `11/12/20/21/50` are taken; `13`/`14` are free, TBD). Optionally a
-   second cluster VLAN if we want workload-tier segmentation.
+1. **Add a dedicated low-trust `cluster` zone** to
+   `lib/common/data/network.nix` (a `bt8gw`-owned VLAN — `11/12/20/21/50` are
+   taken; `13`/`14` are free, TBD). This is **one new zone for the low-trust
+   tier** (dev-machine sandboxes, future friend-facing workloads) — **not** a
+   general cluster zone for everything. See "Why a dedicated zone, not `app`"
+   below; trusted, app-natured cluster services may instead attach to the
+   existing `app` zone.
 2. **Delegate a subnet range** to cluster IPAM: reserve a low band of host IDs
    for **pinned** workloads (registry-registered), and let IPAM (Whereabouts,
    or DHCP-via-Kea) own the churn above it.
@@ -115,6 +119,33 @@ than add bespoke plumbing:
 4. **Ephemeral pods** → dynamic pool, no DNS (or a delegated `*.k8s.internal`).
    If IPAM = **DHCP-via-Kea**, DNS falls out of the existing DHCP→DNS pipeline
    for free (natural for KubeVirt VMs, which DHCP like any machine).
+
+### Why a dedicated zone, not the existing `app` tier
+
+The cluster's general *services* could ride `app` (VLAN 50) — but the
+**dev-machine sandbox cannot**, and that is what drives the new zone:
+
+- **The router only firewalls *between* zones.** Intra-zone traffic is
+  L2-switched across the VLAN-50 broadcast domain (which already spans
+  calvard/liberl/erebonia over the mesh trunk) and never reaches the router.
+- **The sandbox's entire allowlist lives in `app`:** `creil` (git, id 53) and
+  `zeiss` (Attic, id 31) are both VLAN 50. Put the sandbox in `app` and it
+  reaches them *and* `oracion`/`saint-arkh`/all of VLAN 50 on **any port with
+  zero router mediation** — Layer 1 evaporates and the lockdown collapses to
+  NetworkPolicy-only (the posture the block exists to fix).
+- **Router-enforced lockdown requires the sandbox in a *different* zone than its
+  targets:** `cluster → app: allow creil:22, zeiss:443` + `cluster → *: deny`.
+  That rule is only expressible across a zone boundary.
+- **Blast radius:** `app` holds operator-controlled infra (Forgejo, Attic,
+  Jellyfin, CI). Co-locating untrusted agent code L2-adjacent to it (ARP games,
+  any-port reach) is strictly worse than letting the router mediate. The same
+  objection rules out reusing `lab` or `untrusted`.
+
+**Resolution:** one new low-trust `cluster` zone for sandboxes (and future
+friend-facing workloads); trusted cluster services may reuse `app` via their own
+NAD. Multus+bridge is per-workload, so the two coexist without a second new
+zone. The only way to avoid the new zone entirely is to drop Layer 1 and accept
+the NetworkPolicy-only interim.
 
 ---
 
@@ -227,8 +258,9 @@ on the cluster being healthy.
 
 ## Open questions
 
-- **Cluster VLAN id(s)** — `13`/`14` free under bt8gw; one zone or two (tier
-  segmentation)?
+- **Cluster VLAN id** — `13`/`14` free under bt8gw. **Resolved:** one new
+  low-trust `cluster` zone (not `app`, not two zones) — see "Why a dedicated
+  zone, not `app`". Only the id is open.
 - **IPAM** — Whereabouts (cluster-native) vs DHCP-via-Kea (free DNS, reuses
   router infra). DHCP-via-Kea is the more "in-grain" choice; confirm Kea can
   serve the cluster VLAN cleanly.
