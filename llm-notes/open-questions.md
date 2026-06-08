@@ -1,13 +1,13 @@
 This document is for me (the operator) to put down open questions. LLM Agents can resolve items in here by adding, at the end of a line, either (resolved) for items that are resolved, or (planned) for items that are captured in plans, but MUST NOT do any further editing. It is important that this remain a place I can put down raw notes.
 
-- dev-machine up enhancements:
+- dev-machine enhancements:
   - add zellij and wezterm?
   - don't unconditionally push the image (detect when not changed?)
-  - have a "refresh" command to tear down and setup?0
+  - have a "refresh" command to do dev-container tear down and setup? This would be a half-step that would allow me to iterate faster on the devcontainer, without tearing down and setting up the VM every time.
   - check the current repo for a git reference if a url isn't provided?
   - maybe also a devcontainers file.
-  - autoresolve the name?
-  - how can we clean up the image repo, so it doesn't get gunked up with garbage?
+  - autoresolve the name with DNS, once the VMs get DNS.
+  - how can we clean up the image store on forgejo, so it doesn't get gunked up with garbage? Does it actually?
   - clean up errors on startup (see below)
   - other enhancements/changes (CLI improvements?)
   - better authelia integration (without copy/pasting a token from a uri)
