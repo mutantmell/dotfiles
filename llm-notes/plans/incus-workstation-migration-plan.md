@@ -10,7 +10,7 @@ operator runs things; they are **not** the ephemeral, locked-down AI coding
 sandboxes.
 
 > Not to be confused with **`ai-dev-machine-kubevirt-plan.md`** — that plan
-> covers *ephemeral, locked-down dev machines for LLM agents* (push-to-a-branch,
+> covers _ephemeral, locked-down dev machines for LLM agents_ (push-to-a-branch,
 > no homelab reach). It shares **only** the KubeVirt platform component with
 > this plan (see that plan's Phase 1 and this plan's Phase 7.1); coordinate
 > which lands the platform HelmChart first.
@@ -116,15 +116,15 @@ verifies it's present.)
 ## Phase 7 — migrate edith into the cluster as a KubeVirt VM
 
 1. **KubeVirt platform — depend on it, don't re-land it.** The kubevirt-operator
-   + virt-handler HelmChart is **owned by
-   `llm-notes/plans/ai-dev-machine-kubevirt-plan.md`** (which lands it first on
-   disposable dev-machine VMs to de-risk this daily-driver move). This phase
-   assumes the platform is present and adds only what edith needs on top:
-   `DataVolume` support (the CDI / containerized-data-importer component, beyond
-   the dev-machine containerDisk path) for the liberl-backed boot disk. If for
-   some reason this migration runs first, land the platform HelmChart here
-   instead — pinned, declared in the flake, reversible (revert and edith stays
-   on Incus).
+   - virt-handler HelmChart is **owned by
+     `llm-notes/plans/ai-dev-machine-kubevirt-plan.md`** (which lands it first on
+     disposable dev-machine VMs to de-risk this daily-driver move). This phase
+     assumes the platform is present and adds only what edith needs on top:
+     `DataVolume` support (the CDI / containerized-data-importer component, beyond
+     the dev-machine containerDisk path) for the liberl-backed boot disk. If for
+     some reason this migration runs first, land the platform HelmChart here
+     instead — pinned, declared in the flake, reversible (revert and edith stays
+     on Incus).
 2. **Build the edith VM image** from the flake: a pre-built NixOS disk
    image (qcow2/raw) via `nixos-generators` or the flake-native
    equivalent, reproducible across rebuilds. (cloud-init into a blank

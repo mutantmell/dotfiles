@@ -23,14 +23,14 @@ signs with its existing SSH **user** CA. The daily path stays OIDC
 
 ### Three-ring operator access model (context)
 
-| Ring | Credential | Available when the rich IdP is… |
-| ---- | ---------- | ------------------------------- |
-| 0 | raw SSH key (`keys.json` → `root`) | always (static, not identity-bound) |
-| 1 | **`admin-jwk` step-ca cert** (this doc) | always (IdP-independent) |
-| 2 | OIDC → Authelia step-ca cert | only when Authelia is up |
+| Ring | Credential                              | Available when the rich IdP is…     |
+| ---- | --------------------------------------- | ----------------------------------- |
+| 0    | raw SSH key (`keys.json` → `root`)      | always (static, not identity-bound) |
+| 1    | **`admin-jwk` step-ca cert** (this doc) | always (IdP-independent)            |
+| 2    | OIDC → Authelia step-ca cert            | only when Authelia is up            |
 
 Ring 1 keeps "Authelia down / cold-booting" from forcing a drop to the raw
-Ring 0 break-glass key. SSH user certs are short-lived, so a *cached* cert is
+Ring 0 break-glass key. SSH user certs are short-lived, so a _cached_ cert is
 not a fallback during an outage — the **issuer** needs an IdP-independent
 path, which is what this provides.
 
@@ -66,7 +66,7 @@ mint a `root` (or any non-`admin`/`deploy`) principal through this provisioner.
 
 > **First-run note:** this provisioner is verified at the Nix level
 > (renders into basel's config; compact-JWE `encryptedKey`, public-only `key`)
-> but the *runtime* issue-and-login round trip is validated on first real use.
+> but the _runtime_ issue-and-login round trip is validated on first real use.
 > If `step ssh certificate` rejects the `encryptedKey`, see "Key material"
 > below — the most likely cause is a JWE-format mismatch.
 

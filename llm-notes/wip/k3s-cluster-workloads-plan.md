@@ -23,11 +23,11 @@ CI) come **after** the dev-env migration.
   router6 change. x509 admin kubeconfig stays the break-glass path, so a
   bad/unreachable issuer degrades to "OIDC login fails", never a lockout.
   **Operator validation pending:** rebuild messeldam (lldap seeds `k8s-admins`)
-  + erebonia, add your lldap account to `k8s-admins`, copy the k3s server CA to
-  `~/.kube/erebonia-ca.crt`, then `KUBECONFIG=~/.kube/erebonia-oidc.yaml kubectl
-  get nodes` should auth via the browser and land as cluster-admin. (This is
-  decision #1's "validate `kubectl oidc-login` in Phase 1" — if Authelia↔kube
-  OIDC mismatches, fall back to an oauth2-proxy adapter or static token.)
+  - erebonia, add your lldap account to `k8s-admins`, copy the k3s server CA to
+    `~/.kube/erebonia-ca.crt`, then `KUBECONFIG=~/.kube/erebonia-oidc.yaml kubectl
+get nodes` should auth via the browser and land as cluster-admin. (This is
+    decision #1's "validate `kubectl oidc-login` in Phase 1" — if Authelia↔kube
+    OIDC mismatches, fall back to an oauth2-proxy adapter or static token.)
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 2–4** and Appendix A (CI runner security). The AI coding layer is
@@ -165,9 +165,9 @@ imperatively (operator choice while experimenting), not in home-manager.
 **Immediate follow-up — SUPERSEDED by
 `llm-notes/plans/ai-dev-machine-kubevirt-plan.md`.** The substance below
 (devcontainer.json + custom image + scripting) is carried forward there, but
-the *runtime substrate decision changed*: dev machines run as **KubeVirt VMs**
+the _runtime substrate decision changed_: dev machines run as **KubeVirt VMs**
 (regular kernel, native nested `/dev/kvm`) with devpod running the
-`devcontainer.json` as a runc container *inside* the VM — **not** `kata-clh`
+`devcontainer.json` as a runc container _inside_ the VM — **not** `kata-clh`
 pods with the custom nested guest kernel. The PoC above still stands as proof
 the cluster + OIDC + devpod path works; the `kata-clh`/runtimeClass guidance in
 this section is historical. That plan covers all five open items (substrate,
@@ -194,7 +194,7 @@ sessions land with the homelab's tooling, not a stock Python container.
   separate, opt-in shape — out of scope for this immediate follow-up.
 
 This is the remaining substance of Phase A: the runtime is proven, what's left
-is making the workspace *useful* and reproducible from the repo.
+is making the workspace _useful_ and reproducible from the repo.
 
 ## Phase 2 — the blog (optional)
 
@@ -337,8 +337,8 @@ than overwriting files:
   value from sops, run `k3s token rotate --new-token=…` (token) / the SA-key
   rotation procedure (`service.key`). Tractable to do safely.
 - **CA certs/keys** — **keep manual** (runbook, not the hook): `k3s
-  certificate rotate-ca` + restart + client redistribution (`home-manager
-  switch` for edith's `server-ca`) has too large a blast radius for a
+certificate rotate-ca` + restart + client redistribution (`home-manager
+switch` for edith's `server-ca`) has too large a blast radius for a
   fire-and-forget trigger.
 
 Until the helper lands, the safe model is: rotate on the cluster with the k3s

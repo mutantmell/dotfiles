@@ -10,15 +10,15 @@
 > Read it with this translation — the OIDC flows are identical (authorization
 > code grant, `groups` claim, JWKS validation), only the provider changed:
 >
-> | This plan says…                          | Read as / current reality                                                        |
-> | ---------------------------------------- | -------------------------------------------------------------------------------- |
-> | Keycloak (the IdP)                       | **Authelia** on `messeldam`                                                       |
+> | This plan says…                               | Read as / current reality                                                                                                 |
+> | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+> | Keycloak (the IdP)                            | **Authelia** on `messeldam`                                                                                               |
 > | `auth.mutantmell.net/realms/homelab` (issuer) | `https://authelia.internal.mutantmell.net` internally (external `auth.mutantmell.net` is the deferred cloud-host cutover) |
-> | "Keycloak account / admin console"       | **lldap** user/group (lldap web UI at `ldap.internal`; Authelia has no admin console) |
-> | "register a client in Keycloak"          | add an OIDC client to `authelia.nix` (declarative, sops-hashed secret)            |
-> | `keycloak-oauth-oidc-plan.md` (linked)   | **deleted** — that plan no longer exists; this plan + authelia-migration-plan are the references |
-> | Keycloak PostgreSQL                       | n/a — Authelia/lldap use SQLite                                                   |
-> | langport oauth2-proxy as the external proxy | **removed** (authelia-migration Phase 2e); external ingress is the deferred cloud-host workstream |
+> | "Keycloak account / admin console"            | **lldap** user/group (lldap web UI at `ldap.internal`; Authelia has no admin console)                                     |
+> | "register a client in Keycloak"               | add an OIDC client to `authelia.nix` (declarative, sops-hashed secret)                                                    |
+> | `keycloak-oauth-oidc-plan.md` (linked)        | **deleted** — that plan no longer exists; this plan + authelia-migration-plan are the references                          |
+> | Keycloak PostgreSQL                           | n/a — Authelia/lldap use SQLite                                                                                           |
+> | langport oauth2-proxy as the external proxy   | **removed** (authelia-migration Phase 2e); external ingress is the deferred cloud-host workstream                         |
 >
 > The friend-access report's recommendation of pre-authkeys for friend
 > enrollment means the OIDC integration only affects admin login to headscale,

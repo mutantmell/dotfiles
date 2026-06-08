@@ -23,8 +23,8 @@ client → DNAT → thebeyond:kresd  (front, strict-failover breaker, cache)
 - **No ad-blocking anywhere** — Blocky was removed because the per-VLAN
   `sourceRoutes` bypass leaked blocks across clients. Root cause: kresd's
   cache is keyed on `(qname,qtype,qclass)` with no source/upstream
-  dimension, and `sourceRoutes` only chose a different *upstream* on a
-  cache *miss*. A block cached from any client was served to the exempt
+  dimension, and `sourceRoutes` only chose a different _upstream_ on a
+  cache _miss_. A block cached from any client was served to the exempt
   VLAN. See [[project_guest_vlan_blocky_bypass]].
 - The `router6.dns.sourceRoutes` option and its kresd `view.rule_src`
   rendering are gone.
@@ -33,7 +33,7 @@ client → DNAT → thebeyond:kresd  (front, strict-failover breaker, cache)
 
 Blocking must be a **per-request answer policy evaluated with the client's
 identity, in front of every cache** — never a choice of which cached
-upstream to consult. A shared cache may only hold the *clean* answer;
+upstream to consult. A shared cache may only hold the _clean_ answer;
 blocking is a per-client overlay on top. That means:
 
 1. The blocker (Blocky) goes **in front**, sees real client IPs, and
@@ -44,13 +44,13 @@ blocking is a per-client overlay on top. That means:
 
 ## Decisions (made with the user)
 
-| Question | Decision |
-| --- | --- |
+| Question           | Decision                                                                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Recursive resolver | **kresd** (drop Unbound). Both are peers; keeping kresd avoids re-plumbing router6, and kresd's trust-anchor fragility is already mitigated by the pinned read-only `root.key`. |
-| Blocking mechanism | **Blocky in front**, as an optional router6 feature, per-interface configurable via `clientGroupsBlock`. |
-| Blocky location | **thebeyond** (the always-up router), not phantasma — keeps the front resolver alive across any backend outage. |
-| phantasma | **Removed** in Piece 2 once kresd recurses + serves local-data. |
-| Blocking polarity | **Block by default, per-interface opt-out** (matches the old GUEST/30 intent). |
+| Blocking mechanism | **Blocky in front**, as an optional router6 feature, per-interface configurable via `clientGroupsBlock`.                                                                        |
+| Blocky location    | **thebeyond** (the always-up router), not phantasma — keeps the front resolver alive across any backend outage.                                                                 |
+| phantasma          | **Removed** in Piece 2 once kresd recurses + serves local-data.                                                                                                                 |
+| Blocking polarity  | **Block by default, per-interface opt-out** (matches the old GUEST/30 intent).                                                                                                  |
 
 ## Target architecture
 
@@ -76,7 +76,7 @@ fallback = recursion-stall safety net.
 forwarding to phantasma for now (Piece 1 is purely "insert Blocky in
 front"); independently deployable and testable.
 
-### 1a — kresd retreats to a loopback backend  *(NOT STARTED)*
+### 1a — kresd retreats to a loopback backend _(NOT STARTED)_
 
 `modules/router6/dns.nix`: when blocking is enabled, kresd stops binding the
 client-facing gateway IPs and listens on a loopback backend only
@@ -86,7 +86,7 @@ client-facing gateway IPs and listens on a loopback backend only
 - Add `router6.dns.backendPort` (default `5353`) or derive internally.
 - `listenPlain` becomes conditional on `cfg.dns.blocking.enable`.
 
-### 1b — `router6.dns.blocking` option surface  *(NOT STARTED)*
+### 1b — `router6.dns.blocking` option surface _(NOT STARTED)_
 
 Keep the module generic (no project specifics — denylist sources and
 conditional domains are passed in by the host):
@@ -115,7 +115,7 @@ topology.<iface>.network.dns.block = mkOption {
 };
 ```
 
-### 1c — Render Blocky from the topology  *(NOT STARTED)*
+### 1c — Render Blocky from the topology _(NOT STARTED)_
 
 New `modules/router6/dns-blocking.nix` (mkIf `cfg.dns.blocking.enable`):
 
@@ -125,22 +125,22 @@ New `modules/router6/dns-blocking.nix` (mkIf `cfg.dns.blocking.enable`):
 - **Upstream:** `default → ["127.0.0.1:5353"]` (kresd backend).
 - **clientGroupsBlock:** `default = cfg.dns.blocking.defaultGroups`; for each
   interface with `network.dns.block = false`, map its `subnet4`/`subnet6`
-  to `[]` (no lists). *Verify Blocky accepts a CIDR key with an empty
+  to `[]` (no lists). _Verify Blocky accepts a CIDR key with an empty
   group list = "no blocking"; if not, define a named empty "noblock" group
-  and map the CIDRs to it.*
+  and map the CIDRs to it._
 - **denylists:** `cfg.dns.blocking.denylists`.
 - **conditional.mapping:** each `conditionalDomains` entry → upstream
   (`127.0.0.1:5353`), `fallbackUpstream = false`.
 - **http/metrics:** `127.0.0.1:4000` (loopback only), Prometheus on.
 
-### 1d — Interception retarget  *(NOT STARTED)*
+### 1d — Interception retarget _(NOT STARTED)_
 
 `modules/router6/firewall.nix`: when blocking is enabled, the DNS
 interception DNAT target is Blocky's front address (same gateway/host IP
 Blocky now binds) instead of kresd. The phantasma source/dest excludes
 stay (kresd still forwards to phantasma in Piece 1).
 
-### 1e — thebeyond wiring  *(NOT STARTED)*
+### 1e — thebeyond wiring _(NOT STARTED)_
 
 `hosts/thebeyond/router.nix`:
 
@@ -158,10 +158,10 @@ topology.<guest-iface>.network.dns.block = false;
 (`/var/lib/private/blocky`, DynamicUser backing dir) — host-level, not the
 generic module.
 
-### 1f — Tests  *(NOT STARTED)*
+### 1f — Tests _(NOT STARTED)_
 
 New real-Blocky+real-kresd VM test — **the regression the old design
-failed**: query the *same* ads-listed domain from a blocked client and from
+failed**: query the _same_ ads-listed domain from a blocked client and from
 an opt-out client; assert blocked client gets the block AND opt-out client
 gets the real answer, in **both orders** (prove neither poisons the other).
 Also: split-horizon `.internal` resolves through Blocky→kresd; router's own
@@ -173,9 +173,9 @@ libc resolves; metrics endpoint loopback-only.
 
 **Outcome:** kresd recurses directly, holds the authoritative local zones,
 and phantasma + Unbound are deleted. Depends on Piece 1 (Blocky is the
-front; kresd is the loopback backend whose *internals* change here).
+front; kresd is the loopback backend whose _internals_ change here).
 
-### 2a — `mkKresdLocalData` generator + split-horizon  *(NOT STARTED)*
+### 2a — `mkKresdLocalData` generator + split-horizon _(NOT STARTED)_
 
 **Spike first** (real-kresd VM test, per
 [[feedback_kresd_ipv6_upstream_no_brackets]] — validate kresd syntax with a
@@ -194,7 +194,7 @@ Then add `net.mkKresdLocalData` / `mkKresdAliasData` in
 spiked shape. Decide whether to add reverse PTRs now (Unbound's config
 doesn't emit them today) or defer.
 
-### 2b — kresd does recursion + fallback rework  *(NOT STARTED)*
+### 2b — kresd does recursion + fallback rework _(NOT STARTED)_
 
 `modules/router6/dns.nix`:
 
@@ -204,7 +204,7 @@ doesn't emit them today) or defer.
 - **Retire the phantasma-probe breaker** (its job was surviving phantasma
   reboots; there's no remote primary anymore).
 - **Decide the fallback** (recommended: keep one): the original incident
-  that motivated fallback was a *recursion* stall (infra-host-ttl dead
+  that motivated fallback was a _recursion_ stall (infra-host-ttl dead
   window), which still applies to local recursion. Rework from
   "probe-primary breaker" to "recurse; on SERVFAIL/timeout for a name,
   forward to ISP." **Spike** the kresd 5.x API for recurse-then-fallback
@@ -213,7 +213,7 @@ doesn't emit them today) or defer.
   style `serve-stale` semantics in kresd (`cache` prefill / serve-stale)
   and accept no ISP fallback — record the choice.
 
-### 2c — Remove phantasma  *(NOT STARTED)*
+### 2c — Remove phantasma _(NOT STARTED)_
 
 Bigger than deleting the guest dir — phantasma is a registry **host**, so
 the removal ripples:
@@ -237,7 +237,7 @@ the removal ripples:
 - thebeyond's chrony already provides the DNSSEC clock (confirmed) — no
   new time-sync dependency.
 
-### 2d — Test migration  *(NOT STARTED)*
+### 2d — Test migration _(NOT STARTED)_
 
 - Replace `tests/modules/phantasma-dns-real.nix` with a thebeyond-resolver
   test: recursion works, DNSSEC validates, and the three split-horizon

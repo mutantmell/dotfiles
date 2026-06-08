@@ -31,7 +31,7 @@ Reach the admin surfaces from the **management zone** only:
 ## Triage order (fastest containment first)
 
 1. **Disable the account** (cuts new logins + new token issuance). Effective
-   at the *next* auth because Authelia binds lldap per request — see §1.
+   at the _next_ auth because Authelia binds lldap per request — see §1.
 2. **Revoke active sessions** (cuts existing portal sessions) — §2.
 3. **Rotate signing material** only if tokens themselves may be forged or the
    issuer key is suspect — §3. Highest blast radius; do last unless the key is
@@ -53,7 +53,7 @@ restart needed).
   access, so dropping `admin`/`deploy` immediately stops new privileged certs.
 - Note: `admin`, `deploy`, `media-users` and the `authelia` / `jellyfin` bind
   users are **declaratively re-seeded** by the `lldap-bootstrap` oneshot on
-  each restart (`modules/.../lldap.nix`). It only *adds* missing groups/bind
+  each restart (`modules/.../lldap.nix`). It only _adds_ missing groups/bind
   users — it does **not** recreate a human user you delete, nor re-add a human
   to a group. So a UI removal of a compromised human account sticks. (Don't
   delete the `authelia`/`jellyfin` bind users — bootstrap recreates them and
@@ -62,7 +62,7 @@ restart needed).
 
 **Propagation timing:** the next time the user (or their stolen session) hits
 a protected flow, Authelia re-binds lldap and the change is in effect. Existing
-*already-issued* artifacts persist until they expire — that's what §2 (sessions)
+_already-issued_ artifacts persist until they expire — that's what §2 (sessions)
 and the short cert lifetimes handle.
 
 ## 2. Revoke active Authelia sessions
@@ -82,7 +82,7 @@ session" CLI in the pinned version, so use one of:
   Verify against the running version's schema before deleting — capture a copy
   of the DB first (`cp db.sqlite3 db.sqlite3.bak`).
 - **Blunt (all users):** rotate `authelia-storage-encryption-key` (§3) — this
-  invalidates *every* persisted session at once. Use when you can't safely
+  invalidates _every_ persisted session at once. Use when you can't safely
   scope to one user or want a clean break.
 
 After either, the account should already be disabled (§1) so the user can't
@@ -94,17 +94,17 @@ All live in sops (`…/messeldam/secrets/secrets.yaml`), read by the
 `authelia-main` user. Edit with `sops`, redeploy `messeldam`, and note the
 blast radius — every affected consumer re-authenticates.
 
-| Secret | Rotate when | Blast radius | Regenerate with |
-| ------ | ----------- | ------------ | --------------- |
-| `authelia-oidc-issuer-private-key` | OIDC tokens may be forged / issuer key suspect | **All OIDC consumers** (step-ca SSH issuance, Perses) must re-auth; in-flight ID tokens stop validating | `openssl genrsa 4096` |
-| `authelia-storage-encryption-key` | Session store compromised, or blunt session-wipe | **Every** persisted session + stored TOTP secret invalidated (users re-enroll MFA if/when F1 lands) | `openssl rand -hex 48` |
-| `authelia-jwt-secret` | Identity-verification (reset/2FA) JWTs suspect | Pending password-reset / identity-verification links break | `openssl rand -hex 48` |
-| `authelia-oidc-hmac-secret` | OIDC client-flow integrity suspect | OIDC authorization-code flows reset | `openssl rand -hex 48` |
-| `authelia-ldap-bind-password` | Authelia↔lldap bind creds leaked | Must also update the lldap side (`authelia-password:` in `lldap-bootstrap`); Authelia can't bind until both match | `openssl rand -base64 24` |
+| Secret                             | Rotate when                                      | Blast radius                                                                                                      | Regenerate with           |
+| ---------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `authelia-oidc-issuer-private-key` | OIDC tokens may be forged / issuer key suspect   | **All OIDC consumers** (step-ca SSH issuance, Perses) must re-auth; in-flight ID tokens stop validating           | `openssl genrsa 4096`     |
+| `authelia-storage-encryption-key`  | Session store compromised, or blunt session-wipe | **Every** persisted session + stored TOTP secret invalidated (users re-enroll MFA if/when F1 lands)               | `openssl rand -hex 48`    |
+| `authelia-jwt-secret`              | Identity-verification (reset/2FA) JWTs suspect   | Pending password-reset / identity-verification links break                                                        | `openssl rand -hex 48`    |
+| `authelia-oidc-hmac-secret`        | OIDC client-flow integrity suspect               | OIDC authorization-code flows reset                                                                               | `openssl rand -hex 48`    |
+| `authelia-ldap-bind-password`      | Authelia↔lldap bind creds leaked                 | Must also update the lldap side (`authelia-password:` in `lldap-bootstrap`); Authelia can't bind until both match | `openssl rand -base64 24` |
 
 After rotating `authelia-oidc-issuer-private-key`, expect **step-ca** to need a
 fresh OIDC login for the next SSH cert and **Perses** sessions to drop. If the
-rich IdP is down *during* this work, operator SSH still works via the
+rich IdP is down _during_ this work, operator SSH still works via the
 [`step-ca-jwk-break-glass.md`](step-ca-jwk-break-glass.md) JWK path (it doesn't
 depend on the issuer key).
 
@@ -113,7 +113,7 @@ depend on the issuer key).
 There is **no CRL/OCSP** — certificate revocation relies on short lifetimes:
 
 - **SSH user certs** (OIDC or JWK) are short-lived; a compromised cert ages out
-  fast, and disabling the account (§1) stops *re-issuance*.
+  fast, and disabling the account (§1) stops _re-issuance_.
 - **ACME service certs** (45–90d) and **fleet X5C mTLS certs** (365d) have no
   revocation path — a compromised fleet host's client cert is valid until
   expiry. To contain one, re-sign/rotate the host's enrollment material and

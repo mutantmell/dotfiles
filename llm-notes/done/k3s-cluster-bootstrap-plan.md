@@ -18,7 +18,7 @@ router6 or bt8gw firewall change is needed** (deliverable E).
 
 - **OIDC kubectl access (decision #1) was NOT wired at bootstrap.** The apiserver
   has no `--oidc-*` flags; the **on-disk x509 admin kubeconfig is the bootstrap
-  access path** (decision #1 resolved the *target* as foundational Authelia, but
+  access path** (decision #1 resolved the _target_ as foundational Authelia, but
   break-glass x509 works today, so OIDC wiring + the `kubectl oidc-login`
   compat-validation are deferred until non-break-glass operator access is
   actually wanted). Not a blocker for Phase A.
@@ -144,9 +144,9 @@ plan corrects against the live repo:
 
 - **router6 lives on `thebeyond`, not erebonia.** Zones are defined in
   `hosts/thebeyond/router.nix` (`router6.zones`, ~line 173). erebonia
-  does **not** import router6. *(An early draft added a `cluster` zone here;
+  does **not** import router6. _(An early draft added a `cluster` zone here;
   that was dropped — erebonia is bt8gw-side and the cluster masquerades behind
-  its mgmt IP, so thebeyond can't see it as a distinct zone. See deliverable E.)*
+  its mgmt IP, so thebeyond can't see it as a distinct zone. See deliverable E.)_
 - **OIDC provider is currently Keycloak (`messeldam`), not Authelia.**
   The report says "Authelia"; an Authelia migration is _planned_
   (`llm-notes/plans/authelia-migration-plan.md`) but not done. kube
@@ -259,22 +259,22 @@ false premise.** Two facts independently kill it:
    erebonia lives in `management`/VLAN 11, whose `gateway = "bt8gw"`. To
    thebeyond, everything from bt8gw-side hosts arrives over the transit /30 and
    is classified as the single `transit` zone (`hosts/thebeyond/router.nix:364`;
-   the comment is explicit — *"BT8-gateway's fw4 is the source-zone enforcer"*).
+   the comment is explicit — _"BT8-gateway's fw4 is the source-zone enforcer"_).
    thebeyond cannot match a `cluster` zone against traffic it only ever sees as
    `transit`.
 
 So the cluster inherits erebonia's existing reachability. Each flow the report
 wanted, mapped to the path it actually takes and what already permits it:
 
-| Flow | Target zone | Path | Already permitted by |
-|---|---|---|---|
-| basel:443 (cert-manager ACME) | management/11 | **intra-VLAN-11** (same subnet as erebonia) | L2 — no forward chain. Proven: Chunk 2a issuer reached Ready. |
-| tharbad (metrics/logs push) | management/11 | **intra-VLAN-11** | L2 — no forward chain. erebonia already in the fluent-bit push set. |
-| liberl:3260 (iSCSI, deferred) | management/11 | **intra-VLAN-11** | L2 — no forward chain (when CSI lands). |
-| creil:443/80/22 (registry) | app/50 | bt8gw `management → app` | **Existing** `Allow-management-to-creil-forgejo` (src `10.97.11.0/24`). |
-| phantasma:53 (DNS) | network/10 (thebeyond) | bt8gw `management → transit` → thebeyond | **Existing** management→transit (erebonia resolves DNS today). |
-| internet (chart/image pulls) | external | bt8gw `management → transit` → thebeyond WAN | **Existing & proven** — Chunk 2 pulled quay.io/ghcr.io images. |
-| kubectl :6443 ingress | from trusted/20, lab/21 | bt8gw trusted/lab → management | **Existing** (VLAN 20/21 → 11 access; `project_bt8gw_vlan_20_21_to_11_access`). |
+| Flow                          | Target zone             | Path                                         | Already permitted by                                                            |
+| ----------------------------- | ----------------------- | -------------------------------------------- | ------------------------------------------------------------------------------- |
+| basel:443 (cert-manager ACME) | management/11           | **intra-VLAN-11** (same subnet as erebonia)  | L2 — no forward chain. Proven: Chunk 2a issuer reached Ready.                   |
+| tharbad (metrics/logs push)   | management/11           | **intra-VLAN-11**                            | L2 — no forward chain. erebonia already in the fluent-bit push set.             |
+| liberl:3260 (iSCSI, deferred) | management/11           | **intra-VLAN-11**                            | L2 — no forward chain (when CSI lands).                                         |
+| creil:443/80/22 (registry)    | app/50                  | bt8gw `management → app`                     | **Existing** `Allow-management-to-creil-forgejo` (src `10.97.11.0/24`).         |
+| phantasma:53 (DNS)            | network/10 (thebeyond)  | bt8gw `management → transit` → thebeyond     | **Existing** management→transit (erebonia resolves DNS today).                  |
+| internet (chart/image pulls)  | external                | bt8gw `management → transit` → thebeyond WAN | **Existing & proven** — Chunk 2 pulled quay.io/ghcr.io images.                  |
+| kubectl :6443 ingress         | from trusted/20, lab/21 | bt8gw trusted/lab → management               | **Existing** (VLAN 20/21 → 11 access; `project_bt8gw_vlan_20_21_to_11_access`). |
 
 **bt8gw firewall rules required for the cluster: NONE.** Every flow maps to a
 `config forwarding` zone-pair directive that already exists on bt8gw
@@ -286,11 +286,11 @@ The masqueraded cluster rides erebonia's host identity — and erebonia-the-host
 already has all these flows. Chunk 2's successful deploy (public image pulls +
 basel ACME registration) is the live proof.
 
-  - *Optional audit anchor (not required):* if the operator wants the cluster's
-    intended flows documented in bt8gw's fw4 in the established style, the only
-    non-redundant anchor is erebonia → creil — and even that is already covered
-    by the subnet-scoped `Allow-management-to-creil-forgejo` rule. So there is
-    genuinely nothing to add.
+- _Optional audit anchor (not required):_ if the operator wants the cluster's
+  intended flows documented in bt8gw's fw4 in the established style, the only
+  non-redundant anchor is erebonia → creil — and even that is already covered
+  by the subnet-scoped `Allow-management-to-creil-forgejo` rule. So there is
+  genuinely nothing to add.
 
 **thebeyond firewall rules required: NONE at bootstrap.** The only future
 thebeyond/transit touch is **public ingress**: when a public-facing cluster
@@ -535,7 +535,7 @@ researched approach held exactly:
   predicted.
 - **The clh toml's `path` / `valid_hypervisor_paths` are self-referential to
   the derivation's own `$out`** (confirmed by reading the built toml), so the
-  override's *new* out is exactly where the toml looks — the shipped toml
+  override's _new_ out is exactly where the toml looks — the shipped toml
   resolves as-is with zero editing. Built and checked: the toml's `path` now
   resolves through the symlink to the real `cloud-hypervisor-52.0` binary;
   `kernel`/`image`/`virtio_fs_daemon` (kata-images, virtiofsd) were already
@@ -549,7 +549,7 @@ researched approach held exactly:
   `ConfigPath` selects the hypervisor). A `kata-clh` RuntimeClass manifest was
   added next to `runsc`/`kata-qemu`/`runc-kvm`.
 - `nixosConfigurations.erebonia` toplevel evaluates clean; `kubectl get
-  runtimeclass` will show `kata-clh` after deploy.
+runtimeclass` will show `kata-clh` after deploy.
 
 **Operator deploy-validation (config is eval-clean only):**
 
@@ -696,7 +696,7 @@ deferred.) Validation:
   `trustedInterfaces = [cni0 flannel.1]` from Chunk 1a). Pod egress is
   **masqueraded to erebonia's mgmt IP** and rides erebonia's existing
   reachability (DNS/internet/registry) — no router6 allow is involved and none
-  is added (deliverable E). Per-cluster egress *confinement*, if wanted later,
+  is added (deliverable E). Per-cluster egress _confinement_, if wanted later,
   is erebonia-local (CNI/nftables), not a router change.
 - Appendix-A hostile test runs cleanly under runsc.
 
@@ -764,7 +764,7 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
    _workload_ certs via the cert-manager `ClusterIssuer`; we do not make k3s'
    CA a step-ca intermediate (avoids fighting k3s' built-in cert rotation).
 4. **Dynamic-manifest repo layout. — RESOLVED.** **Monorepo path** (not a
-   separate repo): the cluster's dynamic manifests live in *this* dotfiles repo
+   separate repo): the cluster's dynamic manifests live in _this_ dotfiles repo
    under a structured path — `cluster/manifests/{infrastructure,apps}/` — and
    Flux reconciles that subtree. Rationale: one source of truth alongside the
    Nix platform definition; no second repo to provision, mirror, or auth
@@ -772,8 +772,8 @@ Phases 10 and 11 are most valuable done together. See report Appendix C.
    not a decision): the `GitRepository` URL Flux points at + its read auth
    (deploy key / token for this repo's forge), and whether Flux watches a branch
    or tag. Creating the `GitRepository`/`Kustomization` source remains deferred
-   to the workloads plan (see the Chunk 2c log) — it's no longer *blocked on a
-   decision*, just sequenced after the DevPod shakedown.
+   to the workloads plan (see the Chunk 2c log) — it's no longer _blocked on a
+   decision_, just sequenced after the DevPod shakedown.
 5. **External-facing TLS. — RESOLVED.** Terminate Let's Encrypt at **langport's
    nginx** (existing pattern), proxying to erebonia's k3s ingress. No in-cluster
    ACME / separate public-TLS path.

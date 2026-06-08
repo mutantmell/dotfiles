@@ -8,10 +8,10 @@
 }: {
   nix.package = pkgs.nix;
   nix.settings = {
-    extra-substituters = [ "https://cache.numtide.com" ];
-    extra-trusted-public-keys = [ "niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=" ];
+    extra-substituters = ["https://cache.numtide.com"];
+    extra-trusted-public-keys = ["niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g="];
   };
-  
+
   # Interactive `sops` (editing secrets) loads the admin identity from passage on
   # each invocation. sops-nix's home-manager activation, however, decrypts to a
   # tmpfs path at `home-manager switch` time and needs a key at rest — point it at

@@ -95,7 +95,7 @@ git push origin HEAD:refs/for/main -o topic="<topic>" -o force-push=true
   markdown only. For a real multi-paragraph body, **omit `-o description`** and
   write it in the commit message — AGit uses the first line of the lead commit as
   the title and that commit's body as the description. (With multiple commits it
-  reads the *first* new commit, so put the body-carrying commit first or squash.)
+  reads the _first_ new commit, so put the body-carrying commit first or squash.)
 - Run `./scripts/run-checks.sh` (or the relevant `nix build .#checks…`) locally
   before pushing — CI gates mergeability, but fast local feedback is the point of
   the dev machine's nested `/dev/kvm`.

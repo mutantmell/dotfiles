@@ -23,8 +23,8 @@ a Keycloak→Authelia translation table at the top.
   — IdP **availability** (break-glass SSH/monitoring when Authelia/lldap are
   down). Distinct axis from this plan, which is about AuthN **strength**, audit,
   and incident response. The two intersect on revocation (see F4 vs. that plan's
-  PKI-hygiene appendix, which covers *certificate* revocation; F4 here is *OIDC
-  session/account* revocation).
+  PKI-hygiene appendix, which covers _certificate_ revocation; F4 here is _OIDC
+  session/account_ revocation).
 - [`headscale-integration-plan.md`](./headscale-integration-plan.md) — its threat
   model (friend credential compromise) is a primary driver for F1/F2/F4. MFA for
   admins and an audit trail matter more once friends are on the network.
@@ -47,14 +47,14 @@ Work:
   `two_factor`. **Caveat:** there are **no auth_request-protected domains today**
   (the `access_control.rules` block only has the portal `bypass` rule); the first
   protected domain arrives with the deferred external-ingress workstream. So the
-  `two_factor` policy has nothing to gate *yet* — F1 is most actionable once
+  `two_factor` policy has nothing to gate _yet_ — F1 is most actionable once
   either (a) external ingress lands, or (b) an internal service is put behind
   Authelia `auth_request`.
 - Decide MFA enforcement for the **OIDC consumers**: step-ca SSH login and Perses
   both use `authorization_policy: one_factor` on their clients. Raising these to
   `two_factor` forces MFA at the IdP for every SSH-cert issuance / Perses login —
   evaluate the friction (every `step ssh login` would require a second factor)
-  against the value. This is the higher-impact lever since these clients *exist*
+  against the value. This is the higher-impact lever since these clients _exist_
   today, unlike access-control domains.
 - Complete TOTP or WebAuthn enrollment for each admin user via the Authelia
   portal. Enrollment state lives in the `authelia-main` SQLite (already
@@ -78,8 +78,8 @@ authelia-main.service`).
 Residual work (small):
 
 - Add a saved query / Perses (VictoriaLogs datasource) dashboard panel for
-  "auth events by user/result over time" so the audit trail is *usable*, not
-  just *captured*. The dashboards-as-code pattern on tharbad
+  "auth events by user/result over time" so the audit trail is _usable_, not
+  just _captured_. The dashboards-as-code pattern on tharbad
   (`tharbad/modules/dashboards`) is the home for this.
 - Optionally set an explicit `log.file_path` only if a separate audit stream
   (distinct retention) is wanted; not needed for basic centralization.
@@ -121,7 +121,7 @@ in view when writing the runbook so it's coherent end to end.
 ## F5 — Conscious decision: no mTLS for internal service communication
 
 **This is a recorded decision, not future work.** Internal services (Prometheus
-scraping, VictoriaLogs ingestion, step-ca ACME) authenticate via TLS *server*
+scraping, VictoriaLogs ingestion, step-ca ACME) authenticate via TLS _server_
 certificates but not mutual TLS — any host on the same VLAN can reach them, and
 the **zone firewall (router nftables) is the primary access control**.
 
@@ -135,7 +135,7 @@ workloads co-located with infrastructure services on the same zone. The step-ca
 X5C/fleet-mTLS machinery to support it already exists (it's used today for the
 fluent-bit fleet agents), so the cost to introduce mTLS later is bounded.
 
-(Note: this is partially *already* contradicted-in-a-good-way by the fleet
+(Note: this is partially _already_ contradicted-in-a-good-way by the fleet
 fluent-bit agents, which **do** use X5C-issued client certs to push logs/metrics
-— so the "no mTLS" posture is specifically about the *scrape/ingest server*
+— so the "no mTLS" posture is specifically about the _scrape/ingest server_
 side and inter-service calls that don't already have it, not an absolute.)

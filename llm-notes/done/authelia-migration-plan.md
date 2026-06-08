@@ -116,14 +116,14 @@ name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
   sops state at all (same pattern as oracion/bose/ravennue). No operator
   secrets follow-up remains. **Knock-on for Phase 3:** Keycloak now has **zero live consumers** (perses and
   step-ca point at `authelia.internal`; langport's proxy is gone), so the
-  Keycloak *removal* half of Phase 3 is unblocked and decoupled from the still-
+  Keycloak _removal_ half of Phase 3 is unblocked and decoupled from the still-
   deferred external `auth.mutantmell.net` → Authelia cutover.
 - Phase 3 — **removal half DEPLOYED + validated** (2026-06-05); external cutover
   half still DEFERRED. Deployed to `calvard`; `step ssh login` confirmed still
   issuing SSH certs (step-ca→Authelia path intact post-Keycloak-removal). A
   Perses-login regression surfaced during validation and was fixed — see the
   "Perses token-endpoint auth-method" note under Phase 2a below (repo-fixed,
-  pending messeldam redeploy + retest). The Keycloak *removal* (steps 3–7) is done in the
+  pending messeldam redeploy + retest). The Keycloak _removal_ (steps 3–7) is done in the
   repo: `keycloak.nix` + `homelab-realm.json` deleted, the two `keycloak_*` sops
   secrets dropped (sops sync also pruned their ciphertext from `secrets.yaml`),
   messeldam reduced to 512MB/1 vCPU, and the `messeldam = 6` registry comment +
@@ -960,7 +960,7 @@ Repo changes landed (removal half only; the external `auth.mutantmell.net`
 cutover, steps 1–2, stays deferred to the cloud-host workstream):
 
 - **`keycloak.nix` deleted in full** and **`homelab-realm.json` deleted.** The
-  module was Keycloak-specific *except* for `services.nginx.enable` +
+  module was Keycloak-specific _except_ for `services.nginx.enable` +
   `recommendedTlsSettings`/`recommendedProxySettings` and
   `networking.firewall.allowedTCPPorts = [80 443]`, which the Authelia portal
   vhost and lldap's admin vhost both depend on (they rely on
@@ -1027,7 +1027,7 @@ setup. Findings:
   and `ban_time` but **not** `max_retries`, and the regulator treats
   `max_retries == 0` as disabled — so an omitted `regulation` block leaves the
   portal login unthrottled. Added `regulation { modes = [user]; max_retries =
-  10; find_time = "15 minutes"; ban_time = "15 minutes"; }` to `authelia.nix`,
+10; find_time = "15 minutes"; ban_time = "15 minutes"; }` to `authelia.nix`,
   matching Keycloak's policy (per-account lockout; ban records persist in the
   authelia-main SQLite). Lower urgency today since the portal is internal-only,
   but it becomes load-bearing the moment the deferred external cutover exposes

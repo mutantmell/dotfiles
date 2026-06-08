@@ -26,7 +26,7 @@ Supersedes the dev-container portion of
 `llm-notes/wip/k3s-cluster-workloads-plan.md` **Phase A** — that section's
 "default to `kata-clh` (validated)" + custom nested-virt guest kernel is
 **replaced** by the KubeVirt-VM substrate decided here (see "Decision" below).
-The Phase-A PoC stands as proof the *cluster* works; the *runtime substrate*
+The Phase-A PoC stands as proof the _cluster_ works; the _runtime substrate_
 changes.
 
 Depends on:
@@ -38,7 +38,7 @@ Depends on:
 
 ---
 
-## Decision (item 1) — KubeVirt VM as the boundary; devpod runs the devcontainer *inside* it; drop the kata-clh custom kernel
+## Decision (item 1) — KubeVirt VM as the boundary; devpod runs the devcontainer _inside_ it; drop the kata-clh custom kernel
 
 The substrate is a **KubeVirt `VirtualMachine`** (regular NixOS kernel, KVM
 enabled). erebonia's host is already `kvm_intel nested=1`, so **nested virt is
@@ -82,7 +82,7 @@ operator workstation                 erebonia (k3s + KubeVirt)
 
 ### Rejected alternatives
 
-- **devpod kubernetes *driver*.** Creates an ordinary **Pod**, not a KubeVirt
+- **devpod kubernetes _driver_.** Creates an ordinary **Pod**, not a KubeVirt
   VM, and has no KubeVirt awareness — it cannot place the workload inside the
   VM, and a pod gets in-microVM `/dev/kvm` only via the kata custom kernel we
   are retiring. (This was the core misconception: installing KubeVirt in the
@@ -94,7 +94,7 @@ operator workstation                 erebonia (k3s + KubeVirt)
   tooling we're leaving behind.
 - **KubeVirt's own cloud-hypervisor backend.** Under development only
   (v1.8 HAL, not production) — KubeVirt is QEMU/KVM via libvirt today. Not a
-  current option; QEMU/KVM in the VM is fine (the *guest's* KVM is what runs
+  current option; QEMU/KVM in the VM is fine (the _guest's_ KVM is what runs
   the nested tests, not the host VMM).
 
 ---
@@ -117,7 +117,7 @@ operator workstation                 erebonia (k3s + KubeVirt)
    group. **containerDisk** (ephemeral, pulled from `creil`) fits the
    ephemeral-sandbox model and needs **no CSI** — CSI/DataVolume durability is
    the edith/trista path, deferred there. The image is deliberately thin: the
-   *dev tooling* lives in the devcontainer image (Phase 2), not the VM. VM =
+   _dev tooling_ lives in the devcontainer image (Phase 2), not the VM. VM =
    boundary + docker + sshd.
 
 ## Phase 2 — `devcontainer.json` + custom dev image (item 2) — DONE
@@ -153,10 +153,9 @@ step documented in the package header. Implementation decisions:
   needs egress Phase 5 forbids and would mutate the toolchain mid-session,
   losing image-digest ↔ claude-version auditability. The lockdown-respecting
   runtime path (mirror to creil, pull at session start) is reserved for the
-  *persistent* workstation track, not these ephemeral sessions.
+  _persistent_ workstation track, not these ephemeral sessions.
 
 Original spec:
-
 
 1. **`devcontainer.json` in the repo root.** Pin the custom image (Phase 2.2)
    from `creil`. Set `"runArgs": ["--device=/dev/kvm"]`. Keep `postCreate`
@@ -207,12 +206,12 @@ provider. Implementation decisions:
   `up` `nix build`s `.#dev-machine-dev-image` and `skopeo copy`s it to creil by
   default (`--no-rebuild` to skip).
 - **Registry auth is a preflight, not a buried failure.** A one-time `skopeo
-  login forgejo.internal` is still required (durable workstation `auth.json`,
+login forgejo.internal` is still required (durable workstation `auth.json`,
   not per-session state this tool owns), but `require_login` checks it up front
   via `skopeo login --get-login` and prints the exact command instead of letting
   a raw registry-auth error surface mid-`up`.
 - **The base containerDisk is auto-published on demand.** `up` `skopeo
-  inspect`s the base ref and builds+pushes it if absent (first use / GC'd), so
+inspect`s the base ref and builds+pushes it if absent (first use / GC'd), so
   it is no longer a manual prerequisite. The base changes rarely and KubeVirt
   caches it, so this only fires when actually missing; the explicit
   `publish-base` subcommand stays for forcing a re-push after a base-config bump
@@ -235,12 +234,12 @@ Original spec:
   the operator's stated concern.
 - **NOT a top-level repo Justfile for the orchestration** — agents read the
   repo, so a Justfile that drives devpod is discoverable and defeats the
-  lockdown intent. (A repo Justfile/`just check` for *in-sandbox* dev tasks is
+  lockdown intent. (A repo Justfile/`just check` for _in-sandbox_ dev tasks is
   a separate, fine thing.)
 - Concretely: a `home/modules/dev-machine.nix` (or extend
   `home/modules/kube.nix`) with `writeShellApplication` wrappers —
   `dev-machine up <repo>` / `down` / `ssh` / `list` — thin over standard
-  `devpod` + `kubectl`/`virtctl`. This is cc-sandbox's *good* part (the
+  `devpod` + `kubectl`/`virtctl`. This is cc-sandbox's _good_ part (the
   init/up/down/ssh/list ergonomics) without the 1100 lines of bespoke Python,
   OIDC, and token-cache code.
 - **Start:** wrapper creates the VM + `devpod up --provider ssh --ide none`.
@@ -250,7 +249,7 @@ Original spec:
   currency is meant to come from a CI republish job that doesn't exist yet. The
   wrapper can carry that cadence in the meantime: have `dev-machine up`
   **build + push the dev image on create by default** (`nix build
-  .#dev-machine-dev-image` → `skopeo copy` to creil) before bringing the
+.#dev-machine-dev-image` → `skopeo copy` to creil) before bringing the
   workspace up. It's cheap — claude comes prebuilt from numtide's cache, so it's
   a cache-pull + push, not a real build — and it guarantees each session starts
   on a current claude with no CI dependency. A `--no-rebuild` flag skips it for
@@ -265,7 +264,7 @@ the sops secret). Resolved decisions (2026-06-07):
 
 - **Credential = a per-session SSH key on the `cc` bot account (SSH), minted via
   the API.** `cc` is the Forgejo user the dev machines run/push as. `dev-machine
-  up` generates a fresh ed25519 keypair and `POST`s the public half as an **SSH
+up` generates a fresh ed25519 keypair and `POST`s the public half as an **SSH
   key on the cc account** (`/api/v1/user/keys`, authed with cc's own token),
   records the key id, and `down` `DELETE`s it. Pushes authenticate **as cc**, so
   the blast radius is whatever cc can write to — bound it by scoping cc's repo
@@ -280,23 +279,23 @@ the sops secret). Resolved decisions (2026-06-07):
   and **never enters the VM/sandbox**. This is the cc-sandbox `forgejoTokenFile`
   pattern. (Operator step: generate cc's token —
   `forgejo admin user generate-access-token --username cc --scopes write:user
-  --token-name dev-machine` — then `sops home/hosts/edith/secrets/secrets.yaml` →
+--token-name dev-machine` — then `sops home/hosts/edith/secrets/secrets.yaml` →
   `dev-machine-forgejo-token: …`.)
 - **Injection: private key → devcontainer over two one-shot `devpod ssh` execs**
   (`--start-services=false`). The first streams the key in over stdin (never in
   argv); the second writes `~/.ssh/config` pinning the key to forgejo and sets
   `git config --global url."git@forgejo.internal:".insteadOf
-  "https://forgejo.internal/"` so **pushes use ONLY this cc key over SSH** (and
+"https://forgejo.internal/"` so **pushes use ONLY this cc key over SSH** (and
   route around devpod's HTTP credential helper), plus the cc commit identity
   (`commitName`/`commitEmail` options, default `cc`).
   - **Resolved 2026-06-07: author commits as the operator, not `cc`.** edith sets
     `commitName`/`commitEmail` to the operator's real identity — auth stays `cc`
     (branch protection unchanged), only the author metadata moves, adding no
-    credential. Commit *signing* is deferred to post-Phase-5 (a signing key would
+    credential. Commit _signing_ is deferred to post-Phase-5 (a signing key would
     be a second, operator-identity, exfiltratable credential in the sandbox).
 - **devpod host-credential forwarding is disabled** (`--start-services=false` on
   the `ssh` path too) so the operator's git/docker credentials are never proxied
-  into the session — the deploy key is the sandbox's *only* push path, keeping
+  into the session — the deploy key is the sandbox's _only_ push path, keeping
   the "exactly one credential, never the operator identity" guarantee
   ([[project_keysjson_certonly_endstate]]).
 - **Consequence for Phase 5:** the deploy-key push path needs **forgejo SSH
@@ -360,12 +359,12 @@ key/cert:
   (Gmail / Google Drive / Calendar) into every session — observed as
   `mcp__claude_ai_*__authenticate` tools + a `mcp-needs-auth-cache.json` entry,
   routed through `mcp-proxy.anthropic.com`. **Not a live exposure today:** the
-  connectors are *unauthenticated* (the operator has never granted them), so the
+  connectors are _unauthenticated_ (the operator has never granted them), so the
   only tools surfaced are `authenticate`/`complete_authentication`, which need an
   interactive browser consent an autonomous sandbox agent cannot complete — there
   is no data to read. **Why it's latent, not closed:** authorization is
-  *account-level*, not per-sandbox. If the operator ever connects Gmail/Drive/
-  Calendar on their claude.ai account (for any unrelated reason), *every* sandbox
+  _account-level_, not per-sandbox. If the operator ever connects Gmail/Drive/
+  Calendar on their claude.ai account (for any unrelated reason), _every_ sandbox
   session silently inherits that access — no per-sandbox opt-in. It also
   interacts with the OAuth-token exposure below: a stolen token's worst case
   stays bounded only while the account has no connectors authorized.
@@ -379,7 +378,7 @@ key/cert:
   scope** over the access token — both are the same Pro identity with scopes
   `user:inference`, `user:mcp_servers`, `user:profile`, `user:file_upload`,
   `user:sessions:claude_code` (no API-billing, no org/admin scope) — it only
-  makes the credential *durable* (re-mints access tokens past the ~8h access-token
+  makes the credential _durable_ (re-mints access tokens past the ~8h access-token
   TTL until revoked). **Accepted (2026-06-07):** sessions may legitimately run
   longer than the access-token TTL for long/complex tasks, so the refresh token
   must persist. With connectors unauthorized (above), the token's worst case is
@@ -402,11 +401,11 @@ Why this over an in-sandbox API token (the "Path B" explored and **dropped**
 
 - **Forgejo can't mint a token via token-auth** — `/users/{name}/tokens`
   requires password BasicAuth ([gitea#21186]), so true per-session token minting
-  would force `cc`'s *account password* into sops (a far more powerful secret
+  would force `cc`'s _account password_ into sops (a far more powerful secret
   than a scoped token).
 - **The short-lived auto-mint primitives are Actions-job-only.** The Actions
   per-job auto-token and Forgejo **v15** OIDC-for-Actions mint scoped, ephemeral
-  creds with no stored secret — but only *inside* an Actions job, not for an
+  creds with no stored secret — but only _inside_ an Actions job, not for an
   external client like the dev-machine VM. Forgejo has **no GitHub-App
   installation-token equivalent**.
 - AGit sidesteps all of it: PR creation happens at the **git push layer** with
@@ -418,7 +417,7 @@ rebases/amends); `-o title=` / `-o description=` set the metadata. Works over SS
 (the sandbox's transport) and is **on by default** in Forgejo — confirm there's
 no `ENABLE_AGIT` override on creil. **Composes with branch protection:** AGit
 pushes to `refs/for/*`, never the protected branch directly, so the agent can
-only *propose*, never merge protected `main`.
+only _propose_, never merge protected `main`.
 
 Division of labor (resolved):
 
@@ -431,7 +430,7 @@ Division of labor (resolved):
   ([gitea#23884]); key checks on the `push` event (always fires) if the
   `pull_request` trigger doesn't pick them up.
 - **Forgejo Actions → NOT adopted** for this use case. With Woodpecker as the CI
-  substrate, a Forgejo Actions runner would *overlap/conflict* (two
+  substrate, a Forgejo Actions runner would _overlap/conflict_ (two
   run-CI-on-push engines competing for the same events and posting duplicate
   commit statuses). Revisit only if **event-driven forge glue** (auto-label,
   comment-triggered bots, CODEOWNERS gating) is later wanted — and weigh that
@@ -467,7 +466,7 @@ nixosTest surfaced concrete requirements, all landed:
 - Trust creil's step-ca (`caCerts` = pki root+intermediate, threaded from the
   flake boundary so `configuration.nix` stays standalone) — needed to clone the
   workspace over HTTPS and to docker-pull the dev image.
-- `git` on the VM — devpod's SSH provider clones the repo on the agent *host*.
+- `git` on the VM — devpod's SSH provider clones the repo on the agent _host_.
 - A separate ephemeral **`scratch` emptyDisk (default 60Gi, `--disk`) mounted at
   `/var/lib/docker`** (autoFormat). The OS root stays `auto`-sized; docker data +
   in-container builds (the nixosTest VM images) live on scratch. Bloating the root
@@ -523,8 +522,8 @@ nixosTest surfaced concrete requirements, all landed:
   [[project_kata_guest_kernel_no_nested_kvm]] and
   [[project_nixpkgs_kata_qemu_only_clh_override]] become historical here.
 - **cc-sandbox bespoke orchestration** — replaced by `devcontainer.json` +
-  devpod + thin home-manager wrappers. We keep its *ergonomics* (named
-  per-repo workspaces, up/down/ssh/list) and its *Attic-cached dev shell*
+  devpod + thin home-manager wrappers. We keep its _ergonomics_ (named
+  per-repo workspaces, up/down/ssh/list) and its _Attic-cached dev shell_
   intent (now via the devcontainer image + `zeiss`), and drop its bespoke
   Python/OIDC/cgroup-seccomp code and its hand-rolled `nix copy` dev-shell
   shipping.

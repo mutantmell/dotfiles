@@ -14,13 +14,13 @@ imported as-is and never regenerated.
 Required files (5), each the public cert from erebonia
 `/var/lib/rancher/k3s/server/tls/`:
 
-| file here | source on erebonia |
-|---|---|
-| `server-ca.crt` | `tls/server-ca.crt` |
-| `client-ca.crt` | `tls/client-ca.crt` |
+| file here               | source on erebonia          |
+| ----------------------- | --------------------------- |
+| `server-ca.crt`         | `tls/server-ca.crt`         |
+| `client-ca.crt`         | `tls/client-ca.crt`         |
 | `request-header-ca.crt` | `tls/request-header-ca.crt` |
-| `etcd-server-ca.crt` | `tls/etcd/server-ca.crt` |
-| `etcd-peer-ca.crt` | `tls/etcd/peer-ca.crt` |
+| `etcd-server-ca.crt`    | `tls/etcd/server-ca.crt`    |
+| `etcd-peer-ca.crt`      | `tls/etcd/peer-ca.crt`      |
 
 Everything else under `tls/` (the `client-*`/`serving-*` leaves, the
 `*.nochain.crt` derivations, the etcd leaf certs) is minted and rotated by

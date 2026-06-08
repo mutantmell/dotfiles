@@ -5,8 +5,8 @@ This document is for me (the operator) to put down open questions. LLM Agents ca
   - don't unconditionally push the image (detect when not changed?)
   - have a "refresh" command to tear down and setup?0
   - check the current repo for a git reference if a url isn't provided?
-	- maybe also a devcontainers file.
-	- autoresolve the name?
+  - maybe also a devcontainers file.
+  - autoresolve the name?
   - how can we clean up the image repo, so it doesn't get gunked up with garbage?
   - clean up errors on startup (see below)
   - other enhancements/changes (CLI improvements?)
@@ -46,7 +46,7 @@ errors:
 ==> provisioning scoped push credential (cc SSH key for mutantmell/dotfiles)
 git 17:48:58 error Error tunneling to container: wait: remote command exited without exit status or exit signal
 
-dev machine 'test' is up. Connect with:  dev-machine ssh test
+dev machine 'test' is up. Connect with: dev-machine ssh test
 
 also errors on disconnect:
 
