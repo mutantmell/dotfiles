@@ -3,18 +3,18 @@ This document is for me (the operator) to put down open questions. LLM Agents ca
 - dev-machine enhancements:
   - add zellij and wezterm?
   - don't unconditionally push the image (detect when not changed?)
-  - have a "refresh" command to do dev-container tear down and setup? This would be a half-step that would allow me to iterate faster on the devcontainer, without tearing down and setting up the VM every time.
-  - check the current repo for a git reference if a url isn't provided?
-  - maybe also a devcontainers file.
-  - autoresolve the name with DNS, once the VMs get DNS.
+  - have a "refresh" command to do dev-container tear down and setup? This would be a half-step that would allow me to iterate faster on the devcontainer, without tearing down and setting up the VM every time. (resolved)
+  - check the current repo for a git reference if a url isn't provided? (resolved)
+  - maybe also a devcontainers file. (resolved)
+  - autoresolve the name with DNS, once the VMs get DNS. (planned)
   - how can we clean up the image store on forgejo, so it doesn't get gunked up with garbage? Does it actually?
   - clean up errors on startup (see below)
   - other enhancements/changes (CLI improvements?)
   - better authelia integration (without copy/pasting a token from a uri)
-  - how do I access a dev machine from rootpod? Should we be giving them generated host-names and DNS entries?
-  - prevent nix shell from being able to install additional things into the container, while allowing the flake in this dotfiles to be build
+  - how do I access a dev machine from rootpod? Should we be giving them generated host-names and DNS entries? (planned)
+  - prevent nix shell from being able to install additional things into the container, while allowing the flake in this dotfiles to be build (planned)
   - how do we get claude to better be able to one-shot things, without requiring many permissions checks, now that we're not running on an operator machine?
-  - run on cloud-hypervisor, not qemu?
+  - run on cloud-hypervisor, not qemu? (resolved)
 - macvlan on erebonia for all of k3s (to enable better lockdowns)
 - remove kata entirely (unless needed, but current use-cases are supported better by KubeVirt)
 - once this is enabled, we should figure out what containers go to what VLANs (everything lives off of erebonia's MGMT ip address, it bypasses a lot)

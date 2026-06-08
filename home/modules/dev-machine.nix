@@ -571,10 +571,20 @@
                       ;;
               esac
           done
-          [[ -n "$source" ]] || {
-              echo "usage: dev-machine up <repo-url-or-path> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]" >&2
-              return 1
-          }
+          # No source given: resolve the current checkout's `origin` URL and use
+          # THAT — identical to passing the URL by hand (devpod clones the default
+          # branch in the VM), not the local working tree. We only translate "here"
+          # into the equivalent remote URL; the branch/commit is whatever a fresh
+          # clone gets. A CWD with no origin remote is a usage error.
+          if [[ -z "$source" ]]; then
+              if source=$(git -C "$PWD" remote get-url origin 2>/dev/null) && [[ -n "$source" ]]; then
+                  echo "==> no repo given; using current checkout's origin: $source" >&2
+              else
+                  echo "usage: dev-machine up [<repo-url-or-path>] [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]" >&2
+                  echo "       (omit the repo to use the current directory's origin remote URL)" >&2
+                  return 1
+              fi
+          fi
           if [[ -z "$name" ]]; then
               name=$(basename "$source")
               name="''${name%.git}"
@@ -737,6 +747,50 @@
           # exit-status). Trade-off: start-services=false also forgoes devpod
           # port-forwarding; run `devpod ssh <name>` directly if you need that.
           devpod ssh "$name" --start-services=false --agent-forwarding=false
+      }
+
+      # Recreate just the devcontainer on an already-running VM — the fast
+      # iteration loop for devcontainer.json / dev-image changes, WITHOUT the
+      # multi-minute VM create+boot of a full `down`/`up`. `devpod up --recreate`
+      # tears the container down and rebuilds it over the existing tunnel; the VM,
+      # its scratch disk, and the local state all survive. A recreate produces a
+      # fresh container, so the per-session cc push key `up` injected is gone —
+      # re-inject it from saved state (the key still lives on the cc account; no
+      # token or re-mint needed) so the refreshed container can push immediately.
+      cmd_refresh() {
+          local name=""
+          while [[ $# -gt 0 ]]; do
+              case "$1" in
+                  -*) echo "unknown flag: $1" >&2; return 1 ;;
+                  *)
+                      if [[ -z "$name" ]]; then name="$1"; shift
+                      else echo "unexpected arg: $1" >&2; return 1; fi
+                      ;;
+              esac
+          done
+          name=$(sanitize "$name")
+          [[ -n "$name" ]] || { echo "usage: dev-machine refresh <name>" >&2; return 1; }
+          local statedir="$STATE/$name"
+          [[ -d "$statedir" ]] || { echo "no such dev machine: $name" >&2; return 1; }
+          dm_login || return 1
+          [[ -f "$statedir/port" ]] || {
+              echo "no recorded port for $name; was it created by 'dev-machine up'?" >&2
+              return 1
+          }
+          ensure_portforward "$name" "$(cat "$statedir/port")" "$statedir" || return 1
+
+          echo "==> recreating the devcontainer (devpod up --recreate; VM untouched)"
+          devpod up "$name" --provider "dm-$name" --ide none --recreate || {
+              echo "refresh failed; inspect with 'dev-machine list' / 'dev-machine console $name'." >&2
+              return 1
+          }
+          if [[ -f "$statedir/deploy_key" ]]; then
+              echo "==> re-injecting the scoped push credential"
+              inject_deploy_key "$name" "$statedir/deploy_key" \
+                  || echo "warning: push-credential re-injection failed; re-run 'dev-machine up' to restore it" >&2
+          fi
+          echo
+          echo "dev machine '$name' refreshed. Connect with:  dev-machine ssh $name"
       }
 
       # Serial console to the VM — uses the pinned virtctl + the wrapper's OIDC
@@ -1005,8 +1059,10 @@
           cat >&2 <<'USAGE'
       dev-machine — locked-down LLM dev machines on KubeVirt
 
-        dev-machine up <repo> [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]
+        dev-machine up [<repo>] [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]
+                                             (omit <repo> to use the current directory's checkout)
         dev-machine ssh <name> [--recover]   (--recover: restart a dead devcontainer agent before ssh)
+        dev-machine refresh <name>           (recreate just the devcontainer on the running VM — fast iterate on devcontainer.json)
         dev-machine console <name>
         dev-machine list
         dev-machine rescue <name> [--no-revive] (recover a wedged-but-alive VM to a working devcontainer; backs up the working tree first. --no-revive: back up only)
@@ -1024,6 +1080,7 @@
       case "$cmd" in
           up) cmd_up "$@" ;;
           ssh) cmd_ssh "$@" ;;
+          refresh) cmd_refresh "$@" ;;
           console) cmd_console "$@" ;;
           rescue) cmd_rescue "$@" ;;
           list | ls) cmd_list "$@" ;;
