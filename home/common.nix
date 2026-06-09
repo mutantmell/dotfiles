@@ -57,13 +57,17 @@
   };
 
   programs.tmux = {
-    enable = true;
+    enable = false;
     newSession = true;
     plugins = let
       inherit (pkgs) tmuxPlugins;
     in [
       tmuxPlugins.continuum
     ];
+  };
+
+  programs.zellij = {
+    enable = true;
   };
 
   programs.htop = {
