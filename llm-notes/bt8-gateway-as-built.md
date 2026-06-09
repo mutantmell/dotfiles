@@ -16,6 +16,11 @@ Source dumps live in `temp/`:
   after the Nix-side re-IPs deploy. Companion to
   [`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
   Section A.
+- `temp/BT8-gw-cluster-vlan51-additions.uci` — L2/L3 + fw4 additions for the
+  cluster VLAN 51 bring-up (dev-machine isolation). Companion to
+  [`plans/cluster-vlan-bringup-checklist.md`](plans/cluster-vlan-bringup-checklist.md)
+  Phases B.1 + C. **Staged**; L3 termination reported live 2026-06-09 (see the
+  Cluster VLAN 51 section below).
 
 This file captures (a) deltas from
 [`guides/bt8-gateway-luci-runbook.md`](guides/bt8-gateway-luci-runbook.md),
@@ -226,6 +231,55 @@ exists (Phase 5.A), so no new `config forwarding` was needed:
 IPv4-only: lldap on messeldam binds `0.0.0.0` (IPv4) and its host firewall
 admits only oracion's IPv4, so there's no v6 path to open. Add a v6 dest_ip
 plus a matching messeldam-side input rule only if lldap is later dual-stacked.
+
+## Cluster VLAN 51 additions (2026-06-09) — dev-machine isolation
+
+UCI source: `temp/BT8-gw-cluster-vlan51-additions.uci`. Companion to
+[`plans/cluster-vlan-bringup-checklist.md`](plans/cluster-vlan-bringup-checklist.md)
+Phases B.1 (L2) + C (fw4). Stands up the low-trust `cluster` zone
+(`10.97.51.0/24` + `fdc6:55f2:0a5e:1033::/64`) where the locked-down KubeVirt
+dev-machine lives, router-confined off erebonia's VLAN-11 management plane. The
+erebonia flake half (`uplink.51` + host-IP-less `br51`) landed separately; this
+is the bt8gw-manual half.
+
+**Status (2026-06-09):** L3 termination **reported live** — `ping 10.97.51.1`
+answers. So §1 (L2 trunk + L3 interface, B.1/C.1) is at least partly applied.
+The fw4 zone + egress allowlist (§2, C.2–C.7) status is **unconfirmed** — verify
+against `uci show firewall` and the §3 smoke test before treating the dev-VM
+egress as confined.
+
+L3 termination (same shape as APP/50 — see "Trunk port architecture"):
+
+| Layer  | Object              | Detail                                            |
+| ------ | ------------------- | ------------------------------------------------- |
+| wired  | `br0` bridge-vlan   | tag 51 on `lan2:t`                                |
+| mesh   | `bat0.51`           | 8021q sub-device                                  |
+| bridge | `br-v51`            | members `bat0.51` + `br0.51`                      |
+| L3     | interface `cluster` | `10.97.51.1/24` + `…1033::1/64`, no default route |
+
+fw4 cluster zone — default-deny, egress allowlist only:
+
+| Direction                 | Flow                                   | Ports                                  |
+| ------------------------- | -------------------------------------- | -------------------------------------- |
+| `cluster → Device(input)` | dev VM → bt8gw dnsmasq (resolver)      | udp/tcp 53                             |
+| `cluster → app`           | dev VM → creil (git)                   | tcp 22, 443                            |
+| `cluster → app`           | dev VM → zeiss (Attic)                 | tcp 443                                |
+| `cluster → transit`       | dev VM → WAN via thebeyond NAT         | (broad; thebeyond gates onward)        |
+| `cluster → *`             | management / lab / trusted / app-other | **deny** (zone forward REJECT default) |
+
+**fw4 gotcha — the one real risk here (same root as Phase 5.A).** The Phase-5.A
+note records that per-rule inter-zone ACCEPTs don't fire on this fw4 version
+unless a `config forwarding` opens the zone pair — but that forwarding is a
+**broad** accept the per-rule entries can't tighten. For `transit → app` that
+was acceptable (broad was wanted). For **`cluster → app` it is not**: a broad
+accept hands the untrusted dev VM all of app (oracion, saint-arkh, …), which is
+exactly the blast radius the dedicated `cluster` zone exists to avoid
+(workload-network-isolation-plan.md "Why a dedicated zone, not app"). The staged
+UCI therefore ships the plain per-rule form **plus a `§2b` nft config-include
+fallback** that enforces the three-flow allowlist with an explicit drop. **Which
+one actually restricts must be verified on the device** (`nc` to oracion
+`10.97.50.52:443` from VLAN 51 MUST time out); run-checks.sh cannot catch this.
+Record which mechanism ended up enforcing once verified.
 
 ## Loose ends / follow-ups
 

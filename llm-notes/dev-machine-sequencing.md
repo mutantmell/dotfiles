@@ -1,6 +1,6 @@
 # Dev-Machine Lockdown + Mobile Access — Cross-Plan Sequencing
 
-**Last updated: 2026-06-08.** A navigation/sequencing index, **not** a plan — it
+**Last updated: 2026-06-09.** A navigation/sequencing index, **not** a plan — it
 has no lifecycle status of its own. It ties together the plans that finish two
 goals and records the order their phases must land in _relative to each other_:
 
@@ -42,10 +42,21 @@ Plans referenced:
   nothing on thebeyond names a bt8gw-owned zone, so it was inert; see checklist
   A.2.) Landed 2026-06-08 (checks green).
 
+- **Checklist B flake-half** (isolation P2 L2) — erebonia `uplink.51` added to the
+  `uplink` trunk + a **host-IP-less `br51`** bridge (mirrors `br21`, not `br11`);
+  `trustedInterfaces` untouched, so the host keeps zero VLAN-51 surface. Inert
+  until bt8gw carries tag 51. Landed 2026-06-09 (erebonia config evals clean).
+- **Checklist B.1/C.1 bt8gw L3** — VLAN 51 **terminates live on bt8gw**
+  (`ping 10.97.51.1` answers, 2026-06-09). UCI for the full bt8gw half (B.1 + C)
+  staged in `temp/BT8-gw-cluster-vlan51-additions.uci` + as-built note.
+
 **Remaining** — a single critical path through the isolation plan, executed via
-the bring-up checklist. **Next up: Checklist B + C** (stand up VLAN 51 L2 +
-bt8gw fw4 — the bt8gw-manual half). Goal A and Goal B share most of it; Goal B
-adds one step.
+the bring-up checklist. **Next up: finish Checklist C** (bt8gw fw4 cluster zone +
+egress allowlist — the staged UCI's §2/§2b, bt8gw-manual) and verify B.2, then
+**Checklist D**. The sharp item is C.3: the `cluster → app` egress must enforce
+the creil/zeiss-only allowlist (not the broad zone-pair accept the Phase-5.A fw4
+gotcha produces) — verify on the device. Goal A and Goal B share most of it;
+Goal B adds one step.
 
 ---
 
@@ -88,16 +99,16 @@ REMAINING ───────────────────────�
 
 ## Ordered cross-plan checklist
 
-| #    | Step                                                                                                                                                 | Maps to                      | Surface             | Depends on                         |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------- | ---------------------------------- |
-| 1 ✅ | **Checklist A** — `cluster`/VLAN 51 in registry, 16 named dev slots `dev-1`..`dev-16`, DNS via `mkUnboundLocalData` (no router6 stub — see A.2)      | isolation **P1**             | `[flake]`           | **Done 2026-06-08** (checks green) |
-| 2    | **Checklist B** — tag 51: bt8gw `br0` bridge-vlan → mesh → erebonia `uplink.51` + host-IP-less `br51`                                                | isolation **P2** (L2)        | `[L2 + flake]`      | A                                  |
-| 3    | **Checklist C** — bt8gw: terminate VLAN 51 (gw `.1`), cluster fw4 zone, egress allowlist (`creil:{22,443}`, `zeiss:443`, DNS, WAN), `cluster→* deny` | isolation **P2** (fw4)       | `[bt8gw manual]`    | A; pairs with B                    |
-| 4    | **Checklist D** — Multus + bridge CNI, NAD on `br51`, dev-VM manifest `masquerade→multus-only`, pin IP/DNS, rework access path to direct SSH         | isolation **P4**             | `[cluster + flake]` | A, B, C                            |
-| ★    | **GOAL A — devcontainer secured**                                                                                                                    | **= kubevirt P5**            | —                   | D complete                         |
-| 5    | **Checklist E** — bt8gw fw4 `transit→cluster` for `mobile` peer `10.100.10.21` :22 + UDP 60000–61000 → dev band                                      | isolation **P4 rider**       | `[bt8gw manual]`    | D                                  |
-| ★    | **GOAL B — direct mobile access**                                                                                                                    | **= kubevirt P6 pieces 5–6** | —                   | E complete (pieces 1–4 done)       |
-| 6    | **Checklist F** — verify security + mobile + no flannel/microVM regression; move isolation docs to `wip/`                                            | both                         | —                   | D, E                               |
+| #    | Step                                                                                                                                                 | Maps to                      | Surface             | Depends on                                                                 |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------- | -------------------------------------------------------------------------- |
+| 1 ✅ | **Checklist A** — `cluster`/VLAN 51 in registry, 16 named dev slots `dev-1`..`dev-16`, DNS via `mkUnboundLocalData` (no router6 stub — see A.2)      | isolation **P1**             | `[flake]`           | **Done 2026-06-08** (checks green)                                         |
+| 2 ◑  | **Checklist B** — tag 51: bt8gw `br0` bridge-vlan → mesh → erebonia `uplink.51` + host-IP-less `br51`                                                | isolation **P2** (L2)        | `[L2 + flake]`      | flake half **done** 2026-06-09; bt8gw L3 live; B.2 mesh-tag verify pending |
+| 3 ◑  | **Checklist C** — bt8gw: terminate VLAN 51 (gw `.1`), cluster fw4 zone, egress allowlist (`creil:{22,443}`, `zeiss:443`, DNS, WAN), `cluster→* deny` | isolation **P2** (fw4)       | `[bt8gw manual]`    | C.1 live; C.2–C.7 staged (UCI §2/§2b), verify on device                    |
+| 4    | **Checklist D** — Multus + bridge CNI, NAD on `br51`, dev-VM manifest `masquerade→multus-only`, pin IP/DNS, rework access path to direct SSH         | isolation **P4**             | `[cluster + flake]` | A, B, C                                                                    |
+| ★    | **GOAL A — devcontainer secured**                                                                                                                    | **= kubevirt P5**            | —                   | D complete                                                                 |
+| 5    | **Checklist E** — bt8gw fw4 `transit→cluster` for `mobile` peer `10.100.10.21` :22 + UDP 60000–61000 → dev band                                      | isolation **P4 rider**       | `[bt8gw manual]`    | D                                                                          |
+| ★    | **GOAL B — direct mobile access**                                                                                                                    | **= kubevirt P6 pieces 5–6** | —                   | E complete (pieces 1–4 done)                                               |
+| 6    | **Checklist F** — verify security + mobile + no flannel/microVM regression; move isolation docs to `wip/`                                            | both                         | —                   | D, E                                                                       |
 
 ---
 

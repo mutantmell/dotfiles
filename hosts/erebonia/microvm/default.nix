@@ -58,6 +58,13 @@ in {
       netdevConfig.Kind = "bridge";
       netdevConfig.Name = "br21";
     };
+    # Cluster VLAN 51 bridge — host-IP-less (mirror br21, NOT br11): the
+    # KubeVirt dev-machine attaches here via Multus + bridge CNI. The host
+    # holds no VLAN-51 address, so this segment carries no host identity.
+    netdevs."20-br51" = {
+      netdevConfig.Kind = "bridge";
+      netdevConfig.Name = "br51";
+    };
 
     netdevs."20-uplink.11" = {
       netdevConfig.Kind = "vlan";
@@ -74,6 +81,11 @@ in {
       netdevConfig.Name = "uplink.50";
       vlanConfig.Id = 50;
     };
+    netdevs."20-uplink.51" = {
+      netdevConfig.Kind = "vlan";
+      netdevConfig.Name = "uplink.51";
+      vlanConfig.Id = 51;
+    };
     netdevs."20-uplink.100" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "uplink.100";
@@ -87,6 +99,7 @@ in {
         "uplink.11"
         "uplink.21"
         "uplink.50"
+        "uplink.51"
         "uplink.100"
       ];
     };
@@ -123,6 +136,15 @@ in {
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
     };
+    # Enslave the VLAN-51 uplink (and any future microvm vm-51-* tap) into
+    # br51. KubeVirt's bridge CNI enslaves the dev-VM veths into br51 itself.
+    networks."20-vm51-bridge" = {
+      matchConfig.Name = ["uplink.51" "vm-51-*"];
+      networkConfig.Bridge = "br51";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
     # macvtap interfaces for VLAN 50 guests: no host-side IP, just carrier
     networks."20-vm50-macvtap" = {
       matchConfig.Name = "vm-50-*";
@@ -142,6 +164,15 @@ in {
     };
     networks."20-br21" = {
       matchConfig.Name = "br21";
+      networkConfig.DHCP = "no";
+      networkConfig.LinkLocalAddressing = "no";
+      networkConfig.IPv6PrivacyExtensions = "kernel";
+    };
+    # br51 is deliberately host-IP-less (no Address, no DHCP, no
+    # LinkLocalAddressing) — the low-trust cluster segment carries no host
+    # identity. erebonia's management identity stays on br11/VLAN 11.
+    networks."20-br51" = {
+      matchConfig.Name = "br51";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";

@@ -1,7 +1,9 @@
 # Cluster VLAN 51 Bring-up — Status Checklist
 
-**Status: IN PROGRESS — Phase A done (flake), B–F remaining.** Drafted 2026-06-08;
-Phase A landed 2026-06-08.
+**Status: IN PROGRESS — Phase A done (flake); B flake-half done, B/C bt8gw-half
+in flight; D–F remaining.** Drafted 2026-06-08; Phase A landed 2026-06-08.
+Phase B flake half (`uplink.51` + `br51`) landed 2026-06-09; bt8gw L3 termination
+reported live 2026-06-09 (`ping 10.97.51.1` answers).
 
 Companion status doc for
 [`workload-network-isolation-plan.md`](workload-network-isolation-plan.md). This
@@ -87,41 +89,62 @@ router6-firewall` all green.
 
 _Get tag 51 from bt8gw to a bridge on erebonia. The bridge is **host-IP-less**._
 
-- [ ] **B.1** **[bt8gw manual]** Add VLAN 51 to bt8gw's wired trunk: `br0`
-      `bridge-vlan` filtering carries tag 51, plus an L2-passthrough `br-v51` (same
-      pattern as the VLAN-11/20/21 deviation in the dual-gateway checklist). See
-      `guides/bt8-gateway-luci-runbook.md`.
-- [ ] **B.2** **[L2]** Confirm tag 51 traverses the mesh path bt8gw → erebonia
-      (whatever segment erebonia's `uplink` trunk rides). Sanity: `tcpdump` a tagged
-      frame arrives on erebonia.
-- [ ] **B.3** **[flake]** In `hosts/erebonia/microvm/default.nix` add
+- [~] **B.1** **[bt8gw manual]** Add VLAN 51 to bt8gw's wired trunk: `br0`
+  `bridge-vlan` filtering carries tag 51, plus the `br-v51` L3-terminating
+  bridge (`bat0.51` + `br0.51`). UCI staged in
+  `temp/BT8-gw-cluster-vlan51-additions.uci` §1. **L3 termination reported
+  live 2026-06-09** (`ping 10.97.51.1` answers); reconcile the staged §1
+  against `uci show network` to confirm the exact as-built shape.
+- [~] **B.2** **[L2]** Confirm tag 51 traverses the mesh path bt8gw → erebonia
+  (whatever segment erebonia's `uplink` trunk rides). The gateway answering
+  from a remote VLAN-51 host is partial evidence; still want a `tcpdump -ni
+    uplink.51` on erebonia to confirm tagged frames land on the host trunk.
+- [x] **B.3** **[flake]** In `hosts/erebonia/microvm/default.nix` add
       `uplink.51` (netdev vlan id 51) to the `uplink` trunk's `vlan` list, and a
       **host-IP-less** bridge `br51` enslaving `uplink.51` (no `Address`, no
-      `DHCP`, no `LinkLocalAddressing` — mirror `br21`, **not** `br11`).
-- [ ] **B.4** **[flake]** Ensure erebonia's host firewall does **not** trust
+      `DHCP`, no `LinkLocalAddressing` — mirror `br21`, **not** `br11`). **Done
+      2026-06-09** — `20-uplink.51` netdev + `20-vm51-bridge` enslave + host-IP-less
+      `20-br51`; erebonia config evals clean.
+- [x] **B.4** **[flake]** Ensure erebonia's host firewall does **not** trust
       `uplink.51`/`br51` (leave them out of `networking.firewall.trustedInterfaces`,
       which stays `["cni0" "flannel.1"]`). The host holds no VLAN-51 IP in this
-      slice, so there is nothing to expose — just don't add one.
+      slice, so there is nothing to expose — just don't add one. **Confirmed
+      2026-06-09** — `trustedInterfaces` unchanged (`k3s/default.nix:166`); `br51`
+      is host-IP-less so the default-drop input policy leaves zero VLAN-51 surface.
 
 ## Phase C — bt8gw cluster zone + egress [bt8gw manual] (maps to plan Phase 2, fw4 part)
 
-_All UCI/LuCI on bt8gw — capture as a `temp/_.uci` + as-built note like Phase 5.A.\*
+_All UCI/LuCI on bt8gw — staged in `temp/BT8-gw-cluster-vlan51-additions.uci`
+(§1 = C.1, §2 = C.2–C.6, §2b = the strict-egress fallback) + the "Cluster VLAN 51
+additions" section of `bt8-gateway-as-built.md` (the Phase 5.A pattern)._
 
-- [ ] **C.1** Terminate VLAN 51 on bt8gw: interface with `10.97.51.1/24` +
-      `…1033::1/64`. DHCP optional (deferred — see plan IPAM note; the dev slots
-      are static, so DHCP is **not** required for this slice).
+- [~] **C.1** Terminate VLAN 51 on bt8gw: interface with `10.97.51.1/24` +
+  `…1033::1/64`. DHCP optional (deferred — see plan IPAM note; the dev slots
+  are static, so DHCP is **not** required for this slice). **Reported live
+  2026-06-09** (`ping 10.97.51.1`); staged UCI §1.
 - [ ] **C.2** Create the `cluster` fw4 zone (input/forward/output default
-      `REJECT`/`DROP`; `icmpEcho` off as desired).
+      `REJECT`/`DROP`; `icmpEcho` off as desired). Staged UCI §2.
 - [ ] **C.3** `cluster → app` allow: `creil` :22 (git SSH push) **and** :443
       (HTTPS clone + container-registry pull), `zeiss` :443 (Attic). Scope `daddr` to
-      those hosts.
+      those hosts. **⚠ THE SHARP ITEM:** on this fw4 version per-rule inter-zone
+      accepts only fire under a `config forwarding`, which is a _broad_ accept the
+      rules can't tighten (Phase 5.A gotcha) — that would expose **all** of app to
+      the untrusted VM. Staged UCI ships the plain form **plus a `§2b` nft
+      config-include** that enforces the three-flow allowlist with an explicit drop.
+      **Verify which one actually restricts** (`nc` to oracion `10.97.50.52:443`
+      from VLAN 51 MUST time out); switch to §2b if the plain form is broad.
 - [ ] **C.4** `cluster → <DNS resolver>` allow :53 (the VLAN-51 resolver path —
-      a multus-only VM has **no** in-cluster DNS).
+      a multus-only VM has **no** in-cluster DNS). Staged UCI §2 → bt8gw dnsmasq
+      input :53 (recurses upstream to thebeyond kresd → phantasma).
 - [ ] **C.5** `cluster → WAN` allow as needed for the dev image's external pulls
-      (or scope tighter if the allowlist is known).
+      (or scope tighter if the allowlist is known). Staged UCI §2 → `cluster →
+    transit` (WAN via thebeyond NAT; thebeyond's transit-side fw gates onward).
 - [ ] **C.6** `cluster → *` (management, lab, trusted, other) **deny** —
-      default-deny is the point; only C.3–C.5 punch through.
-- [ ] **C.7** `fw4 reload`; record the UCI delta + rationale in an as-built note.
+      default-deny is the point; only C.3–C.5 punch through. Implicit: no
+      `config forwarding` from `cluster` to those zones → zone forward `REJECT`
+      default drops them. Verify (`nc` to a VLAN-11 service MUST time out).
+- [ ] **C.7** `fw4 reload`; record the **as-built** UCI delta + which egress
+      mechanism (plain vs §2b) ended up enforcing, in the as-built note.
 
 ## Phase D — KubeVirt attachment (multus-only) [cluster + flake] (maps to plan Phase 4)
 
