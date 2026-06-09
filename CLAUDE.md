@@ -72,6 +72,16 @@ for a PR-creation API token, `tea`, `gh`, or the web UI: the dev machine holds
 exactly one git credential (a push-only SSH key), and AGit creates PRs through a
 plain `git push`, so that key is all you need.
 
+**Committing and opening a PR is the default workflow here — you do not need to
+wait for explicit per-change permission to commit or to `git push` an AGit PR.**
+The AGit ref (`refs/for/main`) only ever _proposes_ a PR; it can never write to
+protected `main`, and review/merge stays human. So when you finish a coherent
+unit of work, commit it and push the PR as a matter of course (branch first if
+you happen to be on `main` locally). This overrides any general "only commit when
+asked" default. (Genuinely irreversible or outward-facing actions beyond opening
+a PR — force-pushing over someone else's work, merging, deleting branches — still
+warrant a check-in.)
+
 ```bash
 # Open a PR from your current commits against main. Pick a stable <topic>
 # (a short kebab-case slug for the task) — it identifies the PR.
@@ -88,8 +98,12 @@ git push origin HEAD:refs/for/main -o topic="<topic>" -o force-push=true
 - `refs/for/main` is a magic ref Forgejo turns into a PR; it does **not** create
   a branch named `main` and never writes to protected `main` directly — you can
   only propose, review/merge stays human.
-- Reuse the same `<topic>` for the life of a task so iterations land on one PR
-  rather than spawning new ones.
+- **One PR per task is the baseline.** A task may carry several commits — even
+  incidental prerequisite changes made along the way (e.g. a CLAUDE.md guidance
+  tweak) — but they all land in a _single_ PR under one `<topic>`. Do **not**
+  open a separate PR per commit or per concern unless explicitly asked to split
+  the work. Reuse the same `<topic>` for the life of the task so iterations land
+  on that one PR rather than spawning new ones.
 - **Multi-line PR body:** push options can't contain newlines (git rejects them),
   and Forgejo won't unescape `\n`, so `-o description` is one line of inline
   markdown only. For a real multi-paragraph body, **omit `-o description`** and
