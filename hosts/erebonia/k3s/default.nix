@@ -172,19 +172,6 @@ in {
       ip saddr { ${net.networks.trusted.subnet4}, ${net.networks.lab.subnet4} } tcp dport 6443 accept
       ip6 saddr { ${net.networks.trusted.subnet6}, ${net.networks.lab.subnet6} } tcp dport 6443 accept
     '';
-    # br51 is the host-IP-less, pure-L2 VLAN-51 bridge the multus dev-machine VMs
-    # attach onto (microvm/default.nix + k3s/multus.nix). The kernel has
-    # bridge-nf-call-iptables=1, so br_netfilter drags br51's *bridged* IPv4
-    # frames through this nft forward chain (policy drop) — while ARP and v6
-    # bypass it (arptables has no drop; ip6tables call is off). Without an accept
-    # the dev VM answers ARP but black-holes every routed IP packet (the guest is
-    # reachable at L2 but unpingable). br51 carries no host L3 identity, so its
-    # bridged switching must not be subject to the L3 forward policy: accept it.
-    # (Under br_netfilter both iifname and oifname are the bridge device, br51.)
-    extraForwardRules = ''
-      iifname "br51" accept
-      oifname "br51" accept
-    '';
   };
 
   # ── OIDC cluster-admin binding ──────────────────────────────────────────────

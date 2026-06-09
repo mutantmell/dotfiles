@@ -171,11 +171,39 @@ in {
     # br51 is deliberately host-IP-less (no Address, no DHCP, no
     # LinkLocalAddressing) — the low-trust cluster segment carries no host
     # identity. erebonia's management identity stays on br11/VLAN 11.
+    #
+    # ONE exception to "no L3 on br51": a link-scoped route for the cluster
+    # subnet, with NO host address. This is forced by br_netfilter, not by any
+    # routing role. k3s requires net.bridge.bridge-nf-call-iptables=1 (cni0 +
+    # live NetworkPolicy depend on it), and that makes the kernel run br51's
+    # *bridged* VLAN-51 IPv4 frames through the host IP stack. With br51 address-
+    # less, the host's only route to 10.97.51.0/24 is the br11 default, so the
+    # IP stack treats VLAN-51 frames arriving on br51 as martian-source and
+    # silently drops them *before* the forward hook (the dev VM answers ARP — L2,
+    # which bypasses this — but black-holes every routed IPv4 packet; IPv6 is
+    # unaffected because bridge-nf-call-ip6tables=0). The KubeVirt dev-machine
+    # bridge-binding (multus → bridge CNI onto br51) is the only thing that needs
+    # the host to switch VLAN-51 frames, so it is the first to hit this.
+    #
+    # The route just states the L2 truth — br51 IS attached to VLAN 51 via the
+    # enslaved uplink.51 — which is the connected route an address would have
+    # synthesized; we add it without taking an address. That gives the IP stack
+    # the context to stop flagging the frames martian, restoring L2 delivery.
+    # bt8gw stays the sole VLAN-51 gateway/owner; erebonia gains no identity and
+    # routes nothing (no address to source from). Any future host-IP-less L2
+    # bridge that must switch a *routed* protocol for a guest (e.g. br21 once it
+    # carries one) needs the same one-line route.
     networks."20-br51" = {
       matchConfig.Name = "br51";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
+      routes = [
+        {
+          Destination = net.networks.cluster.subnet4;
+          Scope = "link";
+        }
+      ];
     };
   };
   services.resolved.enable = true;
