@@ -65,6 +65,10 @@ in {
     # (ai-dev-machine-kubevirt-plan.md). This plan owns the platform component;
     # the workstation-migration plan depends on it.
     ./kubevirt.nix
+    # Phase D.1–D.3 — Multus + CNI plugins + the VLAN-51 NetworkAttachmentDefinition
+    # that lets the dev-machine VM attach multus-only onto br51 (cluster zone),
+    # off the flannel pod network (cluster-vlan-bringup-checklist.md Phase D).
+    ./multus.nix
   ];
 
   # ── Datastore subvolume + default-path symlink ──────────────────────────────
