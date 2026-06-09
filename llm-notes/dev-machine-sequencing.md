@@ -2,7 +2,7 @@
 
 **Last updated: 2026-06-08.** A navigation/sequencing index, **not** a plan — it
 has no lifecycle status of its own. It ties together the plans that finish two
-goals and records the order their phases must land in *relative to each other*:
+goals and records the order their phases must land in _relative to each other_:
 
 - **Goal A — secure the devcontainers** (the LLM dev-machine VMs): off the
   management VLAN, router-confined, no host adjacency.
@@ -34,8 +34,18 @@ Plans referenced:
   Works **today** over the edith-jump interim (commit 63452a0).
 - Docs — isolation plan + bring-up checklist + the cross-plan reconciliation.
 
+- **Checklist A** (isolation P1) — `cluster`/VLAN 51 registry zone + **16 named
+  dev slots** `dev-1`..`dev-16` (`10.97.51.10`..`.25`), DNS auto-derived. Static
+  names, dynamic occupancy (the Phase D launcher assigns a free slot's IP to each
+  ephemeral VM — no registry edit per machine). Pure flake, no behavior change.
+  (No router6 change: a thebeyond `cluster` zone stub was drafted then dropped —
+  nothing on thebeyond names a bt8gw-owned zone, so it was inert; see checklist
+  A.2.) Landed 2026-06-08 (checks green).
+
 **Remaining** — a single critical path through the isolation plan, executed via
-the bring-up checklist. Goal A and Goal B share most of it; Goal B adds one step.
+the bring-up checklist. **Next up: Checklist B + C** (stand up VLAN 51 L2 +
+bt8gw fw4 — the bt8gw-manual half). Goal A and Goal B share most of it; Goal B
+adds one step.
 
 ---
 
@@ -78,16 +88,16 @@ REMAINING ───────────────────────�
 
 ## Ordered cross-plan checklist
 
-| # | Step | Maps to | Surface | Depends on |
-|---|------|---------|---------|-----------|
-| 1 | **Checklist A** — `cluster`/VLAN 51 in registry, pinned dev-VM band, router6 naming stub, DNS via `mkUnboundLocalData` | isolation **P1** | `[flake]` | — (mergeable now; gated only by `run-checks.sh network-registry`) |
-| 2 | **Checklist B** — tag 51: bt8gw `br0` bridge-vlan → mesh → erebonia `uplink.51` + host-IP-less `br51` | isolation **P2** (L2) | `[L2 + flake]` | A |
-| 3 | **Checklist C** — bt8gw: terminate VLAN 51 (gw `.1`), cluster fw4 zone, egress allowlist (`creil:{22,443}`, `zeiss:443`, DNS, WAN), `cluster→* deny` | isolation **P2** (fw4) | `[bt8gw manual]` | A; pairs with B |
-| 4 | **Checklist D** — Multus + bridge CNI, NAD on `br51`, dev-VM manifest `masquerade→multus-only`, pin IP/DNS, rework access path to direct SSH | isolation **P4** | `[cluster + flake]` | A, B, C |
-| ★ | **GOAL A — devcontainer secured** | **= kubevirt P5** | — | D complete |
-| 5 | **Checklist E** — bt8gw fw4 `transit→cluster` for `mobile` peer `10.100.10.21` :22 + UDP 60000–61000 → dev band | isolation **P4 rider** | `[bt8gw manual]` | D |
-| ★ | **GOAL B — direct mobile access** | **= kubevirt P6 pieces 5–6** | — | E complete (pieces 1–4 done) |
-| 6 | **Checklist F** — verify security + mobile + no flannel/microVM regression; move isolation docs to `wip/` | both | — | D, E |
+| #    | Step                                                                                                                                                 | Maps to                      | Surface             | Depends on                         |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------- | ---------------------------------- |
+| 1 ✅ | **Checklist A** — `cluster`/VLAN 51 in registry, 16 named dev slots `dev-1`..`dev-16`, DNS via `mkUnboundLocalData` (no router6 stub — see A.2)      | isolation **P1**             | `[flake]`           | **Done 2026-06-08** (checks green) |
+| 2    | **Checklist B** — tag 51: bt8gw `br0` bridge-vlan → mesh → erebonia `uplink.51` + host-IP-less `br51`                                                | isolation **P2** (L2)        | `[L2 + flake]`      | A                                  |
+| 3    | **Checklist C** — bt8gw: terminate VLAN 51 (gw `.1`), cluster fw4 zone, egress allowlist (`creil:{22,443}`, `zeiss:443`, DNS, WAN), `cluster→* deny` | isolation **P2** (fw4)       | `[bt8gw manual]`    | A; pairs with B                    |
+| 4    | **Checklist D** — Multus + bridge CNI, NAD on `br51`, dev-VM manifest `masquerade→multus-only`, pin IP/DNS, rework access path to direct SSH         | isolation **P4**             | `[cluster + flake]` | A, B, C                            |
+| ★    | **GOAL A — devcontainer secured**                                                                                                                    | **= kubevirt P5**            | —                   | D complete                         |
+| 5    | **Checklist E** — bt8gw fw4 `transit→cluster` for `mobile` peer `10.100.10.21` :22 + UDP 60000–61000 → dev band                                      | isolation **P4 rider**       | `[bt8gw manual]`    | D                                  |
+| ★    | **GOAL B — direct mobile access**                                                                                                                    | **= kubevirt P6 pieces 5–6** | —                   | E complete (pieces 1–4 done)       |
+| 6    | **Checklist F** — verify security + mobile + no flannel/microVM regression; move isolation docs to `wip/`                                            | both                         | —                   | D, E                               |
 
 ---
 
@@ -100,8 +110,8 @@ REMAINING ───────────────────────�
   the VM can clone/pull nothing.
 - **D is the cutover** — switching `masquerade → multus-only` changes how
   operators reach the VM (`kubectl port-forward` hack → direct SSH to
-  `dev-machine.internal`). It is the one step where the working flow changes
-  shape, and it is the security milestone.
+  `dev-N.internal`, the slot the VM occupies). It is the one step where the
+  working flow changes shape, and it is the security milestone.
 - **The bt8gw work (B.1, C, E) is the operational risk concentration** — manual
   UCI/LuCI, not flake-testable; `run-checks.sh` won't catch mistakes there.
   Capture each as a `temp/*.uci` + as-built note (the Phase-5.A pattern; see
@@ -117,7 +127,7 @@ them later, independently. Don't let them creep into this slice.
 - **erebonia host-side flannel-egress redirect** (`ip rule` + policy routing +
   masquerade). The dev VM is multus-only and bypasses flannel, so it needs none
   of this. Required only when **WAN is removed from VLAN 11** (for general pods).
-- **LB-IPAM (MetalLB)** for routable *service* VIPs. Not needed to reach the VM.
+- **LB-IPAM (MetalLB)** for routable _service_ VIPs. Not needed to reach the VM.
 - **NetworkPolicy default-deny** — inert for a multus-only VM (no flannel NIC for
   kube-router to govern); bt8gw fw4 is the sole enforcer. Apply later only if
   pod-network workloads share the namespace.

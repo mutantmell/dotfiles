@@ -124,6 +124,35 @@
         "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia) — moved from dmz in Phase 5.A.3
       };
     };
+    # Low-trust cluster zone — KubeVirt dev-machine sandboxes (and future
+    # friend-facing workloads). bt8gw-owned/terminated, adjacent to app/50
+    # → 10.97.51.0/24 + fdc6:55f2:0a5e:1033::/64. No router6 binding (not even a
+    # naming stub — nothing on thebeyond names a bt8gw-owned zone); bt8gw fw4 is
+    # the sole policy enforcer.
+    #
+    # Dev-machine identity = static named SLOTS, dynamic occupancy. dev-1..dev-16
+    # are 16 fixed registry hosts (→ mkUnboundLocalData → phantasma authoritative
+    # `dev-N.internal` DNS, the same path trista/saint-arkh use). They are NOT one
+    # machine each: the Phase D launcher assigns a *free* slot's IP/MAC to each
+    # ephemeral KubeVirt dev VM at create time, so spinning machines up/down needs
+    # no registry edit — the names are stable, the occupancy is dynamic. 16 ≈ max
+    # concurrent dev VMs; widen by raising the genList count (band has room to .31).
+    # If we outgrow static slots, the next step is programmatic DNS via the
+    # knot-resolver (kresd) control API — see workload-network-isolation-plan.md.
+    # Host-ID bands (see that plan's "registry & DNS"):
+    #   .1        bt8gw gateway (derived)
+    #   .10–.25   dev-1..dev-16 slots (this block) — static + registry + DNS
+    #   .26–.31   pinned-band headroom (raise the slot count into here)
+    #   .32+      free for the deferred dynamic pool / LB-IPAM VIPs / erebonia
+    #             flannel-egress address (out of scope; do not register here yet)
+    cluster = {
+      vlanId = 51;
+      gateway = "bt8gw";
+      # dev-1 = .10 … dev-16 = .25
+      hosts = builtins.listToAttrs (lib.genList (i:
+        lib.nameValuePair "dev-${toString (i + 1)}" (10 + i))
+      16);
+    };
     # BT8-gw-side network-gear management VLAN (parallel of network/10 on
     # thebeyond's side). Populated by a follow-up plan when wired-to-BT8-gw
     # gear (managed switches, PDUs, BMCs) lands here.

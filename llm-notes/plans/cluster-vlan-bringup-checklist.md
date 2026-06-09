@@ -1,6 +1,7 @@
 # Cluster VLAN 51 Bring-up — Status Checklist
 
-**Status: NOT STARTED.** Drafted 2026-06-08.
+**Status: IN PROGRESS — Phase A done (flake), B–F remaining.** Drafted 2026-06-08;
+Phase A landed 2026-06-08.
 
 Companion status doc for
 [`workload-network-isolation-plan.md`](workload-network-isolation-plan.md). This
@@ -26,138 +27,168 @@ edits on erebonia/registry **plus** manual UCI on bt8gw **plus** L2 plumbing
 across bt8gw + mesh + erebonia. Per-phase the surface is marked **[flake]** /
 **[bt8gw manual]** / **[L2]** / **[cluster]** (k8s objects).
 
-| Value | Setting |
-| --- | --- |
-| VLAN 51 IPv4 | `10.97.51.0/24`, gateway `10.97.51.1` (bt8gw) |
-| VLAN 51 IPv6 (ULA) | `fdc6:55f2:0a5e:1033::/64`, gateway `…1033::1` |
-| erebonia mgmt (unchanged) | `10.97.11.31` (VLAN 11) — keeps apiserver, SSH, NFS |
-| dev-VM egress targets | `creil` `10.97.50.53` :22+:443 · `zeiss` `10.97.50.31` :443 · DNS · WAN |
-| mobile peer (rider) | `wg-vpn` `mobile` = `10.100.10.21` → :22 + UDP 60000–61000 |
+| Value                     | Setting                                                                    |
+| ------------------------- | -------------------------------------------------------------------------- |
+| VLAN 51 IPv4              | `10.97.51.0/24`, gateway `10.97.51.1` (bt8gw)                              |
+| VLAN 51 IPv6 (ULA)        | `fdc6:55f2:0a5e:1033::/64`, gateway `…1033::1`                             |
+| erebonia mgmt (unchanged) | `10.97.11.31` (VLAN 11) — keeps apiserver, SSH, NFS                        |
+| dev-VM slots              | `dev-1`..`dev-16` = `10.97.51.10`..`.25` (static names, dynamic occupancy) |
+| dev-VM egress targets     | `creil` `10.97.50.53` :22+:443 · `zeiss` `10.97.50.31` :443 · DNS · WAN    |
+| mobile peer (rider)       | `wg-vpn` `mobile` = `10.100.10.21` → :22 + UDP 60000–61000                 |
 
 ---
 
 ## Phase A — Registry & zone declaration [flake] (maps to plan Phase 1)
 
-*No behavior change; pure registry + naming. Mergeable on its own.*
+_No behavior change; pure registry + naming. Mergeable on its own._
 
-- [ ] **A.1** Add the `cluster` zone to `lib/common/data/network.nix`
-  - [ ] `cluster = { vlanId = 51; gateway = "bt8gw"; hosts = { … }; }` — derives
-        `10.97.51.0/24` + `fdc6:55f2:0a5e:1033::/64` automatically
-  - [ ] Reserve a **pinned dev-VM host-ID band** (e.g. `10–31`) and register the
-        first named machine (e.g. `dev-machine = 10`). Bands above it stay free
-        for the (deferred) dynamic pool / LB / erebonia-egress
-  - [ ] Confirm `dupHostnames`/`dupVlanIds`/`hostRangeCheck` still pass (eval) —
-        do **not** name any cluster host with a name already used in another zone
-        (e.g. `erebonia`)
-- [ ] **A.2** Add the `cluster` **naming stub** to `hosts/thebeyond/router.nix`
-  `router6.zones` (mirror the `app` stub: `icmpEcho = "disable"; accessTo = [];
-  inputRules = [];`) so cross-zone references resolve. thebeyond does **not**
-  bind an interface to it.
-- [ ] **A.3** DNS for the pinned dev VM flows automatically: registry host →
-  `mkUnboundLocalData` → phantasma. Verify `dev-machine.internal` appears in
-  phantasma's generated local-data (no manual DNS edit needed).
-- [ ] **A.4** `nix fmt` + `./scripts/run-checks.sh network-registry network-helpers`
-  (and any router6 zone-system checks) green.
+- [x] **A.1** Add the `cluster` zone to `lib/common/data/network.nix`
+  - [x] `cluster = { vlanId = 51; gateway = "bt8gw"; hosts = { … }; }` — derives
+        `10.97.51.0/24` + `fdc6:55f2:0a5e:1033::/64` automatically (eval-confirmed:
+        gateway `.1`, subnets, and ULA segment `1033` all match the plan)
+  - [x] Register **16 named dev-machine slots** `dev-1`..`dev-16` →
+        `10.97.51.10`..`.25` (generated via `lib.genList`). **Static names,
+        dynamic occupancy:** the Phase D launcher assigns a free slot's IP/MAC to
+        each ephemeral dev VM, so adding/removing machines needs no registry edit
+        (avoids the single-`dev-machine` pin, which wrongly assumed exactly one).
+        Slots flow through the existing authoritative DNS path; cap is 16
+        concurrent (band headroom `.26–.31`; `.32+` stays free for the deferred
+        dynamic pool / LB / erebonia-egress). If we outgrow static slots → kresd
+        programmatic-DNS (plan's "registry & DNS" eventual note).
+  - [x] Confirm `dupHostnames`/`dupVlanIds`/`hostRangeCheck`/`dupHostIdCheck` still
+        pass — `network-registry` check green; `dev-1`..`dev-16` are fresh names
+        and IDs `.10–.25` are unique within the zone
+- [-] **A.2** ~~Add a `cluster` naming stub to `hosts/thebeyond/router.nix`~~ —
+  **dropped: not needed.** The checklist (and the plan's "Where VLAN 51
+  terminates") said to mirror the `app` stub "so cross-zone references resolve."
+  Verified that is **false** for `cluster`: on thebeyond a zone is load-bearing
+  only if (a) an interface binds to it (`network.zone`, enum-typed), (b) another
+  zone names it in `accessTo` (enum-typed), or (c) another zone names it as a
+  `forwardRules` key (validated by a router6 assertion). **Nothing on thebeyond
+  does any of these for `cluster`** — and it can't: `cluster` is bt8gw-owned, so
+  thebeyond only ever reaches it _across the gateway split via `transit`_ (which
+  is why the existing `transit` rules gate the "transit→app side" by `daddr`
+  rather than naming an `app` zone). An interface-less zone is also filtered out
+  of `activeZones`, so it emits zero rules. **Proof:** removed the stub and
+  `nix eval .#nixosConfigurations.thebeyond.config.networking.nftables.ruleset`
+  renders clean with **0** occurrences of `cluster`. (The pre-existing `app`
+  stub appears to be dead weight for the same reason — left untouched here, out
+  of scope.)
+- [x] **A.3** DNS for every slot flows automatically: registry host →
+      `mkUnboundLocalData` → phantasma. Verified `dev-1`..`dev-16` (`.internal` +
+      FQDN, A + AAAA, e.g. `dev-16` → `…1033::19`) appear in generated local-data
+      and `dnsHosts`; no manual DNS edit. A launched VM gets `dev-N.internal` for
+      the life of its occupancy of slot N.
+- [x] **A.4** `nix fmt` (clean) + `./scripts/run-checks.sh network-registry
+network-helpers router6-zone-system router6-firewall-zones router6-assertions
+router6-firewall` all green.
 
 ## Phase B — L2 plumbing [L2 + flake] (maps to plan Phase 2, L2 part)
 
-*Get tag 51 from bt8gw to a bridge on erebonia. The bridge is **host-IP-less**.*
+_Get tag 51 from bt8gw to a bridge on erebonia. The bridge is **host-IP-less**._
 
 - [ ] **B.1** **[bt8gw manual]** Add VLAN 51 to bt8gw's wired trunk: `br0`
-  `bridge-vlan` filtering carries tag 51, plus an L2-passthrough `br-v51` (same
-  pattern as the VLAN-11/20/21 deviation in the dual-gateway checklist). See
-  `guides/bt8-gateway-luci-runbook.md`.
+      `bridge-vlan` filtering carries tag 51, plus an L2-passthrough `br-v51` (same
+      pattern as the VLAN-11/20/21 deviation in the dual-gateway checklist). See
+      `guides/bt8-gateway-luci-runbook.md`.
 - [ ] **B.2** **[L2]** Confirm tag 51 traverses the mesh path bt8gw → erebonia
-  (whatever segment erebonia's `uplink` trunk rides). Sanity: `tcpdump` a tagged
-  frame arrives on erebonia.
+      (whatever segment erebonia's `uplink` trunk rides). Sanity: `tcpdump` a tagged
+      frame arrives on erebonia.
 - [ ] **B.3** **[flake]** In `hosts/erebonia/microvm/default.nix` add
-  `uplink.51` (netdev vlan id 51) to the `uplink` trunk's `vlan` list, and a
-  **host-IP-less** bridge `br51` enslaving `uplink.51` (no `Address`, no
-  `DHCP`, no `LinkLocalAddressing` — mirror `br21`, **not** `br11`).
+      `uplink.51` (netdev vlan id 51) to the `uplink` trunk's `vlan` list, and a
+      **host-IP-less** bridge `br51` enslaving `uplink.51` (no `Address`, no
+      `DHCP`, no `LinkLocalAddressing` — mirror `br21`, **not** `br11`).
 - [ ] **B.4** **[flake]** Ensure erebonia's host firewall does **not** trust
-  `uplink.51`/`br51` (leave them out of `networking.firewall.trustedInterfaces`,
-  which stays `["cni0" "flannel.1"]`). The host holds no VLAN-51 IP in this
-  slice, so there is nothing to expose — just don't add one.
+      `uplink.51`/`br51` (leave them out of `networking.firewall.trustedInterfaces`,
+      which stays `["cni0" "flannel.1"]`). The host holds no VLAN-51 IP in this
+      slice, so there is nothing to expose — just don't add one.
 
 ## Phase C — bt8gw cluster zone + egress [bt8gw manual] (maps to plan Phase 2, fw4 part)
 
-*All UCI/LuCI on bt8gw — capture as a `temp/*.uci` + as-built note like Phase 5.A.*
+_All UCI/LuCI on bt8gw — capture as a `temp/_.uci` + as-built note like Phase 5.A.\*
 
 - [ ] **C.1** Terminate VLAN 51 on bt8gw: interface with `10.97.51.1/24` +
-  `…1033::1/64`. DHCP optional (deferred — see plan IPAM note; the pinned dev VM
-  is static, so DHCP is **not** required for this slice).
+      `…1033::1/64`. DHCP optional (deferred — see plan IPAM note; the dev slots
+      are static, so DHCP is **not** required for this slice).
 - [ ] **C.2** Create the `cluster` fw4 zone (input/forward/output default
-  `REJECT`/`DROP`; `icmpEcho` off as desired).
+      `REJECT`/`DROP`; `icmpEcho` off as desired).
 - [ ] **C.3** `cluster → app` allow: `creil` :22 (git SSH push) **and** :443
-  (HTTPS clone + container-registry pull), `zeiss` :443 (Attic). Scope `daddr` to
-  those hosts.
+      (HTTPS clone + container-registry pull), `zeiss` :443 (Attic). Scope `daddr` to
+      those hosts.
 - [ ] **C.4** `cluster → <DNS resolver>` allow :53 (the VLAN-51 resolver path —
-  a multus-only VM has **no** in-cluster DNS).
+      a multus-only VM has **no** in-cluster DNS).
 - [ ] **C.5** `cluster → WAN` allow as needed for the dev image's external pulls
-  (or scope tighter if the allowlist is known).
+      (or scope tighter if the allowlist is known).
 - [ ] **C.6** `cluster → *` (management, lab, trusted, other) **deny** —
-  default-deny is the point; only C.3–C.5 punch through.
+      default-deny is the point; only C.3–C.5 punch through.
 - [ ] **C.7** `fw4 reload`; record the UCI delta + rationale in an as-built note.
 
 ## Phase D — KubeVirt attachment (multus-only) [cluster + flake] (maps to plan Phase 4)
 
-*Move the dev VM off the flannel pod network onto VLAN 51 directly.*
+_Move the dev VM off the flannel pod network onto VLAN 51 directly._
 
 - [ ] **D.1** **[cluster]** Install **Multus** (operator-manifest or HelmChart,
-  same auto-apply pattern as `kubevirt.nix`/`cert-manager.nix` in
-  `hosts/erebonia/k3s/`). Multus is additive; flannel stays the primary CNI for
-  everything else.
+      same auto-apply pattern as `kubevirt.nix`/`cert-manager.nix` in
+      `hosts/erebonia/k3s/`). Multus is additive; flannel stays the primary CNI for
+      everything else.
 - [ ] **D.2** **[cluster]** Confirm the **bridge** + **static/cluster** IPAM CNI
-  plugin binaries are present in k3s' CNI bin dir (k3s bundles a limited set —
-  add `containernetworking-plugins` if `bridge` is missing).
+      plugin binaries are present in k3s' CNI bin dir (k3s bundles a limited set —
+      add `containernetworking-plugins` if `bridge` is missing).
 - [ ] **D.3** **[cluster]** `NetworkAttachmentDefinition` for VLAN 51: bridge =
-  `br51` (the host-IP-less bridge from B.3), static IPAM (or pinned per-VM via
-  the manifest). Author it the repo way (Nix attrset → `services.k3s.manifests`
-  or the dev-machine module, per where it best lives).
+      `br51` (the host-IP-less bridge from B.3), **static IPAM** (the slot IP is
+      supplied per-VM by the launcher, below — not baked into the NAD). Author it
+      the repo way (Nix attrset → `services.k3s.manifests` or the dev-machine
+      module, per where it best lives).
 - [ ] **D.4** **[flake]** Switch the dev-VM manifest in
-  `home/modules/dev-machine.nix` from `masquerade` binding to **multus + bridge,
-  multus-only** (drop the default pod network from `networks`/`interfaces`; add
-  the NAD network + a `bridge` interface; set a **stable `macAddress`** so the
-  pinned IP/DNS is deterministic).
-- [ ] **D.5** **[flake]** Pin the VM's VLAN-51 IP to its registry address
-  (`10.97.51.<id>`) via NAD static IPAM or cloud-init; verify it resolves as
-  `dev-machine.internal`.
-- [ ] **D.6** **[flake]** Rework the operator access path now that the VM is
-  routable: the `kubectl port-forward`/masquerade SSH hack
-  (`home/modules/dev-machine.nix`) can become **direct SSH to
-  `dev-machine.internal`** from edith (lab zone). (Keep the `console` fallback.)
+      `home/modules/dev-machine.nix` from `masquerade` binding to **multus + bridge,
+      multus-only** (drop the default pod network from `networks`/`interfaces`; add
+      the NAD network + a `bridge` interface). The **slot** model drives identity:
+      the launcher picks a free slot `dev-N`, sets the VM's VLAN-51 IP to that
+      slot's registry address (`10.97.51.<10+N-1>`) via static IPAM/cloud-init,
+      and a `macAddress` for it. No per-VM registry edit — names are static
+      (A.1), occupancy is assigned at launch.
+- [ ] **D.5** **[flake]** Free-slot bookkeeping: the launcher must track which
+      `dev-1`..`dev-16` slots are occupied and refuse/queue when all 16 are taken
+      (or auto-reap). Verify a launched VM resolves as its `dev-N.internal`.
+- [ ] **D.6** **[flake]** Rework the operator access path now that VMs are
+      routable: the `kubectl port-forward`/masquerade SSH hack
+      (`home/modules/dev-machine.nix`) can become **direct SSH to
+      `dev-N.internal`** from edith (lab zone). (Keep the `console` fallback.)
 - [ ] **D.7** Acceptance: from the VM, `git clone`/push to creil (`:443`/`:22`),
-  pull the dev image, reach Attic — **and** confirm it **cannot** reach a
-  management host (e.g. `nc -vz` to a VLAN-11 service times out). This is Phase 5
-  proven.
+      pull the dev image, reach Attic — **and** confirm it **cannot** reach a
+      management host (e.g. `nc -vz` to a VLAN-11 service times out). This is Phase 5
+      proven.
 
 ## Phase E — `wg-vpn → cluster` rider [bt8gw manual] (maps to plan Phase 4 rider)
 
-*Direct mobile reach — unblocks kubevirt Phase 6 pieces 5–6.*
+_Direct mobile reach — unblocks kubevirt Phase 6 pieces 5–6._
 
 - [ ] **E.1** bt8gw fw4 `transit → cluster` accept, `saddr = 10.100.10.21` (the
-  `mobile` wg peer), `daddr` = the dev-VM band, **TCP :22** (mosh/ssh bootstrap)
-  **+ UDP 60000–61000** (mosh data). Narrow to the band, not the whole zone.
+      `mobile` wg peer), `daddr` = the dev-slot band `10.97.51.10–.25`, **TCP :22**
+      (mosh/ssh bootstrap) **+ UDP 60000–61000** (mosh data). Narrow to the band,
+      not the whole zone. (One rule covers all 16 slots — they share the egress
+      and ingress policy, so no per-slot rules.)
 - [ ] **E.2** Confirm no router6 edit is needed on thebeyond: `wg-vpn.accessTo`
-  already includes `transit`, so thebeyond already forwards `wg-vpn →
-  10.97.0.0/16` (gated by bt8gw fw4 — the rule above is the only gate).
+      already includes `transit`, so thebeyond already forwards `wg-vpn →
+10.97.0.0/16` (gated by bt8gw fw4 — the rule above is the only gate).
 - [ ] **E.3** Acceptance: from the mobile (over `wg-vpn`), `mosh
-  dev@dev-machine.internal` connects and attaches the in-container zellij. (The
-  mosh/zellij/attach-helper image pieces are kubevirt Phase 6 pieces 1–4 — land
-  those in parallel; they work over the edith-jump interim regardless.)
+dev@dev-N.internal` (the slot the target VM occupies) connects and attaches the
+      in-container zellij. (The
+      mosh/zellij/attach-helper image pieces are kubevirt Phase 6 pieces 1–4 — land
+      those in parallel; they work over the edith-jump interim regardless.)
 
 ## Phase F — verification / acceptance
 
 - [ ] **F.1** **Security:** dev VM is on VLAN 51, has no flannel NIC, cannot
-  reach management/lab/trusted except C.3–C.5; erebonia's mgmt identity untouched
-  on VLAN 11.
+      reach management/lab/trusted except C.3–C.5; erebonia's mgmt identity untouched
+      on VLAN 11.
 - [ ] **F.2** **Mobile:** direct `mosh` from the `mobile` peer works without the
-  edith hop.
+      edith hop.
 - [ ] **F.3** **Regression:** other k3s workloads (plain flannel pods) and the
-  existing microVMs/Incus guests on erebonia are unaffected (flannel still
-  primary, VLAN 11 mgmt intact).
+      existing microVMs/Incus guests on erebonia are unaffected (flannel still
+      primary, VLAN 11 mgmt intact).
 - [ ] **F.4** Move this checklist + the isolation plan to `wip/` once Phase A (or
-  the first phase) merges; tick items as they land.
+      the first phase) merges; tick items as they land.
 
 ---
 
@@ -171,7 +202,7 @@ mobile critical path — do them later, independently:
   The dev VM is multus-only and bypasses flannel, so it needs none of this. This
   is for **general flannel pods** and is required only when **WAN is removed from
   VLAN 11** (plan Phase 2's host-side step / the WAN-removal trigger).
-- [-] **LB-IPAM (MetalLB)** for routable *service* VIPs (plan Phase 5 / kubevirt
+- [-] **LB-IPAM (MetalLB)** for routable _service_ VIPs (plan Phase 5 / kubevirt
   Phase 6's service tier). Not needed to reach the dev VM.
 - [-] **NetworkPolicy default-deny.** Inert for a multus-only VM (no flannel NIC
   for kube-router to govern); the router (bt8gw fw4) is the sole enforcer. Apply
