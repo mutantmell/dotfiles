@@ -14,14 +14,16 @@
 # KubeVirt devpod provider is the documented graduation, only if the manual
 # lifecycle ergonomics bite):
 #
-#   dev-machine up <repo>   creates a KubeVirt VirtualMachine from the thin base
-#                           containerDisk (Phase 1.3), injects the operator's SSH
-#                           pubkey(s) via the guest agent (Phase 6: `sshPubKeys`
-#                           may carry several — operator + mobile — so a phone can
-#                           mosh in alongside the workstation), tunnels to its sshd with
-#                           `virtctl port-forward`, points a per-machine devpod
-#                           ssh provider at 127.0.0.1:<port>, and `devpod up`s the
-#                           repo's devcontainer.json inside the VM. For a creil
+#   dev-machine up <repo>   creates a multus-only KubeVirt VirtualMachine from the
+#                           thin base containerDisk (Phase 1.3) on a free VLAN-51
+#                           dev slot (dev-1..dev-16; checklist D.4/D.5), injects the
+#                           operator's SSH pubkey(s) via the guest agent (Phase 6:
+#                           `sshPubKeys` may carry several — operator + mobile — so a
+#                           phone can mosh in alongside the workstation), points a
+#                           per-machine devpod ssh provider DIRECTLY at
+#                           `dev-N.internal` (D.6 — the routable slot host, no
+#                           port-forward), and `devpod up`s the repo's
+#                           devcontainer.json inside the VM. For a creil
 #                           repo it then mints a per-session SSH key on the `cc`
 #                           bot account (Forgejo API) and injects it as the
 #                           sandbox's ONLY git-push credential — pushes go out as
@@ -40,8 +42,9 @@
 #                           pod-restarted (emptyDisk scratch wiped — machine
 #                           rebuildable, work gone); durable fix is a persistent-
 #                           scratch PVC, deferred until iSCSI lands.
-#   dev-machine down <name> tear the workspace + VM + secret + tunnel down, and
-#                           revoke the cc SSH key. `--no-agent` skips the in-VM
+#   dev-machine down <name> tear the workspace + VM + secret down (freeing the
+#                           VM's dev slot), and revoke the cc SSH key. `--no-agent`
+#                           skips the in-VM
 #                           devpod teardown when the VM is crashed/OOM-killed (the
 #                           normal teardown blocks on the dead agent tunnel).
 #   dev-machine publish-base (re)build + push the thin base containerDisk to creil
@@ -87,15 +90,34 @@
   # The dev-machine VirtualMachine, authored as a Nix attrset (the repo idiom —
   # cf. kubevirt.nix's KubeVirt CR) and rendered to a guaranteed-valid JSON store
   # file, rather than string-interpolated YAML inside the wrapper. The wrapper
-  # `jq`-patches the few per-session fields (name, secret, cpu, memory) and
+  # `jq`-patches the few per-session fields (name, slot label, NAD networkName +
+  # MAC, secret, cpu, memory) and
   # `kubectl apply`s it imperatively — the VM is ephemeral/per-session, so it is
   # deliberately NOT a committed services.k3s.manifests resource. Static bits live
-  # here; the `PLACEHOLDER`s are overwritten at apply time.
+  # here; the per-session fields hold the sentinel string `"PLACEHOLDER"`, which
+  # `create_vm`'s jq pass overwrites by PATH (not by text match — the sentinel
+  # value is purely a "set me at launch" marker for the reader). This is
+  # deliberately a Nix-attrset→typed-jq template, NOT a text template engine
+  # (jinja/envsubst): the structure is always valid JSON and the patches are
+  # structural + type-checked (`--argjson` keeps cores an int), which string
+  # interpolation cannot guarantee.
   #
   # cpu.model host-passthrough surfaces the host vmx flag into the guest, so the
   # regular NixOS kernel inside gets /dev/kvm and this flake's nixosTests run
-  # nested (erebonia's host is kvm_intel nested=1). masquerade binding puts the VM
-  # behind the virt-launcher pod IP for the Phase 5 NetworkPolicy.
+  # nested (erebonia's host is kvm_intel nested=1).
+  #
+  # NETWORK — multus-only (bring-up checklist D.4). The VM has NO default pod
+  # network: its single NIC is a `bridge`-bound multus attachment onto a per-slot
+  # NAD (`cluster-vlan51-dev-N`, hosts/erebonia/k3s/multus.nix), so the guest is a
+  # routable VLAN-51 host with its slot's pinned IP and zero adjacency to
+  # erebonia's VLAN-11 management plane — confined solely by bt8gw fw4 (Phase C).
+  # The launcher patches the per-session slot in: the NAD `networkName` (which
+  # carries the slot IP via static IPAM, delivered to the guest by KubeVirt's
+  # bridge-binding DHCP) and the slot's deterministic `macAddress`. Dropping the
+  # pod network also retires the old `kubectl port-forward`→masquerade SSH hack:
+  # the guest is no longer reachable through the virt-launcher pod, so operator
+  # access is now DIRECT SSH to `dev-N.internal` (D.6), with `virtctl console` as
+  # the always-available fallback.
   vmManifest = pkgs.writeText "dev-machine-vm.json" (builtins.toJSON {
     apiVersion = "kubevirt.io/v1";
     kind = "VirtualMachine";
@@ -135,16 +157,22 @@
               ];
               interfaces = [
                 {
-                  name = "default";
-                  masquerade = {};
+                  name = "cluster";
+                  bridge = {};
+                  # Patched per-session to the slot's deterministic MAC (the one
+                  # field KubeVirt DOES honor for a multus interface; the IP comes
+                  # from the NAD's static IPAM, not from here).
+                  macAddress = "PLACEHOLDER";
                 }
               ];
             };
           };
           networks = [
             {
-              name = "default";
-              pod = {};
+              name = "cluster";
+              # Patched per-session to "<namespace>/cluster-vlan51-dev-N" — the
+              # free slot's NAD, which bakes that slot's VLAN-51 IP.
+              multus.networkName = "PLACEHOLDER";
             }
           ];
           accessCredentials = [
@@ -182,7 +210,7 @@
     name = "dev-machine";
     runtimeInputs = with pkgs; [
       kubectl # cluster CRUD (VM, secret, namespace) + OIDC login trigger
-      kubevirt # provides virtctl (port-forward tunnel to the VM sshd)
+      kubevirt # provides virtctl (the serial console fallback)
       devpod # builds/runs the devcontainer.json inside the VM over SSH
       skopeo # push the Nix-built images to creil
       openssh # sshd readiness probe + ssh-keygen for the per-session deploy key
@@ -225,49 +253,71 @@
               | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-40
       }
 
-      # Deterministic local forward port per machine (few machines, single user —
-      # collisions are not a real concern, and a stable port survives `ssh` after
-      # the shell that ran `up` is gone).
-      port_for() {
-          local sum
-          sum=$(echo -n "$1" | cksum | awk '{print $1}')
-          echo $(( 18000 + (sum % 1000) ))
+      # ── Slot model (bring-up checklist D.4/D.5) ──────────────────────────────
+      # The registry declares 16 STATIC dev slots `dev-1`..`dev-16` (network.nix
+      # cluster zone → 10.97.51.10..25 → authoritative `dev-N.internal` DNS). A VM
+      # OCCUPIES a free slot for its life: the launcher pins the slot's NAD
+      # (carrying its IP) + a deterministic MAC, and labels the VM `dev-machine-slot
+      # =dev-N`. Occupancy is read back from that label across all machines, so no
+      # local bookkeeping can drift and re-`up` of a name reuses its slot.
+      SLOT_COUNT=16
+
+      # The slots currently taken by EXISTING VMs in the namespace — read from the
+      # cluster (the source of truth), one `dev-N` per line.
+      occupied_slots() {
+          kubectl get vm -n "$NAMESPACE" \
+              -o jsonpath="{range .items[*]}{.metadata.labels['dev-machine-slot']}{\"\n\"}{end}" \
+              2>/dev/null | grep -v '^$' || true
       }
 
-      # Start (or revive) the port-forward backing 127.0.0.1:<port> -> VM:22.
-      # We forward to the VM's virt-launcher POD (kubectl port-forward), NOT via
-      # `virtctl port-forward vmi/...`: masquerade DNATs the pod's :22 to the guest
-      # sshd, whereas the vmi path mis-dials the guest here — the guest's docker0
-      # (172.17.0.1) and the reported pod IP shadow the masquerade 10.0.2.2, so it
-      # refused with an empty-host `dial tcp :22`. nohup'd so the tunnel outlives the
-      # `up`/`ssh` invocation for the session's life.
-      ensure_portforward() {
-          local name=$1 port=$2 statedir=$3
-          local pidfile="$statedir/portforward.pid"
-          if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-              return 0
-          fi
-          mkdir -p "$statedir"
-          # Resolve the active virt-launcher pod via the VMI uid (the canonical
-          # kubevirt.io/created-by label — the pod is NOT labelled by domain name).
-          local uid pod
-          uid=$(kubectl get vmi "dm-$name" -n "$NAMESPACE" -o jsonpath='{.metadata.uid}' 2>/dev/null)
-          [[ -n "$uid" ]] || {
-              echo "VMI dm-$name not found" >&2
-              return 1
-          }
-          pod=$(kubectl get pods -n "$NAMESPACE" \
-              -l kubevirt.io/created-by="$uid" \
-              --field-selector=status.phase=Running \
-              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-          [[ -n "$pod" ]] || {
-              echo "no running virt-launcher pod for dm-$name" >&2
-              return 1
-          }
-          nohup kubectl port-forward "pod/$pod" -n "$NAMESPACE" "$port:22" \
-              >"$statedir/portforward.log" 2>&1 &
-          echo $! >"$pidfile"
-          sleep 1
+      # The slot a given machine's VM already occupies (empty if the VM is absent
+      # or unlabelled). Lets re-`up`/ssh/down resolve "which dev-N is this machine".
+      slot_of_vm() {
+          kubectl get vm "dm-$1" -n "$NAMESPACE" \
+              -o jsonpath="{.metadata.labels['dev-machine-slot']}" 2>/dev/null || true
+      }
+
+      # Pick the lowest-numbered free slot, or fail when all SLOT_COUNT are taken
+      # (D.5 — refuse rather than collide). Prints `dev-N`.
+      assign_free_slot() {
+          local taken n
+          taken=$(occupied_slots)
+          for n in $(seq 1 "$SLOT_COUNT"); do
+              if ! grep -qx "dev-$n" <<<"$taken"; then
+                  echo "dev-$n"
+                  return 0
+              fi
+          done
+          echo "all $SLOT_COUNT dev slots (dev-1..dev-$SLOT_COUNT) are occupied;" >&2
+          echo "tear one down with 'dev-machine down <name>' or raise the slot count" >&2
+          echo "in the registry (network.nix cluster zone)." >&2
+          return 1
+      }
+
+      # Deterministic, locally-administered MAC for a slot (dev-N → host-id 9+N →
+      # 02:51:51:00:00:<hostid-hex>). Stable across a slot's reuse so bt8gw's
+      # neighbour table doesn't carry a stale entry for the slot IP.
+      mac_for_slot() {
+          local n hostid
+          n=''${1#dev-}
+          hostid=$(( 9 + n ))
+          printf '02:51:51:00:00:%02x\n' "$hostid"
+      }
+
+      # The routable hostname a slot's VM answers on — its authoritative
+      # `dev-N.internal` registry record (D.6: operator access is direct SSH here,
+      # no port-forward). Reachable from edith (lab/21) because bt8gw already
+      # permits lab→cluster (and wg-vpn→cluster) broadly.
+      host_for_slot() { echo "$1.internal"; }
+
+      # Direct SSH into a machine's dev user at its slot host. Ephemeral VMs reuse
+      # slot names/IPs, so host keys churn — relax host-key checking (these are
+      # disposable sandboxes reachable only across the bt8gw-confined VLAN 51).
+      ssh_dev() {
+          local host=$1
+          shift
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o ConnectTimeout=5 -o BatchMode=yes "dev@$host" "$@"
       }
 
       # Force the interactive OIDC token mint up front, with stderr VISIBLE. The
@@ -275,8 +325,8 @@
       # authcode-keyboard): when the cached token has lapsed it prints an Authelia
       # URL and waits on stdin for the pasted code. That prompt rides kubectl's
       # stderr, so any cluster call that suppresses stderr (e.g. cmd_list's
-      # `get vm 2>/dev/null`) or runs backgrounded (the port-forward) silently
-      # dead-hangs waiting for a code the operator never sees. Run one cheap,
+      # `get vm 2>/dev/null`) silently dead-hangs waiting for a code the operator
+      # never sees. Run one cheap,
       # foreground, stderr-visible call here first, so an expired session surfaces
       # the prompt before the real work and every later call reuses the warm token.
       # `version` contacts the apiserver (which runs the exec plugin) but needs no
@@ -462,18 +512,18 @@
       # `sh -s` (no quoting to get wrong). The most robust path — it never touches
       # devpod's (observed-fragile) tunnel, only the OOM-protected VM sshd.
       extract_via_docker() {
-          local port=$1 cid
-          cid=$(ssh -p "$port" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o ConnectTimeout=5 -o BatchMode=yes dev@127.0.0.1 \
+          local host=$1 cid
+          # The single-quoted probe runs in the remote VM, not here — its $-exprs
+          # must NOT expand locally.
+          # shellcheck disable=SC2016
+          cid=$(ssh_dev "$host" \
               'for c in $(docker ps -q); do if docker exec "$c" sh -c "ls -d /workspaces/*/.git" >/dev/null 2>&1; then echo "$c"; break; fi; done' \
               2>/dev/null)
           [[ -n "$cid" ]] || {
               echo "no running devcontainer with a /workspaces git repo found" >&2
               return 1
           }
-          extract_script | ssh -p "$port" -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes \
-              dev@127.0.0.1 "docker exec -i $cid sh -s"
+          extract_script | ssh_dev "$host" "docker exec -i $cid sh -s"
       }
 
       # Fallback: deliver the same script through devpod's in-container shell. Used
@@ -492,8 +542,8 @@
       # a non-empty payload was unpacked. This is the INSURANCE taken around a
       # recovery attempt — never the end goal on its own. $rescuedir must exist.
       rescue_backup() {
-          local name=$1 port=$2 rescuedir=$3 out=""
-          out=$(extract_via_docker "$port" 2>>"$rescuedir/extract.log") || out=""
+          local name=$1 host=$2 rescuedir=$3 out=""
+          out=$(extract_via_docker "$host" 2>>"$rescuedir/extract.log") || out=""
           if [[ -z "$out" ]]; then
               out=$(extract_via_devpod "$name" 2>>"$rescuedir/extract.log") || out=""
           fi
@@ -516,8 +566,11 @@
       }
 
       create_vm() {
-          local name=$1 memory=$2 cpu=$3 disk=$4
+          local name=$1 memory=$2 cpu=$3 disk=$4 slot=$5
           local vm="dm-$name" secret="dm-$name-ssh-key"
+          local mac nad
+          mac=$(mac_for_slot "$slot")
+          nad="$NAMESPACE/cluster-vlan51-$slot"
 
           [[ "''${#SSH_PUBKEYS[@]}" -gt 0 ]] || {
               echo "no SSH pubkeys configured (programs.dev-machine.sshPubKeys)" >&2
@@ -558,10 +611,17 @@
               --arg memory "$memory" \
               --argjson cpu "$cpu" \
               --arg disk "$disk" \
+              --arg slot "$slot" \
+              --arg mac "$mac" \
+              --arg nad "$nad" \
               '.metadata.name = $vm
+               | .metadata.labels."dev-machine-slot" = $slot
                | .spec.template.metadata.labels."dev-machine" = $name
+               | .spec.template.metadata.labels."dev-machine-slot" = $slot
                | .spec.template.spec.domain.cpu.cores = $cpu
                | .spec.template.spec.domain.resources.requests.memory = $memory
+               | .spec.template.spec.domain.devices.interfaces[0].macAddress = $mac
+               | .spec.template.spec.networks[0].multus.networkName = $nad
                | (.spec.template.spec.volumes[] | select(.name == "scratch").emptyDisk.capacity) = $disk
                | .spec.template.spec.accessCredentials[0].sshPublicKey.source.secret.secretName = $secret' \
               "$VM_MANIFEST" \
@@ -613,8 +673,7 @@
               name="''${name%.git}"
           fi
           name=$(sanitize "$name")
-          local vm="dm-$name" provider="dm-$name" port statedir
-          port=$(port_for "$name")
+          local vm="dm-$name" provider="dm-$name" slot host statedir
           statedir="$STATE/$name"
 
           # Phase 4: resolve the target creil repo + operator Forgejo token up
@@ -632,9 +691,21 @@
           fi
 
           # Surface the OIDC login prompt up front (stderr visible) so the later
-          # backgrounded port-forward + stderr-suppressed cluster calls reuse a
-          # warm token instead of dead-hanging on an unseen auth-code prompt.
+          # stderr-suppressed cluster calls reuse a warm token instead of
+          # dead-hanging on an unseen auth-code prompt.
           dm_login || return 1
+
+          # Resolve the slot this machine occupies (D.5): reuse the one its VM
+          # already holds on re-`up`, else claim a free slot (fails if all taken).
+          # Drives the routable host (`dev-N.internal`) + the VM's pinned IP/MAC.
+          slot=$(slot_of_vm "$name")
+          if [[ -n "$slot" ]]; then
+              echo "==> reusing slot $slot held by $name" >&2
+          else
+              slot=$(assign_free_slot) || return 1
+              echo "==> assigning slot $slot to $name" >&2
+          fi
+          host=$(host_for_slot "$slot")
 
           # Anything that touches creil (the rebuild push, the base presence check,
           # the base publish) needs the registry login — check once, up front.
@@ -653,8 +724,8 @@
               build_and_push dev-machine-image "$BASE_IMAGE"
           fi
 
-          echo "==> creating VM $vm"
-          create_vm "$name" "$memory" "$cpu" "$disk"
+          echo "==> creating VM $vm on slot $slot ($host)"
+          create_vm "$name" "$memory" "$cpu" "$disk" "$slot"
 
           echo "==> waiting for VM to be ready"
           kubectl wait "vm/$vm" -n "$NAMESPACE" --for=condition=Ready --timeout=300s
@@ -662,7 +733,7 @@
           kubectl wait "vmi/$vm" -n "$NAMESPACE" --for=condition=AgentConnected --timeout=180s
 
           mkdir -p "$statedir"
-          echo "$port" >"$statedir/port"
+          echo "$slot" >"$statedir/slot"
           # Record the VMI uid so `rescue` can tell a wedged-but-alive VM (scratch
           # intact, recoverable) apart from one whose virt-launcher pod was OOM-
           # killed and recreated by runStrategy=Always (scratch emptyDisk wiped,
@@ -677,36 +748,33 @@
               echo "         detect a pod-restart scratch wipe for this machine" >&2
           fi
 
-          # The guest needs ~10-30s after AgentConnected to finish DHCP before its
-          # sshd is reachable through the masquerade pod (an early connect fails
-          # "no route to host" while the guest network is still coming up), and
-          # `kubectl port-forward` *exits* on that failure. So (re)establish the
-          # tunnel each iteration — ensure_portforward is a no-op while it's alive
-          # and revives it if it died.
-          echo "==> waiting for sshd"
+          # The guest needs ~10-30s after AgentConnected to finish DHCP on its
+          # VLAN-51 bridge NIC before sshd answers (an early connect fails while the
+          # guest network is still coming up). Probe `dev-N.internal` directly (D.6
+          # — no port-forward; this is the routable VLAN-51 host, reachable from
+          # edith because bt8gw already forwards lab→cluster broadly).
+          echo "==> waiting for sshd on $host"
           local ready=0
           for _ in $(seq 1 45); do
-              ensure_portforward "$name" "$port" "$statedir"
-              if ssh -p "$port" -o StrictHostKeyChecking=no \
-                  -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 \
-                  -o BatchMode=yes dev@127.0.0.1 true 2>/dev/null; then
+              if ssh_dev "$host" true 2>/dev/null; then
                   ready=1
                   break
               fi
               sleep 2
           done
           [[ "$ready" -eq 1 ]] || {
-              echo "VM sshd did not come up; check $statedir/portforward.log" >&2
+              echo "VM sshd at $host did not come up. Check the guest with:" >&2
+              echo "dev-machine console $name" >&2
               return 1
           }
 
-          # Per-machine ssh provider pinned to this VM's tunnel. Built-in ssh is off
-          # so EXTRA_FLAGS' host-key relaxation applies — these VMs are ephemeral and
-          # reuse 127.0.0.1:<port>, so a pinned known_hosts entry only gets in the way.
+          # Per-machine ssh provider pinned directly to the slot host. Built-in ssh
+          # is off so EXTRA_FLAGS' host-key relaxation applies — these VMs are
+          # ephemeral and reuse slot names/IPs, so a pinned known_hosts entry only
+          # gets in the way.
           devpod provider delete "$provider" 2>/dev/null || true
           devpod provider add ssh --name "$provider" --use \
-              -o HOST="dev@127.0.0.1" \
-              -o PORT="$port" \
+              -o HOST="dev@$host" \
               -o USE_BUILTIN_SSH=false \
               -o EXTRA_FLAGS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
@@ -742,7 +810,6 @@
           local statedir="$STATE/$name"
           [[ -d "$statedir" ]] || { echo "no such dev machine: $name" >&2; return 1; }
           dm_login || return 1
-          ensure_portforward "$name" "$(cat "$statedir/port")" "$statedir" || return 1
 
           # --recover: the in-VM devpod agent/container is gone — typically after
           # the VM crashed and runStrategy=Always booted a fresh one (the scratch
@@ -796,12 +863,9 @@
           local statedir="$STATE/$name"
           [[ -d "$statedir" ]] || { echo "no such dev machine: $name" >&2; return 1; }
           dm_login || return 1
-          [[ -f "$statedir/port" ]] || {
-              echo "no recorded port for $name; was it created by 'dev-machine up'?" >&2
-              return 1
-          }
-          ensure_portforward "$name" "$(cat "$statedir/port")" "$statedir" || return 1
 
+          # devpod talks straight to the slot host via the provider pinned at `up`
+          # (D.6 — no port-forward to re-establish).
           echo "==> recreating the devcontainer (devpod up --recreate; VM untouched)"
           devpod up "$name" --provider "dm-$name" --ide none --recreate || {
               echo "refresh failed; inspect with 'dev-machine list' / 'dev-machine console $name'." >&2
@@ -909,25 +973,19 @@
           fi
 
           # ── Stage 1: VM sshd reachable → extract over the OOM-protected sshd ───
-          [[ -f "$statedir/port" ]] || {
-              echo "no recorded port for $name; was it created by 'dev-machine up'?" >&2
+          # Direct SSH to the slot host (D.6); the slot is recorded at `up` time.
+          local slot host
+          slot=$(cat "$statedir/slot" 2>/dev/null) || slot=$(slot_of_vm "$name")
+          [[ -n "$slot" ]] || {
+              echo "cannot resolve $name's slot; was it created by 'dev-machine up'?" >&2
               return 1
           }
-          local port
-          port=$(cat "$statedir/port")
+          host=$(host_for_slot "$slot")
 
-          echo "==> probing VM sshd"
+          echo "==> probing VM sshd on $host"
           local reachable=0 _
           for _ in $(seq 1 10); do
-              # Tolerated, not swallowed: a transient failure here (e.g. the
-              # port-forward target not up for a beat) is expected mid-retry, and
-              # ensure_portforward prints its own reason to stderr. The ssh probe
-              # below is the real success gate; the post-loop check reports if it
-              # never came up.
-              ensure_portforward "$name" "$port" "$statedir" || true
-              if ssh -p "$port" -o StrictHostKeyChecking=no \
-                  -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3 \
-                  -o BatchMode=yes dev@127.0.0.1 true 2>/dev/null; then
+              if ssh_dev "$host" true 2>/dev/null; then
                   reachable=1
                   break
               fi
@@ -954,7 +1012,7 @@
           # container was killed this no-ops now and we retry after the revive.
           echo "==> backing up the working tree (safety net)"
           local backed_up=0
-          rescue_backup "$name" "$port" "$rescuedir" && backed_up=1
+          rescue_backup "$name" "$host" "$rescuedir" && backed_up=1
 
           # --no-revive: stop here; the caller only wanted the data out.
           if [[ "$revive" -eq 0 ]]; then
@@ -994,7 +1052,7 @@
           # no-op'd (the container had been stopped, so docker couldn't read it).
           if [[ "$backed_up" -eq 0 ]]; then
               echo "==> backing up the working tree (post-recovery safety net)"
-              rescue_backup "$name" "$port" "$rescuedir" && backed_up=1
+              rescue_backup "$name" "$host" "$rescuedir" && backed_up=1
           fi
 
           echo
@@ -1044,12 +1102,13 @@
           fi
 
           echo "==> tearing down $name"
-          # `devpod delete` normally SSHes into the VM to run the in-container
-          # agent teardown. When the VM has crashed/OOM-killed that tunnel is dead,
-          # and the call blocks on the unreachable agent — which is why ordinary
-          # `down` wedges. --no-agent skips the in-VM teardown: we drop the VM +
-          # secret FIRST (the container dies with the VM regardless, so the agent
-          # teardown is moot), which makes the SSH target provably gone, then
+          # Deleting the VM frees its slot (the next `up` sees the slot label gone
+          # via occupied_slots). `devpod delete` normally SSHes into the VM to run
+          # the in-container agent teardown. When the VM has crashed/OOM-killed that
+          # session is dead, and the call blocks on the unreachable agent — which is
+          # why ordinary `down` wedges. --no-agent skips the in-VM teardown: we drop
+          # the VM + secret FIRST (the container dies with the VM regardless, so the
+          # agent teardown is moot), which makes the SSH target provably gone, then
           # `devpod delete --force` only has to clear devpod's local bookkeeping
           # (connection refused → fast fail → --force removes local state). The
           # `timeout` is a backstop so a wedged devpod can never re-hang `down`.
@@ -1057,17 +1116,11 @@
               echo "    (--no-agent: skipping in-VM devpod teardown)"
               kubectl delete vm "dm-$name" -n "$NAMESPACE" --ignore-not-found
               kubectl delete secret "dm-$name-ssh-key" -n "$NAMESPACE" --ignore-not-found
-              if [[ -f "$statedir/portforward.pid" ]]; then
-                  kill "$(cat "$statedir/portforward.pid")" 2>/dev/null || true
-              fi
               timeout 30 devpod delete "$name" --force 2>/dev/null || true
           else
               devpod delete "$name" --force 2>/dev/null || true
               kubectl delete vm "dm-$name" -n "$NAMESPACE" --ignore-not-found
               kubectl delete secret "dm-$name-ssh-key" -n "$NAMESPACE" --ignore-not-found
-              if [[ -f "$statedir/portforward.pid" ]]; then
-                  kill "$(cat "$statedir/portforward.pid")" 2>/dev/null || true
-              fi
           fi
           devpod provider delete "dm-$name" 2>/dev/null || true
           rm -rf "$statedir"

@@ -277,6 +277,21 @@ fw4 cluster zone — default-deny, egress allowlist only:
 | `cluster → app`           | dev VM → zeiss (Attic)                 | tcp 443                                |
 | `cluster → transit`       | dev VM → WAN via thebeyond NAT         | (broad; thebeyond gates onward)        |
 | `cluster → *`             | management / lab / trusted / app-other | **deny** (zone forward REJECT default) |
+| `lab → cluster` (ingress) | lab (incl. edith) → cluster            | **already broadly permitted** (existing bt8gw forwarding) |
+| `wg-vpn → cluster` (ingress) | wg-vpn peers → cluster              | **already broadly permitted** (existing bt8gw forwarding) |
+
+**Operator ingress (D.6) — `lab → cluster` SSH already works.** The multus-only
+dev VM has no pod network, so the old `kubectl port-forward`→masquerade SSH path
+is gone; the `dev-machine` launcher on edith now SSHes straight to
+`dev-N.internal`. bt8gw **already** forwards the lab VLAN and the wg-vpn IP block
+to the cluster VLAN broadly (operator-confirmed 2026-06-09), so that direct-SSH
+path — and the Phase-E mobile path — are reachable today with **no new fw4 rule**.
+A scoped `lab → cluster` accept (src edith `10.97.21.42`, dst the dev band
+`.10-.25`, tcp 22) is staged in temp/BT8-gw-cluster-vlan51-additions.uci §2c only
+as an **optional tightening** if the broad lab→cluster forwarding is ever narrowed
+— it is **not** required for the cutover. (Tightening would hit the same fw4 gotcha
+as `cluster → app`; scoping by `dest_ip`/`dest_port` is acceptable because cluster
+holds only dev slots.)
 
 **fw4 gotcha — the one real risk here (same root as Phase 5.A).** The Phase-5.A
 note records that per-rule inter-zone ACCEPTs don't fire on this fw4 version

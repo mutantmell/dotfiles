@@ -2,8 +2,11 @@
 
 **Status: IN PROGRESS — Phase A done (flake); B flake-half done; C
 operator-confirmed applied (egress confined to transit/zeiss/creil, 2026-06-09);
-D cluster-side (D.1–D.3 Multus + NAD) flake-authored, pending cluster apply;
-D.4–F remaining.** Drafted 2026-06-08; Phase A landed 2026-06-08.
+D flake-half done (D.1–D.2 Multus chart + D.3 reworked to per-slot baked NADs;
+D.4–D.6 launcher rework → multus-only + slot model + direct-SSH access), pending
+cluster apply (the `lab → cluster` ingress the direct-SSH path needs is **already**
+permitted by bt8gw's existing broad lab/wg-vpn→cluster forwarding); D.7/E/F
+remaining.** Drafted 2026-06-08; Phase A landed 2026-06-08.
 Phase B flake half (`uplink.51` + `br51`) landed 2026-06-09; bt8gw L3 termination
 reported live 2026-06-09 (`ping 10.97.51.1` answers). Phase C fw4 zone + egress
 allowlist **operator-confirmed enforcing 2026-06-09** — VLAN 51 reaches only
@@ -175,29 +178,41 @@ _Move the dev VM off the flannel pod network onto VLAN 51 directly._
       host-local, macvlan, …) into the binDir, so no separate
       `containernetworking-plugins` drop. **Verify post-apply**:
       `ls /var/lib/rancher/k3s/data/cni/` shows `bridge` + `static`.
-- [~] **D.3** **[cluster]** `NetworkAttachmentDefinition` `cluster-vlan51` —
-      **flake-authored** (`multus.nix`, `services.k3s.manifests`, `.content` so it
-      re-applies until the NAD CRD exists). bridge = `br51` (B.3, host-IP-less),
-      **static IPAM** with the slot IP injected per-VM at launch via the `ips`
-      capability (not baked), default v4/v6 routes derived from the registry
-      `cluster` zone gateway (`10.97.51.1` / `…1033::1`). Lands in a flake-declared
-      `dev-machines` namespace. Eval/build-verified (NAD JSON renders correct).
-      **Pending cluster apply.**
-- [ ] **D.4** **[flake]** Switch the dev-VM manifest in
-      `home/modules/dev-machine.nix` from `masquerade` binding to **multus + bridge,
-      multus-only** (drop the default pod network from `networks`/`interfaces`; add
-      the NAD network + a `bridge` interface). The **slot** model drives identity:
-      the launcher picks a free slot `dev-N`, sets the VM's VLAN-51 IP to that
-      slot's registry address (`10.97.51.<10+N-1>`) via static IPAM/cloud-init,
-      and a `macAddress` for it. No per-VM registry edit — names are static
-      (A.1), occupancy is assigned at launch.
-- [ ] **D.5** **[flake]** Free-slot bookkeeping: the launcher must track which
-      `dev-1`..`dev-16` slots are occupied and refuse/queue when all 16 are taken
-      (or auto-reap). Verify a launched VM resolves as its `dev-N.internal`.
-- [ ] **D.6** **[flake]** Rework the operator access path now that VMs are
-      routable: the `kubectl port-forward`/masquerade SSH hack
-      (`home/modules/dev-machine.nix`) can become **direct SSH to
-      `dev-N.internal`** from edith (lab zone). (Keep the `console` fallback.)
+- [~] **D.3** **[cluster]** `NetworkAttachmentDefinition`s — **flake-authored**
+      (`multus.nix`, `services.k3s.manifests`, `.content` so they re-apply until the
+      NAD CRD exists). **Reworked to 16 per-slot NADs** `cluster-vlan51-dev-1`..`-16`
+      (was a single `cluster-vlan51` relying on per-VM `ips`-annotation injection —
+      **dropped because KubeVirt owns the `k8s.v1.cni.cncf.io/networks` annotation
+      and ignores a VM-spec `ips` field (kubevirt/kubevirt#4564), and the base image
+      is DHCP-only with no cloud-init**). Each NAD bridges `br51` (B.3,
+      host-IP-less) and **bakes that slot's registry IP** into `static` IPAM
+      (`10.97.51.<10+N-1>/24` + the `…1033::` v6) with v4/v6 default routes at the
+      bt8gw gateway; KubeVirt's bridge-binding DHCP then leases the baked IP to the
+      guest. Lands in a flake-declared `dev-machines` namespace. Eval-verified (all
+      16 NAD JSONs render the correct slot IPs). **Pending cluster apply.**
+- [x] **D.4** **[flake]** Switched the dev-VM manifest in
+      `home/modules/dev-machine.nix` from `masquerade` to **multus + bridge,
+      multus-only** (dropped the default pod network; single `bridge` interface on
+      the slot NAD). The **slot** model drives identity: the launcher picks a free
+      slot `dev-N`, patches the VM's `networks[0].multus.networkName` to that slot's
+      NAD `cluster-vlan51-dev-N` (carrying its IP via static IPAM) and a
+      deterministic per-slot `macAddress` (the one field KubeVirt honors). No per-VM
+      registry edit — names are static (A.1), occupancy assigned at launch.
+- [x] **D.5** **[flake]** Free-slot bookkeeping is **cluster-sourced** (not local
+      state): the launcher labels each VM `dev-machine-slot=dev-N` and reads
+      occupancy back from those labels across all VMs, so it reuses a name's slot on
+      re-`up` and refuses when all 16 are taken (`assign_free_slot`). The slot IP is
+      its registry address → authoritative `dev-N.internal` DNS (A.3).
+- [x] **D.6** **[flake]** Reworked the operator access path: the
+      `kubectl port-forward`/masquerade hack is **removed** (dead under multus-only —
+      no pod network to forward through), replaced by **direct SSH to
+      `dev-N.internal`** (devpod provider points straight at the slot host;
+      `ssh`/`refresh`/`rescue`/extract all use it). `console` (virtctl) kept as the
+      fallback. **No new bt8gw rule needed**: lab→cluster (and wg-vpn→cluster) is
+      **already broadly permitted** by existing bt8gw forwarding, so the direct-SSH
+      path works today. A scoped §2c `lab → cluster` accept (edith `10.97.21.42` →
+      dev band `.10-.25` tcp 22) is staged only as optional tightening if that broad
+      forwarding is later narrowed.
 - [ ] **D.7** Acceptance: from the VM, `git clone`/push to creil (`:443`/`:22`),
       pull the dev image, reach Attic — **and** confirm it **cannot** reach a
       management host (e.g. `nc -vz` to a VLAN-11 service times out). This is Phase 5

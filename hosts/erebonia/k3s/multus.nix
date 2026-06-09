@@ -7,11 +7,92 @@
   net = pkgs.mmell.lib.data.network;
   cluster = net.networks.cluster;
 
-  # The namespace the KubeVirt dev-machine VMs (and their NAD) live in. Must match
+  # The namespace the KubeVirt dev-machine VMs (and their NADs) live in. Must match
   # `programs.dev-machine.namespace` on the operator's workstation (home/modules/
   # dev-machine.nix, default "dev-machines"); the launcher creates it on demand,
-  # but declaring it here makes it exist at apply time so the NAD below can land.
+  # but declaring it here makes it exist at apply time so the NADs below can land.
   devNamespace = "dev-machines";
+
+  # ── Per-slot NAD: bake the slot's registry IP into static IPAM ────────────────
+  # One NetworkAttachmentDefinition per dev slot (`cluster-vlan51-dev-1`..`-16`),
+  # each baking THAT slot's address (`net.hosts.dev-N`) into the bridge CNI's
+  # `static` IPAM. This is the only mechanism that actually pins a per-VM IP on
+  # this stack:
+  #   * KubeVirt OWNS the `k8s.v1.cni.cncf.io/networks` pod annotation — it
+  #     generates it from `spec…networks[]`, so a per-VM `ips`-capability field set
+  #     on the VM spec is ignored (kubevirt/kubevirt#4564, still open on v1.8.3).
+  #   * The base image is DHCP-only and deliberately ships NO cloud-init
+  #     (packages/dev-machine-image/configuration.nix) — so there is no in-guest
+  #     static-config path either.
+  # With bridge binding, KubeVirt's in-pod DHCP leases whatever address the CNI
+  # put on the pod interface to the guest. So the slot IP MUST come from the NAD's
+  # static IPAM. Static slots (16 fixed registry IPs) → 16 fixed NADs, generated
+  # here; the launcher (D.4) picks a free slot and references its NAD + pins the
+  # matching MAC via `interfaces[].macAddress` (which KubeVirt DOES honor).
+  #
+  # bridge = `br51` (B.3, host-IP-less) — already carries tag 51 via the enslaved
+  # `uplink.51`, so the CNI adds the veth untagged and the L2 tagging happens on the
+  # uplink (cf. the microvm default.nix br51 comment). No host IP on br51
+  # (isGateway/ipMasq false) → bt8gw `10.97.51.1` is the only gateway; routing +
+  # egress policy live there. The v4/v6 default routes point at the bt8gw gateway
+  # derived from the registry `cluster` zone.
+  #
+  # IPv4 vs IPv6 reaching the GUEST: KubeVirt bridge-binding leases the
+  # CNI-assigned address to the guest via an in-pod **DHCPv4** server — so the
+  # baked v4 slot IP lands in the guest (the operational path: the `dev-N.internal`
+  # A record). It runs **no DHCPv6/RA**, so the baked v6 address sits on the
+  # pod-side interface but does NOT reach the guest; the guest may instead SLAAC a
+  # (non-slot) v6 off bt8gw's RA on VLAN 51. The v6 entries are kept here (correct
+  # on the pod side, and harmless) but **guest-side v6 = the slot's `…1033::N` is
+  # not yet wired** — the `dev-N.internal` AAAA won't match the guest until v6
+  # delivery is sorted (RA reservation / DHCPv6). Reach dev VMs over v4 for now.
+  mkSlotNad = slotName: let
+    h = net.hosts.${slotName};
+  in {
+    apiVersion = "k8s.cni.cncf.io/v1";
+    kind = "NetworkAttachmentDefinition";
+    metadata = {
+      name = "cluster-vlan51-${slotName}";
+      namespace = devNamespace;
+    };
+    # spec.config is a CNI conflist JSON STRING.
+    spec.config = builtins.toJSON {
+      cniVersion = "1.0.0";
+      name = "cluster-vlan51-${slotName}";
+      type = "bridge";
+      bridge = "br51";
+      isGateway = false;
+      isDefaultGateway = false;
+      ipMasq = false;
+      hairpinMode = false;
+      ipam = {
+        type = "static";
+        addresses = [
+          {
+            address = h.cidr4;
+            gateway = cluster.gateway4;
+          }
+          {
+            address = h.cidr6;
+            gateway = cluster.gateway6;
+          }
+        ];
+        routes = [
+          {
+            dst = "0.0.0.0/0";
+            gw = cluster.gateway4;
+          }
+          {
+            dst = "::/0";
+            gw = cluster.gateway6;
+          }
+        ];
+      };
+    };
+  };
+
+  # dev-1..dev-16 (registry slot names for the `cluster` zone).
+  slotNames = builtins.attrNames cluster.hosts;
 in {
   # ── Phase D.1/D.2 — Multus + the reference CNI plugins (bring-up checklist) ───
   # cluster-vlan-bringup-checklist.md Phase D, the [cluster] half. Multus is the
@@ -68,11 +149,12 @@ in {
     };
   };
 
-  # ── Phase D.3 — the VLAN-51 NetworkAttachmentDefinition + its namespace ───────
-  # The dev VM references this NAD (D.4) to get its `br51` interface. Authored as
-  # `.content` so k3s' deploy controller re-applies it until Multus has installed
-  # the `NetworkAttachmentDefinition` CRD it depends on, then it sticks — the same
-  # admission-ordering trick kubevirt-cr / the step-ca ClusterIssuer use.
+  # ── Phase D.3 — the per-slot VLAN-51 NADs + their namespace ───────────────────
+  # The dev VM references one of these NADs (D.4) to get its `br51` interface with
+  # its slot's pinned IP. Authored as `.content` so k3s' deploy controller
+  # re-applies them until Multus has installed the `NetworkAttachmentDefinition`
+  # CRD they depend on, then they stick — the same admission-ordering trick
+  # kubevirt-cr / the step-ca ClusterIssuer use.
   services.k3s.manifests.dev-machines-namespace.content = [
     {
       apiVersion = "v1";
@@ -81,51 +163,6 @@ in {
     }
   ];
 
-  services.k3s.manifests.cluster-vlan51-nad.content = [
-    {
-      apiVersion = "k8s.cni.cncf.io/v1";
-      kind = "NetworkAttachmentDefinition";
-      metadata = {
-        name = "cluster-vlan51";
-        namespace = devNamespace;
-      };
-      # spec.config is a CNI conflist JSON STRING. bridge delegate enslaving the
-      # VM veth into the pre-existing host-IP-less `br51` (B.3) — which already
-      # carries tag 51 via the enslaved `uplink.51`, so the CNI adds the veth
-      # untagged and the L2 tagging happens on the uplink (cf. the microvm
-      # default.nix br51 comment). No host IP on br51 (isGateway/ipMasq false) →
-      # bt8gw `10.97.51.1` is the only gateway; routing + egress policy live there.
-      #
-      # IPAM = static with NO baked address: the *slot* model (A.1) means the
-      # launcher (D.4) picks a free dev-N and injects that slot's IP per-VM via the
-      # `k8s.v1.cni.cncf.io/networks` annotation `ips` field — which `capabilities:
-      # {ips:true}` enables. The default routes (v4 + v6) are shared by every slot,
-      # so they ARE baked here, pointing at the bt8gw gateway derived from the
-      # registry `cluster` zone.
-      spec.config = builtins.toJSON {
-        cniVersion = "1.0.0";
-        name = "cluster-vlan51";
-        type = "bridge";
-        bridge = "br51";
-        isGateway = false;
-        isDefaultGateway = false;
-        ipMasq = false;
-        hairpinMode = false;
-        capabilities.ips = true;
-        ipam = {
-          type = "static";
-          routes = [
-            {
-              dst = "0.0.0.0/0";
-              gw = cluster.gateway4;
-            }
-            {
-              dst = "::/0";
-              gw = cluster.gateway6;
-            }
-          ];
-        };
-      };
-    }
-  ];
+  # One NAD per dev slot, each baking that slot's registry IP (see mkSlotNad).
+  services.k3s.manifests.cluster-vlan51-nads.content = map mkSlotNad slotNames;
 }

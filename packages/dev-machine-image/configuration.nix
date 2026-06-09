@@ -86,8 +86,10 @@ in {
   # key-only. Revisit once the path is solid.
   services.getty.autologinUser = lib.mkDefault "root";
 
-  # KubeVirt `masquerade` binding hands the VM a DHCP lease on its single virtio
-  # NIC; the namespace NetworkPolicy (Phase 5) governs its egress.
+  # KubeVirt `bridge` binding (multus-only, VLAN 51) leases the NAD's static-IPAM
+  # slot IP onto the VM's single virtio NIC via KubeVirt's in-pod DHCPv4; bt8gw
+  # fw4 governs its egress (the multus-only VM has no flannel NIC for a
+  # NetworkPolicy to act on).
   networking.useDHCP = lib.mkForce true;
   networking.firewall.allowedTCPPorts = [22];
   # mosh (Phase 6 mobile access) carries its session over UDP; mosh-server picks a
