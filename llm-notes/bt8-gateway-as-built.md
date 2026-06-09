@@ -249,16 +249,15 @@ C.2–C.6) is **operator-confirmed enforcing** — VLAN 51 reaches only transit
 internal zones are denied. **The broad-accept risk below did NOT materialize**
 — cluster→app is tight, not broad.
 
-**Two residuals, not yet captured here verbatim:**
+DNS is **also confirmed**: a `Allow-DNS-DHCP-cluster` rule admits VLAN 51 to the
+bt8gw resolver (dnsmasq input :53), so the multus-only dev VM can resolve
+`dev-N.internal`. (That live rule name differs from the staged §2
+`Allow-cluster-DNS` — reconcile when capturing the as-built delta.)
 
-1. **DNS (`:53`) not in the confirmed egress list.** The cluster zone input
-   default is REJECT, so the multus-only dev VM cannot use bt8gw's dnsmasq
-   without the explicit `Allow-cluster-DNS` input rule (§2). Confirm it is
-   present before Phase D — the VM needs it to resolve `dev-N.internal`.
-2. **Which mechanism enforces the app allowlist (plain §2 vs the §2b nft
-   include) was not recorded.** Capture it (and the exact UCI delta) on the next
-   device touch — `uci show firewall` + `nft list ruleset` — and update the table
-   below.
+**One residual, not yet captured here verbatim:** which mechanism enforces the
+app allowlist (plain §2 vs the §2b nft include) was not recorded. Capture it
+(and the exact UCI delta) on the next device touch — `uci show firewall` +
+`nft list ruleset` — and update the table below.
 
 L3 termination (same shape as APP/50 — see "Trunk port architecture"):
 

@@ -52,20 +52,26 @@ Plans referenced:
 
 - **Checklist C bt8gw fw4** — cluster zone + egress allowlist
   **operator-confirmed enforcing 2026-06-09**: VLAN 51 reaches only transit
-  (WAN), zeiss, and creil; the rest of app and all other internal zones are
-  denied. **The sharp item is resolved** — the Phase-5.A broad-accept risk did
-  **not** materialize (cluster→app is tight). Two residuals: DNS `:53` to bt8gw
-  (C.4) not in the confirmed egress list, and the exact enforcing mechanism
-  (§2 vs §2b) / as-built UCI delta not yet captured verbatim — both flagged in
-  the checklist + as-built note.
+  (WAN), zeiss, creil, and DNS (the `Allow-DNS-DHCP-cluster` rule); the rest of
+  app and all other internal zones are denied. **The sharp item is resolved** —
+  the Phase-5.A broad-accept risk did **not** materialize (cluster→app is tight).
+  One residual: the exact enforcing mechanism (§2 vs §2b) / as-built UCI delta
+  not yet captured verbatim — flagged in the checklist + as-built note.
+
+- **Checklist D.1–D.3 cluster-side** — Multus + the VLAN-51 NAD
+  **flake-authored** (`hosts/erebonia/k3s/multus.nix`): rke2-multus Helm chart
+  (the official k3s path) via `autoDeployCharts`, which also installs the bridge +
+  static delegates (D.2), and a `cluster-vlan51` `NetworkAttachmentDefinition` on
+  `br51` with static IPAM + per-VM slot-IP injection. Eval/build-verified; pending
+  cluster apply + runtime verify. The launcher rework (D.4–D.6) is the remaining
+  half.
 
 **Remaining** — a single critical path through the isolation plan, executed via
-the bring-up checklist. **Next up: Checklist D** (KubeVirt multus-only attach:
-Multus + bridge CNI, NAD on `br51`, dev-VM manifest `masquerade → multus-only`,
-pin slot IP/DNS, rework access path to direct SSH). **First confirm C.4 (DNS
-`:53` to bt8gw)** — a multus-only VM has no in-cluster DNS, so it needs that
-input rule to resolve `dev-N.internal`. Goal A completes when D lands; Goal B
-adds Checklist E (the `wg-vpn → cluster` rider).
+the bring-up checklist. **Next up: apply + verify D.1–D.3 on the cluster**
+(Multus DaemonSet Running, `bridge`/`static` present, flannel pods unaffected),
+then **Checklist D.4–D.6** (the launcher rework: flip the dev-VM manifest to
+multus-only, free-slot assignment, and the direct-SSH access path). Goal A
+completes when D lands; Goal B adds Checklist E (the `wg-vpn → cluster` rider).
 
 ---
 
@@ -112,8 +118,8 @@ REMAINING ───────────────────────�
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------- | -------------------------------------------------------------------------- |
 | 1 ✅ | **Checklist A** — `cluster`/VLAN 51 in registry, 16 named dev slots `dev-1`..`dev-16`, DNS via `mkUnboundLocalData` (no router6 stub — see A.2)      | isolation **P1**             | `[flake]`           | **Done 2026-06-08** (checks green)                                         |
 | 2 ◑  | **Checklist B** — tag 51: bt8gw `br0` bridge-vlan → mesh → erebonia `uplink.51` + host-IP-less `br51`                                                | isolation **P2** (L2)        | `[L2 + flake]`      | flake half **done** 2026-06-09; bt8gw L3 live; B.2 mesh-tag verify pending |
-| 3 ✅ | **Checklist C** — bt8gw: terminate VLAN 51 (gw `.1`), cluster fw4 zone, egress allowlist (`creil:{22,443}`, `zeiss:443`, DNS, WAN), `cluster→* deny` | isolation **P2** (fw4)       | `[bt8gw manual]`    | **Confirmed enforcing 2026-06-09** (transit/zeiss/creil only). Residual: DNS :53 (C.4) + as-built capture |
-| 4    | **Checklist D** — Multus + bridge CNI, NAD on `br51`, dev-VM manifest `masquerade→multus-only`, pin IP/DNS, rework access path to direct SSH         | isolation **P4**             | `[cluster + flake]` | A, B, C                                                                    |
+| 3 ✅ | **Checklist C** — bt8gw: terminate VLAN 51 (gw `.1`), cluster fw4 zone, egress allowlist (`creil:{22,443}`, `zeiss:443`, DNS, WAN), `cluster→* deny` | isolation **P2** (fw4)       | `[bt8gw manual]`    | **Confirmed enforcing 2026-06-09** (transit/zeiss/creil + DNS via `Allow-DNS-DHCP-cluster`). Residual: as-built capture |
+| 4 ◑  | **Checklist D** — Multus + bridge CNI, NAD on `br51`, dev-VM manifest `masquerade→multus-only`, pin IP/DNS, rework access path to direct SSH         | isolation **P4**             | `[cluster + flake]` | D.1–D.3 (Multus + NAD) flake-authored, pending cluster apply; D.4–D.6 (launcher rework) remaining |
 | ★    | **GOAL A — devcontainer secured**                                                                                                                    | **= kubevirt P5**            | —                   | D complete                                                                 |
 | 5    | **Checklist E** — bt8gw fw4 `transit→cluster` for `mobile` peer `10.100.10.21` :22 + UDP 60000–61000 → dev band                                      | isolation **P4 rider**       | `[bt8gw manual]`    | D                                                                          |
 | ★    | **GOAL B — direct mobile access**                                                                                                                    | **= kubevirt P6 pieces 5–6** | —                   | E complete (pieces 1–4 done)                                               |

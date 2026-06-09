@@ -2,14 +2,15 @@
 
 **Status: IN PROGRESS — Phase A done (flake); B flake-half done; C
 operator-confirmed applied (egress confined to transit/zeiss/creil, 2026-06-09);
-D–F remaining.** Drafted 2026-06-08; Phase A landed 2026-06-08.
+D cluster-side (D.1–D.3 Multus + NAD) flake-authored, pending cluster apply;
+D.4–F remaining.** Drafted 2026-06-08; Phase A landed 2026-06-08.
 Phase B flake half (`uplink.51` + `br51`) landed 2026-06-09; bt8gw L3 termination
 reported live 2026-06-09 (`ping 10.97.51.1` answers). Phase C fw4 zone + egress
 allowlist **operator-confirmed enforcing 2026-06-09** — VLAN 51 reaches only
 transit (WAN), zeiss, and creil; the broad-accept risk did **not** materialize.
-Residual: DNS `:53` to bt8gw (C.4) not in the confirmed egress list — confirm
-before D; exact as-built UCI delta + enforcing mechanism (§2 vs §2b) not captured
-verbatim here.
+DNS (C.4) is **also confirmed** — a `Allow-DNS-DHCP-cluster` rule admits VLAN 51
+to the bt8gw resolver. Residual: exact as-built UCI delta + enforcing mechanism
+(§2 vs §2b) not captured verbatim here.
 
 Companion status doc for
 [`workload-network-isolation-plan.md`](workload-network-isolation-plan.md). This
@@ -138,13 +139,13 @@ additions" section of `bt8-gateway-as-built.md` (the Phase 5.A pattern)._
       materialize — egress is tight. (Which mechanism enforced — plain §2 vs the
       §2b nft include — not captured verbatim here; confirm on next device touch
       and record per C.7.)
-- [~] **C.4** `cluster → <DNS resolver>` allow :53 (the VLAN-51 resolver path —
-      a multus-only VM has **no** in-cluster DNS). **UNCONFIRMED:** not in the
-      operator's confirmed egress list (transit/zeiss/creil). Cluster zone input
-      default is REJECT, so the VM cannot hit bt8gw `:53` without the explicit
-      `Allow-cluster-DNS` rule (staged UCI §2 → bt8gw dnsmasq input :53, recurses
-      upstream to thebeyond kresd → phantasma). **Confirm before D** — the
-      multus-only VM needs it to resolve `dev-N.internal` and egress hostnames.
+- [x] **C.4** `cluster → <DNS resolver>` allow :53 (the VLAN-51 resolver path —
+      a multus-only VM has **no** in-cluster DNS). **Operator-confirmed
+      2026-06-09** — a `Allow-DNS-DHCP-cluster` rule admits VLAN 51 to the bt8gw
+      resolver (bt8gw dnsmasq input :53, recurses upstream to thebeyond kresd →
+      phantasma), so the multus-only VM can resolve `dev-N.internal` and the egress
+      hostnames. (Rule name `Allow-DNS-DHCP-cluster` differs from the staged §2
+      `Allow-cluster-DNS`; reconcile when capturing the as-built delta.)
 - [x] **C.5** `cluster → WAN` allow as needed for the dev image's external pulls
       (or scope tighter if the allowlist is known). **Operator-confirmed
       2026-06-09** (transit reachable). Staged UCI §2 → `cluster → transit` (WAN
@@ -161,18 +162,27 @@ additions" section of `bt8-gateway-as-built.md` (the Phase 5.A pattern)._
 
 _Move the dev VM off the flannel pod network onto VLAN 51 directly._
 
-- [ ] **D.1** **[cluster]** Install **Multus** (operator-manifest or HelmChart,
-      same auto-apply pattern as `kubevirt.nix`/`cert-manager.nix` in
-      `hosts/erebonia/k3s/`). Multus is additive; flannel stays the primary CNI for
-      everything else.
-- [ ] **D.2** **[cluster]** Confirm the **bridge** + **static/cluster** IPAM CNI
-      plugin binaries are present in k3s' CNI bin dir (k3s bundles a limited set —
-      add `containernetworking-plugins` if `bridge` is missing).
-- [ ] **D.3** **[cluster]** `NetworkAttachmentDefinition` for VLAN 51: bridge =
-      `br51` (the host-IP-less bridge from B.3), **static IPAM** (the slot IP is
-      supplied per-VM by the launcher, below — not baked into the NAD). Author it
-      the repo way (Nix attrset → `services.k3s.manifests` or the dev-machine
-      module, per where it best lives).
+- [~] **D.1** **[cluster]** Install **Multus** — **flake-authored**
+      (`hosts/erebonia/k3s/multus.nix`) via the **rke2-multus** Helm chart
+      (4.2.411) through `services.k3s.autoDeployCharts` (FOD-pinned, same posture
+      as `cert-manager.nix`/`flux.nix`). Chose the Rancher chart because the
+      official k3s docs prescribe it for Multus-on-k3s — its DaemonSet writes the
+      multus binary + plugins into k3s' writable `/var/lib/rancher/k3s/data/cni/`,
+      sidestepping the immutable `data/<hash>/bin` problem. Additive; flannel stays
+      primary. **Pending cluster apply + runtime verify** (DaemonSet Running).
+- [~] **D.2** **[cluster]** bridge + static CNI plugins — **satisfied by the
+      chart**: rke2-multus bundles the reference plugin set (bridge, static,
+      host-local, macvlan, …) into the binDir, so no separate
+      `containernetworking-plugins` drop. **Verify post-apply**:
+      `ls /var/lib/rancher/k3s/data/cni/` shows `bridge` + `static`.
+- [~] **D.3** **[cluster]** `NetworkAttachmentDefinition` `cluster-vlan51` —
+      **flake-authored** (`multus.nix`, `services.k3s.manifests`, `.content` so it
+      re-applies until the NAD CRD exists). bridge = `br51` (B.3, host-IP-less),
+      **static IPAM** with the slot IP injected per-VM at launch via the `ips`
+      capability (not baked), default v4/v6 routes derived from the registry
+      `cluster` zone gateway (`10.97.51.1` / `…1033::1`). Lands in a flake-declared
+      `dev-machines` namespace. Eval/build-verified (NAD JSON renders correct).
+      **Pending cluster apply.**
 - [ ] **D.4** **[flake]** Switch the dev-VM manifest in
       `home/modules/dev-machine.nix` from `masquerade` binding to **multus + bridge,
       multus-only** (drop the default pod network from `networks`/`interfaces`; add
