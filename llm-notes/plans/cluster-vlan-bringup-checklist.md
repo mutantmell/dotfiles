@@ -1,9 +1,15 @@
 # Cluster VLAN 51 Bring-up — Status Checklist
 
-**Status: IN PROGRESS — Phase A done (flake); B flake-half done, B/C bt8gw-half
-in flight; D–F remaining.** Drafted 2026-06-08; Phase A landed 2026-06-08.
+**Status: IN PROGRESS — Phase A done (flake); B flake-half done; C
+operator-confirmed applied (egress confined to transit/zeiss/creil, 2026-06-09);
+D–F remaining.** Drafted 2026-06-08; Phase A landed 2026-06-08.
 Phase B flake half (`uplink.51` + `br51`) landed 2026-06-09; bt8gw L3 termination
-reported live 2026-06-09 (`ping 10.97.51.1` answers).
+reported live 2026-06-09 (`ping 10.97.51.1` answers). Phase C fw4 zone + egress
+allowlist **operator-confirmed enforcing 2026-06-09** — VLAN 51 reaches only
+transit (WAN), zeiss, and creil; the broad-accept risk did **not** materialize.
+Residual: DNS `:53` to bt8gw (C.4) not in the confirmed egress list — confirm
+before D; exact as-built UCI delta + enforcing mechanism (§2 vs §2b) not captured
+verbatim here.
 
 Companion status doc for
 [`workload-network-isolation-plan.md`](workload-network-isolation-plan.md). This
@@ -118,33 +124,38 @@ _All UCI/LuCI on bt8gw — staged in `temp/BT8-gw-cluster-vlan51-additions.uci`
 (§1 = C.1, §2 = C.2–C.6, §2b = the strict-egress fallback) + the "Cluster VLAN 51
 additions" section of `bt8-gateway-as-built.md` (the Phase 5.A pattern)._
 
-- [~] **C.1** Terminate VLAN 51 on bt8gw: interface with `10.97.51.1/24` +
+- [x] **C.1** Terminate VLAN 51 on bt8gw: interface with `10.97.51.1/24` +
   `…1033::1/64`. DHCP optional (deferred — see plan IPAM note; the dev slots
-  are static, so DHCP is **not** required for this slice). **Reported live
-  2026-06-09** (`ping 10.97.51.1`); staged UCI §1.
-- [ ] **C.2** Create the `cluster` fw4 zone (input/forward/output default
-      `REJECT`/`DROP`; `icmpEcho` off as desired). Staged UCI §2.
-- [ ] **C.3** `cluster → app` allow: `creil` :22 (git SSH push) **and** :443
-      (HTTPS clone + container-registry pull), `zeiss` :443 (Attic). Scope `daddr` to
-      those hosts. **⚠ THE SHARP ITEM:** on this fw4 version per-rule inter-zone
-      accepts only fire under a `config forwarding`, which is a _broad_ accept the
-      rules can't tighten (Phase 5.A gotcha) — that would expose **all** of app to
-      the untrusted VM. Staged UCI ships the plain form **plus a `§2b` nft
-      config-include** that enforces the three-flow allowlist with an explicit drop.
-      **Verify which one actually restricts** (`nc` to oracion `10.97.50.52:443`
-      from VLAN 51 MUST time out); switch to §2b if the plain form is broad.
-- [ ] **C.4** `cluster → <DNS resolver>` allow :53 (the VLAN-51 resolver path —
-      a multus-only VM has **no** in-cluster DNS). Staged UCI §2 → bt8gw dnsmasq
-      input :53 (recurses upstream to thebeyond kresd → phantasma).
-- [ ] **C.5** `cluster → WAN` allow as needed for the dev image's external pulls
-      (or scope tighter if the allowlist is known). Staged UCI §2 → `cluster →
-    transit` (WAN via thebeyond NAT; thebeyond's transit-side fw gates onward).
-- [ ] **C.6** `cluster → *` (management, lab, trusted, other) **deny** —
-      default-deny is the point; only C.3–C.5 punch through. Implicit: no
-      `config forwarding` from `cluster` to those zones → zone forward `REJECT`
-      default drops them. Verify (`nc` to a VLAN-11 service MUST time out).
-- [ ] **C.7** `fw4 reload`; record the **as-built** UCI delta + which egress
-      mechanism (plain vs §2b) ended up enforcing, in the as-built note.
+  are static, so DHCP is **not** required for this slice). **Live 2026-06-09**
+  (`ping 10.97.51.1`); staged UCI §1.
+- [x] **C.2** Create the `cluster` fw4 zone (input/forward/output default
+      `REJECT`/`DROP`; `icmpEcho` off as desired). **Operator-confirmed applied
+      2026-06-09.** Staged UCI §2.
+- [x] **C.3** `cluster → app` allow: `creil` :22 (git SSH push) **and** :443
+      (HTTPS clone + container-registry pull), `zeiss` :443 (Attic). **THE SHARP
+      ITEM — RESOLVED:** operator confirms VLAN 51 reaches **only** zeiss + creil
+      on app (not all of app), so the Phase-5.A broad-accept risk did **not**
+      materialize — egress is tight. (Which mechanism enforced — plain §2 vs the
+      §2b nft include — not captured verbatim here; confirm on next device touch
+      and record per C.7.)
+- [~] **C.4** `cluster → <DNS resolver>` allow :53 (the VLAN-51 resolver path —
+      a multus-only VM has **no** in-cluster DNS). **UNCONFIRMED:** not in the
+      operator's confirmed egress list (transit/zeiss/creil). Cluster zone input
+      default is REJECT, so the VM cannot hit bt8gw `:53` without the explicit
+      `Allow-cluster-DNS` rule (staged UCI §2 → bt8gw dnsmasq input :53, recurses
+      upstream to thebeyond kresd → phantasma). **Confirm before D** — the
+      multus-only VM needs it to resolve `dev-N.internal` and egress hostnames.
+- [x] **C.5** `cluster → WAN` allow as needed for the dev image's external pulls
+      (or scope tighter if the allowlist is known). **Operator-confirmed
+      2026-06-09** (transit reachable). Staged UCI §2 → `cluster → transit` (WAN
+      via thebeyond NAT; thebeyond's transit-side fw gates onward).
+- [x] **C.6** `cluster → *` (management, lab, trusted, other) **deny** —
+      default-deny is the point; only C.3–C.5 punch through. **Operator-confirmed
+      2026-06-09** — egress limited to transit/zeiss/creil; everything else denied
+      by the zone forward `REJECT` default.
+- [~] **C.7** `fw4 reload` done (rules live). **Residual:** record the
+      **as-built** UCI delta + which egress mechanism (plain §2 vs §2b) ended up
+      enforcing, in the as-built note — not yet captured verbatim here.
 
 ## Phase D — KubeVirt attachment (multus-only) [cluster + flake] (maps to plan Phase 4)
 

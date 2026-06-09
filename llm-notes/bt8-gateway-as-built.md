@@ -242,11 +242,23 @@ dev-machine lives, router-confined off erebonia's VLAN-11 management plane. The
 erebonia flake half (`uplink.51` + host-IP-less `br51`) landed separately; this
 is the bt8gw-manual half.
 
-**Status (2026-06-09):** L3 termination **reported live** — `ping 10.97.51.1`
-answers. So §1 (L2 trunk + L3 interface, B.1/C.1) is at least partly applied.
-The fw4 zone + egress allowlist (§2, C.2–C.7) status is **unconfirmed** — verify
-against `uci show firewall` and the §3 smoke test before treating the dev-VM
-egress as confined.
+**Status (2026-06-09):** L3 termination **live** — `ping 10.97.51.1` answers
+(§1 L2 trunk + L3 interface, B.1/C.1). The fw4 zone + egress allowlist (§2,
+C.2–C.6) is **operator-confirmed enforcing** — VLAN 51 reaches only transit
+(WAN), zeiss, and creil; the rest of app (oracion, saint-arkh, …) and all other
+internal zones are denied. **The broad-accept risk below did NOT materialize**
+— cluster→app is tight, not broad.
+
+**Two residuals, not yet captured here verbatim:**
+
+1. **DNS (`:53`) not in the confirmed egress list.** The cluster zone input
+   default is REJECT, so the multus-only dev VM cannot use bt8gw's dnsmasq
+   without the explicit `Allow-cluster-DNS` input rule (§2). Confirm it is
+   present before Phase D — the VM needs it to resolve `dev-N.internal`.
+2. **Which mechanism enforces the app allowlist (plain §2 vs the §2b nft
+   include) was not recorded.** Capture it (and the exact UCI delta) on the next
+   device touch — `uci show firewall` + `nft list ruleset` — and update the table
+   below.
 
 L3 termination (same shape as APP/50 — see "Trunk port architecture"):
 
