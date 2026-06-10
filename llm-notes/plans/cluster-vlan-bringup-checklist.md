@@ -1,6 +1,9 @@
 # Cluster VLAN 51 Bring-up — Status Checklist
 
-**Status: PHASE D COMPLETE — ★ GOAL A (kubevirt P5) PROVEN 2026-06-10. ★**
+**Status: ★ BOTH GOALS PROVEN 2026-06-10 — GOAL A (kubevirt P5) + GOAL B
+(kubevirt P6 pieces 5–6). ★** Only Phase F housekeeping remains (F.3 regression
+sweep, F.4 doc moves, C.7 as-built capture) — none of it changes the live system.
+This checklist should move `plans/ → wip/` (F.4) on the next pass.
 Phase A done (flake); B done (L2 confirmed by end-to-end DHCP+egress); C
 operator-confirmed applied (egress confined to transit/zeiss/creil, 2026-06-09);
 D applied + **runtime-verified on the cluster 2026-06-10** — the dev VM came up
@@ -12,13 +15,15 @@ VM, creil `:22`/`:443` + zeiss `:443` + WAN reachable and DNS resolves
 (`dev-1.internal`, `creil.internal`), while erebonia mgmt (`10.97.11.31`) `:22`,
 `:6443` (apiserver), `:2049` (NFS) all **time out** — the dev VM cannot reach the
 management VLAN. F.1 (security) confirmed.
-**Remaining: Goal B (mobile) + Phase F cleanup.** Goal B's gating ingress
-(`wg-vpn → cluster`) is **already broadly permitted** by existing bt8gw
-forwarding (see as-built §"Operator ingress"), so the mobile path likely works
-today with **no new fw4 rule** — test `mosh dev@dev-N.internal` from the mobile
-peer (E.3); the scoped E.1 `transit → cluster` rule drops to **optional
-tightening**. Then F.3 regression (erebonia-side: flannel/Incus/mgmt intact) +
-F.4 move docs to `wip/`. Drafted 2026-06-08; Phase A landed 2026-06-08.
+**Goal B (mobile) — PROVEN 2026-06-10**: from the mobile device over `wg-vpn`,
+`mosh dev@dev-1.internal` connects directly (no edith hop) and the session
+**persists across network changes** where plain SSH dropped (E.3 + F.2). As
+predicted, **no new bt8gw fw4 rule was needed** — the existing broad
+`wg-vpn → cluster` forwarding already admitted it, so the scoped E.1
+`transit → cluster` rule is now purely **optional tightening** (E.2 also
+confirmed: no thebeyond router6 edit). **Only Phase F housekeeping remains:** F.3
+regression (erebonia-side — flannel/Incus/mgmt intact) + F.4 doc moves + C.7
+as-built capture. Drafted 2026-06-08; Phase A landed 2026-06-08.
 Phase B flake half landed 2026-06-09 (originally `uplink.51` + a host-IP-less
 `br51`); bt8gw L3 termination reported live 2026-06-09 (`ping 10.97.51.1`
 answers). **The br51 bridge was then RETIRED by the macvtap cutover
@@ -261,19 +266,22 @@ _Move the dev VM off the flannel pod network onto VLAN 51 directly._
 
 _Direct mobile reach — unblocks kubevirt Phase 6 pieces 5–6._
 
-- [ ] **E.1** bt8gw fw4 `transit → cluster` accept, `saddr = 10.100.10.21` (the
-      `mobile` wg peer), `daddr` = the dev-slot band `10.97.51.10–.25`, **TCP :22**
-      (mosh/ssh bootstrap) **+ UDP 60000–61000** (mosh data). Narrow to the band,
-      not the whole zone. (One rule covers all 16 slots — they share the egress
-      and ingress policy, so no per-slot rules.)
-- [ ] **E.2** Confirm no router6 edit is needed on thebeyond: `wg-vpn.accessTo`
-      already includes `transit`, so thebeyond already forwards `wg-vpn →
-10.97.0.0/16` (gated by bt8gw fw4 — the rule above is the only gate).
-- [ ] **E.3** Acceptance: from the mobile (over `wg-vpn`), `mosh
-dev@dev-N.internal` (the slot the target VM occupies) connects and attaches the
-      in-container zellij. (The
-      mosh/zellij/attach-helper image pieces are kubevirt Phase 6 pieces 1–4 — land
-      those in parallel; they work over the edith-jump interim regardless.)
+- [-] **E.1** **Optional tightening — not needed for the goal.** The scoped bt8gw
+      fw4 `transit → cluster` accept (`saddr = 10.100.10.21` the `mobile` wg peer,
+      `daddr` = dev band `10.97.51.10–.25`, **TCP :22 + UDP 60000–61000**) was
+      staged as a narrowing. **Mobile access works today without it** (E.3 passed),
+      because the existing broad `wg-vpn → cluster` forwarding already admits it.
+      Apply this only if that broad forwarding is later narrowed. (One rule covers
+      all 16 slots — shared ingress policy, no per-slot rules.)
+- [x] **E.2** **Confirmed** — no router6 edit needed on thebeyond. `wg-vpn.accessTo`
+      already includes `transit`, so thebeyond forwards `wg-vpn → 10.97.0.0/16`
+      (gated by bt8gw fw4); the mosh session reaching `dev-1` end-to-end proves the
+      path needed no thebeyond change.
+- [x] **E.3** Acceptance — **PASSED 2026-06-10 (★ Goal B proven ★).** From the
+      mobile device over `wg-vpn`, `mosh dev@dev-1.internal` connects **directly**
+      (no edith hop) and the session **persists across network changes** where a
+      plain SSH connection dropped — the roaming property the mosh-in-base-image
+      work (P6 pieces 1–4) exists to provide.
 
 ## Phase F — verification / acceptance
 
@@ -283,8 +291,9 @@ dev@dev-N.internal` (the slot the target VM occupies) connects and attaches the
       `10.97.11.31` `:22`/`:6443`/`:2049` time out). erebonia's mgmt identity on
       VLAN 11 is untouched (`uplink.51` carries no host IP; macvtap = host↔guest
       isolation by construction). Residual: F.3 regression sweep (erebonia side).
-- [ ] **F.2** **Mobile:** direct `mosh` from the `mobile` peer works without the
-      edith hop.
+- [x] **F.2** **Mobile — confirmed 2026-06-10 (= E.3).** Direct `mosh` from the
+      `mobile` peer to `dev-1.internal` works without the edith hop, and the session
+      survives network changes that drop plain SSH.
 - [ ] **F.3** **Regression:** other k3s workloads (plain flannel pods) and the
       existing microVMs/Incus guests on erebonia are unaffected (flannel still
       primary, VLAN 11 mgmt intact).

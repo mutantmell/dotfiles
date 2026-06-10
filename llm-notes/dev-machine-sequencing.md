@@ -97,16 +97,21 @@ Plans referenced:
   mgmt `10.97.11.31` `:22`/`:6443`/`:2049` all **time out** — the VM cannot reach
   the management VLAN. F.1 (security) confirmed.
 
-**Remaining** — **only Goal B (mobile) + Phase F cleanup.** Goal B's gating
-ingress (`wg-vpn → cluster`) is **already broadly permitted** by existing bt8gw
-forwarding (as-built §"Operator ingress"), so the mobile path likely works today
-with **no new fw4 rule** — next concrete action is to test `mosh
-dev@dev-N.internal` from the `mobile` peer (Checklist E.3). The scoped E.1
-`transit → cluster` rule then drops to **optional tightening**, not a blocker.
-After that: F.3 regression (erebonia-side — flannel pods + VLAN 50/100 Incus
-guests + VLAN-11 mgmt unaffected) and F.4 (move the checklist + isolation plan to
-`wip/`). Residual doc capture: C.7 as-built UCI delta; GC the retired per-slot
-bridge NADs if the apply didn't.
+- **Checklist E — mobile access** — **★ GOAL B (kubevirt P6 pieces 5–6) PROVEN
+  2026-06-10. ★** From the mobile device over `wg-vpn`, `mosh dev@dev-1.internal`
+  connects directly (no edith hop) and the session **persists across network
+  changes** where a plain SSH connection dropped — the roaming property that was
+  the whole point of the mosh-in-base-image work (P6 pieces 1–4). Confirms E.3 and
+  F.2. As predicted, **no new bt8gw fw4 rule was needed** — the existing broad
+  `wg-vpn → cluster` forwarding already admitted it; the scoped E.1 rule is now
+  purely **optional tightening** (E.2 also confirmed: no thebeyond router6 edit).
+
+**Remaining** — **both goals are met; only Phase F cleanup + doc lifecycle.**
+What's left is non-blocking housekeeping: **F.3 regression** (erebonia-side —
+flannel pods + VLAN 50/100 Incus guests + VLAN-11 mgmt unaffected), **F.4** (move
+the checklist + isolation plan from `plans/` to `wip/`; the kubevirt plan is now
+unblocked and should leave `blocked/`), the **C.7 as-built UCI capture**, and the
+optional GC of the retired per-slot NADs. None of it changes the working system.
 
 ---
 
@@ -158,8 +163,8 @@ REMAINING ───────────────────────�
 | 4 ✅ | **Checklist D** — Multus + **macvtap-cni**, ONE `cluster-vlan51` macvtap NAD on `uplink.51` (br51 retired), dev-VM manifest `masquerade→multus-only macvtap`, slot IP via **bt8gw DHCP reservation**, access path → direct SSH | isolation **P4**             | `[cluster + flake]` | **Applied + runtime-verified 2026-06-10.** VM up multus-only via macvtap, DHCP'd slot `dev-1` (`10.97.51.10`). D.7 acceptance passed. Residual: GC retired per-slot NADs |
 | ★ ✅ | **GOAL A — devcontainer secured**                                                                                                                    | **= kubevirt P5**            | —                   | **PROVEN 2026-06-10** (D.7: egress allowlist works, mgmt VLAN-11 unreachable)                                          |
 | 5 ◑  | **Checklist E** — `mobile` peer `10.100.10.21` → dev band :22 + UDP 60000–61000. **`wg-vpn→cluster` already broadly permitted** (as-built §"Operator ingress") → mobile path likely works **now with no new rule**; the scoped `transit→cluster` fw4 rule is **optional tightening**. **Next action: test `mosh dev@dev-N.internal` from mobile (E.3)** | isolation **P4 rider**       | `[bt8gw manual]`    | D ✅ (done)                                                                                                            |
-| ★    | **GOAL B — direct mobile access**                                                                                                                    | **= kubevirt P6 pieces 5–6** | —                   | E complete (pieces 1–4 done)                                                                                            |
-| 6    | **Checklist F** — verify security + mobile + no flannel/microVM regression; move isolation docs to `wip/`                                            | both                         | —                   | D, E                                                                                                                    |
+| ★ ✅ | **GOAL B — direct mobile access**                                                                                                                    | **= kubevirt P6 pieces 5–6** | —                   | **PROVEN 2026-06-10** (mosh from mobile to `dev-1.internal`, session roams where SSH dropped; no new fw4 rule needed)   |
+| 6 ◑  | **Checklist F** — verify security + mobile + no flannel/microVM regression; move isolation docs to `wip/`                                            | both                         | —                   | F.1 ✅ + F.2 ✅; **F.3 regression** + **F.4 doc moves** remain                                                          |
 
 ---
 
