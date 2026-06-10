@@ -9,11 +9,26 @@ dev VM runs multus-only via macvtap on the lesser-privileged `cluster` VLAN 51,
 confined by bt8gw fw4 — egress is the creil(`:22`/`:443`)/zeiss(`:443`)/DNS/WAN
 allowlist only, and the management VLAN is unreachable (`10.97.11.31`
 `:22`/`:6443`/`:2049` time out). **Phase 6 (remote/mobile operator access)** is
-**done + verified**: the session-ergonomics half (mosh in the base image, zellij
-in the dev image, multi-key injection, the attach helper) shipped, and the
-*direct* mobile path now works — `mosh dev@dev-1.internal` from the mobile device
-over `wg-vpn` connects with no edith hop and roams across network changes where a
-plain SSH connection dropped.
+**done + verified**: the session-ergonomics half (tsshd in the base image —
+originally mosh, see the update note below — zellij in the dev image, multi-key
+injection, the attach helper) shipped, and the *direct* mobile path now works —
+`tssh --udp dev@dev-1.internal` from the mobile device over `wg-vpn` connects
+with no edith hop and roams across network changes where a plain SSH connection
+dropped.
+
+> **Update (2026-06-10) — transport swapped mosh → tssh/tsshd.** The base image
+> now ships `pkgs.tsshd` instead of `pkgs.mosh`: mosh-server interacted badly
+> with the in-container zellij, and Rootshell bundles **tssh** (trzsz-ssh), a
+> mosh-style UDP transport with a companion **tsshd** server that handles
+> disconnects/roaming and avoids mosh's SSH-forwarding/ProxyJump limitations.
+> Mechanics are unchanged in spirit — `tssh --udp dev@dev-N.internal` logs in
+> over SSH, launches `tsshd` (found on PATH, the mosh-server analog), then roams
+> over UDP. **The UDP data range moved `60000–61000` → `61001–61999`** (tsshd's
+> default `TsshdPort`), so the guest firewall and any bt8gw `transit → cluster`
+> hole move with it. tsshd has no UTF-8-locale requirement (Go binary), so the
+> `en_US.UTF-8` pin below is now only for the fallback VM shell / zellij, not a
+> hard dependency. The mosh-specific rationale further down is kept as the
+> original decision record; tssh/tsshd is the as-built transport.
 
 ## Resolved — the network-lockdown dependency (shipped)
 

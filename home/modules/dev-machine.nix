@@ -19,7 +19,7 @@
 #                           dev slot (dev-1..dev-16; checklist D.4/D.5), injects the
 #                           operator's SSH pubkey(s) via the guest agent (Phase 6:
 #                           `sshPubKeys` may carry several — operator + mobile — so a
-#                           phone can mosh in alongside the workstation), points a
+#                           phone can tssh in alongside the workstation), points a
 #                           per-machine devpod ssh provider DIRECTLY at
 #                           `dev-N.internal` (D.6 — the routable slot host, no
 #                           port-forward), and `devpod up`s the repo's

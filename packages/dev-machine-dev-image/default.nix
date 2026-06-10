@@ -108,7 +108,7 @@
 
       # Phase 6 (remote/mobile operator access): the durable in-container session
       # multiplexer. The agent runs inside a zellij session named `main`; a mobile
-      # operator mosh's into the VM and `dev-attach`es into that same session, so
+      # operator tssh's into the VM and `dev-attach`es into that same session, so
       # work survives a dropped connection. Lives in the dev image because the
       # session must run where the agent runs — inside the devcontainer.
       zellij

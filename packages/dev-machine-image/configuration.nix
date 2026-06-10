@@ -6,7 +6,7 @@
   ...
 }: let
   # ── Phase 6 — attach helper for a mobile/remote operator (attach-only) ───────
-  # A mobile mosh session runs this as its remote command to land DIRECTLY in the
+  # A mobile tssh session runs this as its remote command to land DIRECTLY in the
   # agent's persistent in-container zellij, skipping the operator wrapper (which
   # lives only on the workstation, off this VM by design). It finds the running
   # devcontainer the same way the wrapper's extract_via_docker does — the one
@@ -155,14 +155,17 @@ in {
   # NetworkPolicy to act on).
   networking.useDHCP = lib.mkForce true;
   networking.firewall.allowedTCPPorts = [22];
-  # mosh (Phase 6 mobile access) carries its session over UDP; mosh-server picks a
-  # port in this range per connection. 60000-61000 is mosh's conventional range and
-  # matches the wg-vpn->cluster router rule the isolation plan opens, so the guest
-  # firewall never drops a session the router allowed (a narrower guest range would).
+  # tssh/tsshd (Phase 6 mobile access) carries its session over UDP: after the
+  # initial SSH login, tssh starts a per-session tsshd that picks a UDP port in
+  # this range and the session roams over it. 61001-61999 is tsshd's default
+  # range (TsshdPort) and matches the wg-vpn->cluster bt8gw rule the isolation
+  # plan opens, so the guest firewall never drops a session the router allowed (a
+  # narrower guest range would). A client that pins a narrower TsshdPort can ride
+  # a correspondingly narrower hole, but the default keeps zero-config working.
   networking.firewall.allowedUDPPortRanges = [
     {
-      from = 60000;
-      to = 61000;
+      from = 61001;
+      to = 61999;
     }
   ];
 
@@ -255,14 +258,14 @@ in {
     extraGroups = ["docker"];
   };
 
-  # mosh (Phase 6 mobile access) needs a UTF-8 locale: mosh-server refuses to
-  # start unless the session has a UTF-8 locale ("The locale requested by ...
-  # isn't available here") and falls back to a broken state otherwise. This image
-  # rides profiles/minimal.nix, which narrows i18n.supportedLocales (via
-  # mkDefault) to ONLY the default locale's charset line — so the glibc locale
-  # archive would otherwise carry just that one entry. Pin the default to
-  # en_US.UTF-8 AND list it explicitly in supportedLocales so the locale archive
-  # actually contains en_US.UTF-8 for mosh-server to inherit/select.
+  # A UTF-8 locale for the VM session (Phase 6 mobile access). Unlike mosh-server,
+  # tsshd has no hard locale requirement (it's a Go binary, no glibc locale
+  # check), but the fallback `dev` VM shell and zellij still render correctly only
+  # under a UTF-8 locale. This image rides profiles/minimal.nix, which narrows
+  # i18n.supportedLocales (via mkDefault) to ONLY the default locale's charset
+  # line — so the glibc locale archive would otherwise carry just that one entry.
+  # Pin the default to en_US.UTF-8 AND list it explicitly in supportedLocales so
+  # the archive actually contains it for the shell to select.
   i18n.defaultLocale = "en_US.UTF-8";
   i18n.supportedLocales = ["en_US.UTF-8/UTF-8"];
 
@@ -271,21 +274,24 @@ in {
   # devpod tries (and fails) to apt/apk-install it. `git` is the one dev tool the
   # base carries; the actual toolchain lives in the devcontainer image.
   #
-  # mosh + dev-attach are Phase 6 (remote/mobile operator access, attach-only): a
-  # mobile operator mosh's into this VM (roaming/low-latency over flaky links) and
-  # runs `dev-attach` to drop straight into the agent's persistent in-container
-  # zellij. Both belong on the BASE image because mosh-server and the docker
-  # socket live on the VM, not inside the devcontainer. dev-cp is the file-transfer
-  # sibling (docker cp wrapper) for moving files into/out of the inner workspace.
+  # tsshd + dev-attach are Phase 6 (remote/mobile operator access, attach-only): a
+  # mobile operator `tssh --udp`'s into this VM (roaming/low-latency over flaky
+  # links — Rootshell bundles the tssh client) and runs `dev-attach` to drop
+  # straight into the agent's persistent in-container zellij. tsshd belongs on the
+  # BASE image because tssh launches it over the SSH login (the mosh-server
+  # analog), found on PATH here — no per-VM `--install-tsshd` into a writable home
+  # needed; like the docker socket, it lives on the VM, not inside the
+  # devcontainer. dev-cp is the file-transfer sibling (docker cp wrapper) for
+  # moving files into/out of the inner workspace.
   environment.systemPackages = [
     pkgs.git
-    pkgs.mosh
+    pkgs.tsshd
     dev-attach
     dev-cp
   ];
 
   # ── Phase 6 — auto-attach an interactive login straight into the devcontainer ─
-  # So a mobile operator only needs a saved ssh/mosh profile (no remembered
+  # So a mobile operator only needs a saved ssh/tssh profile (no remembered
   # command): a bare interactive login lands DIRECTLY in the agent's persistent
   # in-container zellij via dev-attach. The two guards keep every NON-interactive
   # path pristine, so nothing the control plane relies on changes:

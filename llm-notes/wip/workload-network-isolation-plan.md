@@ -16,9 +16,11 @@ recorded here and in [`../bt8-gateway-as-built.md`](../bt8-gateway-as-built.md).
   `:22`/`:6443`/`:2049` and the _other_ app hosts (oracion `10.97.50.52`,
   saint-arkh `10.97.50.61`) **time out**. Tight allowlist, not a broad accept;
   no management-VLAN adjacency. (Egress table in the as-built note.)
-- **Goal B / mobile (= kubevirt P6 pieces 5–6).** `mosh dev@dev-1.internal` over
-  `wg-vpn` connects directly (no edith hop) and roams across network changes
-  where plain SSH dropped. No new bt8gw fw4 rule was needed.
+- **Goal B / mobile (= kubevirt P6 pieces 5–6).** `tssh --udp dev@dev-1.internal`
+  (originally mosh; swapped to tssh/tsshd 2026-06-10) over `wg-vpn` connects
+  directly (no edith hop) and roams across network changes where plain SSH
+  dropped. No new bt8gw fw4 rule was needed; the data range is tsshd's default
+  UDP `61001–61999` (was mosh's `60000–61000`).
 - **No regression (F.3, verified from edith).** flannel still primary (a pod-network
   pod got `10.42.0.114/24` + WAN egress); multus/macvtap purely additive
   (node advertises `macvtap.network.kubevirt.io/vlan51 = 16`, k3s healthy);
@@ -170,7 +172,7 @@ than add bespoke plumbing:
    ephemeral KubeVirt dev VM at create time, so spinning machines up/down needs
    **no registry edit**. This reuses the authoritative DNS path (non-spoofable,
    no new infra), keeps the direct-to-sandbox security model, and gives
-   mobile-by-name reach (`mosh dev@dev-N.internal`) — at the cost of a static cap
+   mobile-by-name reach (`tssh --udp dev@dev-N.internal`) — at the cost of a static cap
    (16; widen the `genList` count into the band's `.26–.31` headroom).
    _Considered and rejected for now:_ (a) **bt8gw dnsmasq DHCP→DNS** — dnsmasq
    does register DHCP hostnames as DNS dynamically (unbounded, no cap), but the
@@ -508,7 +510,10 @@ on the cluster being healthy.
      (unblocks `ai-dev-machine-kubevirt-plan.md` **Phase 6**, the attach-only
      mobile/iPad path). Once the named dev VMs are routable + DNS'd (above), add
      a **scoped** rule: `daddr` = the dev-machines host band on VLAN 51, **TCP
-     `:22`** (mosh/ssh session bootstrap) **+ UDP `60000–61000`** (mosh data).
+     `:22`** (tssh/ssh session bootstrap) **+ UDP `61001–61999`** (tsshd data;
+     tssh/tsshd replaced mosh 2026-06-10, hence the range bump from `60000–61000`.
+     A client that pins a narrower `TsshdPort` can ride a correspondingly narrower
+     UDP hole).
      **Enforcement is on bt8gw, not thebeyond.** `wg-vpn` terminates on
      thebeyond and `cluster` on bt8gw, and `wg-vpn.accessTo` already includes
      `transit`, so thebeyond _already_ forwards `wg-vpn → 10.97.0.0/16` broadly
