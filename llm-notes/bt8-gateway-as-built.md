@@ -17,10 +17,10 @@ Source dumps live in `temp/`:
   [`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
   Section A.
 - `temp/BT8-gw-cluster-vlan51-additions.uci` — L2/L3 + fw4 additions for the
-  cluster VLAN 51 bring-up (dev-machine isolation). Companion to
-  [`wip/cluster-vlan-bringup-checklist.md`](wip/cluster-vlan-bringup-checklist.md)
-  Phases B.1 + C. **Staged**; L3 termination reported live 2026-06-09 (see the
-  Cluster VLAN 51 section below).
+  cluster VLAN 51 bring-up (dev-machine isolation). **Applied + proven 2026-06-10**
+  (the orchestration checklist that drove it has been retired; acceptance lives in
+  [`wip/workload-network-isolation-plan.md`](wip/workload-network-isolation-plan.md)
+  and the Cluster VLAN 51 section below).
 
 This file captures (a) deltas from
 [`guides/bt8-gateway-luci-runbook.md`](guides/bt8-gateway-luci-runbook.md),
@@ -234,15 +234,14 @@ plus a matching messeldam-side input rule only if lldap is later dual-stacked.
 
 ## Cluster VLAN 51 additions (2026-06-09) — dev-machine isolation
 
-UCI source: `temp/BT8-gw-cluster-vlan51-additions.uci`. Companion to
-[`wip/cluster-vlan-bringup-checklist.md`](wip/cluster-vlan-bringup-checklist.md)
-Phases B.1 (L2) + C (fw4). Stands up the low-trust `cluster` zone
-(`10.97.51.0/24` + `fdc6:55f2:0a5e:1033::/64`) where the locked-down KubeVirt
-dev-machine lives, router-confined off erebonia's VLAN-11 management plane. The
-erebonia flake half landed separately (originally `uplink.51` + a host-IP-less
-`br51`; **`br51` was later retired by the macvtap cutover** — the dev VMs now
-attach via KubeVirt macvtap on a standalone `uplink.51`, see
-[`wip/dev-machine-vlan51-macvtap-cutover.md`](wip/dev-machine-vlan51-macvtap-cutover.md)).
+UCI source: `temp/BT8-gw-cluster-vlan51-additions.uci`. Stands up the low-trust
+`cluster` zone (`10.97.51.0/24` + `fdc6:55f2:0a5e:1033::/64`) where the
+locked-down KubeVirt dev-machine lives, router-confined off erebonia's VLAN-11
+management plane. The erebonia flake half landed separately (originally
+`uplink.51` + a host-IP-less `br51`; **`br51` was later retired by the macvtap
+cutover** — the dev VMs now attach via KubeVirt macvtap on a standalone
+`uplink.51`, see
+[`done/dev-machine-vlan51-macvtap-cutover.md`](done/dev-machine-vlan51-macvtap-cutover.md)).
 This note is the bt8gw-manual half.
 
 **Status (2026-06-09):** L3 termination **live** — `ping 10.97.51.1` answers

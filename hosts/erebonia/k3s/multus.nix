@@ -172,8 +172,8 @@
     };
   };
 in {
-  # ── Phase D.1/D.2 — Multus + the reference CNI plugins (bring-up checklist) ───
-  # cluster-vlan-bringup-checklist.md Phase D, the [cluster] half. Multus is the
+  # ── Phase D.1/D.2 — Multus + the reference CNI plugins ───────────────────────
+  # workload-network-isolation-plan.md Phase 4, the [cluster] half. Multus is the
   # CNI *multiplexer* that lets the locked-down dev-machine VM attach a SECOND
   # interface straight onto VLAN 51 (a macvtap child of uplink.51 — see the
   # macvtap section above) and skip the flannel pod network entirely — so it is a

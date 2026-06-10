@@ -153,9 +153,9 @@ Source for the gateway "golden output":
       "Cluster VLAN 51 additions" in the as-built note) becomes flake
       source here, and the snapshot test records which mechanism enforces.
       Egress behaviour is already proven (oracion/saint-arkh denied,
-      creil/zeiss allowed — see the as-built enforcement table). See
-      [`../wip/cluster-vlan-bringup-checklist.md`](../wip/cluster-vlan-bringup-checklist.md)
-      C.7.
+      creil/zeiss allowed — see the as-built enforcement table and
+      [`../wip/workload-network-isolation-plan.md`](../wip/workload-network-isolation-plan.md)
+      Acceptance).
 * [ ] Generate odhcpd UCI per VLAN from registry data
 * [ ] Pure-Nix evaluation snapshot tests under `tests/openwrt/`,
       gating against the as-built `.uci` files

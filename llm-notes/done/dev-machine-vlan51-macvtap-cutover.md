@@ -1,11 +1,15 @@
 # dev-machine VLAN-51: bridge → macvtap cutover
 
-**Status (2026-06-10):** flake side **implemented + eval/build-validated**
-(kubevirt.nix, multus.nix, erebonia microvm/default.nix, home/dev-machine.nix),
-and **bt8gw DHCP reservations done** — the 16 per-slot MAC→IP reservations are in
-place on the VLAN-51 DHCP, so each slot now gets a **stable `dev-N.internal`
-address** (Change E below, ✅). Remaining: **cluster apply + runtime verify**
-only.
+**Status (2026-06-10): COMPLETE + runtime-verified on the cluster.** Flake side
+implemented (kubevirt.nix, multus.nix, erebonia microvm/default.nix,
+home/dev-machine.nix) and **bt8gw DHCP reservations done** (16 per-slot MAC→IP
+reservations on the VLAN-51 DHCP → stable `dev-N.internal`, Change E ✅). Applied
+and proven: the dev VM came up multus-only via macvtap, DHCP'd slot `dev-1`
+(`10.97.51.10`), egress/isolation acceptance passed, and the F.3 regression sweep
+confirmed flannel/Incus/mgmt unaffected (see
+[`workload-network-isolation-plan.md`](../wip/workload-network-isolation-plan.md)
+Acceptance). **One optional loose end:** GC the retired per-slot bridge NADs
+(`kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-{1..16}`).
 
 ## Why (root cause, proven 2026-06-10)
 

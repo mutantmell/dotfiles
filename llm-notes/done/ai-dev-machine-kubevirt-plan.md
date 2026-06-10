@@ -29,8 +29,8 @@ is the *sole* (and stronger) enforcer for the VM; this was initially mis-framed 
 Phase 5). The cluster VLAN, cluster-egress-off-VLAN-11, and the KubeVirt Multus +
 macvtap attachment were **delivered by the isolation plan**
 (`llm-notes/wip/workload-network-isolation-plan.md`, Phases 1, 2, 4 — its
-critical-path slice, tracked in
-`llm-notes/wip/cluster-vlan-bringup-checklist.md`).
+critical-path slice; the orchestration checklist that drove it has been retired,
+with acceptance recorded in that plan).
 
 **Delivered 2026-06-10:** the `cluster` zone in the registry, cluster egress off
 VLAN 11, and the KubeVirt Multus + macvtap (multus-only, host↔guest-isolated)
@@ -389,7 +389,7 @@ NetworkPolicy-only interim it replaces:
   it sidesteps that, matches erebonia's VLAN 50/100 pattern, and adds host↔guest
   isolation by construction. The slot IP now comes from a **bt8gw per-slot DHCP
   reservation** rather than the bridge path's in-pod DHCP / NAD static IPAM. See
-  [`../wip/dev-machine-vlan51-macvtap-cutover.md`](../wip/dev-machine-vlan51-macvtap-cutover.md).)
+  [`../done/dev-machine-vlan51-macvtap-cutover.md`](../done/dev-machine-vlan51-macvtap-cutover.md).)
 - **Layer 2 — NetworkPolicy — DOES NOT APPLY to the multus-only VM.** This is the
   reconciliation with the isolation plan's "defense-in-depth caveat" (and the
   egress allowlist — `creil:{22,443}` [SSH push + HTTPS clone/registry pull],

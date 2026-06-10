@@ -69,7 +69,7 @@ in {
     # that lets the dev-machine VM attach multus-only via macvtap on uplink.51
     # (cluster zone), off the flannel pod network — NOT a host bridge (the retired
     # br51 hit a br_netfilter drop on routed-in traffic; see the macvtap cutover
-    # note). (cluster-vlan-bringup-checklist.md Phase D.)
+    # note). (workload-network-isolation-plan.md Phase 4.)
     ./multus.nix
   ];
 

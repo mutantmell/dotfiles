@@ -1,14 +1,36 @@
 # Workload Network Isolation & VLAN Placement — Plan
 
 **Status: WIP.** The **dev-machine / mobile critical-path slice** (Phases 1, 2
-L2+fw4 without the flannel redirect, 4 + the wg-vpn rider — tracked in the
-companion [`cluster-vlan-bringup-checklist.md`](cluster-vlan-bringup-checklist.md))
-is **complete and proven 2026-06-10**: the locked-down dev VM runs on the
-`cluster` VLAN 51 (multus-only macvtap), confined by bt8gw fw4, and is reachable
-directly from mobile. The **broader phases remain deferred** (Future-state A/B,
-the host-side flannel-egress redirect, LB-IPAM, NetworkPolicy default-deny,
-dynamic-pool IPAM, removing WAN from VLAN 11) — see "Phases / next steps" and the
-checklist's "Explicitly deferred".
+L2+fw4 without the flannel redirect, 4 + the wg-vpn rider) is **complete and
+proven 2026-06-10**: the locked-down dev VM runs on the `cluster` VLAN 51
+(multus-only macvtap), confined by bt8gw fw4, and is reachable directly from
+mobile. _(The slice was driven by a `cluster-vlan-bringup-checklist.md`, a
+task-orchestration artifact now **retired/deleted** — its durable acceptance is
+recorded here and in [`../bt8-gateway-as-built.md`](../bt8-gateway-as-built.md).)_
+
+**Acceptance — proven 2026-06-10:**
+
+- **Goal A / security (= kubevirt P5).** The dev VM (`dm-dotfiles`, slot `dev-1`,
+  `10.97.51.10`) egresses only the bt8gw `cluster → app` allowlist — creil
+  `:22`/`:443`, zeiss `:443`, DNS, WAN — while erebonia mgmt `10.97.11.31`
+  `:22`/`:6443`/`:2049` and the _other_ app hosts (oracion `10.97.50.52`,
+  saint-arkh `10.97.50.61`) **time out**. Tight allowlist, not a broad accept;
+  no management-VLAN adjacency. (Egress table in the as-built note.)
+- **Goal B / mobile (= kubevirt P6 pieces 5–6).** `mosh dev@dev-1.internal` over
+  `wg-vpn` connects directly (no edith hop) and roams across network changes
+  where plain SSH dropped. No new bt8gw fw4 rule was needed.
+- **No regression (F.3, verified from edith).** flannel still primary (a pod-network
+  pod got `10.42.0.114/24` + WAN egress); multus/macvtap purely additive
+  (node advertises `macvtap.network.kubevirt.io/vlan51 = 16`, k3s healthy);
+  Incus `trista` RUNNING; VLAN-11 mgmt intact (apiserver reachable). microVM
+  `saint-arkh` is `inactive` **by intent** (pre-existing, pending the Woodpecker
+  repurpose in `../plans/cicd-fleet-activation-plan.md`), not a regression.
+
+The **broader phases remain deferred** (Future-state A/B, the host-side
+flannel-egress redirect, LB-IPAM, NetworkPolicy default-deny, dynamic-pool IPAM,
+removing WAN from VLAN 11) — see "Phases / next steps" and "Explicitly deferred"
+below. One **optional** loose end from the slice: GC the retired per-slot bridge
+NADs (`kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-{1..16}`).
 
 How the three workload substrates on the VM hosts (cloud-hypervisor microVMs,
 KubeVirt VMs, and ordinary k3s containers/services) attach to the network: how
@@ -106,7 +128,7 @@ multi-node/HA makes the constraints real.
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | microVM attachment                   | **macvtap for all** guests; **vepa or private** mode where sibling isolation is wanted                                                                                                                                                                                                                                                                                                                                                      | Host-isolated by construction. `private` blocks same-host siblings outright; `vepa` forces them up to the **upstream switch** (router mediation only for _inter-zone_/inter-subnet hops — the router never routes intra-subnet, and same-VLAN reflection needs switch reflective-relay support). Already used for VLAN 50/100. |
 | Retire shared br11 for guests        | **Yes** — guests never sit on the host's management segment                                                                                                                                                                                                                                                                                                                                                                                 | br11 is the one weak isolation point (host mgmt IP shares L2). Guests move to their own zones.                                                                                                                                                                                                                                 |
-| KubeVirt VM attachment               | **Multus + macvtap** on a VLAN subinterface (`uplink.51`). **(Revised 2026-06-10** — was "Multus + bridge CNI on a host-IP-less bridge.")                                                                                                                                                                                                                                                                                                  | The original rationale ("KubeVirt cannot use macvlan/ipvlan — it needs the pod iface MAC; bridge moves MAC to the VM") conflated the macvlan **CNI** with KubeVirt's **macvtap binding plugin**, which *does* work (macvlan-family, host↔guest isolated). The bridge path was then forced out anyway: k3s' `bridge-nf-call=1` drags a host-bridge's VLAN-51 frames through `br_netfilter`, which silently drops routed-in (`lab → dev-N`) traffic. macvtap is not a bridge → never enters `br_netfilter`, and matches the VLAN 50/100 microVM pattern. See [`../wip/dev-machine-vlan51-macvtap-cutover.md`](../wip/dev-machine-vlan51-macvtap-cutover.md). |
+| KubeVirt VM attachment               | **Multus + macvtap** on a VLAN subinterface (`uplink.51`). **(Revised 2026-06-10** — was "Multus + bridge CNI on a host-IP-less bridge.")                                                                                                                                                                                                                                                                                                  | The original rationale ("KubeVirt cannot use macvlan/ipvlan — it needs the pod iface MAC; bridge moves MAC to the VM") conflated the macvlan **CNI** with KubeVirt's **macvtap binding plugin**, which *does* work (macvlan-family, host↔guest isolated). The bridge path was then forced out anyway: k3s' `bridge-nf-call=1` drags a host-bridge's VLAN-51 frames through `br_netfilter`, which silently drops routed-in (`lab → dev-N`) traffic. macvtap is not a bridge → never enters `br_netfilter`, and matches the VLAN 50/100 microVM pattern. See [`../done/dev-machine-vlan51-macvtap-cutover.md`](../done/dev-machine-vlan51-macvtap-cutover.md). |
 | KubeVirt host-isolation completeness | **Per-VM choice:** _multus-only_ (drop flannel primary → fully isolated, VLAN-native, no native cluster Service/DNS) **vs** _pod-network + macvtap_ (cluster-integrated, but flannel primary keeps host adjacency). Default dev-machines to **multus-only** (trista-in-k8s shape).                                                                                                                                                           | Out of the box a KubeVirt VM keeps the flannel pod NIC, and the host's `cni0` is adjacent. Only dropping it matches macvtap-grade isolation — and with macvtap binding the secondary NIC is itself host↔guest isolated by construction.                                                                                          |
 | Container service routability        | **LB-IPAM** (MetalLB **L2 mode** or Cilium LB-IPAM) handing out VIPs from a pool on the cluster VLAN; `external-dns` or static DNS for records                                                                                                                                                                                                                                                                                              | Most containers want a routable _service_ IP, not a routable _pod_ IP. Pods stay on flannel; only ingress gets an address.                                                                                                                                                                                                     |
 | Cluster egress off VLAN 11           | New **cluster zone/VLAN**; each tier reaches VLAN 51 by its own mechanism — dev VMs via multus + macvtap (own IP via bt8gw DHCP reservation), services via LB-IPAM VIPs, **plain flannel pods via source-based policy routing + masquerade onto a host VLAN-51 egress address** (concrete design in "The three tiers" below). **VLAN 51 terminates on bt8gw, so the enforcing firewall is bt8gw's fw4 (manual UCI), not router6** — see "Where VLAN 51 terminates" below. | Makes "remove WAN from VLAN 11" a contained fw4 change on bt8gw, not a cluster rebuild.                                                                                                                                                                                                                                        |
@@ -440,9 +462,11 @@ on the cluster being healthy.
 ## Phases / next steps (current plan)
 
 > **Execution.** The dev-machine / mobile critical path through these phases
-> (Phases 1, 2-without-the-flannel-redirect, 4 + rider) is tracked step-by-step
-> in the companion [`cluster-vlan-bringup-checklist.md`](cluster-vlan-bringup-checklist.md)
-> — it unblocks `ai-dev-machine-kubevirt-plan.md` Phase 5 and Phase 6 pieces 5–6.
+> (Phases 1, 2-without-the-flannel-redirect, 4 + rider) was driven by a
+> task-orchestration checklist that is now **retired/deleted** — it unblocked
+> [`../done/ai-dev-machine-kubevirt-plan.md`](../done/ai-dev-machine-kubevirt-plan.md)
+> Phase 5 and Phase 6 pieces 5–6, both **proven 2026-06-10** (see Acceptance at
+> the top of this plan).
 
 1. **Cluster zone in the registry.** Add `cluster` (and optionally a 2nd
    segment) to `network.nix`; pick the VLAN id; reserve a static host-ID band;
