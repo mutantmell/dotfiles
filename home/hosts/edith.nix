@@ -31,6 +31,16 @@
 
   programs.dev-machine = {
     enable = true;
+    # Pubkeys the guest agent injects into the VM's `dev` user. The workstation
+    # key (the option default) plus the iOS key from the central key registry, so
+    # a phone can SSH into dev-N.internal alongside the workstation (Phase 6). The
+    # registry holds the literal; render it to a `.pub` path (sshPubKeys is a list
+    # of files) rather than re-pasting the key here. Trailing newline keeps the
+    # concatenated authorized_keys lines from merging (see create_vm).
+    sshPubKeys = [
+      "${config.home.homeDirectory}/.ssh/id_ed25519.pub"
+      "${pkgs.writeText "ios.pub" (pkgs.mmell.lib.data.keys.ssh.ios + "\n")}"
+    ];
     # creil's API + the internal step-ca root so curl trusts forgejo.internal.
     caCert = "${pkgs.mmell.lib.data.pki.root}";
     forgejoTokenFile = config.sops.secrets."dev-machine-forgejo-token".path;
