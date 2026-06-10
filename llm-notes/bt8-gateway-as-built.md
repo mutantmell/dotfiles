@@ -275,13 +275,17 @@ Only the two allowlisted hosts answer; the *other* app hosts time out — so the
 Phase-5.A broad-`cluster→app`-accept risk did **NOT** materialize (this extends
 D.7, which only tested mgmt unreachability, to the other-app-hosts case).
 
-**One residual remains — mechanism identification, not yet captured verbatim:**
-the *behaviour* above is proven, but *which* mechanism produces it (plain §2
-per-rule accepts vs the §2b nft config-include with explicit drop) was not
-recorded, and the verbatim UCI delta is uncaptured. This needs **one bt8gw shell
-touch** (`uci show firewall` + `nft list ruleset` + `ls /etc/nftables.d/`) — it
-cannot be read from VLAN 51, where `:22` to bt8gw is correctly denied. Capture on
-the next device touch and update the table below.
+**One residual — verbatim capture is DEFERRED to flake codification, not
+hand-captured here.** The *behaviour* above is proven; what is unrecorded is the
+mechanism (plain §2 per-rule accepts vs the §2b nft config-include with explicit
+drop) and the exact UCI delta. Rather than take another manual `uci show
+firewall` / `nft list ruleset` snapshot into this note — this hand-maintained
+as-built has been a recurring source of confusion — that detail is **deferred to
+[`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
+§B.1** (codify BT8-gateway in the Image Builder). When the bt8gw config becomes
+flake-managed, the cluster zone + egress rules are in-repo and snapshot-tested,
+so the enforcing mechanism is the source itself and the residual dissolves. No
+bt8gw shell touch is wanted in the interim.
 
 ### Per-slot DHCP reservations (2026-06-10) — stable dev-slot IPs
 
@@ -344,9 +348,9 @@ UCI therefore ships the plain per-rule form **plus a `§2b` nft config-include
 fallback** that enforces the three-flow allowlist with an explicit drop. **The
 acceptance test now passes (2026-06-10):** `nc 10.97.50.52:443` (oracion) from
 VLAN 51 times out while creil/zeiss answer — see the enforcement table above — so
-the allowlist *is* restricting as intended. **Still open:** *which* of the two
-mechanisms (plain §2 vs §2b nft include) is the one doing the restricting was not
-read off the device; identify it from `nft list ruleset` on the next bt8gw touch.
+the allowlist *is* restricting as intended. **Which** of the two mechanisms (plain
+§2 vs §2b nft include) is doing the restricting is left to fall out of flake
+codification (§B.1 of the dual-gateway-followups plan), not captured by hand here.
 
 ## Loose ends / follow-ups
 

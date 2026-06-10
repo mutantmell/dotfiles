@@ -194,10 +194,15 @@ additions" section of `bt8-gateway-as-built.md` (the Phase 5.A pattern)._
       `cluster→app` is a tight allowlist, not a broad accept (the Phase-5.A risk
       did not materialize; extends D.7's mgmt-only test to other app hosts). DNS
       rule-name reconciled: live/authoritative name is `Allow-DNS-DHCP-cluster`
-      (staged `Allow-cluster-DNS` superseded). **Residual (one bt8gw shell touch,
-      unreachable from VLAN 51 where bt8gw `:22` is correctly denied):** capture
-      the verbatim `uci show firewall` / `nft list ruleset` delta and identify
-      *which* mechanism (plain §2 vs §2b nft include) is enforcing.
+      (staged `Allow-cluster-DNS` superseded). **Residual DEFERRED — not a bt8gw
+      shell touch.** Capturing the verbatim UCI delta + which mechanism (plain §2
+      vs §2b nft include) enforces is folded into
+      [`plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
+      §B.1 (codify BT8-gateway in the flake): once the config is flake-managed and
+      snapshot-tested, the enforcing rules are the in-repo source and the
+      hand-capture dissolves. No interim manual snapshot — the as-built note has
+      been a source of confusion. Behaviourally, C.7 is **proven**; only the
+      doc-of-record migrates.
 
 ## Phase D — KubeVirt attachment (multus-only) [cluster + flake] (maps to plan Phase 4)
 

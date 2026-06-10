@@ -148,6 +148,14 @@ Source for the gateway "golden output":
       batman participation, optional client APs)
 * [ ] Extend `meshAP` type to accept BT8 hardware
 * [ ] Generate fw4 UCI from structured zone description in Nix
+      — **subsumes the deferred cluster-VLAN-51 C.7 capture**: the
+      `cluster` zone + egress allowlist (currently the hand-maintained
+      "Cluster VLAN 51 additions" in the as-built note) becomes flake
+      source here, and the snapshot test records which mechanism enforces.
+      Egress behaviour is already proven (oracion/saint-arkh denied,
+      creil/zeiss allowed — see the as-built enforcement table). See
+      [`../wip/cluster-vlan-bringup-checklist.md`](../wip/cluster-vlan-bringup-checklist.md)
+      C.7.
 * [ ] Generate odhcpd UCI per VLAN from registry data
 * [ ] Pure-Nix evaluation snapshot tests under `tests/openwrt/`,
       gating against the as-built `.uci` files
