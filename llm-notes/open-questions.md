@@ -1,7 +1,7 @@
 This document is for me (the operator) to put down open questions. LLM Agents can resolve items in here by adding, at the end of a line, either (resolved) for items that are resolved, or (planned) for items that are captured in plans, but MUST NOT do any further editing. It is important that this remain a place I can put down raw notes.
 
 - dev-machine enhancements:
-  - add a '.com.mutantmell' directory that contains a devmachine.json file with configuration for the repo, such as default RAM and CPUs when creating the repo.
+  - add a '.net.mutantmell' directory that contains a devmachine.json file with configuration for the repo, such as default RAM and CPUs when creating the repo.
   - add zellij and wezterm?
   - don't unconditionally push the image (detect when not changed?)
   - have a "refresh" command to do dev-container tear down and setup? This would be a half-step that would allow me to iterate faster on the devcontainer, without tearing down and setting up the VM every time. (resolved)
