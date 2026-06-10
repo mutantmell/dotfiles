@@ -89,17 +89,24 @@ Plans referenced:
   This is the macvtap cutover's one new out-of-flake item (it replaced the bridge
   path's in-pod DHCP); the firewall side needs no new bt8gw rule.
 
-**Remaining** — a single critical path through the isolation plan, executed via
-the bring-up checklist. With the macvtap flake side done **and the bt8gw DHCP
-reservations in place**, what's left is purely **cluster apply + runtime verify**.
-**Next up: apply + verify D on the cluster** — Multus + macvtap-cni DaemonSets
-Running, node advertising `macvtap.network.kubevirt.io/vlan51: 16`, the single
-`cluster-vlan51` NAD present (and the retired per-slot NADs GC'd), the guest
-DHCPs its slot IP from bt8gw, flannel pods unaffected (F.3). The direct-SSH
-access path needs no new bt8gw rule — lab→cluster (and wg-vpn→cluster) is already
-broadly permitted by existing bt8gw forwarding (a scoped §2c rule is staged only
-as optional tightening). Then D.7 acceptance proves Goal A (kubevirt P5). Goal B
-adds Checklist E (the `wg-vpn → cluster` rider).
+- **Checklist D + D.7 acceptance** — **applied + runtime-verified 2026-06-10. ★
+  GOAL A (kubevirt P5) PROVEN. ★** The dev VM came up multus-only via macvtap,
+  DHCP'd slot `dev-1`'s reservation (`10.97.51.10`, MAC `02:51:51:00:00:0a`) plus
+  native VLAN-51 SLAAC IPv6 off the bt8gw RA. D.7 passed: from the VM, creil
+  `:22`/`:443`, zeiss `:443`, WAN, and bt8gw-resolver DNS all work, while erebonia
+  mgmt `10.97.11.31` `:22`/`:6443`/`:2049` all **time out** — the VM cannot reach
+  the management VLAN. F.1 (security) confirmed.
+
+**Remaining** — **only Goal B (mobile) + Phase F cleanup.** Goal B's gating
+ingress (`wg-vpn → cluster`) is **already broadly permitted** by existing bt8gw
+forwarding (as-built §"Operator ingress"), so the mobile path likely works today
+with **no new fw4 rule** — next concrete action is to test `mosh
+dev@dev-N.internal` from the `mobile` peer (Checklist E.3). The scoped E.1
+`transit → cluster` rule then drops to **optional tightening**, not a blocker.
+After that: F.3 regression (erebonia-side — flannel pods + VLAN 50/100 Incus
+guests + VLAN-11 mgmt unaffected) and F.4 (move the checklist + isolation plan to
+`wip/`). Residual doc capture: C.7 as-built UCI delta; GC the retired per-slot
+bridge NADs if the apply didn't.
 
 ---
 
@@ -146,11 +153,11 @@ REMAINING ───────────────────────�
 | #    | Step                                                                                                                                                 | Maps to                      | Surface             | Depends on                                                                                                              |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | 1 ✅ | **Checklist A** — `cluster`/VLAN 51 in registry, 16 named dev slots `dev-1`..`dev-16`, DNS via `mkUnboundLocalData` (no router6 stub — see A.2)      | isolation **P1**             | `[flake]`           | **Done 2026-06-08** (checks green)                                                                                      |
-| 2 ◑  | **Checklist B** — tag 51: bt8gw `br0` bridge-vlan → mesh → erebonia `uplink.51` (standalone macvtap carrier; `br51` retired by the macvtap cutover) | isolation **P2** (L2)        | `[L2 + flake]`      | flake half **done** 2026-06-09; bt8gw L3 live; B.2 mesh-tag verify pending                                              |
+| 2 ✅ | **Checklist B** — tag 51: bt8gw `br0` bridge-vlan → mesh → erebonia `uplink.51` (standalone macvtap carrier; `br51` retired by the macvtap cutover) | isolation **P2** (L2)        | `[L2 + flake]`      | **Done.** Flake half 2026-06-09; bt8gw L3 live; B.2 mesh-tag **confirmed 2026-06-10** by end-to-end DHCP+egress through `uplink.51` |
 | 3 ✅ | **Checklist C** — bt8gw: terminate VLAN 51 (gw `.1`), cluster fw4 zone, egress allowlist (`creil:{22,443}`, `zeiss:443`, DNS, WAN), `cluster→* deny` | isolation **P2** (fw4)       | `[bt8gw manual]`    | **Confirmed enforcing 2026-06-09** (transit/zeiss/creil + DNS via `Allow-DNS-DHCP-cluster`). Residual: as-built capture |
-| 4 ◑  | **Checklist D** — Multus + **macvtap-cni**, ONE `cluster-vlan51` macvtap NAD on `uplink.51` (br51 retired), dev-VM manifest `masquerade→multus-only macvtap`, slot IP via **bt8gw DHCP reservation** (✅ in place), access path → direct SSH | isolation **P4**             | `[cluster + flake]` | D.1–D.6 **flake-authored** (macvtap cutover) + bt8gw reservations done; pending **cluster apply + runtime verify** (lab→cluster ingress already permitted by bt8gw) |
-| ★    | **GOAL A — devcontainer secured**                                                                                                                    | **= kubevirt P5**            | —                   | D complete                                                                                                              |
-| 5    | **Checklist E** — bt8gw fw4 `transit→cluster` for `mobile` peer `10.100.10.21` :22 + UDP 60000–61000 → dev band                                      | isolation **P4 rider**       | `[bt8gw manual]`    | D                                                                                                                       |
+| 4 ✅ | **Checklist D** — Multus + **macvtap-cni**, ONE `cluster-vlan51` macvtap NAD on `uplink.51` (br51 retired), dev-VM manifest `masquerade→multus-only macvtap`, slot IP via **bt8gw DHCP reservation**, access path → direct SSH | isolation **P4**             | `[cluster + flake]` | **Applied + runtime-verified 2026-06-10.** VM up multus-only via macvtap, DHCP'd slot `dev-1` (`10.97.51.10`). D.7 acceptance passed. Residual: GC retired per-slot NADs |
+| ★ ✅ | **GOAL A — devcontainer secured**                                                                                                                    | **= kubevirt P5**            | —                   | **PROVEN 2026-06-10** (D.7: egress allowlist works, mgmt VLAN-11 unreachable)                                          |
+| 5 ◑  | **Checklist E** — `mobile` peer `10.100.10.21` → dev band :22 + UDP 60000–61000. **`wg-vpn→cluster` already broadly permitted** (as-built §"Operator ingress") → mobile path likely works **now with no new rule**; the scoped `transit→cluster` fw4 rule is **optional tightening**. **Next action: test `mosh dev@dev-N.internal` from mobile (E.3)** | isolation **P4 rider**       | `[bt8gw manual]`    | D ✅ (done)                                                                                                            |
 | ★    | **GOAL B — direct mobile access**                                                                                                                    | **= kubevirt P6 pieces 5–6** | —                   | E complete (pieces 1–4 done)                                                                                            |
 | 6    | **Checklist F** — verify security + mobile + no flannel/microVM regression; move isolation docs to `wip/`                                            | both                         | —                   | D, E                                                                                                                    |
 

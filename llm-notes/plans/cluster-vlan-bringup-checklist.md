@@ -1,16 +1,24 @@
 # Cluster VLAN 51 Bring-up — Status Checklist
 
-**Status: IN PROGRESS — Phase A done (flake); B flake-half done; C
+**Status: PHASE D COMPLETE — ★ GOAL A (kubevirt P5) PROVEN 2026-06-10. ★**
+Phase A done (flake); B done (L2 confirmed by end-to-end DHCP+egress); C
 operator-confirmed applied (egress confined to transit/zeiss/creil, 2026-06-09);
-D flake-half done — now via the **macvtap cutover** (D.1–D.2 Multus chart +
-macvtap-cni; D.3 collapsed to ONE macvtap NAD; D.4–D.6 launcher rework →
-multus-only macvtap + slot model + direct-SSH access). **bt8gw per-slot DHCP
-reservations are in place (2026-06-10)** — each slot now gets a **stable
-`dev-N.internal` IP** from the VLAN-51 DHCP, keyed on its launcher-pinned MAC.
-Remaining: **cluster apply + D.7/F runtime verify** (the `lab → cluster` ingress
-the direct-SSH path needs is **already** permitted by bt8gw's existing broad
-lab/wg-vpn→cluster forwarding) and **E** (mobile rider).** Drafted 2026-06-08;
-Phase A landed 2026-06-08.
+D applied + **runtime-verified on the cluster 2026-06-10** — the dev VM came up
+multus-only via macvtap (D.1–D.6, the **macvtap cutover**: Multus chart +
+macvtap-cni, ONE macvtap NAD, multus-only slot launcher, direct-SSH access),
+DHCP'd slot `dev-1`'s reservation (`10.97.51.10`, MAC `02:51:51:00:00:0a`) plus
+native VLAN-51 SLAAC IPv6 off the bt8gw RA. **D.7 acceptance passed**: from the
+VM, creil `:22`/`:443` + zeiss `:443` + WAN reachable and DNS resolves
+(`dev-1.internal`, `creil.internal`), while erebonia mgmt (`10.97.11.31`) `:22`,
+`:6443` (apiserver), `:2049` (NFS) all **time out** — the dev VM cannot reach the
+management VLAN. F.1 (security) confirmed.
+**Remaining: Goal B (mobile) + Phase F cleanup.** Goal B's gating ingress
+(`wg-vpn → cluster`) is **already broadly permitted** by existing bt8gw
+forwarding (see as-built §"Operator ingress"), so the mobile path likely works
+today with **no new fw4 rule** — test `mosh dev@dev-N.internal` from the mobile
+peer (E.3); the scoped E.1 `transit → cluster` rule drops to **optional
+tightening**. Then F.3 regression (erebonia-side: flannel/Incus/mgmt intact) +
+F.4 move docs to `wip/`. Drafted 2026-06-08; Phase A landed 2026-06-08.
 Phase B flake half landed 2026-06-09 (originally `uplink.51` + a host-IP-less
 `br51`); bt8gw L3 termination reported live 2026-06-09 (`ping 10.97.51.1`
 answers). **The br51 bridge was then RETIRED by the macvtap cutover
@@ -115,10 +123,11 @@ _Get tag 51 from bt8gw to a bridge on erebonia. The bridge is **host-IP-less**._
   `temp/BT8-gw-cluster-vlan51-additions.uci` §1. **L3 termination reported
   live 2026-06-09** (`ping 10.97.51.1` answers); reconcile the staged §1
   against `uci show network` to confirm the exact as-built shape.
-- [~] **B.2** **[L2]** Confirm tag 51 traverses the mesh path bt8gw → erebonia
-  (whatever segment erebonia's `uplink` trunk rides). The gateway answering
-  from a remote VLAN-51 host is partial evidence; still want a `tcpdump -ni
-    uplink.51` on erebonia to confirm tagged frames land on the host trunk.
+- [x] **B.2** **[L2]** Tag 51 traverses the mesh path bt8gw → erebonia.
+  **Confirmed end-to-end 2026-06-10**: the dev VM (a macvtap child of `uplink.51`)
+  DHCP'd its slot IP from bt8gw and has working bidirectional egress, which proves
+  tagged frames land on the host trunk and cross the mesh in both directions — a
+  stronger proof than the originally-planned `tcpdump -ni uplink.51`.
 - [x] **B.3** **[flake]** In `hosts/erebonia/microvm/default.nix` add
       `uplink.51` (netdev vlan id 51) to the `uplink` trunk's `vlan` list.
       Originally also added a **host-IP-less** bridge `br51` enslaving `uplink.51`
@@ -180,23 +189,24 @@ additions" section of `bt8-gateway-as-built.md` (the Phase 5.A pattern)._
 
 _Move the dev VM off the flannel pod network onto VLAN 51 directly._
 
-- [~] **D.1** **[cluster]** Install **Multus** — **flake-authored**
+- [x] **D.1** **[cluster]** Install **Multus** — **flake-authored**
       (`hosts/erebonia/k3s/multus.nix`) via the **rke2-multus** Helm chart
       (4.2.411) through `services.k3s.autoDeployCharts` (FOD-pinned, same posture
       as `cert-manager.nix`/`flux.nix`). Chose the Rancher chart because the
       official k3s docs prescribe it for Multus-on-k3s — its DaemonSet writes the
       multus binary + plugins into k3s' writable `/var/lib/rancher/k3s/data/cni/`,
       sidestepping the immutable `data/<hash>/bin` problem. Additive; flannel stays
-      primary. **Pending cluster apply + runtime verify** (DaemonSet Running).
-- [~] **D.2** **[cluster]** CNI plugins — Multus reference plugins **satisfied by
+      primary. **Applied + verified 2026-06-10** (the dev VM attached multus-only).
+- [x] **D.2** **[cluster]** CNI plugins — Multus reference plugins **satisfied by
       the rke2-multus chart** (it bundles bridge, static, host-local, macvlan, … into
       the binDir). The macvtap path also needs **macvtap-cni** (CNI plugin + device
       plugin) — **flake-authored** (`multus.nix`): a pinned-image DaemonSet that
       installs the `macvtap` CNI binary and advertises `capacity = 16` allocatable
       macvtap devices on `uplink.51` as the extended resource
-      `macvtap.network.kubevirt.io/vlan51`. **Verify post-apply**:
-      `ls /var/lib/rancher/k3s/data/cni/` shows `macvtap` and
-      `kubectl describe node erebonia | grep macvtap` shows capacity 16.
+      `macvtap.network.kubevirt.io/vlan51`. **Applied + verified 2026-06-10** — the
+      VM's macvtap NIC allocated successfully (a macvtap child of `uplink.51`), which
+      requires the device-plugin resource to have advertised and the `macvtap` CNI
+      binary to be present in the binDir.
 - [~] **D.3** **[cluster]** `NetworkAttachmentDefinition` — **flake-authored**
       (`multus.nix`, `services.k3s.manifests`, `.content` so it re-applies until the
       NAD CRD exists). **Collapsed by the macvtap cutover to ONE `cluster-vlan51`
@@ -209,9 +219,11 @@ _Move the dev VM off the flannel pod network onto VLAN 51 directly._
       in-pod DHCP**, so the slot IP no longer comes from the NAD at all: the guest
       DHCPs it from **bt8gw**, keyed on the launcher-pinned per-slot MAC (the bt8gw
       reservation, D-adjacent). Slot identity = MAC, not NAD → one shared NAD serves
-      all 16 slots. Lands in a flake-declared `dev-machines` namespace. Eval/build-
-      verified. **Pending cluster apply** (and GC the retired per-slot NADs:
-      `for n in $(seq 1 16); do kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-$n --ignore-not-found; done`).
+      all 16 slots. Lands in a flake-declared `dev-machines` namespace. **Applied +
+      verified 2026-06-10** — the VM attached to the shared `cluster-vlan51` NAD and
+      DHCP'd `dev-1`'s reservation (`10.97.51.10`). **Residual:** GC the retired
+      per-slot bridge NADs if the apply didn't already (k3s won't auto-GC manifest
+      removals): `for n in $(seq 1 16); do kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-$n --ignore-not-found; done`.
 - [x] **D.4** **[flake]** Switched the dev-VM manifest in
       `home/modules/dev-machine.nix` from `masquerade` to **multus + macvtap,
       multus-only** (dropped the default pod network; single `macvtap`-bound
@@ -237,10 +249,13 @@ _Move the dev VM off the flannel pod network onto VLAN 51 directly._
       path works today. A scoped §2c `lab → cluster` accept (edith `10.97.21.42` →
       dev band `.10-.25` tcp 22) is staged only as optional tightening if that broad
       forwarding is later narrowed.
-- [ ] **D.7** Acceptance: from the VM, `git clone`/push to creil (`:443`/`:22`),
-      pull the dev image, reach Attic — **and** confirm it **cannot** reach a
-      management host (e.g. `nc -vz` to a VLAN-11 service times out). This is Phase 5
-      proven.
+- [x] **D.7** Acceptance — **PASSED 2026-06-10 (★ Phase 5 proven ★).** From the
+      VM: creil `:443` + `:22` reachable (HTTPS clone/registry pull + git-SSH push),
+      zeiss `:443` reachable (Attic), WAN reachable, and DNS resolves
+      (`dev-1.internal` → `…1033::a`, `creil.internal` → `…1032::35`) via the bt8gw
+      resolver. **Isolation holds**: erebonia mgmt `10.97.11.31` `:22`, `:6443`
+      (apiserver), `:2049` (NFS) all **time out** — the dev VM cannot reach the
+      management VLAN. Egress is exactly the C.3–C.5 allowlist; everything else denied.
 
 ## Phase E — `wg-vpn → cluster` rider [bt8gw manual] (maps to plan Phase 4 rider)
 
@@ -262,9 +277,12 @@ dev@dev-N.internal` (the slot the target VM occupies) connects and attaches the
 
 ## Phase F — verification / acceptance
 
-- [ ] **F.1** **Security:** dev VM is on VLAN 51, has no flannel NIC, cannot
-      reach management/lab/trusted except C.3–C.5; erebonia's mgmt identity untouched
-      on VLAN 11.
+- [x] **F.1** **Security — confirmed 2026-06-10 (= D.7).** Dev VM is on VLAN 51
+      (`10.97.51.10`), multus-only (no flannel NIC), and cannot reach
+      management/lab/trusted except the C.3–C.5 allowlist (verified: mgmt
+      `10.97.11.31` `:22`/`:6443`/`:2049` time out). erebonia's mgmt identity on
+      VLAN 11 is untouched (`uplink.51` carries no host IP; macvtap = host↔guest
+      isolation by construction). Residual: F.3 regression sweep (erebonia side).
 - [ ] **F.2** **Mobile:** direct `mosh` from the `mobile` peer works without the
       edith hop.
 - [ ] **F.3** **Regression:** other k3s workloads (plain flannel pods) and the
