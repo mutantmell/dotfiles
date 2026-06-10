@@ -187,9 +187,17 @@ additions" section of `bt8-gateway-as-built.md` (the Phase 5.A pattern)._
       default-deny is the point; only C.3–C.5 punch through. **Operator-confirmed
       2026-06-09** — egress limited to transit/zeiss/creil; everything else denied
       by the zone forward `REJECT` default.
-- [~] **C.7** `fw4 reload` done (rules live). **Residual:** record the
-      **as-built** UCI delta + which egress mechanism (plain §2 vs §2b) ended up
-      enforcing, in the as-built note — not yet captured verbatim here.
+- [~] **C.7** `fw4 reload` done (rules live). **Enforcement behaviourally
+      confirmed 2026-06-10** from a VLAN-51 dev machine: creil `:443`/`:22` +
+      zeiss `:443` answer, but the *other* app hosts oracion `10.97.50.52`
+      `:443`/`:22` and saint-arkh `10.97.50.61` `:443` **time out** — so
+      `cluster→app` is a tight allowlist, not a broad accept (the Phase-5.A risk
+      did not materialize; extends D.7's mgmt-only test to other app hosts). DNS
+      rule-name reconciled: live/authoritative name is `Allow-DNS-DHCP-cluster`
+      (staged `Allow-cluster-DNS` superseded). **Residual (one bt8gw shell touch,
+      unreachable from VLAN 51 where bt8gw `:22` is correctly denied):** capture
+      the verbatim `uci show firewall` / `nft list ruleset` delta and identify
+      *which* mechanism (plain §2 vs §2b nft include) is enforcing.
 
 ## Phase D — KubeVirt attachment (multus-only) [cluster + flake] (maps to plan Phase 4)
 

@@ -254,13 +254,34 @@ internal zones are denied. **The broad-accept risk below did NOT materialize**
 
 DNS is **also confirmed**: a `Allow-DNS-DHCP-cluster` rule admits VLAN 51 to the
 bt8gw resolver (dnsmasq input :53), so the multus-only dev VM can resolve
-`dev-N.internal`. (That live rule name differs from the staged §2
-`Allow-cluster-DNS` — reconcile when capturing the as-built delta.)
+`dev-N.internal`. **Rule-name reconciliation (resolved 2026-06-10):** the
+**as-built/live name is `Allow-DNS-DHCP-cluster`** — authoritative; the staged §2
+draft name `Allow-cluster-DNS` is superseded, treat any lingering reference to it
+as the same rule.
 
-**One residual, not yet captured here verbatim:** which mechanism enforces the
-app allowlist (plain §2 vs the §2b nft include) was not recorded. Capture it
-(and the exact UCI delta) on the next device touch — `uci show firewall` +
-`nft list ruleset` — and update the table below.
+**Egress-allowlist enforcement — behaviourally confirmed 2026-06-10 (C.7).** Run
+from a VLAN-51 dev machine (this is the from-VLAN-51 view, not just the
+operator's outside view), the allowlist proves **tight, not a broad zone
+accept**:
+
+| Target (app/50)          | Port      | Result          | Meaning                 |
+| ------------------------ | --------- | --------------- | ----------------------- |
+| creil `10.97.50.53`      | 443, 22   | **open**        | allowed (git HTTPS+SSH) |
+| zeiss `10.97.50.31`      | 443       | **open**        | allowed (Attic)         |
+| oracion `10.97.50.52`    | 443, 22   | **timeout**     | denied (other app host) |
+| saint-arkh `10.97.50.61` | 443       | **timeout**     | denied (other app host) |
+
+Only the two allowlisted hosts answer; the *other* app hosts time out — so the
+Phase-5.A broad-`cluster→app`-accept risk did **NOT** materialize (this extends
+D.7, which only tested mgmt unreachability, to the other-app-hosts case).
+
+**One residual remains — mechanism identification, not yet captured verbatim:**
+the *behaviour* above is proven, but *which* mechanism produces it (plain §2
+per-rule accepts vs the §2b nft config-include with explicit drop) was not
+recorded, and the verbatim UCI delta is uncaptured. This needs **one bt8gw shell
+touch** (`uci show firewall` + `nft list ruleset` + `ls /etc/nftables.d/`) — it
+cannot be read from VLAN 51, where `:22` to bt8gw is correctly denied. Capture on
+the next device touch and update the table below.
 
 ### Per-slot DHCP reservations (2026-06-10) — stable dev-slot IPs
 
@@ -320,10 +341,12 @@ accept hands the untrusted dev VM all of app (oracion, saint-arkh, …), which i
 exactly the blast radius the dedicated `cluster` zone exists to avoid
 (workload-network-isolation-plan.md "Why a dedicated zone, not app"). The staged
 UCI therefore ships the plain per-rule form **plus a `§2b` nft config-include
-fallback** that enforces the three-flow allowlist with an explicit drop. **Which
-one actually restricts must be verified on the device** (`nc` to oracion
-`10.97.50.52:443` from VLAN 51 MUST time out); run-checks.sh cannot catch this.
-Record which mechanism ended up enforcing once verified.
+fallback** that enforces the three-flow allowlist with an explicit drop. **The
+acceptance test now passes (2026-06-10):** `nc 10.97.50.52:443` (oracion) from
+VLAN 51 times out while creil/zeiss answer — see the enforcement table above — so
+the allowlist *is* restricting as intended. **Still open:** *which* of the two
+mechanisms (plain §2 vs §2b nft include) is the one doing the restricting was not
+read off the device; identify it from `nft list ruleset` on the next bt8gw touch.
 
 ## Loose ends / follow-ups
 
