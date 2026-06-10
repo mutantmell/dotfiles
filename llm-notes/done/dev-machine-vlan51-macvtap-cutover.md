@@ -8,8 +8,8 @@ and proven: the dev VM came up multus-only via macvtap, DHCP'd slot `dev-1`
 (`10.97.51.10`), egress/isolation acceptance passed, and the F.3 regression sweep
 confirmed flannel/Incus/mgmt unaffected (see
 [`workload-network-isolation-plan.md`](../wip/workload-network-isolation-plan.md)
-Acceptance). **One optional loose end:** GC the retired per-slot bridge NADs
-(`kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-{1..16}`).
+Acceptance). The retired per-slot bridge NADs were **GC'd 2026-06-10** — only the
+single shared `cluster-vlan51` NAD remains. **Nothing left to do.**
 
 ## Why (root cause, proven 2026-06-10)
 
@@ -121,8 +121,8 @@ Record in `llm-notes/bt8-gateway-as-built.md`.
 2. Deploy erebonia (A+B+D together). Verify macvtap-cni Running + the node
    advertises `macvtap.network.kubevirt.io/vlan51: 16`.
 3. Garbage-collect the retired per-slot bridge NADs (k3s won't auto-GC manifest
-   removals): `kubectl -n dev-machines delete net-attach-def -l '' ` won't match;
-   do `for n in $(seq 1 16); do kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-$n --ignore-not-found; done`.
+   removals): `for n in $(seq 1 16); do kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-$n --ignore-not-found; done`.
+   **Done 2026-06-10** — only the shared `cluster-vlan51` NAD remains.
 4. bt8gw: add the 16 reservations (E).
 5. Apply edith launcher (C): `home-manager switch …#mutantmell@edith`.
 6. `dev-machine up <repo>` → boots, macvtap NIC, DHCPs slot IP from bt8gw.

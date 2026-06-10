@@ -29,8 +29,9 @@ recorded here and in [`../bt8-gateway-as-built.md`](../bt8-gateway-as-built.md).
 The **broader phases remain deferred** (Future-state A/B, the host-side
 flannel-egress redirect, LB-IPAM, NetworkPolicy default-deny, dynamic-pool IPAM,
 removing WAN from VLAN 11) — see "Phases / next steps" and "Explicitly deferred"
-below. One **optional** loose end from the slice: GC the retired per-slot bridge
-NADs (`kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-{1..16}`).
+below. The slice has **no remaining loose ends**: the retired per-slot bridge
+NADs were GC'd 2026-06-10 — `kubectl -n dev-machines get net-attach-def` now shows
+only the single shared `cluster-vlan51` NAD.
 
 How the three workload substrates on the VM hosts (cloud-hypervisor microVMs,
 KubeVirt VMs, and ordinary k3s containers/services) attach to the network: how
