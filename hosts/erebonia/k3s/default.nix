@@ -65,9 +65,11 @@ in {
     # (ai-dev-machine-kubevirt-plan.md). This plan owns the platform component;
     # the workstation-migration plan depends on it.
     ./kubevirt.nix
-    # Phase D.1–D.3 — Multus + CNI plugins + the VLAN-51 NetworkAttachmentDefinition
-    # that lets the dev-machine VM attach multus-only onto br51 (cluster zone),
-    # off the flannel pod network (cluster-vlan-bringup-checklist.md Phase D).
+    # Phase D.1–D.3 — Multus + macvtap-cni + the VLAN-51 NetworkAttachmentDefinition
+    # that lets the dev-machine VM attach multus-only via macvtap on uplink.51
+    # (cluster zone), off the flannel pod network — NOT a host bridge (the retired
+    # br51 hit a br_netfilter drop on routed-in traffic; see the macvtap cutover
+    # note). (cluster-vlan-bringup-checklist.md Phase D.)
     ./multus.nix
   ];
 

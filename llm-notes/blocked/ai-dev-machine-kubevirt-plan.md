@@ -22,20 +22,23 @@ mobile path is blocked on the **same** routable-VM + DNS dependency as Phase 5.
 Phase 5's lockdown has been **revised** (see Phase 5 below) from "NetworkPolicy
 alone over flannel masquerade" to a **router-enforced VLAN shift**: move the
 dev-machine VM onto a **lesser-privileged cluster VLAN with no host access**
-(Multus + bridge, multus-only) so the **router zone firewall** (bt8gw fw4, which
+(Multus + macvtap, multus-only) so the **router zone firewall** (bt8gw fw4, which
 owns VLAN 51), not an in-cluster policy, enforces off-host confinement, and the
 sandbox is never *in* the management zone. **Note:** because the VM is
 multus-only it has no flannel NIC, so a namespace NetworkPolicy does **not**
 govern its data plane — the router is the *sole* (and stronger) enforcer for the
 VM; this was initially mis-framed as "VLAN shift **plus** NetworkPolicy"
 defense-in-depth (see the reconciliation in Phase 5). The cluster VLAN,
-cluster-egress-off-VLAN-11, and the KubeVirt Multus+bridge attachment are
-**deliverables of the isolation plan** (its Phases 1, 2, 4).
+cluster-egress-off-VLAN-11, and the KubeVirt Multus + macvtap attachment are
+**deliverables of the isolation plan** (its Phases 1, 2, 4). (Mechanism updated
+2026-06-10: macvtap, not the originally-specified host-IP-less bridge — see
+Phase 5 Layer 1.)
 
 **Unblocks when** the isolation plan has delivered: the `cluster` zone in the
-registry, cluster egress off VLAN 11, and the KubeVirt Multus+bridge (host-IP-
-less, multus-only) attachment. Phase 5 then = put the VM on that VLAN + layer the
-egress allowlist.
+registry, cluster egress off VLAN 11, and the KubeVirt Multus + macvtap
+(multus-only, host↔guest-isolated) attachment. Phase 5 then = put the VM on that
+VLAN + layer the egress allowlist. **As of 2026-06-10 the flake side + the bt8gw
+per-slot DHCP reservations are done; only cluster apply + runtime verify remain.**
 
 **Interim option (if we choose not to wait):** the original NetworkPolicy-only
 lockdown (preserved in Phase 5) is implementable **today** on flannel and fully
@@ -376,15 +379,22 @@ is **single-layer router enforcement**, which is stronger than the
 NetworkPolicy-only interim it replaces:
 
 - **Layer 1 — router-enforced VLAN shift (new; the blocking dependency).** The
-  VM attaches via **Multus + bridge** (host-IP-less bridge over the **cluster
-  VLAN 51**), **multus-only** (drop the flannel primary), so it is a routable
-  host in a **lesser-privileged zone** governed by the cluster-zone firewall and
-  **isolated from erebonia's host / management VLAN by construction** — exactly
-  what the original Phase 5 could not do behind the shared mgmt IP. The enforcing
-  firewall is **bt8gw's fw4** (VLAN 51 is bt8gw-owned/terminated — see the
-  isolation plan's "Where VLAN 51 terminates"), **not** router6 on thebeyond.
-  Note this uses Multus+bridge, **not** `masquerade` binding; the `masquerade`
-  decision below applies only to the NetworkPolicy-only interim.
+  VM attaches via **Multus + macvtap** (a macvtap child of erebonia's `uplink.51`
+  over the **cluster VLAN 51**), **multus-only** (drop the flannel primary), so it
+  is a routable host in a **lesser-privileged zone** governed by the cluster-zone
+  firewall and **isolated from erebonia's host / management VLAN by construction**
+  — exactly what the original Phase 5 could not do behind the shared mgmt IP. The
+  enforcing firewall is **bt8gw's fw4** (VLAN 51 is bt8gw-owned/terminated — see
+  the isolation plan's "Where VLAN 51 terminates"), **not** router6 on thebeyond.
+  Note this uses Multus + macvtap, **not** `masquerade` binding; the `masquerade`
+  decision below applies only to the NetworkPolicy-only interim. **(Mechanism
+  updated 2026-06-10:** originally specified Multus + a host-IP-less **bridge**;
+  that was retired when `br_netfilter` proved to silently drop routed-in `lab →
+  dev-N` traffic under k3s' `bridge-nf-call=1`. macvtap is not a Linux bridge, so
+  it sidesteps that, matches erebonia's VLAN 50/100 pattern, and adds host↔guest
+  isolation by construction. The slot IP now comes from a **bt8gw per-slot DHCP
+  reservation** rather than the bridge path's in-pod DHCP / NAD static IPAM. See
+  [`../wip/dev-machine-vlan51-macvtap-cutover.md`](../wip/dev-machine-vlan51-macvtap-cutover.md).)
 - **Layer 2 — NetworkPolicy — DOES NOT APPLY to the multus-only VM.** This is the
   reconciliation with the isolation plan's "defense-in-depth caveat" (and the
   egress allowlist — `creil:{22,443}` [SSH push + HTTPS clone/registry pull],
@@ -392,7 +402,7 @@ NetworkPolicy-only interim it replaces:
   isolation plan, not a NetworkPolicy, for the multus-only VM): k3s
   NetworkPolicy (kube-router) enforces only on the **flannel/pod network**, but a
   multus-only VM has **no flannel NIC** — its entire data plane is the VLAN-51
-  bridge, which NetworkPolicy does not see. So for the default dev-machine the
+  macvtap link, which NetworkPolicy does not see. So for the default dev-machine the
   lockdown is **router-enforced single-layer (bt8gw fw4)**, not two independent
   layers. Genuine two-layer would require either keeping the flannel primary
   (pod-network + bridge — weakens Layer 1, reintroduces host adjacency) or a
@@ -404,7 +414,7 @@ NetworkPolicy-only interim it replaces:
   flannel) — it just doesn't govern the multus-only VM itself.
 
 **Why the calculus changed from "VLAN-per-VM declined":** (1) the isolation plan
-stands up the cluster VLAN + KubeVirt Multus+bridge as **shared infrastructure**,
+stands up the cluster VLAN + KubeVirt Multus + macvtap as **shared infrastructure**,
 so the shift is no longer a disproportionate one-off; (2) the planned **removal
 of WAN from VLAN 11** makes SNAT'ing the sandbox onto the *management* VLAN an
 actively wrong posture — the sandbox must not *be* in the management zone.

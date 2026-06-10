@@ -106,15 +106,18 @@
   # regular NixOS kernel inside gets /dev/kvm and this flake's nixosTests run
   # nested (erebonia's host is kvm_intel nested=1).
   #
-  # NETWORK — multus-only (bring-up checklist D.4). The VM has NO default pod
-  # network: its single NIC is a `bridge`-bound multus attachment onto a per-slot
-  # NAD (`cluster-vlan51-dev-N`, hosts/erebonia/k3s/multus.nix), so the guest is a
-  # routable VLAN-51 host with its slot's pinned IP and zero adjacency to
-  # erebonia's VLAN-11 management plane — confined solely by bt8gw fw4 (Phase C).
-  # The launcher patches the per-session slot in: the NAD `networkName` (which
-  # carries the slot IP via static IPAM, delivered to the guest by KubeVirt's
-  # bridge-binding DHCP) and the slot's deterministic `macAddress`. Dropping the
-  # pod network also retires the old `kubectl port-forward`→masquerade SSH hack:
+  # NETWORK — multus-only via macvtap (bring-up checklist D.4; macvtap cutover,
+  # llm-notes/wip/dev-machine-vlan51-macvtap-cutover.md). The VM has NO default
+  # pod network: its single NIC is a `macvtap`-bound multus attachment onto the
+  # single shared NAD `cluster-vlan51` (a macvtap child of erebonia's uplink.51,
+  # hosts/erebonia/k3s/multus.nix), so the guest is a routable VLAN-51 host with
+  # zero adjacency to erebonia's VLAN-11 management plane — confined solely by
+  # bt8gw fw4 (Phase C). The slot IP is NOT baked into the NAD (macvtap does no
+  # in-pod DHCP); the guest DHCPs it from bt8gw, keyed on the launcher-pinned
+  # per-slot `macAddress` (a bt8gw DHCP reservation → stable `dev-N.internal` IP).
+  # So the launcher patches the per-session slot in via that `macAddress` alone;
+  # `networkName` is the constant shared NAD. Dropping the pod network also
+  # retires the old `kubectl port-forward`→masquerade SSH hack:
   # the guest is no longer reachable through the virt-launcher pod, so operator
   # access is now DIRECT SSH to `dev-N.internal` (D.6), with `virtctl console` as
   # the always-available fallback.

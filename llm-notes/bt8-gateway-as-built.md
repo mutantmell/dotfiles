@@ -239,8 +239,11 @@ UCI source: `temp/BT8-gw-cluster-vlan51-additions.uci`. Companion to
 Phases B.1 (L2) + C (fw4). Stands up the low-trust `cluster` zone
 (`10.97.51.0/24` + `fdc6:55f2:0a5e:1033::/64`) where the locked-down KubeVirt
 dev-machine lives, router-confined off erebonia's VLAN-11 management plane. The
-erebonia flake half (`uplink.51` + host-IP-less `br51`) landed separately; this
-is the bt8gw-manual half.
+erebonia flake half landed separately (originally `uplink.51` + a host-IP-less
+`br51`; **`br51` was later retired by the macvtap cutover** — the dev VMs now
+attach via KubeVirt macvtap on a standalone `uplink.51`, see
+[`wip/dev-machine-vlan51-macvtap-cutover.md`](wip/dev-machine-vlan51-macvtap-cutover.md)).
+This note is the bt8gw-manual half.
 
 **Status (2026-06-09):** L3 termination **live** — `ping 10.97.51.1` answers
 (§1 L2 trunk + L3 interface, B.1/C.1). The fw4 zone + egress allowlist (§2,
@@ -258,6 +261,21 @@ bt8gw resolver (dnsmasq input :53), so the multus-only dev VM can resolve
 app allowlist (plain §2 vs the §2b nft include) was not recorded. Capture it
 (and the exact UCI delta) on the next device touch — `uci show firewall` +
 `nft list ruleset` — and update the table below.
+
+### Per-slot DHCP reservations (2026-06-10) — stable dev-slot IPs
+
+The macvtap cutover moved dev-slot IP delivery from in-pod DHCP / NAD static IPAM
+to **bt8gw**: a macvtap NIC does no in-pod DHCP, so each dev VM DHCPs its address
+from the VLAN-51 server here. **16 static host reservations are in place** on the
+`cluster` DHCP, one per slot, so every slot gets a **stable** address (and thus a
+stable `dev-N.internal`, the A-record being the registry's via `mkUnboundLocalData`).
+The launcher pins a deterministic per-slot MAC whose last byte (hex) equals the IP
+host octet (decimal): `dev-N` → MAC `02:51:51:00:00:<hex(9+N)>` → `10.97.51.(9+N)`,
+i.e. `dev-1` = `02:51:51:00:00:0a` → `.10` … `dev-16` = `02:51:51:00:00:19` → `.25`.
+
+(IPv6: with macvtap on real L2 the guest can SLAAC/DHCPv6 off the VLAN-51 RA
+natively; pinning the `…1033::N` per slot via a DHCPv6 reservation is a follow-up,
+not yet done.)
 
 L3 termination (same shape as APP/50 — see "Trunk port architecture"):
 

@@ -228,11 +228,12 @@ in {
     };
   };
 
-  # ── Phase D.3 — the per-slot VLAN-51 NADs + their namespace ───────────────────
-  # The dev VM references one of these NADs (D.4) to get its `br51` interface with
-  # its slot's pinned IP. Authored as `.content` so k3s' deploy controller
-  # re-applies them until Multus has installed the `NetworkAttachmentDefinition`
-  # CRD they depend on, then they stick — the same admission-ordering trick
+  # ── Phase D.3 — the single VLAN-51 macvtap NAD + its namespace ────────────────
+  # The dev VM references the shared `cluster-vlan51` NAD (D.4) to get its macvtap
+  # interface on uplink.51; its slot IP comes from bt8gw DHCP (keyed on the
+  # launcher-pinned MAC), not the NAD. Authored as `.content` so k3s' deploy
+  # controller re-applies until Multus has installed the `NetworkAttachmentDefinition`
+  # CRD it depends on, then it sticks — the same admission-ordering trick
   # kubevirt-cr / the step-ca ClusterIssuer use.
   services.k3s.manifests.dev-machines-namespace.content = [
     {

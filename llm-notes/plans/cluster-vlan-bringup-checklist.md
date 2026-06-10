@@ -2,18 +2,28 @@
 
 **Status: IN PROGRESS — Phase A done (flake); B flake-half done; C
 operator-confirmed applied (egress confined to transit/zeiss/creil, 2026-06-09);
-D flake-half done (D.1–D.2 Multus chart + D.3 reworked to per-slot baked NADs;
-D.4–D.6 launcher rework → multus-only + slot model + direct-SSH access), pending
-cluster apply (the `lab → cluster` ingress the direct-SSH path needs is **already**
-permitted by bt8gw's existing broad lab/wg-vpn→cluster forwarding); D.7/E/F
-remaining.** Drafted 2026-06-08; Phase A landed 2026-06-08.
-Phase B flake half (`uplink.51` + `br51`) landed 2026-06-09; bt8gw L3 termination
-reported live 2026-06-09 (`ping 10.97.51.1` answers). Phase C fw4 zone + egress
-allowlist **operator-confirmed enforcing 2026-06-09** — VLAN 51 reaches only
-transit (WAN), zeiss, and creil; the broad-accept risk did **not** materialize.
-DNS (C.4) is **also confirmed** — a `Allow-DNS-DHCP-cluster` rule admits VLAN 51
-to the bt8gw resolver. Residual: exact as-built UCI delta + enforcing mechanism
-(§2 vs §2b) not captured verbatim here.
+D flake-half done — now via the **macvtap cutover** (D.1–D.2 Multus chart +
+macvtap-cni; D.3 collapsed to ONE macvtap NAD; D.4–D.6 launcher rework →
+multus-only macvtap + slot model + direct-SSH access). **bt8gw per-slot DHCP
+reservations are in place (2026-06-10)** — each slot now gets a **stable
+`dev-N.internal` IP** from the VLAN-51 DHCP, keyed on its launcher-pinned MAC.
+Remaining: **cluster apply + D.7/F runtime verify** (the `lab → cluster` ingress
+the direct-SSH path needs is **already** permitted by bt8gw's existing broad
+lab/wg-vpn→cluster forwarding) and **E** (mobile rider).** Drafted 2026-06-08;
+Phase A landed 2026-06-08.
+Phase B flake half landed 2026-06-09 (originally `uplink.51` + a host-IP-less
+`br51`); bt8gw L3 termination reported live 2026-06-09 (`ping 10.97.51.1`
+answers). **The br51 bridge was then RETIRED by the macvtap cutover
+(2026-06-10)** — `br_netfilter` silently dropped routed-in (`lab → dev-N`)
+traffic to a host-bridge guest under k3s' `bridge-nf-call=1`; the dev VMs now
+attach via KubeVirt **macvtap** on a standalone `uplink.51` carrier (the house
+pattern, matching VLAN 50/100). See
+[`../wip/dev-machine-vlan51-macvtap-cutover.md`](../wip/dev-machine-vlan51-macvtap-cutover.md).
+Phase C fw4 zone + egress allowlist **operator-confirmed enforcing 2026-06-09** —
+VLAN 51 reaches only transit (WAN), zeiss, and creil; the broad-accept risk did
+**not** materialize. DNS (C.4) is **also confirmed** — a `Allow-DNS-DHCP-cluster`
+rule admits VLAN 51 to the bt8gw resolver. Residual: exact as-built UCI delta +
+enforcing mechanism (§2 vs §2b) not captured verbatim here.
 
 Companion status doc for
 [`workload-network-isolation-plan.md`](workload-network-isolation-plan.md). This
@@ -44,7 +54,7 @@ across bt8gw + mesh + erebonia. Per-phase the surface is marked **[flake]** /
 | VLAN 51 IPv4              | `10.97.51.0/24`, gateway `10.97.51.1` (bt8gw)                              |
 | VLAN 51 IPv6 (ULA)        | `fdc6:55f2:0a5e:1033::/64`, gateway `…1033::1`                             |
 | erebonia mgmt (unchanged) | `10.97.11.31` (VLAN 11) — keeps apiserver, SSH, NFS                        |
-| dev-VM slots              | `dev-1`..`dev-16` = `10.97.51.10`..`.25` (static names, dynamic occupancy) |
+| dev-VM slots              | `dev-1`..`dev-16` = `10.97.51.10`..`.25` (static names, dynamic occupancy; IP via **bt8gw per-slot DHCP reservation** keyed on the slot MAC `02:51:51:00:00:<hex(9+N)>` — stable, ✅ in place) |
 | dev-VM egress targets     | `creil` `10.97.50.53` :22+:443 · `zeiss` `10.97.50.31` :443 · DNS · WAN    |
 | mobile peer (rider)       | `wg-vpn` `mobile` = `10.100.10.21` → :22 + UDP 60000–61000                 |
 
@@ -110,17 +120,22 @@ _Get tag 51 from bt8gw to a bridge on erebonia. The bridge is **host-IP-less**._
   from a remote VLAN-51 host is partial evidence; still want a `tcpdump -ni
     uplink.51` on erebonia to confirm tagged frames land on the host trunk.
 - [x] **B.3** **[flake]** In `hosts/erebonia/microvm/default.nix` add
-      `uplink.51` (netdev vlan id 51) to the `uplink` trunk's `vlan` list, and a
-      **host-IP-less** bridge `br51` enslaving `uplink.51` (no `Address`, no
-      `DHCP`, no `LinkLocalAddressing` — mirror `br21`, **not** `br11`). **Done
-      2026-06-09** — `20-uplink.51` netdev + `20-vm51-bridge` enslave + host-IP-less
-      `20-br51`; erebonia config evals clean.
+      `uplink.51` (netdev vlan id 51) to the `uplink` trunk's `vlan` list.
+      Originally also added a **host-IP-less** bridge `br51` enslaving `uplink.51`
+      (done 2026-06-09) — **but `br51` was RETIRED by the macvtap cutover
+      (2026-06-10).** `uplink.51` is now a **standalone carrier-only** network
+      (matching the existing `20-vm50-macvtap` / `20-vm100-macvtap` pattern); the
+      macvtap-cni device plugin parents its macvtap children directly on it. A host
+      bridge re-introduces the `br_netfilter` drop of routed-in VLAN-51 traffic
+      under k3s' `bridge-nf-call=1`, which is exactly why it was removed. See the
+      macvtap cutover note (Change D).
 - [x] **B.4** **[flake]** Ensure erebonia's host firewall does **not** trust
-      `uplink.51`/`br51` (leave them out of `networking.firewall.trustedInterfaces`,
-      which stays `["cni0" "flannel.1"]`). The host holds no VLAN-51 IP in this
-      slice, so there is nothing to expose — just don't add one. **Confirmed
-      2026-06-09** — `trustedInterfaces` unchanged (`k3s/default.nix:166`); `br51`
-      is host-IP-less so the default-drop input policy leaves zero VLAN-51 surface.
+      `uplink.51` (leave it out of `networking.firewall.trustedInterfaces`, which
+      stays `["cni0" "flannel.1"]`). The host holds no VLAN-51 IP — there is
+      nothing to expose. **Still true post-cutover**: macvtap gives the host **no**
+      L3 presence on VLAN 51 (carrier only), so the default-drop input policy
+      leaves zero VLAN-51 surface — and macvtap adds host↔guest isolation by
+      construction (a stated goal the host-IP-less bridge was carrying).
 
 ## Phase C — bt8gw cluster zone + egress [bt8gw manual] (maps to plan Phase 2, fw4 part)
 
@@ -173,31 +188,40 @@ _Move the dev VM off the flannel pod network onto VLAN 51 directly._
       multus binary + plugins into k3s' writable `/var/lib/rancher/k3s/data/cni/`,
       sidestepping the immutable `data/<hash>/bin` problem. Additive; flannel stays
       primary. **Pending cluster apply + runtime verify** (DaemonSet Running).
-- [~] **D.2** **[cluster]** bridge + static CNI plugins — **satisfied by the
-      chart**: rke2-multus bundles the reference plugin set (bridge, static,
-      host-local, macvlan, …) into the binDir, so no separate
-      `containernetworking-plugins` drop. **Verify post-apply**:
-      `ls /var/lib/rancher/k3s/data/cni/` shows `bridge` + `static`.
-- [~] **D.3** **[cluster]** `NetworkAttachmentDefinition`s — **flake-authored**
-      (`multus.nix`, `services.k3s.manifests`, `.content` so they re-apply until the
-      NAD CRD exists). **Reworked to 16 per-slot NADs** `cluster-vlan51-dev-1`..`-16`
-      (was a single `cluster-vlan51` relying on per-VM `ips`-annotation injection —
-      **dropped because KubeVirt owns the `k8s.v1.cni.cncf.io/networks` annotation
-      and ignores a VM-spec `ips` field (kubevirt/kubevirt#4564), and the base image
-      is DHCP-only with no cloud-init**). Each NAD bridges `br51` (B.3,
-      host-IP-less) and **bakes that slot's registry IP** into `static` IPAM
-      (`10.97.51.<10+N-1>/24` + the `…1033::` v6) with v4/v6 default routes at the
-      bt8gw gateway; KubeVirt's bridge-binding DHCP then leases the baked IP to the
-      guest. Lands in a flake-declared `dev-machines` namespace. Eval-verified (all
-      16 NAD JSONs render the correct slot IPs). **Pending cluster apply.**
+- [~] **D.2** **[cluster]** CNI plugins — Multus reference plugins **satisfied by
+      the rke2-multus chart** (it bundles bridge, static, host-local, macvlan, … into
+      the binDir). The macvtap path also needs **macvtap-cni** (CNI plugin + device
+      plugin) — **flake-authored** (`multus.nix`): a pinned-image DaemonSet that
+      installs the `macvtap` CNI binary and advertises `capacity = 16` allocatable
+      macvtap devices on `uplink.51` as the extended resource
+      `macvtap.network.kubevirt.io/vlan51`. **Verify post-apply**:
+      `ls /var/lib/rancher/k3s/data/cni/` shows `macvtap` and
+      `kubectl describe node erebonia | grep macvtap` shows capacity 16.
+- [~] **D.3** **[cluster]** `NetworkAttachmentDefinition` — **flake-authored**
+      (`multus.nix`, `services.k3s.manifests`, `.content` so it re-applies until the
+      NAD CRD exists). **Collapsed by the macvtap cutover to ONE `cluster-vlan51`
+      macvtap NAD** (no IPAM), down from the 16 per-slot static-IPAM bridge NADs.
+      Rationale chain: the original single annotation-injection NAD was dropped
+      (KubeVirt owns `k8s.v1.cni.cncf.io/networks` and ignores a VM-spec `ips`,
+      kubevirt#4564) → reworked to 16 per-slot **bridge** NADs baking each slot IP
+      into `static` IPAM → that whole bridge path was then **retired** when
+      `br_netfilter` proved to drop routed-in traffic. Under macvtap there is **no
+      in-pod DHCP**, so the slot IP no longer comes from the NAD at all: the guest
+      DHCPs it from **bt8gw**, keyed on the launcher-pinned per-slot MAC (the bt8gw
+      reservation, D-adjacent). Slot identity = MAC, not NAD → one shared NAD serves
+      all 16 slots. Lands in a flake-declared `dev-machines` namespace. Eval/build-
+      verified. **Pending cluster apply** (and GC the retired per-slot NADs:
+      `for n in $(seq 1 16); do kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-$n --ignore-not-found; done`).
 - [x] **D.4** **[flake]** Switched the dev-VM manifest in
-      `home/modules/dev-machine.nix` from `masquerade` to **multus + bridge,
-      multus-only** (dropped the default pod network; single `bridge` interface on
-      the slot NAD). The **slot** model drives identity: the launcher picks a free
-      slot `dev-N`, patches the VM's `networks[0].multus.networkName` to that slot's
-      NAD `cluster-vlan51-dev-N` (carrying its IP via static IPAM) and a
-      deterministic per-slot `macAddress` (the one field KubeVirt honors). No per-VM
-      registry edit — names are static (A.1), occupancy assigned at launch.
+      `home/modules/dev-machine.nix` from `masquerade` to **multus + macvtap,
+      multus-only** (dropped the default pod network; single `macvtap`-bound
+      interface on the shared `cluster-vlan51` NAD). The **slot** model drives
+      identity: the launcher picks a free slot `dev-N` and patches the VM's
+      deterministic per-slot `macAddress` (`02:51:51:00:00:<hex(9+N)>`) — which is
+      both the KubeVirt-honored MAC **and** the bt8gw DHCP-reservation key that
+      yields the slot's stable `10.97.51.(9+N)` / `dev-N.internal` address.
+      `networkName` is the constant shared NAD now. No per-VM registry edit — names
+      are static (A.1), occupancy assigned at launch.
 - [x] **D.5** **[flake]** Free-slot bookkeeping is **cluster-sourced** (not local
       state): the launcher labels each VM `dev-machine-slot=dev-N` and reads
       occupancy back from those labels across all VMs, so it reuses a name's slot on

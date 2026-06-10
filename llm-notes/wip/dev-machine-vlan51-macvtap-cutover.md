@@ -1,8 +1,11 @@
 # dev-machine VLAN-51: bridge → macvtap cutover
 
 **Status (2026-06-10):** flake side **implemented + eval/build-validated**
-(kubevirt.nix, multus.nix, erebonia microvm/default.nix, home/dev-machine.nix).
-Pending: cluster apply + bt8gw DHCP reservations + runtime verify (all below).
+(kubevirt.nix, multus.nix, erebonia microvm/default.nix, home/dev-machine.nix),
+and **bt8gw DHCP reservations done** — the 16 per-slot MAC→IP reservations are in
+place on the VLAN-51 DHCP, so each slot now gets a **stable `dev-N.internal`
+address** (Change E below, ✅). Remaining: **cluster apply + runtime verify**
+only.
 
 ## Why (root cause, proven 2026-06-10)
 
@@ -93,8 +96,9 @@ Mirror the existing `20-uplink.50` / `20-uplink.100` macvtap pattern:
 - Add an unmanaged/carrier match for the macvtap-cni-created devices on uplink.51
   if networkd would otherwise try to manage them (verify device naming first).
 
-### E. bt8gw (out-of-flake, OpenWrt) — DHCP reservations
-Add 16 static host reservations on the VLAN-51 DHCP. The MAC's last byte (hex) ==
+### E. bt8gw (out-of-flake, OpenWrt) — DHCP reservations — ✅ DONE
+The 16 static host reservations are in place on the VLAN-51 DHCP, giving each slot
+a **stable IP** (and thus a stable `dev-N.internal`). The MAC's last byte (hex) ==
 the IP's last octet (decimal): dev-N → MAC `02:51:51:00:00:<hex(9+N)>` → `10.97.51.(9+N)`:
 
 | slot | MAC | IP |

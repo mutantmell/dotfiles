@@ -178,7 +178,7 @@ image, scripting, scoped git credential, network lockdown).
 > `llm-notes/plans/workload-network-isolation-plan.md`** and the plan has moved
 > to `blocked/`. Phase 5 was revised to a defense-in-depth lockdown that shifts
 > the dev-machine VM onto a lesser-privileged **cluster VLAN with no host
-> access** (Multus+bridge) plus a NetworkPolicy egress allowlist; the VLAN-shift
+> access** (Multus + macvtap) plus a NetworkPolicy egress allowlist; the VLAN-shift
 > half is a deliverable of the isolation plan. **Consequence for Phase A here:**
 > the dev/AI-coding layer is usable end to end but **not fully locked down** until
 > that lands (or the isolation plan's documented NetworkPolicy-only interim is
