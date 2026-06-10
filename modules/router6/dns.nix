@@ -14,11 +14,19 @@
     concatStringsSep
     flatten
     ;
-  inherit (r6lib) flattenTopology dnsInterfaces getEffectiveAddresses partitionAF;
+  inherit (r6lib) flattenTopology dnsInterfaces getEffectiveAddresses partitionAF blockingBackendPort;
 
   hasFallback = cfg.dns.fallbackFromLease != null;
   hasPrimary = cfg.dns.upstream != [];
   upstreamServers = concatStringsSep ", " (map (s: "'${s}'") cfg.dns.upstream);
+
+  # When ad-blocking is enabled, Blocky (dns-blocking.nix) owns the
+  # client-facing `:53` addresses and kresd becomes the loopback backend it
+  # forwards to. kresd then stops binding the zone gateway IPs entirely and
+  # listens only on the loopback backend port — the router's own libc reaches
+  # the resolver through Blocky on 127.0.0.1:53, same as any other client.
+  blockingEnabled = cfg.dns.blocking.enable;
+  backendPort = toString blockingBackendPort;
 
   # kresd's policy.* identifiers are uppercase (FORWARD, STUB). The option
   # values are lowercase to match Nix-attr convention.
@@ -135,23 +143,30 @@ in {
     services.kresd = {
       enable = true;
       listenPlain =
-        [
-          "127.0.0.1:53"
-          "[::1]:53"
+        if blockingEnabled
+        then [
+          # Blocky owns :53 on the gateways; kresd is the loopback backend.
+          "127.0.0.1:${backendPort}"
+          "[::1]:${backendPort}"
         ]
-        ++ (flatten (map (
-            iface: let
-              ifaceData = lib.findFirst (i: i.name == iface) null flattenTopology;
-              addrs =
-                if ifaceData != null
-                then getEffectiveAddresses ifaceData
-                else [];
-              split = partitionAF addrs;
-            in
-              (map (a: "${a.ip}:53") split.v4)
-              ++ (map (a: "[${a.ip}]:53") split.v6)
-          )
-          dnsInterfaces));
+        else
+          [
+            "127.0.0.1:53"
+            "[::1]:53"
+          ]
+          ++ (flatten (map (
+              iface: let
+                ifaceData = lib.findFirst (i: i.name == iface) null flattenTopology;
+                addrs =
+                  if ifaceData != null
+                  then getEffectiveAddresses ifaceData
+                  else [];
+                split = partitionAF addrs;
+              in
+                (map (a: "${a.ip}:53") split.v4)
+                ++ (map (a: "[${a.ip}]:53") split.v6)
+            )
+            dnsInterfaces));
 
       extraConfig = ''
         modules.load('policy')

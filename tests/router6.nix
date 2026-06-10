@@ -25,6 +25,7 @@
   router6-dnat = import ./modules/router6-dnat.nix {inherit pkgs lib;};
   router6-extra-rules = import ./modules/router6-extra-rules.nix {inherit pkgs lib;};
   router6-dns-interception-vm = import ./modules/router6-dns-interception.nix {inherit pkgs lib;};
+  router6-dns-blocking = import ./modules/router6-dns-blocking.nix {inherit pkgs lib;};
   router6-dns-fallback = import ./modules/router6-dns-fallback.nix {inherit pkgs lib;};
   router6-dnssec = import ./modules/router6-dnssec.nix {inherit pkgs lib;};
   router6-network-zone-egress = import ./modules/router6-network-zone-egress.nix {inherit pkgs lib;};

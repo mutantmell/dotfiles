@@ -43,13 +43,18 @@
       enableDhcp = false;
       enableDhcp6 = false;
     };
+    # GUEST (tag 30), ADU, and GAME opt out of ad-blocking — their clients
+    # reach the clean upstream answer. IOT stays blocked. Replaces the old
+    # leaky `sourceRoutes` GUEST bypass (now extended to adu/game).
     untrusted = {
       bridgeName = "GUEST";
       zone = "untrusted";
+      dnsBlock = false;
     };
     adu = {
       bridgeName = "ADU";
       zone = "untrusted";
+      dnsBlock = false;
     };
     iot = {
       bridgeName = "IOT";
@@ -58,6 +63,7 @@
     game = {
       bridgeName = "GAME";
       zone = "untrusted";
+      dnsBlock = false;
     };
     dmz = {
       bridgeName = "DMZ";
@@ -70,6 +76,7 @@
     zone,
     enableDhcp ? true,
     enableDhcp6 ? true,
+    dnsBlock ? true,
   }: let
     subnet = net.networks.${subnetName};
   in {
@@ -94,7 +101,7 @@
           "${subnet.gateway4}/${toString subnet.prefixLength4}"
           "${subnet.gateway6}/${toString subnet.prefixLength6}"
         ];
-        inherit zone;
+        inherit zone dnsBlock;
         subnetId = subnet.vlanId;
         dhcp.enable = enableDhcp;
         dhcp6 = {
@@ -521,12 +528,23 @@ in {
       # locally re-validates anything coming back from the ISP resolver.
       upstreamPolicy = "stub";
       fallbackFromLease = "enp4s0";
-      # phantasma exposes plain Unbound (no ad-blocking), so every client gets
-      # clean, validated recursion through the single kresd cache. Ad-blocking
-      # will be reintroduced as a separate Blocky resolver that clients reach
-      # directly (its own cache, off the kresd path) — never as a kresd
-      # per-source upstream override, which the shared cache makes leak across
-      # clients (the reason the old sourceRoutes feature was removed).
+      # Ad-blocking: Blocky in front of kresd (dns-blocking.nix). Blocky owns
+      # the client-facing :53, sees real client IPs, and applies the blocklist
+      # as a per-client overlay before its own cache, forwarding clean queries
+      # to kresd on loopback:5335. This is the leak-free design that replaces
+      # the removed `sourceRoutes` bypass (a shared cache only ever holds the
+      # clean answer; blocking is per-client on top). GUEST/30 opts out via
+      # `dnsBlock = false` in subnetBindings above.
+      blocking = {
+        enable = true;
+        # Pinned via flake input (stevenblack-hosts), exposed as a store path
+        # through the mmell overlay — never an https URL (Blocky would try to
+        # resolve the list host through itself before it is ready).
+        denylists.ads = ["${pkgs.mmell.stevenblack-hosts}/hosts"];
+        # Special-use / split-horizon suffixes Blocky must forward to kresd
+        # rather than NXDOMAIN.
+        conditionalDomains = ["internal" "internal.mutantmell.net" "mutantmell.net"];
+      };
       interception = {
         enable = true;
         extraExcludeAddresses = [phantasma.ipv6];
@@ -744,10 +762,11 @@ in {
   };
 
   # Persistence for router state
-  # kea uses DynamicUser=true, so its state lives under /var/lib/private/kea
-  # (systemd manages the /var/lib/kea -> /var/lib/private/kea symlink)
+  # kea and blocky use DynamicUser=true, so their state lives under
+  # /var/lib/private/<svc> (systemd manages the /var/lib/<svc> symlink).
   environment.persistence.${config.common.impermanence.persistDir}.directories = [
     "/var/lib/private/kea"
+    "/var/lib/private/blocky"
     "/var/lib/knot-resolver"
   ];
 

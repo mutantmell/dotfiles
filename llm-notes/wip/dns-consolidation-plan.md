@@ -1,5 +1,31 @@
 # DNS Consolidation — Plan
 
+> **Status (2026-06-10): Piece 1 implemented** (`router6.dns.blocking` —
+> Blocky in front of kresd), proven by a real Blocky+kresd VM test
+> (`tests/modules/router6-dns-blocking.nix`, 7 assertions incl. the
+> no-cross-poison regression in both orders). **Piece 2 (kresd recursive +
+> phantasma removal) remains.** Two implementation notes that deviate from the
+> draft below:
+>
+> - The per-interface opt-out option is **`network.dnsBlock`** (a flat bool),
+>   not `network.dns.block` — the topology submodule already has a
+>   `network.dns` (`listOf str`, WAN DNS servers), so `network.dns.block`
+>   would collide.
+> - **Open item #1 resolved empirically: an empty `clientGroupsBlock` list does
+>   NOT mean "no blocking."** Blocky treats it as "no group assignment" and
+>   falls back to `default` (re-blocking the opt-out client — the VM test
+>   caught this). The fix is the plan's own fallback: map opt-out subnets to a
+>   **named sentinel group (`noblock`)** backed by an empty denylist. A
+>   non-empty group-name list is a real match, so `default` is not applied.
+> - 1d was a **no-op**: Blocky binds the exact gateway IPs kresd used to, and
+>   the interception DNAT target (`host.ipv4/6`) is within that set, so
+>   intercepted queries land on Blocky with no firewall change.
+> - The kresd backend port is **not** a user option (an early `dns.backendPort`
+>   was removed). It is an internal constant `blockingBackendPort = 5335` in
+>   `lib.nix`. The router always serves DNS on `:53`; enabling blocking only
+>   swaps which service binds `:53` directly (Blocky) vs. the loopback backend
+>   (kresd on 5335).
+
 Replaces the former `dns-upgrades-plan.md` (deleted): its Phase 1 (kresd
 ISP-lease fallback) is deployed and recorded in
 `modules/router6/dns-isp-fallback.nix` + the code and
@@ -57,7 +83,7 @@ blocking is a per-client overlay on top. That means:
 ```
 client → DNAT → thebeyond:Blocky        (front: per-client blocklist overlay)
                      │  default group → [ads];  opt-out subnets → []
-                     ▼ upstream 127.0.0.1#5353
+                     ▼ upstream 127.0.0.1#5335
                 thebeyond:kresd          (loopback backend: recursion +
                      │                    DNSSEC + authoritative .internal)
                      ▼ on recursion stall
@@ -76,17 +102,20 @@ fallback = recursion-stall safety net.
 forwarding to phantasma for now (Piece 1 is purely "insert Blocky in
 front"); independently deployable and testable.
 
-### 1a — kresd retreats to a loopback backend _(NOT STARTED)_
+### 1a — kresd retreats to a loopback backend _(DONE)_
 
 `modules/router6/dns.nix`: when blocking is enabled, kresd stops binding the
 client-facing gateway IPs and listens on a loopback backend only
-(`127.0.0.1:5353` + `[::1]:5353`). When disabled, current behaviour
+(`127.0.0.1:5335` + `[::1]:5335`). When disabled, current behaviour
 (kresd on the zone gateways from `dnsInterfaces`) is unchanged.
 
-- Add `router6.dns.backendPort` (default `5353`) or derive internally.
+- Backend port (5335) is **derived internally**, not a user option — it is
+  internal plumbing between Blocky and kresd (the DSL is opinionated). Lives as
+  `blockingBackendPort` in `modules/router6/lib.nix`, shared by `dns.nix` and
+  `dns-blocking.nix`.
 - `listenPlain` becomes conditional on `cfg.dns.blocking.enable`.
 
-### 1b — `router6.dns.blocking` option surface _(NOT STARTED)_
+### 1b — `router6.dns.blocking` option surface _(DONE)_
 
 Keep the module generic (no project specifics — denylist sources and
 conditional domains are passed in by the host):
@@ -115,14 +144,14 @@ topology.<iface>.network.dns.block = mkOption {
 };
 ```
 
-### 1c — Render Blocky from the topology _(NOT STARTED)_
+### 1c — Render Blocky from the topology _(DONE)_
 
 New `modules/router6/dns-blocking.nix` (mkIf `cfg.dns.blocking.enable`):
 
 - **Listeners:** bind every `dnsInterfaces` gateway IPv4/IPv6 on `:53`,
   **plus** `127.0.0.1:53` / `[::1]:53` (the router's own libc). NOT
-  `0.0.0.0` — keep loopback:5353 free for kresd.
-- **Upstream:** `default → ["127.0.0.1:5353"]` (kresd backend).
+  `0.0.0.0` — keep loopback:5335 free for kresd.
+- **Upstream:** `default → ["127.0.0.1:5335"]` (kresd backend).
 - **clientGroupsBlock:** `default = cfg.dns.blocking.defaultGroups`; for each
   interface with `network.dns.block = false`, map its `subnet4`/`subnet6`
   to `[]` (no lists). _Verify Blocky accepts a CIDR key with an empty
@@ -130,17 +159,17 @@ New `modules/router6/dns-blocking.nix` (mkIf `cfg.dns.blocking.enable`):
   and map the CIDRs to it._
 - **denylists:** `cfg.dns.blocking.denylists`.
 - **conditional.mapping:** each `conditionalDomains` entry → upstream
-  (`127.0.0.1:5353`), `fallbackUpstream = false`.
+  (`127.0.0.1:5335`), `fallbackUpstream = false`.
 - **http/metrics:** `127.0.0.1:4000` (loopback only), Prometheus on.
 
-### 1d — Interception retarget _(NOT STARTED)_
+### 1d — Interception retarget _(DONE — no-op)_
 
 `modules/router6/firewall.nix`: when blocking is enabled, the DNS
 interception DNAT target is Blocky's front address (same gateway/host IP
 Blocky now binds) instead of kresd. The phantasma source/dest excludes
 stay (kresd still forwards to phantasma in Piece 1).
 
-### 1e — thebeyond wiring _(NOT STARTED)_
+### 1e — thebeyond wiring _(DONE)_
 
 `hosts/thebeyond/router.nix`:
 
@@ -158,7 +187,7 @@ topology.<guest-iface>.network.dns.block = false;
 (`/var/lib/private/blocky`, DynamicUser backing dir) — host-level, not the
 generic module.
 
-### 1f — Tests _(NOT STARTED)_
+### 1f — Tests _(DONE)_
 
 New real-Blocky+real-kresd VM test — **the regression the old design
 failed**: query the _same_ ads-listed domain from a blocked client and from
@@ -268,8 +297,9 @@ order.
 
 ## Open items / spikes
 
-1. **Blocky CIDR-keyed empty group** = no blocking (1c) — verify, else use
-   a named noblock group.
+1. **Blocky CIDR-keyed empty group** = no blocking (1c) — **RESOLVED: empty
+   list does _not_ disable blocking** (Blocky falls back to `default`). Uses a
+   named `noblock` group (empty denylist) instead. Proven by the VM test.
 2. **kresd split-horizon** static/transparent semantics (2a) — spike with
    a real-kresd VM test before writing the generator.
 3. **kresd recurse-then-ISP-fallback** API (2b) — spike; decide fallback

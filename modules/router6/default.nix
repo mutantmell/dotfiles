@@ -65,6 +65,19 @@ let
           description = "DNS servers (for static WAN)";
         };
 
+        dnsBlock = mkOption {
+          type = types.bool;
+          default = true;
+          description = ''
+            Whether clients on this network are subject to the
+            `router6.dns.blocking` blocklist. `false` opts this subnet out —
+            its queries reach the clean upstream answer with no blocking
+            overlay (the per-interface bypass that replaces the old, leaky
+            `sourceRoutes` mechanism). Only meaningful when
+            `router6.dns.blocking.enable`; ignored otherwise.
+          '';
+        };
+
         zone = mkOption {
           type = types.nullOr (types.enum (builtins.attrNames cfg.zones));
           default = null;
@@ -229,6 +242,7 @@ in {
   imports = [
     ./dhcp.nix
     ./dns.nix
+    ./dns-blocking.nix
     ./dns-isp-fallback.nix
     ./dyndns.nix
     ./firewall.nix
@@ -555,6 +569,70 @@ in {
             type = types.bool;
             default = true;
             description = "Enable DNSSEC validation";
+          };
+
+          blocking = mkOption {
+            description = ''
+              Optional Blocky ad-blocking resolver placed *in front* of kresd.
+              When enabled, Blocky binds the client-facing `:53` on the zone
+              gateways and kresd retreats to a loopback backend; when disabled,
+              kresd serves `:53` directly and Blocky is not started. Either
+              way the router serves DNS on `:53` — this only changes which
+              service is exposed directly.
+
+              Blocky sees real client source IPs and applies a per-client
+              blocklist overlay before its own cache, then forwards clean
+              queries to kresd. This is the leak-free replacement for the
+              removed `sourceRoutes` bypass: blocking is a per-request answer
+              policy keyed on client identity, never a choice of which cached
+              upstream to consult.
+
+              Per-interface opt-out lives on the topology interface via
+              `network.dnsBlock = false`.
+            '';
+            type = types.submodule {
+              options = {
+                enable = mkEnableOption "Blocky ad-blocking in front of the resolver";
+
+                denylists = mkOption {
+                  type = types.attrsOf (types.listOf types.path);
+                  default = {};
+                  example = lib.literalExpression ''
+                    { ads = [ "''${pkgs.mmell.stevenblack-hosts}/hosts" ]; }
+                  '';
+                  description = ''
+                    Group name → list of denylist sources, keyed by group.
+                    Sources MUST be local store paths, never `https://` URLs:
+                    a URL would make Blocky resolve the list host through
+                    itself before it is ready (bootstrap chicken-and-egg), and
+                    pins the list to the flake for reproducibility.
+                  '';
+                };
+
+                defaultGroups = mkOption {
+                  type = types.listOf types.str;
+                  default = ["ads"];
+                  description = ''
+                    Blocking groups applied to clients that are not opted out
+                    (i.e. on interfaces with `network.dnsBlock = true`).
+                  '';
+                };
+
+                conditionalDomains = mkOption {
+                  type = types.listOf types.str;
+                  default = [];
+                  example = ["internal" "internal.mutantmell.net" "mutantmell.net"];
+                  description = ''
+                    Domains Blocky must forward to the backend rather than
+                    short-circuit to NXDOMAIN. Blocky NXDOMAINs RFC 6761 /
+                    ICANN special-use suffixes (including `.internal`) unless
+                    they have a conditional upstream — without this the
+                    homelab's split-horizon `*.internal` naming breaks.
+                  '';
+                };
+              };
+            };
+            default = {};
           };
 
           fallbackFromLease = mkOption {

@@ -27,6 +27,14 @@
     ;
   inherit (builtins) attrNames attrValues hasAttr length head elemAt;
 
+  # Loopback port kresd retreats to when Blocky (dns-blocking.nix) is placed in
+  # front of it. Internal plumbing between the two services on the router — not
+  # a user knob (the DSL is opinionated). DNS is always served on :53 at the
+  # router; enabling blocking only changes which service binds :53 directly
+  # (Blocky) vs. the loopback backend (kresd). 5335 (not 5353) deliberately
+  # avoids the mDNS port.
+  blockingBackendPort = 5335;
+
   # ============================================================================
   # Device Kind Queries
   # ============================================================================
@@ -367,6 +375,8 @@ in {
     dnsInterfaces
     dhcpServerInterfaces
     natInterfaces
+    # DNS
+    blockingBackendPort
     # Address parsing
     parseIPAddress
     parseCIDR
