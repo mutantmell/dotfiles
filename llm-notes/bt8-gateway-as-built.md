@@ -18,7 +18,7 @@ Source dumps live in `temp/`:
   Section A.
 - `temp/BT8-gw-cluster-vlan51-additions.uci` — L2/L3 + fw4 additions for the
   cluster VLAN 51 bring-up (dev-machine isolation). Companion to
-  [`plans/cluster-vlan-bringup-checklist.md`](plans/cluster-vlan-bringup-checklist.md)
+  [`wip/cluster-vlan-bringup-checklist.md`](wip/cluster-vlan-bringup-checklist.md)
   Phases B.1 + C. **Staged**; L3 termination reported live 2026-06-09 (see the
   Cluster VLAN 51 section below).
 
@@ -235,7 +235,7 @@ plus a matching messeldam-side input rule only if lldap is later dual-stacked.
 ## Cluster VLAN 51 additions (2026-06-09) — dev-machine isolation
 
 UCI source: `temp/BT8-gw-cluster-vlan51-additions.uci`. Companion to
-[`plans/cluster-vlan-bringup-checklist.md`](plans/cluster-vlan-bringup-checklist.md)
+[`wip/cluster-vlan-bringup-checklist.md`](wip/cluster-vlan-bringup-checklist.md)
 Phases B.1 (L2) + C (fw4). Stands up the low-trust `cluster` zone
 (`10.97.51.0/24` + `fdc6:55f2:0a5e:1033::/64`) where the locked-down KubeVirt
 dev-machine lives, router-confined off erebonia's VLAN-11 management plane. The

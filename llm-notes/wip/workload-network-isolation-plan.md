@@ -1,5 +1,15 @@
 # Workload Network Isolation & VLAN Placement — Plan
 
+**Status: WIP.** The **dev-machine / mobile critical-path slice** (Phases 1, 2
+L2+fw4 without the flannel redirect, 4 + the wg-vpn rider — tracked in the
+companion [`cluster-vlan-bringup-checklist.md`](cluster-vlan-bringup-checklist.md))
+is **complete and proven 2026-06-10**: the locked-down dev VM runs on the
+`cluster` VLAN 51 (multus-only macvtap), confined by bt8gw fw4, and is reachable
+directly from mobile. The **broader phases remain deferred** (Future-state A/B,
+the host-side flannel-egress redirect, LB-IPAM, NetworkPolicy default-deny,
+dynamic-pool IPAM, removing WAN from VLAN 11) — see "Phases / next steps" and the
+checklist's "Explicitly deferred".
+
 How the three workload substrates on the VM hosts (cloud-hypervisor microVMs,
 KubeVirt VMs, and ordinary k3s containers/services) attach to the network: how
 each is isolated from its host, how each gets a routable identity, and what
@@ -13,8 +23,9 @@ Depends on / interacts with:
 - `llm-notes/done/k3s-cluster-bootstrap-plan.md` — the cluster, **flannel CNI**,
   host firewall, NetworkPolicy controller. This plan layers on top of flannel
   and does **not** replace it (until the deferred Kube-OVN option below).
-- `llm-notes/blocked/ai-dev-machine-kubevirt-plan.md` — owns the KubeVirt
-  platform; its **Phase 5 (network lockdown) is BLOCKED on this plan.** Phase 5
+- `llm-notes/done/ai-dev-machine-kubevirt-plan.md` — owns the KubeVirt
+  platform; its **Phase 5 (network lockdown) was unblocked by this plan's
+  critical-path slice and is now PROVEN (2026-06-10).** Phase 5
   was revised to a defense-in-depth lockdown: shift the dev-machine VM onto the
   lesser-privileged **cluster VLAN with no host access** (Multus + macvtap,
   multus-only) **plus** a NetworkPolicy egress allowlist. The VLAN-shift half is

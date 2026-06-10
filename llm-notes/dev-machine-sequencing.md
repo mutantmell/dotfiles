@@ -11,12 +11,12 @@ goals and records the order their phases must land in _relative to each other_:
 
 Plans referenced:
 
-- [`blocked/ai-dev-machine-kubevirt-plan.md`](blocked/ai-dev-machine-kubevirt-plan.md)
+- [`done/ai-dev-machine-kubevirt-plan.md`](done/ai-dev-machine-kubevirt-plan.md)
   — the dev-machine platform/workflow. Phases 1–4 done; **P5** (lockdown) and
   **P6** (mobile) are the goals here.
-- [`plans/workload-network-isolation-plan.md`](plans/workload-network-isolation-plan.md)
+- [`wip/workload-network-isolation-plan.md`](wip/workload-network-isolation-plan.md)
   — the network design P5/P6 are blocked on (the `cluster`/VLAN 51 zone).
-- [`plans/cluster-vlan-bringup-checklist.md`](plans/cluster-vlan-bringup-checklist.md)
+- [`wip/cluster-vlan-bringup-checklist.md`](wip/cluster-vlan-bringup-checklist.md)
   — the execution checklist for the isolation plan's critical-path slice
   (Phases A–F). **This is the thing you actually work.**
 

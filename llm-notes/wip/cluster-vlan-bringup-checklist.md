@@ -2,8 +2,9 @@
 
 **Status: ★ BOTH GOALS PROVEN 2026-06-10 — GOAL A (kubevirt P5) + GOAL B
 (kubevirt P6 pieces 5–6). ★** Only Phase F housekeeping remains (F.3 regression
-sweep, F.4 doc moves, C.7 as-built capture) — none of it changes the live system.
-This checklist should move `plans/ → wip/` (F.4) on the next pass.
+sweep, C.7 as-built capture) — none of it changes the live system. **F.4 doc
+moves are done (2026-06-10):** this checklist + the isolation plan are now in
+`wip/`, and the completed kubevirt plan moved to `done/`.
 Phase A done (flake); B done (L2 confirmed by end-to-end DHCP+egress); C
 operator-confirmed applied (egress confined to transit/zeiss/creil, 2026-06-09);
 D applied + **runtime-verified on the cluster 2026-06-10** — the dev VM came up
@@ -22,7 +23,7 @@ predicted, **no new bt8gw fw4 rule was needed** — the existing broad
 `wg-vpn → cluster` forwarding already admitted it, so the scoped E.1
 `transit → cluster` rule is now purely **optional tightening** (E.2 also
 confirmed: no thebeyond router6 edit). **Only Phase F housekeeping remains:** F.3
-regression (erebonia-side — flannel/Incus/mgmt intact) + F.4 doc moves + C.7
+regression (erebonia-side — flannel/Incus/mgmt intact) + C.7
 as-built capture. Drafted 2026-06-08; Phase A landed 2026-06-08.
 Phase B flake half landed 2026-06-09 (originally `uplink.51` + a host-IP-less
 `br51`); bt8gw L3 termination reported live 2026-06-09 (`ping 10.97.51.1`
@@ -297,8 +298,11 @@ _Direct mobile reach — unblocks kubevirt Phase 6 pieces 5–6._
 - [ ] **F.3** **Regression:** other k3s workloads (plain flannel pods) and the
       existing microVMs/Incus guests on erebonia are unaffected (flannel still
       primary, VLAN 11 mgmt intact).
-- [ ] **F.4** Move this checklist + the isolation plan to `wip/` once Phase A (or
-      the first phase) merges; tick items as they land.
+- [x] **F.4** **Done 2026-06-10.** This checklist + the isolation plan moved
+      `plans/ → wip/`; the now-complete `ai-dev-machine-kubevirt-plan.md` moved
+      `blocked/ → done/` (its lockdown + mobile dependencies are proven). All
+      cross-links updated. Remaining housekeeping (F.3 regression, C.7 as-built
+      capture, NAD GC) is tracked above and doesn't block the move.
 
 ---
 

@@ -1,51 +1,46 @@
 # Locked-down AI Dev Machines on KubeVirt (devpod + devcontainer.json)
 
-Status: **Blocked** — Phases 1–4 (KubeVirt platform + thin base VM image;
-`devcontainer.json` + custom Nix dev image; devpod wiring + operator scripting;
-scoped git push credential) **landed**, and the chain runs end to end with the
-sandbox holding exactly one scoped push credential. The last piece, **Phase 5
-(network lockdown)**, is **blocked** — see `## Blocked on`. Until it lands the
-chain is usable but **not locked down**: the VM still has open pod egress and
-SNATs onto erebonia's management VLAN. **Phase 5 must allow forgejo SSH (`:22`)
-egress** — the Phase-4 deploy key pushes over SSH.
+Status: **COMPLETE (2026-06-10)** — all six phases landed and are proven.
+Phases 1–4 (KubeVirt platform + thin base VM image; `devcontainer.json` + custom
+Nix dev image; devpod wiring + operator scripting; scoped git push credential)
+landed first, and the chain runs end to end with the sandbox holding exactly one
+scoped push credential. **Phase 5 (network lockdown)** is **done + verified**: the
+dev VM runs multus-only via macvtap on the lesser-privileged `cluster` VLAN 51,
+confined by bt8gw fw4 — egress is the creil(`:22`/`:443`)/zeiss(`:443`)/DNS/WAN
+allowlist only, and the management VLAN is unreachable (`10.97.11.31`
+`:22`/`:6443`/`:2049` time out). **Phase 6 (remote/mobile operator access)** is
+**done + verified**: the session-ergonomics half (mosh in the base image, zellij
+in the dev image, multi-key injection, the attach helper) shipped, and the
+*direct* mobile path now works — `mosh dev@dev-1.internal` from the mobile device
+over `wg-vpn` connects with no edith hop and roams across network changes where a
+plain SSH connection dropped.
 
-**Phase 6 (remote/mobile operator access — attach-only)** is newly added and
-**partially blocked**: its session-ergonomics half (mosh in the base image,
-zellij in the dev image, multi-key injection, the attach helper) is
-implementable **today** and works over the edith-jump interim; its *direct*
-mobile path is blocked on the **same** routable-VM + DNS dependency as Phase 5.
+## Resolved — the network-lockdown dependency (shipped)
 
-## Blocked on
+Phase 5's lockdown was **revised** (see Phase 5 below) from "NetworkPolicy alone
+over flannel masquerade" to a **router-enforced VLAN shift**: the dev-machine VM
+moved onto a **lesser-privileged cluster VLAN with no host access** (Multus +
+macvtap, multus-only) so the **router zone firewall** (bt8gw fw4, which owns VLAN
+51), not an in-cluster policy, enforces off-host confinement, and the sandbox is
+never *in* the management zone. Because the VM is multus-only it has no flannel
+NIC, so a namespace NetworkPolicy does **not** govern its data plane — the router
+is the *sole* (and stronger) enforcer for the VM; this was initially mis-framed as
+"VLAN shift **plus** NetworkPolicy" defense-in-depth (see the reconciliation in
+Phase 5). The cluster VLAN, cluster-egress-off-VLAN-11, and the KubeVirt Multus +
+macvtap attachment were **delivered by the isolation plan**
+(`llm-notes/wip/workload-network-isolation-plan.md`, Phases 1, 2, 4 — its
+critical-path slice, tracked in
+`llm-notes/wip/cluster-vlan-bringup-checklist.md`).
 
-`llm-notes/plans/workload-network-isolation-plan.md`.
-
-Phase 5's lockdown has been **revised** (see Phase 5 below) from "NetworkPolicy
-alone over flannel masquerade" to a **router-enforced VLAN shift**: move the
-dev-machine VM onto a **lesser-privileged cluster VLAN with no host access**
-(Multus + macvtap, multus-only) so the **router zone firewall** (bt8gw fw4, which
-owns VLAN 51), not an in-cluster policy, enforces off-host confinement, and the
-sandbox is never *in* the management zone. **Note:** because the VM is
-multus-only it has no flannel NIC, so a namespace NetworkPolicy does **not**
-govern its data plane — the router is the *sole* (and stronger) enforcer for the
-VM; this was initially mis-framed as "VLAN shift **plus** NetworkPolicy"
-defense-in-depth (see the reconciliation in Phase 5). The cluster VLAN,
-cluster-egress-off-VLAN-11, and the KubeVirt Multus + macvtap attachment are
-**deliverables of the isolation plan** (its Phases 1, 2, 4). (Mechanism updated
-2026-06-10: macvtap, not the originally-specified host-IP-less bridge — see
-Phase 5 Layer 1.)
-
-**Unblocks when** the isolation plan has delivered: the `cluster` zone in the
-registry, cluster egress off VLAN 11, and the KubeVirt Multus + macvtap
-(multus-only, host↔guest-isolated) attachment. Phase 5 then = put the VM on that
-VLAN + layer the egress allowlist. **As of 2026-06-10 the flake side + the bt8gw
-per-slot DHCP reservations are done; only cluster apply + runtime verify remain.**
-
-**Interim option (if we choose not to wait):** the original NetworkPolicy-only
-lockdown (preserved in Phase 5) is implementable **today** on flannel and fully
-confines *destinations*; it just leaves the VM SNAT'd onto the management VLAN
-(single enforcement layer, wrong-zone posture). Shipping it would move this plan
-back to `wip/` as an interim and fold the VLAN shift in when the isolation plan
-lands.
+**Delivered 2026-06-10:** the `cluster` zone in the registry, cluster egress off
+VLAN 11, and the KubeVirt Multus + macvtap (multus-only, host↔guest-isolated)
+attachment; Phase 5 then put the VM on that VLAN and layered the egress allowlist.
+**Mechanism note:** the attachment is **macvtap**, not the originally-specified
+host-IP-less bridge — a host bridge silently dropped routed-in traffic inside
+`br_netfilter` under k3s' `bridge-nf-call=1`; macvtap (macvlan-family, never a
+bridge) sidesteps it and adds host↔guest isolation by construction. (The
+NetworkPolicy-only flannel interim that was considered while this was pending was
+**not** needed — the VLAN shift landed directly.)
 
 **What this is:** ephemeral, locked-down **dev machines** for LLM coding
 agents — spin up a VM-isolated workspace from a repo's `devcontainer.json`,
@@ -366,11 +361,11 @@ key/cert:
   ([[project_keysjson_certonly_endstate]]): it never holds the operator
   identity.
 
-## Phase 5 — network lockdown (item 5) — BLOCKED (decision revised)
+## Phase 5 — network lockdown (item 5) — DONE + VERIFIED (2026-06-10)
 
 **Decision revised — router-enforced VLAN shift (supersedes the original
-NetworkPolicy-only stance kept below).** Blocked on
-`llm-notes/plans/workload-network-isolation-plan.md` (see `## Blocked on`). The
+NetworkPolicy-only stance kept below).** Delivered by
+`llm-notes/wip/workload-network-isolation-plan.md` (see "Resolved" above). The
 revision moves the *primary* enforcement from an in-cluster policy to the
 **router (bt8gw fw4)**. It was originally framed as "defense-in-depth = VLAN
 shift **plus** NetworkPolicy," but per the reconciliation below the NetworkPolicy
@@ -443,7 +438,7 @@ actively wrong posture — the sandbox must not *be* in the management zone.
   (Calico/Cilium, or erebonia-local nftables on the pod-CIDR path) is the
   documented next step.
 
-## Phase 6 — remote/mobile operator access (attach-only) — PARTIALLY BLOCKED
+## Phase 6 — remote/mobile operator access (attach-only) — DONE + VERIFIED (2026-06-10)
 
 **Goal.** Reach a *running* dev machine from a mobile device (iPad/phone)
 **directly**, instead of the current two-hop (SSH into edith, then run

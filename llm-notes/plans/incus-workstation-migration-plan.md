@@ -117,7 +117,7 @@ verifies it's present.)
 
 1. **KubeVirt platform — depend on it, don't re-land it.** The kubevirt-operator
    - virt-handler HelmChart is **owned by
-     `llm-notes/plans/ai-dev-machine-kubevirt-plan.md`** (which lands it first on
+     `llm-notes/done/ai-dev-machine-kubevirt-plan.md`** (which lands it first on
      disposable dev-machine VMs to de-risk this daily-driver move). This phase
      assumes the platform is present and adds only what edith needs on top:
      `DataVolume` support (the CDI / containerized-data-importer component, beyond
