@@ -30,6 +30,69 @@
     fi
     exec docker exec -it "$cid" zellij attach -c main
   '';
+
+  # ── Phase 6 — file transfer in/out of the inner devcontainer ─────────────────
+  # `dev-attach`'s sibling for moving files between this VM (or a remote laptop,
+  # over `ssh … dev-cp …`) and the agent's workspace INSIDE the devcontainer.
+  # Plain scp can't reach the container — the workspace lives on the container
+  # filesystem (reached via `docker exec`, exactly how dev-attach finds it), not
+  # on the VM host — so this wraps `docker cp` with the same container probe and
+  # makes a `container:` path mean "inside the devcontainer", resolved against the
+  # workspace root (the dir holding .git) unless it is absolute. `-` is a tar
+  # stream on stdin/stdout (docker cp's own convention), which gives a remote
+  # operator a one-hop transfer with no scratch file on the VM:
+  #   pull:  ssh dev@<host> dev-cp container:build/out.log - > out.log
+  #   push:  tar c file | ssh dev@<host> dev-cp - container:incoming
+  # Both run as a remote COMMAND (`bash -c …`), so they never trip the interactive
+  # auto-attach below. PATH is pinned because a bare `ssh host dev-cp …` does not
+  # source a login shell, so docker would otherwise be off PATH.
+  dev-cp = pkgs.writeShellScriptBin "dev-cp" ''
+    set -euo pipefail
+    export PATH="/run/current-system/sw/bin:''${PATH:-}"
+
+    usage() {
+      cat >&2 <<'EOF'
+    usage: dev-cp <src> <dst>
+      Copy files between this VM and the inner devcontainer's workspace.
+      Prefix exactly ONE endpoint with `container:` to mean "inside the
+      devcontainer"; a `container:` path is relative to the workspace root unless
+      it starts with `/`. Use `-` for a tar stream on stdin/stdout, e.g.:
+        pull:  ssh dev@<host> dev-cp container:build/out.log - > out.log
+        push:  tar c file | ssh dev@<host> dev-cp - container:incoming
+    EOF
+      exit 2
+    }
+    [ $# -eq 2 ] || usage
+    case "$1$2" in
+      *container:*) : ;;
+      *) echo "dev-cp: exactly one path must be prefixed with container:" >&2; usage ;;
+    esac
+
+    cid=""
+    for c in $(docker ps -q); do
+      if docker exec "$c" sh -c 'ls -d /workspaces/*/.git' >/dev/null 2>&1; then
+        cid=$c
+        break
+      fi
+    done
+    if [ -z "$cid" ]; then
+      echo "dev-cp: no running devcontainer with a /workspaces git repo found" >&2
+      exit 1
+    fi
+    ws=$(docker exec "$cid" sh -c 'for d in /workspaces/*/.git; do dirname "$d"; exit; done')
+
+    # Translate a `container:PATH` endpoint into docker cp's `<cid>:<abs>` form;
+    # leave local paths and `-` untouched.
+    resolve() {
+      case "$1" in
+        container:/*) printf '%s:%s' "$cid" "''${1#container:}" ;;
+        container:*)  printf '%s:%s/%s' "$cid" "$ws" "''${1#container:}" ;;
+        *)            printf '%s' "$1" ;;
+      esac
+    }
+
+    exec docker cp "$(resolve "$1")" "$(resolve "$2")"
+  '';
 in {
   # ── Phase 1.3 — thin base VM image for the locked-down LLM dev machines ──────
   # (ai-dev-machine-kubevirt-plan.md). This is the KubeVirt VM that is the
@@ -212,12 +275,39 @@ in {
   # mobile operator mosh's into this VM (roaming/low-latency over flaky links) and
   # runs `dev-attach` to drop straight into the agent's persistent in-container
   # zellij. Both belong on the BASE image because mosh-server and the docker
-  # socket live on the VM, not inside the devcontainer.
+  # socket live on the VM, not inside the devcontainer. dev-cp is the file-transfer
+  # sibling (docker cp wrapper) for moving files into/out of the inner workspace.
   environment.systemPackages = [
     pkgs.git
     pkgs.mosh
     dev-attach
+    dev-cp
   ];
+
+  # ── Phase 6 — auto-attach an interactive login straight into the devcontainer ─
+  # So a mobile operator only needs a saved ssh/mosh profile (no remembered
+  # command): a bare interactive login lands DIRECTLY in the agent's persistent
+  # in-container zellij via dev-attach. The two guards keep every NON-interactive
+  # path pristine, so nothing the control plane relies on changes:
+  #   * `[ -t 0 ]`  — only a real TTY login attaches. Remote commands
+  #                   (`ssh host cmd` / scp's legacy -O mode / git-over-ssh /
+  #                   devpod's agent / the operator `dev-machine` ssh probes) run
+  #                   as a non-interactive `bash -c` and skip this; modern scp and
+  #                   sftp ride the sftp subsystem, which starts no login shell at
+  #                   all. So file transfer and the orchestration plane are
+  #                   untouched.
+  #   * id = dev    — leaves root's serial-console autologin (the VM debug
+  #                   affordance above) a plain shell.
+  # dev-attach exits non-zero when no devcontainer is up; `|| true` then lets the
+  # login fall through to a normal VM shell, so detaching zellij — or logging into
+  # a machine whose container isn't up yet — drops you at a `dev` shell on the
+  # boundary VM rather than logging you out. Need a plain VM shell deliberately?
+  # `ssh -t dev@<host> bash --noprofile -i`.
+  programs.bash.loginShellInit = ''
+    if [ -t 0 ] && [ "$(id -un)" = dev ]; then
+      ${dev-attach}/bin/dev-attach || true
+    fi
+  '';
 
   # Keep the closure lean — this is a disposable sandbox base, not a workstation.
   documentation.enable = lib.mkForce false;
