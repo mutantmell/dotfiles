@@ -10,3 +10,5 @@ result*
 temp/
 # OpenWrt build artifacts (may contain secrets)
 openwrt-images/
+# Claude Code per-user local settings (machine-specific, not shared)
+.claude/settings.local.json
