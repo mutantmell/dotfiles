@@ -1,10 +1,14 @@
 # Cluster VLAN 51 Bring-up — Status Checklist
 
 **Status: ★ BOTH GOALS PROVEN 2026-06-10 — GOAL A (kubevirt P5) + GOAL B
-(kubevirt P6 pieces 5–6). ★** Only Phase F housekeeping remains (F.3 regression
-sweep, C.7 as-built capture) — none of it changes the live system. **F.4 doc
-moves are done (2026-06-10):** this checklist + the isolation plan are now in
-`wip/`, and the completed kubevirt plan moved to `done/`.
+(kubevirt P6 pieces 5–6). ★** Phase F is essentially **complete**: F.1/F.2/F.3/F.4
+all done (F.3 regression sweep **passed from edith 2026-06-10** — flannel/KubeVirt/
+Incus/mgmt all intact); C.7 is behaviourally proven and its verbatim capture is
+**deferred to bt8gw flake codification** (dual-gateway-followups §B.1), not a
+pending bt8gw touch. Only the **optional per-slot NAD GC** (D.3 residual) is left,
+and none of it changes the live system. **F.4 doc moves are done (2026-06-10):**
+this checklist + the isolation plan are in `wip/`, and the completed kubevirt plan
+moved to `done/`.
 Phase A done (flake); B done (L2 confirmed by end-to-end DHCP+egress); C
 operator-confirmed applied (egress confined to transit/zeiss/creil, 2026-06-09);
 D applied + **runtime-verified on the cluster 2026-06-10** — the dev VM came up
@@ -22,9 +26,10 @@ management VLAN. F.1 (security) confirmed.
 predicted, **no new bt8gw fw4 rule was needed** — the existing broad
 `wg-vpn → cluster` forwarding already admitted it, so the scoped E.1
 `transit → cluster` rule is now purely **optional tightening** (E.2 also
-confirmed: no thebeyond router6 edit). **Only Phase F housekeeping remains:** F.3
-regression (erebonia-side — flannel/Incus/mgmt intact) + C.7
-as-built capture. Drafted 2026-06-08; Phase A landed 2026-06-08.
+confirmed: no thebeyond router6 edit). **Phase F essentially complete** — F.3
+regression passed (erebonia-side: flannel/Incus/mgmt intact, 2026-06-10); C.7
+verbatim capture deferred to bt8gw flake codification (§B.1); only the optional
+NAD GC remains. Drafted 2026-06-08; Phase A landed 2026-06-08.
 Phase B flake half landed 2026-06-09 (originally `uplink.51` + a host-IP-less
 `br51`); bt8gw L3 termination reported live 2026-06-09 (`ping 10.97.51.1`
 answers). **The br51 bridge was then RETIRED by the macvtap cutover
@@ -308,9 +313,19 @@ _Direct mobile reach — unblocks kubevirt Phase 6 pieces 5–6._
 - [x] **F.2** **Mobile — confirmed 2026-06-10 (= E.3).** Direct `mosh` from the
       `mobile` peer to `dev-1.internal` works without the edith hop, and the session
       survives network changes that drop plain SSH.
-- [ ] **F.3** **Regression:** other k3s workloads (plain flannel pods) and the
-      existing microVMs/Incus guests on erebonia are unaffected (flannel still
-      primary, VLAN 11 mgmt intact).
+- [x] **F.3** **Regression — confirmed 2026-06-10 (from edith).** No regression
+      from the multus/macvtap VLAN-51 work:
+      - **flannel still primary** — a throwaway pod (`f3probe`) got `10.42.0.114/24`
+        on the pod network and reached WAN (`EGRESS_OK`).
+      - **multus/macvtap additive** — node advertises `macvtap.network.kubevirt.io/vlan51 = 16`
+        allocatable; node `erebonia` Ready, k3s healthy.
+      - **KubeVirt dev VMs fine** — `dm-dotfiles` Running on `10.97.51.10` (slot dev-1).
+      - **guests fine** — Incus `trista` RUNNING (`10.91.100.51`). microVM
+        `saint-arkh` is `inactive`, but **by intent / pre-existing** (it awaits the
+        Forgejo-Actions→Woodpecker repurpose in `plans/cicd-fleet-activation-plan.md`),
+        **not** a regression from this work.
+      - **VLAN-11 mgmt intact** — apiserver `10.97.11.31:6443` reachable; erebonia's
+        mgmt identity untouched.
 - [x] **F.4** **Done 2026-06-10.** This checklist + the isolation plan moved
       `plans/ → wip/`; the now-complete `ai-dev-machine-kubevirt-plan.md` moved
       `blocked/ → done/` (its lockdown + mobile dependencies are proven). All

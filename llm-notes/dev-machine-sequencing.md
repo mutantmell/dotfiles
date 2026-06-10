@@ -106,12 +106,17 @@ Plans referenced:
   `wg-vpn → cluster` forwarding already admitted it; the scoped E.1 rule is now
   purely **optional tightening** (E.2 also confirmed: no thebeyond router6 edit).
 
-**Remaining** — **both goals are met; only Phase F cleanup + doc lifecycle.**
-What's left is non-blocking housekeeping: **F.3 regression** (erebonia-side —
-flannel pods + VLAN 50/100 Incus guests + VLAN-11 mgmt unaffected), **F.4** (move
-the checklist + isolation plan from `plans/` to `wip/`; the kubevirt plan is now
-unblocked and should leave `blocked/`), the **C.7 as-built UCI capture**, and the
-optional GC of the retired per-slot NADs. None of it changes the working system.
+**Remaining** — **both goals are met; cleanup is nearly done.** F.4 (doc moves)
+landed, and **F.3 regression passed 2026-06-10** (from edith: flannel pod-network
++ KubeVirt + Incus `trista` + VLAN-11 mgmt all intact; microVM `saint-arkh` is
+intentionally inactive pending the CI-fleet repurpose, not a regression). The
+**C.7 as-built UCI capture is deferred** — rather than another manual snapshot
+into the confusing bt8-gateway-as-built note, it folds into
+[`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
+§B.1 (codify bt8gw in the flake), where the cluster zone + egress rules become
+in-repo source; the egress behaviour is already proven. The only live leftover is
+the **optional GC of the retired per-slot NADs**. None of it changes the working
+system, and the bring-up checklist is ready to move `wip/ → done/`.
 
 ---
 
@@ -164,7 +169,7 @@ REMAINING ───────────────────────�
 | ★ ✅ | **GOAL A — devcontainer secured**                                                                                                                    | **= kubevirt P5**            | —                   | **PROVEN 2026-06-10** (D.7: egress allowlist works, mgmt VLAN-11 unreachable)                                          |
 | 5 ◑  | **Checklist E** — `mobile` peer `10.100.10.21` → dev band :22 + UDP 60000–61000. **`wg-vpn→cluster` already broadly permitted** (as-built §"Operator ingress") → mobile path likely works **now with no new rule**; the scoped `transit→cluster` fw4 rule is **optional tightening**. **Next action: test `mosh dev@dev-N.internal` from mobile (E.3)** | isolation **P4 rider**       | `[bt8gw manual]`    | D ✅ (done)                                                                                                            |
 | ★ ✅ | **GOAL B — direct mobile access**                                                                                                                    | **= kubevirt P6 pieces 5–6** | —                   | **PROVEN 2026-06-10** (mosh from mobile to `dev-1.internal`, session roams where SSH dropped; no new fw4 rule needed)   |
-| 6 ◑  | **Checklist F** — verify security + mobile + no flannel/microVM regression; move isolation docs to `wip/`                                            | both                         | —                   | F.1 ✅ + F.2 ✅; **F.3 regression** + **F.4 doc moves** remain                                                          |
+| 6 ✅ | **Checklist F** — verify security + mobile + no flannel/microVM regression; move isolation docs to `wip/`                                            | both                         | —                   | F.1 ✅ F.2 ✅ F.3 ✅ (edith, 2026-06-10) F.4 ✅; C.7 verbatim deferred to dual-gateway-followups §B.1; only optional NAD GC left |
 
 ---
 
