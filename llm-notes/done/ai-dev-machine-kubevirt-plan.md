@@ -559,10 +559,20 @@ an operator machine" item; orthogonal to this phase but surfaced by it.
   session silently inherits that access — no per-sandbox opt-in. It also
   interacts with the OAuth-token exposure below: a stolen token's worst case
   stays bounded only while the account has no connectors authorized.
-  **Decision (2026-06-07): accept as a known latent item, do not fix now.** The
-  defense-in-depth fix (bake a connector-disabling claude-code `settings.json`
-  into the dev image so connectors never load regardless of injected creds) is
-  cheap and reserved for if/when the account gains connectors.
+  **Decision (2026-06-07): accept as a known latent item, do not fix now.** A
+  defense-in-depth fix was prototyped 2026-06-10 — bake an empty
+  `/etc/claude-code/managed-mcp.json` into the dev image, which gives Claude Code
+  enterprise "exclusive control" over MCP: zero MCP servers loaded **and**
+  claude.ai connectors suppressed by default, regardless of injected creds. (The
+  effective mechanism is the **system-path** `managed-mcp.json`, *not* a
+  user-scope `settings.json`, whose connector-control keys are ignored — recorded
+  here so a future revisit doesn't repeat that dead end.) **Operator explicitly
+  rejected this approach 2026-06-10:** a dev sandbox should *honor* whatever MCP
+  servers/connectors the operator chooses to configure on their claude.ai
+  account — disabling them wholesale is not wanted. So this **remains an accepted
+  latent item** (bounded by the unauthenticated-connectors posture above + the
+  Phase-5 egress lockdown); do **not** re-implement the connector lockdown unless
+  the threat model changes and the operator asks for it.
 - **The Claude.ai OAuth refresh token is accepted in-sandbox.** The sandbox
   holds the operator's `claudeAiOauth` access + refresh token
   (`~/.claude/.credentials.json`). The refresh token grants **no additional
