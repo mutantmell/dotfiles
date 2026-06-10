@@ -35,14 +35,21 @@
 
   # ── macvtap-cni: CNI plugin + device plugin ───────────────────────────────────
   # Advertises `capacity` allocatable macvtap devices on `uplink.51` as the k8s
-  # extended resource `macvtap.network.kubevirt.io/<name>` (name = the config's
-  # `name`, NOT the lowerDevice — so a clean dot-free `cluster-vlan51`). The NAD's
-  # resourceName annotation requests it; KubeVirt's resource injection wires it
-  # onto the VMI pod. Pinned upstream image; the only k3s adaptation vs upstream is
-  # the CNI install dir → k3s' writable `/var/lib/rancher/k3s/data/cni` (the same
-  # binDir the multus chart points delegates at), not `/opt/cni/bin`.
+  # extended resource `macvtap.network.kubevirt.io/<macvtapResource>` (the device
+  # plugin's config `name`, NOT the lowerDevice). The NAD's resourceName annotation
+  # requests it; KubeVirt's resource injection wires it onto the VMI pod. Pinned
+  # upstream image; the only k3s adaptation vs upstream is the CNI install dir →
+  # k3s' writable `/var/lib/rancher/k3s/data/cni` (the binDir the multus chart
+  # points delegates at), not `/opt/cni/bin`.
+  #
+  # macvtapResource MUST be ≤ 10 chars: the device plugin names each macvtap link
+  # `<macvtapResource>Mvp<index>` (plugin.go), and Linux caps interface names at 15
+  # (IFNAMSIZ). With suffix "Mvp" (3) + a 2-digit index, 10 is the ceiling — a
+  # longer name overflows and Allocate fails with "numerical result out of range"
+  # (ERANGE). So this is "vlan51", NOT the NAD's own name "cluster-vlan51" (which is
+  # a network name, length-unconstrained, and is what the launcher references).
   macvtapImage = "quay.io/kubevirt/macvtap-cni:v0.13.1";
-  macvtapResource = "cluster-vlan51";
+  macvtapResource = "vlan51";
   macvtapLowerDevice = "uplink.51";
   macvtapCapacity = 16;
 

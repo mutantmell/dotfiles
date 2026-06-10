@@ -58,16 +58,21 @@ configuration = {
    (FOD-fetched, like `kubevirt-operator.yaml`) rather than pulling in CNAO.
    ConfigMap `DP_MACVTAP_CONF`:
    ```json
-   [{ "name": "dataplane", "lowerDevice": "uplink.51", "mode": "bridge", "capacity": 16 }]
+   [{ "name": "vlan51", "lowerDevice": "uplink.51", "mode": "bridge", "capacity": 16 }]
    ```
-   Verify resource-name derivation (`macvtap.network.kubevirt.io/<?>`; the dot in
-   `uplink.51` must survive as an extended-resource name) and the device-plugin
+   The resource = `macvtap.network.kubevirt.io/<name>` (the `name`, not lowerDevice).
+   **`name` MUST be ≤ 10 chars:** the device plugin names each macvtap link
+   `<name>Mvp<index>` and Linux caps interface names at 15 (IFNAMSIZ); "Mvp"(3) +
+   2-digit index ⇒ 10 is the ceiling. Longer ⇒ Allocate fails with "numerical
+   result out of range" (ERANGE). Hence `vlan51`, NOT `cluster-vlan51`. Device-plugin
    binDir matches k3s' `/var/lib/rancher/k3s/data/cni/` (same as the multus chart).
-2. Replace `mkSlotNad`/16 NADs with one NAD:
+2. Replace `mkSlotNad`/16 NADs with one NAD (its name `cluster-vlan51` is the
+   *network* name the launcher references — length-unconstrained, distinct from the
+   ≤10-char device-plugin resource):
    ```yaml
    metadata.name: cluster-vlan51
-   metadata.annotations."k8s.v1.cni.cncf.io/resourceName": macvtap.network.kubevirt.io/uplink.51
-   spec.config: '{"cniVersion":"1.0.0","name":"cluster-vlan51","type":"macvtap","mtu":1500}'
+   metadata.annotations."k8s.v1.cni.cncf.io/resourceName": macvtap.network.kubevirt.io/vlan51
+   spec.config: '{"cniVersion":"0.3.1","name":"cluster-vlan51","type":"macvtap","mtu":1500}'
    ```
    No IPAM (IP comes from bt8gw DHCP).
 
@@ -106,7 +111,7 @@ Record in `llm-notes/bt8-gateway-as-built.md`.
 1. Tear down any running dev VMs (`dev-machine down …`) — removing br51 / reslaving
    uplink.51 disrupts the old attachment.
 2. Deploy erebonia (A+B+D together). Verify macvtap-cni Running + the node
-   advertises `macvtap.network.kubevirt.io/cluster-vlan51: 16`.
+   advertises `macvtap.network.kubevirt.io/vlan51: 16`.
 3. Garbage-collect the retired per-slot bridge NADs (k3s won't auto-GC manifest
    removals): `kubectl -n dev-machines delete net-attach-def -l '' ` won't match;
    do `for n in $(seq 1 16); do kubectl -n dev-machines delete net-attach-def cluster-vlan51-dev-$n --ignore-not-found; done`.
