@@ -158,10 +158,15 @@
               interfaces = [
                 {
                   name = "cluster";
-                  bridge = {};
-                  # Patched per-session to the slot's deterministic MAC (the one
-                  # field KubeVirt DOES honor for a multus interface; the IP comes
-                  # from the NAD's static IPAM, not from here).
+                  # macvtap binding (NOT bridge): the NIC is a macvtap child of
+                  # erebonia's uplink.51, so VLAN-51 frames never touch a host
+                  # bridge / br_netfilter (which silently drops routed-in traffic
+                  # to a bridged guest under k3s' bridge-nf-call=1). See
+                  # hosts/erebonia/k3s/{kubevirt,multus}.nix.
+                  binding.name = "macvtap";
+                  # Patched per-session to the slot's deterministic MAC. KubeVirt
+                  # honors it, and it's also the DHCP-reservation key on bt8gw that
+                  # leases this slot its registry IP (macvtap does no in-pod DHCP).
                   macAddress = "PLACEHOLDER";
                 }
               ];
@@ -170,8 +175,10 @@
           networks = [
             {
               name = "cluster";
-              # Patched per-session to "<namespace>/cluster-vlan51-dev-N" — the
-              # free slot's NAD, which bakes that slot's VLAN-51 IP.
+              # Patched per-session to "<namespace>/cluster-vlan51" — the single
+              # shared macvtap NAD (slot identity = the pinned MAC + bt8gw DHCP
+              # reservation, not the NAD). networkName is constant now, but the jq
+              # pass still sets it structurally.
               multus.networkName = "PLACEHOLDER";
             }
           ];
@@ -570,7 +577,9 @@
           local vm="dm-$name" secret="dm-$name-ssh-key"
           local mac nad
           mac=$(mac_for_slot "$slot")
-          nad="$NAMESPACE/cluster-vlan51-$slot"
+          # Single shared macvtap NAD — slot identity is $mac (pinned below) + the
+          # matching bt8gw DHCP reservation, not a per-slot NAD.
+          nad="$NAMESPACE/cluster-vlan51"
 
           [[ "''${#SSH_PUBKEYS[@]}" -gt 0 ]] || {
               echo "no SSH pubkeys configured (programs.dev-machine.sshPubKeys)" >&2

@@ -68,6 +68,14 @@ in {
           developerConfiguration = {
             useEmulation = false;
           };
+          # macvtap network binding plugin. The dev VMs attach to VLAN 51 via
+          # macvtap on uplink.51 (k3s/multus.nix), NOT the host br51 bridge, so
+          # their frames bypass br_netfilter's L3 pipeline — which silently drops
+          # cross-subnet/routed-in traffic (e.g. lab → dev-N) to a host-IP-less
+          # bridge guest while k3s forces bridge-nf-call-iptables=1 (proven dead
+          # end; see llm-notes/wip/dev-machine-vlan51-macvtap-cutover.md). No
+          # feature gate: network binding plugins are default-on since v1.5.
+          network.binding.macvtap.domainAttachmentType = "tap";
         };
         customizeComponents = {};
         imagePullPolicy = "IfNotPresent";
