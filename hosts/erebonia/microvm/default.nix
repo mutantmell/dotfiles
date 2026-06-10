@@ -172,32 +172,42 @@ in {
     # LinkLocalAddressing) — the low-trust cluster segment carries no host
     # identity. erebonia's management identity stays on br11/VLAN 11.
     #
-    # ONE exception to "no L3 on br51": a link-scoped route for the cluster
-    # subnet, with NO host address. This is forced by br_netfilter, not by any
-    # routing role. k3s requires net.bridge.bridge-nf-call-iptables=1 (cni0 +
-    # live NetworkPolicy depend on it), and that makes the kernel run br51's
-    # *bridged* VLAN-51 IPv4 frames through the host IP stack. With br51 address-
-    # less, the host's only route to 10.97.51.0/24 is the br11 default, so the
-    # IP stack treats VLAN-51 frames arriving on br51 as martian-source and
-    # silently drops them *before* the forward hook (the dev VM answers ARP — L2,
-    # which bypasses this — but black-holes every routed IPv4 packet; IPv6 is
-    # unaffected because bridge-nf-call-ip6tables=0). The KubeVirt dev-machine
-    # bridge-binding (multus → bridge CNI onto br51) is the only thing that needs
-    # the host to switch VLAN-51 frames, so it is the first to hit this.
+    # Why br51 needs any L3 settings at all: k3s requires
+    # net.bridge.bridge-nf-call-iptables=1 (cni0 + live NetworkPolicy depend on
+    # it), which makes the kernel run br51's *bridged* VLAN-51 IPv4 frames
+    # through the host IP stack's input/source-validation path (ARP and IPv6
+    # bypass it — bridge-nf-call-ip6tables=0). Because br51 carries no address,
+    # that path drops legitimate bridged frames in two distinct ways, each
+    # needing its own fix below. erebonia still routes nothing and gains no
+    # identity; bt8gw stays the sole VLAN-51 gateway/owner — these just stop the
+    # host from sabotaging frames it is only supposed to be L2-switching.
     #
-    # The route just states the L2 truth — br51 IS attached to VLAN 51 via the
-    # enslaved uplink.51 — which is the connected route an address would have
-    # synthesized; we add it without taking an address. That gives the IP stack
-    # the context to stop flagging the frames martian, restoring L2 delivery.
-    # bt8gw stays the sole VLAN-51 gateway/owner; erebonia gains no identity and
-    # routes nothing (no address to source from). Any future host-IP-less L2
-    # bridge that must switch a *routed* protocol for a guest (e.g. br21 once it
-    # carries one) needs the same one-line route.
+    # (1) Link-scoped route for the cluster subnet, with NO host address — fixes
+    # the *destination* check. Without it the host's only route to 10.97.51.0/24
+    # is the br11 default, so a frame to 10.97.51.x arriving on br51 is treated
+    # as martian-destination (wrong egress) and dropped. The route states the L2
+    # truth — br51 IS attached to VLAN 51 via the enslaved uplink.51 — i.e. the
+    # connected route an address would have synthesized, added without taking
+    # one. (A future host-IP-less L2 bridge switching a routed protocol for a
+    # guest — e.g. br21 — needs the same one-line route.)
+    #
+    # (2) rp_filter = 0 (OFF, not merely "loose") — fixes the *source* check for
+    # traffic routed IN from another subnet (the real lab→cluster access path:
+    # e.g. edith on VLAN 21 → dev-N). On an address-less interface, when a
+    # frame's source reverse-routes back out a *different* device (edith's source
+    # routes via br11, not br51), __fib_validate_source takes a "last_resort"
+    # path that rejects for ANY non-zero rp_filter — loose (2) included — so only
+    # 0 passes. Intra-VLAN-51 sources (e.g. bt8gw .1) reverse-route via the br51
+    # link route above and pass regardless; this knob is specifically what lets
+    # cross-subnet, routed-in clients reach the dev VMs. networkd applies
+    # IPv4ReversePathFilter per-link, so it sticks on this post-boot bridge — a
+    # boot.kernel.sysctl drop-in would race br51's creation.
     networks."20-br51" = {
       matchConfig.Name = "br51";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
+      networkConfig.IPv4ReversePathFilter = "no";
       routes = [
         {
           Destination = net.networks.cluster.subnet4;
