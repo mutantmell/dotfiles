@@ -139,6 +139,16 @@ re-open the old one — write a new plan and link to the predecessor).
 - Status is in the directory, not just in the document. If the
   directory and the document disagree, the directory wins — fix
   the document.
+- Historical plans are not agent runbooks. Treat `done/` and old
+  `shelved/` files as decision records unless their header explicitly
+  says they are still authoritative.
+- Do not treat references to `CLAUDE.md` as exhaustive agent guidance.
+  Follow the current task prompt first, then the active repository agent
+  instructions, and only use old plan text as context.
+- Do not copy old validation commands blindly. Older notes often say
+  `nix flake check`; prefer the current project check wrapper or active
+  agent guide when present, and only run narrower Nix checks when they
+  match the change.
 - Don't leave a plan in `wip/` after you've stopped working on it.
   Move it to the right place (`done/`, `blocked/`, `shelved/`).
 - When deleting from `done/`, prefer it over keeping a doc that

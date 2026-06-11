@@ -1,5 +1,9 @@
 # Incus Module Overhaul Plan
 
+> **Curation note (2026-06-11):** Historical completed plan. The Step 8
+> instruction to document conventions in `CLAUDE.md` was a plan-time task, not a
+> statement that `CLAUDE.md` is the only active guide for agents.
+
 ## Context
 
 The `modules/incus/default.nix` module has accumulated dead code, unnecessary abstractions, a flake-path-dependent update mechanism, and lacks tests. calvard and erebonia depend on this module. This overhaul strips it to essentials, aligns it with the microvm auto-discovery pattern, adds pre-built closure updates, and creates integration tests to de-risk the calvard deploy.

@@ -130,13 +130,23 @@ ssh root@192.168.1.100 'mount | grep mapper'
 
 ### Configuration Validation
 
-Validate all configurations including disko profiles:
+Run the check wrapper before production deployment:
 
 ```bash
-nix flake check
+./scripts/run-checks.sh
 ```
 
-This runs all tests including:
+For a focused iteration, run the relevant check directly:
+
+```bash
+nix build .#checks.x86_64-linux.<name> --print-build-logs
+```
+
+Avoid `nix flake check` for this repository. The flake has many NixOS
+evaluations and broad flake checking can OOM; `run-checks.sh` runs checks as
+separate `nix build` processes to keep memory bounded.
+
+The check set includes:
 
 - Disko profile validation (router and vm-host)
 - Router6 module tests

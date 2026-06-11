@@ -232,10 +232,13 @@ ssh thebeyond.local 'reboot'
 
 Regardless of deployment method, always:
 
-1. **Run integration tests**: `nix build .#checks.x86_64-linux.router6-*`
+1. **Run checks**: `./scripts/run-checks.sh`, or a targeted `nix build .#checks.x86_64-linux.<name> --print-build-logs`
 2. **Build locally first**: `nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel`
 3. **Test activation**: Use `test` instead of `switch` first
 4. **Have console access**: Keep a way to recover if SSH breaks
+
+Avoid `nix flake check` for this flake. It evaluates many NixOS outputs in one
+process and can OOM; use the wrapper or targeted check builds instead.
 
 ## Automation
 

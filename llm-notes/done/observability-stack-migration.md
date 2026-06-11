@@ -1,5 +1,10 @@
 # Observability Stack Migration
 
+> **Curation note (2026-06-11):** This file lives in `done/`, but its original
+> header still says "Planning." Treat the body as a historical migration record,
+> not as the current observability runbook. Verify current service state in code
+> before following any architecture or validation detail here.
+>
 > **Status:** Planning. Replaces the broken Promtail shipper, consolidates the
 > per-host agent, and shifts metrics from pull to push. Leverages the
 > pre-media-stack window, where the only user is the operator and disruption

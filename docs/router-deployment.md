@@ -29,13 +29,17 @@ This builds locally and deploys with auto-rollback enabled.
 ### Run Tests First
 
 ```bash
-# Run integration tests before deploying
-nix flake check
+# Run the standard check suite before deploying
+./scripts/run-checks.sh
 
-# Or run specific tests
-nix build .#checks.x86_64-linux.router6-ipv6
-nix build .#checks.x86_64-linux.router6-firewall
+# Or run focused checks while iterating
+nix build .#checks.x86_64-linux.router6-ipv6 --print-build-logs
+nix build .#checks.x86_64-linux.router6-firewall --print-build-logs
 ```
+
+Do not use `nix flake check` here. This flake has many NixOS evaluations and
+can OOM during broad flake checking; the wrapper runs checks as separate
+`nix build` processes.
 
 ## Testing Before Deployment
 
@@ -54,8 +58,8 @@ Located in `tests/`, these verify:
 Run manually:
 
 ```bash
-nix build .#checks.x86_64-linux.router6-ipv6
-nix build .#checks.x86_64-linux.router6-firewall
+nix build .#checks.x86_64-linux.router6-ipv6 --print-build-logs
+nix build .#checks.x86_64-linux.router6-firewall --print-build-logs
 # etc.
 ```
 
@@ -67,15 +71,14 @@ Before deploying, the script builds the full system closure to ensure it evaluat
 nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
 ```
 
-### Deploy-rs Checks
+### Full Check Suite
 
-The flake includes deploy-rs validation:
+Run the repository check wrapper when you need the full suite, including
+deploy-rs validation:
 
 ```bash
-nix flake check
+./scripts/run-checks.sh
 ```
-
-This ensures the deploy configuration is valid.
 
 ## Rollback Safety
 
@@ -96,7 +99,7 @@ If something goes wrong:
 
 1. Make changes to router configuration locally
 2. Test changes: `nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel`
-3. Run integration tests: `nix build .#checks.x86_64-linux.router6-ipv6` (etc.)
+3. Run checks: `./scripts/run-checks.sh` or targeted `nix build .#checks.x86_64-linux.<name> --print-build-logs`
 4. Deploy: `deploy .#thebeyond`
 5. Verify: `ssh thebeyond.local 'nixos-version'`
 
@@ -168,7 +171,7 @@ nix build .#nixosConfigurations.thebeyond.config.system.build.toplevel
 Run tests individually to identify issues:
 
 ```bash
-nix build .#checks.x86_64-linux.router6-ipv6
+nix build .#checks.x86_64-linux.router6-ipv6 --print-build-logs
 # Check the output for errors
 ```
 

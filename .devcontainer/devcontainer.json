@@ -1,7 +1,7 @@
 // Phase 2.1 — devcontainer.json for the locked-down LLM dev machines
 // (llm-notes/plans/ai-dev-machine-kubevirt-plan.md). devpod's SSH provider
 // builds/runs this as a plain runc container *inside* the KubeVirt VM, which is
-// the security boundary — so the container itself needs no isolation hardening.
+// the security boundary.
 //
 // The image is built with Nix (packages/dev-machine-dev-image) and pinned from
 // creil; it carries the dev tooling. NO devcontainer "features" — features
@@ -15,20 +15,17 @@
   //   flake's nixosTest suite (./scripts/run-checks.sh) runs nested with fast
   //   local feedback — the hard requirement that drove the whole KubeVirt-VM
   //   substrate decision.
-  // --cap-add=SYS_ADMIN: let Nix open its build sandbox. docker's default seccomp
-  //   profile blocks the unshare/clone of mount+user namespaces (and mount()
-  //   itself) unless CAP_SYS_ADMIN is held; without it Nix can't sandbox and the
-  //   image is forced to sandbox=false, which leaks /homeless-shelter on a killed
-  //   build (the orphan that wedges every later build). With the cap, the dev
-  //   image flips to sandbox=true and the orphan becomes structurally impossible
-  //   — /homeless-shelter then lives inside each build's private mount namespace.
-  //   CAP_SYS_ADMIN is the only missing piece (docker already grants SYS_CHROOT /
-  //   MKNOD / SETUID / SETGID) and there is no finer-grained capability for the
-  //   mount ops. Granting it weakens only the container->VM-root boundary, which
-  //   this design does not treat as a trust boundary: the VM (KVM) plus the
-  //   namespace-level NetworkPolicy egress lockdown are the real containment, and
-  //   neither is affected by an inner-container capability.
-  "runArgs": ["--device=/dev/kvm", "--cap-add=SYS_ADMIN"],
+  // --cap-add=SYS_ADMIN: let Nix open its build sandbox. Docker's default
+  //   capability set is missing the mount namespace privileges Nix needs.
+  // --security-opt=seccomp=...: keep seccomp enabled but use a profile that
+  //   permits pivot_root, which bubblewrap needs for Codex's own command
+  //   sandbox. Docker resolves this path on the VM host, so the base VM image
+  //   installs it under /etc/docker.
+  "runArgs": [
+    "--device=/dev/kvm",
+    "--cap-add=SYS_ADMIN",
+    "--security-opt=seccomp=/etc/docker/seccomp-codex-bwrap.json"
+  ],
 
   // Keep postCreate minimal (plan). The workspace is bind-mounted, so git would
   // otherwise refuse to operate on a dir owned by a different uid.

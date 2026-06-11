@@ -1,5 +1,10 @@
 # OpenWrt Config Build Artifact Refactor
 
+> **Curation note (2026-06-11):** Historical completed plan. The file list and
+> validation steps describe what this refactor intended to change at the time;
+> do not treat `CLAUDE.md` references or raw `nix flake check` snippets as the
+> complete current agent workflow.
+
 ## Context
 
 The OpenWrt build system currently serializes all device config into a monolithic JSON blob at Nix eval time (`openwrtBuildInfo` → `pkgs.writeText` → `--build-info` flag to Python builder). This is a bespoke data-passing mechanism that doesn't produce inspectable build artifacts and doesn't integrate with standard Nix tooling (caching, CI, `nix build`).

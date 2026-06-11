@@ -1,5 +1,11 @@
 # Replace nix-openwrt-imagebuilder with Custom Python Builder
 
+> **Curation note (2026-06-11):** Historical completed plan. Later OpenWrt
+> builder work replaced parts of this plan-time interface, especially
+> `openwrtBuildInfo` and raw validation snippets. References to updating
+> `CLAUDE.md` or running `nix flake check --print-build-logs` are retained as
+> history, not current agent instructions.
+
 ## Context
 
 The current OpenWrt image build pipeline uses `nix-openwrt-imagebuilder` (a third-party flake) to produce firmware images. This has three major pain points:

@@ -3,6 +3,7 @@
   settings.global.excludes = [
     "**/secrets/**"
     "**/hardware-configuration.nix"
+    "llm-notes/**"
   ];
   programs.alejandra.enable = true;
   programs.prettier.enable = true;
