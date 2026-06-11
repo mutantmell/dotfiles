@@ -115,8 +115,10 @@ which does the same split):
   "Attic-backed" is not exclusive to the fleet system; the only real difference
   is comin evaluates the flake on the host (fine — trista is resourced) vs. the
   coordinator downloading a pre-built signed closure.
-- **The fleet-activation coordinator (`specs/cicd-fleet-management.md`) is the
-  WRONG tool here.** Its differentiating value props — dual-signed *trusted
+- **The fleet-activation layer (`specs/cicd-fleet-management.md` — its
+  *per-host* event-driven coordinators; a *central* coordinator is an explicit
+  non-goal there) is the WRONG tool here.** Its differentiating value props —
+  dual-signed *trusted
   images*, *network-safe activation*, *no-local-build for underpowered hosts*,
   *outbound-only as a hard requirement* — all target **infra hosts**
   (thebeyond / liberl / erebonia). trista is a resourced workstation that is
@@ -130,8 +132,9 @@ which does the same split):
 **Scoping rule that falls out (record it so it isn't misapplied):**
 
 - **Long-lived workstations (trista / edith) → comin (pull).**
-- **Infra hosts (thebeyond / liberl / erebonia) → fleet coordinator
-  (event-driven, Attic-signed).** Different host class, different tool.
+- **Infra hosts (thebeyond / liberl / erebonia) → the cicd-fleet activation
+  layer (per-host event-driven coordinators, Attic-signed).** Different host
+  class, different tool.
 - **Ephemeral AI dev sandboxes → already solved**
   (`done/ai-dev-machine-kubevirt-plan.md`: imperative per-session
   `kubectl apply`, containerDisk, **no** persistent guest plane by design).
@@ -318,13 +321,15 @@ DMZ over the wg-ba mesh, and usable as a task runner. It is **not** a
 bastion and **not** a container-shaped workload. This supersedes the
 conflicting descriptions previously scattered across the repo:
 
-- `lib/common/data/network.nix` comment said "SSH bastion" — **corrected**
-  to "NixOS workstation / dev environment" as part of this work.
+- `lib/common/data/network.nix` — the old "SSH bastion" comment was **already
+  corrected** to the NixOS-workstation role (the trista entry now reads "NixOS
+  workstation / dev environment …"); observed state, not pending work for this
+  plan.
 - `hosts/erebonia/incus/guests/trista/default.nix` → profile **`dmz-vm`**,
   `macvlan` on `uplink.100` (DMZ placement — preserve after migration).
-- `docs/hostnames.md` → "Dev environment / task runner (backup)" — stale
-  (calls trista a backup task runner, not a workstation); needs refresh
-  (flagged below).
+- `docs/hostnames.md` → the trista entry **already** reads "NixOS dev
+  workstation … → KubeVirt VM" (no longer the stale "task runner (backup)"
+  text); no refresh needed.
 - `llm-notes/done/vlab-zone-plan.md` (vLAB) → "trista stays on DMZ, serves
   wg-ba mesh peer" — consistent.
 
@@ -359,8 +364,9 @@ trista are KubeVirt VMs" reasoning above applies in full. Concretely:
 **No urgency on timing** — trista is low-churn. But the _shape_ is settled:
 KubeVirt VM, not Pod. Keeping it on Incus until edith is proven is fine.
 
-**Follow-up:** refresh the `docs/hostnames.md` trista entry to "NixOS
-workstation (KubeVirt VM after migration)".
+**Follow-up (already done):** the `docs/hostnames.md` trista entry already
+reads its post-migration role ("NixOS dev workstation … → KubeVirt VM"); no
+refresh needed.
 
 ## Phase 9 — decommission Incus
 
