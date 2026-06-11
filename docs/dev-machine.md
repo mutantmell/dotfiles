@@ -34,10 +34,16 @@ dev-machine publish-base
 Inside the devcontainer, agents should expect:
 
 - `nix`, `git`, `rg`, `jq`, `treefmt`, `alejandra`, `openssh`, Codex, and Claude are available.
+- Interactive agent work runs as the non-root `agent` user (`uid 1000`, home `/home/agent`).
+- The container keeps a root-owned bootstrap process only to start `nix-daemon`; agent Nix clients use `NIX_REMOTE=daemon`.
+- Nix uses a daemon-style policy with `build-users-group = nixbld`, `allowed-users = root agent`, and `trusted-users = root`; the agent can build but cannot relax daemon policy as a trusted user.
 - `/dev/kvm` is passed through for NixOS VM tests.
 - Nix sandboxing is enabled with `/dev/kvm` exposed through `extra-sandbox-paths`.
 - Docker, DevPod, kubectl, virtctl, and registry credentials are not available inside the agent container.
 - Git push access uses a scoped per-session Forgejo bot key injected by `dev-machine up`.
+- Egress is enforced at bt8gw for VLAN 51, not by Kubernetes NetworkPolicy. The intended policy is WAN plus limited access to `forgejo.internal` for git/registry traffic.
+
+Residual limitation: this is not a full NixOS-style service manager inside the devcontainer. The image command starts `nix-daemon` directly as a small root bootstrap before DevPod attaches as `agent`. That removes single-user root store writes from normal agent workflows, but the container still needs root at startup and `CAP_SYS_ADMIN` for Nix's sandbox. The `nix` client is still available for repo work; the control is that `agent` is an untrusted daemon user, so it cannot relax daemon policy or add arbitrary trusted substituters. bt8gw egress remains the boundary for what external fetches can reach.
 
 ## Seccomp And Bubblewrap
 
@@ -60,15 +66,35 @@ After changing the profile, base VM image, dev image, or devcontainer runtime ar
 ./scripts/dev-machine-smoke.sh
 ```
 
-A successful smoke test confirms bubblewrap, Nix sandboxing, seccomp, `CAP_SYS_ADMIN`, and `/dev/kvm` availability.
+A successful smoke test confirms the non-root `agent` session, daemon-backed Nix policy, agent wrapper commands, bubblewrap, Nix sandboxing, seccomp, `CAP_SYS_ADMIN`, `/dev/kvm` availability, absence of operator/cluster credentials, and the scoped Forgejo push-key wiring when one was provisioned.
+
+To also probe the expected bt8gw egress shape from a non-nested shell, run:
+
+```bash
+./scripts/dev-machine-smoke.sh --network
+```
+
+That optional mode checks WAN HTTPS plus `forgejo.internal` SSH/HTTPS reachability, and verifies a non-creil internal HTTPS target is not reachable. It is intentionally not part of the default smoke path because Codex's per-command sandbox can hide DNS/network access even when the devcontainer itself is correctly configured.
 
 ## Validation
 
 For repo validation inside a dev-machine, use:
 
 ```bash
-./scripts/agent-preflight.sh --quick
-./scripts/agent-preflight.sh --full
+agent-preflight-quick
+agent-preflight-full
 ```
 
-Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations.
+The dev image also exposes thin repo-local wrappers for common agent tasks:
+
+```bash
+agent-fmt                         # nix fmt
+agent-preflight [--quick|--full]  # ./scripts/agent-preflight.sh
+agent-checks [check ...]          # ./scripts/run-checks.sh
+agent-build-check <check-name>    # nix build .#checks.x86_64-linux.<check-name>
+agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
+```
+
+These commands locate the dotfiles checkout, change to the repo root, and call the existing scripts or Nix commands. They do not replace the repo validation stack.
+
+Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.

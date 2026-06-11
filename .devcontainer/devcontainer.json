@@ -10,6 +10,8 @@
 {
   "name": "dotfiles-dev-machine",
   "image": "forgejo.internal/mutantmell/dev-machine-dev:latest",
+  "remoteUser": "agent",
+  "overrideCommand": false,
 
   // --device=/dev/kvm: surface the VM's /dev/kvm into the inner container so this
   //   flake's nixosTest suite (./scripts/run-checks.sh) runs nested with fast
@@ -28,6 +30,7 @@
   ],
 
   // Keep postCreate minimal (plan). The workspace is bind-mounted, so git would
-  // otherwise refuse to operate on a dir owned by a different uid.
+  // otherwise refuse to operate on a dir owned by a different uid. This runs as
+  // the non-root remoteUser and writes /home/agent/.gitconfig.
   "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}"
 }

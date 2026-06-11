@@ -149,10 +149,10 @@ in {
   # key-only. Revisit once the path is solid.
   services.getty.autologinUser = lib.mkDefault "root";
 
-  # KubeVirt `bridge` binding (multus-only, VLAN 51) leases the NAD's static-IPAM
-  # slot IP onto the VM's single virtio NIC via KubeVirt's in-pod DHCPv4; bt8gw
-  # fw4 governs its egress (the multus-only VM has no flannel NIC for a
-  # NetworkPolicy to act on).
+  # KubeVirt macvtap binding (multus-only, VLAN 51) gives the VM one routable
+  # virtio NIC on the low-trust cluster VLAN. The guest DHCPs its slot address
+  # from bt8gw via the launcher-pinned MAC; bt8gw fw4 governs egress. The VM has
+  # no flannel NIC, so Kubernetes NetworkPolicy does not apply to its data plane.
   networking.useDHCP = lib.mkForce true;
   networking.firewall.allowedTCPPorts = [22];
   # tssh/tsshd (Phase 6 mobile access) carries its session over UDP: after the

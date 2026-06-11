@@ -8,21 +8,140 @@
 }: let
   inherit (pkgs) lib;
 
-  # NSS files (passwd/group/nsswitch) — like dockerTools.fakeNss BUT with root's
-  # home as /root. fakeNss hardcodes /var/empty, which breaks OpenSSH: ssh resolves
-  # `~` via getpwuid (NOT $HOME), so it looks for ~/.ssh/{config,key} under
-  # /var/empty and never finds the injected cc key in /root/.ssh. A root passwd
-  # entry is also required for docker/runc to run the container as root, and
-  # nix/git/ssh need user + host resolution. /bin/sh comes from bashInteractive.
+  agentUid = "1000";
+  agentGid = "1000";
+
+  mkAgentWrapper = name: text:
+    pkgs.writeShellApplication {
+      inherit name;
+      runtimeInputs = with pkgs; [
+        bashInteractive
+        coreutils-full
+        git
+        nix
+      ];
+      text = ''
+        find_repo_root() {
+          if git_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+            printf '%s\n' "$git_root"
+            return 0
+          fi
+
+          if [[ -d /workspaces/dotfiles/.git ]]; then
+            printf '%s\n' /workspaces/dotfiles
+            return 0
+          fi
+
+          printf 'agent wrapper: run from inside the dotfiles checkout or mount it at /workspaces/dotfiles\n' >&2
+          return 1
+        }
+
+        repo_root=$(find_repo_root)
+        cd "$repo_root"
+
+        ${text}
+      '';
+    };
+
+  agentWrappers = [
+    (mkAgentWrapper "agent-fmt" ''
+      exec nix fmt "$@"
+    '')
+    (mkAgentWrapper "agent-preflight" ''
+      exec ./scripts/agent-preflight.sh "$@"
+    '')
+    (mkAgentWrapper "agent-preflight-quick" ''
+      exec ./scripts/agent-preflight.sh --quick "$@"
+    '')
+    (mkAgentWrapper "agent-preflight-full" ''
+      exec ./scripts/agent-preflight.sh --full "$@"
+    '')
+    (mkAgentWrapper "agent-checks" ''
+      exec ./scripts/run-checks.sh "$@"
+    '')
+    (mkAgentWrapper "agent-build-check" ''
+      if [[ $# -lt 1 ]]; then
+        printf 'usage: agent-build-check <check-name> [nix-build-arg ...]\n' >&2
+        exit 2
+      fi
+
+      check_name=$1
+      shift
+      exec nix build ".#checks.x86_64-linux.$check_name" "$@"
+    '')
+    (mkAgentWrapper "agent-smoke" ''
+      exec ./scripts/dev-machine-smoke.sh "$@"
+    '')
+  ];
+
+  nixDaemonEntrypoint = pkgs.writeShellApplication {
+    name = "dev-machine-entrypoint";
+    runtimeInputs = with pkgs; [
+      bashInteractive
+      coreutils-full
+      nix
+    ];
+    text = ''
+      mkdir -p \
+        /nix/var/nix/daemon-socket \
+        /nix/var/nix/profiles/per-user/root \
+        /nix/var/nix/profiles/per-user/agent \
+        /home/agent \
+        /tmp
+      chmod 1777 /tmp
+      chown -R ${agentUid}:${agentGid} /home/agent /nix/var/nix/profiles/per-user/agent 2>/dev/null || true
+
+      if [[ ! -S /nix/var/nix/daemon-socket/socket ]]; then
+        nix-daemon --daemon &
+        daemon_pid=$!
+        for _ in {1..100}; do
+          if [[ -S /nix/var/nix/daemon-socket/socket ]]; then
+            break
+          fi
+          sleep 0.1
+        done
+        if [[ ! -S /nix/var/nix/daemon-socket/socket ]]; then
+          echo "dev-machine-entrypoint: nix-daemon did not create its socket" >&2
+          wait "$daemon_pid"
+          exit 1
+        fi
+      fi
+
+      if [[ $# -gt 0 ]]; then
+        exec "$@"
+      fi
+
+      exec sleep infinity
+    '';
+  };
+
+  # NSS files (passwd/group/nsswitch) — like dockerTools.fakeNss BUT with usable
+  # root and agent homes. OpenSSH resolves `~` via getpwuid (NOT $HOME), so the
+  # passwd entries must match the injected key locations. A root passwd entry is
+  # still required for runc and for the daemon bootstrap; agents attach as uid
+  # 1000. /bin/sh comes from bashInteractive.
   nss = pkgs.symlinkJoin {
     name = "dev-machine-nss";
     paths = [
       (pkgs.writeTextDir "etc/passwd" ''
         root:x:0:0:root:/root:/bin/bash
+        agent:x:${agentUid}:${agentGid}:agent:/home/agent:/bin/bash
+        nixbld1:x:30001:30000:nix build user 1:/var/empty:/bin/false
+        nixbld2:x:30002:30000:nix build user 2:/var/empty:/bin/false
+        nixbld3:x:30003:30000:nix build user 3:/var/empty:/bin/false
+        nixbld4:x:30004:30000:nix build user 4:/var/empty:/bin/false
+        nixbld5:x:30005:30000:nix build user 5:/var/empty:/bin/false
+        nixbld6:x:30006:30000:nix build user 6:/var/empty:/bin/false
+        nixbld7:x:30007:30000:nix build user 7:/var/empty:/bin/false
+        nixbld8:x:30008:30000:nix build user 8:/var/empty:/bin/false
+        nixbld9:x:30009:30000:nix build user 9:/var/empty:/bin/false
+        nixbld10:x:30010:30000:nix build user 10:/var/empty:/bin/false
         nobody:x:65534:65534:nobody:/var/empty:/bin/false
       '')
       (pkgs.writeTextDir "etc/group" ''
         root:x:0:
+        agent:x:${agentGid}:
+        nixbld:x:30000:nixbld1,nixbld2,nixbld3,nixbld4,nixbld5,nixbld6,nixbld7,nixbld8,nixbld9,nixbld10
         nobody:x:65534:
       '')
       (pkgs.writeTextDir "etc/nsswitch.conf" ''
@@ -93,9 +212,11 @@
       # Coding agents — from numtide (param), not nixpkgs. See header.
       claude-code
       codex
-      # /etc/passwd (root home /root) + /etc/group + /etc/nsswitch.conf — see `nss`.
+      # /etc/passwd + /etc/group + /etc/nsswitch.conf — see `nss`.
       nss
+      nixDaemonEntrypoint
     ]
+    ++ agentWrappers
     ++ (with pkgs; [
       # Nix itself (flakes enabled via nix.conf below) + the repo's formatters
       # and search tooling. nixpkgs over npm ([[feedback_nixpkgs_over_npm]]).
@@ -144,12 +265,13 @@ in
     includeNixDB = true;
 
     config = {
-      Cmd = ["/bin/bash"];
+      Cmd = ["/bin/dev-machine-entrypoint"];
       WorkingDir = "/workspaces";
       Env = [
         "PATH=/bin"
-        "USER=root"
-        "HOME=/root"
+        "USER=agent"
+        "HOME=/home/agent"
+        "NIX_REMOTE=daemon"
         "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
         "GIT_SSL_CAINFO=/etc/ssl/certs/ca-bundle.crt"
         # `nix flake`/legacy nix-channel fallback; flakes are the real interface.
@@ -162,10 +284,10 @@ in
       ];
     };
 
-    # nix.conf + a couple of dirs nix builds expect. The container runs as its
-    # own root (devpod's runc container under the VM's docker), and the VM is the
-    # security boundary (decision 4), so nix builds single-user as root with no
-    # nixbld group.
+    # nix.conf + a couple of dirs nix builds expect. The container still starts
+    # one root-owned bootstrap process because nix-daemon needs to own the store
+    # socket, but DevPod attaches the agent as uid 1000 and Nix clients use
+    # NIX_REMOTE=daemon instead of single-user root writes.
     #
     # sandbox = true: the container gets CAP_SYS_ADMIN via the devcontainer.json
     #   `runArgs` (`--cap-add=SYS_ADMIN`), which lifts docker's default-seccomp
@@ -182,11 +304,14 @@ in
     #   reachable from inside the build sandbox. (system-features already
     #   auto-detects `kvm`/`nixos-test` from the device node.)
     fakeRootCommands = ''
-      mkdir -p etc/nix tmp root/workspaces
+      mkdir -p etc/nix tmp root home/agent
       chmod 1777 tmp
+      chown ${agentUid}:${agentGid} home/agent
       cat > etc/nix/nix.conf <<EOF
       experimental-features = nix-command flakes
-      build-users-group =
+      build-users-group = nixbld
+      allowed-users = root agent
+      trusted-users = root
       sandbox = true
       extra-sandbox-paths = /dev/kvm
       EOF

@@ -66,10 +66,10 @@
 # `down` deletes the key. devpod's own host-credential forwarding is disabled on
 # the ssh path (`--start-services=false`) so the operator's git/docker creds are
 # never proxied into the session — the cc key is the only push path. Branch
-# protection on creil (push feature branches, no direct protected-main merge) is
-# the complementary server-side control; configure it once per repo in Forgejo.
-# NOTE: the SSH push path makes forgejo SSH (:22) a required egress for the
-# not-yet-landed Phase 5 NetworkPolicy.
+# protection on creil (AGit refs/for/main, no direct protected-main merge) is the
+# complementary server-side control; configure it once per repo in Forgejo. The
+# SSH push path makes forgejo SSH (:22) a required allowance in the bt8gw VLAN-51
+# policy.
 #
 # Auth: everything drives the cluster with the operator's Authelia OIDC identity
 # via the standalone kubeconfig from kube.nix (KUBECONFIG exported below). Pushing
@@ -1188,7 +1188,7 @@ in {
     namespace = lib.mkOption {
       type = lib.types.str;
       default = "dev-machines";
-      description = "k8s namespace the dev-machine VMs + secrets live in (Phase 5 hangs a default-deny-egress NetworkPolicy off it).";
+      description = "k8s namespace the dev-machine VMs + secrets live in. VM data-plane egress is enforced by bt8gw on VLAN 51, not by Kubernetes NetworkPolicy.";
     };
 
     registry = lib.mkOption {
