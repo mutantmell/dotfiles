@@ -78,6 +78,103 @@ the rejected alternative's tax to avoid.
 > just like edith, so it gets the **same KubeVirt treatment**. Phase 8 is
 > rewritten accordingly.
 
+## Guest management model — two control planes (resolved 2026-06-11)
+
+Picking KubeVirt settles the *substrate*; it does not settle **how the
+workstation's NixOS system state is managed**. The finding from the
+guest-management research (this section is its landing point) is to split
+management into **two control planes that are never conflated** — the
+community pattern for a pet NixOS VM on Kubernetes (cf. ryan4yin's nix-config,
+which does the same split):
+
+- **Plane 1 — the VM shell ("hardware"): Flux.** Flux reconciles the
+  `VirtualMachine` + `DataVolume` CRs (existence, CPU/mem, disks, NICs,
+  run-state). "Long-lived" is the *declaration*; **availability is a per-host
+  `runStrategy` knob** — a workstation can be declared but stopped-when-idle
+  and started on demand and still be fully Flux-managed (the one lever that
+  reconciles the pet shape with power cost, since the cluster host itself never
+  deep-idles under k3s anyway).
+- **Plane 2 — the guest OS ("software"): comin (pull), in the VM.** A
+  NixOS-native **pull** reconciler runs *inside* the VM and converges its
+  system closure from git, **decoupled from any host rebuild**. This is the
+  whole point of the migration: it breaks today's "guest updated alongside the
+  host" coupling (the `incus exec` + `switch-to-configuration` push from the
+  parent in `modules/incus/default.nix`). Flux **never** reaches inside the VM;
+  comin **never** touches the VM resource.
+
+**Why comin (pull) for workstations specifically:**
+
+- comin's one real weakness is polling (periodic wakeups → power), which is why
+  it was previously rejected. For a **cluster-hosted** guest that objection is
+  largely moot: erebonia under k3s is a continuous reconcile loop (kubelet,
+  flannel/kube-router, virt-handler, Flux), so the host never settles into deep
+  C-states regardless — a guest's git poll is marginal on top. **Tune the comin
+  interval up (≈5–15 min)** since a pet workstation has no deploy-latency
+  pressure.
+- comin can substitute from **zeiss/Attic** like any `nixos-rebuild`, so
+  "Attic-backed" is not exclusive to the fleet system; the only real difference
+  is comin evaluates the flake on the host (fine — trista is resourced) vs. the
+  coordinator downloading a pre-built signed closure.
+- **The fleet-activation coordinator (`specs/cicd-fleet-management.md`) is the
+  WRONG tool here.** Its differentiating value props — dual-signed *trusted
+  images*, *network-safe activation*, *no-local-build for underpowered hosts*,
+  *outbound-only as a hard requirement* — all target **infra hosts**
+  (thebeyond / liberl / erebonia). trista is a resourced workstation that is
+  already an inbound SSH target; **none** of those core motivations apply to it.
+  The coordinator and comin are tuned for opposite ends of the host spectrum,
+  not competitors for this workload.
+- **Interim/fallback before comin is wired: `deploy-rs`** (push, already in the
+  flake, magic rollback). Zero host polling; the tradeoff is it needs an inbound
+  push path, so it's a bridge, not the endpoint.
+
+**Scoping rule that falls out (record it so it isn't misapplied):**
+
+- **Long-lived workstations (trista / edith) → comin (pull).**
+- **Infra hosts (thebeyond / liberl / erebonia) → fleet coordinator
+  (event-driven, Attic-signed).** Different host class, different tool.
+- **Ephemeral AI dev sandboxes → already solved**
+  (`done/ai-dev-machine-kubevirt-plan.md`: imperative per-session
+  `kubectl apply`, containerDisk, **no** persistent guest plane by design).
+- The general rule: **ephemeral → imperative; long-lived pet → declarative,
+  committed, Flux-reconciled.** Same repo, two postures keyed on lifecycle.
+
+**home-manager composes cleanly:** comin owns the **system** closure; users'
+own `home-manager switch` (the "users manage their own state" shape) stays
+their concern, entirely outside the fleet/comin plane.
+
+## Decision #4 (Flux GitRepository source) — resolved: monorepo (2026-06-11)
+
+The `k3s-cluster-bootstrap` / `flux.nix` open decision #4 (monorepo path vs.
+separate repo for Flux's source, and the repo URL/auth) is **resolved to the
+monorepo**: Flux's `GitRepository` points at **this repo** (the dotfiles flake
+on creil), with manifests under a watched path here. Rationale:
+
+- comin already makes this repo the source of truth for the **guest** plane;
+  putting the **shell** plane here too means the whole workstation (VM + OS) is
+  defined in one place, changed in one commit, reviewed in one PR, gated by the
+  existing `run-checks.sh` + AGit flow.
+- The repo is **already** the platform source of truth (cert-manager, kyverno,
+  kubevirt, flux itself are HelmCharts declared here) — the dynamic layer
+  landing here is consistent, not a new pattern.
+- It unifies **three reconcilers on one repo + PR/CI gate**: Flux (VM shells),
+  comin (guest OS), and normal host deploys.
+
+Resolved sub-points and the one still open:
+
+- **Manifest authoring — hand-written YAML/Kustomize *for now*; migrate to
+  Nix-generated once CI is in place.** Flux reads *committed* YAML, not Nix, so
+  Nix-generated manifests (precedent: the dev-machine plan authors KubeVirt VM
+  specs as Nix attrsets → `toJSON`) require a **render-and-commit step that CI
+  will own**. Hand-writing gets Flux reconciling with zero new machinery; the
+  generation step is deferred to CI. *(This is the only remaining open
+  sub-decision, and it is intentionally gated on CI.)*
+- **Flux read-auth:** a read-only deploy key / token on creil for this repo. In
+  the monorepo it scopes to the whole repo rather than a manifests-only subset —
+  acceptable blast radius for a single-operator homelab.
+- **Not yet wired:** resolving #4 settles *where* the source is; the concrete
+  `GitRepository` + `Kustomization` (and the read key) are still to be created —
+  see `flux.nix`.
+
 ## Current edith state (repo-grounded)
 
 - `hosts/calvard/incus/guests/edith/default.nix` — Incus **`dev` profile**,

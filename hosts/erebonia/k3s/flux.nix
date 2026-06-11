@@ -11,11 +11,14 @@
   # Flux itself); Flux reconciles everything above it.
   #
   # At bootstrap we install the **controllers only**. The GitRepository +
-  # Kustomization that point Flux at the dynamic-manifest path are deliberately
-  # NOT created here: open decision #4 (monorepo path vs. separate repo, and the
-  # repo URL/auth) is unresolved and explicitly deferred to the workloads plan.
-  # Wiring a concrete source now would prematurely decide #4. Bootstrap milestone
-  # is the controllers Running/healthy; the source lands with decision #4.
+  # Kustomization that point Flux at the dynamic-manifest path are still NOT
+  # created here — but open decision #4 (monorepo path vs. separate repo) is now
+  # **resolved to the monorepo**: Flux's source is *this* repo (dotfiles on
+  # creil), manifests under a watched path here, hand-written YAML for now and
+  # Nix-generated once CI can render-and-commit them. See
+  # `llm-notes/plans/incus-workstation-migration-plan.md` ("Decision #4 …
+  # resolved: monorepo"). What remains is the concrete wiring (GitRepository +
+  # Kustomization + a read-only creil deploy key), tracked by the workloads plan.
   #
   # Community flux2 chart (CNCF Flux upstream), pinned. Image-automation and
   # image-reflector controllers are disabled — they watch container registries
