@@ -3,7 +3,7 @@
   lib,
   ...
 }: {
-  nix.settings.experimental-features = ["nix-command" "flakes" "auto-allocate-uids" "uid-range"];
+  nix.settings.experimental-features = ["nix-command" "flakes" "auto-allocate-uids"];
   imports = [
     ./hardware-configuration.nix
     (import ../../profiles/disko/btrfs.nix {
