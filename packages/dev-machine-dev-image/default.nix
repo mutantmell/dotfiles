@@ -99,11 +99,12 @@ in
     # uid-range support live on the KubeVirt VM host. The devcontainer bind-mounts
     # the host /nix so these client paths and the daemon's store view match.
     #
-    # Keep passwd/group/nsswitch as real image-root files rather than Nix store
-    # symlinks: the runtime bind-mount over /nix would otherwise make identity
-    # lookup depend on a host-store path, breaking DevPod's `su agent` path.
+    # Keep passwd/group/nsswitch and the CA bundle as real image-root files rather
+    # than Nix store symlinks: the runtime bind-mount over /nix would otherwise
+    # make identity and TLS trust lookup depend on host-store paths matching the
+    # dev image exactly.
     fakeRootCommands = ''
-      mkdir -p etc/nix tmp root home/agent nix
+      mkdir -p etc/nix etc/ssl/certs tmp root home/agent nix
       chmod 1777 tmp
       chown ${agentUid}:${agentGid} home/agent
       cat > etc/passwd <<EOF
@@ -121,6 +122,8 @@ in
       group: files
       hosts: files dns
       EOF
+      cp -L --remove-destination ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-bundle.crt
+      cp -L --remove-destination ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
       cat > etc/nix/nix.conf <<EOF
       experimental-features = nix-command flakes auto-allocate-uids cgroups
       build-users-group = nixbld

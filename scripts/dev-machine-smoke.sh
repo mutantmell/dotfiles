@@ -118,7 +118,7 @@ devcontainer_configures_cgroups() {
 
 devcontainer_uses_host_nix() {
   [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
-    grep -Eq '^[[:space:]]*"--mount=type=bind,source=/nix,target=/nix",?$' "$repo_root/.devcontainer/devcontainer.json"
+    grep -Eq '"--mount=type=bind,source=/nix,target=/nix"' "$repo_root/.devcontainer/devcontainer.json"
 }
 
 mountinfo_matches() {
