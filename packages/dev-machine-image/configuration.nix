@@ -151,7 +151,7 @@ in {
   };
 
   systemd.tmpfiles.rules = [
-    "d /var/lib/containers/nix-builds 1777 root root -"
+    "d /var/lib/containers/nix-builds 0755 root root -"
   ];
 
   # Serial console — `virtctl console` attaches to ttyS0.

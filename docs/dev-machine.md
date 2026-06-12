@@ -44,7 +44,7 @@ Inside the devcontainer, agents should expect:
 - Git push access uses a scoped per-session Forgejo bot key injected by `dev-machine up`.
 - Egress is enforced at bt8gw for VLAN 51, not by Kubernetes NetworkPolicy. The intended policy is WAN plus limited access to `forgejo.internal` for git/registry traffic.
 
-The VM's 60GiB scratch disk backs rootful Podman storage and Nix build directories (`build-dir = /var/lib/containers/nix-builds`). The actual `/nix/store` remains on the VM root disk for now: mounting an empty scratch filesystem directly over `/nix` would hide the booted system closure. If store growth becomes the limiting factor, the cleaner follow-up is a boot-time store migration or a larger writable VM root disk, not a blind `/nix` overmount.
+The VM's 60GiB scratch disk backs rootful Podman storage and Nix build directories (`build-dir = /var/lib/containers/nix-builds`). That build directory is root-owned and not world-writable because Nix rejects insecure configured build roots. The actual `/nix/store` remains on the VM root disk for now: mounting an empty scratch filesystem directly over `/nix` would hide the booted system closure. If store growth becomes the limiting factor, the cleaner follow-up is a boot-time store migration or a larger writable VM root disk, not a blind `/nix` overmount.
 
 ## Podman, Seccomp, And Bubblewrap
 
