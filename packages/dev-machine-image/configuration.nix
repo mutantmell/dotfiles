@@ -250,13 +250,6 @@ in {
     enable = true;
   };
 
-  # DevPod passes the repo's devcontainer.json runArgs to Podman on this VM, so
-  # the seccomp profile path is resolved on the VM host, not inside the inner
-  # devcontainer. Keep seccomp enabled while permitting bubblewrap's pivot_root,
-  # which Codex uses for its own per-command sandbox.
-  environment.etc."containers/seccomp-codex-bwrap.json".source =
-    ../../.devcontainer/seccomp-codex-bwrap.json;
-
   # The service user devpod targets: passwordless SSH (key injected at runtime)
   # and the `podman` group so the provider can build/run the devcontainer. That
   # is the whole job — devpod injects its agent over SSH into the user's own

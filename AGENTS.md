@@ -70,7 +70,7 @@ Expected capabilities:
 
 - `/dev/kvm` is available in the devcontainer for NixOS VM tests.
 - Nix sandboxing is enabled inside the devcontainer.
-- Codex/bubblewrap command sandboxing should work. The devcontainer uses a custom Docker seccomp profile installed by the base VM at `/etc/docker/seccomp-codex-bwrap.json` so `pivot_root` is allowed while seccomp remains active.
+- Codex/bubblewrap command sandboxing should work. The devcontainer runs through rootful Podman with Podman's default seccomp profile active and targeted proc/sys unmasking for Nix uid-range sandbox builds.
 - `kubectl`, `virtctl`, `devpod`, and registry push tools stay on the operator side, not inside the agent container.
 
 Smoke test after dev-machine image/runtime changes:

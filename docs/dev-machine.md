@@ -54,15 +54,12 @@ Codex runs shell commands through bubblewrap. Bubblewrap needs the `pivot_root` 
 bwrap: pivot_root: Operation not permitted
 ```
 
-The VM uses rootful Podman as DevPod's Docker-driver runtime. DevPod is pointed at the VM's `podman-rootful` wrapper, which talks to `/run/podman/podman.sock`; invoking plain `podman` as `dev` would otherwise create a rootless workspace. The repo's devcontainer keeps seccomp enabled with a custom profile:
+The VM uses rootful Podman as DevPod's Docker-driver runtime. DevPod is pointed at the VM's `podman-rootful` wrapper, which talks to `/run/podman/podman.sock`; invoking plain `podman` as `dev` would otherwise create a rootless workspace. The repo's devcontainer keeps Podman's default seccomp profile enabled:
 
-- `.devcontainer/seccomp-codex-bwrap.json` blocks high-risk host/kernel syscalls that are unrelated to this workflow.
-- It allows namespace and mount operations needed by Nix and bubblewrap, including `pivot_root`.
 - `.devcontainer/devcontainer.json` also passes `--security-opt=unmask=/proc/*:/sys/*`. This weakens Podman's proc/sys path masking, but keeps seccomp and the non-root agent model while avoiding `--privileged`. Without unmasked system paths, Nix's uid-range sandbox can fail when mounting a fresh sysfs inside the build chroot.
-- `packages/dev-machine-image/configuration.nix` installs the profile on the VM at `/etc/containers/seccomp-codex-bwrap.json`.
-- `.devcontainer/devcontainer.json` passes `--security-opt=seccomp=/etc/containers/seccomp-codex-bwrap.json` to Podman.
+- `scripts/dev-machine-smoke.sh` verifies seccomp is active and that bubblewrap can construct its `pivot_root` sandbox from a non-nested devcontainer shell.
 
-After changing the profile, base VM image, dev image, or devcontainer runtime args, start a fresh machine or refresh the existing one as appropriate, then run:
+After changing the base VM image, dev image, or devcontainer runtime args, start a fresh machine or refresh the existing one as appropriate, then run:
 
 ```bash
 ./scripts/dev-machine-smoke.sh

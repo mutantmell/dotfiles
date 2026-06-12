@@ -26,10 +26,6 @@
   //   operate on a mount sourced outside that namespace, which breaks uid-range
   //   builds. Sharing the VM's cgroup namespace is acceptable here because the
   //   KubeVirt VM is the security boundary.
-  // --security-opt=seccomp=...: keep seccomp enabled but use a profile that
-  //   permits pivot_root, which bubblewrap needs for Codex's own command
-  //   sandbox. Podman resolves this path on the VM host, so the base VM image
-  //   installs it under /etc/containers.
   // --security-opt=unmask=/proc/*:/sys/*: let Nix create fresh procfs/sysfs mounts
   //   inside sandboxed builds. The uid-range sandbox path mounts a new sysfs under
   //   the build chroot; masked or read-only proc/sys paths make that fail with
@@ -39,7 +35,6 @@
     "--cap-add=SYS_ADMIN",
     "--cgroupns=host",
     "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",
-    "--security-opt=seccomp=/etc/containers/seccomp-codex-bwrap.json",
     "--security-opt=unmask=/proc/*:/sys/*"
   ],
 

@@ -121,11 +121,6 @@ devcontainer_unmasks_systempaths() {
     grep -Eq '^[[:space:]]*"--security-opt=unmask=/proc/\*:/sys/\*",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
-devcontainer_uses_podman_seccomp_profile() {
-  [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
-    grep -Eq '^[[:space:]]*"--security-opt=seccomp=/etc/containers/seccomp-codex-bwrap.json",?$' "$repo_root/.devcontainer/devcontainer.json"
-}
-
 proc_has_no_systempath_overlays() {
   ! awk '$5 ~ /^\/proc\// { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
 }
@@ -186,7 +181,6 @@ check "agent HOME matches passwd" agent_home_matches_passwd
 check "devcontainer pins agent user without UID rewrite" devcontainer_pins_agent_user
 check "devcontainer configures host cgroups" devcontainer_configures_cgroups
 check "devcontainer unmasks system paths for Nix sandbox" devcontainer_unmasks_systempaths
-check "devcontainer uses Podman seccomp profile path" devcontainer_uses_podman_seccomp_profile
 
 check "NIX_REMOTE uses daemon" test "${NIX_REMOTE:-}" = daemon
 check "Nix daemon responds" nix store info --store daemon
