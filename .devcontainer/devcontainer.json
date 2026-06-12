@@ -35,13 +35,18 @@
   //   namespace and remount /proc for sandboxed builds. Docker's default
   //   masked/read-only /proc overlays make Nix conclude sandbox namespaces are
   //   unsupported, which breaks nix develop and container-backed NixOS tests.
+  // --security-opt=apparmor=unconfined: keep Docker seccomp active, but do not
+  //   apply Docker's default AppArmor profile. Nix uid-range builds mount a fresh
+  //   sysfs inside their build sandbox; AppArmor can deny that even when the
+  //   container has CAP_SYS_ADMIN and a seccomp profile that permits mount(2).
   "runArgs": [
     "--device=/dev/kvm",
     "--cap-add=SYS_ADMIN",
     "--cgroupns=host",
     "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",
     "--security-opt=seccomp=/etc/docker/seccomp-codex-bwrap.json",
-    "--security-opt=systempaths=unconfined"
+    "--security-opt=systempaths=unconfined",
+    "--security-opt=apparmor=unconfined"
   ],
 
   // Keep postCreate minimal (plan). The workspace is bind-mounted, so git would

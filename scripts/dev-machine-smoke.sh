@@ -4,6 +4,7 @@ set -euo pipefail
 failures=0
 skips=0
 network=0
+repo_root=""
 
 usage() {
   cat >&2 <<'EOF'
@@ -39,6 +40,19 @@ in_codex_command_sandbox() {
   [[ -n ${CODEX_THREAD_ID:-} ]] && grep -q '[[:space:]]/tmp/\.codex[[:space:]]' /proc/self/mountinfo
 }
 
+find_repo_root() {
+  if repo_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+    return 0
+  fi
+
+  if [[ -d /workspaces/dotfiles/.git ]]; then
+    repo_root=/workspaces/dotfiles
+    return 0
+  fi
+
+  return 1
+}
+
 check() {
   local name=$1
   shift
@@ -63,6 +77,12 @@ check_absent() {
   fi
 }
 
+diagnose() {
+  local name=$1
+  shift
+  echo "    $name: $*" >&2
+}
+
 skip() {
   local name=$1
   local reason=$2
@@ -85,20 +105,25 @@ agent_home_matches_passwd() {
 }
 
 devcontainer_pins_agent_user() {
-  [[ -f /workspaces/dotfiles/.devcontainer/devcontainer.json ]] &&
-    grep -Eq '^[[:space:]]*"remoteUser"[[:space:]]*:[[:space:]]*"agent"' /workspaces/dotfiles/.devcontainer/devcontainer.json &&
-    grep -Eq '^[[:space:]]*"updateRemoteUserUID"[[:space:]]*:[[:space:]]*false' /workspaces/dotfiles/.devcontainer/devcontainer.json
+  [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
+    grep -Eq '^[[:space:]]*"remoteUser"[[:space:]]*:[[:space:]]*"agent"' "$repo_root/.devcontainer/devcontainer.json" &&
+    grep -Eq '^[[:space:]]*"updateRemoteUserUID"[[:space:]]*:[[:space:]]*false' "$repo_root/.devcontainer/devcontainer.json"
 }
 
 devcontainer_configures_cgroups() {
-  [[ -f /workspaces/dotfiles/.devcontainer/devcontainer.json ]] &&
-    grep -Fqx '    "--cgroupns=host",' /workspaces/dotfiles/.devcontainer/devcontainer.json &&
-    grep -Fqx '    "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",' /workspaces/dotfiles/.devcontainer/devcontainer.json
+  [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
+    grep -Eq '^[[:space:]]*"--cgroupns=host",?$' "$repo_root/.devcontainer/devcontainer.json" &&
+    grep -Eq '^[[:space:]]*"--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
 devcontainer_unconfines_systempaths() {
-  [[ -f /workspaces/dotfiles/.devcontainer/devcontainer.json ]] &&
-    grep -Fqx '    "--security-opt=systempaths=unconfined"' /workspaces/dotfiles/.devcontainer/devcontainer.json
+  [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
+    grep -Eq '^[[:space:]]*"--security-opt=systempaths=unconfined",?$' "$repo_root/.devcontainer/devcontainer.json"
+}
+
+devcontainer_unconfines_apparmor() {
+  [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
+    grep -Eq '^[[:space:]]*"--security-opt=apparmor=unconfined",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
 proc_has_no_docker_systempath_overlays() {
@@ -136,11 +161,14 @@ nix_config_contains_word() {
   nix config show "$key" 2>/dev/null | grep -Eq "(^|[[:space:]])$word([[:space:]]|$)"
 }
 
+check "repo root detected" find_repo_root
+diagnose "repo root" "${repo_root:-not found}"
 check "agent user is non-root" agent_user_is_non_root
 check "agent HOME matches passwd" agent_home_matches_passwd
 check "devcontainer pins agent user without UID rewrite" devcontainer_pins_agent_user
 check "devcontainer configures host cgroups" devcontainer_configures_cgroups
 check "devcontainer unconfines system paths for Nix sandbox" devcontainer_unconfines_systempaths
+check "devcontainer unconfines AppArmor for Nix sysfs mounts" devcontainer_unconfines_apparmor
 
 check "NIX_REMOTE uses daemon" test "${NIX_REMOTE:-}" = daemon
 check "Nix daemon responds" nix store info --store daemon
@@ -179,6 +207,9 @@ if in_codex_command_sandbox; then
   skip "Nix uid-range sandbox build" "masked by Codex's nested command sandbox"
   skip "cgroup mount is writable for daemon" "masked by Codex's nested command sandbox"
 else
+  diagnose "/proc/self/cgroup" "$(tr '\n' ';' </proc/self/cgroup)"
+  diagnose "/sys mount" "$(awk '$5 == "/sys" { print }' /proc/self/mountinfo)"
+  diagnose "/sys/fs/cgroup mount" "$(awk '$5 == "/sys/fs/cgroup" { print }' /proc/self/mountinfo)"
   check "/proc has no Docker system-path overlays" proc_has_no_docker_systempath_overlays
   check "cgroup mount is cgroup v2" cgroup_mount_is_v2
   check "cgroup namespace exposes VM cgroup path" cgroup_namespace_is_host_visible
