@@ -20,7 +20,11 @@ in {
     limits.disk = "100GB";
   };
 
-  nix.settings.experimental-features = ["nix-command" "flakes" "auto-allocate-uids"];
+  nix.settings = {
+    experimental-features = ["nix-command" "flakes" "auto-allocate-uids"];
+    auto-allocate-uids = true;
+    extra-system-features = ["nixos-test" "kvm" "uid-range"];
+  };
 
   zramSwap = {
     enable = true;
