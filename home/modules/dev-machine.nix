@@ -320,6 +320,15 @@
       # permits lab→cluster (and wg-vpn→cluster) broadly.
       host_for_slot() { echo "$1.internal"; }
 
+      host_for_machine() {
+          local name=$1
+          local statedir="$STATE/$name" slot=""
+          slot=$(cat "$statedir/slot" 2>/dev/null || true)
+          [[ -n "$slot" ]] || slot=$(slot_of_vm "$name")
+          [[ -n "$slot" ]] || return 1
+          host_for_slot "$slot"
+      }
+
       # Direct SSH into a machine's dev user at its slot host. Ephemeral VMs reuse
       # slot names/IPs, so host keys churn — relax host-key checking (these are
       # disposable sandboxes reachable only across the bt8gw-confined VLAN 51).
@@ -421,9 +430,9 @@
 
       # Generate a fresh per-session keypair, register the pubkey as an SSH key on
       # the cc bot account, record the key id for revoke, and inject the private
-      # key into the devcontainer. $3 = token.
+      # key into the devcontainer. $3 = token, $4 = VM slot host.
       provision_push_cred() {
-          local name=$1 statedir=$2 token=$3
+          local name=$1 statedir=$2 token=$3 host=$4
           local keyfile title pub resp id
           keyfile="$statedir/deploy_key"
           title="dev-machine-$name"
@@ -442,37 +451,43 @@
           }
           id=$(echo "$resp" | jq -r '.id')
           printf '%s\n' "$id" >"$statedir/deploy_key_id"
-          inject_deploy_key "$name" "$keyfile"
+          inject_deploy_key "$name" "$keyfile" "$host"
       }
 
-      # Push the private key + git config into the running devcontainer in a SINGLE
-      # one-shot exec (start-services + agent-forwarding off, so devpod forwards
-      # NONE of the operator's git/docker creds or SSH agent). The key is base64'd
-      # INTO the command rather
-      # than streamed over stdin — `devpod ssh --command` does not reliably forward
-      # stdin, and the key is legitimately the sandbox's own, so inline is fine.
-      # Pins forgejo to SSH so pushes use ONLY this cc key (authenticating as cc),
-      # and sets the cc commit identity.
+      # Push the private key + git config into the running devcontainer through
+      # the VM's sshd + docker, bypassing devpod's nested SSH tunnel. This path
+      # forwards none of the operator's credentials and is less sensitive to
+      # devpod helper exit-status quirks.
       inject_deploy_key() {
-          local name=$1 keyfile=$2 b64
+          local name=$1 keyfile=$2 host="''${3:-}" b64 cid
+          [[ -n "$host" ]] || host=$(host_for_machine "$name") || {
+              echo "cannot resolve $name's VM host for deploy-key injection" >&2
+              return 1
+          }
           b64=$(base64 -w0 "$keyfile")
-          devpod ssh "$name" --user agent --start-services=false --agent-forwarding=false --command "
-              set -e
-              umask 077
-              mkdir -p ~/.ssh
-              printf %s '$b64' | base64 -d > ~/.ssh/dm_deploy_key
-              chmod 600 ~/.ssh/dm_deploy_key
-              { echo 'Host forgejo.internal'
-                echo '  User $FORGEJO_SSH_USER'
-                echo '  IdentityFile ~/.ssh/dm_deploy_key'
-                echo '  IdentitiesOnly yes'
-                echo '  StrictHostKeyChecking accept-new'
-              } > ~/.ssh/config
-              chmod 600 ~/.ssh/config
-              git config --global url.'$FORGEJO_SSH_USER@forgejo.internal:'.insteadOf 'https://forgejo.internal/'
-              git config --global user.name '$COMMIT_NAME'
-              git config --global user.email '$COMMIT_EMAIL'
-          "
+          # shellcheck disable=SC2016
+          cid=$(ssh_dev "$host" \
+              'for c in $(docker ps -q); do if docker exec "$c" sh -c "ls -d /workspaces/*/.git" >/dev/null 2>&1; then echo "$c"; break; fi; done' \
+              2>/dev/null)
+          [[ -n "$cid" ]] || {
+              echo "no running devcontainer with a /workspaces git repo found" >&2
+              return 1
+          }
+          {
+              printf '%s\n' 'set -e' 'umask 077' 'mkdir -p ~/.ssh'
+              printf '%s\n' "printf %s '$b64' | base64 -d > ~/.ssh/dm_deploy_key"
+              printf '%s\n' 'chmod 600 ~/.ssh/dm_deploy_key'
+              printf '%s\n' "{ echo 'Host forgejo.internal'"
+              printf '%s\n' "  echo '  User $FORGEJO_SSH_USER'"
+              printf '%s\n' "  echo '  IdentityFile ~/.ssh/dm_deploy_key'"
+              printf '%s\n' "  echo '  IdentitiesOnly yes'"
+              printf '%s\n' "  echo '  StrictHostKeyChecking accept-new'"
+              printf '%s\n' '} > ~/.ssh/config'
+              printf '%s\n' 'chmod 600 ~/.ssh/config'
+              printf '%s\n' "git config --global url.'$FORGEJO_SSH_USER@forgejo.internal:'.insteadOf 'https://forgejo.internal/'"
+              printf '%s\n' "git config --global user.name '$COMMIT_NAME'"
+              printf '%s\n' "git config --global user.email '$COMMIT_EMAIL'"
+          } | ssh_dev "$host" "docker exec -i --user agent $cid sh -s"
       }
 
       # Revoke a previously-minted cc SSH key (recorded in the state dir). $2=token.
@@ -797,7 +812,7 @@
           # credential). Only when a creil repo was resolved and a token is present.
           if [[ -n "$repo" && -n "$token" ]]; then
               echo "==> provisioning scoped push credential ($FORGEJO_USER SSH key for $repo)"
-              provision_push_cred "$name" "$statedir" "$token" \
+              provision_push_cred "$name" "$statedir" "$token" "$host" \
                   || echo "warning: $FORGEJO_USER SSH-key provisioning failed; sandbox has no push credential" >&2
           fi
 

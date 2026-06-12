@@ -92,16 +92,23 @@
       chown -R ${agentUid}:${agentGid} /home/agent /nix/var/nix/profiles/per-user/agent 2>/dev/null || true
 
       if [[ ! -S /nix/var/nix/daemon-socket/socket ]]; then
-        nix-daemon --daemon &
+        nix daemon --log-format raw >/tmp/nix-daemon.log 2>&1 &
         daemon_pid=$!
         for _ in {1..100}; do
           if [[ -S /nix/var/nix/daemon-socket/socket ]]; then
             break
           fi
+          if ! kill -0 "$daemon_pid" 2>/dev/null; then
+            echo "dev-machine-entrypoint: nix daemon exited before creating its socket" >&2
+            cat /tmp/nix-daemon.log >&2 || true
+            wait "$daemon_pid"
+            exit 1
+          fi
           sleep 0.1
         done
         if [[ ! -S /nix/var/nix/daemon-socket/socket ]]; then
           echo "dev-machine-entrypoint: nix-daemon did not create its socket" >&2
+          cat /tmp/nix-daemon.log >&2 || true
           wait "$daemon_pid"
           exit 1
         fi
