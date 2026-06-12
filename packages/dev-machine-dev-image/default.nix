@@ -247,6 +247,9 @@
       gawk
       less
       openssh
+      # DevPod wraps its in-container SSH helper with `su -c ... agent` whenever
+      # callers pass `devpod ssh --user agent`.
+      su
 
       # /usr/bin/env for `#!/usr/bin/env` shebangs (./scripts/*, run-checks.sh, much
       # tooling); /bin/sh already comes from bashInteractive. (passwd/group/nsswitch

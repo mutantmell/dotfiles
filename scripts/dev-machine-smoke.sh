@@ -110,6 +110,8 @@ for wrapper in agent-fmt agent-preflight agent-preflight-quick agent-preflight-f
   check "$wrapper available" command -v "$wrapper"
 done
 
+check "su available for DevPod user switching" command -v su
+
 if ! command -v bwrap >/dev/null 2>&1; then
   skip "bubblewrap pivot_root sandbox" "bwrap is not installed in this environment"
 elif in_codex_command_sandbox; then
