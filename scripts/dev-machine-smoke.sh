@@ -116,13 +116,9 @@ devcontainer_configures_cgroups() {
     grep -Eq '^[[:space:]]*"--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
-devcontainer_unmasks_systempaths() {
+devcontainer_uses_host_nix() {
   [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
-    grep -Eq '^[[:space:]]*"--security-opt=unmask=ALL",?$' "$repo_root/.devcontainer/devcontainer.json"
-}
-
-proc_has_no_systempath_overlays() {
-  ! awk '$5 ~ /^\/proc\// { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
+    grep -Eq '^[[:space:]]*"--mount=type=bind,source=/nix,target=/nix",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
 mountinfo_matches() {
@@ -174,19 +170,24 @@ nix_config_contains_word() {
   nix config show "$key" 2>/dev/null | grep -Eq "(^|[[:space:]])$word([[:space:]]|$)"
 }
 
+no_local_nix_daemon_process() {
+  ! ps -eo user,args | awk '$1 == "root" && $2 == "nix" && $3 == "daemon" { found = 1 } END { exit found ? 0 : 1 }'
+}
+
 check "repo root detected" find_repo_root
 diagnose "repo root" "${repo_root:-not found}"
 check "agent user is non-root" agent_user_is_non_root
 check "agent HOME matches passwd" agent_home_matches_passwd
 check "devcontainer pins agent user without UID rewrite" devcontainer_pins_agent_user
-check "devcontainer configures host cgroups" devcontainer_configures_cgroups
-check "devcontainer unmasks system paths for Nix sandbox" devcontainer_unmasks_systempaths
+check_absent "devcontainer does not configure host cgroups" devcontainer_configures_cgroups
+check "devcontainer bind-mounts host Nix store" devcontainer_uses_host_nix
+check "devcontainer has no local nix-daemon bootstrap" no_local_nix_daemon_process
 
 check "NIX_REMOTE uses daemon" test "${NIX_REMOTE:-}" = daemon
 check "Nix daemon responds" nix store info --store daemon
 check "Nix build users group configured" bash -c 'nix config show build-users-group 2>/dev/null | grep -qx "nixbld"'
-check "Nix allows agent user" nix_config_contains_word allowed-users agent
-check_absent "Nix does not trust agent user" nix_config_contains_word trusted-users agent
+check "Nix allows host dev user" nix_config_contains_word allowed-users dev
+check_absent "Nix does not trust host dev user" nix_config_contains_word trusted-users dev
 check_absent "agent cannot write directly to /nix/store" test -w /nix/store
 check "Nix auto-allocates build UIDs" bash -c 'nix config show auto-allocate-uids 2>/dev/null | grep -qx "true"'
 check "Nix has auto-allocate-uids feature" nix_config_contains_word experimental-features auto-allocate-uids
@@ -222,19 +223,14 @@ else
   diagnose "/proc/self/cgroup" "$(tr '\n' ';' </proc/self/cgroup)"
   diagnose "/sys mount" "$(awk '$5 == "/sys" { print }' /proc/self/mountinfo)"
   diagnose "/sys/fs/cgroup mount" "$(awk '$5 == "/sys/fs/cgroup" { print }' /proc/self/mountinfo)"
-  check "/proc has no container system-path overlays" proc_has_no_systempath_overlays
-  check "cgroup mount is cgroup v2" cgroup_mount_is_v2
-  check "cgroup namespace exposes VM cgroup path" cgroup_namespace_is_host_visible
-  check "cgroup mount matches namespace root" cgroup_mount_matches_namespace
+  diagnose "/nix mount" "$(awk '$5 == "/nix" { print }' /proc/self/mountinfo)"
   check "Nix sandbox build" nix build --impure --expr 'with import <nixpkgs> {}; runCommand "dev-machine-smoke" {} "echo ok > $out"' --no-link
   check "Nix uid-range sandbox build" nix build --impure --expr 'with import <nixpkgs> {}; runCommand "dev-machine-uid-range-smoke" { requiredSystemFeatures = [ "uid-range" ]; } "echo ok > $out"' --no-link
-  check "cgroup mount is writable for daemon" cgroup_mount_is_rw
 fi
 
 check "Nix sandbox enabled" bash -c 'nix config show sandbox 2>/dev/null | grep -qx "true"'
 check "Nix sandbox fallback disabled" bash -c 'nix config show sandbox-fallback 2>/dev/null | grep -qx "false"'
 check "seccomp active" bash -c 'grep -q "^Seccomp:[[:space:]]*2$" /proc/self/status'
-check "Nix daemon has CAP_SYS_ADMIN" nix_daemon_has_cap_sys_admin
 if in_codex_command_sandbox; then
   skip "/dev/kvm available" "masked by Codex's nested command sandbox"
 else

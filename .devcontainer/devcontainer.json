@@ -14,29 +14,12 @@
   "updateRemoteUserUID": false,
   "overrideCommand": false,
 
-  // --device=/dev/kvm: surface the VM's /dev/kvm into the inner container so this
-  //   flake's nixosTest suite (./scripts/run-checks.sh) runs nested with fast
-  //   local feedback — the hard requirement that drove the whole KubeVirt-VM
-  //   substrate decision.
-  // --cap-add=SYS_ADMIN: let Nix open its build sandbox. The default container
-  //   capability set is missing the mount namespace privileges Nix needs.
-  // --cgroupns=host + /sys/fs/cgroup rw: let the root-owned nix-daemon create
-  //   per-build cgroups for auto-allocated UID ranges. Binding the VM's cgroupfs
-  //   while also using a private namespace makes Nix see "/" as its cgroup but
-  //   operate on a mount sourced outside that namespace, which breaks uid-range
-  //   builds. Sharing the VM's cgroup namespace is acceptable here because the
-  //   KubeVirt VM is the security boundary.
-  // --security-opt=unmask=ALL: let Nix create fresh procfs/sysfs mounts inside
-  //   sandboxed builds. The uid-range sandbox path mounts a new sysfs under the
-  //   build chroot; Podman's default masked/read-only system paths make that fail
-  //   with "mounting /sys: Operation not permitted".
-  "runArgs": [
-    "--device=/dev/kvm",
-    "--cap-add=SYS_ADMIN",
-    "--cgroupns=host",
-    "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",
-    "--security-opt=unmask=ALL"
-  ],
+  // --device=/dev/kvm: surface the VM's /dev/kvm for ad-hoc local VM work from
+  //   the shell. Nix builds themselves run through the VM host daemon.
+  // /nix bind mount: the devcontainer uses the host VM's Nix store and daemon
+  //   socket, so uid-range/container tests execute on the VM host instead of
+  //   inside a constrained OCI container.
+  "runArgs": ["--device=/dev/kvm", "--mount=type=bind,source=/nix,target=/nix"],
 
   // Keep postCreate minimal (plan). The workspace is bind-mounted, so git would
   // otherwise refuse to operate on a dir owned by a different uid. This runs as

@@ -13,7 +13,7 @@ dev-machine up [<repo-url-or-path>] [--name <name>]
 # Attach to the running devcontainer.
 dev-machine ssh <name>
 
-# Recreate only the devcontainer on the existing VM. Use after devcontainer.json or dev image changes.
+# Recreate only the devcontainer on the existing VM. Use after devcontainer.json-only changes.
 dev-machine refresh <name>
 
 # Open the VM serial console.
@@ -25,7 +25,7 @@ dev-machine rescue <name>
 # Tear down the workspace, VM, and scoped push credential.
 dev-machine down <name>
 
-# Rebuild and publish the thin base VM image.
+# Rebuild and publish the base VM image.
 dev-machine publish-base
 ```
 
@@ -35,16 +35,16 @@ Inside the devcontainer, agents should expect:
 
 - `nix`, `git`, `rg`, `jq`, `treefmt`, `alejandra`, `openssh`, Codex, and Claude are available.
 - Interactive agent work runs as the non-root `agent` user (`uid 1000`, home `/home/agent`).
-- The container keeps a root-owned bootstrap process only to start `nix-daemon`; agent Nix clients use `NIX_REMOTE=daemon`.
-- Nix uses a daemon-style policy with `build-users-group = nixbld`, `allowed-users = root agent`, and `trusted-users = root`; the agent can build but cannot relax daemon policy as a trusted user.
+- The container bind-mounts the VM host `/nix`; agent Nix clients use `NIX_REMOTE=daemon` and talk to the VM host nix-daemon.
+- Nix uses a daemon-style policy on the VM host with `build-users-group = nixbld`, `allowed-users = root dev`, and `trusted-users = root`; the container's `agent` uid maps to the VM host's `dev` uid and can build but cannot relax daemon policy as a trusted user.
 - `/dev/kvm` is passed through for NixOS VM tests.
 - Nix sandboxing is enabled with `/dev/kvm` exposed through `extra-sandbox-paths`; `sandbox-fallback` is disabled so builds fail closed rather than silently running unsandboxed.
-- Nix daemon UID allocation is enabled (`auto-allocate-uids`, `use-cgroups`, and `uid-range`) so NixOS container tests can run without granting the agent trusted-user status. The devcontainer runs under rootful Podman through DevPod's Docker driver, shares the VM cgroup namespace, bind-mounts `/sys/fs/cgroup` writable for the root-owned daemon, and passes `--security-opt=unmask=ALL` so Nix can mount fresh procfs/sysfs instances inside build sandboxes. That exposes more of the KubeVirt VM's `/proc`, `/sys`, and cgroup view to the inner container and weakens inner runtime path masking, so it relies on the VM as the primary boundary; do not replace this with `--privileged` unless this validation path still fails.
+- Nix daemon UID allocation is enabled on the VM host (`auto-allocate-uids`, `use-cgroups`, and `uid-range`) so NixOS container tests can run without granting the agent trusted-user status. The devcontainer no longer needs `CAP_SYS_ADMIN`, cgroup namespace sharing, writable `/sys/fs/cgroup`, system-path unmasking, or `--privileged` for Nix builds because sandbox setup happens in the VM host daemon.
 - Docker/Podman, DevPod, kubectl, virtctl, and registry credentials are not available inside the agent container.
 - Git push access uses a scoped per-session Forgejo bot key injected by `dev-machine up`.
 - Egress is enforced at bt8gw for VLAN 51, not by Kubernetes NetworkPolicy. The intended policy is WAN plus limited access to `forgejo.internal` for git/registry traffic.
 
-Residual limitation: this is not a full NixOS-style service manager inside the devcontainer. The image command starts `nix-daemon` directly as a small root bootstrap before DevPod attaches as `agent`. That removes single-user root store writes from normal agent workflows, but the container still needs root at startup and `CAP_SYS_ADMIN` for Nix's sandbox. The `nix` client is still available for repo work; the control is that `agent` is an untrusted daemon user, so it cannot relax daemon policy or add arbitrary trusted substituters. bt8gw egress remains the boundary for what external fetches can reach.
+The VM's 60GiB scratch disk backs rootful Podman storage and Nix build directories (`build-dir = /var/lib/containers/nix-builds`). The actual `/nix/store` remains on the VM root disk for now: mounting an empty scratch filesystem directly over `/nix` would hide the booted system closure. If store growth becomes the limiting factor, the cleaner follow-up is a boot-time store migration or a larger writable VM root disk, not a blind `/nix` overmount.
 
 ## Podman, Seccomp, And Bubblewrap
 
@@ -54,10 +54,9 @@ Codex runs shell commands through bubblewrap. Bubblewrap needs the `pivot_root` 
 bwrap: pivot_root: Operation not permitted
 ```
 
-The VM uses rootful Podman as DevPod's Docker-driver runtime. DevPod is pointed at the VM's `podman-rootful` wrapper, which talks to `/run/podman/podman.sock`; invoking plain `podman` as `dev` would otherwise create a rootless workspace. The repo's devcontainer keeps Podman's default seccomp profile enabled:
+The VM uses rootful Podman as DevPod's Docker-driver runtime. DevPod is pointed at the VM's `podman-rootful` wrapper, which talks to `/run/podman/podman.sock`; invoking plain `podman` as `dev` would otherwise create a rootless workspace. The repo's devcontainer keeps Podman's default seccomp profile enabled.
 
-- `.devcontainer/devcontainer.json` also passes `--security-opt=unmask=ALL`. This weakens Podman's proc/sys path masking, but keeps seccomp and the non-root agent model while avoiding `--privileged`. Without unmasked system paths, Nix's uid-range sandbox can fail when mounting a fresh sysfs inside the build chroot.
-- `scripts/dev-machine-smoke.sh` verifies seccomp is active and that bubblewrap can construct its `pivot_root` sandbox from a non-nested devcontainer shell.
+The devcontainer bind-mounts `/nix` from the VM host. Normal shell commands still run inside the non-root `agent` container, but Nix builds execute through the host daemon. `scripts/dev-machine-smoke.sh` verifies seccomp is active, bubblewrap can construct its `pivot_root` sandbox from a non-nested devcontainer shell, and the host-daemon uid-range build path completes.
 
 After changing the base VM image, dev image, or devcontainer runtime args, start a fresh machine or refresh the existing one as appropriate, then run:
 
@@ -65,7 +64,7 @@ After changing the base VM image, dev image, or devcontainer runtime args, start
 ./scripts/dev-machine-smoke.sh
 ```
 
-A successful smoke test with no skipped checks, run from a normal devcontainer shell rather than Codex's nested command sandbox, confirms the non-root `agent` session, daemon-backed Nix policy, agent wrapper commands, bubblewrap, Nix sandboxing, UID-range sandbox builds, writable VM cgroup runtime wiring, seccomp, `CAP_SYS_ADMIN`, `/dev/kvm` availability, absence of operator/cluster credentials, and the scoped Forgejo push-key wiring when one was provisioned. A run that reports skipped checks is useful for static/config coverage only; refresh the devcontainer and rerun outside nested command sandboxes before treating runtime changes as validated.
+A successful smoke test with no skipped checks, run from a normal devcontainer shell rather than Codex's nested command sandbox, confirms the non-root `agent` session, VM-host daemon-backed Nix policy, agent wrapper commands, bubblewrap, Nix sandboxing, UID-range sandbox builds, seccomp, `/dev/kvm` availability, absence of operator/cluster credentials, and the scoped Forgejo push-key wiring when one was provisioned. A run that reports skipped checks is useful for static/config coverage only; refresh the devcontainer and rerun outside nested command sandboxes before treating runtime changes as validated.
 
 Container-backed NixOS tests are currently a side-by-side proof of concept, not a replacement for the VM tests. Tests that assert firewall or service behavior should be directly comparable, but topology tests that create host-kernel netdevs such as batman-adv, bonds, bridges, and VLANs can still depend on the builder host kernel and loaded modules. Keep the VM variants as the authoritative coverage until those cases have been reviewed on the final dev-machine image.
 

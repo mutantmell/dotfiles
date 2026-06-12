@@ -15,7 +15,7 @@
 # lifecycle ergonomics bite):
 #
 #   dev-machine up <repo>   creates a multus-only KubeVirt VirtualMachine from the
-#                           thin base containerDisk (Phase 1.3) on a free VLAN-51
+#                           base containerDisk (Phase 1.3) on a free VLAN-51
 #                           dev slot (dev-1..dev-16; checklist D.4/D.5), injects the
 #                           operator's SSH pubkey(s) via the guest agent (Phase 6:
 #                           `sshPubKeys` may carry several — operator + mobile — so a
@@ -47,13 +47,14 @@
 #                           skips the in-VM
 #                           devpod teardown when the VM is crashed/OOM-killed (the
 #                           normal teardown blocks on the dead agent tunnel).
-#   dev-machine publish-base (re)build + push the thin base containerDisk to creil
+#   dev-machine publish-base (re)build + push the base containerDisk to creil
 #                           (a prerequisite for `up`; run once / on base bumps).
 #
 # IMAGE FRESHNESS (workaround until CI lands, plan Phase 3): `up` rebuilds + pushes
-# the Phase-2.2 dev image to creil by default so every session starts on a current
-# claude-code (cheap — claude comes prebuilt from numtide's cache, so it's a
-# cache-pull + push, not a real build). `--no-rebuild` skips it for fast iteration.
+# the base VM image and Phase-2.2 dev image to creil by default so the VM host's
+# /nix store contains the same dev-tool closure the devcontainer's /bin symlinks
+# reference after /nix is bind-mounted from the host. `--no-rebuild` skips this
+# for fast iteration when both images are already in sync.
 #
 # PUSH CREDENTIAL (Phase 4): the sandbox holds EXACTLY ONE credential and it is
 # NOT the operator identity — it is the **`cc` bot user**. `up` generates a fresh
@@ -205,9 +206,9 @@
             }
             {
               name = "scratch";
-              # Ephemeral runtime scratch for Podman rootful storage (dev image +
-              # in-container builds). Dies with the VM (no CSI); the base image
-              # formats + mounts it at /var/lib/containers.
+              # Ephemeral runtime scratch for Podman rootful storage and Nix build
+              # directories. Dies with the VM (no CSI); the base image formats +
+              # mounts it at /var/lib/containers.
               emptyDisk.capacity = "60Gi";
             }
           ];
@@ -732,13 +733,12 @@
           require_login
 
           if [[ "$rebuild" -eq 1 ]]; then
+              build_and_push dev-machine-image "$BASE_IMAGE"
               build_and_push dev-machine-dev-image "$DEV_IMAGE"
           fi
 
-          # The VM boots from the base containerDisk; publish it on demand if it's
-          # not in the registry yet (first use, or it was GC'd). The base changes
-          # rarely and KubeVirt caches it, so this only fires when actually absent —
-          # use `dev-machine publish-base` to force a re-push after a base bump.
+          # The VM boots from the base containerDisk. When --no-rebuild is used,
+          # still publish it on demand if it is missing from the registry.
           if ! skopeo inspect "docker://$BASE_IMAGE" >/dev/null 2>&1; then
               echo "==> base image $BASE_IMAGE not in registry; building + pushing it"
               build_and_push dev-machine-image "$BASE_IMAGE"
@@ -1269,7 +1269,7 @@ in {
     defaultDisk = lib.mkOption {
       type = lib.types.str;
       default = "60Gi";
-      description = "Default capacity of the ephemeral scratch disk backing Podman's rootful storage (dev image + in-container builds, incl. nixosTest VM images). Override per-session with `--disk`.";
+      description = "Default capacity of the ephemeral scratch disk backing Podman's rootful storage and Nix build directories. Override per-session with `--disk`.";
     };
 
     forgejoApi = lib.mkOption {

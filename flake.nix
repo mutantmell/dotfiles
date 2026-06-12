@@ -146,6 +146,7 @@
       # a streamLayeredImage script; `skopeo copy` it to creil to publish.
       dev-machine-image = import packages/dev-machine-image {
         inherit nixpkgs system;
+        inherit (llm-agents.packages.${system}) claude-code codex;
         # The guest must trust creil's step-ca to clone the workspace over HTTPS
         # and to docker-pull the dev image from forgejo.internal.
         caCerts = with pkgs.mmell.lib.data.pki; [root intermediate];

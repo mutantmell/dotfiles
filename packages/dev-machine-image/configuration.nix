@@ -3,8 +3,14 @@
   lib,
   pkgs,
   modulesPath,
+  claude-code,
+  codex,
   ...
 }: let
+  devMachineTools = import ../dev-machine-tools.nix {
+    inherit pkgs claude-code codex;
+  };
+
   # ── Phase 6 — attach helper for a mobile/remote operator (attach-only) ───────
   # A mobile tssh session runs this as its remote command to land DIRECTLY in the
   # agent's persistent in-container zellij, skipping the operator wrapper (which
@@ -98,13 +104,13 @@
     exec ${pkgs.podman}/bin/podman --remote --url unix:///run/podman/podman.sock "$@"
   '';
 in {
-  # ── Phase 1.3 — thin base VM image for the locked-down LLM dev machines ──────
+  # ── Phase 1.3 — base VM image for the locked-down LLM dev machines ───────────
   # (ai-dev-machine-kubevirt-plan.md). This is the KubeVirt VM that is the
-  # security boundary: a deliberately thin NixOS carrying ONLY what devpod's SSH
-  # provider needs — sshd, rootful Podman, and a service user in the podman group. The
-  # actual dev tooling lives in the devcontainer image (Phase 2), which devpod
-  # builds/runs as an OCI container inside this VM. VM = boundary + Podman
-  # + sshd; nothing else belongs here.
+  # security boundary: a NixOS VM carrying sshd, rootful Podman, the host
+  # nix-daemon, and the same dev-tool closure the devcontainer references. The
+  # agent still runs in the DevPod-managed OCI container, but Nix builds execute
+  # through the VM host daemon so uid-range/container tests get real host
+  # namespace and cgroup behavior.
   #
   # Standalone NixOS (NOT mk-nixos): no impermanence, no sops, no host registry —
   # the plan requires this image be thin and host-agnostic.
@@ -133,15 +139,20 @@ in {
   };
 
   # Runtime scratch — a KubeVirt emptyDisk (ephemeral, sized at the VMI). Podman's
-  # rootful storage lives here, so the dev image and every in-container build (incl.
-  # nixosTest VM images) get the space while the OS root stays small. Formatted on
-  # first boot; the VMI sets the disk serial "scratch" for a stable by-id name.
-  # systemd-makefs (autoFormat) + the mount are ordered before podman via local-fs.
+  # rootful storage and Nix build directories live here, so container layers and
+  # large build work dirs get scratch capacity while the boot store remains on the
+  # root disk. Formatted on first boot; the VMI sets the disk serial "scratch"
+  # for a stable by-id name. systemd-makefs (autoFormat) + the mount are ordered
+  # before podman via local-fs.
   fileSystems."/var/lib/containers" = {
     device = "/dev/disk/by-id/virtio-scratch";
     fsType = "ext4";
     autoFormat = true;
   };
+
+  systemd.tmpfiles.rules = [
+    "d /var/lib/containers/nix-builds 1777 root root -"
+  ];
 
   # Serial console — `virtctl console` attaches to ttyS0.
   boot.kernelParams = ["console=ttyS0"];
@@ -238,13 +249,42 @@ in {
   systemd.services.qemu-guest-agent.serviceConfig.OOMScoreAdjust = -900;
   systemd.services.podman.serviceConfig.OOMScoreAdjust = -500;
 
+  # The VM host owns Nix builds. Agents run Nix clients inside the devcontainer,
+  # but /nix is bind-mounted from this host and NIX_REMOTE talks to this daemon.
+  # That keeps uid-range/container-test sandbox setup on a real NixOS VM instead
+  # of inside a constrained OCI container.
+  nix.settings = {
+    experimental-features = [
+      "nix-command"
+      "flakes"
+      "auto-allocate-uids"
+      "cgroups"
+    ];
+    sandbox = true;
+    sandbox-fallback = false;
+    auto-allocate-uids = true;
+    use-cgroups = true;
+    allowed-users = [
+      "root"
+      "dev"
+    ];
+    trusted-users = ["root"];
+    system-features = [
+      "nixos-test"
+      "kvm"
+      "uid-range"
+    ];
+    extra-sandbox-paths = ["/dev/kvm"];
+    build-dir = "/var/lib/containers/nix-builds";
+  };
+
   # The container runtime devpod's SSH provider targets through its Docker driver,
   # but the driver can use a replacement CLI. Use rootful Podman as the VM-local
-  # OCI runtime: it has first-class cgroup-v2/systemd integration and explicit
-  # path unmasking knobs for the Nix uid-range sandbox validation path. Rootless
-  # Podman is not the first target here because the workload needs /dev/kvm,
-  # writable cgroups, CAP_SYS_ADMIN, and nested Nix user namespaces; the KubeVirt
-  # VM remains the primary security boundary.
+  # OCI runtime: it has first-class cgroup-v2/systemd integration and keeps the
+  # runtime rootful without granting the `dev` user sudo. Rootless Podman is not
+  # the first target here because the workload needs direct VM resources and
+  # stable host-daemon integration; the KubeVirt VM remains the primary security
+  # boundary.
   virtualisation.containers.enable = true;
   virtualisation.podman = {
     enable = true;
@@ -288,13 +328,15 @@ in {
   # needed; like the Podman socket, it lives on the VM, not inside the
   # devcontainer. dev-cp is the file-transfer sibling (rootful Podman cp wrapper) for
   # moving files into/out of the inner workspace.
-  environment.systemPackages = [
-    pkgs.git
-    pkgs.tsshd
-    podman-rootful
-    dev-attach
-    dev-cp
-  ];
+  environment.systemPackages =
+    [
+      pkgs.git
+      pkgs.tsshd
+      podman-rootful
+      dev-attach
+      dev-cp
+    ]
+    ++ devMachineTools.devTools;
 
   # ── Phase 6 — auto-attach an interactive login straight into the devcontainer ─
   # So a mobile operator only needs a saved ssh/tssh profile (no remembered
