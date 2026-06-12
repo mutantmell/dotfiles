@@ -339,6 +339,10 @@
               -o ConnectTimeout=5 -o BatchMode=yes "dev@$host" "$@"
       }
 
+      shell_quote() {
+          jq -rn --arg v "$1" '$v|@sh'
+      }
+
       # Force the interactive OIDC token mint up front, with stderr VISIBLE. The
       # OIDC kubeconfig authenticates via an exec plugin (kubectl-oidc_login,
       # authcode-keyboard): when the cached token has lapsed it prints an Authelia
@@ -451,34 +455,58 @@
           }
           id=$(echo "$resp" | jq -r '.id')
           printf '%s\n' "$id" >"$statedir/deploy_key_id"
-          inject_deploy_key "$name" "$keyfile"
+          inject_deploy_key "$name" "$keyfile" "$host"
       }
 
-      # Push the private key + git config into the running devcontainer through
-      # DevPod's in-container shell. This keeps the operator's host credentials out
-      # of the session while avoiding a second direct container-runtime control path.
+      # Push the private key + git config into the running devcontainer through the
+      # VM's rootful Podman socket. DevPod's `ssh --command` path has proven brittle
+      # for stdin delivery during setup; this still uses the same rootful runtime
+      # DevPod is configured to target, and keeps the key out of process argv.
       inject_deploy_key() {
-          local name=$1 keyfile=$2 b64
-          b64=$(base64 -w0 "$keyfile")
+          local name=$1 keyfile=$2 host=$3
+          local ssh_user_q commit_name_q commit_email_q
+          ssh_user_q=$(shell_quote "$FORGEJO_SSH_USER")
+          commit_name_q=$(shell_quote "$COMMIT_NAME")
+          commit_email_q=$(shell_quote "$COMMIT_EMAIL")
+          # shellcheck disable=SC2016
           {
               printf '%s\n' \
               'set -e' \
               'umask 077' \
+              "trap 'rm -f ~/.ssh/dm_deploy_key.b64' EXIT" \
               'mkdir -p ~/.ssh' \
-              "printf %s '$b64' | base64 -d > ~/.ssh/dm_deploy_key" \
+              "cat > ~/.ssh/dm_deploy_key.b64 <<'DM_DEPLOY_KEY'" \
+              "$(base64 -w0 "$keyfile")" \
+              'DM_DEPLOY_KEY' \
+              'base64 -d ~/.ssh/dm_deploy_key.b64 > ~/.ssh/dm_deploy_key' \
+              'rm -f ~/.ssh/dm_deploy_key.b64' \
               'chmod 600 ~/.ssh/dm_deploy_key' \
               "{ echo 'Host forgejo.internal'" \
-              "  echo '  User $FORGEJO_SSH_USER'" \
+              "  printf '%s\n' '  User '$ssh_user_q" \
               "  echo '  IdentityFile ~/.ssh/dm_deploy_key'" \
               "  echo '  IdentitiesOnly yes'" \
               "  echo '  StrictHostKeyChecking accept-new'" \
               '} > ~/.ssh/config' \
               'chmod 600 ~/.ssh/config' \
-              "git config --global url.'$FORGEJO_SSH_USER@forgejo.internal:'.insteadOf 'https://forgejo.internal/'" \
-              "git config --global user.name '$COMMIT_NAME'" \
-              "git config --global user.email '$COMMIT_EMAIL'"
-          } | devpod ssh "$name" --user agent --start-services=false --agent-forwarding=false \
-              --command "sh -s"
+              "git config --global url.$ssh_user_q@forgejo.internal:.insteadOf https://forgejo.internal/" \
+              "git config --global user.name $commit_name_q" \
+              "git config --global user.email $commit_email_q"
+          } | ssh_dev "$host" '
+              set -e
+              cid=$(
+                  podman-rootful ps -q | while read -r c; do
+                      if podman-rootful exec "$c" sh -c "ls -d /workspaces/*/.git >/dev/null 2>&1"; then
+                          printf "%s\n" "$c"
+                          exit 0
+                      fi
+                  done
+              )
+              if [ -z "$cid" ]; then
+                  echo "no running devcontainer with a workspace checkout found" >&2
+                  exit 1
+              fi
+              exec podman-rootful exec -i --user agent "$cid" sh
+          '
       }
 
       # Revoke a previously-minted cc SSH key (recorded in the state dir). $2=token.
@@ -860,8 +888,13 @@
           name=$(sanitize "$name")
           [[ -n "$name" ]] || { echo "usage: dev-machine refresh <name>" >&2; return 1; }
           local statedir="$STATE/$name"
+          local host
           [[ -d "$statedir" ]] || { echo "no such dev machine: $name" >&2; return 1; }
           dm_login || return 1
+          host=$(host_for_machine "$name") || {
+              echo "cannot resolve $name's slot; was it created by 'dev-machine up'?" >&2
+              return 1
+          }
 
           # devpod talks straight to the slot host via the provider pinned at `up`
           # (D.6 — no port-forward to re-establish).
@@ -872,7 +905,7 @@
           }
           if [[ -f "$statedir/deploy_key" ]]; then
               echo "==> re-injecting the scoped push credential"
-              inject_deploy_key "$name" "$statedir/deploy_key" \
+              inject_deploy_key "$name" "$statedir/deploy_key" "$host" \
                   || echo "warning: push-credential re-injection failed; re-run 'dev-machine up' to restore it" >&2
           fi
           echo

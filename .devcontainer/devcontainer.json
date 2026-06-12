@@ -26,16 +26,16 @@
   //   operate on a mount sourced outside that namespace, which breaks uid-range
   //   builds. Sharing the VM's cgroup namespace is acceptable here because the
   //   KubeVirt VM is the security boundary.
-  // --security-opt=unmask=/proc/*:/sys/*: let Nix create fresh procfs/sysfs mounts
-  //   inside sandboxed builds. The uid-range sandbox path mounts a new sysfs under
-  //   the build chroot; masked or read-only proc/sys paths make that fail with
-  //   "mounting /sys: Operation not permitted".
+  // --security-opt=unmask=ALL: let Nix create fresh procfs/sysfs mounts inside
+  //   sandboxed builds. The uid-range sandbox path mounts a new sysfs under the
+  //   build chroot; Podman's default masked/read-only system paths make that fail
+  //   with "mounting /sys: Operation not permitted".
   "runArgs": [
     "--device=/dev/kvm",
     "--cap-add=SYS_ADMIN",
     "--cgroupns=host",
     "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",
-    "--security-opt=unmask=/proc/*:/sys/*"
+    "--security-opt=unmask=ALL"
   ],
 
   // Keep postCreate minimal (plan). The workspace is bind-mounted, so git would

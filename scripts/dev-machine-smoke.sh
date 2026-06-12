@@ -118,7 +118,7 @@ devcontainer_configures_cgroups() {
 
 devcontainer_unmasks_systempaths() {
   [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
-    grep -Eq '^[[:space:]]*"--security-opt=unmask=/proc/\*:/sys/\*",?$' "$repo_root/.devcontainer/devcontainer.json"
+    grep -Eq '^[[:space:]]*"--security-opt=unmask=ALL",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
 proc_has_no_systempath_overlays() {
