@@ -21,7 +21,7 @@ in {
   };
 
   nix.settings = {
-    experimental-features = ["nix-command" "flakes" "auto-allocate-uids"];
+    experimental-features = ["nix-command" "flakes" "auto-allocate-uids" "cgroups"];
     auto-allocate-uids = true;
     extra-system-features = ["nixos-test" "kvm" "uid-range"];
   };

@@ -323,7 +323,7 @@ in
       chmod 1777 tmp
       chown ${agentUid}:${agentGid} home/agent
       cat > etc/nix/nix.conf <<EOF
-      experimental-features = nix-command flakes auto-allocate-uids
+      experimental-features = nix-command flakes auto-allocate-uids cgroups
       build-users-group = nixbld
       allowed-users = root agent
       trusted-users = root
