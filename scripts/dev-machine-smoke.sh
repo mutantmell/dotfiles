@@ -111,6 +111,12 @@ for wrapper in agent-fmt agent-preflight agent-preflight-quick agent-preflight-f
 done
 
 check "su available for DevPod user switching" command -v su
+if [[ $(id -u) == 0 ]]; then
+  # shellcheck disable=SC2016
+  check "su switches to agent without PAM" bash -c '[[ $(su -c "id -un" agent) == agent ]]'
+else
+  skip "su switches to agent without PAM" "requires root"
+fi
 
 if ! command -v bwrap >/dev/null 2>&1; then
   skip "bubblewrap pivot_root sandbox" "bwrap is not installed in this environment"

@@ -248,8 +248,9 @@
       less
       openssh
       # DevPod wraps its in-container SSH helper with `su -c ... agent` whenever
-      # callers pass `devpod ssh --user agent`.
-      su
+      # callers pass `devpod ssh --user agent`. Use BusyBox's non-PAM su applet;
+      # the shadow/PAM su output fails in this minimal Docker image.
+      busybox
 
       # /usr/bin/env for `#!/usr/bin/env` shebangs (./scripts/*, run-checks.sh, much
       # tooling); /bin/sh already comes from bashInteractive. (passwd/group/nsswitch
