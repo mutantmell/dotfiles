@@ -1,6 +1,5 @@
 {
   "defaultAction": "SCMP_ACT_ALLOW",
-  "defaultErrnoRet": 1,
   "archMap": [
     {
       "architecture": "SCMP_ARCH_X86_64",
