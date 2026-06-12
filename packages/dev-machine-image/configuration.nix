@@ -9,16 +9,16 @@
   # A mobile tssh session runs this as its remote command to land DIRECTLY in the
   # agent's persistent in-container zellij, skipping the operator wrapper (which
   # lives only on the workstation, off this VM by design). It finds the running
-  # devcontainer the same way the wrapper's extract_via_docker does — the one
-  # container with a /workspaces/*/.git — then attaches to a zellij session named
+  # devcontainer through the rootful Podman API — the one container with a
+  # /workspaces/*/.git — then attaches to a zellij session named
   # `main` (create-or-attach, so the first attach starts it and later ones rejoin
   # the agent's live session). Read-only/attach-only: it never creates VMs or
   # touches the cluster.
   dev-attach = pkgs.writeShellScriptBin "dev-attach" ''
     set -euo pipefail
     cid=""
-    for c in $(docker ps -q); do
-      if docker exec "$c" sh -c 'ls -d /workspaces/*/.git' >/dev/null 2>&1; then
+    for c in $(podman-rootful ps -q); do
+      if podman-rootful exec "$c" sh -c 'ls -d /workspaces/*/.git' >/dev/null 2>&1; then
         cid=$c
         break
       fi
@@ -28,24 +28,24 @@
       echo "            (bring one up from the operator workstation: dev-machine up)" >&2
       exit 1
     fi
-    exec docker exec -it "$cid" zellij attach -c main
+    exec podman-rootful exec -it "$cid" zellij attach -c main
   '';
 
   # ── Phase 6 — file transfer in/out of the inner devcontainer ─────────────────
   # `dev-attach`'s sibling for moving files between this VM (or a remote laptop,
   # over `ssh … dev-cp …`) and the agent's workspace INSIDE the devcontainer.
   # Plain scp can't reach the container — the workspace lives on the container
-  # filesystem (reached via `docker exec`, exactly how dev-attach finds it), not
-  # on the VM host — so this wraps `docker cp` with the same container probe and
+  # filesystem (reached via `podman-rootful exec`, exactly how dev-attach finds it),
+  # not on the VM host — so this wraps `podman-rootful cp` with the same container probe and
   # makes a `container:` path mean "inside the devcontainer", resolved against the
   # workspace root (the dir holding .git) unless it is absolute. `-` is a tar
-  # stream on stdin/stdout (docker cp's own convention), which gives a remote
+  # stream on stdin/stdout (the runtime cp convention), which gives a remote
   # operator a one-hop transfer with no scratch file on the VM:
   #   pull:  ssh dev@<host> dev-cp container:build/out.log - > out.log
   #   push:  tar c file | ssh dev@<host> dev-cp - container:incoming
   # Both run as a remote COMMAND (`bash -c …`), so they never trip the interactive
   # auto-attach below. PATH is pinned because a bare `ssh host dev-cp …` does not
-  # source a login shell, so docker would otherwise be off PATH.
+  # source a login shell, so the rootful Podman wrapper would otherwise be off PATH.
   dev-cp = pkgs.writeShellScriptBin "dev-cp" ''
     set -euo pipefail
     export PATH="/run/current-system/sw/bin:''${PATH:-}"
@@ -69,8 +69,8 @@
     esac
 
     cid=""
-    for c in $(docker ps -q); do
-      if docker exec "$c" sh -c 'ls -d /workspaces/*/.git' >/dev/null 2>&1; then
+    for c in $(podman-rootful ps -q); do
+      if podman-rootful exec "$c" sh -c 'ls -d /workspaces/*/.git' >/dev/null 2>&1; then
         cid=$c
         break
       fi
@@ -79,9 +79,9 @@
       echo "dev-cp: no running devcontainer with a /workspaces git repo found" >&2
       exit 1
     fi
-    ws=$(docker exec "$cid" sh -c 'for d in /workspaces/*/.git; do dirname "$d"; exit; done')
+    ws=$(podman-rootful exec "$cid" sh -c 'for d in /workspaces/*/.git; do dirname "$d"; exit; done')
 
-    # Translate a `container:PATH` endpoint into docker cp's `<cid>:<abs>` form;
+    # Translate a `container:PATH` endpoint into the runtime cp `<cid>:<abs>` form;
     # leave local paths and `-` untouched.
     resolve() {
       case "$1" in
@@ -91,15 +91,19 @@
       esac
     }
 
-    exec docker cp "$(resolve "$1")" "$(resolve "$2")"
+    exec podman-rootful cp "$(resolve "$1")" "$(resolve "$2")"
+  '';
+
+  podman-rootful = pkgs.writeShellScriptBin "podman-rootful" ''
+    exec ${pkgs.podman}/bin/podman --remote --url unix:///run/podman/podman.sock "$@"
   '';
 in {
   # ── Phase 1.3 — thin base VM image for the locked-down LLM dev machines ──────
   # (ai-dev-machine-kubevirt-plan.md). This is the KubeVirt VM that is the
   # security boundary: a deliberately thin NixOS carrying ONLY what devpod's SSH
-  # provider needs — sshd, docker, and a service user in the docker group. The
+  # provider needs — sshd, rootful Podman, and a service user in the podman group. The
   # actual dev tooling lives in the devcontainer image (Phase 2), which devpod
-  # builds/runs as a plain runc container inside this VM. VM = boundary + docker
+  # builds/runs as an OCI container inside this VM. VM = boundary + Podman
   # + sshd; nothing else belongs here.
   #
   # Standalone NixOS (NOT mk-nixos): no impermanence, no sops, no host registry —
@@ -128,12 +132,12 @@ in {
     autoResize = true;
   };
 
-  # Runtime scratch — a KubeVirt emptyDisk (ephemeral, sized at the VMI). docker's
-  # data-root lives here, so the dev image and every in-container build (incl.
+  # Runtime scratch — a KubeVirt emptyDisk (ephemeral, sized at the VMI). Podman's
+  # rootful storage lives here, so the dev image and every in-container build (incl.
   # nixosTest VM images) get the space while the OS root stays small. Formatted on
   # first boot; the VMI sets the disk serial "scratch" for a stable by-id name.
-  # systemd-makefs (autoFormat) + the mount are ordered before docker via local-fs.
-  fileSystems."/var/lib/docker" = {
+  # systemd-makefs (autoFormat) + the mount are ordered before podman via local-fs.
+  fileSystems."/var/lib/containers" = {
     device = "/dev/disk/by-id/virtio-scratch";
     fsType = "ext4";
     autoFormat = true;
@@ -212,12 +216,12 @@ in {
   #
   #   1. systemd-oomd kills under MEMORY PRESSURE inside user.slice only. The
   #      dev user's shell + workload (run-checks.sh, the nixosTest's nested
-  #      QEMUs) all live there; sshd, docker, and qemu-guest-agent live in
+  #      QEMUs) all live there; sshd, podman, and qemu-guest-agent live in
   #      system.slice and are excluded (enableRootSlice / enableSystemSlice
   #      stay off). So a runaway test is killed EARLY (PSI-driven, not at hard
   #      exhaustion) and the session-critical services keep running — the VM
   #      stays reachable for `dev-machine ssh`.
-  #   2. Low OOMScoreAdjust on sshd / qemu-guest-agent / dockerd as a backstop
+  #   2. Low OOMScoreAdjust on sshd / qemu-guest-agent / podman as a backstop
   #      for the kernel OOM killer (in case PSI never spikes hard enough for
   #      oomd to act first): kernel-level reaping skips them and targets the
   #      workload instead.
@@ -232,37 +236,38 @@ in {
   };
   systemd.services.sshd.serviceConfig.OOMScoreAdjust = -900;
   systemd.services.qemu-guest-agent.serviceConfig.OOMScoreAdjust = -900;
-  systemd.services.docker.serviceConfig.OOMScoreAdjust = -500;
+  systemd.services.podman.serviceConfig.OOMScoreAdjust = -500;
 
-  # The container runtime devpod's SSH provider targets natively (docker socket +
-  # `docker` group). Rootless isn't needed — the VM is the boundary (decision 4).
-  virtualisation.docker = {
+  # The container runtime devpod's SSH provider targets through its Docker driver,
+  # but the driver can use a replacement CLI. Use rootful Podman as the VM-local
+  # OCI runtime: it has first-class cgroup-v2/systemd integration and explicit
+  # path unmasking knobs for the Nix uid-range sandbox validation path. Rootless
+  # Podman is not the first target here because the workload needs /dev/kvm,
+  # writable cgroups, CAP_SYS_ADMIN, and nested Nix user namespaces; the KubeVirt
+  # VM remains the primary security boundary.
+  virtualisation.containers.enable = true;
+  virtualisation.podman = {
     enable = true;
-    # Use containerd's image store rather than the legacy graphdriver: enables
-    # BuildKit's registry cache + lazy pulls (devpod warns when it's off) and
-    # writes /etc/docker/daemon.json declaratively, silencing devpod's "could not
-    # find docker daemon config file" notice. It's the direction docker is heading
-    # (default in newer releases) and fits pulling/caching the devcontainer image.
-    daemon.settings.features.containerd-snapshotter = true;
   };
 
-  # DevPod passes the repo's devcontainer.json runArgs to this Docker daemon, so
+  # DevPod passes the repo's devcontainer.json runArgs to Podman on this VM, so
   # the seccomp profile path is resolved on the VM host, not inside the inner
   # devcontainer. Keep seccomp enabled while permitting bubblewrap's pivot_root,
   # which Codex uses for its own per-command sandbox.
-  environment.etc."docker/seccomp-codex-bwrap.json".source =
+  environment.etc."containers/seccomp-codex-bwrap.json".source =
     ../../.devcontainer/seccomp-codex-bwrap.json;
 
   # The service user devpod targets: passwordless SSH (key injected at runtime)
-  # and the `docker` group so the provider can build/run the devcontainer. That
+  # and the `podman` group so the provider can build/run the devcontainer. That
   # is the whole job — devpod injects its agent over SSH into the user's own
-  # home/tmp and drives the inner container via the docker socket, so NO sudo is
+  # home/tmp and drives the inner container through Podman's Docker-compatible
+  # interface, so NO sudo is
   # needed. Deliberately no `wheel`: the VM is the security boundary, and giving
   # `dev` passwordless root would hand it to anything that escaped the inner
   # runc container to this user — the opposite of the lockdown intent.
   users.users.dev = {
     isNormalUser = true;
-    extraGroups = ["docker"];
+    extraGroups = ["podman"];
   };
 
   # A UTF-8 locale for the VM session (Phase 6 mobile access). Unlike mosh-server,
@@ -287,12 +292,13 @@ in {
   # straight into the agent's persistent in-container zellij. tsshd belongs on the
   # BASE image because tssh launches it over the SSH login (the mosh-server
   # analog), found on PATH here — no per-VM `--install-tsshd` into a writable home
-  # needed; like the docker socket, it lives on the VM, not inside the
-  # devcontainer. dev-cp is the file-transfer sibling (docker cp wrapper) for
+  # needed; like the Podman socket, it lives on the VM, not inside the
+  # devcontainer. dev-cp is the file-transfer sibling (rootful Podman cp wrapper) for
   # moving files into/out of the inner workspace.
   environment.systemPackages = [
     pkgs.git
     pkgs.tsshd
+    podman-rootful
     dev-attach
     dev-cp
   ];

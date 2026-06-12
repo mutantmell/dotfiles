@@ -116,17 +116,17 @@ devcontainer_configures_cgroups() {
     grep -Eq '^[[:space:]]*"--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
-devcontainer_unconfines_systempaths() {
+devcontainer_unmasks_systempaths() {
   [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
-    grep -Eq '^[[:space:]]*"--security-opt=systempaths=unconfined",?$' "$repo_root/.devcontainer/devcontainer.json"
+    grep -Eq '^[[:space:]]*"--security-opt=unmask=/proc/\*:/sys/\*",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
-devcontainer_unconfines_apparmor() {
+devcontainer_uses_podman_seccomp_profile() {
   [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
-    grep -Eq '^[[:space:]]*"--security-opt=apparmor=unconfined",?$' "$repo_root/.devcontainer/devcontainer.json"
+    grep -Eq '^[[:space:]]*"--security-opt=seccomp=/etc/containers/seccomp-codex-bwrap.json",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
-proc_has_no_docker_systempath_overlays() {
+proc_has_no_systempath_overlays() {
   ! awk '$5 ~ /^\/proc\// { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
 }
 
@@ -185,8 +185,8 @@ check "agent user is non-root" agent_user_is_non_root
 check "agent HOME matches passwd" agent_home_matches_passwd
 check "devcontainer pins agent user without UID rewrite" devcontainer_pins_agent_user
 check "devcontainer configures host cgroups" devcontainer_configures_cgroups
-check "devcontainer unconfines system paths for Nix sandbox" devcontainer_unconfines_systempaths
-check "devcontainer unconfines AppArmor for Nix sysfs mounts" devcontainer_unconfines_apparmor
+check "devcontainer unmasks system paths for Nix sandbox" devcontainer_unmasks_systempaths
+check "devcontainer uses Podman seccomp profile path" devcontainer_uses_podman_seccomp_profile
 
 check "NIX_REMOTE uses daemon" test "${NIX_REMOTE:-}" = daemon
 check "Nix daemon responds" nix store info --store daemon
@@ -228,7 +228,7 @@ else
   diagnose "/proc/self/cgroup" "$(tr '\n' ';' </proc/self/cgroup)"
   diagnose "/sys mount" "$(awk '$5 == "/sys" { print }' /proc/self/mountinfo)"
   diagnose "/sys/fs/cgroup mount" "$(awk '$5 == "/sys/fs/cgroup" { print }' /proc/self/mountinfo)"
-  check "/proc has no Docker system-path overlays" proc_has_no_docker_systempath_overlays
+  check "/proc has no container system-path overlays" proc_has_no_systempath_overlays
   check "cgroup mount is cgroup v2" cgroup_mount_is_v2
   check "cgroup namespace exposes VM cgroup path" cgroup_namespace_is_host_visible
   check "cgroup mount matches namespace root" cgroup_mount_matches_namespace
@@ -247,14 +247,16 @@ else
   check "/dev/kvm available" test -e /dev/kvm
 fi
 
-for tool in kubectl docker devpod virtctl gh tea; do
+for tool in kubectl docker podman devpod virtctl gh tea; do
   check_absent "$tool absent from agent PATH" command -v "$tool"
 done
 
 check_absent "docker socket absent" test -S /var/run/docker.sock
+check_absent "podman socket absent" test -S /run/podman/podman.sock
 check_absent "KUBECONFIG env absent" printenv KUBECONFIG
 check_absent "kube config absent" test -e "$HOME/.kube/config"
 check_absent "docker registry credentials absent" test -e "$HOME/.docker/config.json"
+check_absent "podman registry credentials absent" test -e "$HOME/.config/containers/auth.json"
 check_absent "operator SSH agent absent" printenv SSH_AUTH_SOCK
 
 if [[ -f "$HOME/.ssh/dm_deploy_key" ]]; then

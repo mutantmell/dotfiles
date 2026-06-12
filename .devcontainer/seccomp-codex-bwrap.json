@@ -57,7 +57,7 @@
       ],
       "action": "SCMP_ACT_ERRNO",
       "args": [],
-      "comment": "Keep Docker-style defense-in-depth for sensitive host/kernel syscalls while allowing namespace and mount operations required by Nix and bubblewrap.",
+      "comment": "Keep container-runtime defense-in-depth for sensitive host/kernel syscalls while allowing namespace and mount operations required by Nix and bubblewrap.",
       "includes": {},
       "excludes": {}
     }

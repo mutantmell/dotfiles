@@ -18,35 +18,29 @@
   //   flake's nixosTest suite (./scripts/run-checks.sh) runs nested with fast
   //   local feedback — the hard requirement that drove the whole KubeVirt-VM
   //   substrate decision.
-  // --cap-add=SYS_ADMIN: let Nix open its build sandbox. Docker's default
+  // --cap-add=SYS_ADMIN: let Nix open its build sandbox. The default container
   //   capability set is missing the mount namespace privileges Nix needs.
   // --cgroupns=host + /sys/fs/cgroup rw: let the root-owned nix-daemon create
-  //   per-build cgroups for auto-allocated UID ranges. Docker cannot reliably
-  //   provide a writable cgroup v2 tree inside a private cgroup namespace; binding
-  //   the VM's cgroupfs while also using a private namespace makes Nix see "/"
-  //   as its cgroup but operate on a mount sourced outside that namespace, which
-  //   breaks uid-range builds. Sharing the VM's cgroup namespace is acceptable
-  //   here because the KubeVirt VM is the security boundary.
+  //   per-build cgroups for auto-allocated UID ranges. Binding the VM's cgroupfs
+  //   while also using a private namespace makes Nix see "/" as its cgroup but
+  //   operate on a mount sourced outside that namespace, which breaks uid-range
+  //   builds. Sharing the VM's cgroup namespace is acceptable here because the
+  //   KubeVirt VM is the security boundary.
   // --security-opt=seccomp=...: keep seccomp enabled but use a profile that
   //   permits pivot_root, which bubblewrap needs for Codex's own command
-  //   sandbox. Docker resolves this path on the VM host, so the base VM image
-  //   installs it under /etc/docker.
-  // --security-opt=systempaths=unconfined: let Nix create a fresh mount+PID
-  //   namespace and remount /proc for sandboxed builds. Docker's default
-  //   masked/read-only /proc overlays make Nix conclude sandbox namespaces are
-  //   unsupported, which breaks nix develop and container-backed NixOS tests.
-  // --security-opt=apparmor=unconfined: keep Docker seccomp active, but do not
-  //   apply Docker's default AppArmor profile. Nix uid-range builds mount a fresh
-  //   sysfs inside their build sandbox; AppArmor can deny that even when the
-  //   container has CAP_SYS_ADMIN and a seccomp profile that permits mount(2).
+  //   sandbox. Podman resolves this path on the VM host, so the base VM image
+  //   installs it under /etc/containers.
+  // --security-opt=unmask=/proc/*:/sys/*: let Nix create fresh procfs/sysfs mounts
+  //   inside sandboxed builds. The uid-range sandbox path mounts a new sysfs under
+  //   the build chroot; masked or read-only proc/sys paths make that fail with
+  //   "mounting /sys: Operation not permitted".
   "runArgs": [
     "--device=/dev/kvm",
     "--cap-add=SYS_ADMIN",
     "--cgroupns=host",
     "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",
-    "--security-opt=seccomp=/etc/docker/seccomp-codex-bwrap.json",
-    "--security-opt=systempaths=unconfined",
-    "--security-opt=apparmor=unconfined"
+    "--security-opt=seccomp=/etc/containers/seccomp-codex-bwrap.json",
+    "--security-opt=unmask=/proc/*:/sys/*"
   ],
 
   // Keep postCreate minimal (plan). The workspace is bind-mounted, so git would

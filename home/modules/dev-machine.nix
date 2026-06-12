@@ -64,7 +64,7 @@
 # push forgejo over SSH. Pushes therefore authenticate **as cc**, so the blast
 # radius is whatever cc can write to — keep cc's repo access scoped to bound it.
 # `down` deletes the key. devpod's own host-credential forwarding is disabled on
-# the ssh path (`--start-services=false`) so the operator's git/docker creds are
+# the ssh path (`--start-services=false`) so the operator's git/registry creds are
 # never proxied into the session — the cc key is the only push path. Branch
 # protection on creil (AGit refs/for/main, no direct protected-main merge) is the
 # complementary server-side control; configure it once per repo in Forgejo. The
@@ -153,7 +153,7 @@
                 {
                   name = "scratch";
                   # serial → /dev/disk/by-id/virtio-scratch in the guest, which the
-                  # base image autoFormats + mounts at /var/lib/docker.
+                  # base image autoFormats + mounts at /var/lib/containers.
                   serial = "scratch";
                   disk.bus = "virtio";
                 }
@@ -205,9 +205,9 @@
             }
             {
               name = "scratch";
-              # Ephemeral runtime scratch for docker data-root (dev image +
+              # Ephemeral runtime scratch for Podman rootful storage (dev image +
               # in-container builds). Dies with the VM (no CSI); the base image
-              # formats + mounts it at /var/lib/docker.
+              # formats + mounts it at /var/lib/containers.
               emptyDisk.capacity = "60Gi";
             }
           ];
@@ -451,43 +451,34 @@
           }
           id=$(echo "$resp" | jq -r '.id')
           printf '%s\n' "$id" >"$statedir/deploy_key_id"
-          inject_deploy_key "$name" "$keyfile" "$host"
+          inject_deploy_key "$name" "$keyfile"
       }
 
       # Push the private key + git config into the running devcontainer through
-      # the VM's sshd + docker, bypassing devpod's nested SSH tunnel. This path
-      # forwards none of the operator's credentials and is less sensitive to
-      # devpod helper exit-status quirks.
+      # DevPod's in-container shell. This keeps the operator's host credentials out
+      # of the session while avoiding a second direct container-runtime control path.
       inject_deploy_key() {
-          local name=$1 keyfile=$2 host="''${3:-}" b64 cid
-          [[ -n "$host" ]] || host=$(host_for_machine "$name") || {
-              echo "cannot resolve $name's VM host for deploy-key injection" >&2
-              return 1
-          }
+          local name=$1 keyfile=$2 b64
           b64=$(base64 -w0 "$keyfile")
-          # shellcheck disable=SC2016
-          cid=$(ssh_dev "$host" \
-              'for c in $(docker ps -q); do if docker exec "$c" sh -c "ls -d /workspaces/*/.git" >/dev/null 2>&1; then echo "$c"; break; fi; done' \
-              2>/dev/null)
-          [[ -n "$cid" ]] || {
-              echo "no running devcontainer with a /workspaces git repo found" >&2
-              return 1
-          }
           {
-              printf '%s\n' 'set -e' 'umask 077' 'mkdir -p ~/.ssh'
-              printf '%s\n' "printf %s '$b64' | base64 -d > ~/.ssh/dm_deploy_key"
-              printf '%s\n' 'chmod 600 ~/.ssh/dm_deploy_key'
-              printf '%s\n' "{ echo 'Host forgejo.internal'"
-              printf '%s\n' "  echo '  User $FORGEJO_SSH_USER'"
-              printf '%s\n' "  echo '  IdentityFile ~/.ssh/dm_deploy_key'"
-              printf '%s\n' "  echo '  IdentitiesOnly yes'"
-              printf '%s\n' "  echo '  StrictHostKeyChecking accept-new'"
-              printf '%s\n' '} > ~/.ssh/config'
-              printf '%s\n' 'chmod 600 ~/.ssh/config'
-              printf '%s\n' "git config --global url.'$FORGEJO_SSH_USER@forgejo.internal:'.insteadOf 'https://forgejo.internal/'"
-              printf '%s\n' "git config --global user.name '$COMMIT_NAME'"
-              printf '%s\n' "git config --global user.email '$COMMIT_EMAIL'"
-          } | ssh_dev "$host" "docker exec -i --user agent $cid sh -s"
+              printf '%s\n' \
+              'set -e' \
+              'umask 077' \
+              'mkdir -p ~/.ssh' \
+              "printf %s '$b64' | base64 -d > ~/.ssh/dm_deploy_key" \
+              'chmod 600 ~/.ssh/dm_deploy_key' \
+              "{ echo 'Host forgejo.internal'" \
+              "  echo '  User $FORGEJO_SSH_USER'" \
+              "  echo '  IdentityFile ~/.ssh/dm_deploy_key'" \
+              "  echo '  IdentitiesOnly yes'" \
+              "  echo '  StrictHostKeyChecking accept-new'" \
+              '} > ~/.ssh/config' \
+              'chmod 600 ~/.ssh/config' \
+              "git config --global url.'$FORGEJO_SSH_USER@forgejo.internal:'.insteadOf 'https://forgejo.internal/'" \
+              "git config --global user.name '$COMMIT_NAME'" \
+              "git config --global user.email '$COMMIT_EMAIL'"
+          } | devpod ssh "$name" --user agent --start-services=false --agent-forwarding=false \
+              --command "sh -s"
       }
 
       # Revoke a previously-minted cc SSH key (recorded in the state dir). $2=token.
@@ -500,13 +491,12 @@
       }
 
       # ── rescue: extract uncommitted work from a still-alive dev machine ────────
-      # The in-container extraction script, delivered either through the VM's sshd
-      # + docker (extract_via_docker) or through devpod (extract_via_devpod). It
+      # The in-container extraction script, delivered through devpod. It
       # finds the git workspace under /workspaces, packs a bundle of ALL refs (so
       # committed-but-unpushed history survives), a working-tree patch, the git
       # status, and the NON-IGNORED untracked files into one tarball, then base64s
       # it to stdout. Untracked uses --exclude-standard so build junk on scratch
-      # (the nixosTest images, docker layers) is skipped. Deliberately contains NO
+      # (the nixosTest images, OCI layers) is skipped. Deliberately contains NO
       # single quotes, so it survives being passed as a devpod `--command` string.
       extract_script() {
           # Built with printf (not a heredoc) on purpose: a second here-doc
@@ -532,28 +522,6 @@
               'rm -rf "$tmp"'
       }
 
-      # Raw VM ssh + docker exec: find the running devcontainer (the one with a
-      # /workspaces/*/.git) and run the extraction inside it, script on stdin to
-      # `sh -s` (no quoting to get wrong). The most robust path — it never touches
-      # devpod's (observed-fragile) tunnel, only the OOM-protected VM sshd.
-      extract_via_docker() {
-          local host=$1 cid
-          # The single-quoted probe runs in the remote VM, not here — its $-exprs
-          # must NOT expand locally.
-          # shellcheck disable=SC2016
-          cid=$(ssh_dev "$host" \
-              'for c in $(docker ps -q); do if docker exec "$c" sh -c "ls -d /workspaces/*/.git" >/dev/null 2>&1; then echo "$c"; break; fi; done' \
-              2>/dev/null)
-          [[ -n "$cid" ]] || {
-              echo "no running devcontainer with a /workspaces git repo found" >&2
-              return 1
-          }
-          extract_script | ssh_dev "$host" "docker exec -i $cid sh -s"
-      }
-
-      # Fallback: deliver the same script through devpod's in-container shell. Used
-      # only when the docker path finds nothing — e.g. the container is stopped and
-      # the revive brought it back under devpod but a plain `docker ps` raced it.
       extract_via_devpod() {
           local name=$1 script
           script=$(extract_script)
@@ -563,15 +531,12 @@
 
       # Capture the workspace (git bundle of all refs + working-tree patch +
       # non-ignored untracked files) from the live VM into $rescuedir, unpacked.
-      # Tries the robust raw-docker path first, then devpod. Returns 0 only when
-      # a non-empty payload was unpacked. This is the INSURANCE taken around a
-      # recovery attempt — never the end goal on its own. $rescuedir must exist.
+      # Returns 0 only when a non-empty payload was unpacked. This is the
+      # INSURANCE taken around a recovery attempt — never the end goal on its own.
+      # $rescuedir must exist.
       rescue_backup() {
           local name=$1 host=$2 rescuedir=$3 out=""
-          out=$(extract_via_docker "$host" 2>>"$rescuedir/extract.log") || out=""
-          if [[ -z "$out" ]]; then
-              out=$(extract_via_devpod "$name" 2>>"$rescuedir/extract.log") || out=""
-          fi
+          out=$(extract_via_devpod "$name" 2>>"$rescuedir/extract.log") || out=""
           [[ -n "$out" ]] || return 1
           if ! printf '%s' "$out" | base64 -d >"$rescuedir/rescue.tar.gz" 2>/dev/null; then
               printf '%s' "$out" >"$rescuedir/rescue.b64"
@@ -798,10 +763,15 @@
           # Per-machine ssh provider pinned directly to the slot host. Built-in ssh
           # is off so EXTRA_FLAGS' host-key relaxation applies — these VMs are
           # ephemeral and reuse slot names/IPs, so a pinned known_hosts entry only
-          # gets in the way.
+          # gets in the way. The SSH provider still uses DevPod's Docker driver,
+          # but points it at the VM's absolute `podman-rootful` wrapper, which
+          # talks to /run/podman/podman.sock. Invoking plain `podman` as dev would
+          # create a rootless workspace, which is not the validation target for Nix
+          # uid-range builds.
           devpod provider delete "$provider" 2>/dev/null || true
           devpod provider add ssh --name "$provider" --use \
               -o HOST="dev@$host" \
+              -o DOCKER_PATH=/run/current-system/sw/bin/podman-rootful \
               -o USE_BUILTIN_SSH=false \
               -o EXTRA_FLAGS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
@@ -840,7 +810,7 @@
 
           # --recover: the in-VM devpod agent/container is gone — typically after
           # the VM crashed and runStrategy=Always booted a fresh one (the scratch
-          # docker data-root is an emptyDisk, so it comes back blank). `devpod up`
+          # Podman storage is an emptyDisk, so it comes back blank). `devpod up`
           # on the existing workspace id re-runs the agent and rebuilds the
           # devcontainer over the (re-established) tunnel, which is what gets the
           # `devpod ssh` below working again. NOTE: the rebuilt container is fresh,
@@ -858,7 +828,7 @@
           # Lockdown flags: --user agent forces the in-container account even on
           # DevPod versions/configs that would otherwise default an interactive
           # SSH session to root. --start-services=false stops devpod proxying the
-          # operator's git/docker credentials into the session, and
+          # operator's git/registry credentials into the session, and
           # --agent-forwarding=false stops forwarding the operator's SSH agent in
           # (devpod defaults it ON) — the injected cc key is the sandbox's only
           # identity. Disabling agent-forwarding also avoids devpod's noisy teardown
@@ -1027,8 +997,8 @@
               echo "VM sshd is unreachable, though the VM is Running (rare — sshd is" >&2
               echo "OOM-protected). Recover/extract manually over the serial console:" >&2
               echo "  dev-machine console $name      # root autologin, then e.g.:" >&2
-              echo "  #   docker ps; docker start <id>" >&2
-              echo "  #   docker cp <id>:/workspaces/$name /root/$name-rescue" >&2
+              echo "  #   podman ps; podman start <id>" >&2
+              echo "  #   podman cp <id>:/workspaces/$name /root/$name-rescue" >&2
               return 1
           fi
 
@@ -1078,7 +1048,7 @@
           fi
 
           # Container is back; grab the safety copy now if the pre-revive one
-          # no-op'd (the container had been stopped, so docker couldn't read it).
+          # no-op'd (the container had been stopped, so Podman couldn't read it).
           if [[ "$backed_up" -eq 0 ]]; then
               echo "==> backing up the working tree (post-recovery safety net)"
               rescue_backup "$name" "$host" "$rescuedir" && backed_up=1
@@ -1266,7 +1236,7 @@ in {
     defaultDisk = lib.mkOption {
       type = lib.types.str;
       default = "60Gi";
-      description = "Default capacity of the ephemeral scratch disk backing docker's data-root (dev image + in-container builds, incl. nixosTest VM images). Override per-session with `--disk`.";
+      description = "Default capacity of the ephemeral scratch disk backing Podman's rootful storage (dev image + in-container builds, incl. nixosTest VM images). Override per-session with `--disk`.";
     };
 
     forgejoApi = lib.mkOption {

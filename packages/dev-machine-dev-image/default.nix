@@ -164,7 +164,7 @@
   # a plain runc container *inside* the KubeVirt VM (the security boundary); the
   # devcontainer.json at the repo root pins it. This is where the actual dev
   # tooling lives — the VM base image (packages/dev-machine-image) stays thin
-  # (sshd + docker + a service user) and carries none of this.
+  # (sshd + Podman + a service user) and carries none of this.
   #
   # Built with Nix (streamLayeredImage), not a Dockerfile, so the contents are
   # pinned to this flake's nixpkgs and there is no apt/npm build step — the
@@ -301,7 +301,7 @@ in
     # NIX_REMOTE=daemon instead of single-user root writes.
     #
     # sandbox = true: the container gets CAP_SYS_ADMIN via the devcontainer.json
-    #   `runArgs` (`--cap-add=SYS_ADMIN`), which lifts docker's default-seccomp
+    #   `runArgs` (`--cap-add=SYS_ADMIN`), which lifts the default container seccomp
     #   block on the namespace/mount syscalls Nix's sandbox needs. (An earlier
     #   note here claimed in-container sandboxing was impossible — that test was
     #   run WITHOUT the cap; the VM kernel does support userns,
