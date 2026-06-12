@@ -21,283 +21,304 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-}:
-pkgs.testers.nixosTest {
-  name = "router6-firewall";
+  useContainers ? false,
+}: let
+  machinesAttr =
+    if useContainers
+    then "containers"
+    else "nodes";
+  testRunner =
+    if useContainers
+    then
+      args:
+        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
+          // {
+            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
+            node.pkgs = pkgs;
+            containerDefaults = {config, ...}: {
+              system.name = "m${toString config.virtualisation.test.nodeNumber}";
+              networking.useHostResolvConf = false;
+            };
+            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
+          })
+    else pkgs.testers.nixosTest;
+in
+  testRunner {
+    name = "router6-firewall${lib.optionalString useContainers "-container"}";
 
-  nodes = {
-    router = {
-      config,
-      pkgs,
-      lib,
-      ...
-    }: {
-      imports = [
-        ../../modules/router6
-        ../lib/test-minimal-base.nix
-      ];
+    ${machinesAttr} = {
+      router = {
+        config,
+        pkgs,
+        lib,
+        ...
+      }: {
+        imports = [
+          ../../modules/router6
+          ../lib/test-minimal-base.nix
+        ];
 
-      # Virtual network setup
-      # - eth1 (vlan1) = WAN/external network (attacker connected here)
-      # - eth2 (vlan2) = LAN/internal network (client connected here)
-      virtualisation.vlans = [1 2];
+        # Virtual network setup
+        # - eth1 (vlan1) = WAN/external network (attacker connected here)
+        # - eth2 (vlan2) = LAN/internal network (client connected here)
+        virtualisation.vlans = [1 2];
 
-      router6 = {
-        enable = true;
-        ulaPrefix = "fdc6:55f2:0a5e::/48";
+        router6 = {
+          enable = true;
+          ulaPrefix = "fdc6:55f2:0a5e::/48";
 
-        zones = {
-          external = {
-            icmpEcho = "disable";
-            accessTo = [];
-            inputRules = [];
-          };
-          trusted = {
-            icmpEcho = "enable";
-            accessTo = ["trusted" "external"];
-            inputRules = [{verdict = "accept";}];
-          };
-        };
-
-        dns = {
-          upstream = ["1.1.1.1"];
-          localDomain = "test.local";
-        };
-
-        topology = {
-          # WAN interface (external/untrusted)
-          eth1 = {
-            hardwareName = "eth1";
-            network = {
-              type = "static";
-              addresses = ["203.0.113.1/24"];
-              zone = "external";
-              nat.enable = true;
+          zones = {
+            external = {
+              icmpEcho = "disable";
+              accessTo = [];
+              inputRules = [];
+            };
+            trusted = {
+              icmpEcho = "enable";
+              accessTo = ["trusted" "external"];
+              inputRules = [{verdict = "accept";}];
             };
           };
 
-          # LAN interface (trusted)
-          eth2 = {
-            hardwareName = "eth2";
-            network = {
-              type = "static";
-              addresses = ["10.0.10.1/24"];
-              zone = "trusted";
-              dhcp.enable = true;
+          dns = {
+            upstream = ["1.1.1.1"];
+            localDomain = "test.local";
+          };
+
+          topology = {
+            # WAN interface (external/untrusted)
+            eth1 = {
+              hardwareName = "eth1";
+              network = {
+                type = "static";
+                addresses = ["203.0.113.1/24"];
+                zone = "external";
+                nat.enable = true;
+              };
             };
+
+            # LAN interface (trusted)
+            eth2 = {
+              hardwareName = "eth2";
+              network = {
+                type = "static";
+                addresses = ["10.0.10.1/24"];
+                zone = "trusted";
+                dhcp.enable = true;
+              };
+            };
+          };
+
+          # No custom firewall rules - testing default stealth behavior
+          firewall = {
+            extraInputRules = [];
+            extraForwardRules = [];
           };
         };
 
-        # No custom firewall rules - testing default stealth behavior
-        firewall = {
-          extraInputRules = [];
-          extraForwardRules = [];
-        };
+        # Test exercises firewall stealth + kresd (:53 checks) — no DHCP probes.
+        services.kea.dhcp4.enable = lib.mkForce false;
+        services.kea.dhcp6.enable = lib.mkForce false;
       };
 
-      # Test exercises firewall stealth + kresd (:53 checks) — no DHCP probes.
-      services.kea.dhcp4.enable = lib.mkForce false;
-      services.kea.dhcp6.enable = lib.mkForce false;
+      # Attacker node on the external/WAN network
+      attacker = {
+        config,
+        pkgs,
+        lib,
+        ...
+      }: {
+        imports = [../lib/test-minimal-base.nix];
+        virtualisation.vlans = [1];
+
+        networking = {
+          useDHCP = false;
+          enableIPv6 = false;
+          interfaces.eth1 = {
+            ipv4.addresses = [
+              {
+                address = "203.0.113.100";
+                prefixLength = 24;
+              }
+            ];
+          };
+        };
+
+        boot.kernel.sysctl = {
+          "net.ipv6.conf.all.disable_ipv6" = 1;
+          "net.ipv6.conf.default.disable_ipv6" = 1;
+        };
+
+        environment.systemPackages = with pkgs; [
+          netcat-gnu
+          nmap
+          tcpdump
+        ];
+      };
+
+      # Client node on the internal/LAN network
+      client = {
+        config,
+        pkgs,
+        lib,
+        ...
+      }: {
+        imports = [../lib/test-minimal-base.nix];
+        virtualisation.vlans = [2];
+
+        networking = {
+          useDHCP = false;
+          interfaces.eth1 = {
+            ipv4.addresses = [
+              {
+                address = "10.0.10.100";
+                prefixLength = 24;
+              }
+            ];
+          };
+          defaultGateway = "10.0.10.1";
+          nameservers = ["10.0.10.1"];
+        };
+
+        environment.systemPackages = with pkgs; [
+          netcat-gnu
+          dig
+        ];
+      };
     };
 
-    # Attacker node on the external/WAN network
-    attacker = {
-      config,
-      pkgs,
-      lib,
-      ...
-    }: {
-      imports = [../lib/test-minimal-base.nix];
-      virtualisation.vlans = [1];
+    testScript = ''
+      start_all()
 
-      networking = {
-        useDHCP = false;
-        enableIPv6 = false;
-        interfaces.eth1 = {
-          ipv4.addresses = [
-            {
-              address = "203.0.113.100";
-              prefixLength = 24;
-            }
-          ];
-        };
-      };
+      # Wait for all nodes to be ready
+      router.wait_for_unit("network-online.target")
+      router.wait_for_unit("nftables.service")
 
-      boot.kernel.sysctl = {
-        "net.ipv6.conf.all.disable_ipv6" = 1;
-        "net.ipv6.conf.default.disable_ipv6" = 1;
-      };
+      # For static networking, just wait for interfaces to be up
+      attacker.wait_until_succeeds("ip addr show eth1 | grep '203.0.113.100'")
+      client.wait_until_succeeds("ip addr show eth1 | grep '10.0.10.100'")
 
-      environment.systemPackages = with pkgs; [
-        netcat-gnu
-        nmap
-        tcpdump
-      ];
-    };
+      # ==========================================================================
+      # Test 1: Verify firewall uses drop policy (not reject)
+      # ==========================================================================
+      print("Test 1: Checking firewall drop policy...")
 
-    # Client node on the internal/LAN network
-    client = {
-      config,
-      pkgs,
-      lib,
-      ...
-    }: {
-      imports = [../lib/test-minimal-base.nix];
-      virtualisation.vlans = [2];
+      # Check input chain has policy drop
+      router.succeed("nft list chain inet filter input | grep 'policy drop'")
 
-      networking = {
-        useDHCP = false;
-        interfaces.eth1 = {
-          ipv4.addresses = [
-            {
-              address = "10.0.10.100";
-              prefixLength = 24;
-            }
-          ];
-        };
-        defaultGateway = "10.0.10.1";
-        nameservers = ["10.0.10.1"];
-      };
+      # Check forward chain has policy drop
+      router.succeed("nft list chain inet filter forward | grep 'policy drop'")
 
-      environment.systemPackages = with pkgs; [
-        netcat-gnu
-        dig
-      ];
-    };
-  };
+      # Verify no reject rules exist in the firewall
+      router.fail("nft list ruleset | grep -i reject")
 
-  testScript = ''
-    start_all()
+      print("PASS: Firewall uses drop policy, no reject rules found")
 
-    # Wait for all nodes to be ready
-    router.wait_for_unit("network-online.target")
-    router.wait_for_unit("nftables.service")
+      # ==========================================================================
+      # Test 2: Verify external zone has no accept rules (stealth via policy drop)
+      # ==========================================================================
+      print("Test 2: Checking external zone has no accept rules...")
 
-    # For static networking, just wait for interfaces to be up
-    attacker.wait_until_succeeds("ip addr show eth1 | grep '203.0.113.100'")
-    client.wait_until_succeeds("ip addr show eth1 | grep '10.0.10.100'")
+      # The external zone should not appear in any accept rule in the input chain
+      # (policy drop handles all external traffic)
+      router.fail("nft list chain inet filter input | grep 'iifname.*eth1.*accept'")
 
-    # ==========================================================================
-    # Test 1: Verify firewall uses drop policy (not reject)
-    # ==========================================================================
-    print("Test 1: Checking firewall drop policy...")
+      print("PASS: External zone has no accept rules (policy drop handles it)")
 
-    # Check input chain has policy drop
-    router.succeed("nft list chain inet filter input | grep 'policy drop'")
+      # ==========================================================================
+      # Test 3: TCP SYN to closed port is silently dropped (stealth mode)
+      # ==========================================================================
+      print("Test 3: Testing TCP stealth mode from external network...")
 
-    # Check forward chain has policy drop
-    router.succeed("nft list chain inet filter forward | grep 'policy drop'")
+      # Attempt TCP connection to a closed port (8888) on the router
+      # This should timeout with no response (stealth mode)
+      # The timeout itself proves stealth mode - no RST would cause immediate rejection
+      attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 8888")
 
-    # Verify no reject rules exist in the firewall
-    router.fail("nft list ruleset | grep -i reject")
+      print("PASS: TCP connection silently dropped (timeout indicates no RST response)")
 
-    print("PASS: Firewall uses drop policy, no reject rules found")
+      # ==========================================================================
+      # Test 4: ICMP echo (ping) from external is silently dropped (stealth mode)
+      # ==========================================================================
+      print("Test 4: Testing ICMP ping stealth mode from external network...")
 
-    # ==========================================================================
-    # Test 2: Verify external zone has no accept rules (stealth via policy drop)
-    # ==========================================================================
-    print("Test 2: Checking external zone has no accept rules...")
+      # Ping from external network should timeout (no response)
+      attacker.fail("ping -c 2 -W 2 203.0.113.1")
 
-    # The external zone should not appear in any accept rule in the input chain
-    # (policy drop handles all external traffic)
-    router.fail("nft list chain inet filter input | grep 'iifname.*eth1.*accept'")
+      print("PASS: ICMP echo request from external silently dropped")
 
-    print("PASS: External zone has no accept rules (policy drop handles it)")
+      # ==========================================================================
+      # Test 5: Internal clients CAN ping the router
+      # ==========================================================================
+      print("Test 5: Verifying internal network can ping router...")
 
-    # ==========================================================================
-    # Test 3: TCP SYN to closed port is silently dropped (stealth mode)
-    # ==========================================================================
-    print("Test 3: Testing TCP stealth mode from external network...")
+      client.succeed("ping -c 2 -W 2 10.0.10.1")
 
-    # Attempt TCP connection to a closed port (8888) on the router
-    # This should timeout with no response (stealth mode)
-    # The timeout itself proves stealth mode - no RST would cause immediate rejection
-    attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 8888")
+      print("PASS: Internal network can ping router")
 
-    print("PASS: TCP connection silently dropped (timeout indicates no RST response)")
+      # ==========================================================================
+      # Test 6: Verify attacker cannot access router services
+      # ==========================================================================
+      print("Test 6: Verifying external network cannot access router services...")
 
-    # ==========================================================================
-    # Test 4: ICMP echo (ping) from external is silently dropped (stealth mode)
-    # ==========================================================================
-    print("Test 4: Testing ICMP ping stealth mode from external network...")
+      # Attacker should not be able to access DNS on the router
+      attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 53")
 
-    # Ping from external network should timeout (no response)
-    attacker.fail("ping -c 2 -W 2 203.0.113.1")
+      # Attacker should not be able to access any common service ports
+      attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 22")  # SSH
+      attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 80")  # HTTP
+      attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 443") # HTTPS
 
-    print("PASS: ICMP echo request from external silently dropped")
+      print("PASS: External network blocked from router services")
 
-    # ==========================================================================
-    # Test 5: Internal clients CAN ping the router
-    # ==========================================================================
-    print("Test 5: Verifying internal network can ping router...")
+      # ==========================================================================
+      # Test 7: Verify internal clients CAN access router services
+      # ==========================================================================
+      print("Test 7: Verifying internal network can access router services...")
 
-    client.succeed("ping -c 2 -W 2 10.0.10.1")
+      # Wait for DNS port to be listening (kresd or other DNS service)
+      router.wait_until_succeeds("ss -tuln | grep ':53 '")
 
-    print("PASS: Internal network can ping router")
+      # Client should be able to access DNS port (firewall allows it)
+      client.succeed("timeout 5 nc -z -w 3 10.0.10.1 53")
 
-    # ==========================================================================
-    # Test 6: Verify attacker cannot access router services
-    # ==========================================================================
-    print("Test 6: Verifying external network cannot access router services...")
+      print("PASS: Internal network can access router services")
 
-    # Attacker should not be able to access DNS on the router
-    attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 53")
+      # ==========================================================================
+      # Test 8: Verify nftables ruleset structure
+      # ==========================================================================
+      print("Test 8: Verifying nftables ruleset structure...")
 
-    # Attacker should not be able to access any common service ports
-    attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 22")  # SSH
-    attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 80")  # HTTP
-    attacker.fail("timeout 3 nc -z -w 2 203.0.113.1 443") # HTTPS
+      # Should have inet filter table
+      router.succeed("nft list tables | grep 'inet filter'")
 
-    print("PASS: External network blocked from router services")
+      # Should have connection tracking for established connections
+      router.succeed("nft list chain inet filter input | grep 'ct state.*established.*related.*accept'")
 
-    # ==========================================================================
-    # Test 7: Verify internal clients CAN access router services
-    # ==========================================================================
-    print("Test 7: Verifying internal network can access router services...")
+      # Should drop invalid connection tracking state
+      router.succeed("nft list chain inet filter input | grep 'ct state invalid drop'")
+      router.succeed("nft list chain inet filter forward | grep 'ct state invalid drop'")
 
-    # Wait for DNS port to be listening (kresd or other DNS service)
-    router.wait_until_succeeds("ss -tuln | grep ':53 '")
+      # Should accept loopback
+      router.succeed("nft list chain inet filter input | grep 'iifname.*lo.*accept'")
 
-    # Client should be able to access DNS port (firewall allows it)
-    client.succeed("timeout 5 nc -z -w 3 10.0.10.1 53")
+      print("PASS: nftables ruleset structure is correct")
 
-    print("PASS: Internal network can access router services")
-
-    # ==========================================================================
-    # Test 8: Verify nftables ruleset structure
-    # ==========================================================================
-    print("Test 8: Verifying nftables ruleset structure...")
-
-    # Should have inet filter table
-    router.succeed("nft list tables | grep 'inet filter'")
-
-    # Should have connection tracking for established connections
-    router.succeed("nft list chain inet filter input | grep 'ct state.*established.*related.*accept'")
-
-    # Should drop invalid connection tracking state
-    router.succeed("nft list chain inet filter input | grep 'ct state invalid drop'")
-    router.succeed("nft list chain inet filter forward | grep 'ct state invalid drop'")
-
-    # Should accept loopback
-    router.succeed("nft list chain inet filter input | grep 'iifname.*lo.*accept'")
-
-    print("PASS: nftables ruleset structure is correct")
-
-    # ==========================================================================
-    # Summary
-    # ==========================================================================
-    print("")
-    print("=" * 70)
-    print("STEALTH MODE VERIFICATION COMPLETE")
-    print("=" * 70)
-    print("All tests passed. The router6 module operates in stealth mode:")
-    print("- Default policy is DROP (not reject)")
-    print("- External interfaces have explicit drop rules")
-    print("- TCP SYN packets to closed ports are silently dropped")
-    print("- UDP packets to closed ports are silently dropped")
-    print("- ICMP echo requests (ping) from external are silently dropped")
-    print("- Essential ICMP (PMTUD, ND) still works for network operation")
-    print("- Internal clients retain full access to router services (including ping)")
-    print("=" * 70)
-  '';
-}
+      # ==========================================================================
+      # Summary
+      # ==========================================================================
+      print("")
+      print("=" * 70)
+      print("STEALTH MODE VERIFICATION COMPLETE")
+      print("=" * 70)
+      print("All tests passed. The router6 module operates in stealth mode:")
+      print("- Default policy is DROP (not reject)")
+      print("- External interfaces have explicit drop rules")
+      print("- TCP SYN packets to closed ports are silently dropped")
+      print("- UDP packets to closed ports are silently dropped")
+      print("- ICMP echo requests (ping) from external are silently dropped")
+      print("- Essential ICMP (PMTUD, ND) still works for network operation")
+      print("- Internal clients retain full access to router services (including ping)")
+      print("=" * 70)
+    '';
+  }

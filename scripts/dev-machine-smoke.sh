@@ -90,6 +90,12 @@ devcontainer_pins_agent_user() {
     grep -Eq '^[[:space:]]*"updateRemoteUserUID"[[:space:]]*:[[:space:]]*false' /workspaces/dotfiles/.devcontainer/devcontainer.json
 }
 
+devcontainer_configures_cgroups() {
+  [[ -f /workspaces/dotfiles/.devcontainer/devcontainer.json ]] &&
+    grep -Fqx '    "--cgroupns=private",' /workspaces/dotfiles/.devcontainer/devcontainer.json &&
+    grep -Fqx '    "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",' /workspaces/dotfiles/.devcontainer/devcontainer.json
+}
+
 nix_config_contains_word() {
   local key=$1 word=$2
   nix config show "$key" 2>/dev/null | grep -Eq "(^|[[:space:]])$word([[:space:]]|$)"
@@ -98,6 +104,7 @@ nix_config_contains_word() {
 check "agent user is non-root" agent_user_is_non_root
 check "agent HOME matches passwd" agent_home_matches_passwd
 check "devcontainer pins agent user without UID rewrite" devcontainer_pins_agent_user
+check "devcontainer configures private cgroups" devcontainer_configures_cgroups
 
 check "NIX_REMOTE uses daemon" test "${NIX_REMOTE:-}" = daemon
 check "Nix daemon responds" nix store info --store daemon
@@ -105,6 +112,9 @@ check "Nix build users group configured" bash -c 'nix config show build-users-gr
 check "Nix allows agent user" nix_config_contains_word allowed-users agent
 check_absent "Nix does not trust agent user" nix_config_contains_word trusted-users agent
 check_absent "agent cannot write directly to /nix/store" test -w /nix/store
+check "Nix auto-allocates build UIDs" bash -c 'nix config show auto-allocate-uids 2>/dev/null | grep -qx "true"'
+check "Nix has auto-allocate-uids feature" nix_config_contains_word experimental-features auto-allocate-uids
+check "Nix advertises uid-range" nix_config_contains_word system-features uid-range
 
 for wrapper in agent-fmt agent-preflight agent-preflight-quick agent-preflight-full agent-checks agent-build-check agent-smoke; do
   check "$wrapper available" command -v "$wrapper"
@@ -129,11 +139,16 @@ fi
 # shellcheck disable=SC2016
 if in_codex_command_sandbox; then
   skip "Nix sandbox build" "masked by Codex's nested command sandbox"
+  skip "Nix uid-range sandbox build" "masked by Codex's nested command sandbox"
+  skip "cgroup filesystem writable" "masked by Codex's nested command sandbox"
 else
   check "Nix sandbox build" nix build --impure --expr 'with import <nixpkgs> {}; runCommand "dev-machine-smoke" {} "echo ok > $out"' --no-link
+  check "Nix uid-range sandbox build" nix build --impure --expr 'with import <nixpkgs> {}; runCommand "dev-machine-uid-range-smoke" { requiredSystemFeatures = [ "uid-range" ]; } "echo ok > $out"' --no-link
+  check "cgroup filesystem writable" test -w /sys/fs/cgroup
 fi
 
 check "Nix sandbox enabled" bash -c 'nix config show sandbox 2>/dev/null | grep -qx "true"'
+check "Nix sandbox fallback disabled" bash -c 'nix config show sandbox-fallback 2>/dev/null | grep -qx "false"'
 check "seccomp active" bash -c 'grep -q "^Seccomp:[[:space:]]*2$" /proc/self/status'
 # shellcheck disable=SC2016
 check "CAP_SYS_ADMIN present" bash -c 'cap_hex=$(sed -n "s/^CapEff:[[:space:]]*//p" /proc/self/status); cap=$((16#$cap_hex)); (( cap & (1 << 21) ))'

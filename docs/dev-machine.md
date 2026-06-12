@@ -38,7 +38,8 @@ Inside the devcontainer, agents should expect:
 - The container keeps a root-owned bootstrap process only to start `nix-daemon`; agent Nix clients use `NIX_REMOTE=daemon`.
 - Nix uses a daemon-style policy with `build-users-group = nixbld`, `allowed-users = root agent`, and `trusted-users = root`; the agent can build but cannot relax daemon policy as a trusted user.
 - `/dev/kvm` is passed through for NixOS VM tests.
-- Nix sandboxing is enabled with `/dev/kvm` exposed through `extra-sandbox-paths`.
+- Nix sandboxing is enabled with `/dev/kvm` exposed through `extra-sandbox-paths`; `sandbox-fallback` is disabled so builds fail closed rather than silently running unsandboxed.
+- Nix daemon UID allocation is enabled (`auto-allocate-uids` and `uid-range`) so NixOS container tests can run without granting the agent trusted-user status. The devcontainer uses a private cgroup namespace with `/sys/fs/cgroup` mounted writable for the root-owned daemon; do not replace this with `--privileged`.
 - Docker, DevPod, kubectl, virtctl, and registry credentials are not available inside the agent container.
 - Git push access uses a scoped per-session Forgejo bot key injected by `dev-machine up`.
 - Egress is enforced at bt8gw for VLAN 51, not by Kubernetes NetworkPolicy. The intended policy is WAN plus limited access to `forgejo.internal` for git/registry traffic.
@@ -66,7 +67,9 @@ After changing the profile, base VM image, dev image, or devcontainer runtime ar
 ./scripts/dev-machine-smoke.sh
 ```
 
-A successful smoke test confirms the non-root `agent` session, daemon-backed Nix policy, agent wrapper commands, bubblewrap, Nix sandboxing, seccomp, `CAP_SYS_ADMIN`, `/dev/kvm` availability, absence of operator/cluster credentials, and the scoped Forgejo push-key wiring when one was provisioned.
+A successful smoke test confirms the non-root `agent` session, daemon-backed Nix policy, agent wrapper commands, bubblewrap, Nix sandboxing, UID-range sandbox builds, private cgroup runtime wiring, seccomp, `CAP_SYS_ADMIN`, `/dev/kvm` availability, absence of operator/cluster credentials, and the scoped Forgejo push-key wiring when one was provisioned.
+
+Container-backed NixOS tests are currently a side-by-side proof of concept, not a replacement for the VM tests. Tests that assert firewall or service behavior should be directly comparable, but topology tests that create host-kernel netdevs such as batman-adv, bonds, bridges, and VLANs can still depend on the builder host kernel and loaded modules. Keep the VM variants as the authoritative coverage until those cases have been reviewed on the final dev-machine image.
 
 To also probe the expected bt8gw egress shape from a non-nested shell, run:
 

@@ -16,6 +16,7 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
+  useContainers ? false,
 }: let
   # Domain-per-line denylist as a pinned store path (never an https URL —
   # mirrors the production stevenblack-hosts input).
@@ -23,6 +24,10 @@
     ads1.adstest.net
     ads2.adstest.net
   '';
+  machinesAttr =
+    if useContainers
+    then "containers"
+    else "nodes";
 
   # A static client on one VLAN, pointing its default route at the router.
   mkClient = {
@@ -45,11 +50,26 @@
       defaultGateway = gateway;
     };
   };
+  testRunner =
+    if useContainers
+    then
+      args:
+        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
+          // {
+            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
+            node.pkgs = pkgs;
+            containerDefaults = {config, ...}: {
+              system.name = "m${toString config.virtualisation.test.nodeNumber}";
+              networking.useHostResolvConf = false;
+            };
+            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
+          })
+    else pkgs.testers.nixosTest;
 in
-  pkgs.testers.nixosTest {
-    name = "router6-dns-blocking";
+  testRunner {
+    name = "router6-dns-blocking${lib.optionalString useContainers "-container"}";
 
-    nodes = {
+    ${machinesAttr} = {
       router = {
         config,
         pkgs,

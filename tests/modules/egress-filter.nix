@@ -8,13 +8,33 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
+  useContainers ? false,
 }: let
   inherit ((import ../../lib/common {inherit lib;}).nftables) mkEgressFilter;
+  machinesAttr =
+    if useContainers
+    then "containers"
+    else "nodes";
+  testRunner =
+    if useContainers
+    then
+      args:
+        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
+          // {
+            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
+            node.pkgs = pkgs;
+            containerDefaults = {config, ...}: {
+              system.name = "m${toString config.virtualisation.test.nodeNumber}";
+              networking.useHostResolvConf = false;
+            };
+            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
+          })
+    else pkgs.testers.nixosTest;
 in
-  pkgs.testers.nixosTest {
-    name = "egress-filter";
+  testRunner {
+    name = "egress-filter${lib.optionalString useContainers "-container"}";
 
-    nodes = {
+    ${machinesAttr} = {
       # DMZ host with egress filtering: allow DNS + HTTP to "allowed" node only
       dmzhost = {
         config,

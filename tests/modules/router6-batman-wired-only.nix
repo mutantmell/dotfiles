@@ -11,148 +11,169 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-}:
-pkgs.testers.nixosTest {
-  name = "router6-batman-wired-only";
+  useContainers ? false,
+}: let
+  machinesAttr =
+    if useContainers
+    then "containers"
+    else "nodes";
+  testRunner =
+    if useContainers
+    then
+      args:
+        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
+          // {
+            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
+            node.pkgs = pkgs;
+            containerDefaults = {config, ...}: {
+              system.name = "m${toString config.virtualisation.test.nodeNumber}";
+              networking.useHostResolvConf = false;
+            };
+            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
+          })
+    else pkgs.testers.nixosTest;
+in
+  testRunner {
+    name = "router6-batman-wired-only${lib.optionalString useContainers "-container"}";
 
-  nodes = {
-    router = {
-      config,
-      pkgs,
-      lib,
-      ...
-    }: {
-      imports = [
-        ../../modules/router6
-        ../lib/test-minimal-base.nix
-      ];
+    ${machinesAttr} = {
+      router = {
+        config,
+        pkgs,
+        lib,
+        ...
+      }: {
+        imports = [
+          ../../modules/router6
+          ../lib/test-minimal-base.nix
+        ];
 
-      # batman-adv is in-tree; load it explicitly for the test VM
-      boot.kernelModules = ["batman_adv"];
+        # batman-adv is in-tree; load it explicitly for the test VM
+        boot.kernelModules = ["batman_adv"];
 
-      # eth0 = WAN (VLAN 1), eth1 = batman hard interface (VLAN 2)
-      virtualisation.vlans = [1 2];
+        # eth0 = WAN (VLAN 1), eth1 = batman hard interface (VLAN 2)
+        virtualisation.vlans = [1 2];
 
-      router6 = {
-        enable = true;
-        ulaPrefix = "fdc6:55f2:0a5e::/48";
+        router6 = {
+          enable = true;
+          ulaPrefix = "fdc6:55f2:0a5e::/48";
 
-        zones = {
-          external = {
-            icmpEcho = "disable";
-            accessTo = [];
-            inputRules = [];
-          };
-          trusted = {
-            icmpEcho = "enable";
-            accessTo = ["external"];
-            inputRules = [{verdict = "accept";}];
-          };
-        };
-
-        topology = {
-          # WAN interface — kernel name as topology key (hardwareName rename is broken)
-          eth0 = {
-            kind = "physical";
-            network = {
-              type = "static";
-              addresses = ["203.0.113.1/24"];
-              zone = "external";
-              nat.enable = true;
+          zones = {
+            external = {
+              icmpEcho = "disable";
+              accessTo = [];
+              inputRules = [];
+            };
+            trusted = {
+              icmpEcho = "enable";
+              accessTo = ["external"];
+              inputRules = [{verdict = "accept";}];
             };
           };
 
-          # Batman hard interface — MTU 1536 for batman-adv overhead headroom
-          eth1 = {
-            kind = "physical";
-            network = {
-              type = "disabled";
-              mtu = 1536;
+          topology = {
+            # WAN interface — kernel name as topology key (hardwareName rename is broken)
+            eth0 = {
+              kind = "physical";
+              network = {
+                type = "static";
+                addresses = ["203.0.113.1/24"];
+                zone = "external";
+                nat.enable = true;
+              };
             };
-          };
 
-          # Batman-adv device — single wired hard interface, no bond
-          bat0 = {
-            kind = "batman";
-            members = ["eth1"];
-            batman = {
-              gatewayMode = "off";
-              routingAlgorithm = "batman-v";
+            # Batman hard interface — MTU 1536 for batman-adv overhead headroom
+            eth1 = {
+              kind = "physical";
+              network = {
+                type = "disabled";
+                mtu = 1536;
+              };
             };
-            network.type = "disabled";
-            vlans = {
-              # VLAN 10 — will be bridged into brLAN below
-              vlan10 = {
-                tag = 10;
-                network.type = "disabled";
+
+            # Batman-adv device — single wired hard interface, no bond
+            bat0 = {
+              kind = "batman";
+              members = ["eth1"];
+              batman = {
+                gatewayMode = "off";
+                routingAlgorithm = "batman-v";
+              };
+              network.type = "disabled";
+              vlans = {
+                # VLAN 10 — will be bridged into brLAN below
+                vlan10 = {
+                  tag = 10;
+                  network.type = "disabled";
+                };
+              };
+            };
+
+            # Bridge over bat0 VLAN 10 — trusted devices
+            brLAN = {
+              kind = "bridge";
+              members = ["vlan10"];
+              network = {
+                type = "static";
+                addresses = ["10.0.10.1/24"];
+                zone = "trusted";
+                subnetId = 10;
+                dhcp.enable = true;
+                dhcp6 = {
+                  enable = true;
+                  dnsAddress = "fdc6:55f2:0a5e:a::1";
+                };
               };
             };
           };
-
-          # Bridge over bat0 VLAN 10 — trusted devices
-          brLAN = {
-            kind = "bridge";
-            members = ["vlan10"];
-            network = {
-              type = "static";
-              addresses = ["10.0.10.1/24"];
-              zone = "trusted";
-              subnetId = 10;
-              dhcp.enable = true;
-              dhcp6 = {
-                enable = true;
-                dnsAddress = "fdc6:55f2:0a5e:a::1";
-              };
-            };
-          };
         };
+
+        # Test exercises batman/bridge topology only — no DNS probes.
+        services.kresd.enable = lib.mkForce false;
       };
-
-      # Test exercises batman/bridge topology only — no DNS probes.
-      services.kresd.enable = lib.mkForce false;
     };
-  };
 
-  testScript = ''
-    start_all()
-    router.wait_for_unit("network-online.target")
-    router.wait_for_unit("kea-dhcp4-server.service")
+    testScript = ''
+      start_all()
+      router.wait_for_unit("network-online.target")
+      router.wait_for_unit("kea-dhcp4-server.service")
 
-    # 1. batman-adv module is loaded
-    router.succeed("lsmod | grep batman_adv")
+      # 1. batman-adv module is loaded
+      router.succeed("lsmod | grep batman_adv")
 
-    # 2. bat0 batadv interface exists
-    router.succeed("ip link show bat0")
+      # 2. bat0 batadv interface exists
+      router.succeed("ip link show bat0")
 
-    # 3. eth1 is enslaved to bat0 mesh (legacy /sys/class/net/<iface>/batman_adv/
-    #    was removed from upstream kernel; ip link's "master bat0" is canonical)
-    router.succeed("ip link show eth1 | grep 'master bat0'")
+      # 3. eth1 is enslaved to bat0 mesh (legacy /sys/class/net/<iface>/batman_adv/
+      #    was removed from upstream kernel; ip link's "master bat0" is canonical)
+      router.succeed("ip link show eth1 | grep 'master bat0'")
 
-    # 4. eth1 (batman hard interface) has MTU 1536
-    router.succeed("ip link show eth1 | grep ' mtu 1536 '")
+      # 4. eth1 (batman hard interface) has MTU 1536
+      router.succeed("ip link show eth1 | grep ' mtu 1536 '")
 
-    # 5. VLAN sub-interface on bat0 exists
-    router.wait_until_succeeds("ip link show vlan10", timeout=30)
+      # 5. VLAN sub-interface on bat0 exists
+      router.wait_until_succeeds("ip link show vlan10", timeout=30)
 
-    # 6. Bridge brLAN exists
-    router.wait_until_succeeds("ip link show brLAN", timeout=30)
+      # 6. Bridge brLAN exists
+      router.wait_until_succeeds("ip link show brLAN", timeout=30)
 
-    # 7. Bridge has correct IPv4 address
-    router.wait_until_succeeds("ip addr show brLAN | grep '10.0.10.1/24'", timeout=30)
+      # 7. Bridge has correct IPv4 address
+      router.wait_until_succeeds("ip addr show brLAN | grep '10.0.10.1/24'", timeout=30)
 
-    # 8. Bridge has auto-generated ULA IPv6 from subnetId 10 = 0xa
-    #    (kernel/iproute2 display RFC 5952 canonical form: 0a5e → a5e)
-    router.wait_until_succeeds("ip addr show brLAN | grep 'fdc6:55f2:a5e:a::1'", timeout=30)
+      # 8. Bridge has auto-generated ULA IPv6 from subnetId 10 = 0xa
+      #    (kernel/iproute2 display RFC 5952 canonical form: 0a5e → a5e)
+      router.wait_until_succeeds("ip addr show brLAN | grep 'fdc6:55f2:a5e:a::1'", timeout=30)
 
-    # 9. vlan10 is attached to brLAN bridge
-    router.wait_until_succeeds("bridge link | grep vlan10", timeout=30)
+      # 9. vlan10 is attached to brLAN bridge
+      router.wait_until_succeeds("bridge link | grep vlan10", timeout=30)
 
-    # 10. No bond0 — wired batman replaces the old bond topology
-    router.fail("ip link show bond0")
+      # 10. No bond0 — wired batman replaces the old bond topology
+      router.fail("ip link show bond0")
 
-    # 11. bat0 netdev file uses correct ordering (02- prefix, after bonds/before VLANs)
-    router.succeed("ls /etc/systemd/network/02-bat0.netdev")
-    router.succeed("ls /etc/systemd/network/04-vlan10.netdev")
-    router.succeed("ls /etc/systemd/network/03-brLAN.netdev")
-  '';
-}
+      # 11. bat0 netdev file uses correct ordering (02- prefix, after bonds/before VLANs)
+      router.succeed("ls /etc/systemd/network/02-bat0.netdev")
+      router.succeed("ls /etc/systemd/network/04-vlan10.netdev")
+      router.succeed("ls /etc/systemd/network/03-brLAN.netdev")
+    '';
+  }

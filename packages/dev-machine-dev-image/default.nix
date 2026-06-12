@@ -314,16 +314,23 @@ in
     #   the whole reason /dev/kvm is surfaced into the container. This keeps it
     #   reachable from inside the build sandbox. (system-features already
     #   auto-detects `kvm`/`nixos-test` from the device node.)
+    # auto-allocate-uids + uid-range: required for nixosTest container machines.
+    #   Keep agent untrusted; these are daemon policy, not per-command options the
+    #   agent may relax. Nix enables cgroup handling as needed for uid-range builds;
+    #   the devcontainer runtime provides the private writable cgroup namespace.
     fakeRootCommands = ''
       mkdir -p etc/nix tmp root home/agent
       chmod 1777 tmp
       chown ${agentUid}:${agentGid} home/agent
       cat > etc/nix/nix.conf <<EOF
-      experimental-features = nix-command flakes
+      experimental-features = nix-command flakes auto-allocate-uids
       build-users-group = nixbld
       allowed-users = root agent
       trusted-users = root
       sandbox = true
+      sandbox-fallback = false
+      auto-allocate-uids = true
+      extra-system-features = nixos-test kvm uid-range
       extra-sandbox-paths = /dev/kvm
       EOF
     '';

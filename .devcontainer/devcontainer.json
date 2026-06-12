@@ -20,6 +20,9 @@
   //   substrate decision.
   // --cap-add=SYS_ADMIN: let Nix open its build sandbox. Docker's default
   //   capability set is missing the mount namespace privileges Nix needs.
+  // --cgroupns=private + /sys/fs/cgroup rw: let the root-owned nix-daemon create
+  //   per-build cgroups for auto-allocated UID ranges, while keeping the cgroup
+  //   namespace rooted at this container instead of sharing the VM host view.
   // --security-opt=seccomp=...: keep seccomp enabled but use a profile that
   //   permits pivot_root, which bubblewrap needs for Codex's own command
   //   sandbox. Docker resolves this path on the VM host, so the base VM image
@@ -27,6 +30,8 @@
   "runArgs": [
     "--device=/dev/kvm",
     "--cap-add=SYS_ADMIN",
+    "--cgroupns=private",
+    "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",
     "--security-opt=seccomp=/etc/docker/seccomp-codex-bwrap.json"
   ],
 

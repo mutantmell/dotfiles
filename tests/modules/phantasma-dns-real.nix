@@ -21,72 +21,93 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-}:
-pkgs.testers.nixosTest {
-  name = "phantasma-dns-real";
+  useContainers ? false,
+}: let
+  machinesAttr =
+    if useContainers
+    then "containers"
+    else "nodes";
+  testRunner =
+    if useContainers
+    then
+      args:
+        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
+          // {
+            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
+            node.pkgs = pkgs;
+            containerDefaults = {config, ...}: {
+              system.name = "m${toString config.virtualisation.test.nodeNumber}";
+              networking.useHostResolvConf = false;
+            };
+            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
+          })
+    else pkgs.testers.nixosTest;
+in
+  testRunner {
+    name = "phantasma-dns-real${lib.optionalString useContainers "-container"}";
 
-  nodes = {
-    dns-server = {
-      config,
-      pkgs,
-      lib,
-      ...
-    }: {
-      imports = [
-        ../../hosts/thebeyond/microvm/guests/phantasma/modules/dns.nix
-        ../lib/test-minimal-base.nix
-      ];
-
-      virtualisation.vlans = [1];
-
-      # Give eth1 phantasma's real registry IPv4 so Unbound's external bind
-      # lands on an address that actually exists on the node (the module also
-      # ip-freebinds, but matching the registry keeps the test faithful).
-      networking = {
-        useDHCP = false;
-        interfaces.eth1.ipv4.addresses = [
-          {
-            address = "10.91.10.10";
-            prefixLength = 24;
-          }
+    ${machinesAttr} = {
+      dns-server = {
+        config,
+        pkgs,
+        lib,
+        ...
+      }: {
+        imports = [
+          ../../hosts/thebeyond/microvm/guests/phantasma/modules/dns.nix
+          ../lib/test-minimal-base.nix
         ];
+
+        virtualisation.vlans = [1];
+
+        # Give eth1 phantasma's real registry IPv4 so Unbound's external bind
+        # lands on an address that actually exists on the node (the module also
+        # ip-freebinds, but matching the registry keeps the test faithful).
+        networking = {
+          useDHCP = false;
+          interfaces.eth1.ipv4.addresses = [
+            {
+              address = "10.91.10.10";
+              prefixLength = 24;
+            }
+          ];
+        };
+
+        environment.systemPackages = [pkgs.dnsutils];
       };
-
-      environment.systemPackages = [pkgs.dnsutils];
     };
-  };
 
-  testScript = ''
-    start_all()
+    testScript = ''
+      start_all()
 
-    dns_server.wait_for_unit("unbound.service")
-    dns_server.wait_for_open_port(53)
+      dns_server.wait_for_unit("unbound.service")
+      dns_server.wait_for_open_port(53)
 
-    # Blocky must be gone: the unit should not exist at all.
-    print("=== Blocky must be absent ===")
-    dns_server.succeed("test ! -e /etc/systemd/system/blocky.service")
-    dns_server.fail("systemctl cat blocky.service")
+      # Blocky must be gone: the unit should not exist at all.
+      print("=== Blocky must be absent ===")
+      dns_server.succeed("test ! -e /etc/systemd/system/blocky.service")
+      dns_server.fail("systemctl cat blocky.service")
 
-    # Split-horizon static data resolves through Unbound on loopback (no
-    # recursion needed — these are local-data records from the registry).
-    print("=== Split-horizon resolution ===")
-    out = dns_server.succeed(
-        "dig +time=3 +tries=1 @127.0.0.1 phantasma.internal A +short"
-    ).strip()
-    print(f"phantasma.internal -> {out!r}")
-    assert "10.91.10.10" in out, f"expected phantasma.internal A record, got {out!r}"
+      # Split-horizon static data resolves through Unbound on loopback (no
+      # recursion needed — these are local-data records from the registry).
+      print("=== Split-horizon resolution ===")
+      out = dns_server.succeed(
+          "dig +time=3 +tries=1 @127.0.0.1 phantasma.internal A +short"
+      ).strip()
+      print(f"phantasma.internal -> {out!r}")
+      assert "10.91.10.10" in out, f"expected phantasma.internal A record, got {out!r}"
 
-    out = dns_server.succeed(
-        "dig +time=3 +tries=1 @127.0.0.1 phantasma.internal.mutantmell.net A +short"
-    ).strip()
-    assert "10.91.10.10" in out, (
-        f"expected canonical internal A record, got {out!r}"
-    )
+      out = dns_server.succeed(
+          "dig +time=3 +tries=1 @127.0.0.1 phantasma.internal.mutantmell.net A +short"
+      ).strip()
+      assert "10.91.10.10" in out, (
+          f"expected canonical internal A record, got {out!r}"
+      )
 
-    # libc resolves through Unbound on loopback (resolved is disabled, so
-    # resolv.conf points at 127.0.0.1, not the 127.0.0.53 stub).
-    print("=== resolv.conf points at Unbound ===")
-    dns_server.succeed("grep -q '127.0.0.1' /etc/resolv.conf")
-    dns_server.fail("grep -q '127.0.0.53' /etc/resolv.conf")
-  '';
-}
+      # libc resolves through Unbound on loopback (resolved is disabled, so
+      # resolv.conf points at 127.0.0.1, not the 127.0.0.53 stub).
+      print("=== resolv.conf points at Unbound ===")
+      dns_server.succeed("grep -q '127.0.0.1' /etc/resolv.conf")
+      dns_server.fail("grep -q '127.0.0.53' /etc/resolv.conf")
+    '';
+  }
