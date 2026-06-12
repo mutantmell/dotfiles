@@ -92,7 +92,7 @@
       chown -R ${agentUid}:${agentGid} /home/agent /nix/var/nix/profiles/per-user/agent 2>/dev/null || true
 
       if [[ ! -S /nix/var/nix/daemon-socket/socket ]]; then
-        nix daemon --log-format raw >/tmp/nix-daemon.log 2>&1 &
+        env -u NIX_REMOTE nix daemon --log-format raw >/tmp/nix-daemon.log 2>&1 &
         daemon_pid=$!
         for _ in {1..100}; do
           if [[ -S /nix/var/nix/daemon-socket/socket ]]; then
