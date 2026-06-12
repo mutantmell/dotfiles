@@ -88,35 +88,10 @@
     '';
   };
 
-  # NSS files (passwd/group/nsswitch) with usable root and agent homes. OpenSSH
-  # resolves `~` via getpwuid, so the passwd entries must match injected key
-  # locations. /bin/sh comes from bashInteractive.
-  nss = pkgs.symlinkJoin {
-    name = "dev-machine-nss";
-    paths = [
-      (pkgs.writeTextDir "etc/passwd" ''
-        root:x:0:0:root:/root:/bin/bash
-        agent:x:${agentUid}:${agentGid}:agent:/home/agent:/bin/bash
-        nobody:x:65534:65534:nobody:/var/empty:/bin/false
-      '')
-      (pkgs.writeTextDir "etc/group" ''
-        root:x:0:
-        agent:x:${agentGid}:
-        nobody:x:65534:
-      '')
-      (pkgs.writeTextDir "etc/nsswitch.conf" ''
-        passwd: files
-        group: files
-        hosts: files dns
-      '')
-    ];
-  };
-
   devTools =
     [
       claude-code
       codex
-      nss
       devMachineEntrypoint
     ]
     ++ agentWrappers
@@ -144,5 +119,5 @@
       dockerTools.usrBinEnv
     ]);
 in {
-  inherit agentUid agentGid agentWrappers devMachineEntrypoint nss devTools;
+  inherit agentUid agentGid agentWrappers devMachineEntrypoint devTools;
 }

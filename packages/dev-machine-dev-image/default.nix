@@ -98,10 +98,29 @@ in
     # Client defaults only. The actual nix-daemon, sandbox policy, cgroups, and
     # uid-range support live on the KubeVirt VM host. The devcontainer bind-mounts
     # the host /nix so these client paths and the daemon's store view match.
+    #
+    # Keep passwd/group/nsswitch as real image-root files rather than Nix store
+    # symlinks: the runtime bind-mount over /nix would otherwise make identity
+    # lookup depend on a host-store path, breaking DevPod's `su agent` path.
     fakeRootCommands = ''
       mkdir -p etc/nix tmp root home/agent nix
       chmod 1777 tmp
       chown ${agentUid}:${agentGid} home/agent
+      cat > etc/passwd <<EOF
+      root:x:0:0:root:/root:/bin/bash
+      agent:x:${agentUid}:${agentGid}:agent:/home/agent:/bin/bash
+      nobody:x:65534:65534:nobody:/var/empty:/bin/false
+      EOF
+      cat > etc/group <<EOF
+      root:x:0:
+      agent:x:${agentGid}:
+      nobody:x:65534:
+      EOF
+      cat > etc/nsswitch.conf <<EOF
+      passwd: files
+      group: files
+      hosts: files dns
+      EOF
       cat > etc/nix/nix.conf <<EOF
       experimental-features = nix-command flakes auto-allocate-uids cgroups
       build-users-group = nixbld
