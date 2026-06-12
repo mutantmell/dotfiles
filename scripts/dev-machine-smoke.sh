@@ -96,6 +96,29 @@ devcontainer_configures_cgroups() {
     grep -Fqx '    "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",' /workspaces/dotfiles/.devcontainer/devcontainer.json
 }
 
+devcontainer_unconfines_systempaths() {
+  [[ -f /workspaces/dotfiles/.devcontainer/devcontainer.json ]] &&
+    grep -Fqx '    "--security-opt=systempaths=unconfined"' /workspaces/dotfiles/.devcontainer/devcontainer.json
+}
+
+proc_has_no_docker_systempath_overlays() {
+  ! awk '$5 ~ /^\/proc\// { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
+}
+
+cgroup_mount_is_rw() {
+  awk '$5 == "/sys/fs/cgroup" && $6 ~ /(^|,)rw(,|$)/ { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
+}
+
+nix_daemon_has_cap_sys_admin() {
+  local pid cap_hex cap
+  pid=$(ps -eo pid,user,args | awk '$2 == "root" && $3 == "nix" && $4 == "daemon" { print $1; exit }')
+  [[ -n $pid ]] || return 1
+  cap_hex=$(sed -n 's/^CapEff:[[:space:]]*//p' "/proc/$pid/status")
+  [[ -n $cap_hex ]] || return 1
+  cap=$((16#$cap_hex))
+  ((cap & (1 << 21)))
+}
+
 nix_config_contains_word() {
   local key=$1 word=$2
   nix config show "$key" 2>/dev/null | grep -Eq "(^|[[:space:]])$word([[:space:]]|$)"
@@ -105,6 +128,7 @@ check "agent user is non-root" agent_user_is_non_root
 check "agent HOME matches passwd" agent_home_matches_passwd
 check "devcontainer pins agent user without UID rewrite" devcontainer_pins_agent_user
 check "devcontainer configures private cgroups" devcontainer_configures_cgroups
+check "devcontainer unconfines system paths for Nix sandbox" devcontainer_unconfines_systempaths
 
 check "NIX_REMOTE uses daemon" test "${NIX_REMOTE:-}" = daemon
 check "Nix daemon responds" nix store info --store daemon
@@ -140,18 +164,18 @@ fi
 if in_codex_command_sandbox; then
   skip "Nix sandbox build" "masked by Codex's nested command sandbox"
   skip "Nix uid-range sandbox build" "masked by Codex's nested command sandbox"
-  skip "cgroup filesystem writable" "masked by Codex's nested command sandbox"
+  skip "cgroup mount is writable for daemon" "masked by Codex's nested command sandbox"
 else
+  check "/proc has no Docker system-path overlays" proc_has_no_docker_systempath_overlays
   check "Nix sandbox build" nix build --impure --expr 'with import <nixpkgs> {}; runCommand "dev-machine-smoke" {} "echo ok > $out"' --no-link
   check "Nix uid-range sandbox build" nix build --impure --expr 'with import <nixpkgs> {}; runCommand "dev-machine-uid-range-smoke" { requiredSystemFeatures = [ "uid-range" ]; } "echo ok > $out"' --no-link
-  check "cgroup filesystem writable" test -w /sys/fs/cgroup
+  check "cgroup mount is writable for daemon" cgroup_mount_is_rw
 fi
 
 check "Nix sandbox enabled" bash -c 'nix config show sandbox 2>/dev/null | grep -qx "true"'
 check "Nix sandbox fallback disabled" bash -c 'nix config show sandbox-fallback 2>/dev/null | grep -qx "false"'
 check "seccomp active" bash -c 'grep -q "^Seccomp:[[:space:]]*2$" /proc/self/status'
-# shellcheck disable=SC2016
-check "CAP_SYS_ADMIN present" bash -c 'cap_hex=$(sed -n "s/^CapEff:[[:space:]]*//p" /proc/self/status); cap=$((16#$cap_hex)); (( cap & (1 << 21) ))'
+check "Nix daemon has CAP_SYS_ADMIN" nix_daemon_has_cap_sys_admin
 if in_codex_command_sandbox; then
   skip "/dev/kvm available" "masked by Codex's nested command sandbox"
 else
