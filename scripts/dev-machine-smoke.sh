@@ -113,8 +113,7 @@ devcontainer_pins_agent_user() {
 devcontainer_configures_cgroups() {
   [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
     grep -Eq '^[[:space:]]*"--cgroupns=host",?$' "$repo_root/.devcontainer/devcontainer.json" &&
-    grep -Eq '^[[:space:]]*"--mount=type=bind,source=/sys/fs/cgroup,target=/run/nix-cgroup",?$' "$repo_root/.devcontainer/devcontainer.json" &&
-    grep -Eq '^[[:space:]]*"--tmpfs=/sys:ro,nosuid,nodev,noexec",?$' "$repo_root/.devcontainer/devcontainer.json"
+    grep -Eq '^[[:space:]]*"--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",?$' "$repo_root/.devcontainer/devcontainer.json"
 }
 
 devcontainer_unconfines_systempaths() {
@@ -149,17 +148,12 @@ mountinfo_matches() {
   ' /proc/self/mountinfo
 }
 
-sys_mount_is_tmpfs() {
-  mountinfo_matches /sys tmpfs tmpfs &&
-    awk '$5 == "/sys" && $6 ~ /(^|,)ro(,|$)/ && $6 ~ /(^|,)nosuid(,|$)/ && $6 ~ /(^|,)nodev(,|$)/ && $6 ~ /(^|,)noexec(,|$)/ { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
-}
-
 cgroup_mount_is_rw() {
-  awk '$5 == "/run/nix-cgroup" && $6 ~ /(^|,)rw(,|$)/ { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
+  awk '$5 == "/sys/fs/cgroup" && $6 ~ /(^|,)rw(,|$)/ { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
 }
 
 cgroup_mount_is_v2() {
-  mountinfo_matches /run/nix-cgroup cgroup2 cgroup2
+  mountinfo_matches /sys/fs/cgroup cgroup2 cgroup2
 }
 
 cgroup_namespace_is_host_visible() {
@@ -167,24 +161,7 @@ cgroup_namespace_is_host_visible() {
 }
 
 cgroup_mount_matches_namespace() {
-  awk '$5 == "/run/nix-cgroup" && $4 !~ /^\/\.\./ { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
-}
-
-sys_mount_has_no_nested_cgroup() {
-  ! awk '
-    $5 !~ /^\/sys\// { next }
-    {
-      for (i = 1; i <= NF; i++) {
-        if ($i == "-") {
-          if ($(i + 1) == "cgroup2") {
-            found = 1
-          }
-          break
-        }
-      }
-    }
-    END { exit found ? 0 : 1 }
-  ' /proc/self/mountinfo
+  awk '$5 == "/sys/fs/cgroup" && $4 !~ /^\/\.\./ { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
 }
 
 nix_daemon_has_cap_sys_admin() {
@@ -251,10 +228,7 @@ else
   diagnose "/proc/self/cgroup" "$(tr '\n' ';' </proc/self/cgroup)"
   diagnose "/sys mount" "$(awk '$5 == "/sys" { print }' /proc/self/mountinfo)"
   diagnose "/sys/fs/cgroup mount" "$(awk '$5 == "/sys/fs/cgroup" { print }' /proc/self/mountinfo)"
-  diagnose "/run/nix-cgroup mount" "$(awk '$5 == "/run/nix-cgroup" { print }' /proc/self/mountinfo)"
   check "/proc has no Docker system-path overlays" proc_has_no_docker_systempath_overlays
-  check "/sys is tmpfs for Nix uid-range sysfs mounts" sys_mount_is_tmpfs
-  check "/sys has no nested cgroup mount" sys_mount_has_no_nested_cgroup
   check "cgroup mount is cgroup v2" cgroup_mount_is_v2
   check "cgroup namespace exposes VM cgroup path" cgroup_namespace_is_host_visible
   check "cgroup mount matches namespace root" cgroup_mount_matches_namespace
