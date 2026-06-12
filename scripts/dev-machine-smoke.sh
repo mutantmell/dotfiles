@@ -84,6 +84,12 @@ agent_home_matches_passwd() {
   [[ $HOME == /home/agent ]] && grep -qx "agent:x:1000:1000:agent:/home/agent:/bin/bash" /etc/passwd
 }
 
+devcontainer_pins_agent_user() {
+  [[ -f /workspaces/dotfiles/.devcontainer/devcontainer.json ]] &&
+    grep -Eq '^[[:space:]]*"remoteUser"[[:space:]]*:[[:space:]]*"agent"' /workspaces/dotfiles/.devcontainer/devcontainer.json &&
+    grep -Eq '^[[:space:]]*"updateRemoteUserUID"[[:space:]]*:[[:space:]]*false' /workspaces/dotfiles/.devcontainer/devcontainer.json
+}
+
 nix_config_contains_word() {
   local key=$1 word=$2
   nix config show "$key" 2>/dev/null | grep -Eq "(^|[[:space:]])$word([[:space:]]|$)"
@@ -91,6 +97,7 @@ nix_config_contains_word() {
 
 check "agent user is non-root" agent_user_is_non_root
 check "agent HOME matches passwd" agent_home_matches_passwd
+check "devcontainer pins agent user without UID rewrite" devcontainer_pins_agent_user
 
 check "NIX_REMOTE uses daemon" test "${NIX_REMOTE:-}" = daemon
 check "Nix daemon responds" nix store info --store daemon

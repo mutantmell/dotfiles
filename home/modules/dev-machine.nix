@@ -456,7 +456,7 @@
       inject_deploy_key() {
           local name=$1 keyfile=$2 b64
           b64=$(base64 -w0 "$keyfile")
-          devpod ssh "$name" --start-services=false --agent-forwarding=false --command "
+          devpod ssh "$name" --user agent --start-services=false --agent-forwarding=false --command "
               set -e
               umask 077
               mkdir -p ~/.ssh
@@ -542,7 +542,7 @@
       extract_via_devpod() {
           local name=$1 script
           script=$(extract_script)
-          devpod ssh "$name" --start-services=false --agent-forwarding=false \
+          devpod ssh "$name" --user agent --start-services=false --agent-forwarding=false \
               --command "$script"
       }
 
@@ -840,7 +840,9 @@
                   return 1
               }
           fi
-          # Lockdown flags: --start-services=false stops devpod proxying the
+          # Lockdown flags: --user agent forces the in-container account even on
+          # DevPod versions/configs that would otherwise default an interactive
+          # SSH session to root. --start-services=false stops devpod proxying the
           # operator's git/docker credentials into the session, and
           # --agent-forwarding=false stops forwarding the operator's SSH agent in
           # (devpod defaults it ON) — the injected cc key is the sandbox's only
@@ -848,7 +850,7 @@
           # error on logout (the forwarded-agent channel closing without a clean
           # exit-status). Trade-off: start-services=false also forgoes devpod
           # port-forwarding; run `devpod ssh <name>` directly if you need that.
-          devpod ssh "$name" --start-services=false --agent-forwarding=false
+          devpod ssh "$name" --user agent --start-services=false --agent-forwarding=false
       }
 
       # Recreate just the devcontainer on an already-running VM — the fast

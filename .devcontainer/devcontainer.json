@@ -11,6 +11,7 @@
   "name": "dotfiles-dev-machine",
   "image": "forgejo.internal/mutantmell/dev-machine-dev:latest",
   "remoteUser": "agent",
+  "updateRemoteUserUID": false,
   "overrideCommand": false,
 
   // --device=/dev/kvm: surface the VM's /dev/kvm into the inner container so this
@@ -31,6 +32,7 @@
 
   // Keep postCreate minimal (plan). The workspace is bind-mounted, so git would
   // otherwise refuse to operate on a dir owned by a different uid. This runs as
-  // the non-root remoteUser and writes /home/agent/.gitconfig.
+  // the non-root remoteUser and writes /home/agent/.gitconfig. The agent uid/gid
+  // are baked into the Nix image, so disable DevPod's passwd/group rewrite path.
   "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder}"
 }
