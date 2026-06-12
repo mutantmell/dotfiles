@@ -92,7 +92,7 @@ devcontainer_pins_agent_user() {
 
 devcontainer_configures_cgroups() {
   [[ -f /workspaces/dotfiles/.devcontainer/devcontainer.json ]] &&
-    grep -Fqx '    "--cgroupns=private",' /workspaces/dotfiles/.devcontainer/devcontainer.json &&
+    grep -Fqx '    "--cgroupns=host",' /workspaces/dotfiles/.devcontainer/devcontainer.json &&
     grep -Fqx '    "--mount=type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup",' /workspaces/dotfiles/.devcontainer/devcontainer.json
 }
 
@@ -107,6 +107,18 @@ proc_has_no_docker_systempath_overlays() {
 
 cgroup_mount_is_rw() {
   awk '$5 == "/sys/fs/cgroup" && $6 ~ /(^|,)rw(,|$)/ { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
+}
+
+cgroup_mount_is_v2() {
+  awk '$5 == "/sys/fs/cgroup" && $9 == "cgroup2" { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
+}
+
+cgroup_namespace_is_host_visible() {
+  ! grep -qx '0::/' /proc/self/cgroup
+}
+
+cgroup_mount_matches_namespace() {
+  awk '$5 == "/sys/fs/cgroup" && $4 !~ /^\/\.\./ { found = 1 } END { exit found ? 0 : 1 }' /proc/self/mountinfo
 }
 
 nix_daemon_has_cap_sys_admin() {
@@ -127,7 +139,7 @@ nix_config_contains_word() {
 check "agent user is non-root" agent_user_is_non_root
 check "agent HOME matches passwd" agent_home_matches_passwd
 check "devcontainer pins agent user without UID rewrite" devcontainer_pins_agent_user
-check "devcontainer configures private cgroups" devcontainer_configures_cgroups
+check "devcontainer configures host cgroups" devcontainer_configures_cgroups
 check "devcontainer unconfines system paths for Nix sandbox" devcontainer_unconfines_systempaths
 
 check "NIX_REMOTE uses daemon" test "${NIX_REMOTE:-}" = daemon
@@ -138,6 +150,7 @@ check_absent "Nix does not trust agent user" nix_config_contains_word trusted-us
 check_absent "agent cannot write directly to /nix/store" test -w /nix/store
 check "Nix auto-allocates build UIDs" bash -c 'nix config show auto-allocate-uids 2>/dev/null | grep -qx "true"'
 check "Nix has auto-allocate-uids feature" nix_config_contains_word experimental-features auto-allocate-uids
+check "Nix cgroups enabled" bash -c 'nix config show use-cgroups 2>/dev/null | grep -qx "true"'
 check "Nix advertises uid-range" nix_config_contains_word system-features uid-range
 
 for wrapper in agent-fmt agent-preflight agent-preflight-quick agent-preflight-full agent-checks agent-build-check agent-smoke; do
@@ -167,6 +180,9 @@ if in_codex_command_sandbox; then
   skip "cgroup mount is writable for daemon" "masked by Codex's nested command sandbox"
 else
   check "/proc has no Docker system-path overlays" proc_has_no_docker_systempath_overlays
+  check "cgroup mount is cgroup v2" cgroup_mount_is_v2
+  check "cgroup namespace exposes VM cgroup path" cgroup_namespace_is_host_visible
+  check "cgroup mount matches namespace root" cgroup_mount_matches_namespace
   check "Nix sandbox build" nix build --impure --expr 'with import <nixpkgs> {}; runCommand "dev-machine-smoke" {} "echo ok > $out"' --no-link
   check "Nix uid-range sandbox build" nix build --impure --expr 'with import <nixpkgs> {}; runCommand "dev-machine-uid-range-smoke" { requiredSystemFeatures = [ "uid-range" ]; } "echo ok > $out"' --no-link
   check "cgroup mount is writable for daemon" cgroup_mount_is_rw

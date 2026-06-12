@@ -316,8 +316,9 @@ in
     #   auto-detects `kvm`/`nixos-test` from the device node.)
     # auto-allocate-uids + uid-range: required for nixosTest container machines.
     #   Keep agent untrusted; these are daemon policy, not per-command options the
-    #   agent may relax. Nix enables cgroup handling as needed for uid-range builds;
-    #   the devcontainer runtime provides the private writable cgroup namespace.
+    #   agent may relax. Nix also gets use-cgroups=true so the daemon establishes
+    #   its root cgroup at startup instead of first discovering cgroups inside an
+    #   individual uid-range build.
     fakeRootCommands = ''
       mkdir -p etc/nix tmp root home/agent
       chmod 1777 tmp
@@ -330,6 +331,7 @@ in
       sandbox = true
       sandbox-fallback = false
       auto-allocate-uids = true
+      use-cgroups = true
       extra-system-features = nixos-test kvm uid-range
       extra-sandbox-paths = /dev/kvm
       EOF
