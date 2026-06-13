@@ -1,0 +1,21 @@
+profile = "default"
+
+[skills]
+enable = [
+  "nix-flake",
+  "nixos-vm-tests",
+  "forgejo-agit",
+  "dev-machine",
+]
+
+[tools.codex]
+enable = true
+
+[tools.claude]
+enable = true
+
+[marketplaces.codex]
+enable = []
+
+[marketplaces.claude]
+enable = []

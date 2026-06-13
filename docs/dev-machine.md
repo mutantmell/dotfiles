@@ -42,6 +42,7 @@ Inside the devcontainer, agents should expect:
 - Nix daemon UID allocation is enabled on the VM host (`auto-allocate-uids`, `use-cgroups`, and `uid-range`) so NixOS container tests can run without granting the agent trusted-user status. The devcontainer no longer needs `CAP_SYS_ADMIN`, cgroup namespace sharing, writable `/sys/fs/cgroup`, system-path unmasking, or `--privileged` for Nix builds because sandbox setup happens in the VM host daemon.
 - Docker/Podman, DevPod, kubectl, virtctl, and registry credentials are not available inside the agent container.
 - Git push access uses a scoped per-session Forgejo bot key injected by `dev-machine up`.
+- LLM profile setup is injected through DevPod dotfiles from `ssh://forgejo.internal/mutantmell/agents.git` by default. That repository's `install.sh` reads a repo-local `.net.mutantmell/agents.toml` manifest to activate only the skills a checkout asks for.
 - Egress is enforced at bt8gw for VLAN 51, not by Kubernetes NetworkPolicy. The intended policy is WAN plus limited access to `forgejo.internal` for git/registry traffic.
 
 The VM's 60GiB scratch disk backs the mutable runtime state: the base image copies the complete `/nix` tree to scratch at boot, bind-mounts it back over `/nix` before `nix-daemon` starts, and also keeps rootful Podman storage plus `build-dir = /mnt/scratch/nix-builds` on scratch. That build directory is root-owned and not world-writable because Nix rejects insecure configured build roots. Inside the agent devcontainer, `nix config show build-dir` reports the client-side override setting and may be empty; it is not a reliable view of the host daemon's private build root. The root containerDisk stays closure-sized and reproducible; `dev-machine up --disk <size>` is the capacity knob for store growth, build workdirs, and container layers.
@@ -98,3 +99,19 @@ agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
 These commands locate the dotfiles checkout, change to the repo root, and call the existing scripts or Nix commands. They do not replace the repo validation stack.
 
 Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.
+
+## Agent Profile
+
+`dev-machine up` passes the reusable agents repository to DevPod as dotfiles:
+
+```bash
+devpod up ... --dotfiles ssh://forgejo.internal/mutantmell/agents.git --dotfiles-script install.sh
+```
+
+The agents repository is a catalog and installer, not a checked-in home directory. Each target repo chooses its own skills with `.net.mutantmell/agents.toml`; this repo currently enables the Nix flake, NixOS VM test, Forgejo AGit, and dev-machine skills. The manifest is intentionally under a private hidden namespace to avoid colliding with future generic agent standards.
+
+The agents dotfiles repository must be readable during `devpod up`. That happens
+before `dev-machine up` injects the per-session Forgejo push key into the
+devcontainer, so the push key cannot bootstrap access to the profile repository.
+Keep `agents.git` readable through the normal DevPod clone path, or override
+`programs.dev-machine.agentsDotfiles.url` to a source DevPod can read.

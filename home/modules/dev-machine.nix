@@ -257,7 +257,21 @@
       CACERT="${cfg.caCert}"
       COMMIT_NAME="${cfg.commitName}"
       COMMIT_EMAIL="${cfg.commitEmail}"
+      AGENTS_DOTFILES_ENABLE=${lib.escapeShellArg (lib.boolToString cfg.agentsDotfiles.enable)}
+      AGENTS_DOTFILES_URL=${lib.escapeShellArg cfg.agentsDotfiles.url}
+      AGENTS_DOTFILES_SCRIPT=${lib.escapeShellArg cfg.agentsDotfiles.script}
       STATE="''${XDG_STATE_HOME:-$HOME/.local/state}/dev-machine"
+
+      devpod_up() {
+          local args=("$@")
+          if [[ "$AGENTS_DOTFILES_ENABLE" == "true" && -n "$AGENTS_DOTFILES_URL" ]]; then
+              args+=(--dotfiles "$AGENTS_DOTFILES_URL")
+              if [[ -n "$AGENTS_DOTFILES_SCRIPT" ]]; then
+                  args+=(--dotfiles-script "$AGENTS_DOTFILES_SCRIPT")
+              fi
+          fi
+          devpod up "''${args[@]}"
+      }
 
       # DNS-1123-safe machine name derived from a repo/path basename.
       sanitize() {
@@ -371,6 +385,19 @@
           if ! skopeo login --get-login "$REGISTRY_HOST" >/dev/null 2>&1; then
               echo "not logged in to $REGISTRY_HOST." >&2
               echo "run:  skopeo login $REGISTRY_HOST" >&2
+              return 1
+          fi
+      }
+
+      require_agents_dotfiles_access() {
+          if [[ "$AGENTS_DOTFILES_ENABLE" != "true" || -z "$AGENTS_DOTFILES_URL" ]]; then
+              return 0
+          fi
+          if ! git ls-remote "$AGENTS_DOTFILES_URL" HEAD >/dev/null 2>&1; then
+              echo "agents dotfiles repository is not readable from this workstation:" >&2
+              echo "  $AGENTS_DOTFILES_URL" >&2
+              echo "DevPod must be able to clone it during 'devpod up', before the" >&2
+              echo "per-session Forgejo push credential is injected into the sandbox." >&2
               return 1
           fi
       }
@@ -732,6 +759,7 @@
           # Anything that touches creil (the rebuild push, the base presence check,
           # the base publish) needs the registry login — check once, up front.
           require_login
+          require_agents_dotfiles_access
 
           if [[ "$rebuild" -eq 1 ]]; then
               build_and_push dev-machine-image "$BASE_IMAGE"
@@ -805,7 +833,7 @@
               -o EXTRA_FLAGS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
           echo "==> bringing the workspace up (devcontainer.json inside the VM)"
-          devpod up "$source" --id "$name" --provider "$provider" --ide none
+          devpod_up "$source" --id "$name" --provider "$provider" --ide none
 
           # Phase 4: mint + inject the scoped deploy key (the sandbox's ONLY push
           # credential). Only when a creil repo was resolved and a token is present.
@@ -848,7 +876,7 @@
           # gets you a working shell back.
           if [[ "$recover" -eq 1 ]]; then
               echo "==> --recover: restarting the devcontainer agent (devpod up)"
-              devpod up "$name" --provider "dm-$name" --ide none || {
+              devpod_up "$name" --provider "dm-$name" --ide none || {
                   echo "recover failed — the VM itself may be down/looping." >&2
                   echo "check 'dev-machine list' and 'dev-machine console $name'." >&2
                   return 1
@@ -900,7 +928,7 @@
           # devpod talks straight to the slot host via the provider pinned at `up`
           # (D.6 — no port-forward to re-establish).
           echo "==> recreating the devcontainer (devpod up --recreate; VM untouched)"
-          devpod up "$name" --provider "dm-$name" --ide none --recreate || {
+          devpod_up "$name" --provider "dm-$name" --ide none --recreate || {
               echo "refresh failed; inspect with 'dev-machine list' / 'dev-machine console $name'." >&2
               return 1
           }
@@ -1067,7 +1095,7 @@
           # agent over the (re-established) tunnel. Stage 0 proved scratch wasn't
           # wiped, so the workspace persists across this — no work is lost.
           echo "==> recovering the devcontainer (devpod up)"
-          if ! devpod up "$name" --provider "dm-$name" --ide none; then
+          if ! devpod_up "$name" --provider "dm-$name" --ide none; then
               echo >&2
               echo "could not restore a working devcontainer." >&2
               if [[ "$backed_up" -eq 1 ]]; then
@@ -1332,6 +1360,30 @@ in {
       type = lib.types.str;
       default = "";
       description = "Optional CA certificate path for TLS verification of the Forgejo API (internal step-ca root).";
+    };
+
+    agentsDotfiles = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = true;
+        description = ''
+          Whether `dev-machine up` passes the reusable agents profile repository
+          to DevPod as dotfiles. The profile installer reads repo-local
+          `.net.mutantmell/agents.toml` manifests to activate per-repo skills.
+        '';
+      };
+
+      url = lib.mkOption {
+        type = lib.types.str;
+        default = "ssh://forgejo.internal/mutantmell/agents.git";
+        description = "DevPod dotfiles repository URL containing the reusable agents profile installer and skill catalog.";
+      };
+
+      script = lib.mkOption {
+        type = lib.types.str;
+        default = "install.sh";
+        description = "Script inside `agentsDotfiles.url` for DevPod to run after cloning the dotfiles repository.";
+      };
     };
   };
 
