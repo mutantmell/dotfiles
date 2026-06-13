@@ -13,7 +13,7 @@ sandboxes.
 > covers _ephemeral, locked-down dev machines for LLM agents_ (push-to-a-branch,
 > no homelab reach). It shares **only** the KubeVirt platform component with
 > this plan (see that plan's Phase 1 and this plan's Phase 7.1); coordinate
-> which lands the platform HelmChart first.
+> which lands the platform manifests first.
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 7–9**.
@@ -26,14 +26,15 @@ Depends on:
   target + democratic-csi + external-snapshotter** (bootstrap section D),
   because KubeVirt DataVolumes are the first workload that wants
   VolumeSnapshots + NAS durability. See "Phase 6.5" below.
-- **Cluster proven by the AI coding layer first.** The shakedown workload
-  is `k3s-cluster-workloads-plan.md` **Phase A** — on-demand dev containers
-  via **DevPod** (off-the-shelf, recommended; the cc-sandbox successor). It runs before
-  this migration and exercises the cluster (scheduling, isolation runtimes,
-  local-path storage, OIDC) at low stakes, so the daily-driver edith doesn't
-  move until the cluster has run something real for a while. (The report gated
-  this on its Phases 2–4 + ~3 months of operation; the "let it run a while
-  first" intent holds — the specific proving workload is now Phase A.)
+- **KubeVirt proven by the AI coding layer first.** The shakedown workload is
+  `k3s-cluster-workloads-plan.md` **Phase A** — on-demand dev containers via
+  **DevPod** (off-the-shelf, recommended; the cc-sandbox successor). It runs
+  before this migration and exercises the first KubeVirt/k3s host at low stakes
+  (scheduling, isolation runtimes, local-path storage, OIDC), so the daily-driver
+  edith does not move until the substrate has run something real for a while.
+  The report gated this on its Phases 2–4 + ~3 months of operation; the "let it
+  run a while first" intent holds even though edith now stays on calvard rather
+  than moving to erebonia.
 
 Relates to / eventually obsoletes:
 
@@ -78,39 +79,54 @@ the rejected alternative's tax to avoid.
 > just like edith, so it gets the **same KubeVirt treatment**. Phase 8 is
 > rewritten accordingly.
 
-## Guest management model — two control planes (resolved 2026-06-11)
+## Guest management model — hybrid ownership (resolved 2026-06-13)
 
-Picking KubeVirt settles the *substrate*; it does not settle **how the
-workstation's NixOS system state is managed**. The finding from the
-guest-management research (this section is its landing point) is to split
-management into **two control planes that are never conflated** — the
-community pattern for a pet NixOS VM on Kubernetes (cf. ryan4yin's nix-config,
-which does the same split):
+Picking KubeVirt settles the *substrate*; it does not settle **who owns which
+part of the workstation lifecycle**. The settled model is a **hybrid**:
 
-- **Plane 1 — the VM shell ("hardware"): Flux.** Flux reconciles the
-  `VirtualMachine` + `DataVolume` CRs (existence, CPU/mem, disks, NICs,
-  run-state). "Long-lived" is the *declaration*; **availability is a per-host
-  `runStrategy` knob** — a workstation can be declared but stopped-when-idle
-  and started on demand and still be fully Flux-managed (the one lever that
-  reconciles the pet shape with power cost, since the cluster host itself never
-  deep-idles under k3s anyway).
-- **Plane 2 — the guest OS ("software"): comin (pull), in the VM.** A
-  NixOS-native **pull** reconciler runs *inside* the VM and converges its
-  system closure from git, **decoupled from any host rebuild**. This is the
-  whole point of the migration: it breaks today's "guest updated alongside the
-  host" coupling (the `incus exec` + `switch-to-configuration` push from the
-  parent in `modules/incus/default.nix`). Flux **never** reaches inside the VM;
-  comin **never** touches the VM resource.
+- **Steady-state VM shell ("hardware"): Flux.** Flux reconciles the long-lived
+  Kubernetes objects: namespace, network attachment references, stable PVC
+  references, `VirtualMachine`, snapshot policy, CPU/memory, disks, NICs, and
+  run-state. "Long-lived" is the declaration; **availability is a per-host
+  `runStrategy` knob**. A workstation can be declared, stopped-when-idle, and
+  started on demand while still being Flux-managed.
+- **Imperative provisioning and migration: a narrow operator-side tool.** A
+  small `workstation-provision` script/app owns the steps that are not good
+  GitOps fits: importing an Incus export or flake-built qcow2 into a PVC,
+  seeding private bootstrap files from passage, stopping/starting around disk
+  mutation, running validation, and doing restore drills. This is similar in
+  spirit to the dev-machine launcher, but deliberately **not** the long-term
+  owner of the workstation.
+- **Guest OS ("software"): comin (pull), in the VM.** A NixOS-native **pull**
+  reconciler runs *inside* the VM and converges its system closure from git,
+  **decoupled from any host rebuild**. This is the whole point of the migration:
+  it breaks today's "guest updated alongside the host" coupling (the `incus exec`
+  + `switch-to-configuration` push from the parent in
+  `modules/incus/default.nix`).
+- **Bootstrap secret authority: passage.** passage remains the operator-side
+  authority for the one secret that cannot live in git: the guest's sops-nix
+  age identity. Flux and Kubernetes never become a standing decryption root for
+  the guest.
+
+Strict ownership rule:
+
+- Flux never reaches inside the guest and never sees private guest bootstrap
+  material.
+- comin never creates, deletes, or mutates the KubeVirt VM resource.
+- `workstation-provision` handles one-time and break-glass imperative actions,
+  then exits; it does not continuously reconcile.
+- passage owns private bootstrap identities; sops-nix owns ordinary in-guest
+  secret decryption after activation.
 
 **Why comin (pull) for workstations specifically:**
 
 - comin's one real weakness is polling (periodic wakeups → power), which is why
-  it was previously rejected. For a **cluster-hosted** guest that objection is
-  largely moot: erebonia under k3s is a continuous reconcile loop (kubelet,
-  flannel/kube-router, virt-handler, Flux), so the host never settles into deep
-  C-states regardless — a guest's git poll is marginal on top. **Tune the comin
-  interval up (≈5–15 min)** since a pet workstation has no deploy-latency
-  pressure.
+  it was previously rejected. For a **KubeVirt-hosted** guest that objection is
+  largely moot: k3s, kubelet, flannel/kube-router,
+  virt-handler, and Flux are already continuous reconcile loops, so the host
+  never settles into deep C-states regardless. A guest's git poll is marginal on
+  top. **Tune the comin interval up (≈5–15 min)** since a pet workstation has no
+  deploy-latency pressure.
 - comin can substitute from **zeiss/Attic** like any `nixos-rebuild`, so
   "Attic-backed" is not exclusive to the fleet system; the only real difference
   is comin evaluates the flake on the host (fine — trista is resourced) vs. the
@@ -128,18 +144,27 @@ which does the same split):
 - **Interim/fallback before comin is wired: `deploy-rs`** (push, already in the
   flake, magic rollback). Zero host polling; the tradeoff is it needs an inbound
   push path, so it's a bridge, not the endpoint.
+- **Comin implementation requirements:** pin comin as an explicit flake input
+  or package source; test Forgejo/creil auth before migration; set
+  `services.comin.hostname` explicitly; consider commit signature checking;
+  use `machineId` during migration so old and new VMs cannot both converge the
+  same host unintentionally; configure zeiss/Attic substituters and trusted keys;
+  tune the poll interval to roughly 10-15 minutes.
 
 **Scoping rule that falls out (record it so it isn't misapplied):**
 
 - **Long-lived workstations (trista / edith) → comin (pull).**
+- **Migration/provisioning of those workstations → `workstation-provision`
+  one-shot tool, not Flux and not comin.**
 - **Infra hosts (thebeyond / liberl / erebonia) → the cicd-fleet activation
   layer (per-host event-driven coordinators, Attic-signed).** Different host
   class, different tool.
 - **Ephemeral AI dev sandboxes → already solved**
   (`done/ai-dev-machine-kubevirt-plan.md`: imperative per-session
   `kubectl apply`, containerDisk, **no** persistent guest plane by design).
-- The general rule: **ephemeral → imperative; long-lived pet → declarative,
-  committed, Flux-reconciled.** Same repo, two postures keyed on lifecycle.
+- The general rule: **ephemeral → imperative; long-lived pet → declarative
+  steady state with imperative provisioning.** Same repo, different posture by
+  lifecycle phase.
 
 **home-manager composes cleanly:** comin owns the **system** closure; users'
 own `home-manager switch` (the "users manage their own state" shape) stays
@@ -149,18 +174,21 @@ their concern, entirely outside the fleet/comin plane.
 
 The `k3s-cluster-bootstrap` / `flux.nix` open decision #4 (monorepo path vs.
 separate repo for Flux's source, and the repo URL/auth) is **resolved to the
-monorepo**: Flux's `GitRepository` points at **this repo** (the dotfiles flake
-on creil), with manifests under a watched path here. Rationale:
+monorepo**: each KubeVirt/k3s host's Flux instance points at **this repo** (the
+dotfiles flake on creil), with manifests under watched per-host paths here.
+Rationale:
 
 - comin already makes this repo the source of truth for the **guest** plane;
   putting the **shell** plane here too means the whole workstation (VM + OS) is
   defined in one place, changed in one commit, reviewed in one PR, gated by the
   existing `run-checks.sh` + AGit flow.
 - The repo is **already** the platform source of truth (cert-manager, kyverno,
-  kubevirt, flux itself are HelmCharts declared here) — the dynamic layer
-  landing here is consistent, not a new pattern.
-- It unifies **three reconcilers on one repo + PR/CI gate**: Flux (VM shells),
-  comin (guest OS), and normal host deploys.
+  Flux HelmCharts, and the pinned upstream KubeVirt manifests are declared here)
+  — the dynamic layer landing here is consistent, not a new pattern.
+- It unifies the declarative surfaces behind one repo + PR/CI gate: Flux (VM
+  shells), comin (guest OS), and normal host deploys. The imperative
+  `workstation-provision` tool consumes this repo and passage, but does not add
+  another continuously reconciling state source.
 
 Resolved sub-points and the one still open:
 
@@ -175,8 +203,15 @@ Resolved sub-points and the one still open:
   the monorepo it scopes to the whole repo rather than a manifests-only subset —
   acceptable blast radius for a single-operator homelab.
 - **Not yet wired:** resolving #4 settles *where* the source is; the concrete
-  `GitRepository` + `Kustomization` (and the read key) are still to be created —
-  see `flux.nix`.
+  `GitRepository` + per-host `Kustomization`s (and the read key) are still to be
+  created — see `flux.nix`. erebonia already owns the cluster/dev-machine
+  KubeVirt path; calvard needs its own non-clustered k3s/Flux/KubeVirt platform
+  path before edith moves.
+- **Provisioning tool is not the source of truth.** If it needs to create a
+  temporary importer pod/job or upload server, those resources are operational
+  scaffolding and should be deleted after the import/seed step. The durable
+  desired state remains the committed Flux manifest plus the guest's
+  `nixosConfigurations.<host>` output.
 
 ## Secrets & key bootstrap across the migration (resolved 2026-06-11)
 
@@ -200,13 +235,19 @@ age." Current model, grounded in the repo:
   one secret that cannot live in git; it is delivered out-of-band.
 
 **What changes on KubeVirt — only the delivery vehicle, not the trust model.**
-Replace the Incus virtiofs `/static` share with a **KubeVirt volume** (a small
-persistent "static" PVC seeded at provision, or a cloud-init / `configDrive` /
-Secret-volume) that lands the same files at
-`/static/var/lib/sops-nix/key.txt`. The guest `sops.nix` is unchanged;
-`setup-guest.sh --output-dir` already emits the planted tree — retarget its
-output to the KubeVirt volume seed. Flux declares the VM + volume but never sees
-the key plaintext.
+Replace the Incus virtiofs `/static` share with an **offline-seeded KubeVirt
+disk/PVC path**. `setup-guest.sh --output-dir` already emits the planted tree;
+`workstation-provision` retargets that output into the VM's disk or a small
+static PVC while the VM is stopped, using libguestfs/guestfish/virt-customize or
+a one-shot Kubernetes job that attaches the PVC. The guest `sops.nix` still
+reads `/static/var/lib/sops-nix/key.txt`; Flux declares the VM and PVC
+references but never sees the key plaintext.
+
+Explicitly **do not** use cloud-init, `configDrive`, KubeVirt Secret volumes, or
+Flux SOPS for the guest's PQC age identity. Those mechanisms are useful
+KubeVirt/Kubernetes tools, but they place plaintext or a standing decryption
+root inside the cluster. They are acceptable for public or low-sensitivity
+shell-plane data, not for the root guest decryption identity.
 
 **Flux SOPS — feasible, but NOT used for the sops / PQC-age root.**
 
@@ -233,12 +274,21 @@ the key plaintext.
 
 **Where Flux / k8s Secrets ARE the right tool — shell-plane only:** KubeVirt
 **AccessCredentials** SSH *public* keys (public — no secrecy), a registry pull
-secret for the DataVolume image source, a cloud-init network seed. The split
-mirrors the two control planes: **Flux/k8s Secrets for shell-plane
+secret for a temporary DataVolume image source, a cloud-init network seed. The
+split mirrors the hybrid ownership model: **Flux/k8s Secrets for shell-plane
 public/cluster-scoped material; passage + `setup-guest.sh` + sops-nix (PQC age)
 for the guest's actual secrets.** The guest's secret bootstrap is unchanged by
 the migration — only the `/static` delivery vehicle swaps from virtiofs to a
 KubeVirt volume.
+
+**vTPM decision — defer.** KubeVirt persistent vTPM is useful for TPM-backed
+LUKS unlock, measured boot, Secure Boot/UKI work, or Windows/BitLocker-style
+requirements. For this migration it would only add a second layer around
+already-seeded guest secrets, while also adding persistent backend-state PVCs
+and restore/clone constraints. Do not enable vTPM for edith/trista initially.
+Revisit only if the plan grows a concrete TPM-backed disk or boot-hardening
+goal. If enabled later, it protects secrets at rest inside the guest; it is not
+the initial injection path from passage.
 
 ## Current edith state (repo-grounded)
 
@@ -248,62 +298,133 @@ KubeVirt volume.
 - Registry: `edith = 42` → `10.97.21.42`, lab zone
   (`lib/common/data/network.nix:78`; the comment says "calvard Incus
   container" — stale, it's a `dev`-profile guest).
-- **Lives on calvard today**; the KubeVirt VM lands on **erebonia** (the
-  cluster host) → this is a cross-host migration.
+- **Lives on calvard today**; the KubeVirt VM stays on **calvard**. This avoids
+  turning edith into a cross-host migration, but requires calvard to become a
+  standalone, non-clustered k3s/KubeVirt host first.
+
+## Phase 6.4 — host placement and bridge-free VM networking
+
+The placement decision is now settled:
+
+- **edith stays on calvard.** calvard becomes a standalone, non-clustered k3s
+  host with KubeVirt/Flux/CDI/CSI enough to run the edith workstation VM. It does
+  not join the erebonia cluster.
+- **trista stays on erebonia.** erebonia remains the first KubeVirt/k3s host for
+  dev-machine and trista.
+
+Before either workstation moves, migrate host-side guest networking away from
+Linux bridges and toward macvlan/macvtap-compatible lower devices on both
+calvard and erebonia:
+
+- Replace bridge-backed guest VLAN attachment (`br*` + tap enslaving) with
+  standalone VLAN lower devices (`uplink.<vlan>` / equivalent) used by
+  macvtap/macvlan. This applies to both KubeVirt VMs and existing microVMs.
+- Keep host management IPs on the host's own management VLAN/interface; guest
+  VLAN lower devices should generally be host-IP-less carriers.
+- Preserve the current routed identities: edith on lab VLAN 21
+  (`10.97.21.42`), trista on DMZ/VLAN 100, and existing microVM guest VLANs.
+- Extend the already-proven VLAN-51 macvtap approach into reusable host
+  networking patterns for VLAN 11/21/50/100 as needed, rather than maintaining
+  per-host bridge special cases.
+- Validate host↔guest, routed-in, DHCP/static addressing, firewall, and
+  observability paths after each VLAN conversion. This is a prerequisite because
+  k3s forces bridge netfilter settings that made bridge-backed VM networking a
+  proven bad fit for routed guest traffic.
 
 ## Phase 6.5 — stand up networked storage (CSI), deferred from bootstrap
 
 KubeVirt DataVolumes want VolumeSnapshots (mapping onto `incus snapshot`)
 and NAS-backed durability, which `local-path-provisioner` can't provide —
 so this is the phase that does the iSCSI/CSI work the bootstrap plan
-deferred (its section D). Do this before the first KubeVirt VM:
+deferred (its section D). Do this before the first persistent KubeVirt
+workstation VM on either host:
 
 - liberl iSCSI target (LIO/targetcli or scstadmin) + dedicated ZFS dataset
   hierarchy on the `data` pool + service user with
   `zfs allow create,destroy,snapshot,clone`; management endpoint (SSH/HTTP)
   for democratic-csi, credentials in sops.
 - `external-snapshotter` then `democratic-csi` (`zfs-generic-iscsi`,
-  targeting liberl) as HelmCharts in the k3s server manifests directory
-  (`/var/lib/rancher/k3s/server/manifests/` on erebonia); `pkgs.openiscsi`
-  on erebonia.
-- router6 cluster-zone forward rules: cluster → liberl TCP/3260 (iSCSI) +
-  SSH/HTTP mgmt endpoint (add to the zone defined in bootstrap E).
+  targeting liberl) on each KubeVirt host that needs durable VM disks: erebonia
+  for trista/dev-machine paths, and calvard for edith. Install through each
+  host's k3s manifests/Flux path; add `pkgs.openiscsi` on both hosts.
+- router6 forward rules: each KubeVirt host zone → liberl TCP/3260 (iSCSI) +
+  SSH/HTTP mgmt endpoint. Do not assume only the erebonia cluster zone needs
+  this path.
 - Validate the full lifecycle (provision → bind → snapshot → restore →
-  delete) against the real liberl before betting edith on it.
+  delete) against the real liberl before betting either workstation on it.
 
 (If game servers — `k3s-cluster-workloads-plan.md` Phase 3 — happen to land
 before this migration, they stand up CSI instead and this phase just
 verifies it's present.)
 
-## Phase 7 — migrate edith into the cluster as a KubeVirt VM
+## Phase 6.6 — make workstations substrate-neutral before moving them
 
-1. **KubeVirt platform — depend on it, don't re-land it.** The kubevirt-operator
-   - virt-handler HelmChart is **owned by
-     `llm-notes/done/ai-dev-machine-kubevirt-plan.md`** (which lands it first on
-     disposable dev-machine VMs to de-risk this daily-driver move). This phase
-     assumes the platform is present and adds only what edith needs on top:
-     `DataVolume` support (the CDI / containerized-data-importer component, beyond
-     the dev-machine containerDisk path) for the liberl-backed boot disk. If for
-     some reason this migration runs first, land the platform HelmChart here
-     instead — pinned, declared in the flake, reversible (revert and edith stays
-     on Incus).
+Do this while edith/trista still run on Incus, so the NixOS system definition is
+separated from the Incus substrate before KubeVirt enters the picture:
+
+- Move the reusable guest system definitions out of
+  `hosts/*/incus/guests/<name>/default.nix` into substrate-neutral workstation
+  modules exposed as `nixosConfigurations.edith` and
+  `nixosConfigurations.trista`.
+- Keep temporary Incus wrappers that import those workstation modules plus
+  `incus-guest`, `modules/incus/disko-virtual-machine.nix`, and the Incus disko
+  image profile until cutover is complete.
+- Add a KubeVirt guest profile for the new VM image path: qemu guest support,
+  serial console, growfs, qemu-guest-agent, comin, Attic substituters, and the
+  `/static` mount/path expected by sops-nix. Do **not** carry
+  `virtualisation.incus.agent` or Incus metadata assumptions into KubeVirt.
+- Add flake outputs/checks that can build:
+  - the normal NixOS system closure for comin/deploy-rs;
+  - a first-boot qcow2/raw image for DataVolume import or disaster recovery.
+- Extend `setup-guest.sh` or add `workstation-provision` so it can discover
+  substrate-neutral workstation names, generate/reuse passage identities, and
+  emit a seed tree suitable for a KubeVirt PVC/disk.
+
+The desired end state is: "edith" and "trista" are normal NixOS hosts in the
+flake; Incus and KubeVirt are wrappers around that host definition, not the place
+where the host identity lives.
+
+## Phase 7 — migrate edith on calvard as a KubeVirt VM
+
+1. **KubeVirt platform — reuse the pattern, but land it on calvard.** The
+   upstream KubeVirt operator manifest + singleton `KubeVirt` CR pattern is
+   owned first by `llm-notes/done/ai-dev-machine-kubevirt-plan.md` on erebonia.
+   Edith uses the same pinned upstream-manifest approach, but on calvard's own
+   standalone, non-clustered k3s host. Add only what edith needs on top:
+   `DataVolume` support (the CDI / containerized-data-importer component) for
+   the liberl-backed boot disk. Install CDI the same way: pinned upstream CDI
+   operator/CR manifests or an explicitly selected maintained packaging path,
+   declared in the flake and reversible.
 2. **Build the edith VM image** from the flake: a pre-built NixOS disk
    image (qcow2/raw) via `nixos-generators` or the flake-native
    equivalent, reproducible across rebuilds. (cloud-init into a blank
    DataVolume is a valid alternate install path, but flake-built image is
    the canonical "infrastructure is text in git" pattern.)
-3. **Define the `VirtualMachine` resource:**
+3. **Provision/import the mutable root disk with `workstation-provision`:**
+   - For migration, prefer importing the real Incus disk/export into a
+     liberl-backed PVC so mutable workstation state comes across.
+   - For fresh install or disaster recovery, import the flake-built qcow2/raw
+     image into a DataVolume/PVC.
+   - Treat DataVolume import as a **one-time creation path**. After first boot,
+     the boot PVC is mutable workstation state and must not be overwritten by
+     subsequent image rebuilds. Normal OS updates happen through comin.
+   - Seed `/static/var/lib/sops-nix/key.txt` and SSH host keys into the stopped
+     VM disk/static PVC from passage-generated output. Delete any temporary
+     importer/seed jobs after the PVC is ready.
+4. **Define the calvard Flux-owned `VirtualMachine` resource:**
    - CPU/memory matching today's allocation (16 GB per the Incus config).
-   - `DataVolume` boot disk on **democratic-csi** (liberl backing);
-     VolumeSnapshot for periodic backups.
-   - Bridged into the cluster CNI; routed through router6 like any cluster
-     workload (preserve a stable address; reconcile the lab-VLAN
-     registry entry vs the new cluster placement).
-   - cloud-init for any first-boot config the image doesn't carry.
-4. **Cutover:**
-   - Cross-host disk seed: `incus export` the calvard Incus edith → import
-     as a DataVolume on liberl-backed CSI (or snapshot the Incus disk, copy
-     via NFS/scp to liberl, import as a PV).
+   - Boot disk PVC on **democratic-csi** (liberl backing); VolumeSnapshot for
+     periodic backups.
+   - Preserve edith's lab identity by attaching the VM to VLAN 21 with
+     Multus/macvtap on calvard, following the bridge-free host networking
+     pattern from Phase 6.4 rather than ordinary pod CNI. Today calvard uses
+     `enp88s0.21` + `br21`; before creating the NAD, split out a dedicated
+     VLAN-21 macvtap carrier or otherwise make the host networking compatible.
+     Add the calvard VLAN-21 macvtap device-plugin exposure + NAD and keep the
+     network registry address stable (`10.97.21.42`).
+   - Use KubeVirt AccessCredentials for SSH public keys if helpful; keep private
+     bootstrap secrets out of Kubernetes.
+5. **Cutover:**
    - Parallel-run a few weeks: validate builds, dev workflows, sshd
      access, the langport routing chain, and VolumeSnapshot backup/restore.
    - Cut over by switching DNS / langport routing to the new edith. Keep
@@ -313,7 +434,7 @@ verifies it's present.)
 edith is the operator's daily driver — the parallel-run + stopped-Incus
 rollback window is the mitigation for that risk.
 
-## Phase 8 — migrate trista into the cluster as a KubeVirt VM
+## Phase 8 — migrate trista on erebonia as a KubeVirt VM
 
 **Authoritative role (operator, 2026-06-01):** trista is a **fully-fledged
 NixOS workstation, the same shape as edith** — accessed as an SSH target in
@@ -333,19 +454,22 @@ conflicting descriptions previously scattered across the repo:
 - `llm-notes/done/vlab-zone-plan.md` (vLAB) → "trista stays on DMZ, serves
   wg-ba mesh peer" — consistent.
 
-Because trista is workstation-shaped, it migrates **exactly like edith in
-Phase 7**: a KubeVirt `VirtualMachine` with a flake-built NixOS image on a
-DataVolume (liberl-backed CSI, VolumeSnapshot backups). The "Why edith and
-trista are KubeVirt VMs" reasoning above applies in full. Concretely:
+Because trista is workstation-shaped, it migrates with the same hybrid model as
+edith in Phase 7, but on erebonia: substrate-neutral
+`nixosConfigurations.trista`, one-time Incus/import + passage seed through
+`workstation-provision`, an erebonia Flux-owned KubeVirt `VirtualMachine`
+pointing at a durable liberl-backed PVC, VolumeSnapshot backups, and comin for
+steady-state guest OS updates. The "Why edith and trista are KubeVirt VMs"
+reasoning above applies in full. Concretely:
 
 - **Ordering vs edith is an operator choice.** The AI coding layer
-  (Phase A) is the cluster shakedown, so KubeVirt itself is the only
-  unproven piece by the time these run. Two defensible orders:
+  (Phase A) is the erebonia KubeVirt shakedown, so the KubeVirt pattern is
+  proven before these workstation moves. Two defensible orders:
   _edith-first_ (prioritize the daily driver — the whole point of the
   migration — with trista as the confidence-builder before Incus sunset),
   or _trista-first_ (prove the KubeVirt VM path on the lower-stakes
-  secondary workstation before risking the daily driver). Either way both
-  land before Phase 9.
+  secondary workstation before risking the daily driver). Either way both land
+  before Phase 9, and neither move changes physical host placement.
 - **DMZ placement carries over cleanly; wg-ba must be rebuilt, not carried
   over.** A KubeVirt VM is host-shaped, so it can hold a wg-ba WireGuard peer
   natively (this was the awkward part of the rejected Pod approach). **Update
@@ -355,11 +479,16 @@ trista are KubeVirt VMs" reasoning above applies in full. Concretely:
   no wg peer of its own today, so there is nothing to "carry over via router6":
   when migrated, give trista its **own direct per-host wg tunnel**, following the
   liberl pattern (`hosts/liberl/wg-ba.nix`: wg-quick + sops-templated `.conf` +
-  tunnel-scoped nftables egress). Bridge the VM into the cluster CNI on the DMZ
-  zone; SSH reaches trista directly over that tunnel (no router6 DNAT).
-- Cutover mirrors edith: `incus export` the Incus trista → import as a
-  DataVolume; parallel-run; keep the stopped Incus declaration as the
-  rollback window; remove once confident.
+  tunnel-scoped nftables egress). Preserve DMZ placement with Multus/macvtap on
+  VLAN 100 (`uplink.100`), not ordinary pod CNI. `uplink.100` is already a
+  standalone carrier on erebonia, but the cluster still needs a VLAN-100
+  macvtap device-plugin exposure + NAD; current Multus wiring only exposes the
+  VLAN-51 dev-machine resource. SSH reaches trista directly over that tunnel (no
+  router6 DNAT).
+- Cutover mirrors edith: `workstation-provision` imports the Incus trista disk
+  into the durable PVC, seeds passage-managed bootstrap files while stopped,
+  starts the Flux-owned VM, validates, parallel-runs, and keeps the stopped Incus
+  declaration as the rollback window.
 
 **No urgency on timing** — trista is low-churn. But the _shape_ is settled:
 KubeVirt VM, not Pod. Keeping it on Incus until edith is proven is fine.
@@ -391,10 +520,26 @@ until then).
 
 ## Open decisions
 
-- Network placement after migration for **both** workstations: keep their
-  current identities (edith lab VLAN `10.97.21.42`; trista DMZ + wg-ba) and
-  route them into the cluster, or give them cluster-zone addresses? Affects
-  router6 rules and the registry entries. trista additionally must keep its
-  wg-ba mesh peer working (KubeVirt VM holds it natively).
 - Whether to fully remove the Incus module/builders in Phase 9 or just
   disable on the hosts.
+
+## Settled follow-ups from 2026-06-13 review
+
+- **Steady-state ownership:** Flux owns durable KubeVirt shell objects;
+  `workstation-provision` owns import/seed/validation one-shots; comin owns
+  guest NixOS convergence; passage owns private bootstrap identities.
+- **Secrets:** Keep manual/operator injection from passage. Do not introduce
+  Vault unless future workload count, rotation/audit needs, or multi-operator
+  access control justify a dedicated secret service. Kubernetes/Flux secrets are
+  shell-plane only for this migration.
+- **vTPM:** Defer. It is useful for TPM-backed LUKS/measured boot later, but not
+  worth adding solely to wrap the sops age key after it has already been seeded.
+- **Placement:** edith stays on calvard; trista stays on erebonia. calvard gets
+  a standalone, non-clustered k3s/KubeVirt/Flux path for edith rather than
+  joining the erebonia cluster.
+- **Networking:** Preserve existing identities. edith stays lab VLAN 21
+  (`10.97.21.42`); trista stays DMZ/VLAN 100 and gets a direct per-host wg-ba
+  tunnel. Move KubeVirt and microVM guest networking away from Linux bridges and
+  toward macvlan/macvtap-compatible lower devices on both calvard and erebonia,
+  extending the existing VLAN-51 macvtap lesson into a general host networking
+  pattern.
