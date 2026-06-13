@@ -76,9 +76,20 @@
       coreutils-full
     ];
     text = ''
-      mkdir -p /home/agent /tmp
-      chmod 1777 /tmp
-      chown -R ${agentUid}:${agentGid} /home/agent 2>/dev/null || true
+      if [[ $(id -u) -eq 0 ]]; then
+        mkdir -p /home/agent /tmp
+        chmod 1777 /tmp
+        chown -R ${agentUid}:${agentGid} /home/agent 2>/dev/null || true
+      else
+        [[ -d /home/agent ]] || {
+          echo "dev-machine-entrypoint: /home/agent is missing" >&2
+          exit 1
+        }
+        [[ -d /tmp ]] || {
+          echo "dev-machine-entrypoint: /tmp is missing" >&2
+          exit 1
+        }
+      fi
 
       if [[ $# -gt 0 ]]; then
         exec "$@"

@@ -77,6 +77,7 @@ in
 
     config = {
       Cmd = ["/bin/dev-machine-entrypoint"];
+      User = "agent";
       WorkingDir = "/workspaces";
       Env = [
         "PATH=/bin"

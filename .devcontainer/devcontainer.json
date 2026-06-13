@@ -10,6 +10,7 @@
 {
   "name": "dotfiles-dev-machine",
   "image": "forgejo.internal/mutantmell/dev-machine-dev:latest",
+  "containerUser": "agent",
   "remoteUser": "agent",
   "updateRemoteUserUID": false,
   "overrideCommand": false,

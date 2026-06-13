@@ -106,8 +106,24 @@ agent_home_matches_passwd() {
 
 devcontainer_pins_agent_user() {
   [[ -f "$repo_root/.devcontainer/devcontainer.json" ]] &&
+    grep -Eq '^[[:space:]]*"containerUser"[[:space:]]*:[[:space:]]*"agent"' "$repo_root/.devcontainer/devcontainer.json" &&
     grep -Eq '^[[:space:]]*"remoteUser"[[:space:]]*:[[:space:]]*"agent"' "$repo_root/.devcontainer/devcontainer.json" &&
     grep -Eq '^[[:space:]]*"updateRemoteUserUID"[[:space:]]*:[[:space:]]*false' "$repo_root/.devcontainer/devcontainer.json"
+}
+
+ssh_uses_agent_home() {
+  local ssh_config
+
+  [[ $(id -u) != 0 && $(id -un) == agent && $HOME == /home/agent ]] || return 1
+
+  ssh_config=$(ssh -G forgejo.internal 2>/dev/null) || return 1
+  ! grep -Eq '^userknownhostsfile .*/root/\.ssh/.*$' <<<"$ssh_config" || return 1
+  grep -qx 'userknownhostsfile /home/agent/.ssh/known_hosts /home/agent/.ssh/known_hosts2' <<<"$ssh_config" || return 1
+
+  if [[ -f "$HOME/.ssh/config" ]] && grep -Eq '^[[:space:]]*Host[[:space:]]+forgejo\.internal([[:space:]]|$)' "$HOME/.ssh/config"; then
+    grep -qx 'user forgejo' <<<"$ssh_config" || return 1
+    grep -qx 'identityfile ~/.ssh/dm_deploy_key' <<<"$ssh_config" || return 1
+  fi
 }
 
 devcontainer_configures_cgroups() {
@@ -186,6 +202,7 @@ check "repo root detected" find_repo_root
 diagnose "repo root" "${repo_root:-not found}"
 check "agent user is non-root" agent_user_is_non_root
 check "agent HOME matches passwd" agent_home_matches_passwd
+check "SSH uses agent home" ssh_uses_agent_home
 check "devcontainer pins agent user without UID rewrite" devcontainer_pins_agent_user
 check_absent "devcontainer does not configure host cgroups" devcontainer_configures_cgroups
 check "devcontainer bind-mounts host Nix store" devcontainer_uses_host_nix
