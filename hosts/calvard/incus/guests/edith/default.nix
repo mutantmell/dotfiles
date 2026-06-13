@@ -60,6 +60,7 @@ in {
     vim
     curl
     wget
+    tsshd
   ];
 
   nix.settings = {
@@ -91,6 +92,15 @@ in {
     port = 2022;
   };
   networking.firewall.allowedTCPPorts = [2022];
+  # tssh/tsshd UDP mode: after the initial SSH login, tssh starts a per-session
+  # tsshd that randomly chooses an available UDP port in this default range.
+  # Router-side policy still has to allow the same range to edith.
+  networking.firewall.allowedUDPPortRanges = [
+    {
+      from = 61001;
+      to = 61999;
+    }
+  ];
 
   common.internal-pki.enable = true;
 
