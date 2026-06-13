@@ -12,9 +12,10 @@ set -euo pipefail
 #   X5C enrollment certs:    warn < 450d (silent-expiry trap: enrollment cert must
 #                            outlast the issued client cert by >= 365d)
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HOST_CERTS_DIR="$REPO_ROOT/lib/common/data/host-certs"
-X5C_CERTS_DIR="$REPO_ROOT/lib/common/data/fleet-x5c-certs"
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+HOST_CERTS_DIR="${HOST_CERTS_DIR:-$REPO_ROOT/lib/common/data/host-certs}"
+X5C_CERTS_DIR="${X5C_CERTS_DIR:-$REPO_ROOT/lib/common/data/fleet-x5c-certs}"
+KEYS_JSON="${KEYS_JSON:-$REPO_ROOT/lib/common/data/keys.json}"
 
 WARN=0
 FAIL=0
@@ -54,15 +55,14 @@ x509_cert_end_epoch() {
   date -d "$end_str" +%s 2>/dev/null || date -jf "%b %e %H:%M:%S %Y %Z" "$end_str" +%s 2>/dev/null || echo "0"
 }
 
-# Fetch the network registry's monitored host list
-ALL_DOMAINS=$(nix eval "$REPO_ROOT#lib.common.data.network.allHostDomains" --json 2>/dev/null)
+# Fetch the network registry's monitored host list. Nix checks pass this in so
+# the script does not need to invoke nix from inside a derivation.
+ALL_DOMAINS="${ALL_DOMAINS_JSON:-$(nix eval "$REPO_ROOT#lib.common.data.network.allHostDomains" --json 2>/dev/null)}"
 all_hosts=$(echo "$ALL_DOMAINS" | jq -r 'keys[]')
 
 # Only check SSH host certs for hosts with a known host key (i.e., running sshd).
 # Hosts without a hostKeys entry (OpenWrt devices, switches, IoT, not-yet-deployed
 # hardware) are not expected to have SSH host certs.
-KEYS_JSON="$REPO_ROOT/lib/common/data/keys.json"
-
 echo "=== SSH host certificate expiry ==="
 for host in $all_hosts; do
   has_host_key=$(jq -r --arg h "$host" '.hostKeys[$h] // empty' "$KEYS_JSON" 2>/dev/null || true)
@@ -111,7 +111,7 @@ else
     if [ ! -f "$cert" ]; then
       # Only fail if there's a fleetEnrollmentKeys entry for this host
       has_key=$(jq -r --arg h "$host" '.fleetEnrollmentKeys[$h] // empty' \
-        "$REPO_ROOT/lib/common/data/keys.json" 2>/dev/null || true)
+        "$KEYS_JSON" 2>/dev/null || true)
       if [ -n "$has_key" ]; then
         echo "  MISSING  $host: enrollment key registered but no cert at fleet-x5c-certs/$host.crt"
         FAIL=$((FAIL + 1))

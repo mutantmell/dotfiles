@@ -41,8 +41,6 @@ if [[ ${#CHECKS[@]} -eq 0 ]]; then
   mapfile -t CHECKS < <(echo "$CHECKS_JSON" | sed 's/[][]//g; s/,/\n/g; s/"//g; s/ //g' | grep -v '^$')
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # Per-test logs are captured here. Kept on failure so a flake or real error
 # can be diagnosed after the fact (the script no longer discards `nix build`
 # output). Passing tests have their log file deleted to keep the dir tidy.
@@ -53,18 +51,6 @@ echo ""
 PASSED=0
 FAILED=0
 FAILED_NAMES=()
-
-# Run cert expiry check before nix checks (shell-only, no nix build needed)
-echo "Running cert expiry check..."
-if "$SCRIPT_DIR/check-cert-expiry.sh" 2>&1 | sed 's/^/  /'; then
-  echo "  PASS  cert-expiry"
-  PASSED=$((PASSED + 1))
-else
-  echo "  FAIL  cert-expiry"
-  FAILED=$((FAILED + 1))
-  FAILED_NAMES+=("cert-expiry")
-fi
-echo ""
 
 TOTAL=${#CHECKS[@]}
 echo "Running ${TOTAL} nix checks (parallelism: ${MAX_PARALLEL})..."
@@ -133,7 +119,7 @@ fi
 rmdir "$LOG_DIR" 2>/dev/null || true
 
 echo ""
-echo "Results: ${PASSED} passed, ${FAILED} failed ($((TOTAL + 1)) total)"
+echo "Results: ${PASSED} passed, ${FAILED} failed (${TOTAL} total)"
 
 if [[ $FAILED -gt 0 ]]; then
   echo ""
