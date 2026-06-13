@@ -1375,7 +1375,7 @@ in {
 
       url = lib.mkOption {
         type = lib.types.str;
-        default = "ssh://forgejo.internal/mutantmell/agents.git";
+        default = "ssh://forgejo@forgejo.internal/mutantmell/agents.git";
         description = "DevPod dotfiles repository URL containing the reusable agents profile installer and skill catalog.";
       };
 
