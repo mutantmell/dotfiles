@@ -154,7 +154,8 @@
                 {
                   name = "scratch";
                   # serial → /dev/disk/by-id/virtio-scratch in the guest, which the
-                  # base image autoFormats + mounts at /var/lib/containers.
+                  # base image autoFormats, uses to seed a scratch-backed /nix,
+                  # and bind-mounts for rootful Podman storage.
                   serial = "scratch";
                   disk.bus = "virtio";
                 }
@@ -206,9 +207,9 @@
             }
             {
               name = "scratch";
-              # Ephemeral runtime scratch for Podman rootful storage and Nix build
-              # directories. Dies with the VM (no CSI); the base image formats +
-              # mounts it at /var/lib/containers.
+              # Ephemeral runtime scratch for /nix store growth, Nix build
+              # directories, and Podman rootful storage. Dies with the VM (no
+              # CSI); the base image formats it and migrates /nix onto it at boot.
               emptyDisk.capacity = "60Gi";
             }
           ];
@@ -1269,7 +1270,7 @@ in {
     defaultDisk = lib.mkOption {
       type = lib.types.str;
       default = "60Gi";
-      description = "Default capacity of the ephemeral scratch disk backing Podman's rootful storage and Nix build directories. Override per-session with `--disk`.";
+      description = "Default capacity of the ephemeral scratch disk backing /nix store growth, Nix build directories, and Podman's rootful storage. Override per-session with `--disk`.";
     };
 
     forgejoApi = lib.mkOption {

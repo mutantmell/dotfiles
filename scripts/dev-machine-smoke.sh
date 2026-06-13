@@ -189,6 +189,8 @@ check "Nix build users group configured" bash -c 'nix config show build-users-gr
 check "Nix allows host dev user" nix_config_contains_word allowed-users dev
 check_absent "Nix does not trust host dev user" nix_config_contains_word trusted-users dev
 check_absent "agent cannot write directly to /nix/store" test -w /nix/store
+check "Nix tree was migrated to scratch" test -e /nix/.dev-machine-nix-seeded
+check "Nix build dir is on scratch" bash -c 'nix config show build-dir 2>/dev/null | grep -qx "/mnt/scratch/nix-builds"'
 check "Nix auto-allocates build UIDs" bash -c 'nix config show auto-allocate-uids 2>/dev/null | grep -qx "true"'
 check "Nix has auto-allocate-uids feature" nix_config_contains_word experimental-features auto-allocate-uids
 check "Nix cgroups enabled" bash -c 'nix config show use-cgroups 2>/dev/null | grep -qx "true"'

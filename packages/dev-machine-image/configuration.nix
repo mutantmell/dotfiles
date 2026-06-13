@@ -138,21 +138,67 @@ in {
     autoResize = true;
   };
 
-  # Runtime scratch — a KubeVirt emptyDisk (ephemeral, sized at the VMI). Podman's
-  # rootful storage and Nix build directories live here, so container layers and
-  # large build work dirs get scratch capacity while the boot store remains on the
-  # root disk. Formatted on first boot; the VMI sets the disk serial "scratch"
-  # for a stable by-id name. systemd-makefs (autoFormat) + the mount are ordered
-  # before podman via local-fs.
-  fileSystems."/var/lib/containers" = {
+  # Runtime scratch — a KubeVirt emptyDisk (ephemeral, sized at the VMI). The
+  # boot image's root disk is intentionally closure-sized; on first boot we copy
+  # the complete /nix tree onto this larger scratch disk and bind it back over
+  # /nix before nix-daemon/Podman/sshd start. Podman's rootful storage and Nix
+  # build directories live on the same scratch filesystem. The VMI sets the disk
+  # serial "scratch" for a stable by-id name.
+  fileSystems."/mnt/scratch" = {
     device = "/dev/disk/by-id/virtio-scratch";
     fsType = "ext4";
     autoFormat = true;
   };
 
   systemd.tmpfiles.rules = [
-    "d /var/lib/containers/nix-builds 0755 root root -"
+    "d /mnt/scratch/containers 0711 root root -"
+    "d /mnt/scratch/nix-builds 0755 root root -"
   ];
+
+  systemd.services.dev-machine-scratch-nix = {
+    description = "Move the dev-machine Nix store onto scratch storage";
+    wantedBy = ["multi-user.target"];
+    requires = ["mnt-scratch.mount"];
+    after = ["mnt-scratch.mount"];
+    before = [
+      "basic.target"
+      "nix-daemon.service"
+      "nix-daemon.socket"
+      "podman.service"
+      "podman.socket"
+      "sshd.service"
+    ];
+    path = [
+      pkgs.coreutils
+      pkgs.findutils
+      pkgs.gnugrep
+      pkgs.rsync
+      pkgs.util-linux
+    ];
+    unitConfig.DefaultDependencies = false;
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      set -euo pipefail
+
+      mkdir -p /mnt/scratch/nix /mnt/scratch/containers /mnt/scratch/nix-builds
+
+      if ! findmnt -rn --mountpoint /nix --output TARGET | grep -qx /nix; then
+        if [ ! -e /mnt/scratch/nix/.dev-machine-nix-seeded ]; then
+          rsync -aHAX --numeric-ids --delete /nix/ /mnt/scratch/nix/
+          touch /mnt/scratch/nix/.dev-machine-nix-seeded
+        fi
+        mount --bind /mnt/scratch/nix /nix
+      fi
+
+      mkdir -p /var/lib/containers
+      if ! findmnt -rn --mountpoint /var/lib/containers --output TARGET | grep -qx /var/lib/containers; then
+        mount --bind /mnt/scratch/containers /var/lib/containers
+      fi
+    '';
+  };
 
   # Serial console — `virtctl console` attaches to ttyS0.
   boot.kernelParams = ["console=ttyS0"];
@@ -275,7 +321,7 @@ in {
       "uid-range"
     ];
     extra-sandbox-paths = ["/dev/kvm"];
-    build-dir = "/var/lib/containers/nix-builds";
+    build-dir = "/mnt/scratch/nix-builds";
   };
 
   # The container runtime devpod's SSH provider targets through its Docker driver,

@@ -40,11 +40,11 @@
     inherit (baseSystem) config;
     format = "qcow2";
     partitionTableType = "legacy";
-    # Root holds the base OS, host nix-daemon, and dev-tool closure. Podman's
-    # rootful storage plus Nix build directories live on a separate ephemeral
-    # scratch disk — see configuration.nix's /var/lib/containers mount + the VMI's
-    # emptyDisk — so "auto" keeps the image closure-sized and avoids the large
-    # diskSize OOM-panic path in make-disk-image.
+    # Root holds the seed copy of the base OS, host nix-daemon, and dev-tool
+    # closure. At runtime, configuration.nix copies /nix onto the separate
+    # ephemeral scratch disk and bind-mounts it back before nix-daemon starts, so
+    # "auto" keeps the image closure-sized and avoids the large diskSize
+    # OOM-panic path in make-disk-image.
     diskSize = "auto";
     installBootLoader = true;
   };
