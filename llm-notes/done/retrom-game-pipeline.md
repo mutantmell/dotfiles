@@ -1,5 +1,9 @@
 # Plan: Games library + game pipeline (Retrom + Igir + MISTer)
 
+**Status:** COMPLETE. Follow-up restructuring for DAT/non-DAT layout and
+staging paths is tracked in
+`llm-notes/plans/games-library-restructure-plan.md`.
+
 ## Goal
 
 Add the third media-type leg to the existing pipeline: **games**, of
@@ -799,7 +803,7 @@ pkgs.postgresql_17` in PR 2 keeps a switch-to-embedded
   Out of scope — design separately.
 - **Authelia integration.** Retrom has its own user system; defer
   Authelia OIDC integration until the broader Authelia migration
-  (`wip/authelia-migration-plan.md`) is far enough along to add a
+  (`done/authelia-migration-plan.md`) is far enough along to add a
   new client. Until then, Retrom's built-in auth + TLS is the
   access boundary.
 - **EmulatorJS in-browser play (regression from the spec).**

@@ -35,7 +35,7 @@
   # profiles/disko/btrfs.nix: @root is reset, @persist survives). Being its own
   # subvolume (not just a directory) is what makes it independently
   # snapshottable. This is the resolution of open decision #2 in
-  # llm-notes/wip/k3s-cluster-bootstrap-plan.md: persisted btrfs subvolume +
+  # llm-notes/done/k3s-cluster-bootstrap-plan.md: persisted btrfs subvolume +
   # local btrfs snapshots; off-host backup to liberl deferred to the CI/CD plan.
   #
   # We reach it via a SYMLINK at the default path rather than `--data-dir`,

@@ -120,5 +120,4 @@ are the source of truth for _what_ each host decrypts.
   new identity and re-key that host's files (see "Generating a host identity").
 - **No mixed-recipient files.** age refuses to encrypt one file to both classical
   X25519 and PQ recipients; every secrets file is fully PQ. This was the invariant
-  that made the SSH-key → PQC migration safe (see
-  `llm-notes/done/pqc-sops-migration-plan.md`).
+  that made the SSH-key → PQC migration safe.

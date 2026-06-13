@@ -141,7 +141,7 @@ reasons:
 former scheme where each host's SSH Ed25519 host key was converted to an
 X25519 age recipient via `ssh-to-age`. See
 [`secrets.md`](secrets.md) for the operational details and
-`llm-notes/done/pqc-sops-migration-plan.md` for the migration.
+the deployment scripts for the migration mechanics.
 
 **Why a separate key — why couldn't we keep using the SSH host key?**
 

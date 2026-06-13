@@ -1,5 +1,9 @@
 # SSH Host Certificate Signing — Implementation Plan
 
+**Status:** COMPLETE. Host public keys are registered in
+`lib/common/data/keys.json`, signed host certificates are committed under
+`lib/common/data/host-certs/`, and the common OpenSSH module deploys them.
+
 ## Context
 
 User SSH certificates are working (step ssh login via Keycloak OIDC → step-ca). The final piece is **host certificate signing** — signing each host's SSH public key with the host CA so clients can verify host identity without TOFU. This requires:

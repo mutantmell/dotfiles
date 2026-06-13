@@ -108,7 +108,7 @@
   # nested (erebonia's host is kvm_intel nested=1).
   #
   # NETWORK — multus-only via macvtap (bring-up checklist D.4; macvtap cutover,
-  # llm-notes/wip/dev-machine-vlan51-macvtap-cutover.md). The VM has NO default
+  # llm-notes/done/dev-machine-vlan51-macvtap-cutover.md). The VM has NO default
   # pod network: its single NIC is a `macvtap`-bound multus attachment onto the
   # single shared NAD `cluster-vlan51` (a macvtap child of erebonia's uplink.51,
   # hosts/erebonia/k3s/multus.nix), so the guest is a routable VLAN-51 host with

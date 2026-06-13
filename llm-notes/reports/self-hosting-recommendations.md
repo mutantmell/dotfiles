@@ -2,20 +2,27 @@
 
 Date: 2026-04-05 (revised)
 
+**Refresh note (2026-06-13):** This is a service-idea survey, not an active
+implementation plan. Keycloak/deployd/langport references are historical; the
+current identity stack is Authelia + lldap, deployd has been removed, and
+external ingress remains deferred.
+
 ## Current Infrastructure Summary
 
-**Hosts:** thebeyond (router), remiferia/liberl (NAS), calvard (primary VM host), erebonia (build/CI host), angbar (laptop)
+**Hosts:** thebeyond (router), liberl (NAS), calvard (primary VM host),
+erebonia (k3s/KubeVirt host), angbar (laptop)
 
 **Already deployed/planned:**
 
 - Networking: zone-based nftables firewall, systemd-networkd, VLANs, WireGuard
-- DNS: Unbound (split-horizon) + Adguard Home (filtering, not yet deployed — recommend Blocky instead)
-- Identity: Keycloak OIDC, step-ca PKI, SSH certificates, oauth2-proxy
+- DNS: phantasma Unbound + Blocky today; DNS consolidation is tracked in
+  `llm-notes/wip/dns-consolidation-plan.md`
+- Identity: Authelia OIDC, lldap, step-ca PKI, SSH certificates
 - Media: Jellyfin (oracion), arr stack planned (bose)
-- Git/CI: Forgejo (creil), cgit (monrain), binary cache (ardent/zeiss), Woodpecker CI planned (saint-arkh)
-- Monitoring: Prometheus, Loki, Perses (dashboards), Alertmanager, ntfy (tharbad)
+- Git/CI: Forgejo (creil), binary cache (zeiss), Woodpecker CI planned (saint-arkh)
+- Monitoring: Prometheus, VictoriaLogs, Perses (dashboards), Alertmanager, ntfy (tharbad)
 - Storage: ZFS on NAS, NFS exports (RW/RO), Samba shares for Windows
-- Containers: deployd + Kata on erebonia (roer API deployed, dynamic OCI workloads)
+- Workloads: k3s + KubeVirt on erebonia; deployd has been removed
 - Planned: Headscale VPN, Woodpecker CI, NATS fleet activation, media pipeline (arr stack on bose, Navidrome, Retrom), game servers, Raspberry Pi IoT hub (azoth, trusted VLAN)
 
 ---
@@ -34,16 +41,24 @@ Date: 2026-04-05 (revised)
 
 | Current SMB share         | Replacement                                        | Why this tool                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `drive` (general storage) | **Seafile**                                        | Web UI, share links, versioning, mobile app, OIDC via Keycloak. Remote access without VPN. Replaces the "extra drive space" use case with a proper personal cloud.                                                                                                                                                                                                                                                                                                             |
+| `drive` (general storage) | **Seafile**                                        | Web UI, share links, versioning, mobile app, OIDC via Authelia. Remote access depends on the eventual external-ingress or Headscale path. Replaces the "extra drive space" use case with a proper personal cloud.                                                                                                                                                                                                                                                               |
 | `media` (upload staging)  | **Syncthing**                                      | Direct-to-filesystem sync. Windows has a local `media-staging/` folder that syncs to liberl's `/data/media/staging/manual/`. Files land directly on ZFS — no intermediary, no chunked storage, hardlink-safe for the arr stack. Works remotely (Syncthing handles NAT traversal natively). Uses "Send Only" / "Receive Only" folder types for one-way upload. Handles partial uploads gracefully (temp files + atomic renames, so the arr stack won't see half-written files). |
 | `media` (library browse)  | **Seafile** (optional, read-only) or just Jellyfin | Expose `/data/media/library/` as a read-only Seafile library for browsing the organized collection from web/mobile. Cosmetic, not functional — Jellyfin already serves this role for playback.                                                                                                                                                                                                                                                                                 |
 | `backup`                  | **Seafile** or keep SMB                            | Depends on whether remote access to backups is wanted.                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
-**Deployment model:** Single microVM on liberl (vDMZ) running both Seafile and Syncthing. Both are user-facing services that accept inbound connections — vDMZ is the right zone for both. Co-locating avoids an extra VM while keeping inbound connections off the liberl host.
+**Deployment model:** Single guest/workload on liberl or the k3s layer running
+both Seafile and Syncthing. Re-ground placement against the current APP/DMZ
+model before implementation.
 
 - **virtiofs shares:** Seafile's chunked data directory (on `/persist/guests/<name>/`) + Syncthing's receive folder passthrough to `/data/media/staging/manual/` (direct ZFS access, hardlink-safe for the arr pipeline).
 - **Resources:** 512MB-1GB RAM, 1-2 vCPU. Combined footprint is still small.
-- **Seafile** served via local nginx on the same VM (TLS from step-ca), with langport forwarding external requests to it — same pattern as other proxied services. Keycloak OIDC for auth. Note: external access depends on langport's external proxy being unblocked (currently waiting on cloud host) or Headscale. Internal access works immediately. Dramatically lighter than Nextcloud — focused file sync engine in C/Python, clean upgrade path, no PHP/kitchen-sink overhead. (Nextcloud was previously run and retired due to upgrade pain and RAM consumption — Seafile avoids both issues.)
+- **Seafile** served via local nginx on the same VM/workload (TLS from step-ca),
+  with Authelia OIDC for auth. External access depends on the deferred
+  cloud-host/external-ingress or Headscale path. Internal access works
+  immediately. Dramatically lighter than Nextcloud — focused file sync engine in
+  C/Python, clean upgrade path, no PHP/kitchen-sink overhead. (Nextcloud was
+  previously run and retired due to upgrade pain and RAM consumption — Seafile
+  avoids both issues.)
 - **Syncthing** handles its own NAT traversal and discovery — no reverse proxy needed. Point the receive folder at the virtiofs mount of `/data/media/staging/manual/`, accept the Windows device. Also useful for angbar↔NAS sync if needed.
 
 **SMB retirement:** Once Seafile + Syncthing are operational, all three SMB shares can be removed. WSDD (Windows network discovery) can also be disabled. This simplifies the NAS firewall rules (remove ports 139, 445, 3702, 5357).
@@ -63,27 +78,33 @@ Date: 2026-04-05 (revised)
 **Recommendation:** Complete the existing Borg setup rather than switching tools.
 
 - Finalize Borg configuration with a scheduled NixOS systemd timer (`services.borgbackup.jobs`).
-- Back up: ZFS datasets (via `zfs send` snapshots or direct Borg), sops secrets, guest persistent volumes (`/persist/guests/`), Keycloak/PostgreSQL database dumps (messeldam), Forgejo data (creil).
+- Back up: ZFS datasets (via `zfs send` snapshots or direct Borg), sops
+  secrets, guest persistent volumes (`/persist/guests/`), Authelia/lldap state
+  on messeldam, Forgejo data (creil).
 - Remote target: Backblaze B2 (via `rclone` bridge), BorgBase, rsync.net, or a USB drive for cold backup.
 - **ZFS snapshots** for local point-in-time recovery — `services.sanoid` is the standard NixOS option for automated ZFS snapshot management if not already in use.
 - The media pipeline plan mentions creating a dedicated `backup` system user with sops-managed SSH key, scoped to the backup provider. This should be part of the completion work.
 
-**Deployment model:** Borg agent on remiferia/liberl (NAS) with systemd timers. For guests, back up their persistent storage from the host level. Prioritize completing this before the liberl reformat.
+**Deployment model:** Borg agent on liberl (NAS) with systemd timers. For
+guests, back up their persistent storage from the host level.
 
 ---
 
 ### 3. Blog / Personal Site — Static Site Generator via CI/CD
 
-**The problem:** Blog/homepage containers were previously on ardent and retired. The roadmap notes "provision a dedicated microVM" when ready to host again. But a static site doesn't need a VM.
+**The problem:** Blog/homepage containers were previously retired. The roadmap notes "provision a dedicated microVM" when ready to host again. But a static site doesn't need a VM.
 
 **Recommendation:** **Hugo or Zola** built via Woodpecker CI, deployed as static files
 
 - Write content in a git repo on creil (Forgejo).
 - Woodpecker CI on saint-arkh builds the static site on push.
 
-**Option A — Self-hosted via deployd:** Woodpecker builds the static site into an OCI image containing nginx + the built files, pushes it to creil's container registry, and deploys it via deployd on erebonia. No dedicated microVM needed — this is exactly the kind of lightweight, CI-driven workload deployd is designed for. Proxied through langport for `mutantmell.net` or a subdomain.
+**Option A — Self-hosted via k3s:** Woodpecker builds the static site into an
+OCI image containing nginx + the built files, pushes it to creil's container
+registry, and deploys it through the k3s/Flux path on erebonia. No dedicated
+microVM needed.
 
-**Option B — GitHub Pages:** Woodpecker pushes the built site to a GitHub Pages repo. Zero infrastructure to maintain. Use this if you don't want to depend on deployd being operational, or if external access (without Headscale/cloud host) is a priority.
+**Option B — GitHub Pages:** Woodpecker pushes the built site to a GitHub Pages repo. Zero infrastructure to maintain. Use this if external access without Headscale/cloud-host work is a priority.
 
 **Recommendation for engine:**
 
@@ -102,18 +123,26 @@ Date: 2026-04-05 (revised)
 | Operational secrets | passage         | CLI, encrypted in git, human-triggered           | Operator tasks (manual deploys, API keys, break-glass credentials) |
 | Personal passwords  | Cloud Bitwarden | Browser/mobile apps, cloud-hosted                | Personal accounts, logins                                          |
 
-This covers the current infrastructure well. The gaps emerge with the planned CI/CD and deployd layers:
+This covers the current infrastructure well. The gaps emerge with the planned CI/CD and k3s workload layers:
 
 **Gap 1 — CI/CD pipeline secrets:** Woodpecker needs registry credentials, signing keys, and deploy tokens at build time. Woodpecker has its own encrypted secrets store, but it's an opaque blob in its database — not auditable, not rotatable from outside, and duplicates values that already exist in sops.
 
-**Gap 2 — deployd container secrets:** Dynamic containers aren't NixOS services, so sops-nix doesn't apply directly. The deployd spec passes env vars in the JSON definition, but the secret values need to come from somewhere.
+**Gap 2 — workload secrets:** Dynamic workloads aren't NixOS services, so
+sops-nix doesn't apply directly. k3s/Flux needs a clear convention for how
+runtime secrets enter manifests without losing auditability.
 
-**Gap 3 — Application-to-application credentials:** When a deployd container needs a database password or a CI job needs an Attic push token, each system currently maintains its own secret store with no central source of truth.
+**Gap 3 — Application-to-application credentials:** When a workload needs a
+database password or a CI job needs an Attic push token, each system currently
+maintains its own secret store with no central source of truth.
 
-**Recommendation:** Extend sops to cover CI and deployd rather than adding new infrastructure.
+**Recommendation:** Extend sops to cover CI and k3s workload secrets rather
+than adding new infrastructure.
 
 - **Woodpecker secrets from sops:** Write a Woodpecker plugin or pre-step that decrypts sops secrets at build time. Secrets stay in git (auditable, version-controlled), Woodpecker doesn't need its own store. The CI runner host (erebonia/saint-arkh) already has an age key for sops decryption.
-- **deployd reads host-level sops:** The deployd-helper runs on erebonia where sops secrets are already decrypted to `/run/secrets/`. The helper can inject host-side secrets into container env vars, using the host's age key as the trust anchor. No new infrastructure — just a deployment convention where deployd container definitions reference secret names rather than literal values.
+- **k3s secret convention from sops:** Render workload secrets from sops into
+  the dynamic-manifest path or use a sealed/external secret controller if the
+  cluster grows beyond a single-node trust model. Keep the source secret in git
+  and avoid ad hoc UI-managed secret stores.
 - **passage stays for human operations:** Operator credentials, break-glass keys, and anything that requires human judgment to use. This is the right tool for the job and doesn't need to change.
 - **Cloud Bitwarden stays for personal passwords:** The self-hosting overhead of Vaultwarden isn't worth the marginal savings for a single-user password manager. Keep cloud Bitwarden.
 
@@ -131,7 +160,7 @@ Two practical options:
 
 Option 1 is stronger if you want per-operation hardware attestation. Option 2 is more ergonomic and still meaningfully raises the bar. Both are compatible with a future `age-plugin-yubikey-agent` if/when it ships.
 
-**Future direction — OpenBao:** If the homelab grows to the point where dynamic credential rotation matters (short-lived database credentials, automatic API token rotation, multiple operators with different access levels), **OpenBao** (open-source Vault fork) is the natural next step. It supports Keycloak OIDC auth, dynamic secrets engines, and audit logging. But it's a significant operational commitment (unsealing, HA, backup) and overkill for the current scale. Note it as a future option, not a current need. The sops-based approach above doesn't preclude migrating to OpenBao later — it's a stepping stone, not a dead end.
+**Future direction — OpenBao:** If the homelab grows to the point where dynamic credential rotation matters (short-lived database credentials, automatic API token rotation, multiple operators with different access levels), **OpenBao** (open-source Vault fork) is the natural next step. It supports OIDC auth, dynamic secrets engines, and audit logging. But it's a significant operational commitment (unsealing, HA, backup) and overkill for the current scale. Note it as a future option, not a current need. The sops-based approach above doesn't preclude migrating to OpenBao later — it's a stepping stone, not a dead end.
 
 ---
 
@@ -144,7 +173,8 @@ Option 1 is stronger if you want per-operation hardware attestation. Option 2 is
 - **Linkding** — minimal bookmark manager with tags, search, browser extension, and API. ~50MB RAM. Python/Django. Simple and focused.
 - **Wallabag** — full read-later service (like Pocket). Archives articles, strips formatting, provides a reading view. Heavier (~256MB RAM), PHP-based, but much more capable.
 
-**Deployment model:** Either runs as a container via deployd (ideal lightweight workload for the dynamic container layer) or a small microVM. Proxy through langport with Keycloak auth.
+**Deployment model:** Either runs as a k3s workload or a small microVM. Put
+Authelia in front of it if exposed beyond trusted clients.
 
 ---
 
@@ -158,7 +188,9 @@ Option 1 is stronger if you want per-operation hardware attestation. Option 2 is
 - YAML-configured, easy to declare in NixOS.
 - Has integrations for most services you run (Jellyfin, Prometheus, Forgejo, etc.).
 
-**Deployment model:** Static config, runs on langport itself or a tiny container via deployd. Serves as the landing page for `home.mutantmell.net` or similar.
+**Deployment model:** Static config, runs as a tiny k3s workload or microVM.
+Serves as the landing page for `home.mutantmell.net` or similar once the
+external-ingress path exists.
 
 **Alternatives:**
 
@@ -176,7 +208,8 @@ Option 1 is stronger if you want per-operation hardware attestation. Option 2 is
 - **Mealie** — clean UI, URL scraping (paste a recipe URL, it extracts ingredients/steps), meal planning, shopping lists, API. ~200MB RAM, Python. Has OIDC support.
 - **Tandoor** — more feature-rich (nutritional info, multi-user, import/export), Django-based, slightly heavier.
 
-**Deployment model:** Container via deployd or small microVM. Ideal deployd workload — it's exactly the kind of application that doesn't warrant a NixOS rebuild when you want to try it.
+**Deployment model:** k3s workload or small microVM. This is the kind of
+application that does not warrant a NixOS rebuild when you want to try it.
 
 ---
 
@@ -201,16 +234,19 @@ Option 1 is stronger if you want per-operation hardware attestation. Option 2 is
 
 ---
 
-### 8. DNS Ad Blocking — Blocky (replaces Adguard Home)
+### 8. DNS Ad Blocking — Blocky (replaced AdGuard Home)
 
-**The problem:** Adguard Home is not yet actively deployed on phantasma. Before deploying it, the choice of DNS filtering tool should be reconsidered.
+**Current state:** Blocky shipped on phantasma and replaced AdGuard Home. The
+longer-term DNS architecture is now tracked in
+`llm-notes/wip/dns-consolidation-plan.md`.
 
-**Recommendation:** Deploy **Blocky** instead of Adguard Home.
+**Recommendation:** Keep Blocky's design rationale as historical context, but
+do not treat this as a new deployment plan.
 
 Blocky is a better architectural fit for this homelab:
 
-- **YAML-configured, no web UI** — fully declarative, lives in NixOS config, tracked in git. Adguard Home stores config and query logs in a mutable database outside NixOS declarations.
-- **Native Prometheus metrics** — `/metrics` endpoint out of the box, plugs directly into tharbad's Prometheus scraping. Adguard Home has no native Prometheus exporter (requires a third-party shim).
+- **YAML-configured, no web UI** — fully declarative, lives in NixOS config, tracked in git. AdGuard Home stored config and query logs in a mutable database outside NixOS declarations.
+- **Native Prometheus metrics** — `/metrics` endpoint out of the box, plugs directly into tharbad's Prometheus scraping. AdGuard Home had no native Prometheus exporter (requires a third-party shim).
 - **Smaller footprint** — single Go binary, roughly half the memory of Adguard Home. Matters on phantasma (512MB, shared with Unbound).
 - **NixOS module** — `services.blocky` in nixpkgs, [well-documented on the NixOS wiki](https://wiki.nixos.org/wiki/Blocky).
 - **Per-client groups** — define device groups (e.g., by IP/MAC) with independent blocklist policies. Useful for household members with different filtering needs.
@@ -230,10 +266,14 @@ Blocky is a better architectural fit for this homelab:
 This enables several wife-friendly toggle approaches:
 
 - **Phone shortcut (simplest):** iOS/Android Shortcuts can make HTTP requests. A home screen shortcut that calls `PUT /api/blocking/disable?duration=2h&groups=household` — one tap, blocking disabled for 2 hours on her devices, re-enables automatically.
-- **Simple web page behind oauth2-proxy:** A single HTML file with on/off buttons served from phantasma's nginx, protected by Keycloak auth. No NixOS rebuild, no YAML editing, no SSH.
+- **Simple web page behind Authelia:** A single HTML file with on/off buttons
+  served internally, protected by Authelia. No NixOS rebuild, no YAML editing,
+  no SSH.
 - **Per-client group scoping:** Define her devices as a client group in Blocky's config. The API toggle is scoped to just her group — the rest of the network stays filtered. This avoids the "someone disabled ad blocking for everyone" problem that Adguard Home's global toggle has.
 
-**Deployment model:** Replace Adguard Home on phantasma. Blocky handles the filtering/blocking layer and forwards non-blocked queries to Unbound (recursive resolver). Since Adguard Home isn't actively deployed yet, there's no migration cost — configure Blocky from the start.
+**Deployment model:** Already shipped on phantasma. Blocky handles the
+filtering/blocking layer and forwards non-blocked queries to Unbound (recursive
+resolver) until the DNS consolidation plan changes that shape.
 
 ---
 
@@ -245,7 +285,7 @@ This enables several wife-friendly toggle approaches:
 
 - Home Assistant is the de facto standard. It has excellent Zigbee/BLE/MQTT integration.
 - Runs well in a dedicated microVM or Incus container (~1GB RAM).
-- Can integrate with your Keycloak identity layer.
+- Can integrate with the Authelia identity layer.
 - The Raspberry Pi pushes sensor data to MQTT; Home Assistant subscribes and provides automation rules, dashboards, and mobile app access.
 
 **Deployment model:** Microvm on calvard or an Incus container. The network registry already has `azoth` (Raspberry Pi) on the trusted VLAN — Home Assistant would need a cross-zone firewall rule to reach the MQTT broker there. This is a future consideration — only deploy when the Pi/IoT layer is ready.
@@ -263,10 +303,11 @@ This enables several wife-friendly toggle approaches:
 
 **Recommendation:** **Outline** (if you want OIDC integration and a polished UI) or **BookStack** (if you want a simpler, documentation-focused tool)
 
-- **Outline** — Notion-like wiki with native OIDC/Keycloak support, real-time collaboration, API, Markdown. Needs PostgreSQL + Redis (~512MB RAM total). Fits naturally into your Keycloak auth flow.
+- **Outline** — Notion-like wiki with native OIDC support, real-time collaboration, API, Markdown. Needs PostgreSQL + Redis (~512MB RAM total). Fits naturally into the Authelia auth flow.
 - **BookStack** — simpler, PHP/Laravel, book/chapter/page hierarchy. Less resource-hungry. Good if you want straightforward documentation rather than a collaboration tool.
 
-**Deployment model:** Microvm on calvard or deployd container. Outline can share PostgreSQL with Keycloak (messeldam) if you want to consolidate, or run its own instance.
+**Deployment model:** MicroVM or k3s workload. Run its own PostgreSQL unless a
+future shared database plan exists.
 
 **Alternatives:**
 
@@ -284,24 +325,24 @@ This enables several wife-friendly toggle approaches:
 | **3**    | §3      | Blog (Zola/Hugo + Woodpecker CI)     | Low    | Medium   | Low-effort with planned CI/CD pipeline. Content is the hard part.                                        |
 | **4**    | §5      | Dashboard (Homepage)                 | Low    | Medium   | Quality of life — single pane of glass for all services.                                                 |
 | **5**    | §7      | Media companions (Navidrome, Retrom) | Low    | Medium   | Already decided in media spec. Deploy after arr stack is running.                                        |
-| **6**    | §8      | DNS filtering (Blocky)               | Low    | Medium   | Better fit than Adguard Home — declarative, Prometheus-native, per-client groups. Deploy from the start. |
-| **7**    | §4      | Bookmarks (Linkding)                 | Low    | Medium   | Good deployd candidate, lightweight, immediately useful.                                                 |
-| **8**    | §6      | Recipes (Mealie)                     | Low    | Low-Med  | Fun, practical, good deployd test workload.                                                              |
+| **6**    | §8      | DNS filtering (Blocky)               | Done   | Medium   | Shipped; future changes belong to DNS consolidation.                                                     |
+| **7**    | §4      | Bookmarks (Linkding)                 | Low    | Medium   | Good k3s candidate, lightweight, immediately useful.                                                     |
+| **8**    | §6      | Recipes (Mealie)                     | Low    | Low-Med  | Fun, practical, good k3s test workload.                                                                  |
 | **9**    | §10     | Wiki (Outline)                       | Medium | Medium   | Depends on whether git-based docs feel insufficient.                                                     |
 | **10**   | §9      | Home Assistant                       | High   | Medium   | Blocked on Pi/IoT hardware deployment (azoth).                                                           |
 
-**Not ranked separately:** Secrets management (cross-cutting section between §3 and §4) is an architectural concern, not a standalone service. The sops bridging work for Woodpecker and deployd should be done as part of those systems' implementation, not as an independent project.
+**Not ranked separately:** Secrets management (cross-cutting section between §3 and §4) is an architectural concern, not a standalone service. The sops bridging work for Woodpecker and k3s workloads should be done as part of those systems' implementation, not as an independent project.
 
 ---
 
 ## Notes on Deployment Strategy
 
-**Static NixOS services** (priorities 1-2): Borg backup completion, Seafile, and Syncthing are stable, long-lived services that benefit from declarative NixOS configuration. Seafile + Syncthing share a single microVM on liberl (vDMZ).
+**Static NixOS services** (priorities 1-2): Borg backup completion, Seafile, and Syncthing are stable, long-lived services that benefit from declarative NixOS configuration. Re-ground Seafile + Syncthing placement against the current APP/DMZ model before implementation.
 
 **SMB retirement:** Once Seafile + Syncthing are operational, all three SMB shares (`drive`, `media`, `backup`) can be removed along with WSDD. This also resolves the media pipeline plan's concern about SMB's full RW access to `/data/media` contradicting the least-privilege model — Syncthing delivers files to `/data/media/staging/manual/` (the staging inbox) rather than exposing the entire media tree.
 
 **Media companions** (priority 5): Navidrome and Retrom are already specified in the media pipeline plan. They follow the same deployment pattern as Jellyfin (RO NFS mount, microVM on calvard). Deploy after the arr stack (bose) is operational.
 
-**deployd candidates** (priorities 4, 7-8): Homepage, Linkding, and Mealie are ideal early workloads for the deployd dynamic container layer — they're stateless or near-stateless, don't need tight NixOS integration, and are easy to replace or remove. Good for validating deployd before using it for CI/CD-deployed services.
+**k3s candidates** (priorities 4, 7-8): Homepage, Linkding, and Mealie are ideal early workloads for the k3s dynamic layer — they're stateless or near-stateless, don't need tight NixOS integration, and are easy to replace or remove.
 
-**Blog** (priority 3): Doesn't need a running service at all if built statically via Woodpecker CI. The "service" is just nginx serving files — this could share langport's nginx or be a trivial dedicated microVM.
+**Blog** (priority 3): Doesn't need a running service at all if built statically via Woodpecker CI. The "service" is just nginx serving files — place it through the eventual external-ingress path or a trivial dedicated microVM.

@@ -1,5 +1,9 @@
 # SSH Certificate Implementation Plan
 
+**Status:** COMPLETE. This is a historical rollout record. References to
+Keycloak describe the original implementation; the active OIDC provider is
+Authelia on messeldam with lldap-backed users/groups.
+
 ## Context
 
 Phases 1-2 of the SSH certificate rollout are complete: Keycloak is running on messeldam with a `homelab` realm, and step-ca is running on basel with an ACME provisioner. This plan implements SSH user certificate authentication via Keycloak OIDC, with host certificate signing as a follow-up.

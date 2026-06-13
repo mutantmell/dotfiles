@@ -1,18 +1,13 @@
 # Observability Stack Migration
 
-> **Curation note (2026-06-11):** This file lives in `done/`, but its original
-> header still says "Planning." Treat the body as a historical migration record,
-> not as the current observability runbook. Verify current service state in code
-> before following any architecture or validation detail here.
->
-> **Status:** Planning. Replaces the broken Promtail shipper, consolidates the
-> per-host agent, and shifts metrics from pull to push. Leverages the
-> pre-media-stack window, where the only user is the operator and disruption
-> cost is low.
->
-> **Supersedes:** parts of `metrics-alerting-plan.md` (specifically the agent
-> layer and metrics receiver). Alertmanager + ntfy sections of that plan
-> remain authoritative.
+**Status:** COMPLETE. Historical migration record for the Promtail/Prometheus
+agent-side shift to Fluent Bit, VictoriaMetrics, and VictoriaLogs on tharbad.
+Verify current service state in code before following plan-time architecture or
+validation detail here.
+
+**Supersedes:** parts of `metrics-alerting-plan.md` (specifically the agent
+layer and metrics receiver). Alertmanager + ntfy sections now live in
+`llm-notes/blocked/metrics-alerting-plan.md`.
 
 ---
 
@@ -986,6 +981,6 @@ hosts/calvard/microvm/guests/tharbad/secrets/
 hosts/<host>/.../default.nix                           [MOD]   promtail-client.enable → fluent-bit-agent.enable + authTokenFile
 hosts/<host>/.../sops.nix or secrets.yaml              [MOD]   add observability-token (host's own copy)
 
-llm-notes/wip/metrics-alerting-plan.md                 [MOD]   mark Phase 1-4 superseded; point to this plan
+llm-notes/blocked/metrics-alerting-plan.md                 [MOD]   mark Phase 1-4 superseded; point to this plan
 docs/security-audit-report.md                          [MOD]   update promtail/node_exporter references
 ```

@@ -37,7 +37,7 @@ Depends on:
 
 Relates to / eventually obsoletes:
 
-- **`llm-notes/done/incus-vm-migration.md`** — converted `edith` to an
+- The now-deleted historical Incus VM migration plan — converted `edith` to an
   Incus VM and documented the host-side-build + `nixos-rebuild
 --target-host` update model. That model carries forward conceptually;
   the Incus _substrate_ is what this plan replaces.

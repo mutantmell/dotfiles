@@ -1,5 +1,9 @@
 # NixOS Homelab Pipeline and Fleet Activation: Specification
 
+**Status:** Active design spec. Workload integration is framed around k3s/Flux;
+re-ground the concrete dynamic-manifest path in
+`llm-notes/wip/k3s-cluster-workloads-plan.md` before implementation.
+
 ## Overview
 
 This system is a paper-thin connective layer between a build system and `nixos-rebuild`. It does not provision hosts, manage secrets in the Nix store, or coordinate fleet-wide state as a central authority. It receives a signal that CI has produced a verified, signed closure, and activates it safely on hosts that cannot or should not build themselves.
@@ -27,7 +31,7 @@ It is explicitly **not** responsible for:
 - Managing secrets (handled by sops-nix and passage)
 - Defining NixOS configurations (handled by the user's flake)
 - Deploying network-isolated or remote hosts (handled by deploy-rs — see Section 10)
-- Dynamic container workloads (handled by deployd — see Section 9)
+- Dynamic workload manifests (handled by the k3s/Flux layer — see Section 9)
 
 The minimum viable use case that motivates this system is a homelab containing **at least one host that is network infrastructure** — typically a router or gateway — where:
 
@@ -714,15 +718,25 @@ Deploy it first on the router only. Validate that a merge to main causes the rou
 
 ---
 
-## 9. Future Direction: Container Integration
+## 9. Future Direction: k3s Workload Integration
 
-The same pipeline applies naturally to OCI container deployment on hosts running deployd.
+The same pipeline applies naturally to OCI image builds and k3s workload
+deployment.
 
-CI builds OCI images as Nix derivations, pushes them to the Forgejo container registry, and publishes events to `builds.containers.<name>`. The coordinator on hosts running deployd subscribes to container build events and calls the deployd API: `POST /deploy` with the image ref and digest. deployd handles pull, activation, Caddy route registration, and audit logging.
+CI builds OCI images as Nix derivations, pushes them to the Forgejo container
+registry, and publishes events to `builds.containers.<name>`. The dynamic
+workload path then updates the Flux-watched manifest source with the image
+digest, or publishes a narrowly scoped event consumed by the cluster deployment
+controller once that shape exists.
 
 Trust model: OCI digest pinning serves the same role as Nix store signature verification — the event specifies an exact digest that the registry cannot substitute.
 
-**Dependency on deployd Phase D3 (CI/CD integration) and Phase D1c (containerd gRPC migration).** Building the coordinator's container mode against an unstable deployd API would create churn. Nothing in the current design needs to change to support this later — the NATS subject namespace, coordinator module structure, and result aggregation pattern all accommodate container events alongside NixOS closure events.
+**Dependency on the workloads plan.** Building this before
+`llm-notes/wip/k3s-cluster-workloads-plan.md` settles the dynamic-manifest path
+would create churn. Nothing in the current design needs to change to support
+this later — the NATS subject namespace, coordinator module structure, and
+result aggregation pattern all accommodate workload events alongside NixOS
+closure events.
 
 ---
 
@@ -761,7 +775,7 @@ Both paths originate from the same build phase in Woodpecker. The deploy phase r
 | Internal TLS certificates         | step-ca                                                                   |
 | Monitoring                        | Prometheus + Perses                                                       |
 | Multi-host flake organisation     | flake-parts                                                               |
-| Dynamic container layer           | deployd (future — see Section 9)                                          |
+| Dynamic workload layer            | k3s + Flux (future — see Section 9)                                       |
 | Isolated / remote host deployment | deploy-rs (see Section 10)                                                |
 
 ---

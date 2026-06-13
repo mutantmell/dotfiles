@@ -8,7 +8,7 @@ out APP with `oracion` (Phase 5.A). This plan picks up the remaining
 Phase 5 service migrations, the deferred Phase 4 / 4.5 image-builder
 codification, plus open items that accumulated during the dual-gateway
 window.
-**Related:** [`llm-notes/bt8-gateway-as-built.md`](../bt8-gateway-as-built.md)
+**Related:** [`llm-notes/guides/bt8-gateway-as-built.md`](../guides/bt8-gateway-as-built.md)
 remains the living anchor for BT8-gateway state until Phase 4 codifies
 it. [`llm-notes/plans/cicd-fleet-activation-plan.md`](cicd-fleet-activation-plan.md)
 is the gate for Phase 4 / 4.5 (see
@@ -133,7 +133,7 @@ deploys are automated rather than hand-pushed. See
 ### B.1 — Codify BT8-gateway and BT8-bridge in Image Builder
 
 Source for the gateway "golden output":
-[`../bt8-gateway-as-built.md`](../bt8-gateway-as-built.md)
+[`../guides/bt8-gateway-as-built.md`](../guides/bt8-gateway-as-built.md)
 
 - `temp/BT8-gw-current.uci` + `temp/BT8-gw-phase-5a-additions.uci`. The
   gateway type should produce UCI substantially identical to those files
@@ -320,7 +320,7 @@ Today only liberl's wg-ba _tunnel_ egress is filtered (`hosts/liberl/wg-ba.nix`'
       [`project-arseille-netmgmt-migration`](../../../../home/mutantmell/.claude/projects/-home-mutantmell-git-dotfiles/memory/project_arseille_netmgmt_migration.md)).
       Gives `netmgmt.hosts` its first non-arseille consumer; trunks
       NETMGMT/12 to BT8-gateway (resolves the
-      [as-built-notes loose-end](../bt8-gateway-as-built.md)).
+      [as-built-notes loose-end](../guides/bt8-gateway-as-built.md)).
 - [ ] `arseille` flake back-port (already underway as a hand-driven
       migration). When `network.hosts.arseille = 12` moves to
       `netmgmt.hosts.arseille = 12` and the `vlanId` in

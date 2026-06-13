@@ -2,7 +2,10 @@
 
 Plan date: 2026-04-19
 Refreshed: 2026-06-05
-Moved to wip: 2026-06-02
+Status: **COMPLETE (2026-06-05)**. Keycloak was replaced by Authelia on
+messeldam with lldap as the directory source. The body below is retained as
+historical rollout detail; current service state lives in
+`hosts/calvard/microvm/guests/messeldam/modules/`.
 
 **Phase status:**
 
@@ -143,11 +146,11 @@ name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
   corrected a pre-existing stale `network-helpers` test (it asserted messeldam
   had 1 alias; it's had 5 since Phase 1 — unrelated to Keycloak, fixed in
   passing).
-- Phase 4 — **COMPLETE** (2026-06-05, doc cleanup). `keycloak-oauth-oidc-plan.md`
-  was already gone (item 1 moot); the `.nix` tree has no `oauth2-proxy` refs and
+- Phase 4 — **COMPLETE** (2026-06-05, doc cleanup). The old Keycloak OIDC
+  roadmap doc was already gone (item 1 moot); the `.nix` tree has no `oauth2-proxy` refs and
   langport's `secrets/` is already removed (item 5 clean). Updated
   `headscale-integration-plan.md` with a Keycloak→Authelia translation table +
-  fixed its dead `keycloak-oauth-oidc-plan.md` links (item 4 / follow-up F3), and
+  fixed its dead Keycloak OIDC roadmap links (item 4 / follow-up F3), and
   fixed stale langport/Keycloak references in
   `foundational-identity-resilience-plan.md`. Historical `done/` plans that
   mention Keycloak are left as-is per `llm-notes/CONVENTIONS.md` (done/ is a
@@ -167,7 +170,7 @@ name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
 >
 > **Scope change (post deployd decommission, 2026-06-02):** deployd and
 > cc-sandbox were retired (see
-> [`llm-notes/done/k3s-deployd-migration-plan.md`](../done/k3s-deployd-migration-plan.md)).
+> the historical k3s deployd decommission plan, now deleted from `done/`).
 > Two consumers this plan originally migrated are **gone**, not migrated:
 >
 > - **deployd-api (roer)** — host removed; no OIDC client needed.
@@ -1063,8 +1066,8 @@ and repoint consumers' issuer from `authelia.internal.mutantmell.net` to
 
 ### Phase 4: Post-migration cleanup
 
-1. Update `llm-notes/done/keycloak-oauth-oidc-plan.md` status to note
-   replacement by Authelia
+1. ~~Update the old Keycloak OIDC roadmap status~~ — n/a, roadmap doc deleted
+   and replaced by Authelia
 2. ~~Update `feature-roadmap-analysis.md` Step 4 (Keycloak OIDC)~~ — n/a,
    roadmap doc deleted (superseded by the plans/wip/done lifecycle)
 3. ~~Update deployd auth references~~ — n/a, deployd retired (superseded by k8s; plan doc deleted)

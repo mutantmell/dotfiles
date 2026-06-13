@@ -5,7 +5,7 @@ during the dual-gateway migration. Read end-to-end before starting.
 
 **Companion plan:** [`dual-gateway-app-vlan-plan.md`](../done/dual-gateway-app-vlan-plan.md)
 (architectural reference; do not need to follow during the window).
-**Companion checklist:** [`dual-gateway-app-vlan-checklist.md`](../done/dual-gateway-app-vlan-checklist.md)
+**Companion checklist:** [`dual-gateway-app-vlan-plan.md`](../done/dual-gateway-app-vlan-plan.md)
 (maps to plan phases; this runbook covers Phase 0b ("Hardware cutover")
 and the manual side of Phase 2 ("BT8-gateway by hand") for the
 **BT8-gateway** role specifically).
@@ -2309,7 +2309,7 @@ Stop and roll back to the previous BT8-as-gateway configuration if:
 ## Appendix D — Post-window followups
 
 Track these in the project's existing checklist
-(`dual-gateway-app-vlan-checklist.md`); they are NOT part of the
+(`dual-gateway-app-vlan-plan.md`); they are NOT part of the
 window:
 
 - Run the external security scan (Reference E in the plan)

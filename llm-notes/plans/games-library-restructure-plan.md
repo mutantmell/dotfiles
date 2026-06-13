@@ -508,7 +508,7 @@ the same PR:
   future `staging/syncthing/` sibling, depending on intent).
 
 `done/` plans (`retrom-game-pipeline.md`,
-`manual-rename-import-workflow.md`, `ravennue-instance.md`,
+`media-ingestion-runbook.md`, `ravennue-instance.md`,
 `music-stack-plan.md`, `media-organization-pipeline.md`) describe the
 state at the time they shipped. Per CONVENTIONS.md, prefer adding a
 top-of-file "Successor: …" pointer rather than rewriting them. They

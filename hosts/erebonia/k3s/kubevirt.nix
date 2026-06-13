@@ -73,7 +73,7 @@ in {
           # their frames bypass br_netfilter's L3 pipeline — which silently drops
           # cross-subnet/routed-in traffic (e.g. lab → dev-N) to a host-IP-less
           # bridge guest while k3s forces bridge-nf-call-iptables=1 (proven dead
-          # end; see llm-notes/wip/dev-machine-vlan51-macvtap-cutover.md). No
+          # end; see llm-notes/done/dev-machine-vlan51-macvtap-cutover.md). No
           # feature gate: network binding plugins are default-on since v1.5.
           network.binding.macvtap.domainAttachmentType = "tap";
         };

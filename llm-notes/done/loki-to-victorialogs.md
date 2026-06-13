@@ -376,7 +376,7 @@ After Loki's last ingested chunk has aged out (~30 d post-Phase 4):
 - [ ] Remove `loki` import + persistence entry from `default.nix`.
 - [ ] Remove `/var/lib/loki` from impermanence directories.
 - [ ] Deploy. Reclaim the persist volume space.
-- [ ] Update `llm-notes/wip/metrics-alerting-plan.md` to point at VL.
+- [ ] Update `llm-notes/blocked/metrics-alerting-plan.md` to point at VL.
 - [ ] Move this plan from `wip/` to `done/`.
 
 ### Rollback
@@ -510,7 +510,7 @@ hosts/calvard/microvm/guests/tharbad/modules/
   default.nix                                   [MOD]   import victorialogs.nix; drop loki.nix in Phase 5
   dashboards/                                   [MOD]   port any LokiDatasource references
 
-llm-notes/wip/metrics-alerting-plan.md          [MOD]   final reference swap in Phase 5
+llm-notes/blocked/metrics-alerting-plan.md          [MOD]   final reference swap in Phase 5
 llm-notes/wip/loki-to-victorialogs.md           [MOV]   → done/ at end of Phase 5
 ```
 

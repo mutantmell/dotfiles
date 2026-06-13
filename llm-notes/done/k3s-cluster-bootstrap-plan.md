@@ -35,7 +35,7 @@ snapshotter (D — dev-env plan, triggered by the first VolumeSnapshot need);
 public ingress langport→erebonia + the bt8gw `transit→management` rule, and
 per-cluster egress confinement (E — first public / first untrusted workload);
 off-host datastore backup to liberl (CI/CD plan); multi-node / HA (Phases 10–11,
-capacity-driven). **Next work:** `llm-notes/plans/k3s-cluster-workloads-plan.md`
+capacity-driven). **Next work:** `llm-notes/wip/k3s-cluster-workloads-plan.md`
 **Phase A** — the DevPod AI-coding layer (the cluster shakedown on local
 storage).
 
@@ -50,14 +50,14 @@ resolved (Authelia OIDC + on-disk x509 admin kubeconfig as break-glass).
 
 **Prerequisite — DONE: deployd is removed.** deployd has been fully
 decommissioned (no remaining `.nix` references; see
-`llm-notes/done/k3s-deployd-migration-plan.md`). k3s therefore lands on a
+the historical k3s deployd decommission plan, now deleted from `done/`). k3s therefore lands on a
 clean erebonia with **no deployd coexistence to manage** (no shared kata
 config, no duplicate nested-KVM modprobe, no containerd/CNI/bridge/port
 audit) — the single biggest simplification to the bootstrap, already banked.
 
 Foundation for (recommended execution order):
 
-1. `llm-notes/plans/k3s-cluster-workloads-plan.md` **Phase A** — AI coding
+1. `llm-notes/wip/k3s-cluster-workloads-plan.md` **Phase A** — AI coding
    layer: on-demand dev containers via **DevPod** (off-the-shelf,
    recommended; Coder if it goes multi-user). The **low-stakes starter and
    cluster shakedown**; the cc-sandbox-workflow successor. Uses local
@@ -80,7 +80,7 @@ Reverses the earlier k3s rejection that motivated deployd (the
 dynamic-container-layer spec, since deleted — see the report
 `llm-notes/reports/k8s-migration-evaluation.md` for the reversal). deployd
 was retired in favour of this direction — see
-`llm-notes/done/k3s-deployd-migration-plan.md`.
+the historical k3s deployd decommission plan, now deleted from `done/`.
 
 ---
 

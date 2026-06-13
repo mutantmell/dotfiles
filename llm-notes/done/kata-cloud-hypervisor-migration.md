@@ -2,7 +2,7 @@
 
 ## STATUS: WON'T DO
 
-**Replacement plan:** `llm-notes/plans/incus-vm-migration.md`
+**Replacement plan:** `llm-notes/plans/incus-workstation-migration-plan.md`
 
 Running a full mutable NixOS system (systemd init, home-manager user environment) inside a
 Kata containers workload is not achievable with Kata as currently designed. The plan is closed.

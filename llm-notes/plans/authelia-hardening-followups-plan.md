@@ -5,7 +5,7 @@ Status: Planned (not started)
 Date: 2026-06-05
 
 > Extracted from the follow-up section of
-> [`authelia-migration-plan.md`](../wip/authelia-migration-plan.md) when the
+> [`authelia-migration-plan.md`](../done/authelia-migration-plan.md) when the
 > Keycloak→Authelia migration's core work completed (Keycloak removed, Phase 3).
 > These items are **orthogonal to the migration** — they're AuthN/AuthZ
 > hardening that Authelia makes easier, not migration steps — so they live in

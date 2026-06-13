@@ -22,7 +22,7 @@
   # works). macvtap is not a Linux bridge, so it never enters br_netfilter; it also
   # matches the macvtap pattern erebonia already uses for VLAN 50/100 guests, and
   # gives host↔guest isolation. See
-  # llm-notes/wip/dev-machine-vlan51-macvtap-cutover.md.
+  # llm-notes/done/dev-machine-vlan51-macvtap-cutover.md.
   #
   # IP delivery moved with it. macvtap does NO in-pod DHCP (that was a bridge-
   # binding feature that leased the NAD static-IPAM IP to the DHCP-only guest), so

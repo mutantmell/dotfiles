@@ -2,7 +2,7 @@
 
 Snapshot of BT8-gateway's deployed state, kept here as the operator
 reference until Phase 4 codifies the same shape into the image-builder
-pipeline (see [`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
+pipeline (see [`plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
 §B.1). Updated in place whenever live UCI diverges from what's recorded.
 
 Source dumps live in `temp/`:
@@ -14,16 +14,16 @@ Source dumps live in `temp/`:
 - `temp/BT8-gw-section-a-additions.uci` — fw4 additions for the remaining
   Phase 5 service migrations (creil, zeiss, saint-arkh DMZ→APP). Apply
   after the Nix-side re-IPs deploy. Companion to
-  [`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
+  [`plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
   Section A.
 - `temp/BT8-gw-cluster-vlan51-additions.uci` — L2/L3 + fw4 additions for the
   cluster VLAN 51 bring-up (dev-machine isolation). **Applied + proven 2026-06-10**
   (the orchestration checklist that drove it has been retired; acceptance lives in
-  [`wip/workload-network-isolation-plan.md`](wip/workload-network-isolation-plan.md)
+  [`wip/workload-network-isolation-plan.md`](../wip/workload-network-isolation-plan.md)
   and the Cluster VLAN 51 section below).
 
 This file captures (a) deltas from
-[`guides/bt8-gateway-luci-runbook.md`](guides/bt8-gateway-luci-runbook.md),
+[`guides/bt8-gateway-luci-runbook.md`](bt8-gateway-luci-runbook.md),
 (b) implementation choices that worked in production and should be the
 default for Phase 4 image-builder codification, and (c) loose ends that
 need follow-up.
@@ -194,7 +194,7 @@ forwarding."
 ## Section A additions — creil / zeiss / saint-arkh moved DMZ → APP
 
 UCI source: `temp/BT8-gw-section-a-additions.uci`. Companion to
-[`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
+[`plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
 Section A.
 
 Three new zone-pair forwarding directives + per-flow accept rules:
@@ -217,7 +217,7 @@ without involving fw4.
 ## Phase 2d addition — oracion → messeldam LDAP
 
 UCI source: `temp/BT8-gw-phase-2d-additions.uci`. Companion to the Authelia
-migration (`wip/authelia-migration-plan.md` Phase 2d). Added when oracion's
+migration (`done/authelia-migration-plan.md` Phase 2d). Added when oracion's
 Jellyfin LDAP plugin started authenticating media users against lldap on
 messeldam.
 
@@ -241,7 +241,7 @@ management plane. The erebonia flake half landed separately (originally
 `uplink.51` + a host-IP-less `br51`; **`br51` was later retired by the macvtap
 cutover** — the dev VMs now attach via KubeVirt macvtap on a standalone
 `uplink.51`, see
-[`done/dev-machine-vlan51-macvtap-cutover.md`](done/dev-machine-vlan51-macvtap-cutover.md)).
+[`done/dev-machine-vlan51-macvtap-cutover.md`](../done/dev-machine-vlan51-macvtap-cutover.md)).
 This note is the bt8gw-manual half.
 
 **Status (2026-06-09):** L3 termination **live** — `ping 10.97.51.1` answers
@@ -280,7 +280,7 @@ mechanism (plain §2 per-rule accepts vs the §2b nft config-include with explic
 drop) and the exact UCI delta. Rather than take another manual `uci show
 firewall` / `nft list ruleset` snapshot into this note — this hand-maintained
 as-built has been a recurring source of confusion — that detail is **deferred to
-[`plans/dual-gateway-followups-plan.md`](plans/dual-gateway-followups-plan.md)
+[`plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
 §B.1** (codify BT8-gateway in the Image Builder). When the bt8gw config becomes
 flake-managed, the cluster zone + egress rules are in-repo and snapshot-tested,
 so the enforcing mechanism is the source itself and the residual dissolves. No

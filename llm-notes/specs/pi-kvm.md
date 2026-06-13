@@ -1,5 +1,9 @@
 # KVM over IP for a 4-machine homelab under $600
 
+**Status:** Research snapshot from early 2026. Product availability, prices,
+firmware security posture, and cloud features are time-sensitive; verify before
+buying hardware.
+
 **Four JetKVM units at $69 each ($276 total) represent the best value for your setup**, delivering full BIOS-level keyboard, video, and mouse access to all four machines simultaneously with modern HDMI, 1080p@60fps streaming, and zero NixOS compatibility issues. For those willing to spend more, a PiKVM V4 Plus paired with the new PiKVM Switch Multiport Extender (~$555–675) offers the most mature open-source ecosystem with integrated per-port ATX power control. Enterprise multi-port KVM switches from Aten, Raritan, and Vertiv are all well over $1,000 new, but used units on eBay can fit the budget — if you're willing to accept VGA-era adapters and aging firmware.
 
 The landscape has shifted dramatically since 2023. Sub-$100 open-source devices like JetKVM and GL.iNet Comet have made dedicated per-machine KVM over IP economically viable for homelabs, eliminating the need to choose between a single expensive enterprise switch or awkward DIY compromises. Every modern option uses HTML5/WebRTC browser interfaces — no Java applets, no agents on managed machines, no NixOS headaches.

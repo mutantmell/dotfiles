@@ -1,5 +1,13 @@
 # SSH Certificates with Keycloak SSO — Future Plan
 
+## Status
+
+Shelved and superseded. Keycloak has been removed; current SSH certificate
+flows use step-ca with Authelia/lldap for OIDC and the completed records in
+`llm-notes/done/ssh-certificate-implementation.md` and
+`llm-notes/done/ssh-host-cert-signing-plan.md`. Keep this only as historical
+background for the original Keycloak-era design.
+
 > **Status:** Future work. Not part of the current secure-mgmt-vlan plan.
 > The current plan uses MAC allowlisting as the vMGMT admission gate.
 > This document captures the intended replacement.
@@ -34,7 +42,7 @@ flowchart LR
 ### Components
 
 1. **Keycloak** — runs on a **dedicated vINFRA microvm** (see the
-   [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) for hosting details).
+   historical Keycloak OIDC plan for hosting details).
    Acts as the OIDC provider. Users authenticate with username + password + MFA
    (TOTP/WebAuthn). The `step-ca` client is registered in the `homelab` realm.
 
@@ -396,7 +404,7 @@ This means:
 
 ### Phase 1: Deploy Keycloak
 
-- Covered by the [Keycloak OIDC plan](./keycloak-oauth-oidc-plan.md) (Phase 1):
+- Covered by the historical Keycloak OIDC plan (Phase 1):
   dedicated vINFRA microvm with Keycloak, PostgreSQL, nginx
 - Configure `homelab` realm, register `step-ca` client, users, MFA policies
 - Expose on internal DNS: `auth.home.local`

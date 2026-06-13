@@ -4,7 +4,7 @@ Step-by-step instructions for the Perses monitoring dashboard on tharbad.
 Assumes Perses is deployed and reachable at `https://tharbad.internal/`.
 
 Perses replaces the previous Grafana deployment. It is a lighter-weight
-CNCF dashboarding tool with native Prometheus and Loki support and a
+CNCF dashboarding tool with native Prometheus and VictoriaLogs support and a
 dashboards-as-code model that fits our Nix-managed infrastructure.
 
 ---
@@ -13,9 +13,8 @@ dashboards-as-code model that fits our Nix-managed infrastructure.
 
 Open `https://tharbad.internal/` in a browser on the home network.
 
-Perses is configured with Keycloak OIDC, so it should redirect you to
-Keycloak automatically. Log in with your Keycloak `homelab` realm
-credentials.
+Perses is configured with Authelia OIDC, so it should redirect you to
+Authelia automatically. Log in with your lldap-backed account.
 
 If the page doesn't load, SSH into tharbad and check:
 
@@ -33,7 +32,7 @@ Two global datasources are provisioned automatically via Nix:
 1. Navigate to the **gear icon** (Admin) in the left sidebar
 2. Under **Global datasources** you should see:
    - **prometheus** (Prometheus, default)
-   - **loki** (Loki)
+   - **victorialogs** (VictoriaLogs)
 
 If either is missing, check that the provisioning directory was loaded:
 
@@ -56,7 +55,7 @@ datasources are generated from Nix attrsets in `perses.nix`.
    - **Node Overview** — CPU, memory, disk, network per host
    - **Prometheus Overview** — target health, scrape performance, resource usage
    - **Alertmanager Overview** — active alerts, notification success/failure rate, latency
-   - **Log Viewer** — Loki log browser with host and text filter
+   - **Log Viewer** — VictoriaLogs browser with host and text filter
 
 ---
 
@@ -82,10 +81,12 @@ curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job:
 3. You should see log lines from that host in the LogsTable panel
 4. Use the **Filter** text field for `|=` line matching (e.g. "error")
 
-If no logs appear, verify Loki is receiving data:
+If no logs appear, verify VictoriaLogs is receiving data. The nginx push
+endpoint keeps Loki-compatible API paths for Fluent Bit, while Perses queries
+VictoriaLogs directly on its native port:
 
 ```bash
-curl -s 'http://localhost:3100/loki/api/v1/labels' | jq .
+curl -s 'http://localhost:9428/select/logsql/query' -d 'query=* | limit 1' | jq .
 ```
 
 ---
@@ -183,18 +184,18 @@ add a YAML file to `modules/dashboards/`. The provisioning directory is
 assembled from these dashboard files plus Nix-generated datasource and
 project definitions.
 
-**Example: a Loki log volume dashboard**
+**Example: a VictoriaLogs log volume dashboard**
 
 Create a YAML file in `modules/dashboards/`:
 
 ```yaml
 kind: Dashboard
 metadata:
-  name: loki-log-volume
+  name: victorialogs-log-volume
   project: monitoring
 spec:
   display:
-    name: Loki / Log Volume
+    name: VictoriaLogs / Log Volume
   variables:
     - kind: ListVariable
       spec:
@@ -269,14 +270,14 @@ dashboards are written directly as YAML tailored to our setup.
 
 - **No plugin ecosystem** — Perses ships with built-in panel types
   (TimeSeriesChart, GaugeChart, StatChart, LogsTable, BarChart) and
-  datasource types (Prometheus, Loki, Tempo). No marketplace needed.
+  datasource types (Prometheus, VictoriaLogs, Tempo). No marketplace needed.
 - **No `${DS_PROMETHEUS}` indirection** — datasources are referenced
   directly by name in dashboard YAML. No import-time variable mapping.
 - **Dashboards-as-code first** — YAML with a validated schema, designed
   for version control and provisioning. The UI is an editor, not the
   source of truth.
-- **Keycloak OIDC authentication** — same identity provider as other
-  homelab services. Client secret managed via sops-nix.
+- **Authelia OIDC authentication** — same identity provider as other homelab
+  services. Client secret managed via sops-nix.
 
 ### Resource footprint
 

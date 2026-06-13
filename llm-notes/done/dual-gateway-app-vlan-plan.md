@@ -6,7 +6,7 @@ codification, and the outstanding open-items list have moved to
 [`llm-notes/plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md).
 The dual-gateway topology is operational; this plan stays in `done/` as the
 historical record of how it landed. Living state for BT8-gateway is in
-[`../bt8-gateway-as-built.md`](../bt8-gateway-as-built.md)
+[`../guides/bt8-gateway-as-built.md`](../guides/bt8-gateway-as-built.md)
 (remains there until Phase 4 codifies it into the image-builder pipeline).
 
 **Last updated:** 2026-05-31 — Phase 5.A (`oracion` Jellyfin/Navidrome/Retrom
@@ -117,7 +117,7 @@ consumer in a follow-up plan.)
 **Related:**
 
 - `done/secure-mgmt-vlan-plan.md` — established INFRA/MGMT split this plan extends
-- `done/openwrt-python-builder.md` — Image Builder pipeline this plan adds device types to
+- OpenWrt Image Builder pipeline — this plan adds device types to it
 
 ## Background
 
@@ -1415,7 +1415,7 @@ Steps:
      `br-v<vid>` then has both `bat0.<vid>` (mesh side) and
      `br0.<vid>` (auto-created by bridge-vlan filtering, wired side)
      as members. This is the as-built shape — see
-     [as-built notes](../bt8-gateway-as-built.md) and
+     [as-built notes](../guides/bt8-gateway-as-built.md) and
      [`temp/BT8-gw-current.uci`](../../temp/BT8-gw-current.uci).
    - **No client SSIDs on BT8-gateway.** Client wireless is provided
      entirely by **BT8-bridge** (modem closet, wired directly to
@@ -1585,7 +1585,7 @@ Steps:
    The SSH command runs on BT8-gateway, so `-U` is what works. Don't
    "fix" this by adding `iputils-arping` to the BT8 image — that
    forces a rebuild + reflash window for a one-flag delta. See
-   [as-built notes §Phase 4 codification targets](../bt8-gateway-as-built.md).
+   [as-built notes §Phase 4 codification targets](../guides/bt8-gateway-as-built.md).
 
    Existing client leases continue to point at `.1`; they keep
    working because `.1` is now BT8-gateway. Brief ARP-cache flap on

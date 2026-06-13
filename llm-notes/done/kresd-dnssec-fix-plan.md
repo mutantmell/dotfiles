@@ -235,6 +235,6 @@ the DO bit.
   RFC 5011 on-disk updates without unloading `ta_update`.
 - nixpkgs `dns-root-data` — provides `${pkgs.dns-root-data}/root.key`
   in BIND DNSKEY format.
-- `llm-notes/wip/dns-upgrades-plan.md` — fallback architecture context.
-- `llm-notes/wip/blocky-migration-plan.md` — adjacent upstream-side
+- `llm-notes/wip/dns-consolidation-plan.md` — fallback architecture context.
+- `llm-notes/wip/dns-consolidation-plan.md` — adjacent upstream-side
   rework that landed the Blocky → Unbound chain on phantasma.

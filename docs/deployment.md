@@ -280,4 +280,3 @@ For slow local machines:
 
 - [nixos-anywhere Documentation](https://nix-community.github.io/nixos-anywhere/)
 - [disko Documentation](https://github.com/nix-community/disko)
-- [Integration Plan](./nixos-anywhere-integration-plan.md)

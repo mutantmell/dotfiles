@@ -113,7 +113,7 @@ the IP's last octet (decimal): dev-N → MAC `02:51:51:00:00:<hex(9+N)>` → `10
 | dev-10 | `02:51:51:00:00:13` | `10.97.51.19` |
 | dev-16 | `02:51:51:00:00:19` | `10.97.51.25` |
 
-Record in `llm-notes/bt8-gateway-as-built.md`.
+Record in `llm-notes/guides/bt8-gateway-as-built.md`.
 
 ## Order of operations
 1. Tear down any running dev VMs (`dev-machine down …`) — removing br51 / reslaving

@@ -4,16 +4,10 @@ Plan date: 2026-04-03
 Specification: `llm-notes/specs/cicd-fleet-management.md`
 Replaces: `llm-notes/plans/ci-cd-plan.md`
 
-> **Stale snapshot (flagged 2026-06-05).** This plan's "current state"
-> tables predate the dual-gateway re-IP and the deployd removal. Re-ground
-> before execution. Known drift: the NAS/Attic host is **liberl/zeiss**, not
-> `remiferia`/`ardent`; DMZ residents moved off `10.97.100.x` (langport/trista
-> now `10.91.100.x`, other services into APP `10.97.50.x`); and **deployd is
-> removed** — the §1.3 "erebonia already has deployd/Kata" basis, the §1.8
-> "deployd workloads" line, and the `deployd + Kata → modules/common/deployd.nix`
-> current-state row no longer hold. The CI work that referenced deployd's
-> containerd/Kata now targets a clean erebonia (see
-> `llm-notes/done/k3s-cluster-bootstrap-plan.md`).
+> **Refresh note (2026-06-13).** The host map below has been updated for
+> liberl/zeiss, the APP/DMZ split, and deployd removal. Sections that discuss
+> dynamic workload execution still need implementation-time review against the
+> k3s/KubeVirt plans.
 
 ## Overview
 
@@ -49,13 +43,13 @@ The system has two halves:
 | Spec reference     | Homelab host | Role                                              |
 | ------------------ | ------------ | ------------------------------------------------- |
 | "router"           | thebeyond    | Router, underpowered, network infrastructure      |
-| "NAS"              | remiferia    | NAS, ZFS, hosts Attic (ardent)                    |
-| "2021 NUC" / build | erebonia     | Build server, hosts Woodpecker (saint-arkh), Kata |
+| "NAS"              | liberl       | NAS, ZFS, hosts Attic (zeiss)                     |
+| "2021 NUC" / build | erebonia     | Build server, hosts Woodpecker runners / k3s      |
 | "2023 NUC"         | calvard      | Primary VM host, hosts Forgejo (creil)            |
 | Forgejo            | creil        | MicroVM on calvard, git forge only                |
-| Attic              | ardent       | MicroVM on remiferia, binary cache                |
+| Attic              | zeiss        | MicroVM on liberl, binary cache                   |
 | step-ca            | basel        | MicroVM on calvard, TLS certificates              |
-| Monitoring         | tharbad      | MicroVM on calvard, Prometheus/Loki/Alertmanager  |
+| Monitoring         | tharbad      | MicroVM on calvard, Prometheus/VictoriaLogs/Alertmanager |
 
 ### Managed Hosts (NATS coordinators)
 
@@ -63,27 +57,27 @@ These hosts receive deployments via the NATS fleet activation system:
 
 | Host      | NixOS configuration | dependsOnActivation | Notes                           |
 | --------- | ------------------- | ------------------- | ------------------------------- |
-| remiferia | remiferia           | null (first)        | NAS — hosts Attic, goes first   |
-| calvard   | calvard             | remiferia           | Primary VM host                 |
+| liberl    | liberl              | null (first)        | NAS — hosts Attic, goes first   |
+| calvard   | calvard             | liberl              | Primary VM host                 |
 | erebonia  | erebonia            | calvard             | Build server — agent drain last |
 
-Deployment order: `remiferia → calvard → erebonia` (strictly sequential,
+Deployment order: `liberl → calvard → erebonia` (strictly sequential,
 results-gated).
 
 **Why this order:**
 
-- **remiferia first** — hosts Attic (ardent). Must be confirmed stable before
+- **liberl first** — hosts Attic (zeiss). Must be confirmed stable before
   other hosts attempt pre-download of closures.
-- **calvard second** — general VM host. Activating while remiferia (Attic)
+- **calvard second** — general VM host. Activating while liberl (Attic)
   and erebonia (2 of 3 NATS nodes still up) are stable.
 - **erebonia last** — hosts the Woodpecker agent. Let it finish publishing
   all deployment events before it reboots itself.
 - **NATS quorum preserved** — only 1 of 3 NATS hosts is down at any time.
-- **Attic availability preserved** — remiferia is stable before anyone else
+- **Attic availability preserved** — liberl is stable before anyone else
   needs to download closures.
 
 **Future:** When thebeyond gets new hardware and joins the fleet, it slots
-in at the front: `thebeyond → remiferia → calvard → erebonia`. thebeyond
+in at the front: `thebeyond → liberl → calvard → erebonia`. thebeyond
 is the router — if its activation breaks networking, we catch that before
 touching anything else. thebeyond also gets a NATS microVM at that point
 (expanding the cluster to include the router).
@@ -101,14 +95,14 @@ touching anything else. thebeyond also gets a NATS microVM at that point
 
 | Component                    | State                                 | Location                      |
 | ---------------------------- | ------------------------------------- | ----------------------------- |
-| Forgejo (creil)              | Deployed                              | calvard, DMZ (10.97.100.53)   |
-| Attic (ardent)               | Deployed, 3-min GC (needs adjustment) | remiferia, DMZ (10.97.100.31) |
-| Forgejo Actions (saint-arkh) | Deployed — will be repurposed         | erebonia, DMZ (10.97.100.61)  |
+| Forgejo (creil)              | Deployed                              | calvard, APP (10.97.50.53)    |
+| Attic (zeiss)                | Deployed, 3-min GC (needs adjustment) | liberl, APP (10.97.50.31)     |
+| Forgejo Actions (saint-arkh) | Deployed — will be repurposed         | erebonia, APP (10.97.50.61)   |
 | step-ca (basel)              | Deployed                              | calvard, INFRA (10.97.11.7)   |
 | Monitoring (tharbad)         | Deployed                              | calvard, MGMT (10.97.20.41)   |
 | deploy-rs                    | thebeyond only                        | flake.nix                     |
 | Nested KVM on erebonia       | Enabled                               | hosts/erebonia/default.nix    |
-| deployd + Kata               | Deployed on erebonia                  | modules/common/deployd.nix    |
+| k3s + KubeVirt               | Deployed on erebonia                  | hosts/erebonia/k3s/           |
 
 ---
 
@@ -158,8 +152,8 @@ current Woodpecker version or abandoned, a replacement config service is
 
 ### 1.3 Install containerd + Kata on erebonia
 
-erebonia already has deployd with cloud-hypervisor Kata support. Verify that
-the existing containerd instance can serve Woodpecker agents, or deploy a
+erebonia already has k3s/KubeVirt and nested KVM enabled. Verify whether the
+existing container runtime can serve Woodpecker agents cleanly, or deploy a
 second containerd instance scoped to CI workloads.
 
 - Configure Kata Containers as a runtime within containerd
@@ -211,7 +205,7 @@ only use Kata for the signing step.
 
 ### 1.8 Resource tuning
 
-erebonia hosts saint-arkh (Woodpecker server), the Woodpecker agent, deployd
+erebonia hosts saint-arkh (Woodpecker server), the Woodpecker agent, k3s/KubeVirt
 workloads, and Incus guests (trista). Evaluate whether erebonia has sufficient
 RAM for sequential `nix build` of check targets.
 
@@ -223,7 +217,7 @@ document the safe parallelism level.
 Saint-arkh (Woodpecker server) needs:
 
 - creil TCP 443 (Forgejo OAuth2, webhooks, repo access)
-- tharbad TCP 3100 (Loki log push — already configured)
+- tharbad TCP 3100 (VictoriaLogs Loki-compatible log push — already configured)
 - Gateway UDP 53, TCP 53 (DNS — already configured)
 
 Erebonia (agent, bare metal) needs:
@@ -244,7 +238,7 @@ Erebonia (agent, bare metal) needs:
 
 ## Phase 2: Attic binary cache integration
 
-**Goal:** CI pushes build artifacts to Attic (ardent). All managed hosts
+**Goal:** CI pushes build artifacts to Attic (zeiss). All managed hosts
 substitute from Attic.
 
 **Prerequisites:** Phase 1 (Woodpecker running builds).
@@ -258,29 +252,29 @@ substitute from Attic.
 
 ### 2.1 Adjust Attic retention
 
-ardent currently has a 3-minute GC retention period. Change to 30 days per
+zeiss currently has a 3-minute GC retention period. Change to 30 days per
 the spec — this covers hosts offline for weekends, holidays, or short
 maintenance windows.
 
-Config: `hosts/remiferia/microvm/guests/ardent/attic.nix`
+Config: `hosts/liberl/microvm/guests/zeiss/attic.nix`
 
 ### 2.2 Create Attic cache and CI push token
 
-- Create a cache named `homelab` on ardent
+- Create a cache named `homelab` on zeiss
 - Generate a push token for the CI agent
 - Store the token as a sops secret on erebonia (not in Woodpecker's DB)
 - The agent's environment is populated from sops-nix-decrypted files
 
-### 2.3 Add erebonia → ardent egress rule
+### 2.3 Add erebonia → zeiss egress rule
 
-The Woodpecker agent on erebonia needs to reach `attic.ardent.internal`
+The Woodpecker agent on erebonia needs to reach `attic.zeiss.internal`
 (HTTPS/443) to push build artifacts.
 
-erebonia is in management (VLAN 11), ardent is in DMZ (VLAN 100). Add a
-forward rule on thebeyond allowing management → DMZ for this specific path,
-and an egress rule on erebonia.
+erebonia is in management (VLAN 11), zeiss is in APP (VLAN 50, BT8-gateway
+owned). Add the specific management → APP path through the current
+BT8-gateway/thebeyond routing model, and an egress rule on erebonia.
 
-Also add `ardent` to erebonia's `networking.extraHosts` if not already
+Also add `zeiss` to erebonia's `networking.extraHosts` if not already
 resolvable via DNS.
 
 ### 2.4 Add Attic push to CI pipeline
@@ -304,7 +298,7 @@ Add to `modules/common/` (or a new common module):
 
 ```nix
 nix.settings = {
-  substituters = [ "https://attic.ardent.internal" ];
+  substituters = [ "https://attic.zeiss.internal" ];
   trusted-public-keys = [ "<attic-cache-public-key>" "<ci-public-key>" ];
 };
 ```
@@ -325,8 +319,8 @@ This is separate from the Attic signing key (which Attic manages server-side).
 
 | Change                               | Where                      |
 | ------------------------------------ | -------------------------- |
-| erebonia → ardent:443 forward rule   | thebeyond router config    |
-| erebonia egress → ardent:443         | hosts/erebonia/default.nix |
+| erebonia → zeiss:443 forward rule   | thebeyond router config    |
+| erebonia egress → zeiss:443         | hosts/erebonia/default.nix |
 | Attic substituter on all hosts       | modules/common/            |
 | CI public key in trusted-public-keys | modules/common/            |
 
@@ -359,12 +353,12 @@ One microVM per infrastructure host, each allocated **1 vCPU / 128MB RAM /
 
 | NATS node | Parent host | Zone       | IP  | Notes                        |
 | --------- | ----------- | ---------- | --- | ---------------------------- |
-| TBD-name  | remiferia   | management | TBD | Co-located with Attic host   |
+| TBD-name  | liberl   | management | TBD | Co-located with Attic host   |
 | TBD-name  | erebonia    | management | TBD | Co-located with build server |
 | TBD-name  | calvard     | management | TBD | General infrastructure       |
 
 Names should follow the Trails naming convention for their respective hosts
-(remiferia = Crossbell cities, erebonia = Erebonian cities, calvard =
+(liberl = Crossbell cities, erebonia = Erebonian cities, calvard =
 Calvard cities).
 
 Network registry entries needed in `lib/common/data/network.nix`.
@@ -606,10 +600,10 @@ services.fleetActivation = {
   enable = true;
   nats.servers = [ ... ];         # all three cluster nodes
   nats.credentialsFile = ...;     # sops-nix NKey credentials
-  configuration = "remiferia";   # NixOS configuration name
+  configuration = "liberl";   # NixOS configuration name
   productionRefs = [ "refs/heads/main" ];
   testRefPatterns = [ "refs/pull/*" ];
-  substituters = [ "https://attic.ardent.internal/homelab" ];
+  substituters = [ "https://attic.zeiss.internal/homelab" ];
   preDownload = true;
   dependsOnActivation = null;     # set by common module
   connectivityCheck = { enable = true; target = "1.1.1.1"; };
@@ -643,8 +637,8 @@ coordinator on every managed host, not just erebonia.
 The coordinator's pre-download step (`nix copy --from <attic-url>
 <store_path>`) should retry with exponential backoff on transient
 failures. This is particularly important for calvard and erebonia:
-when remiferia activates (first in the deployment order), its microVM
-guests — including ardent (Attic) — restart as part of the NixOS
+when liberl activates (first in the deployment order), its microVM
+guests — including zeiss (Attic) — restart as part of the NixOS
 activation. The coordinator publishes "success" once
 `switch-to-configuration` returns, but Attic may still be restarting
 when the next host begins its pre-download.
@@ -676,9 +670,9 @@ Declare the deployment topology in `modules/common/`:
 fleetTopology = {
   deploymentOrder = [
     # thebeyond is not yet managed — no hardware for NATS/coordinator.
-    # When it joins, it slots in first: thebeyond → remiferia → ...
-    { host = "remiferia"; dependsOn = null; }
-    { host = "calvard";   dependsOn = "remiferia"; }
+    # When it joins, it slots in first: thebeyond → liberl → ...
+    { host = "liberl"; dependsOn = null; }
+    { host = "calvard";   dependsOn = "liberl"; }
     { host = "erebonia";  dependsOn = "calvard"; }
   ];
   dependencyTimeoutSeconds = 600;  # 10 minutes
@@ -687,9 +681,9 @@ fleetTopology = {
 
 **Order rationale:**
 
-- **remiferia first** — hosts Attic (ardent). Must be confirmed stable
+- **liberl first** — hosts Attic (zeiss). Must be confirmed stable
   before other hosts attempt to pre-download closures from the cache.
-- **calvard second** — general VM host. Activates while Attic (remiferia)
+- **calvard second** — general VM host. Activates while Attic (liberl)
   is stable and 2 of 3 NATS nodes are still up.
 - **erebonia last** — hosts the Woodpecker agent and CI signing key. Lets
   it finish publishing all deployment events before it reboots itself.
@@ -698,23 +692,23 @@ fleetTopology = {
 
 Each host's coordinator config is derived from this map.
 
-### 4.4 Deploy coordinator on remiferia first
+### 4.4 Deploy coordinator on liberl first
 
-remiferia is the first validation target since it leads the deployment order
+liberl is the first validation target since it leads the deployment order
 and hosts Attic:
 
 - Network-safe activation (pre-download mandatory)
 - Connectivity check (revert if network unreachable after switch)
 - No upstream dependency (first in current topology)
 
-Validate end-to-end: merge to main → CI builds → NATS event → remiferia
+Validate end-to-end: merge to main → CI builds → NATS event → liberl
 downloads closure → verifies dual signatures → switches → publishes success.
 
 ### 4.5 Deploy coordinator on remaining hosts
 
-After remiferia is validated:
+After liberl is validated:
 
-- calvard (dependsOn: remiferia)
+- calvard (dependsOn: liberl)
 - erebonia (dependsOn: calvard)
 
 For erebonia specifically: the Woodpecker agent uses
@@ -739,11 +733,11 @@ sequentially, gated on each host confirming success:
 
 ```
 build phase (parallel):
-  [remiferia] [calvard] [erebonia]
+  [liberl] [calvard] [erebonia]
 
 deploy phase (sequential, order from common module):
-  nats pub builds.nixos.remiferia "$PAYLOAD"
-    → nats sub --count 1 activations.remiferia
+  nats pub builds.nixos.liberl "$PAYLOAD"
+    → nats sub --count 1 activations.liberl
     → if rolled-back or timeout: abort, alert
   nats pub builds.nixos.calvard "$PAYLOAD"
     → nats sub --count 1 activations.calvard
@@ -758,7 +752,7 @@ CI's NATS NKey credential is a sops secret on erebonia.
 ### 4.8 Host NATS egress rules
 
 Each managed host needs outbound access to the NATS cluster (port 4222) on
-all three NATS nodes. All three infrastructure hosts (remiferia, calvard,
+all three NATS nodes. All three infrastructure hosts (liberl, calvard,
 erebonia) are in the management zone, so intra-zone routing covers this.
 
 ### Network changes
@@ -775,54 +769,54 @@ erebonia) are in the management zone, so intra-zone routing covers this.
 
 ## Phase 5: Garage S3-compatible storage
 
-**Goal:** Deploy Garage as the S3-compatible storage backend for Attic and
-Loki.
+**Goal:** Deploy Garage as the S3-compatible storage backend for Attic.
+VictoriaLogs storage on tharbad is not migrated here unless a future capacity
+review creates a concrete need.
 
 **Prerequisites:** Phase 2 (Attic working). Independent of Phases 3-4.
 
 ### 5.1 Evaluate Garage resource requirements
 
-Single-node Garage on remiferia (the NAS with ZFS). Estimate storage:
+Single-node Garage on liberl (the NAS with ZFS). Estimate storage:
 
 - Attic NAR chunks (primary use case — deduplicated)
-- Loki log chunks (secondary — currently local on tharbad)
 - Budget for 6-12 months of growth
 
 ### 5.2 Deploy Garage
 
-Garage as a microVM on remiferia (or directly on remiferia). The S3 API
+Garage as a microVM on liberl (or directly on liberl). The S3 API
 endpoint needs TLS via step-ca.
 
 Network registry entry needed. Trails naming convention (Crossbell city).
 
 ### 5.3 Migrate Attic to S3 backend
 
-Reconfigure ardent's Attic to use Garage for chunk storage. Attic supports
-S3 backends natively. This decouples Attic's cache storage from ardent's
-25GB persist volume — storage lives on remiferia's ZFS pool.
+Reconfigure zeiss's Attic to use Garage for chunk storage. Attic supports
+S3 backends natively. This decouples Attic's cache storage from zeiss's
+25GB persist volume — storage lives on liberl's ZFS pool.
 
-### 5.4 Migrate Loki to S3 backend
+### 5.4 VictoriaLogs storage review
 
-Reconfigure Loki on tharbad to use Garage for chunk storage. Adjust retention
-and GC policies now that storage is decoupled from tharbad's persist volume.
+VictoriaLogs replaced Loki on tharbad. Leave it on local storage unless a
+capacity review shows that S3-backed storage is worth the added moving parts.
 
 ### 5.5 Cross-zone networking
 
 Firewall rules for:
 
-- DMZ → Garage (ardent/Attic needs to reach Garage)
-- Management → Garage (tharbad/Loki needs to reach Garage)
+- DMZ → Garage (zeiss/Attic needs to reach Garage)
+- Management → Garage only if a future tharbad storage review requires it
 
-If Garage is on remiferia directly (management zone), the paths are
+If Garage is on liberl directly (management zone), the paths are
 management-internal or DMZ → management.
 
 ### Network changes
 
 | Change                              | Where                       |
 | ----------------------------------- | --------------------------- |
-| Garage microVM or service           | hosts/remiferia/            |
+| Garage microVM or service           | hosts/liberl/            |
 | Network registry entry              | lib/common/data/network.nix |
-| ardent → Garage egress              | ardent egress rules         |
+| zeiss → Garage egress              | zeiss egress rules         |
 | tharbad → Garage egress             | tharbad egress rules        |
 | Forward rules for cross-zone access | thebeyond router config     |
 
@@ -941,7 +935,7 @@ AI agents (running on edith, angbar, or locally) need:
 
 - Git push access to creil (SSH key or access token for pushing branches)
 - Forgejo API access for PR creation (personal access token or OAuth2 via
-  Keycloak)
+  Authelia, once wired)
 - No deploy access — the merge button is the human gate
 
 ### 7.4 ci-bot user (optional)
@@ -975,9 +969,9 @@ builds).
 | ------------------ | ----- | --------------------- | ---------------------------- |
 | Woodpecker server  | 1     | 2 vCPU, 1GB RAM, 25GB | saint-arkh (erebonia)        |
 | Woodpecker agent   | 1     | bare metal            | erebonia                     |
-| NATS microVMs      | 3     | 1 vCPU, 128MB, 512MB  | remiferia, erebonia, calvard |
-| Coordinator daemon | 3     | minimal (systemd svc) | remiferia, calvard, erebonia |
-| Garage             | 1     | TBD                   | remiferia                    |
+| NATS microVMs      | 3     | 1 vCPU, 128MB, 512MB  | liberl, erebonia, calvard |
+| Coordinator daemon | 3     | minimal (systemd svc) | liberl, calvard, erebonia |
+| Garage             | 1     | TBD                   | liberl                    |
 
 Total new RAM: ~1.4GB (1GB Woodpecker server + 384MB NATS nodes). The
 Woodpecker server replaces the Forgejo runner (which was 4GB), so net RAM
@@ -1006,7 +1000,7 @@ All runtime secrets via sops-nix → tmpfs. Public keys committed to
 ## Open Questions
 
 1. **NATS microVM names.** Need Trails-themed names for three NATS nodes:
-   one Crossbell city (remiferia), one Erebonian city (erebonia), one
+   one Crossbell city (liberl), one Erebonian city (erebonia), one
    Calvard city (calvard). These should be assigned before Phase 3.
 
 2. **Config service implementation.** Evaluate `woodpecker-flake-pipeliner`
@@ -1017,8 +1011,9 @@ All runtime secrets via sops-nix → tmpfs. Public keys committed to
    for Kata, but can a nixosTest VM run inside a Kata VM? If not, VM tests
    run outside Kata (acceptable — only the signing step needs Kata isolation).
 
-4. **Garage sizing.** Need to estimate storage for Attic chunks + Loki
-   chunks on remiferia's ZFS pool before deploying.
+4. **Garage sizing.** Need to estimate storage for Attic chunks on liberl's ZFS
+   pool before deploying. VictoriaLogs remains local unless a future storage
+   review says otherwise.
 
 5. **Attic storage backend migration.** When migrating Attic from local
    storage to Garage S3 (Phase 5), need a migration path for existing
@@ -1029,9 +1024,9 @@ All runtime secrets via sops-nix → tmpfs. Public keys committed to
 
 ## Deferred Items (Separate Plans)
 
-- **Container registry / OCI image builds** — Forgejo container registry
-  - deployd integration. Deferred per spec Section 9; depends on deployd
-    Phase D3.
+- **Container registry / OCI image builds** — Forgejo container registry plus
+  k3s/Flux deployment integration. Deferred until the workloads plan settles the
+  dynamic-manifest path.
 - **Central coordinator** — fleet-wide orchestration beyond per-host
   `dependsOnActivation`. Not needed until per-host model fails a real need.
 - **Coordinated fleet-wide rollback** — requires central coordinator.

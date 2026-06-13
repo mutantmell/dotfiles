@@ -1,9 +1,9 @@
 # k3s Cluster Workloads Plan (AI coding layer, game servers, CI, blog)
 
-Status: **In progress.** **Phase A (AI coding layer / dev containers) runs
-first** as the cluster's low-stakes starter and shakedown — ahead of the
-dev-environment migration. The remaining net-new features (blog, game servers,
-CI) come **after** the dev-env migration.
+Status: **In progress.** Phase A's KubeVirt/dev-machine critical path shipped
+through `llm-notes/done/ai-dev-machine-kubevirt-plan.md`; this document now
+tracks the remaining workload plan: dev-machine polish, blog, game servers, and
+cluster-backed CI.
 
 **Done so far:**
 
@@ -31,9 +31,8 @@ get nodes` should auth via the browser and land as cluster-admin. (This is
 
 Source report: `llm-notes/reports/k8s-migration-evaluation.md` (v20),
 **Phases 2–4** and Appendix A (CI runner security). The AI coding layer is
-_not_ in the report — it's the successor goal to cc-sandbox (which is
-unused and being retired, not migrated; see
-`k3s-deployd-migration-plan.md`). The report ran blog/game/CI as the
+_not_ in the report — it was the successor goal to cc-sandbox, which was
+retired instead of migrated. The report ran blog/game/CI as the
 cluster's _first_ workloads; here Phase A is the first workload and the rest
 run after the dev-env migration, per operator priority.
 
@@ -62,8 +61,7 @@ Interacts with:
   k8s deploy events.
 - The planned-but-never-built deployd game-server iSCSI add-on (deployd
   milestone "D4", from the now-deleted dynamic-container-layer spec) is
-  replaced here by CSI VolumeSnapshot. deployd has been retired
-  (`llm-notes/done/k3s-deployd-migration-plan.md`).
+  replaced here by CSI VolumeSnapshot. deployd has been retired.
 - Friend-facing game-server access is tracked in
   `llm-notes/plans/headscale-integration-plan.md` (Headscale/subnet-router
   track), which predates the cluster direction — game servers are now

@@ -71,7 +71,7 @@ ls /data/media/manual-4k/{movies,tv}/
      sed -i 's,library-4k,library-hq,g; s,manual-4k,manual-hq,g' \
        llm-notes/specs/jellyfin-media-organization.md \
        llm-notes/guides/media-ingestion-runbook.md \
-       llm-notes/wip/manual-rename-import-workflow.md \
+       llm-notes/guides/media-ingestion-runbook.md \
        llm-notes/wip/liberl-deployment-checklist.md
      # Leave ravennue-instance.md and plans/media-organization-pipeline.md
      # historical for audit trail.
@@ -123,7 +123,7 @@ grep -rn "library-4k\|manual-4k" hosts/ llm-notes/ modules/
 - `llm-notes/guides/media-ingestion-runbook.md` — pervasive (paths in §0–§5)
 - `llm-notes/wip/ravennue-instance.md` — **leave as-is** (historical plan)
 - `llm-notes/plans/media-organization-pipeline.md` — **leave as-is** (older design doc)
-- `llm-notes/wip/manual-rename-import-workflow.md` — the active migration
+- `llm-notes/guides/media-ingestion-runbook.md` — the active migration
 - `llm-notes/wip/liberl-deployment-checklist.md` — references in checklist steps
 
 The remainder of this plan uses **`library-hq/` and `manual-hq/`**.

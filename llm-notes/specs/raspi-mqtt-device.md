@@ -371,14 +371,16 @@ Initial deployment uses an SD card. The netboot path is deferred until the SD ca
 
 **EEPROM configuration** (one-time, requires SD card):
 
-Set boot order to network-first, then USB, skip SD:
+Set boot order once to include network boot:
 
 ```
 BOOT_ORDER=0xf21  # SD → USB → Network (for testing with SD still present)
-BOOT_ORDER=0xf2   # USB → Network (production, no SD card)
 ```
 
-Apply via `rpi-eeprom-config --apply` with a config file specifying the boot order. After this change the SD card can be removed permanently.
+Apply via `rpi-eeprom-config --apply` with a config file specifying the boot
+order. After this change the SD card can be removed permanently; the Pi will
+try SD first, find no card, and fall through to USB/network boot. No second
+EEPROM write is needed for production.
 
 **NAS-side requirements**:
 
@@ -531,9 +533,3 @@ path = [
 | Bluetooth lockdown              | BlueZ with `--noplugin=*`; passive scan only; `RestrictAddressFamilies` on scanner                                                                                                                                                             |
 | Blast radius                    | Full Pi compromise yields: MQTT credentials (sensor data access only); no path to NAS data or other LAN services                                                                                                                               |
 | BLE sensor data confidentiality | Not provided — SwitchBot Meter Plus broadcasts unencrypted BLE advertisements. Physical proximity is the only barrier. Data is non-sensitive (ambient temperature/humidity). This is an accepted, intentional limitation of the device choice. |
-
-## Correction — Section "EEPROM configuration"
-
-The spec describes two EEPROM changes: first setting BOOT_ORDER=0xf21 for testing, then changing to BOOT_ORDER=0xf2 for production once the SD card is removed. The second change is unnecessary and should be removed from the spec.
-The Pi 4's default boot order does not include network boot, so one EEPROM update is required to add it to the sequence. Setting 0xf21 (SD → USB → Network) is sufficient for both the testing phase and production. Once the SD card is physically removed, the Pi will attempt SD boot, find nothing, and fall through to network boot automatically. The EEPROM has no awareness of whether an SD card is physically present — it simply tries each option in order and continues when nothing responds.
-The 0xf2 production change described in the spec is therefore redundant and introduces an unnecessary second write to the EEPROM. Remove the BOOT_ORDER=0xf2 step and the associated note about a second EEPROM update. The single 0xf21 update performed during initial setup is the only EEPROM change required for the lifetime of the device.

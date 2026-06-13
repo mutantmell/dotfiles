@@ -2,7 +2,9 @@
 
 > **Curation note (2026-06-11):** Historical completed plan. The Step 8
 > instruction to document conventions in `CLAUDE.md` was a plan-time task, not a
-> statement that `CLAUDE.md` is the only active guide for agents.
+> statement that `CLAUDE.md` is the only active guide for agents. Incus remains
+> in the repo for current guests, but new workstation/dev-machine planning has
+> moved toward KubeVirt; see `llm-notes/plans/incus-workstation-migration-plan.md`.
 
 ## Context
 

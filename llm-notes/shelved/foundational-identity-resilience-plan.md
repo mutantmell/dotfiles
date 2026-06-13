@@ -37,7 +37,7 @@ them.
   Authelia — tier-2 → tier-1, the correct dependency direction, **no circular
   dependency** — with the on-disk x509 admin kubeconfig as the cluster's own
   break-glass. The bootstrap plan cross-references this document.
-- **Depends on / follows** `llm-notes/wip/authelia-migration-plan.md` — that
+- **Depends on / follows** `llm-notes/done/authelia-migration-plan.md` — that
   migration made Authelia the live OIDC provider for step-ca (Phase 2c,
   2026-06-04). This plan builds on that end-state. Keycloak removal
   (authelia-migration Phase 3) is independent of this plan.

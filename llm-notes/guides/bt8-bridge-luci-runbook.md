@@ -921,7 +921,7 @@ If it broke:
 ## Appendix D — Post-runbook follow-ups
 
 Track these in the project's existing checklist (likely
-[`dual-gateway-app-vlan-checklist.md`](../done/dual-gateway-app-vlan-checklist.md));
+[`dual-gateway-app-vlan-plan.md`](../done/dual-gateway-app-vlan-plan.md));
 they are NOT part of running this runbook:
 
 - Save the post-runbook sysupgrade backup into the operator secret

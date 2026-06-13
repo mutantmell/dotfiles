@@ -7,6 +7,8 @@ preserved as the recursive resolver. Tests at
 
 The "Out-of-scope follow-ups" section below remains as historical context.
 The kresd DNSSEC item is superseded by `done/kresd-dnssec-fix-plan.md`.
+Longer-term DNS simplification, including possible phantasma/Blocky removal, is
+tracked in `llm-notes/wip/dns-consolidation-plan.md`.
 The phantasma slow-boot investigation is still open — `TimeoutSec=600`
 and the hvc0-getty disable remain in place as band-aids.
 

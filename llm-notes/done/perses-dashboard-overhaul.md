@@ -7,7 +7,7 @@
 > formally signed off, but no breakage reported — re-open if alerts-by-host
 > panel turns out to be empty in practice.
 >
-> Sub-plan of `wip/metrics-alerting-plan.md` Phase 4.
+> Sub-plan of `blocked/metrics-alerting-plan.md` Phase 4.
 
 ## Background
 
@@ -74,7 +74,7 @@ synthesize `up` like a Prometheus scraper does. Liveness checks must use
 
 **Bonus bug (separate from dashboard work):** `probe_success` collapses to
 a single `{host="tharbad"}` series — see
-`llm-notes/wip/blackbox-target-label-bug.md`.
+the now-deleted blackbox target-label bug note.
 
 **Other useful labels surfaced** (potential for future enrichment):
 `role`, `zone`, `tenant`. Out of scope for this overhaul.

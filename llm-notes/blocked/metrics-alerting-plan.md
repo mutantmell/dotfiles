@@ -40,7 +40,7 @@ ride the new pipeline.
 > calvard during the vm-guest-rebalance migration. Migrated from VLAN 20 to
 > VLAN 11 (management zone) — completed 2026-03.
 
-**remiferia** exports:
+**liberl** exports:
 
 - node_exporter (9001), zfs_exporter (9002), smartctl_exporter (9003)
 
@@ -222,9 +222,9 @@ Scrape interval: 15s (default), 60s (slow targets)
 | thebeyond_node     | thebeyond.internal | 9100 | node_exporter     |
 | erebonia_node      | erebonia.internal  | 9100 | node_exporter     |
 | calvard_node       | calvard.internal   | 9100 | node_exporter     |
-| remiferia_node     | remiferia.internal | 9001 | node_exporter     |
-| remiferia_zfs      | remiferia.internal | 9002 | zfs_exporter      |
-| remiferia_smartctl | remiferia.internal | 9003 | smartctl_exporter |
+| liberl_node        | liberl.internal    | 9001 | node_exporter     |
+| liberl_zfs         | liberl.internal    | 9002 | zfs_exporter      |
+| liberl_smartctl    | liberl.internal    | 9003 | smartctl_exporter |
 
 **Guest scrape targets (configured, pending deploy):**
 
@@ -236,7 +236,7 @@ Scrape interval: 15s (default), 60s (slow targets)
 | langport_node   | langport.internal   | 9100 | node_exporter |
 | creil_node      | creil.internal      | 9100 | node_exporter |
 | oracion_node    | oracion.internal    | 9100 | node_exporter |
-| ardent_node     | ardent.internal     | 9100 | node_exporter |
+| zeiss_node      | zeiss.internal      | 9100 | node_exporter |
 | monrain_node    | monrain.internal    | 9100 | node_exporter |
 | saint-arkh_node | saint-arkh.internal | 9100 | node_exporter |
 | trista_node     | trista.internal     | 9100 | node_exporter |
@@ -331,7 +331,7 @@ Port: 2586 (internal, localhost only for alertmanager)
 
 - Read-only token for phone app subscriptions
 - Write token for Alertmanager (localhost, can be unrestricted)
-- Write token for CI/CD webhooks (Forgejo on ardent)
+- Write token for CI/CD webhooks (Forgejo on creil)
 - Admin token for topic management
 
 ### 6. Perses
@@ -378,7 +378,7 @@ Domain: perses.internal (tharbad)
   for: 5m
   labels: { severity: warning }
 
-# ZFS pool health (remiferia)
+# ZFS pool health (liberl)
 - alert: ZFSPoolDegraded
   expr: node_zfs_zpool_state{state!="online"} > 0
   for: 1m
@@ -465,7 +465,7 @@ management = {
     roer       = 3;
     legram     = 4;
     tharbad    = 5;    # Metrics/monitoring (migrated from trusted)
-    remiferia  = 20;
+    liberl     = 20;
     calvard    = 30;
     erebonia   = 31;
   };
@@ -485,7 +485,7 @@ networking.firewall.allowedTCPPorts = [
 ```
 
 For hosts in the management zone, tharbad can already reach them (management zone
-has `accessTo = [ "management" ... ]`). For DMZ hosts (langport, ardent, etc.),
+has `accessTo = [ "management" ... ]`). For DMZ/APP hosts (langport, zeiss, etc.),
 the management zone already has `accessTo` that covers `trusted` and
 `untrusted` but **not** DMZ, so cross-zone forward rules are needed:
 
@@ -583,7 +583,7 @@ modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide �
 - [x] Enable node_exporter on all microVM + Incus guests (11 hosts)
 - [x] Add scrape targets to prometheus.nix for all guests
 - [x] Add egress rules on tharbad for all new scrape targets
-- [x] Add management → DMZ/lab forward rules on router for Prometheus scraping
+- [x] Add management → DMZ/APP/lab forward rules on router for Prometheus scraping
 - [x] Rename stale `ymir_node` scrape job to `tharbad_node`
 - [ ] Deploy service-specific exporters (unbound, kea, nginx, nftables) — fleet rollout deferred to CI/CD (see `## Blocked on`)
 - [x] Add Phase 2 alert rules (vmalert-vlogs: SSHBruteForce, SSHBruteForceExtreme, SudoFailure)

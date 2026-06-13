@@ -1,5 +1,9 @@
 # Scripting Strategy: TypeScript + Deno + Dax
 
+**Status:** Shelved. This is a target-state scripting strategy, not the current
+repository implementation. Resume only via
+`llm-notes/shelved/migrate-scripts-to-typescript-deno.md`.
+
 ## Executive Summary
 
 All operational scripts in this flake are written in TypeScript, executed by

@@ -1,8 +1,9 @@
-# Repository Review Follow-ups (2026-06-13)
+# Repository Review Follow-ups Plan
 
 ## Scope
 
-This report records follow-up work from a broad read-only repository review.
+This plan records follow-up work from a broad read-only repository review on
+2026-06-13.
 It intentionally separates OpenWrt readiness issues from the rest of the
 findings because live OpenWrt image building has different operational
 requirements than the NixOS host/router workflows.
@@ -167,7 +168,7 @@ Relevant docs:
 - `llm-notes/plans/cicd-fleet-activation-plan.md`
 - `llm-notes/specs/cicd-fleet-management.md`
 - `llm-notes/wip/k3s-cluster-workloads-plan.md`
-- `llm-notes/done/k3s-deployd-migration-plan.md`
+- the historical k3s deployd decommission plan, now deleted from `done/`
 
 ### Medium: plain k3s pod networking still has broader host-zone access than the target security model
 

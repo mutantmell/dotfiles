@@ -6,7 +6,7 @@ proven 2026-06-10**: the locked-down dev VM runs on the `cluster` VLAN 51
 (multus-only macvtap), confined by bt8gw fw4, and is reachable directly from
 mobile. _(The slice was driven by a `cluster-vlan-bringup-checklist.md`, a
 task-orchestration artifact now **retired/deleted** — its durable acceptance is
-recorded here and in [`../bt8-gateway-as-built.md`](../bt8-gateway-as-built.md).)_
+recorded here and in [`../guides/bt8-gateway-as-built.md`](../guides/bt8-gateway-as-built.md).)_
 
 **Acceptance — proven 2026-06-10:**
 
