@@ -50,6 +50,15 @@ Relates to / eventually obsoletes:
   `EBUSY`). That lesson is exactly why edith and trista go to **KubeVirt
   (real VMs)**, not Pod + PVC.
 
+Helm/add-on ownership update (2026-06-13): this plan follows
+`llm-notes/reports/k3s-flux-helm-ownership.md`. NixOS/k3s bootstraps the host
+cluster and Flux only; Flux owns long-running Kubernetes desired state and Helm
+releases after bootstrap; Nix owns chart dependency pins, rendering, and
+validation. Flux itself is the single bootstrap exception and should be
+Nix-pinned/generated into `services.k3s.manifests`; CSI, snapshotter, CDI,
+KubeVirt, and related add-ons added for this migration should use the
+Flux-managed path unless they are strictly needed to bootstrap Flux.
+
 ---
 
 ## Why edith and trista are KubeVirt VMs, not Pods
@@ -182,9 +191,12 @@ Rationale:
   putting the **shell** plane here too means the whole workstation (VM + OS) is
   defined in one place, changed in one commit, reviewed in one PR, gated by the
   existing `run-checks.sh` + AGit flow.
-- The repo is **already** the platform source of truth (cert-manager, kyverno,
-  Flux HelmCharts, and the pinned upstream KubeVirt manifests are declared here)
-  — the dynamic layer landing here is consistent, not a new pattern.
+- The repo is **already** the platform source of truth, but the ownership
+  boundary is now explicit: k3s/NixOS bootstraps Flux, Flux reconciles the
+  long-running Kubernetes objects and Helm releases, and Nix pins/renders/
+  validates dependency inputs (see
+  `llm-notes/reports/k3s-flux-helm-ownership.md`). The dynamic layer landing
+  here is consistent, not a new pattern.
 - It unifies the declarative surfaces behind one repo + PR/CI gate: Flux (VM
   shells), comin (guest OS), and normal host deploys. The imperative
   `workstation-provision` tool consumes this repo and passage, but does not add
@@ -257,9 +269,9 @@ shell-plane data, not for the root guest decryption identity.
   1.3.0). No `age-plugin-pq`, no custom controller image. (An earlier "Flux
   can't decrypt PQC age" assessment was **wrong** — that was only true for sops
   ≤ 3.11 / age ≤ 1.2.1.)
-- **Caveat to confirm before relying on it:** the pinned `flux2` Helm chart
-  **2.18.4** must ship a controller image recent enough to bundle sops ≥ 3.12 /
-  age ≥ 1.3.1 — verify the chart-version → image mapping (the upstream
+- **Caveat to confirm before relying on it:** the pinned Flux bootstrap version
+  must install a kustomize-controller image recent enough to bundle sops ≥ 3.12 /
+  age ≥ 1.3.1 — verify the Flux-version → controller-image mapping (the upstream
   capability is unambiguous; the pinned image is the only unknown).
 - **Decision — keep passage/sops-nix for the guest root anyway.** This is now a
   judgment call, *not* a technical limit:
@@ -345,8 +357,9 @@ workstation VM on either host:
   for democratic-csi, credentials in sops.
 - `external-snapshotter` then `democratic-csi` (`zfs-generic-iscsi`,
   targeting liberl) on each KubeVirt host that needs durable VM disks: erebonia
-  for trista/dev-machine paths, and calvard for edith. Install through each
-  host's k3s manifests/Flux path; add `pkgs.openiscsi` on both hosts.
+  for trista/dev-machine paths, and calvard for edith. Install as Flux-managed
+  cluster desired state for each host, with Nix-owned chart/manifest pins and
+  validation; add `pkgs.openiscsi` on both hosts.
 - router6 forward rules: each KubeVirt host zone → liberl TCP/3260 (iSCSI) +
   SSH/HTTP mgmt endpoint. Do not assume only the erebonia cluster zone needs
   this path.
@@ -394,7 +407,8 @@ where the host identity lives.
    `DataVolume` support (the CDI / containerized-data-importer component) for
    the liberl-backed boot disk. Install CDI the same way: pinned upstream CDI
    operator/CR manifests or an explicitly selected maintained packaging path,
-   declared in the flake and reversible.
+   declared through the Flux-managed cluster path, pinned/validated by Nix, and
+   reversible.
 2. **Build the edith VM image** from the flake: a pre-built NixOS disk
    image (qcow2/raw) via `nixos-generators` or the flake-native
    equivalent, reproducible across rebuilds. (cloud-init into a blank

@@ -71,6 +71,15 @@ Interacts with:
 These workloads land in the **dynamic layer** (Flux-watched manifests in
 the chosen dynamic-manifest path), **not** as NixOS modules.
 
+Helm/add-on ownership update (2026-06-13): per
+`llm-notes/reports/k3s-flux-helm-ownership.md`, NixOS/k3s should bootstrap the
+cluster and Flux only. Flux is the future long-running owner for Kubernetes
+desired state and Helm releases; Nix owns chart dependency pins, rendering, and
+validation. Flux itself is the single bootstrap exception: keep it Nix-pinned
+and applied through `services.k3s.manifests`, not as a normal Flux-owned
+release. New add-ons or workload charts in this plan should therefore land in
+the Flux-managed path unless they are strictly required to bootstrap Flux.
+
 ---
 
 ## Phase A — AI coding layer via DevPod (first workload, cluster shakedown)
@@ -117,9 +126,11 @@ Shape (DevPod):
 - **No always-on control plane.** DevPod is a CLI with a **Kubernetes
   provider**; `devpod up` builds/starts a workspace Pod on the cluster from
   a repo's `devcontainer.json`. The cluster-side prerequisite is just access
-  (a kubeconfig/ServiceAccount scoped to a workspace namespace) — nothing to
-  declare as a platform HelmChart. The CLI itself runs wherever the operator
-  drives it (a trusted host, or inside another container).
+  (a kubeconfig/ServiceAccount scoped to a workspace namespace) — no platform
+  Helm release is required. If a future DevPod/Coder control plane is added, it
+  should be expressed as Flux-managed desired state, with any chart pin checked
+  by Nix. The CLI itself runs wherever the operator drives it (a trusted host,
+  or inside another container).
 - **Workspaces are dev containers (Pods)** from per-repo `devcontainer.json`
   in git (e.g. a "claude-sandbox" devcontainer). Containers, not VMs — the
   lighter shape that makes this the low-stakes starter.
@@ -251,7 +262,9 @@ defence-in-depth stack from report **Appendix A**:
 - **NetworkPolicy + router6** both must allow — egress derived from the
   network registry (`forHost`), templated, not hardcoded.
 - **Kyverno** ClusterPolicies scoped to the builds namespace (installed in
-  the bootstrap plan), enforcing resource limits and admission rules.
+  the platform path; future Kyverno chart/release ownership should be Flux per
+  `llm-notes/reports/k3s-flux-helm-ownership.md`), enforcing resource limits and
+  admission rules.
 - **Secrets scoping** per the appendix.
 - Validate the actual CI workload set under gVisor before betting on it;
   fall back per-job to `runc` + Restricted PSS + NetworkPolicy if a job
@@ -308,9 +321,12 @@ scope for the build here, but flag it when touching the cicd plan.
 
 ## What lands in the dynamic layer vs NixOS
 
-NixOS/flake (provided by the bootstrap plan): runtimes, Kyverno, Flux,
-ingress, local-path storage. (CSI is added later — dev-env Phase 6.5.)
-**This plan's deliverables are all manifests** —
+NixOS/flake bootstrap: k3s, host/runtime wiring, Flux bootstrap, and
+host-level services. Flux-managed cluster state: Kyverno, ingress, local-path
+storage, workload resources, and future add-on Helm releases after bootstrap,
+with Nix pinning/rendering/validating chart inputs as needed. (CSI is added
+later — dev-env Phase 6.5.)
+**This plan's deliverables are all Flux-managed manifests** —
 Deployments/StatefulSets/Services/NetworkPolicies/ConfigMaps — in the
 Flux-watched path, plus langport nginx forwarding rules (NixOS) for any
 newly public-facing service.

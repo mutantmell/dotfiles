@@ -48,6 +48,13 @@ Depends on / interacts with:
 - `llm-notes/done/k3s-cluster-bootstrap-plan.md` — the cluster, **flannel CNI**,
   host firewall, NetworkPolicy controller. This plan layers on top of flannel
   and does **not** replace it (until the deferred Kube-OVN option below).
+- `llm-notes/reports/k3s-flux-helm-ownership.md` — ownership boundary for any
+  future cluster networking add-ons introduced here: k3s/NixOS bootstraps Flux
+  only; Flux owns long-running Kubernetes desired state and Helm releases; Nix
+  owns chart/dependency pins, rendering, and validation. Flux itself is
+  Nix-pinned/generated into `services.k3s.manifests`; LB-IPAM, external-dns, CNI
+  replacements, and related add-ons should be Flux-managed unless they are
+  strictly required to bootstrap Flux.
 - `llm-notes/done/ai-dev-machine-kubevirt-plan.md` — owns the KubeVirt
   platform; its **Phase 5 (network lockdown) was unblocked by this plan's
   critical-path slice and is now PROVEN (2026-06-10).** Phase 5
@@ -524,8 +531,10 @@ on the cluster being healthy.
      not the whole `cluster` zone; this is the one deliberate hole into
      `cluster`. The mobile reuses the existing `wg-vpn` `mobile` peer; no new VPN
      infra. Lifecycle stays on edith, so this opens no path to the control plane.
-5. **Service routability.** Install LB-IPAM (MetalLB L2 to start); pool on the
-   cluster VLAN; external-dns or static DNS.
+5. **Service routability.** Install LB-IPAM (MetalLB L2 to start) through the
+   Flux-managed cluster path, with Nix-owned chart/dependency pins and
+   validation; pool on the cluster VLAN; external-dns or static DNS. If
+   external-dns is adopted, treat it the same way.
 6. **NetworkPolicy default-deny** (kubevirt-plan Phase 5).
 
 ## Open questions
