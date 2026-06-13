@@ -24,7 +24,6 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-  useContainers ? false,
 }: let
   # Labels the testScript queries through kresd. unbound's `static`
   # local-zone does not honor wildcards, so each label has to be enumerated
@@ -39,11 +38,6 @@
     ++ (map (i: "b${toString i}") (lib.range 0 9))
     ++ (map (i: "c-probe-${toString i}") (lib.range 0 60))
     ++ (map (i: "c${toString i}") (lib.range 0 4));
-  machinesAttr =
-    if useContainers
-    then "containers"
-    else "nodes";
-
   # Authoritative test server. Distinct A record per upstream so a query
   # answer identifies which target kresd selected. Also serves a synthetic
   # root SOA so the kresd health probe (`. SOA`) sees NOERROR — a real
@@ -97,26 +91,12 @@
 
     environment.systemPackages = [pkgs.dnsutils];
   };
-  testRunner =
-    if useContainers
-    then
-      args:
-        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
-          // {
-            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
-            node.pkgs = pkgs;
-            containerDefaults = {config, ...}: {
-              system.name = "m${toString config.virtualisation.test.nodeNumber}";
-              networking.useHostResolvConf = false;
-            };
-            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
-          })
-    else pkgs.testers.nixosTest;
+  testRunner = import ../lib/container-test-runner.nix {inherit pkgs lib;};
 in
   testRunner {
-    name = "router6-dns-fallback${lib.optionalString useContainers "-container"}";
+    name = "router6-dns-fallback";
 
-    ${machinesAttr} = {
+    containers = {
       primary = _:
         mkFakeResolver {
           addr = "10.0.10.10";

@@ -10,55 +10,35 @@
   mkContainerTest = path:
     import path {
       inherit pkgs lib;
-      useContainers = true;
     };
 in {
-  # NixOS VM integration tests
-  router6-ipv6 = import ./modules/router6-ipv6.nix {inherit pkgs lib;};
-  router6-ipv6-privacy = import ./modules/router6-ipv6-privacy.nix {inherit pkgs lib;};
-  router6-firewall = import ./modules/router6-firewall.nix {inherit pkgs lib;};
-  router6-firewall-zones = import ./modules/router6-firewall-zones.nix {inherit pkgs lib;};
-  router6-bond-bridge = import ./modules/router6-bond-bridge.nix {inherit pkgs lib;};
-  router6-device-vlans = import ./modules/router6-device-vlans.nix {inherit pkgs lib;};
-  router6-bridge-vlan-ordering = import ./modules/router6-bridge-vlan-ordering.nix {inherit pkgs lib;};
-  router6-wan-dhcp = import ./modules/router6-wan-dhcp.nix {inherit pkgs lib;};
-  router6-wan-ipv6-pd = import ./modules/router6-wan-ipv6-pd.nix {inherit pkgs lib;};
-  router6-dhcpv6 = import ./modules/router6-dhcpv6.nix {inherit pkgs lib;};
-  egress-filter = import ./modules/egress-filter.nix {inherit pkgs lib;};
+  # Integration tests default to the container driver. Keep VM checks only for
+  # behavior containers cannot prove independently: interface renaming in a
+  # guest kernel/userspace boundary and batman-adv module loading.
+  router6-ipv6 = mkContainerTest ./modules/router6-ipv6.nix;
+  router6-ipv6-privacy = mkContainerTest ./modules/router6-ipv6-privacy.nix;
+  router6-firewall = mkContainerTest ./modules/router6-firewall.nix;
+  router6-firewall-zones = mkContainerTest ./modules/router6-firewall-zones.nix;
+  router6-bond-bridge = mkContainerTest ./modules/router6-bond-bridge.nix;
+  router6-device-vlans = mkContainerTest ./modules/router6-device-vlans.nix;
+  router6-bridge-vlan-ordering = mkContainerTest ./modules/router6-bridge-vlan-ordering.nix;
+  router6-wan-dhcp = mkContainerTest ./modules/router6-wan-dhcp.nix;
+  router6-wan-ipv6-pd = mkContainerTest ./modules/router6-wan-ipv6-pd.nix;
+  router6-dhcpv6 = mkContainerTest ./modules/router6-dhcpv6.nix;
+  egress-filter = mkContainerTest ./modules/egress-filter.nix;
 
-  router6-batman-wired-only = import ./modules/router6-batman-wired-only.nix {inherit pkgs lib;};
-  router6-listening-sockets = import ./modules/router6-listening-sockets.nix {inherit pkgs lib;};
-  router6-dnat = import ./modules/router6-dnat.nix {inherit pkgs lib;};
-  router6-extra-rules = import ./modules/router6-extra-rules.nix {inherit pkgs lib;};
-  router6-dns-interception-vm = import ./modules/router6-dns-interception.nix {inherit pkgs lib;};
-  router6-dns-blocking = import ./modules/router6-dns-blocking.nix {inherit pkgs lib;};
-  router6-dns-fallback = import ./modules/router6-dns-fallback.nix {inherit pkgs lib;};
-  router6-dnssec = import ./modules/router6-dnssec.nix {inherit pkgs lib;};
-  router6-network-zone-egress = import ./modules/router6-network-zone-egress.nix {inherit pkgs lib;};
+  router6-batman-wired-only = mkContainerTest ./modules/router6-batman-wired-only.nix;
+  router6-listening-sockets = mkContainerTest ./modules/router6-listening-sockets.nix;
+  router6-dnat = mkContainerTest ./modules/router6-dnat.nix;
+  router6-extra-rules = mkContainerTest ./modules/router6-extra-rules.nix;
+  router6-dns-interception-integration = mkContainerTest ./modules/router6-dns-interception.nix;
+  router6-dns-blocking = mkContainerTest ./modules/router6-dns-blocking.nix;
+  router6-dns-fallback = mkContainerTest ./modules/router6-dns-fallback.nix;
+  router6-dnssec = mkContainerTest ./modules/router6-dnssec.nix;
+  router6-network-zone-egress = mkContainerTest ./modules/router6-network-zone-egress.nix;
 
-  # Container-backed duplicates of the VM integration tests. Keep these
-  # side-by-side with the VM checks until the output has been compared.
-  router6-ipv6-container = mkContainerTest ./modules/router6-ipv6.nix;
-  router6-ipv6-privacy-container = mkContainerTest ./modules/router6-ipv6-privacy.nix;
-  router6-firewall-container = mkContainerTest ./modules/router6-firewall.nix;
-  router6-firewall-zones-container = mkContainerTest ./modules/router6-firewall-zones.nix;
-  router6-bond-bridge-container = mkContainerTest ./modules/router6-bond-bridge.nix;
-  router6-device-vlans-container = mkContainerTest ./modules/router6-device-vlans.nix;
-  router6-bridge-vlan-ordering-container = mkContainerTest ./modules/router6-bridge-vlan-ordering.nix;
-  router6-wan-dhcp-container = mkContainerTest ./modules/router6-wan-dhcp.nix;
-  router6-wan-ipv6-pd-container = mkContainerTest ./modules/router6-wan-ipv6-pd.nix;
-  router6-dhcpv6-container = mkContainerTest ./modules/router6-dhcpv6.nix;
-  egress-filter-container = mkContainerTest ./modules/egress-filter.nix;
-
-  router6-batman-wired-only-container = mkContainerTest ./modules/router6-batman-wired-only.nix;
-  router6-listening-sockets-container = mkContainerTest ./modules/router6-listening-sockets.nix;
-  router6-dnat-container = mkContainerTest ./modules/router6-dnat.nix;
-  router6-extra-rules-container = mkContainerTest ./modules/router6-extra-rules.nix;
-  router6-dns-interception-vm-container = mkContainerTest ./modules/router6-dns-interception.nix;
-  router6-dns-blocking-container = mkContainerTest ./modules/router6-dns-blocking.nix;
-  router6-dns-fallback-container = mkContainerTest ./modules/router6-dns-fallback.nix;
-  router6-dnssec-container = mkContainerTest ./modules/router6-dnssec.nix;
-  router6-network-zone-egress-container = mkContainerTest ./modules/router6-network-zone-egress.nix;
+  router6-interface-rename-vm = import ./modules/router6-interface-rename-vm.nix {inherit pkgs lib;};
+  router6-batman-module-vm = import ./modules/router6-batman-module-vm.nix {inherit pkgs lib;};
 
   # Pure Nix evaluation tests
   nftables-dsl = import ./lib/nftables.nix {inherit pkgs lib;};

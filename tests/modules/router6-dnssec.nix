@@ -49,32 +49,13 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-  useContainers ? false,
 }: let
-  machinesAttr =
-    if useContainers
-    then "containers"
-    else "nodes";
-  testRunner =
-    if useContainers
-    then
-      args:
-        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
-          // {
-            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
-            node.pkgs = pkgs;
-            containerDefaults = {config, ...}: {
-              system.name = "m${toString config.virtualisation.test.nodeNumber}";
-              networking.useHostResolvConf = false;
-            };
-            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
-          })
-    else pkgs.testers.nixosTest;
+  testRunner = import ../lib/container-test-runner.nix {inherit pkgs lib;};
 in
   testRunner {
-    name = "router6-dnssec${lib.optionalString useContainers "-container"}";
+    name = "router6-dnssec";
 
-    ${machinesAttr} = {
+    containers = {
       # Mock "primary" — pretends to be a recursive validator for the
       # purposes of the strict-failover health probe. Serves a synthetic
       # root SOA so kresd's `. SOA` probe gets NOERROR. Returns an

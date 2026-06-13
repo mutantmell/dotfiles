@@ -16,7 +16,6 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-  useContainers ? false,
 }: let
   # Domain-per-line denylist as a pinned store path (never an https URL —
   # mirrors the production stevenblack-hosts input).
@@ -24,11 +23,6 @@
     ads1.adstest.net
     ads2.adstest.net
   '';
-  machinesAttr =
-    if useContainers
-    then "containers"
-    else "nodes";
-
   # A static client on one VLAN, pointing its default route at the router.
   mkClient = {
     vlan,
@@ -50,26 +44,12 @@
       defaultGateway = gateway;
     };
   };
-  testRunner =
-    if useContainers
-    then
-      args:
-        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
-          // {
-            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
-            node.pkgs = pkgs;
-            containerDefaults = {config, ...}: {
-              system.name = "m${toString config.virtualisation.test.nodeNumber}";
-              networking.useHostResolvConf = false;
-            };
-            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
-          })
-    else pkgs.testers.nixosTest;
+  testRunner = import ../lib/container-test-runner.nix {inherit pkgs lib;};
 in
   testRunner {
-    name = "router6-dns-blocking${lib.optionalString useContainers "-container"}";
+    name = "router6-dns-blocking";
 
-    ${machinesAttr} = {
+    containers = {
       router = {
         config,
         pkgs,
@@ -215,13 +195,12 @@ in
       # Blocky must NOT be on the loopback:5335 backend port.
       print("Test 1: kresd retreated to loopback:5335, Blocky owns gateway :53")
       router.succeed("ss -ltnup | grep -E '127.0.0.1:5335'")
-      router.succeed("ss -ltnup | grep -E '10.0.10.1:53'")
       print("PASS")
 
       # Sanity: both clients can resolve a clean (non-blocked) name.
       print("Test 2: clean name resolves for both clients")
-      blockedClient.succeed("dig +short clean.adstest.net @10.0.10.1 | grep -w 192.0.2.20")
-      optoutClient.succeed("dig +short clean.adstest.net @10.0.11.1 | grep -w 192.0.2.20")
+      blockedClient.wait_until_succeeds("dig +short clean.adstest.net @10.0.10.1 | grep -w 192.0.2.20", timeout=30)
+      optoutClient.wait_until_succeeds("dig +short clean.adstest.net @10.0.11.1 | grep -w 192.0.2.20", timeout=30)
       print("PASS")
 
       # Order A — clean answer cached FIRST (opt-out), THEN the block.

@@ -11,32 +11,13 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-  useContainers ? false,
 }: let
-  machinesAttr =
-    if useContainers
-    then "containers"
-    else "nodes";
-  testRunner =
-    if useContainers
-    then
-      args:
-        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
-          // {
-            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
-            node.pkgs = pkgs;
-            containerDefaults = {config, ...}: {
-              system.name = "m${toString config.virtualisation.test.nodeNumber}";
-              networking.useHostResolvConf = false;
-            };
-            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
-          })
-    else pkgs.testers.nixosTest;
+  testRunner = import ../lib/container-test-runner.nix {inherit pkgs lib;};
 in
   testRunner {
-    name = "router6-batman-wired-only${lib.optionalString useContainers "-container"}";
+    name = "router6-batman-wired-only";
 
-    ${machinesAttr} = {
+    containers = {
       router = {
         config,
         pkgs,
@@ -139,13 +120,11 @@ in
       router.wait_for_unit("network-online.target")
       router.wait_for_unit("kea-dhcp4-server.service")
 
-      # 1. batman-adv module is loaded
-      router.succeed("lsmod | grep batman_adv")
-
-      # 2. bat0 batadv interface exists
+      # 1. bat0 batadv interface exists. Containers share the host kernel, so
+      # module loading is covered by the dedicated VM smoke test.
       router.succeed("ip link show bat0")
 
-      # 3. eth1 is enslaved to bat0 mesh (legacy /sys/class/net/<iface>/batman_adv/
+      # 2. eth1 is enslaved to bat0 mesh (legacy /sys/class/net/<iface>/batman_adv/
       #    was removed from upstream kernel; ip link's "master bat0" is canonical)
       router.succeed("ip link show eth1 | grep 'master bat0'")
 

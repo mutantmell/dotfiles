@@ -14,32 +14,13 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-  useContainers ? false,
 }: let
-  machinesAttr =
-    if useContainers
-    then "containers"
-    else "nodes";
-  testRunner =
-    if useContainers
-    then
-      args:
-        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
-          // {
-            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
-            node.pkgs = pkgs;
-            containerDefaults = {config, ...}: {
-              system.name = "m${toString config.virtualisation.test.nodeNumber}";
-              networking.useHostResolvConf = false;
-            };
-            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
-          })
-    else pkgs.testers.nixosTest;
+  testRunner = import ../lib/container-test-runner.nix {inherit pkgs lib;};
 in
   testRunner {
-    name = "phantasma-dns${lib.optionalString useContainers "-container"}";
+    name = "phantasma-dns";
 
-    ${machinesAttr} = {
+    containers = {
       dns-server = {
         config,
         pkgs,

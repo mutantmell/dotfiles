@@ -14,7 +14,6 @@ let
   mkContainerTest = path:
     import path {
       inherit pkgs lib;
-      useContainers = true;
     };
 in
   (import ./router6.nix {inherit pkgs lib;})
@@ -25,10 +24,8 @@ in
 
     # Phantasma DNS stack (Blocky + Unbound)
     blocky-config = import ./lib/blocky-config.nix {inherit pkgs lib;};
-    phantasma-dns = import ./modules/phantasma-dns.nix {inherit pkgs lib;};
-    phantasma-dns-container = mkContainerTest ./modules/phantasma-dns.nix;
-    phantasma-dns-real = import ./modules/phantasma-dns-real.nix {inherit pkgs lib;};
-    phantasma-dns-real-container = mkContainerTest ./modules/phantasma-dns-real.nix;
+    phantasma-dns = mkContainerTest ./modules/phantasma-dns.nix;
+    phantasma-dns-real = mkContainerTest ./modules/phantasma-dns-real.nix;
 
     # Disko profile validation
     disko-tmpfs = let

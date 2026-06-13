@@ -18,32 +18,16 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-  useContainers ? false,
 }: let
-  machinesAttr =
-    if useContainers
-    then "containers"
-    else "nodes";
-  testRunner =
-    if useContainers
-    then
-      args:
-        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
-          // {
-            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
-            node.pkgs = pkgs;
-            containerDefaults = {config, ...}: {
-              system.name = "m${toString config.virtualisation.test.nodeNumber}";
-              networking.useHostResolvConf = false;
-            };
-            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
-          })
-    else pkgs.testers.nixosTest;
+  routerWan = "eth1";
+  routerLan1 = "eth2";
+  routerLan2 = "eth3";
+  testRunner = import ../lib/container-test-runner.nix {inherit pkgs lib;};
 in
   testRunner {
-    name = "router6-wan-ipv6-pd${lib.optionalString useContainers "-container"}";
+    name = "router6-wan-ipv6-pd";
 
-    ${machinesAttr} = {
+    containers = {
       # Simulated ISP: DHCPv6 server with PD pool + radvd
       isp = {
         config,
@@ -211,8 +195,8 @@ in
           };
 
           topology = {
-            wan = {
-              hardwareName = "eth1";
+            ${routerWan} = {
+              kind = "physical";
               network = {
                 type = "dhcp";
                 zone = "external";
@@ -224,8 +208,8 @@ in
                 };
               };
             };
-            lan1 = {
-              hardwareName = "eth2";
+            ${routerLan1} = {
+              kind = "physical";
               network = {
                 type = "static";
                 addresses = ["10.0.20.1/24"];
@@ -240,8 +224,8 @@ in
                 pdSubnetId = "0x1";
               };
             };
-            lan2 = {
-              hardwareName = "eth3";
+            ${routerLan2} = {
+              kind = "physical";
               network = {
                 type = "static";
                 addresses = ["10.0.30.1/24"];
@@ -320,17 +304,17 @@ in
 
       # Test 2: Router has GUA address on LAN1 from delegated prefix with Token ::1
       print("Test 2: Router has delegated prefix on LAN1 with ::1 token")
-      router.wait_until_succeeds("ip -6 addr show lan1 | grep '2001:db8:1.*::1/64'", timeout=60)
+      router.wait_until_succeeds("ip -6 addr show ${routerLan1} | grep '2001:db8:1.*::1/64'", timeout=60)
       print("PASS")
 
       # Test 3: Router has ULA address on LAN1
       print("Test 3: Router has ULA address on LAN1")
-      router.succeed("ip -6 addr show lan1 | grep 'fdc6:55f2'")
+      router.succeed("ip -6 addr show ${routerLan1} | grep 'fdc6:55f2'")
       print("PASS")
 
       # Test 4: Router has GUA address on LAN2 from delegated prefix with Token ::1
       print("Test 4: Router has delegated prefix on LAN2 with ::1 token")
-      router.wait_until_succeeds("ip -6 addr show lan2 | grep '2001:db8:1.*::1/64'", timeout=30)
+      router.wait_until_succeeds("ip -6 addr show ${routerLan2} | grep '2001:db8:1.*::1/64'", timeout=30)
       print("PASS")
 
       # ======================================================================

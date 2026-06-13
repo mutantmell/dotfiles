@@ -21,32 +21,15 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-  useContainers ? false,
 }: let
-  machinesAttr =
-    if useContainers
-    then "containers"
-    else "nodes";
-  testRunner =
-    if useContainers
-    then
-      args:
-        (import (pkgs.path + "/nixos/lib/testing/default.nix") {inherit lib;}).runTest (args
-          // {
-            imports = (args.imports or []) ++ [{hostPkgs = pkgs;}];
-            node.pkgs = pkgs;
-            containerDefaults = {config, ...}: {
-              system.name = "m${toString config.virtualisation.test.nodeNumber}";
-              networking.useHostResolvConf = false;
-            };
-            requiredFeatures = (args.requiredFeatures or {}) // {kvm = lib.mkForce false;};
-          })
-    else pkgs.testers.nixosTest;
+  routerWan = "eth1";
+  routerLan = "eth2";
+  testRunner = import ../lib/container-test-runner.nix {inherit pkgs lib;};
 in
   testRunner {
-    name = "router6-wan-dhcp${lib.optionalString useContainers "-container"}";
+    name = "router6-wan-dhcp";
 
-    ${machinesAttr} = {
+    containers = {
       # Simulated ISP upstream: DHCP server on WAN link + "internet" subnet
       upstream = {
         config,
@@ -130,8 +113,8 @@ in
           };
 
           topology = {
-            wan = {
-              hardwareName = "eth1";
+            ${routerWan} = {
+              kind = "physical";
               network = {
                 type = "dhcp";
                 zone = "external";
@@ -139,8 +122,8 @@ in
                 defaultRoute = true;
               };
             };
-            lan = {
-              hardwareName = "eth2";
+            ${routerLan} = {
+              kind = "physical";
               network = {
                 type = "static";
                 addresses = ["10.0.10.1/24"];
@@ -187,7 +170,7 @@ in
 
       # Test 1: Router obtains a DHCP lease on WAN
       print("Test 1: Router gets DHCP lease on WAN")
-      router.wait_until_succeeds("ip addr show wan | grep '192.168.1'", timeout=30)
+      router.wait_until_succeeds("ip addr show ${routerWan} | grep '192.168.1'", timeout=30)
       print("PASS")
 
       # Test 2: Router can ping upstream gateway
