@@ -57,7 +57,7 @@
   };
 
   programs.tmux = {
-    enable = false;
+    enable = true;
     newSession = true;
     plugins = let
       inherit (pkgs) tmuxPlugins;
