@@ -174,6 +174,14 @@ no_local_nix_daemon_process() {
   ! ps -eo user,args | awk '$1 == "root" && $2 == "nix" && $3 == "daemon" { found = 1 } END { exit found ? 0 : 1 }'
 }
 
+dev_machine_image_configures_scratch_build_dir() {
+  [[ -f "$repo_root/packages/dev-machine-image/configuration.nix" ]] || return 1
+
+  nix eval --impure --raw --expr \
+    "(import <nixpkgs/nixos> { system = \"x86_64-linux\"; configuration = import $repo_root/packages/dev-machine-image/configuration.nix; }).config.nix.settings.build-dir" \
+    2>/dev/null | grep -qx "/mnt/scratch/nix-builds"
+}
+
 check "repo root detected" find_repo_root
 diagnose "repo root" "${repo_root:-not found}"
 check "agent user is non-root" agent_user_is_non_root
@@ -190,7 +198,7 @@ check "Nix allows host dev user" nix_config_contains_word allowed-users dev
 check_absent "Nix does not trust host dev user" nix_config_contains_word trusted-users dev
 check_absent "agent cannot write directly to /nix/store" test -w /nix/store
 check "Nix tree was migrated to scratch" test -e /nix/.dev-machine-nix-seeded
-check "Nix build dir is on scratch" bash -c 'nix config show build-dir 2>/dev/null | grep -qx "/mnt/scratch/nix-builds"'
+check "dev-machine image configures scratch Nix build dir" dev_machine_image_configures_scratch_build_dir
 check "Nix auto-allocates build UIDs" bash -c 'nix config show auto-allocate-uids 2>/dev/null | grep -qx "true"'
 check "Nix has auto-allocate-uids feature" nix_config_contains_word experimental-features auto-allocate-uids
 check "Nix cgroups enabled" bash -c 'nix config show use-cgroups 2>/dev/null | grep -qx "true"'
