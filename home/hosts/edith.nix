@@ -55,6 +55,11 @@
     # for the commits to link to a profile.
     commitName = "mutantmell";
     commitEmail = "malaguy@gmail.com";
+    # Operator-side fallback for repos that have not yet moved their dotfiles
+    # profile source into `.net.mutantmell/agents.toml`. The generic package and
+    # module default stay empty so the agents repository is not hard-coded in the
+    # launcher itself.
+    agentsDotfiles.url = "ssh://forgejo@forgejo.internal/mutantmell/agents.git";
   };
 
   # skopeo (dev-machine's image pushes) refuses to `copy` without a containers

@@ -160,6 +160,9 @@
         # scoped to this image only, not a global overlay override.
         inherit (llm-agents.packages.${system}) claude-code codex;
       };
+      dev-machine = import packages/dev-machine {
+        inherit pkgs;
+      };
       mk-volume = import packages/mk-volume.nix {
         inherit (pkgs) writeShellScriptBin;
       };
