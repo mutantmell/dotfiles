@@ -220,7 +220,7 @@ in {
         description = ''
           Whether `dev-machine up` passes the reusable agents profile repository
           to DevPod as dotfiles. The profile installer reads repo-local
-          `.net.mutantmell/agents.toml` manifests to activate per-repo skills.
+          `.net.mutantmell/agents.toml` manifests to activate per-repo plugins.
         '';
       };
 
@@ -229,7 +229,7 @@ in {
         default = "";
         description = ''
           Fallback DevPod dotfiles repository URL containing the reusable agents
-          profile installer and skill catalog. A target repo can override this in
+          profile installer and plugin catalog. A target repo can override this in
           `.net.mutantmell/agents.toml` with `dotfiles.url`.
         '';
       };
