@@ -110,6 +110,11 @@ profile = "default"
 [dotfiles]
 url = "ssh://forgejo@forgejo.internal/mutantmell/agents.git"
 script = "install.sh"
+
+[plugins]
+enable = [
+  "mutantmell-dev",
+]
 ```
 
 When `dotfiles.url` is present, the wrapper passes that repository to DevPod as dotfiles:
@@ -118,7 +123,7 @@ When `dotfiles.url` is present, the wrapper passes that repository to DevPod as 
 devpod up ... --dotfiles ssh://forgejo@forgejo.internal/mutantmell/agents.git --dotfiles-script install.sh
 ```
 
-The agents repository is a catalog and installer, not a checked-in home directory. Each target repo chooses its own profile source, skills, and marketplaces with `.net.mutantmell/agents.toml`; this repo currently enables the Nix flake, NixOS VM test, Forgejo AGit, and dev-machine skills. The manifest is intentionally under a private hidden namespace to avoid colliding with future generic agent standards.
+The agents repository is a catalog and installer, not a checked-in home directory. Each target repo chooses its own profile source, plugins, and marketplaces with `.net.mutantmell/agents.toml`; this repo currently enables the shared `mutantmell-dev` plugin, which provides the Nix flake, NixOS VM test, Forgejo AGit, and dev-machine skills. The manifest is intentionally under a private hidden namespace to avoid colliding with future generic agent standards.
 
 The agents dotfiles repository must be readable during `devpod up`. That happens
 before `dev-machine up` injects the per-session Forgejo push key into the

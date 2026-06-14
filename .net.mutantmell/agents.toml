@@ -4,12 +4,9 @@ profile = "default"
 url = "ssh://forgejo@forgejo.internal/mutantmell/agents.git"
 script = "install.sh"
 
-[skills]
+[plugins]
 enable = [
-  "nix-flake",
-  "nixos-vm-tests",
-  "forgejo-agit",
-  "dev-machine",
+  "mutantmell-dev",
 ]
 
 [tools.codex]
