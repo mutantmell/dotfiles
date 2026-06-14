@@ -74,11 +74,15 @@ the chosen dynamic-manifest path), **not** as NixOS modules.
 Helm/add-on ownership update (2026-06-13): per
 `llm-notes/reports/k3s-flux-helm-ownership.md`, NixOS/k3s should bootstrap the
 cluster and Flux only. Flux is the future long-running owner for Kubernetes
-desired state and Helm releases; Nix owns chart dependency pins, rendering, and
-validation. Flux itself is the single bootstrap exception: keep it Nix-pinned
-and applied through `services.k3s.manifests`, not as a normal Flux-owned
-release. New add-ons or workload charts in this plan should therefore land in
-the Flux-managed path unless they are strictly required to bootstrap Flux.
+desired state and Helm releases; Nix owns dependency pins, rendering, and
+validation. The ownership report now generalizes this into a cluster dependency
+registry: Helm charts, raw upstream manifests, Flux bootstrap manifests, and
+important controller images should all be pinned/checked there as needed. Flux
+itself is the single bootstrap exception: keep it Nix-pinned and applied through
+`services.k3s.manifests`, not as a normal Flux-owned release. New add-ons or
+workload charts in this plan should therefore land in the Flux-managed path
+unless they are strictly required to bootstrap Flux, with committed Flux YAML
+kept reviewable even when Nix renders or validates it.
 
 ---
 
@@ -128,9 +132,9 @@ Shape (DevPod):
   a repo's `devcontainer.json`. The cluster-side prerequisite is just access
   (a kubeconfig/ServiceAccount scoped to a workspace namespace) — no platform
   Helm release is required. If a future DevPod/Coder control plane is added, it
-  should be expressed as Flux-managed desired state, with any chart pin checked
-  by Nix. The CLI itself runs wherever the operator drives it (a trusted host,
-  or inside another container).
+  should be expressed as Flux-managed desired state, with dependency pins
+  checked by Nix. The CLI itself runs wherever the operator drives it (a
+  trusted host, or inside another container).
 - **Workspaces are dev containers (Pods)** from per-repo `devcontainer.json`
   in git (e.g. a "claude-sandbox" devcontainer). Containers, not VMs — the
   lighter shape that makes this the low-stakes starter.
@@ -324,8 +328,11 @@ scope for the build here, but flag it when touching the cicd plan.
 NixOS/flake bootstrap: k3s, host/runtime wiring, Flux bootstrap, and
 host-level services. Flux-managed cluster state: Kyverno, ingress, local-path
 storage, workload resources, and future add-on Helm releases after bootstrap,
-with Nix pinning/rendering/validating chart inputs as needed. (CSI is added
-later — dev-env Phase 6.5.)
+with Nix pinning/rendering/validating dependency inputs as needed. Dependency
+inputs include charts, raw manifests, Flux bootstrap artifacts, and selected
+system images; the rendered or hand-written Flux YAML should stay committed so
+normal GitOps review and Flux health checks still apply. (CSI is added later —
+dev-env Phase 6.5.)
 **This plan's deliverables are all Flux-managed manifests** —
 Deployments/StatefulSets/Services/NetworkPolicies/ConfigMaps — in the
 Flux-watched path, plus langport nginx forwarding rules (NixOS) for any

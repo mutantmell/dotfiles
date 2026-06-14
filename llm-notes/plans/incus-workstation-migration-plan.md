@@ -53,11 +53,14 @@ Relates to / eventually obsoletes:
 Helm/add-on ownership update (2026-06-13): this plan follows
 `llm-notes/reports/k3s-flux-helm-ownership.md`. NixOS/k3s bootstraps the host
 cluster and Flux only; Flux owns long-running Kubernetes desired state and Helm
-releases after bootstrap; Nix owns chart dependency pins, rendering, and
-validation. Flux itself is the single bootstrap exception and should be
-Nix-pinned/generated into `services.k3s.manifests`; CSI, snapshotter, CDI,
-KubeVirt, and related add-ons added for this migration should use the
-Flux-managed path unless they are strictly needed to bootstrap Flux.
+releases after bootstrap; Nix owns dependency pins, rendering, and
+validation. The ownership report now generalizes this into a cluster dependency
+registry for Helm charts, raw upstream manifests, Flux bootstrap artifacts, and
+important controller images. Flux itself is the single bootstrap exception and
+should be Nix-pinned/generated into `services.k3s.manifests`; CSI, snapshotter,
+CDI, KubeVirt, and related add-ons added for this migration should use the
+Flux-managed path unless they are strictly needed to bootstrap Flux. Keep
+Flux-owned YAML committed and reviewable, even when Nix renders or validates it.
 
 ---
 
@@ -210,7 +213,12 @@ Resolved sub-points and the one still open:
   specs as Nix attrsets → `toJSON`) require a **render-and-commit step that CI
   will own**. Hand-writing gets Flux reconciling with zero new machinery; the
   generation step is deferred to CI. *(This is the only remaining open
-  sub-decision, and it is intentionally gated on CI.)*
+  sub-decision, and it is intentionally gated on CI.)* The dependency-update
+  model should still be settled before broad migration: either the Nix registry
+  is authoritative and an updater edits it before regenerating YAML, or the
+  committed Flux YAML is authoritative and Nix validates/fetches from it. Avoid
+  a mixed model where update automation edits only generated YAML while Nix owns
+  separate version fields.
 - **Flux read-auth:** a read-only deploy key / token on creil for this repo. In
   the monorepo it scopes to the whole repo rather than a manifests-only subset —
   acceptable blast radius for a single-operator homelab.
@@ -359,7 +367,8 @@ workstation VM on either host:
   targeting liberl) on each KubeVirt host that needs durable VM disks: erebonia
   for trista/dev-machine paths, and calvard for edith. Install as Flux-managed
   cluster desired state for each host, with Nix-owned chart/manifest pins and
-  validation; add `pkgs.openiscsi` on both hosts.
+  validation through the cluster dependency registry; add `pkgs.openiscsi` on
+  both hosts.
 - router6 forward rules: each KubeVirt host zone → liberl TCP/3260 (iSCSI) +
   SSH/HTTP mgmt endpoint. Do not assume only the erebonia cluster zone needs
   this path.
@@ -408,7 +417,9 @@ where the host identity lives.
    the liberl-backed boot disk. Install CDI the same way: pinned upstream CDI
    operator/CR manifests or an explicitly selected maintained packaging path,
    declared through the Flux-managed cluster path, pinned/validated by Nix, and
-   reversible.
+   reversible. If using raw upstream manifests rather than a chart, track the
+   release URL/version/hash in the same cluster dependency registry used for
+   Helm charts and Flux bootstrap.
 2. **Build the edith VM image** from the flake: a pre-built NixOS disk
    image (qcow2/raw) via `nixos-generators` or the flake-native
    equivalent, reproducible across rebuilds. (cloud-init into a blank

@@ -20,15 +20,15 @@ upstream controller semantics point toward a Flux-heavy GitOps model:
   `services.k3s.manifests` applies them.
 - Use Flux `Kustomization` and `HelmRelease` resources for platform add-ons and
   workloads after bootstrap.
-- Keep the repo's Nix discipline by storing chart dependency selection in Nix
-  data or generated artifacts, with checks that rendered Flux manifests and
-  chart pins stay reproducible.
+- Keep the repo's Nix discipline by storing dependency selection in Nix data or
+  generated artifacts, with checks that rendered Flux manifests and dependency
+  pins stay reproducible.
 
 This report resolves two related questions:
 
-1. **Version management:** chart versions and chart configuration should be
-   separated. Nix should own chart dependency identity and validation; chart
-   values remain with the component using the chart.
+1. **Version management:** dependency versions and component configuration
+   should be separated. Nix should own dependency identity and validation;
+   component values remain with the component using the dependency.
 2. **Ownership boundary:** Flux should be the only long-running owner of Helm
    releases. k3s should remain a bootstrap installer, not a competing release
    reconciler.
@@ -174,9 +174,22 @@ be Flux.
 
 ### Dependency layer: Nix
 
-Add a Nix-owned chart pin registry or generated lock data. The exact shape can
-be chosen during implementation, but the key rule is that chart identity is not
-buried in per-component values.
+Add a Nix-owned cluster dependency registry or generated lock data. This should
+cover more than Helm charts: Flux-owned cluster state will also depend on raw
+upstream release manifests, controller/bootstrap manifests, and privileged
+container images. The exact shape can be chosen during implementation, but the
+key rule is that dependency identity is not buried in per-component values.
+
+Component configuration should stay close to the component that owns it. The
+registry owns dependency identity and reproducibility:
+
+- Helm chart source, chart name, version, and fixed-output hash
+- OCI Helm chart source/ref/digest where practical
+- runtime container image repository, tag, and digest where practical
+- raw upstream manifest URL/version/hash for projects without a good chart
+- Flux bootstrap version, component set, and generated manifest hashes
+- high-risk controller/helper image tags and digests, especially privileged
+  system components
 
 Possible shape:
 
@@ -200,6 +213,22 @@ Possible shape:
     version = "v1.20.2";
     hash = "sha256-...";
   };
+
+  kubevirt-operator = {
+    kind = "github-release-manifest";
+    owner = "kubevirt";
+    repo = "kubevirt";
+    version = "v1.8.3";
+    urlTemplate = "https://github.com/kubevirt/kubevirt/releases/download/${version}/kubevirt-operator.yaml";
+    hash = "sha256-...";
+  };
+
+  macvtap-cni = {
+    kind = "oci-image";
+    image = "quay.io/kubevirt/macvtap-cni";
+    tag = "v0.13.1";
+    digest = "sha256:...";
+  };
 }
 ```
 
@@ -207,9 +236,10 @@ Use that data to:
 
 - render and check the Flux bootstrap manifests consumed by
   `services.k3s.manifests`,
-- render Flux `HelmRepository` / `HelmRelease` manifests, or
+- render Flux `HelmRepository` / `OCIRepository` / `HelmRelease` manifests, or
 - validate hand-written Flux manifests against Nix-owned pins, and
-- build checks that fetch chart artifacts and fail on hash drift.
+- build checks that fetch chart artifacts, raw manifests, and selected images
+  and fail on hash/digest drift.
 
 For OCI charts, prefer a Flux `OCIRepository` on the cluster side and a Nix
 fetch/check path on the repo side. The implementation should account for the
@@ -217,9 +247,90 @@ NixOS k3s module's historical limitations around OCI `autoDeployCharts`; this
 is another reason not to depend on `autoDeployCharts` as the final Helm
 interface.
 
+For privileged or foundational images, prefer digest-only image references or
+at least tag-plus-expected-digest validation. Tags such as `v1.2.3` are better
+than `latest`, but they are still mutable in principle. Digest-only references
+avoid tag drift entirely; tag-plus-digest validation keeps a human-readable tag
+while detecting if that tag starts resolving to different content. Digest
+validation matters most for host-adjacent or privileged components such as CNI
+helpers, storage drivers, and VM operators.
+
+### Update tooling: repo-native first, Renovate optional
+
+Pinning and updating are separate concerns. The registry/checks make dependency
+selection reproducible; an updater discovers newer upstream releases and opens a
+reviewable PR.
+
+The preferred first implementation is a repo-native updater, because the
+authoritative dependency surface is expected to be Nix data rather than Flux
+YAML:
+
+```bash
+./scripts/update-k3s-deps.sh list
+./scripts/update-k3s-deps.sh check
+./scripts/update-k3s-deps.sh update cert-manager
+./scripts/update-k3s-deps.sh update --all --patch-only
+```
+
+Minimum updater responsibilities:
+
+- read the Nix dependency registry,
+- discover newer versions from the source type actually in use:
+  - Helm repository `index.yaml`,
+  - GitHub/Git forge releases for raw manifests,
+  - OCI registry tags/digests via a registry client such as `skopeo`,
+  - Flux release tags for bootstrap manifests,
+- update version/tag/digest fields and fixed-output hashes,
+- regenerate committed Flux YAML when YAML is generated from the registry,
+- run targeted checks before opening or updating an AGit PR.
+
+Renovate is optional. It can still be valuable later for release discovery,
+grouping, scheduling, and changelog links, but only if the chosen authoritative
+dependency surface is configured as Renovate's edit target. Avoid the mixed
+model where Nix is authoritative while Renovate edits only generated Flux YAML:
+the drift check would correctly fail until the Nix registry was updated too.
+
+Choose one update surface per dependency class:
+
+- **Nix registry authoritative:** use a repo-native updater, or Renovate
+  regex/custom managers that edit the Nix registry and then regenerate YAML.
+- **Flux YAML authoritative:** compatibility/alternative model, not the
+  recommended repo target. Let Renovate's native Flux manager edit
+  `HelmRelease` / source YAML, and make Nix validate/fetch from committed YAML
+  rather than owning separate version fields.
+- **Custom updater authoritative:** do not expect Renovate to manage those pins.
+
+For this repo, start with the Nix-registry-authoritative path. It matches the
+flake's existing fixed-output dependency style and avoids introducing Renovate
+before there is a clear operational need.
+
+### GitOps compatibility rules
+
+The Nix layer must not become an opaque preprocessor that bypasses normal GitOps
+review and controller behavior.
+
+- Flux-owned desired state should exist as committed YAML under the watched
+  path. If YAML is generated from Nix, commit the rendered output and add a
+  check that fails when generated output differs from committed output.
+- Flux health and ordering are not automatic just because Flux owns the object.
+  Use Flux `Kustomization` boundaries with `dependsOn`, `wait`, and
+  `healthChecks` for CRD/controller ordering:
+  - cert-manager before `ClusterIssuer` / `Certificate` resources,
+  - Multus before `NetworkAttachmentDefinition` consumers,
+  - KubeVirt operator/CRDs before the singleton `KubeVirt` CR, then wait for
+    that CR to become healthy before CDI/storage/network add-ons and VM
+    resources that depend on them,
+  - snapshotter/CSI controllers before snapshot classes, storage classes, and
+    workloads consuming them.
+- Flux should own the operator install and top-level custom resources, not every
+  child object an operator creates and reconciles.
+- Reviewed YAML diffs remain the default review artifact. Nix checks add
+  reproducibility and drift detection; they should not hide the cluster state
+  that Flux will reconcile.
+
 ## Ranked options
 
-### 1. Flux owns all Helm releases; Nix renders or validates chart pins
+### 1. Flux owns all Helm releases; Nix renders or validates dependency pins
 
 This is the preferred end state.
 
@@ -290,9 +401,14 @@ Cons:
 
 ### Phase 1: Make dependency pins explicit
 
-- Add a Nix chart pin registry for all existing k3s-managed charts.
-- Refactor current `autoDeployCharts` entries to consume that registry.
-- Add a check that verifies chart fetches and hashes.
+- Add a Nix cluster dependency registry for all existing k3s-managed charts,
+  raw release manifests, Flux bootstrap inputs, and selected system images.
+- Refactor current `autoDeployCharts`, `services.k3s.manifests` fetches, and
+  image-tag constants to consume that registry where practical.
+- Add checks that verify chart fetches, raw manifest fetches, and selected image
+  digests/hashes.
+- Add or reserve the repo-native updater interface (`update-k3s-deps`) so
+  updates have an explicit path before automation is added.
 
 This does not change runtime ownership yet; it just separates versions from
 configuration and creates a stable source of truth.
@@ -302,8 +418,12 @@ configuration and creates a stable source of truth.
 - Replace the existing `flux2` `autoDeployCharts` bootstrap with
   `services.k3s.manifests` entries for pinned/generated Flux install manifests
   and Flux sync objects.
-- Prefer generated official Flux manifests from a pinned Flux release/CLI over
-  the community `flux2` Helm chart.
+- Prefer generated official Flux controller manifests from a pinned Flux
+  release/CLI over the community `flux2` Helm chart. The controller manifest
+  generation path should be explicit, for example `flux install --export`.
+- Generate or render the Git source/sync objects separately, or use the
+  equivalent bootstrap export flow, and document which path produces each
+  artifact.
 - Add a check that regenerates or validates the bootstrap manifests from the
   Nix-owned Flux version.
 - Ensure the Flux source points at a monorepo path for cluster state.
@@ -324,6 +444,11 @@ Suggested order:
 For each migration:
 
 - render or write the Flux resources,
+- commit the Flux-owned YAML that Flux will reconcile,
+- define Flux `Kustomization` ordering and health behavior for CRDs,
+  controllers, and dependent custom resources,
+- define Helm CRD lifecycle behavior for chart-backed releases before handoff
+  (`install.crds` / `upgrade.crds`, or the chart-specific equivalent),
 - apply with ownership handoff planned,
 - remove the k3s `autoDeployCharts` entry only after Flux is healthy,
 - document any uninstall/manual cleanup required because k3s AddOn deletion is
@@ -334,7 +459,9 @@ For each migration:
 Plans should stop proposing new `services.k3s.autoDeployCharts` entries. Flux
 bootstrap should use `services.k3s.manifests` with Nix-pinned/generated Flux
 manifests; new non-bootstrap Kubernetes resources should land under the Flux
-watched path by default.
+watched path by default. New dependency-bearing resources should also add a
+registry entry and update-check coverage unless their dependency is already
+covered elsewhere.
 
 ## Plan-update guidance
 
@@ -342,7 +469,7 @@ Future and active plans should be updated with the following rule:
 
 > If it is Kubernetes desired state and it is not required to bootstrap Flux,
 > declare it in the Flux-managed cluster path. Use Nix to pin, render, or verify
-> its dependency inputs.
+> its dependency inputs, and keep the Flux-owned YAML committed and reviewable.
 
 For Flux itself, use the same Nix pin/update mechanism, but render/apply it as
 the bootstrap input to `services.k3s.manifests` rather than as a Flux-owned

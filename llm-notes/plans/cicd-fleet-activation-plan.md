@@ -853,6 +853,18 @@ Evaluate `woodpecker-flake-pipeliner` or self-hosted Renovate with the Nix
 manager for per-input update PRs (e.g., updating nixpkgs-stable and
 nixpkgs-unstable independently).
 
+This is separate from Flux-owned cluster dependency updates. Per
+`llm-notes/reports/k3s-flux-helm-ownership.md`, Helm charts, raw upstream
+manifests, Flux bootstrap artifacts, and selected system images should be
+tracked in the cluster dependency registry. The first implementation should use
+a repo-native updater/check flow that edits that registry, refreshes
+hashes/digests, regenerates committed Flux YAML when needed, and opens an AGit
+PR. Renovate can be added later, but only if it edits the authoritative
+dependency surface for a given dependency class. When automated, give the
+updater a scoped git push credential, a stable AGit topic/title convention, and
+a clear policy for manual invocation vs. scheduled runs; start manual until the
+checks and review flow are proven.
+
 ### 6.4 Nightly breakage builds
 
 Separate from flake update PRs (6.3). A nightly Woodpecker cron job builds
