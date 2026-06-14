@@ -33,7 +33,8 @@ dev-machine publish-base
 
 Inside the devcontainer, agents should expect:
 
-- `nix`, `git`, `rg`, `jq`, `treefmt`, `alejandra`, `openssh`, Codex, and Claude are available.
+- `nix`, `git`, `rg`, `fd`, `jq`, `curl`, `wget`, `python3`, `just`, `treefmt`, `alejandra`, `openssh`, Codex, and Claude are available.
+- Common shell diagnostics and archive/build helpers are available, including `findmnt`, `ip`, `dig`, `nc`, `ps`, `rsync`, `unzip`, `zstd`, `file`, `which`, `make`, and `pkg-config`.
 - Interactive agent work runs as the non-root `agent` user (`uid 1000`, home `/home/agent`).
 - The container bind-mounts the VM host `/nix`; agent Nix clients use `NIX_REMOTE=daemon` and talk to the VM host nix-daemon.
 - Nix uses a daemon-style policy on the VM host with `build-users-group = nixbld`, `allowed-users = root dev`, and `trusted-users = root`; the container's `agent` uid maps to the VM host's `dev` uid and can build but cannot relax daemon policy as a trusted user.

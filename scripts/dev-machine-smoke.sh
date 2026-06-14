@@ -264,6 +264,10 @@ else
   check "/dev/kvm available" test -e /dev/kvm
 fi
 
+for tool in curl wget python3 fd just findmnt ip dig nc ps rsync unzip zstd file which make pkg-config; do
+  check "$tool available" command -v "$tool"
+done
+
 for tool in kubectl docker podman devpod virtctl gh tea; do
   check_absent "$tool absent from agent PATH" command -v "$tool"
 done

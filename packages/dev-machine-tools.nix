@@ -110,7 +110,12 @@
       nix
       git
       ripgrep
+      fd
       jq
+      curl
+      wget
+      python3
+      just
       alejandra
       treefmt
       zellij
@@ -124,6 +129,20 @@
       gnugrep
       gnused
       gawk
+      diffutils
+      patch
+      file
+      which
+      util-linux
+      procps
+      iproute2
+      dnsutils
+      netcat-openbsd
+      rsync
+      unzip
+      zstd
+      gnumake
+      pkg-config
       less
       openssh
       busybox
