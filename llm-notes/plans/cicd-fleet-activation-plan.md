@@ -210,6 +210,42 @@ that:
 - Checks out the repo
 - Runs `nix build .#checks.x86_64-linux.<name>` for each check
 - Reports results back to Forgejo
+- Emits a machine-readable check summary artifact and a compact PR-facing
+  summary (`check-summary.json` and `check-summary.md`). Each failed check
+  should include the check name, exact reproduction command, failing command,
+  relevant log tail, and a pointer to the full log/artifact. Agents should not
+  need to scrape large CI logs to find the actionable failure.
+
+### 1.6a Agent PR feedback integration
+
+The CI gap is not only "run checks on PRs"; it is "make PR state and check
+failures readable by an LLM with narrow credentials." Add a small
+Forgejo/Woodpecker-facing tool or MCP server for agent use. Required
+capabilities:
+
+- Resolve the current PR from the checked-out branch, AGit topic, or head SHA.
+- Read PR description, lifecycle comments, review comments, requested changes,
+  and current mergeability/check state.
+- Read the compact CI artifacts/comments from 1.6, and fetch full logs only
+  when needed.
+- Post status comments or answers as the bot, using a token separate from the
+  per-session Git push SSH key.
+- Surface lifecycle comments such as `agent: retry checks`, `agent: fix review
+  comments`, `agent: rebase`, `agent: explain failure`,
+  `agent: run full preflight`, and `agent: ready for review`.
+- Notify an active agent session when a relevant lifecycle comment or failed
+  check appears. The notification channel can start as polling from the agent
+  tool; webhook-to-queue delivery can come later.
+
+Keep token scope narrow: read PRs/checks/comments plus write comments/status
+only. Do not reuse the Git push credential for API operations, and do not grant
+deploy/admin rights to the agent tool.
+
+### 1.6b Required checks and merge gates
+
+Branch protection should require the relevant CI checks before merge. CI should
+not be merely advisory: the trust boundary is "agent proposes, CI verifies,
+human reviews, protected branch accepts only passing checked changes."
 
 No `.forgejo/workflows/` or `.woodpecker.yml` files needed — the config
 service generates pipelines dynamically.

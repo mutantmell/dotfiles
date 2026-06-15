@@ -4,6 +4,14 @@
 re-ground the concrete dynamic-manifest path in
 `llm-notes/wip/k3s-cluster-workloads-plan.md` before implementation.
 
+> **Implementation note (2026-06-15).** The concrete CI runner topology is now
+> refined in `llm-notes/plans/cicd-fleet-activation-plan.md`: Woodpecker remains
+> the CI system, with `saint-arkh` as the server microVM and build execution via
+> the Kubernetes backend on erebonia. The older host-level Woodpecker-agent /
+> containerd/Kata wording below is historical where it conflicts with that plan.
+> The same refresh added the PR-aware agent feedback surface described in
+> Section 5.1.
+
 ## Overview
 
 This system is a paper-thin connective layer between a build system and `nixos-rebuild`. It does not provision hosts, manage secrets in the Nix store, or coordinate fleet-wide state as a central authority. It receives a signal that CI has produced a verified, signed closure, and activates it safely on hosts that cannot or should not build themselves.
@@ -239,6 +247,43 @@ Forgejo is the git forge only — it stores code, triggers Woodpecker webhooks o
 With a large number of build targets in the flake, a Woodpecker External Configuration Service eliminates the need to maintain `.woodpecker.yml` files per target and makes the flake the single source of truth for both system configuration and CI pipeline definition. The config service runs on localhost only within the Woodpecker microVM — Woodpecker POSTs to it over loopback, and nothing else can reach it. This localhost-only constraint removes essentially all network attack surface and makes signature verification of incoming requests unnecessary.
 
 The `woodpecker-flake-pipeliner` by pinpox is the candidate implementation to evaluate at implementation time. It is a small Go service based on Woodpecker's official example config service. If it is incompatible with the current Woodpecker version or abandoned, writing a replacement is a bounded task (~200-300 lines) — the External Configuration API itself is stable and officially maintained by Woodpecker upstream. The config service and Woodpecker server share a microVM and lifecycle.
+
+**Agent-readable CI output and PR feedback:**
+
+CI must publish compact, structured check output in addition to normal logs.
+For each PR/head SHA, expose:
+
+- `check-summary.json` — machine-readable status, failed check names,
+  reproduction commands, failing command snippets, artifact/log URLs, and
+  relevant log tails.
+- `check-summary.md` — a human-readable PR comment or artifact with the same
+  information in review-friendly form.
+
+Agents should not have to scrape entire Forgejo/Woodpecker logs to diagnose
+routine failures. Every generated check should map back to one repo-local
+reproduction command (`./scripts/run-checks.sh <name>`,
+`nix build .#checks.x86_64-linux.<name>`, `agent-preflight-quick`, etc.).
+
+Add a narrow PR helper tool for LLM sessions. It should resolve the current PR
+from branch/topic/head SHA, read PR descriptions, review comments, lifecycle
+comments, requested changes, check state, and check-summary artifacts, then post
+comments/status updates as the bot. The tool's token is separate from the
+per-session Git push SSH key and should only allow PR/check/comment read plus
+comment/status write. It must not carry deployment, repository admin, cluster,
+or registry permissions.
+
+Lifecycle comments form the human control plane for active agent sessions. The
+initial vocabulary should cover:
+
+- `agent: retry checks`
+- `agent: fix review comments`
+- `agent: rebase`
+- `agent: explain failure`
+- `agent: run full preflight`
+- `agent: ready for review`
+
+Notification can start as polling from the agent tool and later move to
+webhook-to-queue delivery if the workflow needs lower latency.
 
 **Flake dependency updates:**
 

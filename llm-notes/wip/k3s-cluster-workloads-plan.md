@@ -198,6 +198,38 @@ image, scripting, scoped git credential, network lockdown).
 > layer is now usable **and** locked down end to end. Net-new workloads below
 > (blog, game servers, CI) are unaffected.
 
+### Phase A follow-up — session ergonomics and future provider shape
+
+The AI dev platform direction note
+(`llm-notes/reports/ai-dev-platform-direction.md`) produced these follow-ups:
+
+- **Browser/mobile IDE is a non-goal for now.** A richer web UI is not a clear
+  capability gap for a single-operator workflow. Modern editors such as Zed can
+  use SSH remoting against the dev VM directly (`dev-N.internal`) or through an
+  SSH proxy via edith; terminals can use `tssh`/`zellij`. Prefer documenting and
+  smoothing those SSH/editor entrypoints over adding an always-on web IDE
+  surface.
+- **Multi-session visibility should start in the wrapper.** DevPod already has
+  native workspace inventory (`devpod list`) and supports multiple workspaces
+  from the same repository via distinct workspace IDs. The missing view is the
+  repo-specific stack: KubeVirt VM slot/IP, VM phase, DevPod provider,
+  workspace ID(s), and attach/editor hints. Improve `dev-machine list` before
+  adding a dashboard.
+- **Multiple sessions inside one devcontainer remain the RAM-light default.**
+  Use `zellij` and git worktrees inside the existing workspace when the goal is
+  parallel agent/operator sessions without another VM.
+- **Multiple DevPod workspaces per VM is plausible later.** DevPod can own the
+  devcontainer/workspace side if each workspace gets a unique ID against the
+  same SSH provider. The wrapper would need to model "machine" separately from
+  "workspace" and make scoped Git credential injection, refresh, rescue, and
+  teardown workspace-aware.
+- **Custom provider is an extraction target, not immediate work.** The desired
+  end state is a lower-level tool that owns KubeVirt setup, ownership, slot
+  assignment, credential cleanup, rescue, and teardown. A custom DevPod provider
+  can then be a thin layer over that tool. Do not build the provider until there
+  is capacity for multiple large VMs and a real need for multiple DevPods per
+  VM.
+
 **Immediate follow-up — devcontainer definition + custom image for this repo.**
 The PoC used a generic upstream image; the actual coding layer needs a
 `devcontainer.json` checked into this flake repo plus a purpose-built image so

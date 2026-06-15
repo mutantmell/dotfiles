@@ -29,6 +29,15 @@ dropped.
 > `en_US.UTF-8` pin below is now only for the fallback VM shell / zellij, not a
 > hard dependency. The mosh-specific rationale further down is kept as the
 > original decision record; tssh/tsshd is the as-built transport.
+>
+> **Update (2026-06-15) — provider graduation shape.** The future custom
+> DevPod provider should not be the first extraction. The better end state is a
+> lower-level tool that owns KubeVirt setup, ownership, slot/IP assignment,
+> AccessCredentials, scoped credential cleanup, rescue, and teardown. A custom
+> DevPod provider can then be a thin integration layer over that tool. This is
+> worth preserving as a design direction, but not implementing until there is
+> capacity for multiple large VMs and a real need for multiple DevPod workspaces
+> per VM.
 
 ## Resolved — the network-lockdown dependency (shipped)
 
