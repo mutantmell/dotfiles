@@ -24,12 +24,12 @@
       mountPoint = "/persist";
       image = "/persist/guests/saint-arkh/images/persist.img";
       size = 25 * 1024;
-    }
+    }0
   ];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
-  microvm.mem = 4096;
-  microvm.vcpu = 4;
+  microvm.mem = 512;
+  microvm.vcpu = 1;
   microvm.interfaces = [
     {
       type = "macvtap";
