@@ -164,12 +164,6 @@ in {
   };
   services.resolved.enable = true;
 
-  # Wait for VLAN 50 before setting up macvtap interfaces
-  systemd.services."microvm-macvtap-interfaces@saint-arkh" = {
-    after = ["sys-subsystem-net-devices-uplink.50.device"];
-    wants = ["sys-subsystem-net-devices-uplink.50.device"];
-  };
-
   # Host-based input firewall: restrict SSH to router + vHOME
   networking.firewall.extraInputRules = ''
     ip saddr { ${zone.gateway4}, ${net.networks.trusted.subnet4} } tcp dport 22 accept
