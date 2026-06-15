@@ -498,7 +498,7 @@ create_vm() {
 }
 
 cmd_up() {
-  local source="" name="" rebuild=1 memory cpu disk repo="" push_cred=1 manifest_hint=""
+  local source="" name="" rebuild=0 memory cpu disk repo="" push_cred=1 manifest_hint=""
   memory="$DEFAULT_MEMORY"
   cpu="$DEFAULT_CPU"
   disk="$DEFAULT_DISK"
@@ -506,6 +506,10 @@ cmd_up() {
     case "$1" in
     --no-rebuild)
       rebuild=0
+      shift
+      ;;
+    --rebuild)
+      rebuild=1
       shift
       ;;
     --no-push-cred)
@@ -557,7 +561,7 @@ cmd_up() {
       manifest_hint="$PWD"
       echo "==> no repo given; using current checkout's origin: $source" >&2
     else
-      echo "usage: dev-machine up [<repo-url-or-path>] [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]" >&2
+      echo "usage: dev-machine up [<repo-url-or-path>] [--name N] [--repo owner/name] [--rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]" >&2
       echo "       (omit the repo to use the current directory's origin remote URL)" >&2
       return 1
     fi
@@ -603,8 +607,8 @@ cmd_up() {
   fi
   host=$(host_for_slot "$slot")
 
-  # Anything that touches creil (the rebuild push, the base presence check,
-  # the base publish) needs the registry login — check once, up front.
+  # Anything that touches creil (the optional rebuild push, the base presence
+  # check, the base publish) needs the registry login — check once, up front.
   require_login
   require_agents_dotfiles_access
 
@@ -613,8 +617,8 @@ cmd_up() {
     build_and_push dev-machine-dev-image "$DEV_IMAGE"
   fi
 
-  # The VM boots from the base containerDisk. When --no-rebuild is used,
-  # still publish it on demand if it is missing from the registry.
+  # The VM boots from the base containerDisk. Normal `up` reuses the published
+  # image, but still publishes it on demand if it is missing from the registry.
   if ! skopeo inspect "docker://$BASE_IMAGE" >/dev/null 2>&1; then
     echo "==> base image $BASE_IMAGE not in registry; building + pushing it"
     build_and_push dev-machine-image "$BASE_IMAGE"
@@ -1108,7 +1112,7 @@ usage() {
   cat >&2 <<'USAGE'
 dev-machine — locked-down LLM dev machines on KubeVirt
 
-  dev-machine up [<repo>] [--name N] [--repo owner/name] [--no-rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]
+  dev-machine up [<repo>] [--name N] [--repo owner/name] [--rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]
                                        (omit <repo> to use the current directory's checkout)
   dev-machine ssh <name> [--recover]   (--recover: restart a dead devcontainer agent before ssh)
   dev-machine refresh <name>           (recreate just the devcontainer on the running VM — fast iterate on devcontainer.json)

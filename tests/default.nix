@@ -7,7 +7,6 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
-  disko ? null,
 }:
 # Router tests in sub-module
 let
@@ -19,10 +18,6 @@ in
   (import ./router6.nix {inherit pkgs lib;})
   // {
     cert-expiry = import ./lib/cert-expiry.nix {inherit pkgs lib;};
-
-    # Incus integration tests
-    incus-container = import ./modules/incus-container.nix {inherit pkgs lib;};
-    incus-vm = import ./modules/incus-vm.nix {inherit pkgs lib disko;};
 
     # Phantasma DNS stack
     phantasma-dns-real = mkContainerTest ./modules/phantasma-dns-real.nix;

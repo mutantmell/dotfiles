@@ -49,11 +49,11 @@
 #   dev-machine publish-base (re)build + push the base containerDisk to creil
 #                           (a prerequisite for `up`; run once / on base bumps).
 #
-# IMAGE FRESHNESS (workaround until CI lands, plan Phase 3): `up` rebuilds + pushes
-# the base VM image and Phase-2.2 dev image to creil by default so the VM host's
-# /nix store contains the same dev-tool closure the devcontainer's /bin symlinks
-# reference after /nix is bind-mounted from the host. `--no-rebuild` skips this
-# for fast iteration when both images are already in sync.
+# IMAGE FRESHNESS (workaround until CI lands, plan Phase 3): `up --rebuild`
+# rebuilds + pushes the base VM image and Phase-2.2 dev image to creil so the VM
+# host's /nix store contains the same dev-tool closure the devcontainer's /bin
+# symlinks reference after /nix is bind-mounted from the host. Normal `up` reuses
+# the published images and only builds the base on demand if it is absent.
 #
 # PUSH CREDENTIAL (Phase 4): the sandbox holds EXACTLY ONE credential and it is
 # NOT the operator identity — it is the **`cc` bot user**. `up` generates a fresh

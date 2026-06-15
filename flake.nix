@@ -54,10 +54,6 @@
     # cadence only reaches us on a deliberate `nix flake update`.
     # ai-dev-machine-kubevirt-plan.md.
     llm-agents.url = "github:numtide/llm-agents.nix";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
     retrom = {
       # Pinned to v0.8.1-era rev: v0.8.2 ships a stale retrom-service pnpm-deps hash
       # (pnpm-lock.yaml dropped the handlebars catalog entry but nix/pkgs/retrom-service/
@@ -88,7 +84,6 @@
     nixos-wsl,
     deploy-rs,
     treefmt-nix,
-    rust-overlay,
     retrom,
     stevenblack-hosts,
     llm-agents,
@@ -96,11 +91,7 @@
     pkgsFor = basepkgs: system:
       import basepkgs {
         inherit system;
-        overlays =
-          builtins.attrValues self.overlays
-          ++ [
-            (import rust-overlay)
-          ];
+        overlays = builtins.attrValues self.overlays;
         config.allowUnfree = true;
       };
     allSystems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
@@ -127,7 +118,6 @@
           pkgs.skopeo
           pkgs.openssl
           pkgs.pkg-config
-          pkgs.rust-bin.stable.latest.default
         ];
       };
     });
@@ -533,7 +523,7 @@
       pkgs,
     }:
       (import ./tests {
-        inherit pkgs disko;
+        inherit pkgs;
         inherit (pkgs) lib;
       })
       // {formatting = treefmtEval.${system}.config.build.check self;}

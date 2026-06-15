@@ -9,8 +9,7 @@
   # `VirtualMachine` is the security boundary, and because erebonia's host runs
   # `kvm_intel nested=1` (hosts/erebonia/default.nix), the regular NixOS kernel
   # inside that VM gets /dev/kvm natively — the flake's `nixosTest` suite runs
-  # nested with no custom guest kernel. This is what retires the from-source
-  # kata-clh nested kernel (runtimes.nix `nestedKataKernel*`) for this use case.
+  # nested with no custom guest kernel.
   #
   # Install method: the **upstream operator release manifest**, pinned + FOD-
   # fetched, applied straight from the k3s server manifests dir — NOT a Helm
