@@ -24,7 +24,7 @@
       mountPoint = "/persist";
       image = "/persist/guests/saint-arkh/images/persist.img";
       size = 25 * 1024;
-    }0
+    }
   ];
   fileSystems."/persist".neededForBoot = lib.mkForce true;
 
