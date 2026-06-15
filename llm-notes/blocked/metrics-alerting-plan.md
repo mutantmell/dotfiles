@@ -218,7 +218,7 @@ Scrape interval: 15s (default), 60s (slow targets)
 
 | Job                | Target             | Port | Exporter          |
 | ------------------ | ------------------ | ---- | ----------------- |
-| ymir_node          | localhost          | 9100 | node_exporter     |
+| tharbad_node       | localhost          | 9100 | node_exporter     |
 | thebeyond_node     | thebeyond.internal | 9100 | node_exporter     |
 | erebonia_node      | erebonia.internal  | 9100 | node_exporter     |
 | calvard_node       | calvard.internal   | 9100 | node_exporter     |
@@ -237,7 +237,8 @@ Scrape interval: 15s (default), 60s (slow targets)
 | creil_node      | creil.internal      | 9100 | node_exporter |
 | oracion_node    | oracion.internal    | 9100 | node_exporter |
 | zeiss_node      | zeiss.internal      | 9100 | node_exporter |
-| monrain_node    | monrain.internal    | 9100 | node_exporter |
+| bose_node       | bose.internal       | 9100 | node_exporter |
+| ravennue_node   | ravennue.internal   | 9100 | node_exporter |
 | saint-arkh_node | saint-arkh.internal | 9100 | node_exporter |
 | trista_node     | trista.internal     | 9100 | node_exporter |
 | edith_node      | edith.internal      | 9100 | node_exporter |
@@ -592,7 +593,8 @@ modules/node-exporter-client/default.nix # Shared module, deployed fleet-wide �
 - [ ] Review existing Perses dashboards, identify coverage gaps (dashboards are declarative/code-managed — changes go through the repo and CI)
 - [ ] Build additional Perses dashboards (firewall overview, DNS stats)
 - [ ] Configure CI/CD webhook integration (Forgejo → ntfy)
-- [x] Configure Perses OIDC auth via Keycloak (messeldam) — migrating to Authelia, see authelia-migration-plan.md
+- [x] Configure Perses OIDC auth via Authelia (messeldam) — migrated from
+      Keycloak; see authelia-migration-plan.md
 
 ---
 

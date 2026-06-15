@@ -389,6 +389,9 @@ custom-CA seeding on a fresh init, so the repo is the authoritative origin
   start (Coder is the multi-user upgrade path). See Phase A. Remaining:
   the devcontainer/runtimeClass design (base images, RuntimeClass per
   workspace) — configuring an off-the-shelf tool, not building one.
-- Dynamic-manifest repo layout (inherited from the bootstrap plan's open
-  decision #4) — decide before Phase A (the first workload) lands.
+- ~~Dynamic-manifest repo layout~~ — **resolved: monorepo** (this dotfiles repo
+  on creil), matching `hosts/erebonia/k3s/flux.nix` and
+  `incus-workstation-migration-plan.md` decision #4. Remaining implementation:
+  create the concrete Flux `GitRepository`, `Kustomization`, watched path, and
+  read-only creil deploy key.
 - Whether the blog is worth building at all, or Phase 2 is skipped.

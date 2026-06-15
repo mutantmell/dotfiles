@@ -1,6 +1,7 @@
 # Dual-Gateway Follow-ups Plan
 
-**Status:** Drafted, not started (some items gated on CI/CD activation).
+**Status:** WIP. Section A service moves are complete in the flake; Section B
+and most Section C follow-ups remain.
 **Plan date:** 2026-05-31.
 **Successor to:** [`llm-notes/done/dual-gateway-app-vlan-plan.md`](../done/dual-gateway-app-vlan-plan.md)
 — that plan shipped the dual-gateway topology (Phases 0–3) and proved
@@ -10,13 +11,13 @@ codification, plus open items that accumulated during the dual-gateway
 window.
 **Related:** [`llm-notes/guides/bt8-gateway-as-built.md`](../guides/bt8-gateway-as-built.md)
 remains the living anchor for BT8-gateway state until Phase 4 codifies
-it. [`llm-notes/plans/cicd-fleet-activation-plan.md`](cicd-fleet-activation-plan.md)
+it. [`llm-notes/plans/cicd-fleet-activation-plan.md`](../plans/cicd-fleet-activation-plan.md)
 is the gate for Phase 4 / 4.5 (see
 [`project-phase-4-deferred-to-cicd`](../../../../home/mutantmell/.claude/projects/-home-mutantmell-git-dotfiles/memory/project_phase_4_deferred_to_cicd.md)).
 
 ---
 
-## Section A — Remaining Phase 5 service migrations (APP)
+## Section A — Remaining Phase 5 service migrations (APP) — COMPLETE
 
 Same shape as the `oracion` move: re-IP into `10.97.50.x`, registry move
 from `dmz.hosts` to `app.hosts`, calvard/erebonia/liberl host plumbing if
@@ -24,55 +25,57 @@ needed (br50 already exists on calvard from 5.A), tap-id rename on the
 microvm, DMZ host-hardening profile carries through, BT8-gw fw4
 additions for any new cross-zone flows.
 
-### A.1 `creil` (Forgejo internal) → APP
+### A.1 `creil` (Forgejo internal) → APP — DONE
 
-- [ ] Re-IP `creil` to `10.97.50.53` (registry move dmz → app)
-- [ ] Tap-id rename `vm-100-creil` → `vm-50-creil` (if applicable; check
+- [x] Re-IP `creil` to `10.97.50.53` (registry move dmz → app)
+- [x] Tap-id rename `vm-100-creil` → `vm-50-creil` (if applicable; check
       `hosts/calvard/microvm/guests/creil/microvm.nix`)
-- [ ] BT8-gw fw4 additions:
-  - [ ] `transit → app` rule scoping any wg-\* sources currently
+- [x] BT8-gw fw4 additions:
+  - [x] `transit → app` rule scoping any wg-\* sources currently
         permitted to reach creil in `dmz.forwardRules.*` on thebeyond
         (mirrors the wg-media → oracion pattern from 5.A)
-  - [ ] `app → management` rule: creil → basel (ACME), creil → tharbad
+  - [x] `app → management` rule: creil → basel (ACME), creil → tharbad
         (Loki + metrics push) — same shape as oracion's
-- [ ] Remove the post-5.A temp rule `management → creil (SSH + Forgejo)
+- [x] Remove the post-5.A temp rule `management → creil (SSH + Forgejo)
   [via BT8-gateway]` in `hosts/thebeyond/router.nix` (currently noted
       as `# Remove after Phase 5.B`) — it becomes a BT8-gw-local
       management → app rule once creil is in APP
-- [ ] Retest: in-zone, cross-zone (management → creil for Forgejo
+- [x] Retest: in-zone, cross-zone (management → creil for Forgejo
       browsing from operator workstation), wg-\* paths
-- [ ] Consumer-host `/etc/hosts` refresh: grep for `mkExtraHosts.*creil`
+- [x] Consumer-host `/etc/hosts` refresh: grep for `mkExtraHosts.*creil`
       and redeploy each consumer
 
-### A.2 `zeiss` (Attic) → APP
+### A.2 `zeiss` (Attic) → APP — DONE
 
-- [ ] Re-IP `zeiss` to `10.97.50.31` (registry move; preserve host id 31)
-- [ ] zeiss lives on liberl, not calvard — liberl needs br50 plumbing
+- [x] Re-IP `zeiss` to `10.97.50.31` (registry move; preserve host id 31)
+- [x] zeiss lives on liberl, not calvard — liberl needs br50 plumbing
       added (mirrors what calvard got in 5.A.1)
-- [ ] BT8-gw fw4 additions:
-  - [ ] `transit → app` rule for any wg-\* → zeiss flows
-  - [ ] `app → management` rule: zeiss → basel (ACME), zeiss → tharbad
+- [x] BT8-gw fw4 additions:
+  - [x] `transit → app` rule for any wg-\* → zeiss flows
+  - [x] `app → management` rule: zeiss → basel (ACME), zeiss → tharbad
         (push)
-- [ ] Retest: nix substitution from a calvard/erebonia/operator client;
+- [x] Retest: nix substitution from a calvard/erebonia/operator client;
       Attic cache push from saint-arkh
-- [ ] Consumer-host /etc/hosts refresh
+- [x] Consumer-host /etc/hosts refresh
 
-### A.3 `saint-arkh` (CI runners) → APP
+### A.3 `saint-arkh` (CI runners) → APP — DONE
 
-- [ ] Re-IP `saint-arkh` to `10.97.50.61` (registry move)
-- [ ] saint-arkh lives on erebonia (Incus) — erebonia needs br50
-      plumbing
-- [ ] BT8-gw fw4 additions:
-  - [ ] `app → management` rule: saint-arkh → basel (ACME), → tharbad
+- [x] Re-IP `saint-arkh` to `10.97.50.61` (registry move)
+- [x] saint-arkh lives on erebonia as a **microVM**, not Incus. Its APP
+      attachment is bridge-free macvtap on `uplink.50`
+      (`hosts/erebonia/microvm/guests/saint-arkh/microvm.nix`), with the
+      host-side carrier defined in `hosts/erebonia/microvm/default.nix`.
+- [x] BT8-gw fw4 additions:
+  - [x] `app → management` rule: saint-arkh → basel (ACME), → tharbad
         (push)
-  - [ ] `app → dmz` flows: if saint-arkh → langport/trista/etc. flows
+  - [x] `app → dmz` flows: if saint-arkh → langport/trista/etc. flows
         exist, add `transit → dmz` rule on thebeyond scoped to
         saint-arkh source IP (matches the dmz/transit pattern set up
         for tharbad → DMZ-resident node_exporters in Phase 3.4)
-  - [ ] `app → app` flows: saint-arkh → zeiss for Attic cache pushes
+  - [x] `app → app` flows: saint-arkh → zeiss for Attic cache pushes
         once zeiss is also in APP (handled by zone-pair `app → app`
-        forwarding; intra-zone allowed by default — verify)
-- [ ] Retest: a sample CI job that exercises Forgejo (creil), Attic
+      forwarding; intra-zone allowed by default — verify)
+- [x] Retest: a sample CI job that exercises Forgejo (creil), Attic
       (zeiss), and the public-facing langport reverse-proxy path
 
 ### A.4 Post-migration cleanup (was 5.E–J) — DONE 2026-06-01
@@ -125,7 +128,7 @@ trista cleanup.
 ## Section B — Phase 4 / 4.5 (CI/CD-gated)
 
 **Gate:** Phase 4 is deferred until
-[`cicd-fleet-activation-plan.md`](cicd-fleet-activation-plan.md) is
+[`cicd-fleet-activation-plan.md`](../plans/cicd-fleet-activation-plan.md) is
 complete. Reason: image-build cutover gets materially safer once image
 deploys are automated rather than hand-pushed. See
 [`project-phase-4-deferred-to-cicd`](../../../../home/mutantmell/.claude/projects/-home-mutantmell-git-dotfiles/memory/project_phase_4_deferred_to_cicd.md).
@@ -154,7 +157,7 @@ Source for the gateway "golden output":
       source here, and the snapshot test records which mechanism enforces.
       Egress behaviour is already proven (oracion/saint-arkh denied,
       creil/zeiss allowed — see the as-built enforcement table and
-      [`../wip/workload-network-isolation-plan.md`](../wip/workload-network-isolation-plan.md)
+      [`workload-network-isolation-plan.md`](workload-network-isolation-plan.md)
       Acceptance).
 * [ ] Generate odhcpd UCI per VLAN from registry data
 * [ ] Pure-Nix evaluation snapshot tests under `tests/openwrt/`,
@@ -214,9 +217,9 @@ throughput is a non-issue (likely — offsite backup is WAN-upload-bound).
 
 ## Section C — Microvm MACVLAN migration
 
-**Background:** the current microvm hosts (calvard, erebonia, liberl)
-attach guests via tap interfaces bridged into per-VLAN Linux bridges
-(`br11`, `br21`, `br50`, `br100`). MACVLAN attaches each guest as a
+**Background:** the remaining bridge-backed microvm hosts attach some guests via
+tap interfaces bridged into per-VLAN Linux bridges (for example `br21`, `br50`,
+or `br100`, depending on host). MACVLAN attaches each guest as a
 discrete sub-device on the parent VLAN interface, eliminating the
 bridge plus its `br_netfilter` surface, STP state, and MAC learning
 overhead. microvm.nix supports `macvtap` natively.
@@ -227,38 +230,38 @@ adding it would muddle 5.A's rollback story. Per
 the main MACVLAN concern (host↔child L2 isolation) is not actually a
 blocker for this fleet — hosts don't initiate to their own guests.
 
-**Known issue — observed 2026-06-02 on `saint-arkh` (failing since
-2026-05-31):** `saint-arkh` is already converted to `type = "macvtap"`
-(`macvtap.link = "uplink.50"`, `mode = "bridge"`, VLAN 50 / APP) — it
-moved to APP in A.3 and is currently the _only_ macvtap guest in the
-fleet (it's a microVM under erebonia, not Incus, contrary to C.2's
-phrasing). Its host-side oneshot is broken:
+**Status refresh (2026-06-15):** the earlier `saint-arkh` macvtap blocker is
+closed. Current repo state has:
 
-```
-microvm-macvtap-interfaces@saint-arkh.service: Service has no ExecStart=, ExecStop=, or SuccessAction=. Refusing.
-microvm@saint-arkh.service: Cannot add dependency job, ignoring: Unit microvm-macvtap-interfaces@saint-arkh.service has a bad unit file setting.
-```
+- `saint-arkh` as an erebonia **microVM** on APP/VLAN 50, using
+  `type = "macvtap"`, `id = "vm-50-s-arkh"`, `macvtap.link = "uplink.50"`,
+  and `macvtap.mode = "bridge"`.
+- erebonia host networking defining standalone, host-IP-less macvtap carriers
+  for `uplink.50`, `uplink.51`, and `uplink.100`, with no `br50`/`br51`/`br100`.
+- **No current erebonia guest uses VLAN 21.** `br21`/`uplink.21` were leftover
+  lab plumbing on erebonia, not a blocker. The current lab guests are elsewhere
+  (`edith` on calvard Incus; `bose`/`ravennue` on liberl microVMs).
+- **Update (2026-06-15):** erebonia's VLAN 11 bridge has also been retired in
+  code. The management IP now lives directly on `uplink.11`; future VLAN 11
+  guests should attach as host-IP-less `vm-11-*` macvtap/macvlan children.
+  The unused VLAN 21 lab bridge/subinterface was removed from erebonia.
+- KubeVirt dev machines using the same bridge-free lesson on VLAN 51: one shared
+  `cluster-vlan51` macvtap NAD over `uplink.51`, plus the KubeVirt macvtap
+  binding plugin.
 
-The per-guest `microvm-macvtap-interfaces@<name>.service` is generating
-with an empty `ExecStart`, so systemd refuses to load it and
-`microvm@saint-arkh` starts _without_ the macvtap link being created.
-It went unnoticed because erebonia's services are idle (which is also
-why erebonia was chosen as the PQC-sops-migration burn-in host, where
-this surfaced). Root-cause the empty-`ExecStart` generation — likely a
-microvm.nix host-module quirk for a lone macvtap instance, or a missing
-piece in how the template is parameterised per `%i` — **before**
-converting more guests in C.2; otherwise the whole fleet inherits the
-same silent breakage. Decide as part of this: keep macvtap and fix the
-unit, or revert `saint-arkh` to a plain `tap` (matching every other
-guest) until C lands.
+So Section C no longer starts with "fix saint-arkh"; saint-arkh is the
+working example. The remaining work is to generalize the bridge-free pattern to
+the bridge-backed microVM guests that still exist on other hosts/VLANs and
+choose `bridge`/`vepa`/`private` per trust boundary.
 
 ### C.1 Design
 
-- [ ] Pick MACVLAN mode: default `bridge` (guest↔guest within parent
+- [x] Pick initial MACVLAN mode: `bridge` for the existing saint-arkh APP
+      placement. Keep `vepa`/`private` as per-zone hardening choices for future
+      conversions where same-host sibling isolation matters.
+- [ ] For each future conversion, confirm whether to keep `bridge` (guest↔guest within parent
       interface allowed) vs. `vepa` (forces traffic out the parent for
-      switch-side hairpin) vs. `private` (guests fully isolated). Most
-      likely `bridge` — preserves intra-VLAN guest-to-guest flows
-      without bouncing off the switch.
+      switch-side hairpin) vs. `private` (guests fully isolated).
 - [ ] Document fallback: if a future host↔guest L2 flow is ever
       needed, an extra macvlan on the host side recovers it without
       reverting the whole design.
@@ -276,9 +279,15 @@ Per-host conversion (each host independent):
       `microvm.interfaces` from `type = "tap"` to `type = "macvtap"`
       with `link = "enp88s0.<vid>"`. Verify each guest's L2/L3
       reachability post-deploy.
-- [ ] **erebonia** — same shape for Incus VMs (`saint-arkh`, `trista`,
-      `roer`). Incus has its own interface model; verify macvlan
-      attachment works through the Incus profile.
+- [x] **erebonia** — current guest networking no longer needs host bridges.
+      `saint-arkh` is already a microVM on
+      macvtap/APP (`uplink.50`), and VLAN 51 KubeVirt dev machines use macvtap
+      over `uplink.51`. The host management address now lives directly on
+      `uplink.11`, with a host-IP-less `vm-11-*` match available for future
+      macvtap/macvlan guests. The unused `br21`/`uplink.21`/`vm-21-*` lab
+      plumbing is removed. Trista is already Incus macvlan on `uplink.100` and
+      migrates separately through the Incus-workstation/KubeVirt plan rather
+      than through this microVM-only conversion.
 - [ ] **liberl** — for microVM guests (`bose`, `ravennue`, future
       `zeiss` post-Phase-5.C).
 

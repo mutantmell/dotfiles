@@ -8,6 +8,13 @@ Replaces: `llm-notes/plans/ci-cd-plan.md`
 > liberl/zeiss, the APP/DMZ split, and deployd removal. Sections that discuss
 > dynamic workload execution still need implementation-time review against the
 > k3s/KubeVirt plans.
+>
+> **Refresh note (2026-06-15).** Phase 1 is reconciled with the hybrid CI
+> architecture decided in
+> [`k3s-cluster-workloads-plan.md`](../wip/k3s-cluster-workloads-plan.md):
+> `saint-arkh` stays as the Woodpecker server microVM, but build execution moves
+> to Woodpecker's Kubernetes backend on erebonia's k3s cluster. The older
+> bare-metal Woodpecker-agent + standalone containerd/Kata path is superseded.
 
 ## Overview
 
@@ -44,7 +51,7 @@ The system has two halves:
 | ------------------ | ------------ | ------------------------------------------------- |
 | "router"           | thebeyond    | Router, underpowered, network infrastructure      |
 | "NAS"              | liberl       | NAS, ZFS, hosts Attic (zeiss)                     |
-| "2021 NUC" / build | erebonia     | Build server, hosts Woodpecker runners / k3s      |
+| "2021 NUC" / build | erebonia     | k3s/KubeVirt host; schedules Woodpecker build pods |
 | "2023 NUC"         | calvard      | Primary VM host, hosts Forgejo (creil)            |
 | Forgejo            | creil        | MicroVM on calvard, git forge only                |
 | Attic              | zeiss        | MicroVM on liberl, binary cache                   |
@@ -70,7 +77,7 @@ results-gated).
   other hosts attempt pre-download of closures.
 - **calvard second** — general VM host. Activating while liberl (Attic)
   and erebonia (2 of 3 NATS nodes still up) are stable.
-- **erebonia last** — hosts the Woodpecker agent. Let it finish publishing
+- **erebonia last** — hosts k3s/KubeVirt and Woodpecker build pods. Let it finish publishing
   all deployment events before it reboots itself.
 - **NATS quorum preserved** — only 1 of 3 NATS hosts is down at any time.
 - **Attic availability preserved** — liberl is stable before anyone else
@@ -97,7 +104,7 @@ touching anything else. thebeyond also gets a NATS microVM at that point
 | ---------------------------- | ------------------------------------- | ----------------------------- |
 | Forgejo (creil)              | Deployed                              | calvard, APP (10.97.50.53)    |
 | Attic (zeiss)                | Deployed, 3-min GC (needs adjustment) | liberl, APP (10.97.50.31)     |
-| Forgejo Actions (saint-arkh) | Deployed — will be repurposed         | erebonia, APP (10.97.50.61)   |
+| Forgejo Actions (saint-arkh) | Deployed — will be repurposed to Woodpecker server | erebonia, APP (10.97.50.61)   |
 | step-ca (basel)              | Deployed                              | calvard, INFRA (10.97.11.7)   |
 | Monitoring (tharbad)         | Deployed                              | calvard, MGMT (10.97.20.41)   |
 | deploy-rs                    | thebeyond only                        | flake.nix                     |
@@ -109,8 +116,10 @@ touching anything else. thebeyond also gets a NATS microVM at that point
 ## Phase 1: Woodpecker CI on erebonia
 
 **Goal:** Replace Forgejo Actions with Woodpecker CI. saint-arkh becomes the
-Woodpecker server microVM. Woodpecker agents run on erebonia bare metal with
-containerd+Kata.
+Woodpecker server microVM. Woodpecker runners use the **Kubernetes backend**:
+per-step pods run on erebonia's k3s cluster with RuntimeClass/PSS/NetworkPolicy
+hardening. This supersedes the older bare-metal Woodpecker-agent +
+standalone-containerd/Kata design.
 
 **Prerequisites:** None — builds on existing infrastructure.
 
@@ -150,23 +159,35 @@ database (SQLite).
 current Woodpecker version or abandoned, a replacement config service is
 ~200-300 lines and bounded.
 
-### 1.3 Install containerd + Kata on erebonia
+### 1.3 Configure Woodpecker Kubernetes backend on erebonia
 
-erebonia already has k3s/KubeVirt and nested KVM enabled. Verify whether the
-existing container runtime can serve Woodpecker agents cleanly, or deploy a
-second containerd instance scoped to CI workloads.
+erebonia already has k3s/KubeVirt and nested KVM enabled. Build execution should
+use Woodpecker's Kubernetes backend rather than a host-level Woodpecker agent:
 
-- Configure Kata Containers as a runtime within containerd
-- Verify nested KVM works for Kata (erebonia already has `nested=1`)
+- Configure `WOODPECKER_BACKEND=kubernetes` on the saint-arkh Woodpecker server.
+- Create the build namespace, service account/RBAC, and backend configuration
+  through the Flux-managed dynamic layer once the Flux `GitRepository` +
+  `Kustomization` path is wired.
+- Use the k3s runtime tiers already present on erebonia: gVisor (`runsc`) for
+  ordinary untrusted build steps; opt-in stronger runtimes only where the
+  workload has been validated.
+- Keep `/dev/kvm` / nested NixOS VM tests as a separately validated build class.
+  Do not assume every build pod should get KVM access.
+- Keep an operator/out-of-cluster repair path so a broken k3s cluster is not the
+  only way to produce its own fix.
 
-### 1.4 Deploy Woodpecker agent on erebonia bare metal
+### 1.4 Define build pod hardening
 
-The agent runs directly on erebonia (not in a microVM), using the Docker
-backend against containerd with Kata.
+The build namespace is the untrusted-code boundary. It should use the security
+stack from `llm-notes/wip/k3s-cluster-workloads-plan.md` Phase 4:
 
-- `systemd.services.woodpecker-agent.restartIfChanged = false` — prevents
-  the agent being restarted mid-build during a NixOS rebuild
-- Agent secret (for server communication) managed via sops-nix on erebonia
+- PSS Restricted where compatible with the required build jobs.
+- RuntimeClass defaulting to gVisor (`runsc`) for ordinary steps.
+- NetworkPolicy default-deny with explicit egress to Forgejo/creil, Attic/zeiss,
+  DNS, and any required public fetch paths.
+- Kyverno policies for resource limits and admission guardrails.
+- Secrets scoped to the build namespace and service account, not host-level
+  agent secrets on erebonia.
 
 ### 1.5 Create Forgejo OAuth2 application for Woodpecker
 
@@ -195,19 +216,23 @@ service generates pipelines dynamically.
 
 ### 1.7 Verify KVM access for VM integration tests
 
-NixOS VM tests (`testers.nixosTest`) need `/dev/kvm`. Kata already uses KVM
-on erebonia, so nested KVM is proven. Verify that Woodpecker build jobs in
-Kata containers can access `/dev/kvm` for NixOS VM tests.
+NixOS VM tests (`testers.nixosTest`) need `/dev/kvm`. erebonia already has
+`nested=1`, but the Kubernetes backend still needs a deliberate KVM-capable
+build class if VM tests run inside cluster pods.
 
-If KVM passthrough into Kata VMs doesn't work for nested nixosTest VMs,
-fall back to running VM tests outside Kata (on the host agent directly) and
-only use Kata for the signing step.
+Options to validate before enabling broad VM-test CI:
+
+- a dedicated trusted build pod profile with `/dev/kvm` passed through;
+- running VM-heavy checks through an operator/out-of-cluster path while ordinary
+  checks run in k8s;
+- splitting pure/eval checks from VM integration checks so the k8s backend can
+  start useful work before KVM jobs are fully solved.
 
 ### 1.8 Resource tuning
 
-erebonia hosts saint-arkh (Woodpecker server), the Woodpecker agent, k3s/KubeVirt
-workloads, and Incus guests (trista). Evaluate whether erebonia has sufficient
-RAM for sequential `nix build` of check targets.
+erebonia hosts saint-arkh (Woodpecker server), k3s/KubeVirt workloads,
+Woodpecker build pods, and Incus guests (trista). Evaluate whether erebonia has
+sufficient RAM for sequential `nix build` of check targets.
 
 `run-checks.sh -j1` is the baseline. If erebonia can handle `-j2` or higher,
 document the safe parallelism level.
@@ -220,7 +245,7 @@ Saint-arkh (Woodpecker server) needs:
 - tharbad TCP 3100 (VictoriaLogs Loki-compatible log push — already configured)
 - Gateway UDP 53, TCP 53 (DNS — already configured)
 
-Erebonia (agent, bare metal) needs:
+Erebonia/k3s build pods need:
 
 - Gateway TCP 80/443 (nix substitution from cache.nixos.org, container pulls)
 - Already has management zone access for these
@@ -231,7 +256,7 @@ Erebonia (agent, bare metal) needs:
 | ---------------------------------------- | -------------------------- |
 | Remove Forgejo runner config             | saint-arkh modules         |
 | Add Woodpecker server config             | saint-arkh modules         |
-| Add Woodpecker agent + containerd + Kata | hosts/erebonia/default.nix |
+| Add Woodpecker Kubernetes backend RBAC/runtime policy | Flux-managed cluster manifests |
 | Forgejo OAuth2 app                       | creil (manual or via API)  |
 
 ---
@@ -261,18 +286,21 @@ Config: `hosts/liberl/microvm/guests/zeiss/attic.nix`
 ### 2.2 Create Attic cache and CI push token
 
 - Create a cache named `homelab` on zeiss
-- Generate a push token for the CI agent
-- Store the token as a sops secret on erebonia (not in Woodpecker's DB)
-- The agent's environment is populated from sops-nix-decrypted files
+- Generate a push token for CI build pods
+- Store the token as a sops-backed Kubernetes secret in the build namespace
+  (not in Woodpecker's DB)
+- The build pod environment is populated from that scoped secret
 
-### 2.3 Add erebonia → zeiss egress rule
+### 2.3 Add build namespace → zeiss egress rule
 
-The Woodpecker agent on erebonia needs to reach `attic.zeiss.internal`
+Woodpecker build pods on erebonia need to reach `attic.zeiss.internal`
 (HTTPS/443) to push build artifacts.
 
-erebonia is in management (VLAN 11), zeiss is in APP (VLAN 50, BT8-gateway
-owned). Add the specific management → APP path through the current
-BT8-gateway/thebeyond routing model, and an egress rule on erebonia.
+Plain k3s pods currently egress as erebonia's management address (VLAN 11)
+until the workload-network plan's flannel-egress redirect lands; zeiss is in APP
+(VLAN 50, BT8-gateway-owned). Add the specific management → APP path through
+the current BT8-gateway/thebeyond routing model as needed, plus a NetworkPolicy
+egress allow from the build namespace to zeiss.
 
 Also add `zeiss` to erebonia's `networking.extraHosts` if not already
 resolvable via DNS.
@@ -685,7 +713,7 @@ fleetTopology = {
   before other hosts attempt to pre-download closures from the cache.
 - **calvard second** — general VM host. Activates while Attic (liberl)
   is stable and 2 of 3 NATS nodes are still up.
-- **erebonia last** — hosts the Woodpecker agent and CI signing key. Lets
+- **erebonia last** — hosts k3s/KubeVirt, Woodpecker build pods, and CI signing material. Lets
   it finish publishing all deployment events before it reboots itself.
 - At each step, only 1 of 3 NATS nodes is potentially down, preserving
   Raft quorum.
@@ -711,10 +739,9 @@ After liberl is validated:
 - calvard (dependsOn: liberl)
 - erebonia (dependsOn: calvard)
 
-For erebonia specifically: the Woodpecker agent uses
-`restartIfChanged = false` to avoid being killed mid-build during activation.
-erebonia goes last so it can finish publishing all deployment events before
-its own activation potentially restarts services.
+For erebonia specifically: there is no host-level Woodpecker agent in the
+current hybrid design. erebonia still goes last because it hosts the k3s build
+substrate and can disrupt in-flight build pods during activation.
 
 ### 4.6 Verify source_ref patterns
 
@@ -980,14 +1007,15 @@ builds).
 | Component          | Count | Resources each        | Host(s)                      |
 | ------------------ | ----- | --------------------- | ---------------------------- |
 | Woodpecker server  | 1     | 2 vCPU, 1GB RAM, 25GB | saint-arkh (erebonia)        |
-| Woodpecker agent   | 1     | bare metal            | erebonia                     |
+| Woodpecker runners | n/a   | per-pipeline pods     | erebonia k3s                 |
 | NATS microVMs      | 3     | 1 vCPU, 128MB, 512MB  | liberl, erebonia, calvard |
 | Coordinator daemon | 3     | minimal (systemd svc) | liberl, calvard, erebonia |
 | Garage             | 1     | TBD                   | liberl                    |
 
-Total new RAM: ~1.4GB (1GB Woodpecker server + 384MB NATS nodes). The
-Woodpecker server replaces the Forgejo runner (which was 4GB), so net RAM
-on erebonia decreases.
+Total baseline new RAM: ~1.4GB (1GB Woodpecker server + 384MB NATS nodes), plus
+per-build pod resource requests while CI is active. The Woodpecker server
+replaces the Forgejo runner (which was 4GB), but build pods can temporarily
+consume more than the old standing runner depending on concurrency.
 
 ---
 
@@ -995,11 +1023,11 @@ on erebonia decreases.
 
 | Secret               | Managed by | Stored on  | Used by                         |
 | -------------------- | ---------- | ---------- | ------------------------------- |
-| CI signing key       | sops-nix   | erebonia   | Woodpecker agent                |
-| Attic push token     | sops-nix   | erebonia   | Woodpecker agent                |
-| NATS CI NKey         | sops-nix   | erebonia   | Woodpecker agent                |
+| CI signing key       | sops-nix / k8s secret | build namespace | Woodpecker build pods |
+| Attic push token     | sops-nix / k8s secret | build namespace | Woodpecker build pods |
+| NATS CI NKey         | sops-nix / k8s secret | build namespace | Woodpecker build pods |
 | NATS host NKeys (×3) | sops-nix   | per host   | Per-host coordinator            |
-| Woodpecker agent key | sops-nix   | erebonia   | Woodpecker agent                |
+| Woodpecker backend credentials | sops-nix / k8s secret | build namespace | Woodpecker Kubernetes backend |
 | Woodpecker OAuth2    | sops-nix   | saint-arkh | Woodpecker server               |
 | Attic public key     | git        | repo       | All hosts (trusted-public-keys) |
 | CI public key        | git        | repo       | All hosts (trusted-public-keys) |
@@ -1019,9 +1047,11 @@ All runtime secrets via sops-nix → tmpfs. Public keys committed to
    (pinpox) — if it's incompatible or abandoned, the replacement is bounded
    (~200-300 lines).
 
-3. **Kata + KVM passthrough for nixosTest.** Nested KVM works on erebonia
-   for Kata, but can a nixosTest VM run inside a Kata VM? If not, VM tests
-   run outside Kata (acceptable — only the signing step needs Kata isolation).
+3. **KVM-capable CI build class for nixosTest.** Nested KVM works on erebonia,
+   but the Kubernetes backend still needs a deliberately scoped build profile
+   for VM integration tests. Decide whether that is a trusted pod with `/dev/kvm`
+   passthrough, a separate out-of-cluster runner path, or a split where pure/eval
+   checks run in k8s first and VM checks follow later.
 
 4. **Garage sizing.** Need to estimate storage for Attic chunks on liberl's ZFS
    pool before deploying. VictoriaLogs remains local unless a future storage

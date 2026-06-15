@@ -1,5 +1,12 @@
 # Plan: Stable GUA Addresses via SLAAC Token
 
+> **Refresh note (2026-06-15).** The host-token table below was regenerated
+> from the current network registry. It now reflects the APP moves
+> (`creil`/`zeiss`/`oracion`/`saint-arkh`), the current `liberl` NAS placement,
+> and the VLAN 51 `cluster` dev slots. Older rows for decommissioned or renamed
+> hosts (`remiferia`, `ardent`, `monrain`, network gear no longer in the
+> registry) were removed.
+
 ## Context
 
 **Prerequisite:** `ipv6-static-ingress-slaac-egress.md` (ULA ingress/egress split)
@@ -25,16 +32,16 @@ the router forwards with the original GUA source.
 
 This means **every host on a PD-enabled VLAN gets working IPv6 internet access
 via GUA SLAAC** with no additional configuration beyond the ULA plan. VM hosts
-(remiferia, calvard, erebonia) that manage their own NixOS updates reach the
-WAN with rotating GUA privacy addresses — no NAT involved.
+(calvard, erebonia, liberl) that manage their own NixOS updates reach the WAN
+with rotating GUA privacy addresses — no NAT involved.
 
 ### What this plan adds
 
 The above gives every host a _rotating_ GUA for egress but no _stable_ GUA. This
 plan adds a stable, predictable GUA address to **every registered host** using
 systemd-networkd's SLAAC `Token` mechanism. The Token ensures each host gets
-`<delegated-prefix>::a0<hostHex>` — an offset host ID that avoids the scannable
-low range while remaining derivable from the network registry.
+`<delegated-prefix>::a0<hostHex2>` — an offset plus two-digit host ID that avoids
+the scannable low range while remaining derivable from the network registry.
 
 Benefits of applying this to all hosts (not just external-facing ones):
 
@@ -80,14 +87,15 @@ Reconnaissance in IPv6) documents that attackers prioritize scanning low address
 infrastructure. Scanning tools like `scan6` and `alive6` target this range by
 default.
 
-To avoid this, GUA Tokens use an offset: `::a0XX` where `XX` is the hex host ID
-from the registry. For example, remiferia (hostId=20, hex=0x14) gets Token
-`static:::a014` instead of `static:::14`. This moves all hosts out of the
+To avoid this, GUA Tokens use an offset: `::a0XX` where `XX` is the two-digit
+hex host ID from the registry. For example, liberl (hostId=20, hex=0x14) gets
+Token `static:::a014` instead of `static:::14`. This moves all hosts out of the
 commonly-scanned low range while keeping the scheme deterministic and derivable
 from the registry.
 
 The offset `a0` is arbitrary — any value that places hosts outside `::0-::ff`
-works. `a0` was chosen because:
+works. The host ID component is fixed to two hex digits (`01`, `0c`, `3d`) so
+the textual form is stable and readable. `a0` was chosen because:
 
 - Well outside the `::1-::ff` range scanners target
 - Well outside the `::1000-::1fff` DHCPv6 dynamic pool (if ever used)
@@ -154,8 +162,9 @@ ipv6 = "${ulaPrefix}:${vlanHex vlanId}::${hostHex hostId}";
 cidr6 = "${ulaPrefix}:${vlanHex vlanId}::${hostHex hostId}/64";
 
 # After:
-ipv6 = "${ulaPrefix}:${vlanHex vlanId}::a0${hostHex hostId}";
-cidr6 = "${ulaPrefix}:${vlanHex vlanId}::a0${hostHex hostId}/64";
+hostHex2 = hostId: lib.fixedWidthString 2 "0" (hostHex hostId);
+ipv6 = "${ulaPrefix}:${vlanHex vlanId}::a0${hostHex2 hostId}";
+cidr6 = "${ulaPrefix}:${vlanHex vlanId}::a0${hostHex2 hostId}/64";
 ```
 
 This propagates automatically to all DNS records, firewall rules, `/etc/hosts`,
@@ -203,32 +212,47 @@ they're the same. No duplicate/conflicting addresses.
 
 Full host list with Token values (derived from network registry with `a0` offset):
 
-| Host        | Zone       | hostId | hex | Token           | GUA suffix |
-| ----------- | ---------- | ------ | --- | --------------- | ---------- |
-| thebeyond   | management | 1      | 1   | `static:::a001` | `::a001`   |
-| phantasma   | management | 2      | 2   | `static:::a002` | `::a002`   |
-| tharbad     | management | 5      | 5   | `static:::a005` | `::a005`   |
-| messeldam   | management | 6      | 6   | `static:::a006` | `::a006`   |
-| basel       | management | 7      | 7   | `static:::a007` | `::a007`   |
-| remiferia   | management | 20     | 14  | `static:::a014` | `::a014`   |
-| calvard     | management | 30     | 1e  | `static:::a01e` | `::a01e`   |
-| erebonia    | management | 31     | 1f  | `static:::a01f` | `::a01f`   |
-| azoth       | trusted    | 50     | 32  | `static:::a032` | `::a032`   |
-| edith       | lab        | 42     | 2a  | `static:::a02a` | `::a02a`   |
-| glorious    | adu        | 20     | 14  | `static:::a014` | `::a014`   |
-| arseille    | network    | 12     | c   | `static:::a00c` | `::a00c`   |
-| merkabah    | network    | 20     | 14  | `static:::a014` | `::a014`   |
-| derfflinger | network    | 21     | 15  | `static:::a015` | `::a015`   |
-| pantagruel  | network    | 22     | 16  | `static:::a016` | `::a016`   |
-| bobcat      | network    | 23     | 17  | `static:::a017` | `::a017`   |
-| lusitania   | network    | 24     | 18  | `static:::a018` | `::a018`   |
-| ardent      | dmz        | 31     | 1f  | `static:::a01f` | `::a01f`   |
-| trista      | dmz        | 51     | 33  | `static:::a033` | `::a033`   |
-| langport    | dmz        | 41     | 29  | `static:::a029` | `::a029`   |
-| oracion     | dmz        | 52     | 34  | `static:::a034` | `::a034`   |
-| creil       | dmz        | 53     | 35  | `static:::a035` | `::a035`   |
-| monrain     | dmz        | 32     | 20  | `static:::a020` | `::a020`   |
-| saint-arkh  | dmz        | 61     | 3d  | `static:::a03d` | `::a03d`   |
+| Host       | Zone       | hostId | hex | Token           | GUA suffix |
+| ---------- | ---------- | ------ | --- | --------------- | ---------- |
+| arcus      | untrusted  | 10     | 0a  | `static:::a00a` | `::a00a`   |
+| arseille   | network    | 12     | 0c  | `static:::a00c` | `::a00c`   |
+| azoth      | trusted    | 50     | 32  | `static:::a032` | `::a032`   |
+| basel      | management | 7      | 07  | `static:::a007` | `::a007`   |
+| bose       | lab        | 43     | 2b  | `static:::a02b` | `::a02b`   |
+| bt8bridge  | network    | 4      | 04  | `static:::a004` | `::a004`   |
+| bt8gw      | transit    | 2      | 02  | `static:::a002` | `::a002`   |
+| calvard    | management | 30     | 1e  | `static:::a01e` | `::a01e`   |
+| creil      | app        | 53     | 35  | `static:::a035` | `::a035`   |
+| dev-1      | cluster    | 10     | 0a  | `static:::a00a` | `::a00a`   |
+| dev-10     | cluster    | 19     | 13  | `static:::a013` | `::a013`   |
+| dev-11     | cluster    | 20     | 14  | `static:::a014` | `::a014`   |
+| dev-12     | cluster    | 21     | 15  | `static:::a015` | `::a015`   |
+| dev-13     | cluster    | 22     | 16  | `static:::a016` | `::a016`   |
+| dev-14     | cluster    | 23     | 17  | `static:::a017` | `::a017`   |
+| dev-15     | cluster    | 24     | 18  | `static:::a018` | `::a018`   |
+| dev-16     | cluster    | 25     | 19  | `static:::a019` | `::a019`   |
+| dev-2      | cluster    | 11     | 0b  | `static:::a00b` | `::a00b`   |
+| dev-3      | cluster    | 12     | 0c  | `static:::a00c` | `::a00c`   |
+| dev-4      | cluster    | 13     | 0d  | `static:::a00d` | `::a00d`   |
+| dev-5      | cluster    | 14     | 0e  | `static:::a00e` | `::a00e`   |
+| dev-6      | cluster    | 15     | 0f  | `static:::a00f` | `::a00f`   |
+| dev-7      | cluster    | 16     | 10  | `static:::a010` | `::a010`   |
+| dev-8      | cluster    | 17     | 11  | `static:::a011` | `::a011`   |
+| dev-9      | cluster    | 18     | 12  | `static:::a012` | `::a012`   |
+| edith      | lab        | 42     | 2a  | `static:::a02a` | `::a02a`   |
+| erebonia   | management | 31     | 1f  | `static:::a01f` | `::a01f`   |
+| glorious   | adu        | 20     | 14  | `static:::a014` | `::a014`   |
+| langport   | dmz        | 41     | 29  | `static:::a029` | `::a029`   |
+| liberl     | management | 20     | 14  | `static:::a014` | `::a014`   |
+| messeldam  | management | 6      | 06  | `static:::a006` | `::a006`   |
+| oracion    | app        | 52     | 34  | `static:::a034` | `::a034`   |
+| phantasma  | network    | 10     | 0a  | `static:::a00a` | `::a00a`   |
+| ravennue   | lab        | 44     | 2c  | `static:::a02c` | `::a02c`   |
+| saint-arkh | app        | 61     | 3d  | `static:::a03d` | `::a03d`   |
+| tharbad    | management | 5      | 05  | `static:::a005` | `::a005`   |
+| thebeyond  | network    | 1      | 01  | `static:::a001` | `::a001`   |
+| trista     | dmz        | 51     | 33  | `static:::a033` | `::a033`   |
+| zeiss      | app        | 31     | 1f  | `static:::a01f` | `::a01f`   |
 
 Note: Token values are unique within each VLAN (same guarantee as the network
 registry's host IDs). Hosts on different VLANs can have the same Token since

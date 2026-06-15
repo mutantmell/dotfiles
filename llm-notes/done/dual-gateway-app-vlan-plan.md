@@ -3,7 +3,7 @@
 **Status:** **COMPLETE** (2026-05-31). Phases 0a / 0b / 1 / 2 / 3 / 5.A shipped.
 Phases 5.B / 5.C / 5.D, the 5.E–J DMZ renumber, Phase 4 / 4.5 image-builder
 codification, and the outstanding open-items list have moved to
-[`llm-notes/plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md).
+[`llm-notes/wip/dual-gateway-followups-plan.md`](../wip/dual-gateway-followups-plan.md).
 The dual-gateway topology is operational; this plan stays in `done/` as the
 historical record of how it landed. Living state for BT8-gateway is in
 [`../guides/bt8-gateway-as-built.md`](../guides/bt8-gateway-as-built.md)

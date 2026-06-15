@@ -50,23 +50,10 @@ in {
       matchConfig.Type = "ether";
       linkConfig.Name = "uplink";
     };
-    netdevs."20-br11" = {
-      netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br11";
-    };
-    netdevs."20-br21" = {
-      netdevConfig.Kind = "bridge";
-      netdevConfig.Name = "br21";
-    };
     netdevs."20-uplink.11" = {
       netdevConfig.Kind = "vlan";
       netdevConfig.Name = "uplink.11";
       vlanConfig.Id = 11;
-    };
-    netdevs."20-uplink.21" = {
-      netdevConfig.Kind = "vlan";
-      netdevConfig.Name = "uplink.21";
-      vlanConfig.Id = 21;
     };
     netdevs."20-uplink.50" = {
       netdevConfig.Kind = "vlan";
@@ -89,21 +76,16 @@ in {
       networkConfig.LinkLocalAddressing = "no";
       vlan = [
         "uplink.11"
-        "uplink.21"
         "uplink.50"
         "uplink.51"
         "uplink.100"
       ];
     };
-    networks."20-vm11-bridge" = {
-      matchConfig.Name = ["uplink.11" "vm-11-*"];
-      networkConfig.Bridge = "br11";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
-    };
-    networks."20-br11" = {
-      matchConfig.Name = "br11";
+    # VLAN 11 is the host's management network. Keep the management IP directly
+    # on the VLAN subinterface; guests should use separate macvtap/macvlan
+    # children, not a shared Linux bridge.
+    networks."20-uplink.11" = {
+      matchConfig.Name = "uplink.11";
       networkConfig.DHCP = "no";
       networkConfig.IPv6AcceptRA = true;
       networkConfig.IPv6PrivacyExtensions = "yes";
@@ -116,9 +98,9 @@ in {
         {Gateway = zone.gateway6;}
       ];
     };
-    networks."20-vm21-bridge" = {
-      matchConfig.Name = ["uplink.21" "vm-21-*"];
-      networkConfig.Bridge = "br21";
+    # Future VLAN 11 guests: host-IP-less macvtap/macvlan children.
+    networks."20-vm11-macvtap" = {
+      matchConfig.Name = "vm-11-*";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
       networkConfig.IPv6PrivacyExtensions = "kernel";
@@ -154,12 +136,6 @@ in {
       matchConfig.Name = "vm-100-*";
       networkConfig.DHCP = "no";
       networkConfig.LinkLocalAddressing = "no";
-    };
-    networks."20-br21" = {
-      matchConfig.Name = "br21";
-      networkConfig.DHCP = "no";
-      networkConfig.LinkLocalAddressing = "no";
-      networkConfig.IPv6PrivacyExtensions = "kernel";
     };
   };
   services.resolved.enable = true;

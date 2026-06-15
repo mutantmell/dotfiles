@@ -2,7 +2,7 @@
 
 Snapshot of BT8-gateway's deployed state, kept here as the operator
 reference until Phase 4 codifies the same shape into the image-builder
-pipeline (see [`plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
+pipeline (see [`wip/dual-gateway-followups-plan.md`](../wip/dual-gateway-followups-plan.md)
 §B.1). Updated in place whenever live UCI diverges from what's recorded.
 
 Source dumps live in `temp/`:
@@ -14,7 +14,7 @@ Source dumps live in `temp/`:
 - `temp/BT8-gw-section-a-additions.uci` — fw4 additions for the remaining
   Phase 5 service migrations (creil, zeiss, saint-arkh DMZ→APP). Apply
   after the Nix-side re-IPs deploy. Companion to
-  [`plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
+  [`wip/dual-gateway-followups-plan.md`](../wip/dual-gateway-followups-plan.md)
   Section A.
 - `temp/BT8-gw-cluster-vlan51-additions.uci` — L2/L3 + fw4 additions for the
   cluster VLAN 51 bring-up (dev-machine isolation). **Applied + proven 2026-06-10**
@@ -194,7 +194,7 @@ forwarding."
 ## Section A additions — creil / zeiss / saint-arkh moved DMZ → APP
 
 UCI source: `temp/BT8-gw-section-a-additions.uci`. Companion to
-[`plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
+[`wip/dual-gateway-followups-plan.md`](../wip/dual-gateway-followups-plan.md)
 Section A.
 
 Three new zone-pair forwarding directives + per-flow accept rules:
@@ -280,7 +280,7 @@ mechanism (plain §2 per-rule accepts vs the §2b nft config-include with explic
 drop) and the exact UCI delta. Rather than take another manual `uci show
 firewall` / `nft list ruleset` snapshot into this note — this hand-maintained
 as-built has been a recurring source of confusion — that detail is **deferred to
-[`plans/dual-gateway-followups-plan.md`](../plans/dual-gateway-followups-plan.md)
+[`wip/dual-gateway-followups-plan.md`](../wip/dual-gateway-followups-plan.md)
 §B.1** (codify BT8-gateway in the Image Builder). When the bt8gw config becomes
 flake-managed, the cluster zone + egress rules are in-repo and snapshot-tested,
 so the enforcing mechanism is the source itself and the residual dissolves. No
