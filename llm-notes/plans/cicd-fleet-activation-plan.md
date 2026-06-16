@@ -15,6 +15,14 @@ Replaces: `llm-notes/plans/ci-cd-plan.md`
 > `saint-arkh` stays as the Woodpecker server microVM, but build execution moves
 > to Woodpecker's Kubernetes backend on erebonia's k3s cluster. The older
 > bare-metal Woodpecker-agent + standalone containerd/Kata path is superseded.
+>
+> **Reconciliation note (2026-06-16).** Keeping the Woodpecker control plane in
+> a microVM is a deliberate dependency-boundary choice, not leftover pre-k3s
+> inertia. `saint-arkh` provides the stable CI identity, webhook receiver, UI,
+> SQLite state, and external config service outside the cluster; k3s provides
+> disposable, policy-constrained build execution through the Kubernetes backend.
+> If k3s/Flux is degraded, the CI control plane and job history remain reachable
+> for diagnosis and repair, even though normal build pods may be unavailable.
 
 ## Overview
 
@@ -116,7 +124,7 @@ touching anything else. thebeyond also gets a NATS microVM at that point
 ## Phase 1: Woodpecker CI on erebonia
 
 **Goal:** Replace Forgejo Actions with Woodpecker CI. saint-arkh becomes the
-Woodpecker server microVM. Woodpecker runners use the **Kubernetes backend**:
+Woodpecker server microVM. Woodpecker build execution uses the **Kubernetes backend**:
 per-step pods run on erebonia's k3s cluster with RuntimeClass/PSS/NetworkPolicy
 hardening. This supersedes the older bare-metal Woodpecker-agent +
 standalone-containerd/Kata design.
@@ -137,8 +145,10 @@ directly from the primary.
 
 ### 1.2 Repurpose saint-arkh as Woodpecker server
 
-Replace the Forgejo Actions runner configuration in saint-arkh with Woodpecker
-server + the External Configuration Service (config service).
+Replace the Forgejo Actions runner configuration in saint-arkh with the
+Woodpecker server + the External Configuration Service (config service). Do
+not run a standing Woodpecker agent in the microVM; `saint-arkh` is the stable
+control plane and identity, while k3s runs the per-step build pods.
 
 Current config: `hosts/erebonia/microvm/guests/saint-arkh/`
 
@@ -150,10 +160,54 @@ Current config: `hosts/erebonia/microvm/guests/saint-arkh/`
 - Config service generates pipelines from flake outputs — the flake is the
   single source of truth for both system configuration and CI pipeline definition
 
-Resource changes: saint-arkh currently has 4 vCPU / 4GB RAM / 25GB persist.
-The Woodpecker server is lighter than the runner — can likely reduce to
-2 vCPU / 1GB RAM. The 25GB persist volume is retained for Woodpecker's
-database (SQLite).
+### 1.2a Why the Woodpecker server stays outside k3s
+
+Running the Woodpecker server itself as a Flux-managed workload would integrate
+well with Kubernetes RBAC, NetworkPolicy, Services, and the same GitOps
+ownership model used by other dynamic workloads. That path is still viable if
+the CI control plane later needs to become just another cluster service.
+
+For the initial fleet CI system, the microVM boundary is a better dependency
+shape:
+
+- **Stable identity and state.** `saint-arkh` keeps a normal host identity,
+  SSH access, logs, metrics, persistent SQLite state, and a durable webhook
+  endpoint independent of in-cluster ingress and PVC readiness.
+- **Repair path.** A broken k3s/Flux layer can stop new build pods, but it does
+  not also remove the CI UI, job metadata, webhook receiver, or config service.
+  The operator can inspect CI state and repair the cluster from outside it.
+- **Clear trust split.** The server/config service is trusted coordination
+  state. Build steps are untrusted execution and belong in the constrained
+  `woodpecker-builds` namespace with RuntimeClass/PSS/NetworkPolicy/Kyverno.
+- **No CSI prerequisite.** The server's SQLite database can remain on the
+  microVM persist volume. Putting it in k3s would force PVC/CSI/storage
+  decisions before the CI control plane can exist.
+
+The tradeoff is that `saint-arkh` remains one small NixOS guest to deploy and
+monitor. That is acceptable because the runner workload moves out of the guest;
+the microVM is control-plane-only.
+
+### 1.2b MicroVM sizing
+
+Current repo state has `saint-arkh` at **1 vCPU / 512 MB RAM / 25 GB persist**
+while it runs the Forgejo Actions runner. The historical 4 vCPU / 4 GB note was
+runner-era capacity planning and no longer applies once builds move to k3s.
+
+Recommended initial Woodpecker-server size:
+
+- **1 vCPU** — enough for the Go web service, webhook handling, SQLite, and the
+  small external config service. Build CPU is consumed by k3s pods, not this VM.
+- **1 GB RAM** — a conservative bump from the current 512 MB to leave headroom
+  for NixOS baseline services, Woodpecker, config generation, journald, metrics,
+  and short UI/API bursts. Start here rather than 2 GB; increase only if real
+  RSS/oomd pressure appears.
+- **25 GB persist** — retain the existing volume. SQLite, logs, and config
+  service state are small, but keeping the current disk avoids migration churn
+  and leaves enough history headroom.
+
+Do not size `saint-arkh` for Nix builds, container pulls, or VM tests. Those
+belong to the Kubernetes backend's pod resource requests/limits and any later
+trusted KVM-capable build class.
 
 **Evaluate `woodpecker-flake-pipeliner` (pinpox):** If incompatible with
 current Woodpecker version or abandoned, a replacement config service is
@@ -268,7 +322,9 @@ Options to validate before enabling broad VM-test CI:
 
 erebonia hosts saint-arkh (Woodpecker server), k3s/KubeVirt workloads,
 Woodpecker build pods, and Incus guests (trista). Evaluate whether erebonia has
-sufficient RAM for sequential `nix build` of check targets.
+sufficient RAM for sequential `nix build` of check targets in Kubernetes pods.
+Do not infer this from the `saint-arkh` microVM size; the microVM is
+control-plane-only.
 
 `run-checks.sh -j1` is the baseline. If erebonia can handle `-j2` or higher,
 document the safe parallelism level.
@@ -351,7 +407,8 @@ attic push homelab ./result
 ```
 
 The `woodpecker-plugin-nix-attic` plugin handles the Attic push. The CI
-signing key is a sops secret on erebonia, injected into the agent environment.
+signing key is a scoped Kubernetes Secret in the `woodpecker-builds` namespace,
+mounted or injected only into build pods that need to sign closures.
 
 Push the **complete closure** — use `nix path-info --recursive` to enumerate
 all paths.
@@ -1042,7 +1099,7 @@ builds).
 
 | Component          | Count | Resources each        | Host(s)                      |
 | ------------------ | ----- | --------------------- | ---------------------------- |
-| Woodpecker server  | 1     | 2 vCPU, 1GB RAM, 25GB | saint-arkh (erebonia)        |
+| Woodpecker server  | 1     | 1 vCPU, 1GB RAM, 25GB | saint-arkh (erebonia)        |
 | Woodpecker runners | n/a   | per-pipeline pods     | erebonia k3s                 |
 | NATS microVMs      | 3     | 1 vCPU, 128MB, 512MB  | liberl, erebonia, calvard |
 | Coordinator daemon | 3     | minimal (systemd svc) | liberl, calvard, erebonia |
@@ -1050,8 +1107,9 @@ builds).
 
 Total baseline new RAM: ~1.4GB (1GB Woodpecker server + 384MB NATS nodes), plus
 per-build pod resource requests while CI is active. The Woodpecker server
-replaces the Forgejo runner (which was 4GB), but build pods can temporarily
-consume more than the old standing runner depending on concurrency.
+replaces a standing Forgejo runner role with a control-plane-only service; build
+pods can temporarily consume more than the old standing runner depending on
+concurrency.
 
 ---
 

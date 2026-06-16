@@ -4,13 +4,14 @@
 re-ground the concrete dynamic-manifest path in
 `llm-notes/wip/k3s-cluster-workloads-plan.md` before implementation.
 
-> **Implementation note (2026-06-15).** The concrete CI runner topology is now
-> refined in `llm-notes/plans/cicd-fleet-activation-plan.md`: Woodpecker remains
-> the CI system, with `saint-arkh` as the server microVM and build execution via
-> the Kubernetes backend on erebonia. The older host-level Woodpecker-agent /
-> containerd/Kata wording below is historical where it conflicts with that plan.
-> The same refresh added the PR-aware agent feedback surface described in
-> Section 5.1.
+> **Implementation note (2026-06-16).** The concrete CI topology is the hybrid
+> described in `llm-notes/plans/cicd-fleet-activation-plan.md`: `saint-arkh`
+> remains a control-plane-only Woodpecker server microVM, while build execution
+> happens through Woodpecker's Kubernetes backend on erebonia k3s. The server
+> microVM is deliberate: it keeps CI identity, webhooks, UI, config service, and
+> SQLite state reachable when k3s/Flux is degraded. Host-level Woodpecker agents,
+> standalone containerd/Kata runners, and host-agent secret injection are no
+> longer part of the target design.
 
 ## Overview
 
@@ -23,7 +24,7 @@ The system has two halves that are inseparable in practice:
 
 Neither half works without the other. This document specifies both as a single system.
 
-The event bus is NATS with JetStream, deployed as a three-node Raft cluster across the homelab's three infrastructure hosts: the NAS (which also hosts Attic), the 2021 NUC (the build server, which runs CI and holds the CI signing key), and the 2023 NUC. Attic and the CI signing key being on separate machines means the dual-signature isolation property holds by natural infrastructure layout rather than requiring deliberate separation.
+The event bus is NATS with JetStream, deployed as a three-node Raft cluster across the homelab's three infrastructure hosts: the NAS (which also hosts Attic), erebonia (the k3s/KubeVirt host that schedules CI build pods), and calvard. Attic and the CI signing key being on separate machines means the dual-signature isolation property holds by natural infrastructure layout rather than requiring deliberate separation.
 
 ---
 
@@ -62,7 +63,7 @@ Once this infrastructure exists for the router case, all other hosts in the home
 
 **Network-safe activation.** The full system closure is downloaded and verified before activation begins. For hosts that are network infrastructure, this ensures that the network path to the binary cache is not severed mid-download during activation.
 
-**Secrets model.** Runtime secrets (NKey credentials, NATS TLS private keys, Attic tokens, Woodpecker agent tokens) are managed with sops-nix and decrypted into tmpfs at activation time — they never touch the Nix store. Secrets that need to be accessible outside of a NixOS activation context (operator credentials, backup keys, things needed from a live disk) use passage. The boundary is: sops-nix for service secrets, passage for operator secrets.
+**Secrets model.** Runtime secrets (NKey credentials, NATS TLS private keys, Attic tokens, Woodpecker OAuth/backend credentials, Kubernetes build-namespace secrets) are managed with sops-nix and decrypted into tmpfs at activation or materialized into scoped Kubernetes Secrets through the cluster desired-state path — they never touch the Nix store. Secrets that need to be accessible outside of a NixOS activation context (operator credentials, backup keys, things needed from a live disk) use passage. The boundary is: sops-nix for service secrets, passage for operator secrets.
 
 **Cryptographically enforced build trust.** A malicious deployment requires simultaneously compromising both the CI pipeline and the binary cache server — two independent systems with separate credentials and attack surfaces. A compromised NATS cluster can cause spurious or delayed deployments but cannot cause a host to run attacker-controlled code. A compromised Attic server alone cannot inject malicious builds because it cannot forge the CI signature. A compromised CI pipeline alone cannot inject malicious builds because it cannot forge the Attic signature. Trust is enforced by Nix's store signing model with dual-signature verification: every store path must carry valid signatures from both the CI signing key and the Attic signing key before activation proceeds.
 
@@ -133,7 +134,7 @@ What a central coordinator would add: consensus-based fleet-wide rollback, healt
 
 **Forgejo Actions** — Built-in to Forgejo, GitHub Actions-compatible YAML syntax, good community library of actions. No native Attic integration (requires manual CLI steps). Runner isolation requires either configuring Docker's default runtime globally to Kata or wrapping the runner in a microVM. Simpler operational model than Woodpecker at the cost of the features below.
 
-**Woodpecker CI** — Chosen. Separate CI service with native Forgejo integration. Has a dedicated Attic plugin (`woodpecker-plugin-nix-attic`). A Woodpecker External Configuration Service generates pipelines dynamically from flake outputs — directly valuable given the large number of build targets. The `woodpecker-flake-pipeliner` project by pinpox is the candidate implementation to evaluate; if unavailable, a replacement is small and bounded. Docker backend with containerd (already running on the build server) supports Kata Containers as a configurable runtime without Kubernetes overhead. In nixpkgs with NixOS modules. Used in production at Codeberg.
+**Woodpecker CI** — Chosen. Separate CI service with native Forgejo integration. Has a dedicated Attic plugin (`woodpecker-plugin-nix-attic`). A Woodpecker External Configuration Service generates pipelines dynamically from flake outputs — directly valuable given the large number of build targets. The `woodpecker-flake-pipeliner` project by pinpox is the candidate implementation to evaluate; if unavailable, a replacement is small and bounded. With the current k3s direction, Woodpecker uses the Kubernetes backend on erebonia instead of host-level Docker/containerd agents. This lets build pods use the cluster's existing RuntimeClass, PSS, NetworkPolicy, and Kyverno controls. In nixpkgs with NixOS modules. Used in production at Codeberg.
 
 **buildbot-nix** — Deepest Nix-native evaluation (parallel flake evaluation via `nix-eval-jobs`, automatic `.#checks` discovery). No native Attic integration. Systemd watcher approach for cache population. Stronger evaluation awareness than Woodpecker but weaker plugin ecosystem. Good reference for Nix-CI patterns.
 
@@ -149,21 +150,22 @@ What a central coordinator would add: consensus-based fleet-wide rollback, healt
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ Woodpecker CI (microVM on 2021 NUC)                          │
-│ CI signing key lives on 2021 NUC host                        │
+│ Woodpecker CI (saint-arkh microVM on erebonia)                │
+│ server + config service; stable CI identity and state         │
 │                                                              │
 │  1. evaluate flake (config service → pipeline from outputs)  │
-│  2. nix build .#nixosConfigurations.<host>.system            │
-│     (in Kata container via containerd on 2021 NUC)           │
-│  3. nix store sign --key-file $CI_KEY --recursive            │
-│  4. attic push <cache> <closure>  (Attic on NAS)             │
-│  5. nats pub builds.nixos.<configuration> { facts }          │
+│  2. submit per-step pods through Kubernetes backend           │
+│     (woodpecker-builds namespace on erebonia k3s)             │
+│  3. build pod: nix build .#nixosConfigurations.<host>.system │
+│  4. build pod: nix store sign --key-file $CI_KEY --recursive │
+│  5. build pod: attic push <cache> <closure>  (Attic on NAS)  │
+│  6. publish builds.nixos.<configuration> { facts }           │
 └────────────────────────────┬─────────────────────────────────┘
                              │ TLS
                              ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ NATS JetStream Cluster (3-node Raft)                         │
-│ One microVM per host: NAS, 2021 NUC, 2023 NUC               │
+│ One microVM per host: NAS, erebonia, calvard                  │
 │ Routes events only — isolated from signing keys              │
 └──────┬──────────────────────────────┬────────────────────────┘
        │ TLS (outbound from host)     │ TLS (outbound from host)
@@ -212,17 +214,17 @@ A compromised Attic server holds the Attic signing key but cannot forge the CI s
 
 **The condition for this property to hold:**
 
-CI and Attic must run on separate machines. In this homelab: Attic and its signing key run on the NAS; CI and the CI signing key run on the 2021 NUC. These are separate physical machines. The NATS microVMs on each host are isolated from the host trust boundary and cannot access either signing key.
+CI execution and Attic must run on separate machines. In this homelab: Attic and its signing key run on the NAS; CI build pods and the CI signing key run on erebonia's k3s cluster. These are separate physical machines. The Woodpecker server microVM coordinates builds but does not need the build signing key; the NATS microVMs on each host are isolated from the host trust boundary and cannot access either signing key.
 
 **High-value targets:**
 
-The 2021 NUC holds the CI signing key. The NAS holds the Attic signing key. Each alone is insufficient for a malicious deployment. Woodpecker build jobs run inside Kata Containers on the 2021 NUC — the Kata VM boundary protects the CI signing key from a compromised build job.
+The erebonia build namespace holds the CI signing key as a scoped Kubernetes Secret for build pods. The NAS holds the Attic signing key. Each alone is insufficient for a malicious deployment. Ordinary Woodpecker build jobs run as Kubernetes pods using the `runsc` RuntimeClass plus PSS Restricted, NetworkPolicy, and Kyverno admission controls. VM-test or `/dev/kvm` jobs require a separate trusted build class or out-of-cluster path and must not inherit the ordinary untrusted-build assumptions.
 
 **Summary of trust tiers:**
 
 | Component                 | Trust level                  | Compromise impact                  |
 | ------------------------- | ---------------------------- | ---------------------------------- |
-| CI signing key (2021 NUC) | Trusted — insufficient alone | Partial: CI-only paths rejected    |
+| CI signing key (erebonia build namespace) | Trusted — insufficient alone | Partial: CI-only paths rejected    |
 | Attic signing key (NAS)   | Trusted — insufficient alone | Partial: Attic-only paths rejected |
 | Both keys simultaneously  | Full trust boundary          | Fleet compromise                   |
 | NATS cluster              | Untrusted                    | Deployment disruption only         |
@@ -232,13 +234,19 @@ The 2021 NUC holds the CI signing key. The NAS holds the Attic signing key. Each
 
 ## 5. Component Specifications
 
-### 5.1 Woodpecker CI Server and Agents
+### 5.1 Woodpecker CI Server and Kubernetes Backend
 
 **Responsibility:** Build NixOS closures, sign them, push them to Attic, publish build events to NATS, orchestrate results-gated sequential deployment.
 
 **Deployment:**
 
-Woodpecker server and the config service run together in a single cloud-hypervisor microVM on the 2021 NUC. Woodpecker agents run directly on the 2021 NUC host (not in a microVM), using the Docker backend against the containerd instance already running on the host. Kata Containers is configured as the container runtime within containerd, making Kata available for build jobs that require it — specifically the signing step.
+Woodpecker server and the config service run together in a single cloud-hypervisor microVM on erebonia (`saint-arkh`). This microVM is control-plane-only: it receives Forgejo webhooks, hosts the UI/API, stores Woodpecker's SQLite state, and runs the localhost-only external config service.
+
+Build execution uses Woodpecker's Kubernetes backend. Each pipeline step becomes a pod in the `woodpecker-builds` namespace on erebonia's k3s cluster. There is no standing host-level `woodpecker-agent` and no standalone Docker/containerd runner path in the target design.
+
+Keeping the server outside k3s is intentional. If k3s, Flux, or cluster ingress is degraded, the CI control plane, job history, webhook receiver, and config service remain available for diagnosis and repair. Running the server as a Flux-managed workload can be revisited later, but it would make the CI control plane depend on the same cluster layer it is meant to test and eventually help repair.
+
+The build namespace carries the untrusted-code boundary: PSS Restricted where compatible, default `runsc` RuntimeClass, NetworkPolicy default-deny with explicit egress, Kyverno admission policies, and scoped Kubernetes Secrets for CI credentials. KVM-capable NixOS VM tests are a separate build class decision, not part of the default untrusted pod profile.
 
 Forgejo is the git forge only — it stores code, triggers Woodpecker webhooks on push/PR/merge, and hosts the container registry. Forgejo's built-in Actions runner infrastructure is not used. Woodpecker connects to Forgejo via an OAuth2 application for authentication and webhook events, and runs its own agents entirely independently.
 
@@ -330,9 +338,15 @@ deploy phase (sequential, results-gated, order from common module):
     → ...
 ```
 
-**NixOS rebuild safety:**
+**Build interruption model:**
 
-Woodpecker agents use `systemd.services.woodpecker-agent.restartIfChanged = false` to prevent the agent being restarted mid-build during a NixOS rebuild. The old binary continues running from its Nix store path. Active build jobs complete before the agent process is replaced on the next manual restart or system reboot. In-flight jobs are not checkpointed — a hard reboot loses them. The server marks them failed after a timeout and they can be re-triggered.
+Because build execution is in k3s pods, a restart of the `saint-arkh` server
+microVM should not be treated like a host-agent binary replacement. In-flight
+pods may continue or fail depending on Woodpecker's Kubernetes backend behavior
+and server availability; a hard restart of erebonia/k3s loses running build
+pods. The operational rule is simpler than the old host-agent model: CI jobs are
+retriable, and Phase 1 should keep the initial pipeline idempotent with compact
+failure summaries so failed jobs can be restarted cleanly.
 
 **Attic integration:**
 
@@ -340,25 +354,17 @@ The `woodpecker-plugin-nix-attic` plugin handles pushing build results to Attic.
 
 **Secrets management for CI:**
 
-All CI secrets — the CI signing key, the Attic push token, and the NATS NKey credential — are managed via sops-nix on the 2021 NUC host and decrypted into tmpfs at activation time. They are never stored in Woodpecker's database-backed secrets store, which is a lower security tier (encrypted in the database, accessible to any Woodpecker admin). Woodpecker pipeline steps access secrets via environment variables injected from the agent's environment, which is populated from sops-nix-decrypted files on the host.
+Woodpecker OAuth2 credentials and any server/backend credentials live on
+`saint-arkh` as sops-nix secrets. Build credentials — the CI signing key, Attic
+push token, and NATS CI NKey — are scoped to the `woodpecker-builds` namespace as
+Kubernetes Secrets generated from the repo's secret-management path. They are
+mounted or injected only into build pods that need them.
 
-This means secrets are provisioned at the host level, not at the Woodpecker level. A Woodpecker admin cannot exfiltrate the CI signing key through the Woodpecker UI. The key exists only in the agent process's environment during a build, sourced from a tmpfs path that sops-nix owns.
-
-```nix
-# On the 2021 NUC host — secrets decrypted by sops-nix into tmpfs
-sops.secrets = {
-  ci-signing-key = { owner = "woodpecker-agent"; };
-  attic-token     = { owner = "woodpecker-agent"; };
-  nats-ci-nkey    = { owner = "woodpecker-agent"; };
-};
-
-# Agent service reads secrets from tmpfs paths, not from Woodpecker DB
-systemd.services.woodpecker-agent.environment = {
-  WOODPECKER_AGENT_SECRET_FILE = config.sops.secrets.woodpecker-agent-secret.path;
-};
-# CI signing key and Attic token are passed to build jobs via
-# agent environment variables sourced from sops-decrypted paths
-```
+Do not store build credentials in Woodpecker's database-backed secrets store,
+and do not grant them to the Woodpecker server process unless the server itself
+needs them. A Woodpecker admin should not be able to exfiltrate the CI signing
+key through the UI; the key should be visible only to the specific build pod
+service account and only for the duration/scope required by the pipeline.
 
 **Attic garbage collection:**
 
@@ -387,7 +393,9 @@ Forgejo's PR ref format should be verified against a real PR before the coordina
 **Notes:**
 
 - CI must push the **complete closure** to Attic. Use `nix path-info --recursive` to enumerate all paths.
-- All CI secrets (signing key, Attic token, NATS NKey) are managed via sops-nix on the 2021 NUC, not via Woodpecker's secrets store — see secrets management above.
+- Build CI secrets (signing key, Attic token, NATS NKey) are scoped Kubernetes
+  Secrets in the build namespace, not Woodpecker database secrets — see secrets
+  management above.
 - If NATS is unavailable when CI tries to publish, CI fails the pipeline and alerts. A build that cannot announce itself is not a successful deployment.
 
 ---
@@ -401,8 +409,10 @@ Forgejo's PR ref format should be verified against a real PR before the coordina
 A three-node Raft cluster, with one NATS node running as a cloud-hypervisor microVM on each of the three homelab infrastructure hosts:
 
 - **NAS** — always-on storage host; Attic and its signing key run on the NAS host, isolated from the NATS microVM
-- **2021 NUC** — build server; Woodpecker and the CI signing key run on the host, isolated from the NATS microVM; build events are published to the local cluster node, minimising latency
-- **2023 NUC** — general infrastructure host
+- **erebonia** — k3s/KubeVirt host; schedules Woodpecker build pods; CI build
+  credentials are scoped to the build namespace; the NATS node is isolated in
+  its own microVM
+- **calvard** — general infrastructure host
 
 Each NATS microVM is allocated **1 vCPU, 128MB RAM, and 512MB disk**.
 
@@ -676,9 +686,9 @@ This spec describes the full problem space to verify that the architecture does 
 
 **What must exist before anything works:**
 
-1. **NATS JetStream cluster** — three microVM nodes (NAS, 2021 NUC, 2023 NUC), 1 vCPU / 128MB RAM / 512MB disk each, TLS with step-ca, NKey credentials, JetStream streams with `LastPerSubject` retention
+1. **NATS JetStream cluster** — three microVM nodes (NAS, erebonia, calvard), 1 vCPU / 128MB RAM / 512MB disk each, TLS with step-ca, NKey credentials, JetStream streams with `LastPerSubject` retention
 2. **Attic** — on the NAS, with CI signing and retention policy keeping last 3 builds per host
-3. **Woodpecker CI** — server + config service microVM on 2021 NUC, agents using containerd with Kata runtime
+3. **Woodpecker CI** — server + config service microVM on erebonia (`saint-arkh`), with build execution through the k3s Kubernetes backend
 4. **The coordinator daemon** — subscribe to `builds.nixos.<configuration>`, pre-download closure, verify dual signatures, `nixos-rebuild switch`, rollback on failure, connectivity check, publish to `activations.<hostname>`
 5. **The common module** — deployment topology map, at minimum just the router with no dependencies
 
@@ -707,7 +717,7 @@ Deploy it first on the router only. Validate that a merge to main causes the rou
 
 **Bootstrap is straightforward.** No important mutable state exists on any managed host beyond the ZFS pool. Machines can be rebuilt with nixos-anywhere or from a live disk at any time. The NATS cluster requires two nodes before quorum; bring up any two first, then the third joins automatically.
 
-**The 2021 NUC and NAS are high-value targets.** The 2021 NUC holds the CI signing key; the NAS holds the Attic signing key. Neither alone is sufficient for a malicious deployment. Kata Containers isolation protects the CI key from compromised build jobs.
+**erebonia and NAS are high-value targets.** erebonia's build namespace holds the CI signing key; the NAS holds the Attic signing key. Neither alone is sufficient for a malicious deployment. The default build profile uses gVisor (`runsc`), PSS Restricted, NetworkPolicy, and Kyverno to constrain compromised build jobs.
 
 **Concurrent events are discarded, not queued.** A deployment event arriving mid-activation is discarded. JetStream `LastPerSubject` retention and CI's ability to republish ensure no permanent loss.
 
@@ -721,12 +731,12 @@ Deploy it first on the router only. Validate that a merge to main causes the rou
 [Forgejo] push/merge/PR event
     │
     ▼
-[Woodpecker CI] (microVM on 2021 NUC)
+[Woodpecker CI] (saint-arkh microVM on erebonia)
   woodpecker config service generates pipeline from flake outputs
     │
     ├── build phase (parallel, all NixOS configurations)
+    │     per-step pod in woodpecker-builds namespace
     │     nix build .#nixosConfigurations.<host>.system
-    │     (in Kata container via containerd on 2021 NUC host)
     │     nix store sign --key-file $CI_KEY --recursive
     │     attic push homelab ./result
     │
@@ -829,19 +839,19 @@ Both paths originate from the same build phase in Woodpecker. The deploy phase r
 
 Forgejo is used as the git forge only — code storage, PR/merge events, container registry. Forgejo's built-in Actions runner infrastructure is not used. The comparison below covers the CI systems evaluated as the build execution layer.
 
-| Requirement               | Woodpecker CI                           | buildbot-nix                        |
-| ------------------------- | --------------------------------------- | ----------------------------------- |
-| Kata isolation            | Native via containerd runtime config    | Infrastructure-level (worker in VM) |
-| Attic integration         | **Native plugin**                       | Systemd watcher service             |
-| Flake pipeline generation | **External config service API**         | Auto `.#checks` discovery           |
-| NATS events               | CLI step                                | Custom step                         |
-| Staggered deploys         | DAG + multi-workflow                    | Buildbot scheduler                  |
-| Rebuild safety            | Graceful drain + `no-schedule`          | Worker drain                        |
-| Dev branch builds         | Full PR/branch triggers                 | Auto PR + default branch            |
-| Forgejo integration       | Supported (Codeberg uses it)            | Via Gitea-compatible API            |
-| nixpkgs packaging         | `woodpecker-server`, `woodpecker-agent` | Flake input (not in nixpkgs)        |
+| Requirement               | Woodpecker CI                                    | buildbot-nix                        |
+| ------------------------- | ------------------------------------------------ | ----------------------------------- |
+| Build isolation           | Kubernetes backend + RuntimeClass/Policy controls | Infrastructure-level (worker in VM) |
+| Attic integration         | **Native plugin**                                | Systemd watcher service             |
+| Flake pipeline generation | **External config service API**                  | Auto `.#checks` discovery           |
+| NATS events               | CLI step                                         | Custom step                         |
+| Staggered deploys         | DAG + multi-workflow                             | Buildbot scheduler                  |
+| Rebuild safety            | Retriable pods; cluster/server health gates      | Worker drain                        |
+| Dev branch builds         | Full PR/branch triggers                          | Auto PR + default branch            |
+| Forgejo integration       | Supported (Codeberg uses it)                     | Via Gitea-compatible API            |
+| nixpkgs packaging         | `woodpecker-server`; Kubernetes backend built in | Flake input (not in nixpkgs)        |
 
-Woodpecker CI was chosen for: native Attic plugin, External Configuration API for large flake target sets, Kata support via containerd runtime configuration (reusing existing containerd on the build server), and proven Forgejo integration at Codeberg scale.
+Woodpecker CI was chosen for: native Attic plugin, External Configuration API for large flake target sets, Kubernetes backend support that composes with the existing k3s isolation stack, and proven Forgejo integration at Codeberg scale.
 
 Hercules CI was eliminated: does not support Forgejo (GitHub and GitHub Enterprise only, as of early 2026).
 
