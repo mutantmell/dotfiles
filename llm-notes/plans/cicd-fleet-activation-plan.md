@@ -23,6 +23,22 @@ Replaces: `llm-notes/plans/ci-cd-plan.md`
 > disposable, policy-constrained build execution through the Kubernetes backend.
 > If k3s/Flux is degraded, the CI control plane and job history remain reachable
 > for diagnosis and repair, even though normal build pods may be unavailable.
+>
+> **Implementation status (2026-06-16).** First pass for Phase 1.2 is in the
+> flake: `saint-arkh` has been repurposed from Forgejo Actions runner to
+> control-plane-only Woodpecker server, with a localhost-only configuration
+> extension, nginx/TLS endpoint at `woodpecker.internal`, sops-backed Forgejo
+> OAuth/agent secret material, and 1 GB RAM. The config extension currently
+> emits a minimal flake-backed preflight pipeline that runs
+> `./scripts/agent-preflight.sh --quick`. Because the implementation container
+> did not have the saint-arkh sops key, the new Woodpecker sops entries are
+> temporarily mapped to the existing encrypted `forgejo-runner-token` key so the
+> system evaluates; before deployment, create dedicated
+> `woodpecker-agent-secret`, `woodpecker-forgejo-client`, and
+> `woodpecker-forgejo-secret` values in `secrets.yaml`. Remaining Phase 1 work:
+> create the Forgejo OAuth application and secrets, wire the Kubernetes
+> Woodpecker agent backend/build namespace through the cluster layer, then
+> expand generated CI output to full check summaries and merge gates.
 
 ## Overview
 
@@ -112,7 +128,7 @@ touching anything else. thebeyond also gets a NATS microVM at that point
 | ---------------------------- | ------------------------------------- | ----------------------------- |
 | Forgejo (creil)              | Deployed                              | calvard, APP (10.97.50.53)    |
 | Attic (zeiss)                | Deployed, 3-min GC (needs adjustment) | liberl, APP (10.97.50.31)     |
-| Forgejo Actions (saint-arkh) | Deployed — will be repurposed to Woodpecker server | erebonia, APP (10.97.50.61)   |
+| Woodpecker server (saint-arkh) | First-pass NixOS config added; OAuth secrets and k8s agent backend still pending | erebonia, APP (10.97.50.61)   |
 | step-ca (basel)              | Deployed                              | calvard, INFRA (10.97.11.7)   |
 | Monitoring (tharbad)         | Deployed                              | calvard, MGMT (10.97.20.41)   |
 | deploy-rs                    | thebeyond only                        | flake.nix                     |
@@ -218,7 +234,8 @@ current Woodpecker version or abandoned, a replacement config service is
 erebonia already has k3s/KubeVirt and nested KVM enabled. Build execution should
 use Woodpecker's Kubernetes backend rather than a host-level Woodpecker agent:
 
-- Configure `WOODPECKER_BACKEND=kubernetes` on the saint-arkh Woodpecker server.
+- Configure `WOODPECKER_BACKEND=kubernetes` on the Woodpecker agent deployment
+  that connects to the saint-arkh server.
 - Create the build namespace, service account/RBAC, and backend configuration
   through the Flux-managed dynamic layer once the Flux `GitRepository` +
   `Kustomization` path is wired.

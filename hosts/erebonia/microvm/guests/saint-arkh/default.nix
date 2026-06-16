@@ -11,7 +11,7 @@ in {
   imports = [
     ./microvm.nix
     ./sops.nix
-    ./modules/runner.nix
+    ./modules/woodpecker.nix
   ];
 
   networking.hostName = hostname;
@@ -46,18 +46,35 @@ in {
     ];
   };
 
-  networking.extraHosts = net.mkExtraHosts ["creil" "tharbad"];
+  networking.extraHosts = net.mkExtraHosts ["basel" "creil" "tharbad"];
 
   time.timeZone = "UTC";
   common.internal-pki.enable = true;
 
+  # Port 80: ACME HTTP-01 challenge
+  # Port 443: Woodpecker UI/API and Forgejo webhook endpoint
+  networking.firewall.allowedTCPPorts = [80 443];
+
+  security.acme = {
+    defaults = {
+      server = "https://basel.internal/acme/acme/directory";
+      email = "malaguy@gmail.com";
+    };
+    acceptTerms = true;
+  };
+
   environment.persistence."/persist" = {
     hideMounts = true;
     directories = [
+      {
+        directory = "/var/lib/acme";
+        user = "acme";
+        group = "acme";
+      }
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
-      "/var/lib/containers"
+      "/var/lib/private/woodpecker-server"
     ];
   };
 

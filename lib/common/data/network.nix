@@ -121,7 +121,7 @@
         oracion = 52; # Jellyfin/Navidrome/Retrom media server (calvard) — moved from dmz in Phase 5.A
         zeiss = 31; # Attic binary cache (liberl) — moved from dmz in Phase 5.A.2
         creil = 53; # Forgejo git hosting (calvard) — moved from dmz in Phase 5.A.1
-        "saint-arkh" = 61; # Forgejo Actions CI/CD runners (erebonia) — moved from dmz in Phase 5.A.3
+        "saint-arkh" = 61; # Woodpecker CI server (erebonia) — moved from dmz in Phase 5.A.3
       };
     };
     # Low-trust cluster zone — KubeVirt dev-machine sandboxes (and future

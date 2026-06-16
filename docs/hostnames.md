@@ -11,7 +11,7 @@ inline with "→".
 ```
 VM HOSTS (Countries)
 ├── erebonia          (GP / dynamic-compute host)
-│   ├── saint-arkh    (microVM) — CI runner (Forgejo Actions)  → Woodpecker CI server; build runners move into k3s
+│   ├── saint-arkh    (microVM) — Woodpecker CI server; build execution moves into k3s
 │   ├── trista        (Incus VM) — NixOS dev workstation; SSH over wg-ba in DMZ  → KubeVirt VM
 │   ├── k3s-server    (microVM, planned) — k3s control plane (apiserver/kine); name TBD
 │   ├── heimdallr     (reserved)
