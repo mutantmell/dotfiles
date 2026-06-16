@@ -49,10 +49,21 @@ Replaces: `llm-notes/plans/ci-cd-plan.md`
 > `WOODPECKER_BACKEND=kubernetes`. `saint-arkh` now exposes Woodpecker gRPC on
 > port 9000 only to erebonia and the generated pipeline pins the clone and Nix
 > step images to k3s-preloaded image names with `runsc`/Restricted-compatible
-> backend options. Deployment is still blocked on real secret/image material: create the
-> saint-arkh sops values listed above, create the `woodpecker-agent-secret`
-> Kubernetes Secret in `woodpecker-system`, validate the generated CI image
+> backend options. Deployment is still blocked on real secret/image material:
+> create the saint-arkh sops values listed above, create the matching
+> `woodpecker-agent-secret` value in erebonia's sops secrets so NixOS can apply
+> the in-cluster Kubernetes Secret declaratively, validate the generated CI image
 > under a real Woodpecker build pod, then create the Forgejo OAuth application.
+>
+> **Implementation status (2026-06-16, secret-management update).** The
+> in-cluster Woodpecker agent shared secret is now host-declarative rather than a
+> manual `kubectl create secret` step. `hosts/erebonia/k3s/woodpecker-ci.nix`
+> declares an erebonia sops-nix secret named `woodpecker-agent-secret` and a
+> `woodpecker-agent-k8s-secret.service` oneshot that reads the decrypted runtime
+> file and idempotently applies the `woodpecker-system/woodpecker-agent-secret`
+> Kubernetes Secret. The plaintext value stays out of Git and the Nix store; the
+> remaining operator action is to add the same generated shared secret value to
+> both saint-arkh and erebonia sops secrets.
 >
 > **Implementation status (2026-06-16, image-management update).** Woodpecker's
 > platform images are now managed idiomatically through Nix/k3s rather than as a

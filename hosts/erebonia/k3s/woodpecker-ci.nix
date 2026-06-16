@@ -1,4 +1,5 @@
 {
+  config,
   pkgs,
   lib,
   ...
@@ -9,6 +10,9 @@
   agentServiceAccount = "woodpecker-agent";
   buildStepServiceAccount = "woodpecker-build-step";
   images = import ./woodpecker-images.nix {inherit pkgs;};
+  agentSecretName = "woodpecker-agent-secret";
+  agentSecretKey = "WOODPECKER_AGENT_SECRET";
+  agentSecretFile = config.sops.secrets.${agentSecretName}.path;
 
   mkEgressToHost = hostName: ports: let
     inherit ((net.forHost hostName)) host;
@@ -38,6 +42,45 @@ in {
     images.pluginGit
     images.dotfilesCiNix
   ];
+
+  sops.secrets.${agentSecretName} = {
+    sopsFile = ../secrets/k3s-ca.yaml;
+    key = agentSecretName;
+    mode = "0400";
+    restartUnits = ["woodpecker-agent-k8s-secret.service"];
+  };
+
+  systemd.services.woodpecker-agent-k8s-secret = {
+    description = "Apply Woodpecker agent shared secret to k3s";
+    wantedBy = ["multi-user.target"];
+    after = ["k3s.service" "sops-install-secrets.service"];
+    wants = ["k3s.service" "sops-install-secrets.service"];
+    path = [pkgs.coreutils pkgs.kubectl];
+    environment.KUBECONFIG = "/etc/rancher/k3s/k3s.yaml";
+    script = ''
+      set -euo pipefail
+
+      for _ in $(seq 1 60); do
+        if kubectl get namespace ${agentNamespace} >/dev/null 2>&1; then
+          break
+        fi
+        sleep 2
+      done
+      kubectl get namespace ${agentNamespace} >/dev/null
+
+      kubectl -n ${agentNamespace} create secret generic ${agentSecretName} \
+        --from-file=${agentSecretKey}=${agentSecretFile} \
+        --dry-run=client \
+        -o yaml \
+        | kubectl apply -f -
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      Restart = "on-failure";
+      RestartSec = 15;
+      TimeoutStartSec = 180;
+    };
+  };
 
   # Woodpecker's server remains the saint-arkh microVM. The in-cluster agent is
   # only the scheduler bridge: it connects to saint-arkh over gRPC and creates
@@ -262,8 +305,8 @@ in {
                   {
                     name = "WOODPECKER_AGENT_SECRET";
                     valueFrom.secretKeyRef = {
-                      name = "woodpecker-agent-secret";
-                      key = "WOODPECKER_AGENT_SECRET";
+                      name = agentSecretName;
+                      key = agentSecretKey;
                     };
                   }
                 ];

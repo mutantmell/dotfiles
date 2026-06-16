@@ -19,9 +19,10 @@ cluster-backed CI.
   preloads the agent, clone plugin, and `localhost/dotfiles-ci-nix:0.1.0`
   archives from `woodpecker-images.nix` via `services.k3s.images`, so the
   initial CI runtime does not need a registry pull secret or an imperative image
-  bootstrap. Still pending before deployment: real Woodpecker OAuth/agent
-  secrets, a Kubernetes Secret for the in-cluster agent, and real-pod validation
-  of the custom Nix CI image.
+  bootstrap. The in-cluster agent secret is applied by an erebonia sops-nix
+  backed NixOS oneshot, not by an imperative operator `kubectl create secret`.
+  Still pending before deployment: real Woodpecker OAuth/agent secret values in
+  sops, and real-pod validation of the custom Nix CI image.
 
 - **Phase A prerequisite — apiserver OIDC auth (2026-06-05).** Phase A's auth
   model is "the operator's existing k8s access (OIDC kubectl/kubeconfig)", but
