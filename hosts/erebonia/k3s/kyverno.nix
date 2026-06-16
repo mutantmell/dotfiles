@@ -21,11 +21,14 @@
   # Appendix A). Bootstrap only installs the engine + the scoped policies.
   buildsNamespace = "woodpecker-builds";
 
-  # Required image-registry prefix for CI step images. Mirrors report Appendix A.
-  # NOTE: confirm this matches Woodpecker's actual push/pull target when the CI
-  # workload lands — creil's Forgejo registry is reachable as both `creil.internal`
-  # and `forgejo.internal` (same host); CI must push to whichever host this names.
-  registryPrefix = "creil.internal/";
+  # Exact image references allowed in CI build pods. These are preloaded through
+  # services.k3s.images in woodpecker-ci.nix, so this is an allowlist of the
+  # node-local CI platform images, not a broad registry trust policy.
+  allowedBuildImages = [
+    "docker.io/woodpeckerci/woodpecker-agent:v3.15.0"
+    "docker.io/woodpeckerci/plugin-git:2.9.1"
+    "localhost/dotfiles-ci-nix:0.1.0"
+  ];
 
   mkBuildsMatch = {
     any = [
@@ -95,13 +98,19 @@ in {
             match = mkBuildsMatch;
             validate = {
               failureAction = "Enforce";
-              message = "Images in ${buildsNamespace} must come from ${registryPrefix}.";
-              pattern.spec = {
-                # initContainers/ephemeralContainers are optional (`=()` anchor).
-                containers = [{image = "${registryPrefix}*";}];
-                "=(initContainers)" = [{image = "${registryPrefix}*";}];
-                "=(ephemeralContainers)" = [{image = "${registryPrefix}*";}];
-              };
+              message = "Images in ${buildsNamespace} must be one of the approved preloaded Woodpecker CI images.";
+              foreach = [
+                {
+                  list = "request.object.spec.[ephemeralContainers, initContainers, containers][]";
+                  deny.conditions.all = [
+                    {
+                      key = "{{ element.image }}";
+                      operator = "NotIn";
+                      value = allowedBuildImages;
+                    }
+                  ];
+                }
+              ];
             };
           }
         ];

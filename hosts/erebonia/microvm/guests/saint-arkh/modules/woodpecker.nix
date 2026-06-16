@@ -14,13 +14,47 @@
     when:
       - event: [push, pull_request, manual]
 
+    clone:
+      - name: git
+        image: docker.io/woodpeckerci/plugin-git:2.9.1
+        settings:
+          depth: 0
+        backend_options:
+          kubernetes:
+            runtimeClassName: runsc
+            serviceAccountName: woodpecker-build-step
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              fsGroup: 1000
+              seccompProfile:
+                type: RuntimeDefault
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: [ALL]
+
     steps:
       - name: agent-preflight-quick
-        image: nixos/nix:latest
+        image: localhost/dotfiles-ci-nix:0.1.0
         commands:
           - >
             nix --extra-experimental-features 'nix-command flakes'
             develop --command ./scripts/agent-preflight.sh --quick
+        backend_options:
+          kubernetes:
+            runtimeClassName: runsc
+            serviceAccountName: woodpecker-build-step
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              fsGroup: 1000
+              seccompProfile:
+                type: RuntimeDefault
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: [ALL]
     """)
 
 
@@ -65,11 +99,13 @@ in {
     environment = {
       WOODPECKER_HOST = "https://woodpecker.internal";
       WOODPECKER_SERVER_ADDR = "127.0.0.1:8000";
-      WOODPECKER_GRPC_ADDR = "127.0.0.1:9000";
+      WOODPECKER_GRPC_ADDR = ":9000";
       WOODPECKER_ADMIN = "forgejo-admin";
       WOODPECKER_OPEN = "false";
       WOODPECKER_FORGEJO = "true";
       WOODPECKER_FORGEJO_URL = "https://forgejo.internal";
+      WOODPECKER_DEFAULT_CLONE_PLUGIN = "docker.io/woodpeckerci/plugin-git:2.9.1";
+      WOODPECKER_PLUGINS_TRUSTED_CLONE = "docker.io/woodpeckerci/plugin-git:2.9.1";
       WOODPECKER_CONFIG_EXTENSION_ENDPOINT = "http://127.0.0.1:${toString configServicePort}";
       WOODPECKER_CONFIG_EXTENSION_EXCLUSIVE = "true";
       WOODPECKER_CONFIG_EXTENSION_NETRC = "false";

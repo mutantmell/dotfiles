@@ -39,6 +39,40 @@ Replaces: `llm-notes/plans/ci-cd-plan.md`
 > create the Forgejo OAuth application and secrets, wire the Kubernetes
 > Woodpecker agent backend/build namespace through the cluster layer, then
 > expand generated CI output to full check summaries and merge gates.
+>
+> **Implementation status (2026-06-16, second pass).** The Kubernetes backend
+> layer is now declared on erebonia: Nix/k3s auto-applies the
+> `woodpecker-system` agent namespace, the restricted `woodpecker-builds`
+> namespace, RBAC for the Woodpecker Kubernetes backend, a default-deny
+> build-namespace NetworkPolicy with explicit DNS/public/creil/zeiss/saint-arkh
+> egress, and a single Woodpecker agent Deployment using
+> `WOODPECKER_BACKEND=kubernetes`. `saint-arkh` now exposes Woodpecker gRPC on
+> port 9000 only to erebonia and the generated pipeline pins the clone and Nix
+> step images to k3s-preloaded image names with `runsc`/Restricted-compatible
+> backend options. Deployment is still blocked on real secret/image material: create the
+> saint-arkh sops values listed above, create the `woodpecker-agent-secret`
+> Kubernetes Secret in `woodpecker-system`, validate the generated CI image
+> under a real Woodpecker build pod, then create the Forgejo OAuth application.
+>
+> **Implementation status (2026-06-16, image-management update).** Woodpecker's
+> platform images are now managed idiomatically through Nix/k3s rather than as a
+> separate registry bootstrap step. The colocated Woodpecker k3s config defines fixed-output
+> `dockerTools.pullImage` archives for
+> `docker.io/woodpeckerci/woodpecker-agent:v3.15.0` and
+> `docker.io/woodpeckerci/plugin-git:2.9.1`, plus a Nix-built
+> `localhost/dotfiles-ci-nix:0.1.0` image archive. The image derivations live in
+> `hosts/erebonia/k3s/woodpecker-images.nix`, and
+> `hosts/erebonia/k3s/woodpecker-ci.nix` registers them with
+> `services.k3s.images`, so k3s links the archives from the Nix store into
+> `/var/lib/rancher/k3s/agent/images` and imports them before the agent starts.
+> The Woodpecker manifests reference those local image names directly;
+> `forgejo-registry-pull` is no longer required for the initial Woodpecker
+> agent, clone, or preflight build images. Future CI steps that use private
+> dynamic images can still add scoped pull secrets later. The custom CI image is
+> built with the Nix database and uid/gid 1000 store ownership for the restricted
+> non-root build pods, but the first deployment still must validate that
+> `nix develop --command ./scripts/agent-preflight.sh --quick` can realize any
+> missing dev-shell closure inside the real Woodpecker pod environment.
 
 ## Overview
 
@@ -1001,6 +1035,16 @@ dependency surface for a given dependency class. When automated, give the
 updater a scoped git push credential, a stable AGit topic/title convention, and
 a clear policy for manual invocation vs. scheduled runs; start manual until the
 checks and review flow are proven.
+
+The Nix-store-preloaded Woodpecker images introduced in the 2026-06-16
+Kubernetes backend pass belong in that same dependency-update work even though
+they are not Flux-owned workloads. Track
+`hosts/erebonia/k3s/woodpecker-images.nix` as a node-local image dependency
+surface: update the upstream image digests and fixed-output hashes together,
+rebuild/evaluate erebonia, and keep the image refs in the Woodpecker manifests
+in lockstep. If the Woodpecker manifests later move to Flux, Flux will reconcile
+the workload objects, but the k3s preload archives must still be updated through
+the NixOS node configuration for every eligible build node.
 
 ### 6.4 Nightly breakage builds
 

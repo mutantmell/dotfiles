@@ -7,6 +7,22 @@ cluster-backed CI.
 
 **Done so far:**
 
+- **Phase 4 first pass — Woodpecker Kubernetes backend (2026-06-16).**
+  The hybrid CI runtime now has its initial cluster-side shape in
+  `hosts/erebonia/k3s/woodpecker-ci.nix`: `woodpecker-system` for the agent
+  Deployment, `woodpecker-builds` with PSS Restricted labels, backend RBAC,
+  default-deny build egress plus explicit DNS/public/creil/zeiss/saint-arkh
+  allows, and a Woodpecker agent configured for the Kubernetes backend. The
+  server remains on `saint-arkh`; its generated pipeline now pins clone/build
+  images to k3s-preloaded image names and sets `runsc` plus
+  Restricted-compatible backend options. `hosts/erebonia/k3s/woodpecker-ci.nix`
+  preloads the agent, clone plugin, and `localhost/dotfiles-ci-nix:0.1.0`
+  archives from `woodpecker-images.nix` via `services.k3s.images`, so the
+  initial CI runtime does not need a registry pull secret or an imperative image
+  bootstrap. Still pending before deployment: real Woodpecker OAuth/agent
+  secrets, a Kubernetes Secret for the in-cluster agent, and real-pod validation
+  of the custom Nix CI image.
+
 - **Phase A prerequisite — apiserver OIDC auth (2026-06-05).** Phase A's auth
   model is "the operator's existing k8s access (OIDC kubectl/kubeconfig)", but
   bootstrap only shipped the x509 break-glass kubeconfig and deferred OIDC
@@ -83,6 +99,13 @@ itself is the single bootstrap exception: keep it Nix-pinned and applied through
 workload charts in this plan should therefore land in the Flux-managed path
 unless they are strictly required to bootstrap Flux, with committed Flux YAML
 kept reviewable even when Nix renders or validates it.
+
+Woodpecker's preloaded CI images are a deliberate NixOS/node-local exception to
+the Flux workload ownership rule. They should still be added to the same
+dependency-update program as Flux-owned resources: update
+`hosts/erebonia/k3s/woodpecker-images.nix` digests/hashes and the matching
+Woodpecker image refs together, then validate that every node eligible for
+Woodpecker build pods has the same `services.k3s.images` preload set.
 
 ---
 

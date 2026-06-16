@@ -6,6 +6,7 @@
   hostname = "saint-arkh";
   net = pkgs.mmell.lib.data.network;
   inherit (net.forHost hostname) host zone;
+  ereboniaHost = (net.forHost "erebonia").host;
 in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
   imports = [
@@ -53,7 +54,12 @@ in {
 
   # Port 80: ACME HTTP-01 challenge
   # Port 443: Woodpecker UI/API and Forgejo webhook endpoint
+  # Port 9000: Woodpecker agent gRPC, scoped below to erebonia's k3s host.
   networking.firewall.allowedTCPPorts = [80 443];
+  networking.firewall.extraInputRules = ''
+    ip saddr ${ereboniaHost.ipv4} tcp dport 9000 accept
+    ip6 saddr ${ereboniaHost.ipv6} tcp dport 9000 accept
+  '';
 
   security.acme = {
     defaults = {

@@ -1,0 +1,98 @@
+{pkgs}: let
+  uid = 1000;
+  gid = 1000;
+in {
+  agent = pkgs.dockerTools.pullImage {
+    imageName = "docker.io/woodpeckerci/woodpecker-agent";
+    imageDigest = "sha256:aecf04600c2f19c7ea79202177fadda8b8331d105ed981f0a8fd4725cf1df9e7";
+    hash = "sha256-iClWLAbN0tsCyQ0B67IXVKqDAUxAmZmA4W5USd9Bsu8=";
+    finalImageName = "docker.io/woodpeckerci/woodpecker-agent";
+    finalImageTag = "v3.15.0";
+  };
+
+  pluginGit = pkgs.dockerTools.pullImage {
+    imageName = "docker.io/woodpeckerci/plugin-git";
+    imageDigest = "sha256:8995e4745cf57dcee659db94d43598fd181b1b370671db2c9ccf7b0b2a8f31c8";
+    hash = "sha256-62wLzNXA+U4I6r1b8tf2zIL3mi4Gf1hXeLmWhdPbTjE=";
+    finalImageName = "docker.io/woodpeckerci/plugin-git";
+    finalImageTag = "2.9.1";
+  };
+
+  dotfilesCiNix = pkgs.dockerTools.buildLayeredImageWithNixDb {
+    name = "localhost/dotfiles-ci-nix";
+    tag = "0.1.0";
+
+    contents = with pkgs; [
+      alejandra
+      bashInteractive
+      cacert
+      coreutils-full
+      curl
+      diffutils
+      file
+      findutils
+      gawk
+      gitMinimal
+      gnugrep
+      gnused
+      gnutar
+      gzip
+      jq
+      nix
+      openssh
+      openssl
+      patch
+      pkg-config
+      skopeo
+      treefmt
+      which
+      xz
+    ];
+
+    inherit uid;
+    inherit gid;
+    uname = "ci";
+    gname = "ci";
+
+    config = {
+      Cmd = ["/bin/bash"];
+      User = "ci";
+      WorkingDir = "/workspace";
+      Env = [
+        "PATH=/bin"
+        "USER=ci"
+        "HOME=/tmp"
+        "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt"
+        "GIT_SSL_CAINFO=/etc/ssl/certs/ca-bundle.crt"
+        "NIX_PATH=nixpkgs=flake:nixpkgs"
+      ];
+    };
+
+    fakeRootCommands = ''
+      mkdir -p etc/nix etc/ssl/certs tmp workspace
+      chmod 1777 tmp
+      chown ${toString uid}:${toString gid} workspace
+      cat > etc/passwd <<EOF
+      root:x:0:0:root:/root:/bin/bash
+      ci:x:${toString uid}:${toString gid}:ci:/tmp:/bin/bash
+      nobody:x:65534:65534:nobody:/var/empty:/bin/false
+      EOF
+      cat > etc/group <<EOF
+      root:x:0:
+      ci:x:${toString gid}:
+      nobody:x:65534:
+      EOF
+      cat > etc/nsswitch.conf <<EOF
+      passwd: files
+      group: files
+      hosts: files dns
+      EOF
+      cp -L --remove-destination ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-bundle.crt
+      cp -L --remove-destination ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
+      cat > etc/nix/nix.conf <<EOF
+      experimental-features = nix-command flakes
+      sandbox = false
+      EOF
+    '';
+  };
+}
