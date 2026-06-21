@@ -48,11 +48,9 @@
         commands:
           - |
             if ionice -c 3 true 2>/dev/null; then
-              ionice -c 3 nice -n 10 nix --extra-experimental-features 'nix-command flakes' \
-                develop --command ./scripts/agent-preflight.sh --quick
+              ionice -c 3 nice -n 10 nix --extra-experimental-features 'nix-command flakes' develop --command ./scripts/agent-preflight.sh --quick
             else
-              nice -n 10 nix --extra-experimental-features 'nix-command flakes' \
-                develop --command ./scripts/agent-preflight.sh --quick
+              nice -n 10 nix --extra-experimental-features 'nix-command flakes' develop --command ./scripts/agent-preflight.sh --quick
             fi
         backend_options:
           kubernetes:
