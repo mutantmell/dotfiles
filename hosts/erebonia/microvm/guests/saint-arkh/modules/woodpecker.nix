@@ -102,7 +102,7 @@ in {
       WOODPECKER_GRPC_ADDR = ":9000";
       WOODPECKER_ADMIN = "mutantmell";
       WOODPECKER_OPEN = "true";
-      WOODPECKER_ORGS = "mutantmell";
+      WOODPECKER_REPO_OWNERS = "mutantmell";
       WOODPECKER_FORGEJO = "true";
       WOODPECKER_FORGEJO_URL = "https://forgejo.internal";
       WOODPECKER_DEFAULT_CLONE_PLUGIN = "docker.io/woodpeckerci/plugin-git:2.9.1";
