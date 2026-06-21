@@ -125,7 +125,7 @@ in {
     after = ["network.target"];
     serviceConfig = {
       DynamicUser = true;
-      ExecStart = lib.getExe' configService "woodpecker-flake-config-service";
+      ExecStart = configService;
       Restart = "on-failure";
       RestartSec = 15;
       NoNewPrivileges = true;
