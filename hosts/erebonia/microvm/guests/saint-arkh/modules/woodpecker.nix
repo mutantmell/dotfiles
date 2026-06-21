@@ -23,6 +23,13 @@
         backend_options:
           kubernetes:
             runtimeClassName: runsc
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 250m
+                memory: 256Mi
             serviceAccountName: woodpecker-build-step
             securityContext:
               runAsNonRoot: true
@@ -39,12 +46,24 @@
       - name: agent-preflight-quick
         image: localhost/dotfiles-ci-nix:0.1.1
         commands:
-          - >
-            nix --extra-experimental-features 'nix-command flakes'
-            develop --command ./scripts/agent-preflight.sh --quick
+          - |
+            if ionice -c 3 true 2>/dev/null; then
+              ionice -c 3 nice -n 10 nix --extra-experimental-features 'nix-command flakes' \
+                develop --command ./scripts/agent-preflight.sh --quick
+            else
+              nice -n 10 nix --extra-experimental-features 'nix-command flakes' \
+                develop --command ./scripts/agent-preflight.sh --quick
+            fi
         backend_options:
           kubernetes:
             runtimeClassName: runsc
+            resources:
+              requests:
+                cpu: 500m
+                memory: 2Gi
+              limits:
+                cpu: "2"
+                memory: 8Gi
             serviceAccountName: woodpecker-build-step
             securityContext:
               runAsNonRoot: true

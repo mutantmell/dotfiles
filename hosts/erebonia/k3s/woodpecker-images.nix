@@ -79,6 +79,7 @@ in {
       pkg-config
       skopeo
       treefmt
+      util-linux
       which
       xz
     ];
@@ -130,6 +131,8 @@ in {
       experimental-features = nix-command flakes
       sandbox = false
       build-users-group =
+      max-jobs = 1
+      cores = 2
       EOF
     '';
   };

@@ -45,6 +45,45 @@ in {
     images.dotfilesCiNix
   ];
 
+  systemd.services.k3s.restartTriggers = [images.dotfilesCiNix];
+
+  system.activationScripts.woodpeckerCiRefreshLocalImage = ''
+    if ${config.services.k3s.package}/bin/k3s crictl images >/dev/null 2>&1; then
+      ${config.services.k3s.package}/bin/k3s crictl rmi localhost/dotfiles-ci-nix:0.1.0 || true
+    fi
+  '';
+
+  systemd.services.woodpecker-ci-prune-old-images = {
+    description = "Prune superseded Woodpecker CI image tags from k3s containerd";
+    wantedBy = ["multi-user.target"];
+    after = ["k3s.service"];
+    wants = ["k3s.service"];
+    path = [config.services.k3s.package pkgs.gawk pkgs.coreutils];
+    script = ''
+      set -euo pipefail
+
+      for _ in $(seq 1 30); do
+        if k3s crictl images >/dev/null 2>&1; then
+          break
+        fi
+        sleep 2
+      done
+      k3s crictl images >/dev/null
+
+      k3s crictl images \
+        | awk '$1 == "localhost/dotfiles-ci-nix" && $2 != "0.1.0" && $2 != "<none>" { print $1 ":" $2 }' \
+        | while read -r image; do
+            k3s crictl rmi "$image" || true
+          done
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      Restart = "on-failure";
+      RestartSec = 15;
+      TimeoutStartSec = 120;
+    };
+  };
+
   sops.secrets.${agentSecretName} = {
     sopsFile = ../secrets/k3s-ca.yaml;
     key = agentSecretName;
