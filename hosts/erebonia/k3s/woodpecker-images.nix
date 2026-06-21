@@ -101,9 +101,12 @@ in {
     };
 
     fakeRootCommands = ''
-      mkdir -p etc/nix etc/ssl/certs tmp workspace
+      mkdir -p etc/nix etc/ssl/certs tmp workspace nix/var/nix/gcroots/per-user/ci nix/var/nix/profiles/per-user/ci nix/var/nix/temproots
       chmod 1777 tmp
       chown ${toString uid}:${toString gid} workspace
+      chown ${toString uid}:${toString gid} nix/store
+      chown ${toString uid}:${toString gid} nix/store/.links
+      chown -R ${toString uid}:${toString gid} nix/var/nix
       cat > etc/passwd <<EOF
       root:x:0:0:root:/root:/bin/bash
       ci:x:${toString uid}:${toString gid}:ci:/tmp:/bin/bash
@@ -124,6 +127,7 @@ in {
       cat > etc/nix/nix.conf <<EOF
       experimental-features = nix-command flakes
       sandbox = false
+      build-users-group =
       EOF
     '';
   };
