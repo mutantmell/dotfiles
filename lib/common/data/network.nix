@@ -465,6 +465,10 @@
       "forgejo.internal.mutantmell.net"
       "forgejo.internal"
     ];
+    "saint-arkh" = [
+      "woodpecker.internal.mutantmell.net"
+      "woodpecker.internal"
+    ];
   };
 
   # All domains a host is reachable by (bare hostname + FQDNs + aliases)
