@@ -18,6 +18,14 @@ in {
     finalImageTag = "2.9.1";
   };
 
+  busybox = pkgs.dockerTools.pullImage {
+    imageName = "docker.io/library/busybox";
+    imageDigest = "sha256:cbf412bcf1379481c80f65208703910fe543b3a948ae74a32a10ca3789dc13ab";
+    hash = "sha256-lNRjxvfaVXfZzF6ddywsu1ybV+QRwjTo/BKvSb3DDbY=";
+    finalImageName = "busybox";
+    finalImageTag = "stable-musl";
+  };
+
   dotfilesCiNix = pkgs.dockerTools.buildLayeredImageWithNixDb {
     name = "localhost/dotfiles-ci-nix";
     tag = "0.1.0";
