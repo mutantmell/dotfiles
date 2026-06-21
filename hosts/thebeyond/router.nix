@@ -393,6 +393,11 @@ in {
               verdict = "accept";
               comment = "NTP";
             }
+            {
+              udp.dport = 547;
+              verdict = "accept";
+              comment = "DHCPv6-PD to BT8-gateway";
+            }
           ]
           # Migrated admin VLANs (mgmt 11, trusted 20, lab 21) lost their
           # local bridges on thebeyond — their L3 terminates on BT8-gateway
@@ -516,6 +521,17 @@ in {
         interface = "brTRANSIT";
       }
     ];
+
+    downstreamPrefixDelegations.bt8gw = {
+      sourceInterface = "enp4s0";
+      interface = "brTRANSIT";
+      linkSubnet6 = "fdc6:55f2:0a5e:ffff::/64";
+      delegatedLength = 57;
+      # Keep thebeyond-owned VLAN IDs in the lower half of the ISP /56 and
+      # delegate the upper half to bt8gw. OpenWrt ip6hint values then continue
+      # to mirror VLAN IDs within the bt8gw gateway-group partition.
+      childIndex = 1;
+    };
 
     dns = {
       upstream = [phantasma.ipv4]; # phantasma microVM on brMGMT (10.91.10.10)
