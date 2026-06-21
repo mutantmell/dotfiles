@@ -19,6 +19,7 @@
         image: docker.io/woodpeckerci/plugin-git:2.9.1
         settings:
           depth: 0
+          home: /tmp
         backend_options:
           kubernetes:
             runtimeClassName: runsc
