@@ -290,7 +290,35 @@
               ./modules/incus/disko-virtual-machine.nix
               {
                 nixpkgs = {
-                  overlays = builtins.attrValues self.overlays;
+                  overlays =
+                    builtins.attrValues self.overlays
+                    ++ [
+                      # TODO: remove once disko stops passing aggregate module
+                      # trees as vmTools.kernel. Newer nixpkgs expects the real
+                      # kernel derivation there and the aggregate in
+                      # vmTools.kernelModules.
+                      (final: prev: {
+                        vmTools =
+                          prev.vmTools
+                          // {
+                            override = args:
+                              prev.vmTools.override (
+                                if
+                                  args ? kernel
+                                  && !(args.kernel ? target)
+                                  && args.kernel ? passthru
+                                  && args.kernel.passthru ? paths
+                                then
+                                  args
+                                  // {
+                                    kernel = builtins.elemAt args.kernel.passthru.paths 0;
+                                    kernelModules = args.kernel;
+                                  }
+                                else args
+                              );
+                          };
+                      })
+                    ];
                   config.allowUnfree = true;
                 };
               }
@@ -525,6 +553,7 @@
       (import ./tests {
         inherit pkgs;
         inherit (pkgs) lib;
+        inherit disko;
       })
       // {formatting = treefmtEval.${system}.config.build.check self;}
       // (nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {

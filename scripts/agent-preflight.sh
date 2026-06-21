@@ -75,6 +75,7 @@ quick)
     router6-firewall-properties
     router6-zone-system
     openwrt-config
+    disko-vmtools-canary
   )
   echo "==> running quick checks: ${quick_checks[*]}"
   exec "$script_dir/run-checks.sh" "${quick_checks[@]}"

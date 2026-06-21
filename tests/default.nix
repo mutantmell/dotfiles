@@ -7,6 +7,7 @@
 {
   pkgs ? import <nixpkgs> {},
   lib ? pkgs.lib,
+  disko ? null,
 }:
 # Router tests in sub-module
 let
@@ -18,6 +19,9 @@ in
   (import ./router6.nix {inherit pkgs lib;})
   // {
     cert-expiry = import ./lib/cert-expiry.nix {inherit pkgs lib;};
+    disko-vmtools-canary = import ./lib/disko-vmtools-canary.nix {
+      inherit pkgs lib disko;
+    };
 
     # Phantasma DNS stack
     phantasma-dns-real = mkContainerTest ./modules/phantasma-dns-real.nix;
