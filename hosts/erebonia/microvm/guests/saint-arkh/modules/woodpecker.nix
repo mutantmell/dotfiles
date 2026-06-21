@@ -37,7 +37,7 @@
 
     steps:
       - name: agent-preflight-quick
-        image: localhost/dotfiles-ci-nix:0.1.0
+        image: localhost/dotfiles-ci-nix:0.1.1
         commands:
           - >
             nix --extra-experimental-features 'nix-command flakes'

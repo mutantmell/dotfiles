@@ -52,7 +52,9 @@ in {
 
   dotfilesCiNix = pkgs.dockerTools.buildLayeredImageWithNixDb {
     name = "localhost/dotfiles-ci-nix";
-    tag = "0.1.0";
+    # Bump this tag whenever the image runtime contents or filesystem metadata
+    # change; k3s/containerd may keep serving an existing node-local tag.
+    tag = "0.1.1";
 
     contents = with pkgs; [
       alejandra

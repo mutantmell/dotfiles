@@ -29,7 +29,7 @@
     "docker.io/woodpeckerci/plugin-git:2.9.1"
     "localhost/woodpecker-plugin-git:2.9.1-internal-ca"
     "busybox:stable-musl"
-    "localhost/dotfiles-ci-nix:0.1.0"
+    "localhost/dotfiles-ci-nix:0.1.1"
   ];
 
   mkBuildsMatch = {
