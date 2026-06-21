@@ -40,6 +40,7 @@ in {
   services.k3s.images = [
     images.agent
     images.pluginGit
+    images.pluginGitInternalCa
     images.busybox
     images.dotfilesCiNix
   ];

@@ -16,7 +16,7 @@
 
     clone:
       - name: git
-        image: docker.io/woodpeckerci/plugin-git:2.9.1
+        image: localhost/woodpecker-plugin-git:2.9.1-internal-ca
         settings:
           depth: 0
           home: /tmp
@@ -106,8 +106,8 @@ in {
       WOODPECKER_REPO_OWNERS = "mutantmell";
       WOODPECKER_FORGEJO = "true";
       WOODPECKER_FORGEJO_URL = "https://forgejo.internal";
-      WOODPECKER_DEFAULT_CLONE_PLUGIN = "docker.io/woodpeckerci/plugin-git:2.9.1";
-      WOODPECKER_PLUGINS_TRUSTED_CLONE = "docker.io/woodpeckerci/plugin-git:2.9.1";
+      WOODPECKER_DEFAULT_CLONE_PLUGIN = "localhost/woodpecker-plugin-git:2.9.1-internal-ca";
+      WOODPECKER_PLUGINS_TRUSTED_CLONE = "localhost/woodpecker-plugin-git:2.9.1-internal-ca";
       WOODPECKER_CONFIG_EXTENSION_ENDPOINT = "http://127.0.0.1:${toString configServicePort}";
       WOODPECKER_CONFIG_EXTENSION_EXCLUSIVE = "true";
       WOODPECKER_CONFIG_EXTENSION_NETRC = "false";

@@ -1,6 +1,17 @@
 {pkgs}: let
+  pki = pkgs.mmell.lib.data.pki;
   uid = 1000;
   gid = 1000;
+  internalCaBundle = pkgs.runCommand "internal-ca-bundle.crt" {} ''
+    cat ${pki.root} ${pki.intermediate} > "$out"
+  '';
+  pluginGitImage = pkgs.dockerTools.pullImage {
+    imageName = "docker.io/woodpeckerci/plugin-git";
+    imageDigest = "sha256:8995e4745cf57dcee659db94d43598fd181b1b370671db2c9ccf7b0b2a8f31c8";
+    hash = "sha256-62wLzNXA+U4I6r1b8tf2zIL3mi4Gf1hXeLmWhdPbTjE=";
+    finalImageName = "docker.io/woodpeckerci/plugin-git";
+    finalImageTag = "2.9.1";
+  };
 in {
   agent = pkgs.dockerTools.pullImage {
     imageName = "docker.io/woodpeckerci/woodpecker-agent";
@@ -10,12 +21,25 @@ in {
     finalImageTag = "v3.15.0";
   };
 
-  pluginGit = pkgs.dockerTools.pullImage {
-    imageName = "docker.io/woodpeckerci/plugin-git";
-    imageDigest = "sha256:8995e4745cf57dcee659db94d43598fd181b1b370671db2c9ccf7b0b2a8f31c8";
-    hash = "sha256-62wLzNXA+U4I6r1b8tf2zIL3mi4Gf1hXeLmWhdPbTjE=";
-    finalImageName = "docker.io/woodpeckerci/plugin-git";
-    finalImageTag = "2.9.1";
+  pluginGit = pluginGitImage;
+
+  pluginGitInternalCa = pkgs.dockerTools.buildImage {
+    fromImage = pluginGitImage;
+    name = "localhost/woodpecker-plugin-git";
+    tag = "2.9.1-internal-ca";
+    copyToRoot = pkgs.runCommand "woodpecker-plugin-git-internal-ca-root" {} ''
+      mkdir -p "$out/etc/ssl/certs"
+      cat ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt ${internalCaBundle} > "$out/etc/ssl/certs/ca-certificates.crt"
+      cp "$out/etc/ssl/certs/ca-certificates.crt" "$out/etc/ssl/certs/ca-bundle.crt"
+    '';
+    config = {
+      Entrypoint = ["/bin/plugin-git"];
+      WorkingDir = "/";
+      Env = [
+        "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt"
+        "GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt"
+      ];
+    };
   };
 
   busybox = pkgs.dockerTools.pullImage {
