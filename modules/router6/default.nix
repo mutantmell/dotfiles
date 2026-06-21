@@ -244,7 +244,6 @@ in {
     ./dns.nix
     ./dns-blocking.nix
     ./dns-isp-fallback.nix
-    ./downstream-prefix-delegation.nix
     ./dyndns.nix
     ./firewall.nix
     ./networking.nix
@@ -360,61 +359,6 @@ in {
           };
         };
       });
-    };
-
-    downstreamPrefixDelegations = mkOption {
-      description = ''
-        DHCPv6 Prefix Delegation servers for downstream routers.
-
-        Each entry derives the active upstream delegated prefix from a
-        systemd-networkd WAN interface, serves a child prefix to a downstream
-        router with Kea DHCPv6-PD, and installs a route for the delegated
-        prefix through the downstream client.
-      '';
-      default = {};
-      type = types.attrsOf (types.submodule ({name, ...}: {
-        options = {
-          sourceInterface = mkOption {
-            type = types.str;
-            description = "Upstream systemd-networkd interface that receives the parent DHCPv6-PD prefix.";
-            example = "enp4s0";
-          };
-
-          interface = mkOption {
-            type = types.str;
-            description = "Downstream interface where Kea should serve DHCPv6-PD.";
-            example = "brTRANSIT";
-          };
-
-          linkSubnet6 = mkOption {
-            type = types.str;
-            description = "IPv6 subnet on the downstream link where DHCPv6-PD requests arrive.";
-            example = "fdc6:55f2:0a5e:ffff::/64";
-          };
-
-          delegatedLength = mkOption {
-            type = types.ints.between 1 128;
-            default = 57;
-            description = "Prefix length to delegate to the downstream router.";
-          };
-
-          childIndex = mkOption {
-            type = types.ints.unsigned;
-            default = 0;
-            description = ''
-              Zero-based child prefix index selected after splitting the parent
-              prefix to delegatedLength. For example, childIndex = 1 selects
-              the upper /57 from a /56.
-            '';
-          };
-
-          refreshInterval = mkOption {
-            type = types.str;
-            default = "5min";
-            description = "How often to refresh the generated Kea config for ISP prefix changes.";
-          };
-        };
-      }));
     };
 
     topology = mkOption {
