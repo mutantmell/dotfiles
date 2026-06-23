@@ -49,7 +49,10 @@ in {
     address = [host.cidr4 host.cidr6];
     routes = [
       {Gateway = zone.gateway4;}
-      {Gateway = zone.gateway6;}
+      {
+        Destination = "fdc6:55f2:0a5e::/48";
+        Gateway = zone.gateway6;
+      }
     ];
     dns = [zone.gateway4 zone.gateway6];
   };

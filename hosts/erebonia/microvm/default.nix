@@ -95,7 +95,10 @@ in {
       networkConfig.MulticastDNS = true;
       routes = [
         {Gateway = zone.gateway4;}
-        {Gateway = zone.gateway6;}
+        {
+          Destination = "fdc6:55f2:0a5e::/48";
+          Gateway = zone.gateway6;
+        }
       ];
     };
     # Future VLAN 11 guests: host-IP-less macvtap/macvlan children.

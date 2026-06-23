@@ -33,7 +33,10 @@ in {
     };
     routes = [
       {Gateway = zone.gateway4;}
-      {Gateway = zone.gateway6;}
+      {
+        Destination = "fdc6:55f2:0a5e::/48";
+        Gateway = zone.gateway6;
+      }
     ];
   };
 
