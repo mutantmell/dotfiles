@@ -7,9 +7,9 @@ usage: ./scripts/agent-preflight.sh [--quick|--full] [check ...]
 
 Agent-friendly validation entrypoint.
 
-  --quick   Format, then run a small set of cheap/high-signal checks.
-  --full    Format, then run the full run-checks.sh suite.
-  check ... With explicit check names, format then run those checks.
+  --quick   Check formatting, then run cheap/high-signal checks.
+  --full    Run the full run-checks.sh suite, including formatting.
+  check ... Check formatting, then run those explicit checks.
 
 This intentionally avoids `nix flake check`: this flake has many NixOS
 evaluations, and a single evaluator process can be OOM-killed. The run-checks
@@ -58,12 +58,15 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 cd "$repo_root"
 
-echo "==> formatting"
-nix fmt
-
 if [[ ${#checks[@]} -gt 0 ]]; then
-  echo "==> running explicit checks: ${checks[*]}"
-  exec "$script_dir/run-checks.sh" "${checks[@]}"
+  explicit_checks=(formatting)
+  for check in "${checks[@]}"; do
+    if [[ $check != formatting ]]; then
+      explicit_checks+=("$check")
+    fi
+  done
+  echo "==> running explicit checks: ${explicit_checks[*]}"
+  exec "$script_dir/run-checks.sh" "${explicit_checks[@]}"
 fi
 
 case "$mode" in
@@ -78,7 +81,9 @@ quick)
     disko-vmtools-canary
   )
   echo "==> running quick checks: ${quick_checks[*]}"
-  exec "$script_dir/run-checks.sh" "${quick_checks[@]}"
+  # These checks throw during eval on failure. In CI they run under gVisor, where
+  # uncached trivial Nix builders can fail while initializing the build env.
+  exec "$script_dir/run-checks.sh" --eval-only-pure "${quick_checks[@]}"
   ;;
 full)
   echo "==> running full check suite"

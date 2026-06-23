@@ -15,16 +15,31 @@ set -euo pipefail
 #   ./scripts/run-checks.sh              # run all checks
 #   ./scripts/run-checks.sh -j4          # run up to 4 checks in parallel
 #   ./scripts/run-checks.sh <name> ...   # run specific checks
+#   ./scripts/run-checks.sh --eval-only-pure <name> ...
 
 SYSTEM="x86_64-linux"
 FLAKE_REF="."
 MAX_PARALLEL=1
+EVAL_ONLY_PURE=0
 CHECKS=()
+
+declare -A PURE_EVAL_CHECKS=(
+  ["network-registry"]=1
+  ["router6-assertions"]=1
+  ["router6-firewall-properties"]=1
+  ["router6-zone-system"]=1
+  ["openwrt-config"]=1
+  ["disko-vmtools-canary"]=1
+)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
   -j*)
     MAX_PARALLEL="${1#-j}"
+    shift
+    ;;
+  --eval-only-pure)
+    EVAL_ONLY_PURE=1
     shift
     ;;
   *)
@@ -54,13 +69,25 @@ FAILED_NAMES=()
 
 TOTAL=${#CHECKS[@]}
 echo "Running ${TOTAL} nix checks (parallelism: ${MAX_PARALLEL})..."
+if [[ $EVAL_ONLY_PURE -eq 1 ]]; then
+  echo "Pure eval checks will force drvPath only."
+fi
 echo ""
+
+run_check() {
+  local check="$1"
+  if [[ $EVAL_ONLY_PURE -eq 1 && -n ${PURE_EVAL_CHECKS[$check]+x} ]]; then
+    nix eval "${FLAKE_REF}#checks.${SYSTEM}.${check}.drvPath" --raw
+  else
+    nix build "${FLAKE_REF}#checks.${SYSTEM}.${check}" --print-build-logs
+  fi
+}
 
 if [[ $MAX_PARALLEL -le 1 ]]; then
   # Sequential mode — simple and clear
   for check in "${CHECKS[@]}"; do
     log="${LOG_DIR}/${check}.log"
-    if nix build "${FLAKE_REF}#checks.${SYSTEM}.${check}" --print-build-logs >"$log" 2>&1; then
+    if run_check "$check" >"$log" 2>&1; then
       echo "  PASS  ${check}"
       rm -f "$log"
       PASSED=$((PASSED + 1))
@@ -103,7 +130,7 @@ else
       reap_one
     done
     log="${LOG_DIR}/${check}.log"
-    nix build "${FLAKE_REF}#checks.${SYSTEM}.${check}" --print-build-logs >"$log" 2>&1 &
+    run_check "$check" >"$log" 2>&1 &
     PID_TO_NAME[$!]="$check"
     PID_TO_LOG[$!]="$log"
     RUNNING=$((RUNNING + 1))
