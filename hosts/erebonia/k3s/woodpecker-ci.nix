@@ -47,11 +47,52 @@ in {
 
   systemd.services.k3s.restartTriggers = [images.dotfilesCiNix];
 
-  systemd.services.woodpecker-ci-prune-old-images = {
-    description = "Prune superseded Woodpecker CI image tags from k3s containerd";
+  systemd.services.woodpecker-ci-import-images = {
+    description = "Import Woodpecker CI images into k3s containerd";
     wantedBy = ["multi-user.target"];
     after = ["k3s.service"];
     wants = ["k3s.service"];
+    restartTriggers = [
+      images.agent
+      images.pluginGit
+      images.pluginGitInternalCa
+      images.busybox
+      images.dotfilesCiNix
+    ];
+    path = [config.services.k3s.package pkgs.coreutils pkgs.gnugrep];
+    script = ''
+      set -euo pipefail
+
+      for _ in $(seq 1 30); do
+        if k3s crictl images >/dev/null 2>&1; then
+          break
+        fi
+        sleep 2
+      done
+      k3s crictl images >/dev/null
+
+      k3s ctr --namespace k8s.io images import ${images.agent}
+      k3s ctr --namespace k8s.io images import ${images.pluginGit}
+      k3s ctr --namespace k8s.io images import ${images.pluginGitInternalCa}
+      k3s ctr --namespace k8s.io images import ${images.busybox}
+      k3s ctr --namespace k8s.io images import ${images.dotfilesCiNix}
+
+      k3s crictl images | grep -F 'localhost/dotfiles-ci-nix'
+      k3s crictl images | grep -F '0.1.3'
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      Restart = "on-failure";
+      RestartSec = 15;
+      TimeoutStartSec = 300;
+    };
+  };
+
+  systemd.services.woodpecker-ci-prune-old-images = {
+    description = "Prune superseded Woodpecker CI image tags from k3s containerd";
+    wantedBy = ["multi-user.target"];
+    after = ["k3s.service" "woodpecker-ci-import-images.service"];
+    wants = ["k3s.service" "woodpecker-ci-import-images.service"];
     path = [config.services.k3s.package pkgs.gawk pkgs.coreutils];
     script = ''
       set -euo pipefail
