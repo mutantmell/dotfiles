@@ -49,7 +49,7 @@ in {
 
   system.activationScripts.woodpeckerCiRefreshLocalImage = ''
     if ${config.services.k3s.package}/bin/k3s crictl images >/dev/null 2>&1; then
-      ${config.services.k3s.package}/bin/k3s crictl rmi localhost/dotfiles-ci-nix:0.1.2 || true
+      ${config.services.k3s.package}/bin/k3s crictl rmi localhost/dotfiles-ci-nix:0.1.3 || true
     fi
   '';
 
@@ -71,7 +71,7 @@ in {
       k3s crictl images >/dev/null
 
       k3s crictl images \
-        | awk '$1 == "localhost/dotfiles-ci-nix" && $2 != "0.1.2" && $2 != "<none>" { print $1 ":" $2 }' \
+        | awk '$1 == "localhost/dotfiles-ci-nix" && $2 != "0.1.3" && $2 != "<none>" { print $1 ":" $2 }' \
         | while read -r image; do
             k3s crictl rmi "$image" || true
           done

@@ -44,7 +44,7 @@
 
     steps:
       - name: agent-preflight-quick
-        image: localhost/dotfiles-ci-nix:0.1.2
+        image: localhost/dotfiles-ci-nix:0.1.3
         commands:
           - |
             if ionice -c 3 true 2>/dev/null; then

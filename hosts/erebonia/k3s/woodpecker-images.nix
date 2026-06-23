@@ -54,7 +54,7 @@ in {
     name = "localhost/dotfiles-ci-nix";
     # Bump this tag whenever the image runtime contents or filesystem metadata
     # change; k3s/containerd may keep serving an existing node-local tag.
-    tag = "0.1.2";
+    tag = "0.1.3";
 
     contents = with pkgs; [
       alejandra
@@ -63,6 +63,7 @@ in {
       coreutils-full
       curl
       diffutils
+      dockerTools.usrBinEnv
       file
       findutils
       gawk
