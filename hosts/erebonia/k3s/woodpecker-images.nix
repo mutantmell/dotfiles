@@ -54,7 +54,7 @@ in {
     name = "localhost/dotfiles-ci-nix";
     # Bump this tag whenever the image runtime contents or filesystem metadata
     # change; k3s/containerd may keep serving an existing node-local tag.
-    tag = "0.1.1";
+    tag = "0.1.2";
 
     contents = with pkgs; [
       alejandra
@@ -104,12 +104,12 @@ in {
     };
 
     fakeRootCommands = ''
-      mkdir -p etc/nix etc/ssl/certs tmp workspace nix/var/nix/gcroots/per-user/ci nix/var/nix/profiles/per-user/ci nix/var/nix/temproots
+      mkdir -p etc/nix etc/ssl/certs tmp workspace nix/var/log/nix/drvs nix/var/nix/gcroots/per-user/ci nix/var/nix/profiles/per-user/ci nix/var/nix/temproots
       chmod 1777 tmp
       chown ${toString uid}:${toString gid} workspace
       chown ${toString uid}:${toString gid} nix/store
       chown ${toString uid}:${toString gid} nix/store/.links
-      chown -R ${toString uid}:${toString gid} nix/var/nix
+      chown -R ${toString uid}:${toString gid} nix/var
       cat > etc/passwd <<EOF
       root:x:0:0:root:/root:/bin/bash
       ci:x:${toString uid}:${toString gid}:ci:/tmp:/bin/bash
