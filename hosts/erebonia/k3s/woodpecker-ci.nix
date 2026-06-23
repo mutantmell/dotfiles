@@ -47,12 +47,6 @@ in {
 
   systemd.services.k3s.restartTriggers = [images.dotfilesCiNix];
 
-  system.activationScripts.woodpeckerCiRefreshLocalImage = ''
-    if ${config.services.k3s.package}/bin/k3s crictl images >/dev/null 2>&1; then
-      ${config.services.k3s.package}/bin/k3s crictl rmi localhost/dotfiles-ci-nix:0.1.3 || true
-    fi
-  '';
-
   systemd.services.woodpecker-ci-prune-old-images = {
     description = "Prune superseded Woodpecker CI image tags from k3s containerd";
     wantedBy = ["multi-user.target"];
