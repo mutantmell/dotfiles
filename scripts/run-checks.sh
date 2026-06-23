@@ -128,6 +128,18 @@ if [[ $FAILED -gt 0 ]]; then
     echo "  - $name"
   done
   echo ""
+  echo "Failure logs:"
+  for name in "${FAILED_NAMES[@]}"; do
+    log="${LOG_DIR}/${name}.log"
+    echo ""
+    echo "----- ${name} (${log}) -----"
+    if [[ -s $log ]]; then
+      cat "$log"
+    else
+      echo "(no log output captured)"
+    fi
+  done
+  echo ""
   echo "Re-run a failing check with build logs:"
   echo "  nix build .#checks.${SYSTEM}.<name> --print-build-logs"
   exit 1
