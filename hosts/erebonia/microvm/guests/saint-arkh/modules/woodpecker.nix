@@ -85,11 +85,13 @@
             if ionice -c 3 true 2>/dev/null; then
               ionice -c 3 nice -n 10 \
                 nix --extra-experimental-features 'nix-command flakes' \
-                develop --command ./scripts/run-checks.sh host-eval-thebeyond host-eval-liberl
+                develop --command ./scripts/run-checks.sh \
+                  host-eval-thebeyond host-eval-liberl
             else
               nice -n 10 \
                 nix --extra-experimental-features 'nix-command flakes' \
-                develop --command ./scripts/run-checks.sh host-eval-thebeyond host-eval-liberl
+                develop --command ./scripts/run-checks.sh \
+                  host-eval-thebeyond host-eval-liberl
             fi
         backend_options:
           kubernetes:
