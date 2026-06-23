@@ -81,9 +81,36 @@ Replaces: `llm-notes/plans/ci-cd-plan.md`
 > agent, clone, or preflight build images. Future CI steps that use private
 > dynamic images can still add scoped pull secrets later. The custom CI image is
 > built with the Nix database and uid/gid 1000 store ownership for the restricted
-> non-root build pods, but the first deployment still must validate that
-> `nix develop --command ./scripts/agent-preflight.sh --quick` can realize any
-> missing dev-shell closure inside the real Woodpecker pod environment.
+> non-root build pods. The first real-pod validation target was
+> `nix develop --command ./scripts/agent-preflight.sh --quick`.
+>
+> **Implementation status (2026-06-23, first successful pipeline).** A
+> Woodpecker run has completed end to end for this repo, proving the practical
+> control-plane path: Forgejo webhook/OAuth wiring, saint-arkh Woodpecker server
+> and localhost config extension, the Kubernetes backend agent, k3s scheduling,
+> preloaded clone/build images, build-namespace egress, and the custom Nix CI
+> image are all viable for at least the generated quick-preflight workload.
+> Treat this as "CI exists and can be depended on for cheap gated feedback," not
+> as proof that the whole validation matrix is solved. The generated pipeline is
+> still intentionally narrow: clone plus `./scripts/agent-preflight.sh --quick`
+> under `runsc`, with `run-checks.sh --eval-only-pure` for the quick checks.
+> Next work should graduate CI in layers: first publish compact check artifacts
+> for quick preflight, then add non-KVM `checks.x86_64-linux.*` shards with
+> measured pod resource limits that fit erebonia's 16 GiB physical RAM budget,
+> then add a separate trusted KVM-capable build class or out-of-cluster path for
+> NixOS VM tests.
+>
+> **Dev-machine consequence (2026-06-23).** Working CI changes the sizing
+> calculus for AI dev machines. The dev-machine no longer needs to be sized as
+> the only place that can run expensive validation before a human sees a PR. Keep
+> local dev-machine validation focused on formatting, pure/eval checks, targeted
+> builds, and repro of CI failures; let Woodpecker become the durable gate for
+> broad and expensive checks as Phase 1.6-1.8 mature. This makes smaller
+> `dev-machine up --disk <size>` workspaces and multiple concurrent
+> dev-machine instances plausible, provided the expensive checks are not all
+> re-run inside each VM. Do not remove `/dev/kvm` from the dev-machine contract
+> yet: targeted VM-test debugging still needs it until CI has authoritative KVM
+> coverage and artifact output good enough for agents to act on.
 
 ## Overview
 
@@ -320,6 +347,13 @@ Store the OAuth2 client secret in sops on saint-arkh.
 With the config service generating pipelines from flake outputs, the initial
 pipeline builds all `checks.x86_64-linux.*` targets.
 
+Current implementation note (2026-06-23): the deployed/generated pipeline is a
+smaller proof stage, not the final matrix. It runs
+`./scripts/agent-preflight.sh --quick`, whose quick path evaluates formatting
+and a focused set of pure/high-signal checks. Keep that quick lane as the
+low-latency PR signal and expand toward the full matrix in explicit shards
+rather than replacing it with one monolithic `run-checks.sh` invocation.
+
 The config service introspects the flake and generates a Woodpecker pipeline
 that:
 
@@ -372,6 +406,10 @@ NixOS VM tests (`testers.nixosTest`) need `/dev/kvm`. erebonia already has
 `nested=1`, but the Kubernetes backend still needs a deliberate KVM-capable
 build class if VM tests run inside cluster pods.
 
+The first successful Woodpecker pipeline did not prove this path; it ran the
+quick preflight lane under `runsc`. Keep VM integration tests out of the default
+untrusted build profile until the KVM-capable profile has been validated.
+
 Options to validate before enabling broad VM-test CI:
 
 - a dedicated trusted build pod profile with `/dev/kvm` passed through;
@@ -390,6 +428,21 @@ control-plane-only.
 
 `run-checks.sh -j1` is the baseline. If erebonia can handle `-j2` or higher,
 document the safe parallelism level.
+
+For agent workflow planning, separate three resource tiers:
+
+- **local dev-machine:** formatting, quick pure/eval checks, narrow targeted
+  builds, and failure reproduction;
+- **ordinary CI pod:** quick preflight plus non-KVM check shards with explicit
+  CPU/memory limits sized for the real 16 GiB erebonia node, plus artifact
+  summaries;
+- **trusted KVM lane:** VM integration tests and any check that requires
+  `/dev/kvm`, either as a dedicated Kubernetes build class or an operator-side
+  runner path.
+
+Only the first tier has to fit comfortably in every dev-machine instance. The
+second and third tiers are what unlock smaller and more numerous dev-machine
+VMs.
 
 ### 1.9 Egress rules
 

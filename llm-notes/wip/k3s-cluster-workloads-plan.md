@@ -16,13 +16,25 @@ cluster-backed CI.
   server remains on `saint-arkh`; its generated pipeline now pins clone/build
   images to k3s-preloaded image names and sets `runsc` plus
   Restricted-compatible backend options. `hosts/erebonia/k3s/woodpecker-ci.nix`
-  preloads the agent, clone plugin, and `localhost/dotfiles-ci-nix:0.1.0`
+  preloads the agent, clone plugin, and `localhost/dotfiles-ci-nix:0.1.3`
   archives from `woodpecker-images.nix` via `services.k3s.images`, so the
   initial CI runtime does not need a registry pull secret or an imperative image
   bootstrap. The in-cluster agent secret is applied by an erebonia sops-nix
   backed NixOS oneshot, not by an imperative operator `kubectl create secret`.
-  Still pending before deployment: real Woodpecker OAuth/agent secret values in
-  sops, and real-pod validation of the custom Nix CI image.
+  At that point, still pending before deployment were real Woodpecker
+  OAuth/agent secret values in sops and real-pod validation of the custom Nix CI
+  image.
+
+- **Phase 4 proof — first successful repo pipeline (2026-06-23).**
+  Woodpecker has now run this repo's generated quick-preflight pipeline to
+  completion. That proves the end-to-end CI control path is operational for the
+  cheap lane: Forgejo event delivery, saint-arkh server/config extension,
+  Kubernetes backend scheduling, restricted build pods, local CI images, build
+  egress, and the Nix CI image. It does not yet prove full `run-checks.sh`, KVM
+  NixOS VM tests, Attic signing/push, check summary artifacts, or branch
+  protection. The useful consequence is that AI dev-machine sessions can start
+  treating CI as the shared durable gate for broad validation while local VMs
+  stay focused on quick checks, targeted builds, and reproducing CI failures.
 
 - **Phase A prerequisite — apiserver OIDC auth (2026-06-05).** Phase A's auth
   model is "the operator's existing k8s access (OIDC kubectl/kubeconfig)", but
@@ -239,9 +251,22 @@ The AI dev platform direction note
   repo-specific stack: KubeVirt VM slot/IP, VM phase, DevPod provider,
   workspace ID(s), and attach/editor hints. Improve `dev-machine list` before
   adding a dashboard.
-- **Multiple sessions inside one devcontainer remain the RAM-light default.**
-  Use `zellij` and git worktrees inside the existing workspace when the goal is
-  parallel agent/operator sessions without another VM.
+- **Concurrency model shifts once CI is the durable gate.** Multiple sessions
+  inside one devcontainer remain the lightest option for a single coherent task,
+  using `zellij` and git worktrees. But now that Woodpecker has completed a
+  real quick-preflight run, the platform can also pursue multiple smaller
+  dev-machine VMs for genuinely independent agent tasks. The key is to stop
+  sizing every dev-machine as if it must run the whole validation suite locally:
+  local sessions should run formatting, quick pure/eval checks, targeted builds,
+  and failure reproduction; CI should absorb broad check shards and eventually
+  the KVM-heavy lane.
+- **Smaller dev-machine instances are now plausible, not automatic.** The
+  current VM contract still includes `/dev/kvm` and a large scratch disk because
+  targeted VM-test debugging and Nix store growth remain real local workflows.
+  After CI grows from quick preflight to non-KVM check shards plus a trusted
+  KVM-capable lane, revisit the default `dev-machine up` CPU/RAM/disk sizing.
+  Keep a larger opt-in shape for debugging integration tests, image work, or
+  cache-miss-heavy builds.
 - **Multiple DevPod workspaces per VM is plausible later.** DevPod can own the
   devcontainer/workspace side if each workspace gets a unique ID against the
   same SSH provider. The wrapper would need to model "machine" separately from

@@ -77,6 +77,41 @@
               allowPrivilegeEscalation: false
               capabilities:
                 drop: [ALL]
+
+      - name: host-eval-shard
+        image: localhost/dotfiles-ci-nix:0.1.3
+        commands:
+          - |
+            if ionice -c 3 true 2>/dev/null; then
+              ionice -c 3 nice -n 10 \
+                nix --extra-experimental-features 'nix-command flakes' \
+                develop --command ./scripts/run-checks.sh host-eval-thebeyond host-eval-liberl
+            else
+              nice -n 10 \
+                nix --extra-experimental-features 'nix-command flakes' \
+                develop --command ./scripts/run-checks.sh host-eval-thebeyond host-eval-liberl
+            fi
+        backend_options:
+          kubernetes:
+            runtimeClassName: runsc
+            resources:
+              requests:
+                cpu: 750m
+                memory: 2Gi
+              limits:
+                cpu: "2"
+                memory: 6Gi
+            serviceAccountName: woodpecker-build-step
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+              fsGroup: 1000
+              seccompProfile:
+                type: RuntimeDefault
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: [ALL]
     """)
 
 
