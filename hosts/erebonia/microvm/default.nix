@@ -143,6 +143,18 @@ in {
   };
   services.resolved.enable = true;
 
+  # microvm.nix creates macvtap children with `ip link add link <lower> ...`.
+  # `uplink.50` is a networkd-created VLAN netdev, so on boot the macvtap setup
+  # can otherwise race networkd and fail before the lower device exists.
+  systemd.services."microvm-macvtap-interfaces@" = {
+    wants = ["systemd-networkd.service"];
+    requires = ["sys-subsystem-net-devices-uplink.50.device"];
+    after = [
+      "systemd-networkd.service"
+      "sys-subsystem-net-devices-uplink.50.device"
+    ];
+  };
+
   # Host-based input firewall: restrict SSH to router + vHOME
   networking.firewall.extraInputRules = ''
     ip saddr { ${zone.gateway4}, ${net.networks.trusted.subnet4} } tcp dport 22 accept
