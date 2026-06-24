@@ -7,10 +7,21 @@
   configServicePort = 9001;
   configService = pkgs.writers.writePython3 "woodpecker-flake-config-service" {} ''
     import json
-    import textwrap
-    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import os
+    import re
+    import shutil
+    import subprocess
+    import tempfile
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-    PIPELINE = textwrap.dedent("""\
+    CHECK_SYSTEM = "x86_64-linux"
+    CHECK_SHARD_SIZE = 2
+    GIT = "${pkgs.git}/bin/git"
+    NIX = "${config.nix.package}/bin/nix"
+    REPO_NAME = "dotfiles"
+    SAFE_CHECK_RE = re.compile(r"^host-eval-[A-Za-z0-9_-]+$")
+
+    PIPELINE_HEADER = """\
     when:
       - event: [push, pull_request, manual]
 
@@ -48,12 +59,12 @@
         commands:
           - |
             if ionice -c 3 true 2>/dev/null; then
-              ionice -c 3 nice -n 10 \
-                nix --extra-experimental-features 'nix-command flakes' \
+              ionice -c 3 nice -n 10 \\
+                nix --extra-experimental-features 'nix-command flakes' \\
                 develop --command ./scripts/agent-preflight.sh --quick
             else
-              nice -n 10 \
-                nix --extra-experimental-features 'nix-command flakes' \
+              nice -n 10 \\
+                nix --extra-experimental-features 'nix-command flakes' \\
                 develop --command ./scripts/agent-preflight.sh --quick
             fi
         backend_options:
@@ -77,21 +88,23 @@
               allowPrivilegeEscalation: false
               capabilities:
                 drop: [ALL]
+    """
 
-      - name: host-eval-shard
+    HOST_EVAL_STEP_TEMPLATE = """\
+      - name: {step_name}
         image: localhost/dotfiles-ci-nix:0.1.3
         commands:
           - |
             if ionice -c 3 true 2>/dev/null; then
-              ionice -c 3 nice -n 10 \
-                nix --extra-experimental-features 'nix-command flakes' \
-                develop --command ./scripts/run-checks.sh \
-                  host-eval-thebeyond host-eval-liberl
+              ionice -c 3 nice -n 10 \\
+                nix --extra-experimental-features 'nix-command flakes' \\
+                develop --command ./scripts/run-checks.sh \\
+                  {checks}
             else
-              nice -n 10 \
-                nix --extra-experimental-features 'nix-command flakes' \
-                develop --command ./scripts/run-checks.sh \
-                  host-eval-thebeyond host-eval-liberl
+              nice -n 10 \\
+                nix --extra-experimental-features 'nix-command flakes' \\
+                develop --command ./scripts/run-checks.sh \\
+                  {checks}
             fi
         backend_options:
           kubernetes:
@@ -114,7 +127,146 @@
               allowPrivilegeEscalation: false
               capabilities:
                 drop: [ALL]
-    """)
+    """
+
+
+    def run(cmd, cwd):
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["HOME"] = tempfile.mkdtemp(prefix="woodpecker-home-")
+        try:
+            return subprocess.run(
+                cmd,
+                cwd=cwd,
+                env=env,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=180,
+            )
+        finally:
+            shutil.rmtree(env["HOME"], ignore_errors=True)
+
+
+    def checkout_payload_repo(payload):
+        repo = payload.get("repo", {})
+        pipeline = payload.get("pipeline", {})
+        if not is_dotfiles_repo(repo):
+            return None
+
+        clone_url = (
+            pipeline.get("clone_url")
+            or repo.get("clone_url")
+            or repo.get("git_http_url")
+        )
+        if not clone_url:
+            return None
+
+        checkout = tempfile.mkdtemp(prefix="woodpecker-config-repo-")
+        try:
+            clone_cmd = [
+                GIT,
+                "clone",
+                "--quiet",
+                "--filter=blob:none",
+                clone_url,
+                checkout,
+            ]
+            run(clone_cmd, None)
+            commit = (
+                pipeline.get("commit")
+                or pipeline.get("after")
+                or pipeline.get("sha")
+            )
+            refspec = pipeline.get("refspec")
+            ref = pipeline.get("ref")
+            if refspec:
+                run([GIT, "fetch", "--quiet", "origin", refspec], checkout)
+            elif ref and not ref.startswith("refs/heads/"):
+                run([GIT, "fetch", "--quiet", "origin", ref], checkout)
+            if commit:
+                run([GIT, "checkout", "--quiet", commit], checkout)
+            return checkout
+        except Exception:
+            shutil.rmtree(checkout, ignore_errors=True)
+            return None
+
+
+    def is_dotfiles_repo(repo):
+        repo_name = repo.get("name")
+        repo_slug = repo.get("slug", "")
+        return repo_name == REPO_NAME or repo_slug.endswith(f"/{REPO_NAME}")
+
+
+    def repo_path_for_payload(payload):
+        cwd = os.getcwd()
+        if os.path.exists(os.path.join(cwd, "flake.nix")):
+            return cwd, False
+
+        repo = payload.get("repo", {})
+        checkout = checkout_payload_repo(payload)
+        if checkout:
+            return checkout, True
+
+        if repo and is_dotfiles_repo(repo):
+            raise RuntimeError("unable to check out dotfiles for CI discovery")
+
+        return None, False
+
+
+    def discover_safe_checks(repo_path):
+        if not repo_path:
+            return []
+
+        attr = f".#checks.{CHECK_SYSTEM}"
+        result = run(
+            [
+                NIX,
+                "--extra-experimental-features",
+                "nix-command flakes",
+                "eval",
+                attr,
+                "--apply",
+                "x: builtins.attrNames x",
+                "--json",
+            ],
+            repo_path,
+        )
+        checks = json.loads(result.stdout)
+        return sorted(
+            check
+            for check in checks
+            if SAFE_CHECK_RE.fullmatch(check)
+        )
+
+
+    def chunked(items, size):
+        for index in range(0, len(items), size):
+            yield items[index:index + size]
+
+
+    def render_host_eval_steps(checks):
+        rendered = []
+        for index, shard in enumerate(chunked(checks, CHECK_SHARD_SIZE), start=1):
+            rendered.append(
+                HOST_EVAL_STEP_TEMPLATE.format(
+                    step_name=f"host-eval-shard-{index}",
+                    checks=" ".join(shard),
+                )
+            )
+        return "".join(rendered)
+
+
+    def render_pipeline(payload):
+        repo_path, cleanup = repo_path_for_payload(payload)
+        try:
+            checks = discover_safe_checks(repo_path)
+        finally:
+            if cleanup:
+                shutil.rmtree(repo_path, ignore_errors=True)
+
+        return PIPELINE_HEADER + render_host_eval_steps(checks)
 
 
     class Handler(BaseHTTPRequestHandler):
@@ -127,13 +279,23 @@
 
         def do_POST(self):
             length = int(self.headers.get("content-length", "0"))
+            payload = {}
             if length:
-                self.rfile.read(length)
+                try:
+                    payload = json.loads(self.rfile.read(length))
+                except json.JSONDecodeError as err:
+                    self.send_error(400, f"invalid JSON payload: {err}")
+                    return
+            try:
+                data = render_pipeline(payload)
+            except Exception as err:
+                self.send_error(500, f"failed to generate config: {err}")
+                return
             body = json.dumps({
                 "configs": [
                     {
                         "name": "flake-generated.yml",
-                        "data": PIPELINE,
+                        "data": data,
                     }
                 ]
             }).encode("utf-8")
@@ -147,7 +309,7 @@
             return
 
 
-    HTTPServer(
+    ThreadingHTTPServer(
         ("127.0.0.1", ${toString configServicePort}),
         Handler,
     ).serve_forever()
