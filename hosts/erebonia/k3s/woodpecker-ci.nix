@@ -47,7 +47,6 @@ in {
     images.pluginGitInternalCa
     images.busybox
     images.dotfilesCiNix
-    images.ciWorker
   ];
 
   systemd.services.k3s.restartTriggers = [
@@ -85,7 +84,7 @@ in {
       k3s ctr --namespace k8s.io images import ${images.pluginGitInternalCa}
       k3s ctr --namespace k8s.io images import ${images.busybox}
       k3s ctr --namespace k8s.io images import ${images.dotfilesCiNix}
-      k3s ctr --namespace k8s.io images import ${images.ciWorker}
+      ${images.ciWorker} | k3s ctr --namespace k8s.io images import -
 
       k3s crictl images | grep -F 'localhost/dotfiles-ci-nix'
       k3s crictl images | grep -F '0.1.3'
