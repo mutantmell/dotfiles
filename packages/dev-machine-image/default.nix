@@ -1,16 +1,20 @@
 {
   nixpkgs,
   system ? "x86_64-linux",
-  claude-code,
-  codex,
+  claude-code ? null,
+  codex ? null,
+  role ? "dev-machine",
+  imageName ? "dev-machine-base",
   # Extra CA certificates (PEM paths) added to the guest trust store. The base
   # config is host-agnostic, but in practice the VM must trust creil's step-ca to
-  # clone the workspace over HTTPS and to pull the dev image from
+  # clone the workspace over HTTPS and to pull internal images from
   # forgejo.internal. Injected here at the flake boundary so configuration.nix
-  # stays standalone (cf. how the dev image takes claude-code as a param).
+  # stays standalone.
   caCerts ? [],
 }: let
   inherit (nixpkgs) lib;
+
+  validRoles = ["dev-machine" "ci-worker"];
 
   # The base NixOS (configuration.nix). Standalone nixosSystem so the image stays
   # host-agnostic and free of impermanence/sops/registry coupling. It includes
@@ -21,7 +25,7 @@
   baseSystem = nixpkgs.lib.nixosSystem {
     inherit system;
     specialArgs = {
-      inherit claude-code codex;
+      inherit claude-code codex role;
     };
     modules = [
       ./configuration.nix
@@ -54,12 +58,13 @@ in
   # decision 3). `streamLayeredImage` so it can be `skopeo copy`'d to creil
   # without a container daemon; the push itself is an operator/CI step (Phase 2),
   # not done here. uid/gid 107 is KubeVirt's `qemu` container user.
-  pkgs.dockerTools.streamLayeredImage {
-    name = "dev-machine-base";
-    tag = "latest";
-    fakeRootCommands = ''
-      mkdir -p disk
-      cp ${diskImage}/nixos.qcow2 disk/boot.qcow2
-      chown -R 107:107 disk
-    '';
-  }
+  assert lib.assertMsg (builtins.elem role validRoles) "dev-machine-image: role must be one of ${builtins.concatStringsSep ", " validRoles}";
+    pkgs.dockerTools.streamLayeredImage {
+      name = imageName;
+      tag = "latest";
+      fakeRootCommands = ''
+        mkdir -p disk
+        cp ${diskImage}/nixos.qcow2 disk/boot.qcow2
+        chown -R 107:107 disk
+      '';
+    }

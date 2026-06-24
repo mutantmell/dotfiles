@@ -141,6 +141,12 @@
         # and to docker-pull the dev image from forgejo.internal.
         caCerts = with pkgs.mmell.lib.data.pki; [root intermediate];
       };
+      # KubeVirt containerDisk for the trusted Woodpecker CI worker VM. Reuses
+      # the dev-machine image substrate with role = "ci-worker".
+      ci-worker-image = import packages/ci-worker-image {
+        inherit nixpkgs system;
+        caCerts = with pkgs.mmell.lib.data.pki; [root intermediate];
+      };
       # Phase 2.2 — custom dev image (devcontainer.json pins it). Nix-built OCI
       # image carrying the dev tooling; devpod runs it as a runc container inside
       # the VM. Output is a streamLayeredImage script; `skopeo copy` it to creil.

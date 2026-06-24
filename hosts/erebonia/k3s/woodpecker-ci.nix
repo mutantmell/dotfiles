@@ -2,6 +2,7 @@
   config,
   pkgs,
   lib,
+  inputs,
   ...
 }: let
   net = pkgs.mmell.lib.data.network;
@@ -9,7 +10,10 @@
   agentNamespace = "woodpecker-system";
   agentServiceAccount = "woodpecker-agent";
   buildStepServiceAccount = "woodpecker-build-step";
-  images = import ./woodpecker-images.nix {inherit pkgs;};
+  images = import ./woodpecker-images.nix {
+    inherit pkgs;
+    inherit (inputs) nixpkgs;
+  };
   agentSecretName = "woodpecker-agent-secret";
   agentSecretKey = "WOODPECKER_AGENT_SECRET";
   agentSecretFile = config.sops.secrets.${agentSecretName}.path;
@@ -43,9 +47,13 @@ in {
     images.pluginGitInternalCa
     images.busybox
     images.dotfilesCiNix
+    images.ciWorker
   ];
 
-  systemd.services.k3s.restartTriggers = [images.dotfilesCiNix];
+  systemd.services.k3s.restartTriggers = [
+    images.dotfilesCiNix
+    images.ciWorker
+  ];
 
   systemd.services.woodpecker-ci-import-images = {
     description = "Import Woodpecker CI images into k3s containerd";
@@ -58,6 +66,7 @@ in {
       images.pluginGitInternalCa
       images.busybox
       images.dotfilesCiNix
+      images.ciWorker
     ];
     path = [config.services.k3s.package pkgs.coreutils pkgs.gnugrep];
     script = ''
@@ -76,9 +85,11 @@ in {
       k3s ctr --namespace k8s.io images import ${images.pluginGitInternalCa}
       k3s ctr --namespace k8s.io images import ${images.busybox}
       k3s ctr --namespace k8s.io images import ${images.dotfilesCiNix}
+      k3s ctr --namespace k8s.io images import ${images.ciWorker}
 
       k3s crictl images | grep -F 'localhost/dotfiles-ci-nix'
       k3s crictl images | grep -F '0.1.3'
+      k3s crictl images | grep -F 'localhost/ci-worker-base'
     '';
     serviceConfig = {
       Type = "oneshot";

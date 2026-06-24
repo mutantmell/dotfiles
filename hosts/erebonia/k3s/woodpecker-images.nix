@@ -1,10 +1,18 @@
-{pkgs}: let
+{
+  pkgs,
+  nixpkgs,
+}: let
   pki = pkgs.mmell.lib.data.pki;
   uid = 1000;
   gid = 1000;
   internalCaBundle = pkgs.runCommand "internal-ca-bundle.crt" {} ''
     cat ${pki.root} ${pki.intermediate} > "$out"
   '';
+  ciWorkerImage = import ../../../packages/ci-worker-image {
+    inherit nixpkgs;
+    system = pkgs.stdenv.hostPlatform.system;
+    caCerts = with pki; [root intermediate];
+  };
   pluginGitImage = pkgs.dockerTools.pullImage {
     imageName = "docker.io/woodpeckerci/plugin-git";
     imageDigest = "sha256:8995e4745cf57dcee659db94d43598fd181b1b370671db2c9ccf7b0b2a8f31c8";
@@ -49,6 +57,8 @@ in {
     finalImageName = "busybox";
     finalImageTag = "stable-musl";
   };
+
+  ciWorker = ciWorkerImage;
 
   dotfilesCiNix = pkgs.dockerTools.buildLayeredImageWithNixDb {
     name = "localhost/dotfiles-ci-nix";

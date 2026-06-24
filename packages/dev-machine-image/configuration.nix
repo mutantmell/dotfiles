@@ -5,8 +5,12 @@
   modulesPath,
   claude-code,
   codex,
+  role ? "dev-machine",
   ...
 }: let
+  isDevMachine = role == "dev-machine";
+  isCiWorker = role == "ci-worker";
+
   devMachineTools = import ../dev-machine-tools.nix {
     inherit pkgs claude-code codex;
   };
@@ -104,6 +108,17 @@
     exec ${pkgs.podman}/bin/podman --remote --url unix:///run/podman/podman.sock "$@"
   '';
 in {
+  assertions = [
+    {
+      assertion = builtins.elem role ["dev-machine" "ci-worker"];
+      message = "packages/dev-machine-image role must be \"dev-machine\" or \"ci-worker\".";
+    }
+    {
+      assertion = !isDevMachine || (claude-code != null && codex != null);
+      message = "packages/dev-machine-image role \"dev-machine\" requires claude-code and codex.";
+    }
+  ];
+
   # ── Phase 1.3 — base VM image for the locked-down LLM dev machines ───────────
   # (ai-dev-machine-kubevirt-plan.md). This is the KubeVirt VM that is the
   # security boundary: a NixOS VM carrying sshd, rootful Podman, the host
@@ -150,24 +165,37 @@ in {
     autoFormat = true;
   };
 
-  systemd.tmpfiles.rules = [
-    "d /mnt/scratch/containers 0711 root root -"
-    "d /mnt/scratch/nix-builds 0755 root root -"
-  ];
+  systemd.tmpfiles.rules =
+    [
+      "d /mnt/scratch/nix-builds 0755 root root -"
+    ]
+    ++ lib.optionals isDevMachine [
+      "d /mnt/scratch/containers 0711 root root -"
+    ]
+    ++ lib.optionals isCiWorker [
+      "d /mnt/scratch/woodpecker-tmp 0750 woodpecker woodpecker -"
+      "d /var/lib/woodpecker-agent 0750 woodpecker woodpecker -"
+    ];
 
   systemd.services.dev-machine-scratch-nix = {
     description = "Move the dev-machine Nix store onto scratch storage";
     wantedBy = ["multi-user.target"];
     requires = ["mnt-scratch.mount"];
     after = ["mnt-scratch.mount"];
-    before = [
-      "basic.target"
-      "nix-daemon.service"
-      "nix-daemon.socket"
-      "podman.service"
-      "podman.socket"
-      "sshd.service"
-    ];
+    before =
+      [
+        "basic.target"
+        "nix-daemon.service"
+        "nix-daemon.socket"
+      ]
+      ++ lib.optionals isDevMachine [
+        "podman.service"
+        "podman.socket"
+        "sshd.service"
+      ]
+      ++ lib.optionals isCiWorker [
+        "woodpecker-agent.service"
+      ];
     path = [
       pkgs.coreutils
       pkgs.findutils
@@ -183,7 +211,9 @@ in {
     script = ''
       set -euo pipefail
 
-      mkdir -p /mnt/scratch/nix /mnt/scratch/containers /mnt/scratch/nix-builds
+      mkdir -p /mnt/scratch/nix /mnt/scratch/nix-builds
+      ${lib.optionalString isDevMachine "mkdir -p /mnt/scratch/containers"}
+      ${lib.optionalString isCiWorker "mkdir -p /mnt/scratch/woodpecker-tmp"}
 
       if ! findmnt -rn --mountpoint /nix --output TARGET | grep -qx /nix; then
         if [ ! -e /mnt/scratch/nix/.dev-machine-nix-seeded ]; then
@@ -193,10 +223,12 @@ in {
         mount --bind /mnt/scratch/nix /nix
       fi
 
-      mkdir -p /var/lib/containers
-      if ! findmnt -rn --mountpoint /var/lib/containers --output TARGET | grep -qx /var/lib/containers; then
-        mount --bind /mnt/scratch/containers /var/lib/containers
-      fi
+      ${lib.optionalString isDevMachine ''
+        mkdir -p /var/lib/containers
+        if ! findmnt -rn --mountpoint /var/lib/containers --output TARGET | grep -qx /var/lib/containers; then
+          mount --bind /mnt/scratch/containers /var/lib/containers
+        fi
+      ''}
     '';
   };
 
@@ -215,7 +247,7 @@ in {
   # from bt8gw via the launcher-pinned MAC; bt8gw fw4 governs egress. The VM has
   # no flannel NIC, so Kubernetes NetworkPolicy does not apply to its data plane.
   networking.useDHCP = lib.mkForce true;
-  networking.firewall.allowedTCPPorts = [22];
+  networking.firewall.allowedTCPPorts = lib.mkIf isDevMachine [22];
   # tssh/tsshd (Phase 6 mobile access) carries its session over UDP: after the
   # initial SSH login, tssh starts a per-session tsshd that picks a UDP port in
   # this range and the session roams over it. 61001-61999 is tsshd's default
@@ -223,7 +255,7 @@ in {
   # plan opens, so the guest firewall never drops a session the router allowed (a
   # narrower guest range would). A client that pins a narrower TsshdPort can ride
   # a correspondingly narrower hole, but the default keeps zero-config working.
-  networking.firewall.allowedUDPPortRanges = [
+  networking.firewall.allowedUDPPortRanges = lib.mkIf isDevMachine [
     {
       from = 61001;
       to = 61999;
@@ -231,7 +263,7 @@ in {
   ];
 
   # ── What devpod's SSH provider needs, and nothing else ──────────────────────
-  services.openssh = {
+  services.openssh = lib.mkIf isDevMachine {
     enable = true;
     settings = {
       PasswordAuthentication = false;
@@ -249,6 +281,7 @@ in {
   # we want thin and fast to cold-start. Any real VM-level first-boot need later
   # is a small, local re-add of a cloudInitNoCloud path.
   services.qemuGuest.enable = true;
+  services.cloud-init.enable = lib.mkIf isCiWorker true;
 
   # Compressed in-RAM swap, so a memory spike degrades instead of tripping the
   # guest OOM killer — which would reap sshd / the devpod agent and leave the VM
@@ -291,9 +324,13 @@ in {
     enable = true;
     enableUserSlices = true;
   };
-  systemd.services.sshd.serviceConfig.OOMScoreAdjust = -900;
+  systemd.services.sshd = lib.mkIf isDevMachine {
+    serviceConfig.OOMScoreAdjust = -900;
+  };
   systemd.services.qemu-guest-agent.serviceConfig.OOMScoreAdjust = -900;
-  systemd.services.podman.serviceConfig.OOMScoreAdjust = -500;
+  systemd.services.podman = lib.mkIf isDevMachine {
+    serviceConfig.OOMScoreAdjust = -500;
+  };
 
   # The VM host owns Nix builds. Agents run Nix clients inside the devcontainer,
   # but /nix is bind-mounted from this host and NIX_REMOTE talks to this daemon.
@@ -310,10 +347,12 @@ in {
     sandbox-fallback = false;
     auto-allocate-uids = true;
     use-cgroups = true;
-    allowed-users = [
-      "root"
-      "dev"
-    ];
+    allowed-users =
+      [
+        "root"
+      ]
+      ++ lib.optionals isDevMachine ["dev"]
+      ++ lib.optionals isCiWorker ["woodpecker"];
     trusted-users = ["root"];
     system-features = [
       "nixos-test"
@@ -331,8 +370,8 @@ in {
   # the first target here because the workload needs direct VM resources and
   # stable host-daemon integration; the KubeVirt VM remains the primary security
   # boundary.
-  virtualisation.containers.enable = true;
-  virtualisation.podman = {
+  virtualisation.containers.enable = lib.mkIf isDevMachine true;
+  virtualisation.podman = lib.mkIf isDevMachine {
     enable = true;
   };
 
@@ -344,10 +383,18 @@ in {
   # needed. Deliberately no `wheel`: the VM is the security boundary, and giving
   # `dev` passwordless root would hand it to anything that escaped the inner
   # runc container to this user — the opposite of the lockdown intent.
-  users.users.dev = {
+  users.users.dev = lib.mkIf isDevMachine {
     isNormalUser = true;
     extraGroups = ["podman"];
   };
+
+  users.users.woodpecker = lib.mkIf isCiWorker {
+    isSystemUser = true;
+    group = "woodpecker";
+    extraGroups = ["kvm"];
+    home = "/var/lib/woodpecker-agent";
+  };
+  users.groups.woodpecker = lib.mkIf isCiWorker {};
 
   # A UTF-8 locale for the VM session (Phase 6 mobile access). Unlike mosh-server,
   # tsshd has no hard locale requirement (it's a Go binary, no glibc locale
@@ -374,15 +421,68 @@ in {
   # needed; like the Podman socket, it lives on the VM, not inside the
   # devcontainer. dev-cp is the file-transfer sibling (rootful Podman cp wrapper) for
   # moving files into/out of the inner workspace.
-  environment.systemPackages =
-    [
-      pkgs.git
-      pkgs.tsshd
-      podman-rootful
-      dev-attach
-      dev-cp
-    ]
-    ++ devMachineTools.devTools;
+  environment.systemPackages = lib.mkMerge [
+    (lib.mkIf isDevMachine (
+      [
+        pkgs.git
+        pkgs.tsshd
+        podman-rootful
+        dev-attach
+        dev-cp
+      ]
+      ++ devMachineTools.devTools
+    ))
+    (lib.mkIf isCiWorker [
+      pkgs.bashInteractive
+      pkgs.coreutils-full
+      pkgs.gitMinimal
+      pkgs.gnugrep
+      pkgs.gnused
+      pkgs.nix
+      pkgs.woodpecker-agent
+    ])
+  ];
+
+  systemd.services.woodpecker-agent = lib.mkIf isCiWorker {
+    description = "Woodpecker CI worker agent";
+    wantedBy = ["multi-user.target"];
+    after = [
+      "cloud-final.service"
+      "network-online.target"
+      "dev-machine-scratch-nix.service"
+    ];
+    wants = [
+      "network-online.target"
+      "dev-machine-scratch-nix.service"
+    ];
+    path = [
+      pkgs.bashInteractive
+      pkgs.coreutils-full
+      pkgs.gitMinimal
+      pkgs.nix
+      pkgs.openssh
+      pkgs.woodpecker-agent
+    ];
+    environment = {
+      WOODPECKER_SERVER = "saint-arkh.internal:9000";
+      WOODPECKER_BACKEND = "local";
+      WOODPECKER_MAX_WORKFLOWS = "1";
+      WOODPECKER_AGENT_LABELS = "!runner=nixos-kvm";
+      WOODPECKER_AGENT_CONFIG_FILE = "/var/lib/woodpecker-agent/agent.conf";
+      WOODPECKER_BACKEND_LOCAL_TEMP_DIR = "/mnt/scratch/woodpecker-tmp";
+      NIX_REMOTE = "daemon";
+    };
+    serviceConfig = {
+      User = "woodpecker";
+      Group = "woodpecker";
+      WorkingDirectory = "/var/lib/woodpecker-agent";
+      EnvironmentFile = "/etc/woodpecker/agent.env";
+      ExecStart = "${pkgs.woodpecker-agent}/bin/woodpecker-agent";
+      Restart = "on-failure";
+      RestartSec = 15;
+      OOMScoreAdjust = -300;
+    };
+  };
 
   # ── Phase 6 — auto-attach an interactive login straight into the devcontainer ─
   # So a mobile operator only needs a saved ssh/tssh profile (no remembered
@@ -403,7 +503,7 @@ in {
   # a machine whose container isn't up yet — drops you at a `dev` shell on the
   # boundary VM rather than logging you out. Need a plain VM shell deliberately?
   # `ssh -t dev@<host> bash --noprofile -i`.
-  programs.bash.loginShellInit = ''
+  programs.bash.loginShellInit = lib.mkIf isDevMachine ''
     if [ -t 0 ] && [ "$(id -un)" = dev ]; then
       ${dev-attach}/bin/dev-attach || true
     fi
