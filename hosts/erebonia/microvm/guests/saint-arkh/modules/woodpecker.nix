@@ -19,6 +19,7 @@
     GIT = "${pkgs.git}/bin/git"
     NIX = "${config.nix.package}/bin/nix"
     REPO_NAME = "dotfiles"
+    DOTFILES_CLONE_URL = "https://forgejo.internal/mutantmell/dotfiles.git"
     SAFE_CHECK_RE = re.compile(r"^host-eval-[A-Za-z0-9_-]+$")
 
     PIPELINE_HEADER = """\
@@ -159,6 +160,9 @@
             pipeline.get("clone_url")
             or repo.get("clone_url")
             or repo.get("git_http_url")
+            or repo.get("link_url")
+            or repo.get("link")
+            or DOTFILES_CLONE_URL
         )
         if not clone_url:
             return None
@@ -204,13 +208,9 @@
         if os.path.exists(os.path.join(cwd, "flake.nix")):
             return cwd, False
 
-        repo = payload.get("repo", {})
         checkout = checkout_payload_repo(payload)
         if checkout:
             return checkout, True
-
-        if repo and is_dotfiles_repo(repo):
-            raise RuntimeError("unable to check out dotfiles for CI discovery")
 
         return None, False
 
@@ -259,12 +259,17 @@
 
 
     def render_pipeline(payload):
-        repo_path, cleanup = repo_path_for_payload(payload)
+        cleanup = False
         try:
-            checks = discover_safe_checks(repo_path)
-        finally:
-            if cleanup:
-                shutil.rmtree(repo_path, ignore_errors=True)
+            repo_path, cleanup = repo_path_for_payload(payload)
+            try:
+                checks = discover_safe_checks(repo_path)
+            finally:
+                if cleanup:
+                    shutil.rmtree(repo_path, ignore_errors=True)
+        except Exception as err:
+            print(f"host-eval discovery failed: {err}", flush=True)
+            checks = []
 
         return PIPELINE_HEADER + render_host_eval_steps(checks)
 
@@ -286,11 +291,7 @@
                 except json.JSONDecodeError as err:
                     self.send_error(400, f"invalid JSON payload: {err}")
                     return
-            try:
-                data = render_pipeline(payload)
-            except Exception as err:
-                self.send_error(500, f"failed to generate config: {err}")
-                return
+            data = render_pipeline(payload)
             body = json.dumps({
                 "configs": [
                     {
