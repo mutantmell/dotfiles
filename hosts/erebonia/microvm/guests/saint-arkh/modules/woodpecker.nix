@@ -361,6 +361,7 @@ in {
     description = "Woodpecker flake-backed configuration extension";
     wantedBy = ["multi-user.target"];
     after = ["network.target"];
+    environment.NIX_REMOTE = "daemon";
     serviceConfig = {
       DynamicUser = true;
       ExecStart = configService;
@@ -371,6 +372,7 @@ in {
       PrivateDevices = true;
       ProtectHome = true;
       ProtectSystem = "strict";
+      ReadWritePaths = ["/nix/var/nix/temproots"];
       ProtectKernelTunables = true;
       ProtectKernelModules = true;
       ProtectKernelLogs = true;
