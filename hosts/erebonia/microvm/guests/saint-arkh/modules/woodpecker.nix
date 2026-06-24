@@ -360,7 +360,8 @@ in {
   systemd.services.woodpecker-flake-config = {
     description = "Woodpecker flake-backed configuration extension";
     wantedBy = ["multi-user.target"];
-    after = ["network.target"];
+    after = ["network.target" "nix-daemon.socket"];
+    requires = ["nix-daemon.socket"];
     environment.NIX_REMOTE = "daemon";
     serviceConfig = {
       DynamicUser = true;
