@@ -367,12 +367,16 @@ in {
       ExecStart = configService;
       Restart = "on-failure";
       RestartSec = 15;
+      RuntimeDirectory = "woodpecker-flake-config/temproots";
+      RuntimeDirectoryMode = "0700";
+      BindPaths = [
+        "/run/woodpecker-flake-config/temproots:/nix/var/nix/temproots"
+      ];
       NoNewPrivileges = true;
       PrivateTmp = true;
       PrivateDevices = true;
       ProtectHome = true;
       ProtectSystem = "strict";
-      ReadWritePaths = ["/nix/var/nix/temproots"];
       ProtectKernelTunables = true;
       ProtectKernelModules = true;
       ProtectKernelLogs = true;
