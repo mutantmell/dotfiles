@@ -150,6 +150,15 @@
             shutil.rmtree(env["HOME"], ignore_errors=True)
 
 
+    def format_command_error(err):
+        details = [str(err)]
+        if err.stderr:
+            details.append(f"stderr: {err.stderr.strip()}")
+        if err.stdout:
+            details.append(f"stdout: {err.stdout.strip()}")
+        return "; ".join(details)
+
+
     def checkout_payload_repo(payload):
         repo = payload.get("repo", {})
         pipeline = payload.get("pipeline", {})
@@ -267,6 +276,12 @@
             finally:
                 if cleanup:
                     shutil.rmtree(repo_path, ignore_errors=True)
+        except subprocess.CalledProcessError as err:
+            print(
+                f"host-eval discovery failed: {format_command_error(err)}",
+                flush=True,
+            )
+            checks = []
         except Exception as err:
             print(f"host-eval discovery failed: {err}", flush=True)
             checks = []
@@ -360,7 +375,7 @@ in {
       ProtectKernelModules = true;
       ProtectKernelLogs = true;
       ProtectControlGroups = true;
-      RestrictAddressFamilies = ["AF_INET" "AF_INET6"];
+      RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_INET6"];
       RestrictRealtime = true;
       RestrictSUIDSGID = true;
       SystemCallArchitectures = "native";
