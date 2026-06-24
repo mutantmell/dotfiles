@@ -14,6 +14,7 @@ set -euo pipefail
 # Usage:
 #   ./scripts/run-checks.sh              # run all checks
 #   ./scripts/run-checks.sh -j4          # run up to 4 checks in parallel
+#   ./scripts/run-checks.sh --shard 1/4  # run a stable shard of all checks
 #   ./scripts/run-checks.sh <name> ...   # run specific checks
 #   ./scripts/run-checks.sh --eval-only-pure <name> ...
 
@@ -21,6 +22,7 @@ SYSTEM="x86_64-linux"
 FLAKE_REF="."
 MAX_PARALLEL=1
 EVAL_ONLY_PURE=0
+SHARD_SPEC=""
 CHECKS=()
 
 declare -A PURE_EVAL_CHECKS=(
@@ -32,15 +34,87 @@ declare -A PURE_EVAL_CHECKS=(
   ["disko-vmtools-canary"]=1
 )
 
+usage() {
+  cat <<EOF
+Usage: $0 [options] [check ...]
+
+Options:
+  -jN, -j N          Run up to N checks in parallel
+  --eval-only-pure   Evaluate pure checks to drvPath only
+  --shard N/M        Run shard N of M from the selected checks
+EOF
+}
+
+die() {
+  echo "error: $*" >&2
+  echo "" >&2
+  usage >&2
+  exit 2
+}
+
+is_positive_int() {
+  [[ $1 =~ ^[1-9][0-9]*$ ]]
+}
+
+parse_shard_spec() {
+  local spec="$1"
+  if [[ ! $spec =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]]; then
+    die "--shard must use N/M with positive integers"
+  fi
+
+  SHARD_INDEX="${BASH_REMATCH[1]}"
+  SHARD_TOTAL="${BASH_REMATCH[2]}"
+  if ((SHARD_INDEX > SHARD_TOTAL)); then
+    die "--shard index must be less than or equal to shard total"
+  fi
+}
+
+SHARD_INDEX=0
+SHARD_TOTAL=0
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
+  -j)
+    shift
+    [[ $# -gt 0 ]] || die "-j requires a positive integer"
+    is_positive_int "$1" || die "-j requires a positive integer"
+    MAX_PARALLEL="$1"
+    shift
+    ;;
   -j*)
     MAX_PARALLEL="${1#-j}"
+    is_positive_int "$MAX_PARALLEL" || die "-j requires a positive integer"
     shift
     ;;
   --eval-only-pure)
     EVAL_ONLY_PURE=1
     shift
+    ;;
+  --shard)
+    shift
+    [[ $# -gt 0 ]] || die "--shard requires N/M"
+    SHARD_SPEC="$1"
+    parse_shard_spec "$SHARD_SPEC"
+    shift
+    ;;
+  --shard=*)
+    SHARD_SPEC="${1#--shard=}"
+    parse_shard_spec "$SHARD_SPEC"
+    shift
+    ;;
+  --help | -h)
+    usage
+    exit 0
+    ;;
+  --)
+    shift
+    while [[ $# -gt 0 ]]; do
+      CHECKS+=("$1")
+      shift
+    done
+    ;;
+  -*)
+    die "unknown option: $1"
     ;;
   *)
     CHECKS+=("$1")
@@ -52,8 +126,23 @@ done
 # If no checks specified, discover all available checks
 if [[ ${#CHECKS[@]} -eq 0 ]]; then
   echo "Discovering checks..."
-  CHECKS_JSON=$(nix eval "${FLAKE_REF}#checks.${SYSTEM}" --apply 'x: builtins.attrNames x' --json 2>/dev/null)
-  mapfile -t CHECKS < <(echo "$CHECKS_JSON" | sed 's/[][]//g; s/,/\n/g; s/"//g; s/ //g' | grep -v '^$')
+  CHECKS_TEXT=$(
+    nix eval "${FLAKE_REF}#checks.${SYSTEM}" \
+      --apply 'x: builtins.concatStringsSep "\n" (builtins.attrNames x)' \
+      --raw \
+      2>/dev/null
+  )
+  mapfile -t CHECKS < <(printf '%s\n' "$CHECKS_TEXT" | grep -v '^$')
+fi
+
+if [[ -n $SHARD_SPEC ]]; then
+  SHARDED_CHECKS=()
+  for i in "${!CHECKS[@]}"; do
+    if (((i % SHARD_TOTAL) + 1 == SHARD_INDEX)); then
+      SHARDED_CHECKS+=("${CHECKS[$i]}")
+    fi
+  done
+  CHECKS=("${SHARDED_CHECKS[@]}")
 fi
 
 # Per-test logs are captured here. Kept on failure so a flake or real error
@@ -69,6 +158,9 @@ FAILED_NAMES=()
 
 TOTAL=${#CHECKS[@]}
 echo "Running ${TOTAL} nix checks (parallelism: ${MAX_PARALLEL})..."
+if [[ -n $SHARD_SPEC ]]; then
+  echo "Shard: ${SHARD_SPEC}"
+fi
 if [[ $EVAL_ONLY_PURE -eq 1 ]]; then
   echo "Pure eval checks will force drvPath only."
 fi

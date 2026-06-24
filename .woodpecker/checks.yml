@@ -1,0 +1,210 @@
+when:
+  - event: [push, pull_request, manual]
+
+clone:
+  - name: git
+    image: localhost/woodpecker-plugin-git:2.9.1-internal-ca
+    settings:
+      depth: 0
+      home: /tmp
+    backend_options:
+      kubernetes:
+        runtimeClassName: runsc
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        serviceAccountName: woodpecker-build-step
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+
+steps:
+  - name: agent-preflight-quick
+    image: localhost/dotfiles-ci-nix:0.1.3
+    commands:
+      - |
+        if ionice -c 3 true 2>/dev/null; then
+          ionice -c 3 nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/agent-preflight.sh --quick
+        else
+          nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/agent-preflight.sh --quick
+        fi
+    backend_options:
+      kubernetes:
+        runtimeClassName: runsc
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 8Gi
+        serviceAccountName: woodpecker-build-step
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+
+  - name: checks-shard-1
+    image: localhost/dotfiles-ci-nix:0.1.3
+    depends_on: [agent-preflight-quick]
+    commands:
+      - |
+        if ionice -c 3 true 2>/dev/null; then
+          ionice -c 3 nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh --shard 1/4
+        else
+          nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh --shard 1/4
+        fi
+    backend_options:
+      kubernetes:
+        runtimeClassName: runsc
+        resources:
+          requests:
+            cpu: 750m
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 6Gi
+        serviceAccountName: woodpecker-build-step
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+
+  - name: checks-shard-2
+    image: localhost/dotfiles-ci-nix:0.1.3
+    depends_on: [agent-preflight-quick]
+    commands:
+      - |
+        if ionice -c 3 true 2>/dev/null; then
+          ionice -c 3 nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh --shard 2/4
+        else
+          nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh --shard 2/4
+        fi
+    backend_options:
+      kubernetes:
+        runtimeClassName: runsc
+        resources:
+          requests:
+            cpu: 750m
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 6Gi
+        serviceAccountName: woodpecker-build-step
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+
+  - name: checks-shard-3
+    image: localhost/dotfiles-ci-nix:0.1.3
+    depends_on: [agent-preflight-quick]
+    commands:
+      - |
+        if ionice -c 3 true 2>/dev/null; then
+          ionice -c 3 nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh --shard 3/4
+        else
+          nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh --shard 3/4
+        fi
+    backend_options:
+      kubernetes:
+        runtimeClassName: runsc
+        resources:
+          requests:
+            cpu: 750m
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 6Gi
+        serviceAccountName: woodpecker-build-step
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+
+  - name: checks-shard-4
+    image: localhost/dotfiles-ci-nix:0.1.3
+    depends_on: [agent-preflight-quick]
+    commands:
+      - |
+        if ionice -c 3 true 2>/dev/null; then
+          ionice -c 3 nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh --shard 4/4
+        else
+          nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh --shard 4/4
+        fi
+    backend_options:
+      kubernetes:
+        runtimeClassName: runsc
+        resources:
+          requests:
+            cpu: 750m
+            memory: 2Gi
+          limits:
+            cpu: "2"
+            memory: 6Gi
+        serviceAccountName: woodpecker-build-step
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
