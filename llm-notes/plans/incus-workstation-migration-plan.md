@@ -193,7 +193,9 @@ Rationale:
 - comin already makes this repo the source of truth for the **guest** plane;
   putting the **shell** plane here too means the whole workstation (VM + OS) is
   defined in one place, changed in one commit, reviewed in one PR, gated by the
-  existing `run-checks.sh` + AGit flow.
+  repo PR/CI flow. Today that means `run-checks.sh` plus AGit; the target agent
+  workflow is the validated normal-branch + `tea` path described in
+  `llm-notes/plans/agent-ci-feedback-loop-plan.md`.
 - The repo is **already** the platform source of truth, but the ownership
   boundary is now explicit: k3s/NixOS bootstraps Flux, Flux reconciles the
   long-running Kubernetes objects and Helm releases, and Nix pins/renders/

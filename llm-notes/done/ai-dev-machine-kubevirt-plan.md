@@ -612,6 +612,14 @@ an operator machine" item; orthogonal to this phase but surfaced by it.
 
 ## PR creation — AGit flow (resolved 2026-06-07)
 
+> **Supersession note (2026-06-25).** This section records the decision that
+> unblocked PR-oriented dev-machine work in June 2026. It remains historically
+> accurate, but it is no longer the target end-state. The current replacement
+> plan is `llm-notes/plans/agent-ci-feedback-loop-plan.md`: AGit stays as the
+> operational fallback/default until a constrained normal-branch + `tea`
+> workflow has validated branch namespace restrictions, Forgejo API/broker
+> scope, token materialization, and smoke-test behavior.
+
 **Decision: the sandbox opens/updates PRs with Forgejo's builtin AGit flow
 (`git push … HEAD:refs/for/<branch>`), NOT an injected Forgejo API token or a
 `tea` CLI in the dev image.** The AGit push authenticates with the **existing

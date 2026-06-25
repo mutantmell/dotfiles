@@ -369,27 +369,27 @@ that:
 ### 1.6a Agent PR feedback integration
 
 The CI gap is not only "run checks on PRs"; it is "make PR state and check
-failures readable by an LLM with narrow credentials." Add a small
-Forgejo/Woodpecker-facing tool or MCP server for agent use. Required
-capabilities:
+failures readable by an LLM with narrow credentials." The concrete agent-facing
+workflow now lives in `llm-notes/plans/agent-ci-feedback-loop-plan.md`.
 
-- Resolve the current PR from the checked-out branch, AGit topic, or head SHA.
-- Read PR description, lifecycle comments, review comments, requested changes,
-  and current mergeability/check state.
-- Read the compact CI artifacts/comments from 1.6, and fetch full logs only
-  when needed.
-- Post status comments or answers as the bot, using a token separate from the
-  per-session Git push SSH key.
-- Surface lifecycle comments such as `agent: retry checks`, `agent: fix review
-  comments`, `agent: rebase`, `agent: explain failure`,
-  `agent: run full preflight`, and `agent: ready for review`.
-- Notify an active agent session when a relevant lifecycle comment or failed
-  check appears. The notification channel can start as polling from the agent
-  tool; webhook-to-queue delivery can come later.
+Target direction:
 
-Keep token scope narrow: read PRs/checks/comments plus write comments/status
-only. Do not reuse the Git push credential for API operations, and do not grant
-deploy/admin rights to the agent tool.
+- Agents use `tea` as the normal Forgejo-facing interface for PR
+  create/update/status/comment operations.
+- Agents do not normally use a direct Woodpecker API/CLI integration.
+- Woodpecker produces `check-summary.json` and `check-summary.md`.
+- A trusted reporter outside untrusted PR build steps posts or updates one
+  sticky `dotfiles-ci-summary:v1` PR comment in Forgejo.
+- Agents read PR description, lifecycle comments, review comments, requested
+  changes, mergeability/check state, and the sticky CI summary through Forgejo.
+- AGit topic resolution remains fallback-only while AGit remains the operational
+  default. The normal-branch + `tea` workflow should not replace AGit until
+  branch namespace constraints, API token scope, token materialization, and
+  smoke-test behavior are implemented and validated.
+
+Keep token scope narrow. Do not reuse the Git push credential for API
+operations, and do not grant deploy/admin rights to the agent-facing `tea`
+credential or any wrapper around it.
 
 ### 1.6b Required checks and merge gates
 
@@ -1093,12 +1093,17 @@ This is separate from Flux-owned cluster dependency updates. Per
 manifests, Flux bootstrap artifacts, and selected system images should be
 tracked in the cluster dependency registry. The first implementation should use
 a repo-native updater/check flow that edits that registry, refreshes
-hashes/digests, regenerates committed Flux YAML when needed, and opens an AGit
-PR. Renovate can be added later, but only if it edits the authoritative
-dependency surface for a given dependency class. When automated, give the
-updater a scoped git push credential, a stable AGit topic/title convention, and
-a clear policy for manual invocation vs. scheduled runs; start manual until the
-checks and review flow are proven.
+hashes/digests, regenerates committed Flux YAML when needed, and opens a PR. The
+target PR creation path should follow
+`llm-notes/plans/agent-ci-feedback-loop-plan.md`: normal branch plus Forgejo PR
+creation through the chosen narrow API/broker path once validated. AGit is an
+acceptable interim fallback while the `tea` branch-credential workflow is still
+unproven. Renovate can be added later, but only if it edits the authoritative
+dependency surface for a given dependency class; if Renovate owns this path, use
+its normal branch PR model rather than inventing an AGit-specific convention.
+When automated, give the updater scoped credentials, a stable branch/title
+convention, and a clear policy for manual invocation vs. scheduled runs; start
+manual until the checks and review flow are proven.
 
 The Nix-store-preloaded Woodpecker images introduced in the 2026-06-16
 Kubernetes backend pass belong in that same dependency-update work even though
