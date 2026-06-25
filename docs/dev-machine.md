@@ -33,7 +33,7 @@ dev-machine publish-base
 
 Inside the devcontainer, agents should expect:
 
-- `nix`, `git`, `rg`, `fd`, `jq`, `curl`, `wget`, `python3`, `just`, `treefmt`, `alejandra`, `openssh`, Codex, and Claude are available.
+- `nix`, `git`, `rg`, `fd`, `jq`, `curl`, `wget`, `python3`, `just`, `treefmt`, `alejandra`, `openssh`, `tea`, Codex, and Claude are available.
 - Common shell diagnostics and archive/build helpers are available, including `findmnt`, `ip`, `dig`, `nc`, `ps`, `rsync`, `unzip`, `zstd`, `file`, `which`, `make`, and `pkg-config`.
 - Interactive agent work runs as the non-root `agent` user (`uid 1000`, home `/home/agent`).
 - The container bind-mounts the VM host `/nix`; agent Nix clients use `NIX_REMOTE=daemon` and talk to the VM host nix-daemon.
@@ -43,6 +43,11 @@ Inside the devcontainer, agents should expect:
 - Nix daemon UID allocation is enabled on the VM host (`auto-allocate-uids`, `use-cgroups`, and `uid-range`) so NixOS container tests can run without granting the agent trusted-user status. The devcontainer no longer needs `CAP_SYS_ADMIN`, cgroup namespace sharing, writable `/sys/fs/cgroup`, system-path unmasking, or `--privileged` for Nix builds because sandbox setup happens in the VM host daemon.
 - Docker/Podman, DevPod, kubectl, virtctl, and registry credentials are not available inside the agent container.
 - Git push access uses a scoped per-session Forgejo bot key injected by `dev-machine up`.
+- Forgejo PR API access through `tea` has the client binary and
+  `TEA_CONFIG_HOME=/home/agent/.config/tea` in place. The entrypoint creates
+  that directory with mode `0700`. Token injection and normal branch-based PR
+  creation are still pending, so AGit remains the default PR submission path
+  for now.
 - LLM profile setup is injected through DevPod dotfiles when the target repo's `.net.mutantmell/agents.toml` names a dotfiles repository. That repository's installer activates only the plugins and marketplaces the checkout asks for.
 - Egress is enforced at bt8gw for VLAN 51, not by Kubernetes NetworkPolicy. The intended policy is WAN plus limited access to `forgejo.internal` for git/registry traffic.
 
@@ -100,6 +105,8 @@ agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
 These commands locate the dotfiles checkout, change to the repo root, and call the existing scripts or Nix commands. They do not replace the repo validation stack.
 
 Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.
+
+The target CI feedback loop is documented in `llm-notes/plans/agent-ci-feedback-loop-plan.md`. Until the Forgejo API credential and branch-push controls are validated, agents should continue to open PRs through the repo's AGit workflow. Once enabled, the intended PR status path is Forgejo through `tea`: read the PR `ci` field for pass/fail state and the sticky `dotfiles-ci-summary:v1` PR comment for actionable failure details.
 
 ## Agent Profile
 

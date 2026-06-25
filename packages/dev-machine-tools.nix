@@ -5,6 +5,7 @@
 }: let
   agentUid = "1000";
   agentGid = "1000";
+  teaConfigHome = "/home/agent/.config/tea";
 
   mkAgentWrapper = name: text:
     pkgs.writeShellApplication {
@@ -80,6 +81,9 @@
         mkdir -p /home/agent /tmp
         chmod 1777 /tmp
         chown -R ${agentUid}:${agentGid} /home/agent 2>/dev/null || true
+        mkdir -p ${teaConfigHome}
+        chmod 700 ${teaConfigHome}
+        chown -R ${agentUid}:${agentGid} ${teaConfigHome} 2>/dev/null || true
       else
         [[ -d /home/agent ]] || {
           echo "dev-machine-entrypoint: /home/agent is missing" >&2
@@ -89,6 +93,8 @@
           echo "dev-machine-entrypoint: /tmp is missing" >&2
           exit 1
         }
+        mkdir -p ${teaConfigHome}
+        chmod 700 ${teaConfigHome}
       fi
 
       if [[ $# -gt 0 ]]; then
@@ -145,9 +151,10 @@
       pkg-config
       less
       openssh
+      tea
       busybox
       dockerTools.usrBinEnv
     ]);
 in {
-  inherit agentUid agentGid agentWrappers devMachineEntrypoint devTools;
+  inherit agentUid agentGid agentWrappers devMachineEntrypoint devTools teaConfigHome;
 }

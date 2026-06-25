@@ -5,11 +5,12 @@
   # releases. Defaults to nixpkgs so the package still evaluates standalone.
   claude-code,
   codex,
+  imageName ? "dev-machine-dev",
 }: let
   devMachineTools = import ../dev-machine-tools.nix {
     inherit pkgs claude-code codex;
   };
-  inherit (devMachineTools) agentUid agentGid devTools;
+  inherit (devMachineTools) agentUid agentGid devTools teaConfigHome;
   # ── Phase 2.2 — custom dev image for the locked-down LLM dev machines ────────
   # (ai-dev-machine-kubevirt-plan.md). devpod's SSH provider builds/runs this as
   # a plain runc container *inside* the KubeVirt VM (the security boundary); the
@@ -67,7 +68,7 @@
   # blocks the API regardless, but we don't ship the tool either.
 in
   pkgs.dockerTools.streamLayeredImage {
-    name = "dev-machine-dev";
+    name = imageName;
     tag = "latest";
     contents = devTools;
 
@@ -93,6 +94,7 @@ in
         # write anyway, and updating would attempt egress the Phase 5 lockdown
         # forbids. Belt-and-suspenders even if the package already sets it.
         "DISABLE_AUTOUPDATER=1"
+        "TEA_CONFIG_HOME=${teaConfigHome}"
       ];
     };
 

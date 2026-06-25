@@ -198,6 +198,13 @@ dev_machine_image_configures_scratch_build_dir() {
     2>/dev/null | grep -qx "/mnt/scratch/nix-builds"
 }
 
+tea_config_dir_is_private() {
+  local path=${TEA_CONFIG_HOME:-$HOME/.config/tea}
+  [[ -d $path ]] || return 1
+  [[ $(stat -c %a "$path") == 700 ]] || return 1
+  [[ $(stat -c %U "$path") == "$(id -un)" ]] || return 1
+}
+
 check "repo root detected" find_repo_root
 diagnose "repo root" "${repo_root:-not found}"
 check "agent user is non-root" agent_user_is_non_root
@@ -264,13 +271,16 @@ else
   check "/dev/kvm available" test -e /dev/kvm
 fi
 
-for tool in curl wget python3 fd just findmnt ip dig nc ps rsync unzip zstd file which make pkg-config; do
+for tool in curl wget python3 fd just findmnt ip dig nc ps rsync unzip zstd file which make pkg-config tea; do
   check "$tool available" command -v "$tool"
 done
 
-for tool in kubectl docker podman devpod virtctl gh tea; do
+for tool in kubectl docker podman devpod virtctl gh; do
   check_absent "$tool absent from agent PATH" command -v "$tool"
 done
+
+check "tea reports a version" tea --version
+check "tea config directory is private" tea_config_dir_is_private
 
 check_absent "docker socket absent" test -S /var/run/docker.sock
 check_absent "podman socket absent" test -S /run/podman/podman.sock

@@ -47,7 +47,8 @@ Woodpecker CLI access for normal CI diagnosis.
   - `agent-checks <check>`
   - `agent-build-check <check>`
 - AGit currently opens PRs without requiring a Forgejo API token.
-- `tea` is not currently installed in the dev-machine PATH.
+- Iteration 1 adds `tea` to the dev-machine PATH, but does not yet provision a
+  Forgejo API token or switch the default PR workflow away from AGit.
 - `tea` 0.14.0 is available from nixpkgs and supports:
   - PR creation and editing;
   - PR listing and JSON output;
@@ -297,13 +298,22 @@ broad and expensive validation.
 
 ## Implementation Plan
 
+### Iteration 1 result
+
+- Added `tea` to the single default dev-machine image output.
+- The image sets `TEA_CONFIG_HOME` to `/home/agent/.config/tea`, and the
+  entrypoint creates that directory with private permissions.
+- `scripts/dev-machine-smoke.sh` now asserts `tea --version` works and the tea
+  config directory is private.
+- Token injection and normal branch PR creation are still pending, so AGit
+  remains the default PR workflow.
+
 ### Phase 1: Add `tea` to dev-machine
 
 - Add `tea` to the dev-machine tool package.
-- Define a feature gate, for example `dev-machine.agentForgejoApi.enable`.
-- Add dual-mode smoke behavior:
-  - when disabled, `tea` and `gh` remain absent as today;
-  - when enabled, `tea --version` works and the configured token path has safe
+- Set `TEA_CONFIG_HOME` to an agent-owned location outside the Nix store.
+- Add smoke behavior:
+  - `tea --version` works and the configured token path has safe
     ownership/mode;
   - `gh`, operator tools, cluster tools, and registry credentials remain absent.
 - Document the intended `tea` workflow in `docs/dev-machine.md`.
@@ -502,11 +512,9 @@ When the workflow switches, update:
 - `AGENTS.md`:
   - replace "Submitting Changes With AGit" with a `tea` normal-branch workflow;
   - retain a short AGit fallback section while it remains supported;
-  - remove the instruction not to look for `tea` or PR API tokens.
+  - remove the instruction not to look for PR API tokens.
 - `docs/dev-machine.md`:
-  - document when the Forgejo API credential feature is enabled;
   - document where `tea` config lives and how it is cleaned up;
   - document the expected PR/CI feedback loop.
 - `scripts/dev-machine-smoke.sh`:
-  - keep asserting `tea` absence when the feature is disabled;
-  - assert `tea` presence and token-file permissions when enabled.
+  - assert `tea` presence and token-file permissions.

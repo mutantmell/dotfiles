@@ -81,7 +81,7 @@ Smoke test after dev-machine image/runtime changes:
 
 ## Submitting Changes With AGit
 
-This repo uses Forgejo AGit flow for pull requests from the locked-down dev machine. Do not push directly to `main`, and do not look for a PR API token, `tea`, `gh`, or web UI flow. The dev machine should only need its scoped git push credential.
+This repo uses Forgejo AGit flow for pull requests from the locked-down dev machine. Do not push directly to `main`, and do not look for a PR API token, `gh`, or web UI flow. The dev machine should only need its scoped git push credential for PR submission. `tea` may be installed for future Forgejo API work, but it is not the default PR workflow until token plumbing and branch constraints are validated.
 
 Committing and opening a PR is the default workflow for a coherent unit of work. `refs/for/main` proposes a PR; it does not write protected `main` directly.
 
