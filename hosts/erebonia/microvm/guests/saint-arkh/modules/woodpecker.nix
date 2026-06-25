@@ -11,7 +11,7 @@
       WOODPECKER_FORGEJO = "true";
       WOODPECKER_FORGEJO_URL = "https://forgejo.internal";
       WOODPECKER_DEFAULT_CLONE_PLUGIN = "localhost/woodpecker-plugin-git:2.9.1-internal-ca";
-      WOODPECKER_PLUGINS_TRUSTED_CLONE = "localhost/woodpecker-plugin-git:2.9.1-internal-ca";
+      WOODPECKER_PLUGINS_TRUSTED_CLONE = "localhost/woodpecker-plugin-git:2.9.1-internal-ca,plugin-git";
     };
     environmentFile = [config.sops.templates."woodpecker-server.env".path];
   };
