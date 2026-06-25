@@ -272,13 +272,19 @@ routine failures. Every generated check should map back to one repo-local
 reproduction command (`./scripts/run-checks.sh <name>`,
 `nix build .#checks.x86_64-linux.<name>`, `agent-preflight-quick`, etc.).
 
-Add a narrow PR helper tool for LLM sessions. It should resolve the current PR
-from branch/topic/head SHA, read PR descriptions, review comments, lifecycle
-comments, requested changes, check state, and check-summary artifacts, then post
-comments/status updates as the bot. The tool's token is separate from the
-per-session Git push SSH key and should only allow PR/check/comment read plus
-comment/status write. It must not carry deployment, repository admin, cluster,
-or registry permissions.
+Agent-facing PR integration is specified in
+`llm-notes/plans/agent-ci-feedback-loop-plan.md`. The target is not a bespoke
+Forgejo/Woodpecker client: agents use `tea` as the normal Forgejo-facing
+interface, plus small repo-local wrappers only when useful. Agents read PR
+state, review comments, lifecycle comments, check state, and sticky
+`dotfiles-ci-summary:v1` comments through Forgejo. They do not normally query
+Woodpecker directly. A trusted reporter, separate from untrusted PR build steps
+and separate from the agent's `tea` credential, publishes the PR-facing CI
+summary comment from `check-summary.json` / `check-summary.md`.
+
+AGit remains an operational fallback until the normal-branch + `tea` workflow
+has validated branch namespace restrictions, token scope, token materialization,
+and smoke-test behavior.
 
 Lifecycle comments form the human control plane for active agent sessions. The
 initial vocabulary should cover:
