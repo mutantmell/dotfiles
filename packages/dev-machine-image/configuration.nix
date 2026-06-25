@@ -469,7 +469,7 @@ in {
       WOODPECKER_SERVER = "saint-arkh.internal:9000";
       WOODPECKER_BACKEND = "local";
       WOODPECKER_MAX_WORKFLOWS = "1";
-      WOODPECKER_AGENT_LABELS = "!runner=nixos-kvm";
+      WOODPECKER_AGENT_LABELS = "runner=nixos-kvm";
       WOODPECKER_AGENT_CONFIG_FILE = "/var/lib/woodpecker-agent/agent.conf";
       WOODPECKER_BACKEND_LOCAL_TEMP_DIR = "/mnt/scratch/woodpecker-tmp";
       NIX_REMOTE = "daemon";

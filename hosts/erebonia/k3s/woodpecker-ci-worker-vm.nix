@@ -41,8 +41,6 @@ in {
         printf '%s\n' "    permissions: '0400'"
         printf '%s\n' '    content: |'
         printf '      WOODPECKER_AGENT_SECRET=%s\n' "$token"
-        printf '%s\n' 'runcmd:'
-        printf '%s\n' '  - [ systemctl, restart, woodpecker-agent.service ]'
       } > "$tmp/userdata"
 
       kubectl -n ${namespace} create secret generic ${cloudInitSecretName} \
