@@ -6,7 +6,8 @@
     "erebonia": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJqOeAuTSDE4SAzqZGxAieyxL/4LIhwdkI3jt8aUNEBc root@muspelheim",
     "calvard": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPPrAJtcSgkYA6Lju5AOjYU+xBJipuczEJafpZs1yUSQ root@jotunheimr",
     "edith": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAgpU3TfPTQS/+qf9wETOLFanwfQAh7xHsy6ZHCpyJYT malaguy@gmail.com",
-    "ios": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIENSrjzeMRMMqPdzDemj+90QOgYXwfxJJJ42JWbHUwU1 ios-rootshell"
+    "ios": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIENSrjzeMRMMqPdzDemj+90QOgYXwfxJJJ42JWbHUwU1 ios-rootshell",
+    "tablet": "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBJydDD+V5gtkIYhXZsAK0dtzdlK9JWhg6eHgbtxgiwzVGdPkUVLmdaI5hoOmr4hW3ZSpsixN0rDdHRxzyQcZwl0= ipad"
   },
   "hostKeys": {
     "calvard": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPPrAJtcSgkYA6Lju5AOjYU+xBJipuczEJafpZs1yUSQ root@jotunheimr",

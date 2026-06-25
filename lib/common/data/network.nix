@@ -334,6 +334,7 @@
       hosts = {
         laptop = 20;
         mobile = 21;
+        tablet = 22;
       };
     };
     "wg-media" = {

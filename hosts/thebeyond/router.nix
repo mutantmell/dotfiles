@@ -707,6 +707,10 @@ in {
                 publicKey = "sqPuQAWAKJzTice+L2kedo9X7Hx5WsMT/A6QXJVL/nA=";
                 allowedIPs = let h = wg."wg-vpn".hosts.mobile; in [h.cidr4 h.cidr6];
               }
+              {
+                publicKey = "Wye6CHQRAhHi0S/ja9S4e2PEjkJ8CSYywRN5LiISLAc=";
+                allowedIPs = let h = wg."wg-vpn".hosts.tablet; in [h.cidr4 h.cidr6];
+              }
             ];
           };
         };
