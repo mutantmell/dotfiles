@@ -94,7 +94,9 @@ in {
       Type = "oneshot";
       Restart = "on-failure";
       RestartSec = 15;
-      TimeoutStartSec = 300;
+      # The CI worker KubeVirt containerDisk is multi-GB; importing it into
+      # containerd can exceed five minutes on activation.
+      TimeoutStartSec = 1800;
     };
   };
 
