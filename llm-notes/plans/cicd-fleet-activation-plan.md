@@ -377,9 +377,13 @@ Target direction:
 - Agents use `tea` as the normal Forgejo-facing interface for PR
   create/update/status/comment operations.
 - Agents do not normally use a direct Woodpecker API/CLI integration.
+- Woodpecker's built-in Forgejo status remains the pass/fail and merge-gate
+  signal; rich failure detail is conveyed through the sticky PR comment below.
 - Woodpecker produces `check-summary.json` and `check-summary.md`.
 - A trusted reporter outside untrusted PR build steps posts or updates one
   sticky `dotfiles-ci-summary:v1` PR comment in Forgejo.
+  The reporter should consume Woodpecker's event stream as its primary trigger
+  and use periodic reconciliation over recent completed pipelines as a fallback.
 - Agents read PR description, lifecycle comments, review comments, requested
   changes, mergeability/check state, and the sticky CI summary through Forgejo.
 - AGit topic resolution remains fallback-only while AGit remains the operational

@@ -153,14 +153,27 @@ Required properties:
 ### CI feedback path
 
 Woodpecker remains the CI system, but agents do not query Woodpecker directly.
+Use Woodpecker's built-in Forgejo integration for the normal commit/PR status:
+pending, success, failure, and the link back to the Woodpecker run. That status
+is the merge-gate signal and should be what branch protection requires.
+
+Do not expect the built-in status to carry rich, agent-actionable failure
+detail. In a GitHub Checks-style system, the most integrated rich surface would
+be native check-run annotations or a Markdown check summary. Forgejo +
+Woodpecker's portable baseline is narrower: commit status plus a details link.
+For this stack, the idiomatic rich-feedback surface is therefore a single
+bot-managed sticky PR comment, with the structured artifact as the source of
+truth.
 
 Required flow:
 
 1. Woodpecker runs PR checks.
-2. CI emits `check-summary.json` and `check-summary.md` for each head SHA.
-3. A trusted reporter outside the untrusted build step reads Woodpecker result
+2. Woodpecker reports normal status back to Forgejo for the head commit.
+3. CI emits `check-summary.json` and `check-summary.md` for each head SHA.
+4. A trusted reporter outside the untrusted build step reads Woodpecker result
    data and posts or updates one sticky PR comment in Forgejo.
-4. Agents read that comment through `tea`.
+5. Agents read Forgejo PR state through `tea`: use the built-in CI status for
+   pass/fail/mergeability, then use the sticky comment for concrete next steps.
 
 The reporter can run beside the Woodpecker server on `saint-arkh`, or as another
 trusted service with narrowly scoped access to:
@@ -173,6 +186,34 @@ Do not mount a Forgejo write/comment token into untrusted PR build steps.
 PR feedback lanes should run without deployment, signing, cache-push, NATS, or
 other high-value secrets. Treat all build output and log text as untrusted input
 before copying it into Forgejo comments.
+
+### Reporter trigger model
+
+Preferred trigger: a long-running trusted reporter service consumes
+Woodpecker's event stream (`GET /stream/events`) and reacts when a pipeline for
+this repository reaches a terminal state such as success, failure, error,
+killed, or cancelled. On each terminal event, the reporter fetches authoritative
+pipeline metadata and logs from the Woodpecker API, finds the matching PR/head
+SHA in Forgejo, reads `check-summary.json` / `check-summary.md` when present,
+and updates the sticky PR comment.
+
+Add a small reconciliation timer as a fallback. On a fixed interval, the
+reporter should list recent completed pipelines for the dotfiles repository and
+ensure the matching sticky PR comments are current. This covers reporter
+restarts, dropped event-stream connections, Woodpecker restarts, and any missed
+terminal event.
+
+Do not make the primary reporter a normal final pipeline step. Woodpecker can
+run status-conditioned steps on success or failure, but such steps execute
+inside the pipeline execution model and are adjacent to untrusted PR code. They
+also may not run for cancelled pipelines or infrastructure failures. A final
+step may be useful later as a non-authoritative nudge, but it must not be the
+trusted path that holds the Forgejo comment token.
+
+Do not depend on an undocumented outgoing Woodpecker webhook as the initial
+design. Woodpecker's documented extension points cover configuration, registry,
+and secret lookup extensions, while the API event stream is the documented
+server-side primitive that matches this use case.
 
 ### CI summary format
 
@@ -187,6 +228,11 @@ The source of truth is the CI artifact pair:
 The reporter should locate summaries by repository, head SHA, Woodpecker
 pipeline number, and workflow/step identity. The PR comment is a projection of
 the artifact, not the only copy of the data.
+
+The PR comment must be updated in place, not appended on every run. The hidden
+marker and `sha=<head-sha>` let agents find the current summary and ignore stale
+summaries after a force-push or new commit. Repeated comments are noisy for
+humans and harder for agents to disambiguate.
 
 Recommended initial shape:
 
@@ -321,6 +367,9 @@ broad and expensive validation.
 
 - Implement a reporter outside untrusted PR build steps.
 - The reporter should:
+  - consume Woodpecker `GET /stream/events` as the primary trigger;
+  - react only to terminal pipeline states for the dotfiles repository;
+  - run a timer-based reconciliation pass over recent completed pipelines;
   - identify the PR and head SHA for a completed pipeline;
   - fetch Woodpecker result data/log tails;
   - create or update the sticky `dotfiles-ci-summary:v1` PR comment;
@@ -372,8 +421,8 @@ Minimum end-to-end test:
 
 - Does Forgejo's repository-limited token model allow exactly the needed read PR
   and write comment operations without broader repository write access?
-- Should the reporter be a systemd service on `saint-arkh`, a Woodpecker
-  extension, or a separate internal service?
+- Should the event-stream reporter run as a systemd service on `saint-arkh` or
+  as a separate internal service?
 - Can Woodpecker expose enough stable step URLs/artifact URLs for the summary,
   or should the reporter copy log tails into Forgejo and treat full log URLs as
   best-effort links?
