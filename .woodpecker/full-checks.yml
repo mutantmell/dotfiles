@@ -4,9 +4,6 @@ when:
 labels:
   runner: nixos-kvm
 
-depends_on:
-  - checks
-
 clone:
   - name: git
     image: plugin-git
