@@ -16,12 +16,24 @@ steps:
     image: bash
     commands:
       - |
+        mkdir -p ci-summary
+
+        set +e
         if ionice -c 3 true 2>/dev/null; then
           ionice -c 3 nice -n 10 \
             nix --extra-experimental-features 'nix-command flakes' \
-            develop --command ./scripts/run-checks.sh
+            develop --command ./scripts/run-checks.sh --summary-dir ci-summary
+          rc=$?
         else
           nice -n 10 \
             nix --extra-experimental-features 'nix-command flakes' \
-            develop --command ./scripts/run-checks.sh
+            develop --command ./scripts/run-checks.sh --summary-dir ci-summary
+          rc=$?
         fi
+
+        if [ -f ci-summary/check-summary.json ]; then
+          printf '\n===== check-summary.json =====\n'
+          cat ci-summary/check-summary.json
+        fi
+
+        exit "$rc"

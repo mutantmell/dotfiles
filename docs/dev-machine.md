@@ -104,6 +104,18 @@ agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
 
 These commands locate the dotfiles checkout, change to the repo root, and call the existing scripts or Nix commands. They do not replace the repo validation stack.
 
+For CI-feedback reproduction, `agent-preflight` and `agent-checks` can write the
+same compact summary artifact that Woodpecker produces:
+
+```bash
+agent-preflight --quick --summary-dir ci-summary
+agent-checks --summary-dir ci-summary network-registry
+```
+
+This creates `ci-summary/check-summary.json` with the
+`dotfiles-ci-summary:v1` schema, including per-check reproduction commands,
+reporter lookup fields, and bounded redacted log tails for failures.
+
 Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.
 
 The target CI feedback loop is documented in `llm-notes/plans/agent-ci-feedback-loop-plan.md`. Until the Forgejo API credential and branch-push controls are validated, agents should continue to open PRs through the repo's AGit workflow. Once enabled, the intended PR status path is Forgejo through `tea`: read the PR `ci` field for pass/fail state and the sticky `dotfiles-ci-summary:v1` PR comment for actionable failure details.

@@ -15,6 +15,7 @@ set -euo pipefail
 #   ./scripts/run-checks.sh              # run all checks
 #   ./scripts/run-checks.sh -j4          # run up to 4 checks in parallel
 #   ./scripts/run-checks.sh --shard 1/4  # run a stable shard of all checks
+#   ./scripts/run-checks.sh --summary-dir ci-summary <name> ...
 #   ./scripts/run-checks.sh <name> ...   # run specific checks
 #   ./scripts/run-checks.sh --eval-only-pure <name> ...
 
@@ -23,6 +24,7 @@ FLAKE_REF="."
 MAX_PARALLEL=1
 EVAL_ONLY_PURE=0
 SHARD_SPEC=""
+SUMMARY_DIR="${CHECK_SUMMARY_DIR:-}"
 CHECKS=()
 
 declare -A PURE_EVAL_CHECKS=(
@@ -42,6 +44,7 @@ Options:
   -jN, -j N          Run up to N checks in parallel
   --eval-only-pure   Evaluate pure checks to drvPath only
   --shard N/M        Run shard N of M from the selected checks
+  --summary-dir DIR  Write check-summary.json into DIR
 EOF
 }
 
@@ -67,6 +70,83 @@ parse_shard_spec() {
   if ((SHARD_INDEX > SHARD_TOTAL)); then
     die "--shard index must be less than or equal to shard total"
   fi
+}
+
+redacted_tail() {
+  local log=$1
+  local tmp
+  if [[ ! -s $log ]]; then
+    return 0
+  fi
+
+  tmp=$(mktemp -t run-checks-tail-XXXXXX)
+  # Keep byte truncation away from the pipe. With pipefail enabled, `head -c`
+  # can otherwise SIGPIPE upstream commands and abort summary generation.
+  tail -n 160 "$log" |
+    sed -E \
+      -e 's/((TOKEN|SECRET|PASSWORD|PASS|KEY)[A-Za-z0-9_]*=)[^[:space:]]+/\1[REDACTED]/gI' \
+      -e 's/([A-Za-z_][A-Za-z0-9_]*_(TOKEN|SECRET|PASSWORD|PASS|KEY)[A-Za-z0-9_]*=)[^[:space:]]+/\1[REDACTED]/gI' \
+      -e 's/(Authorization:[[:space:]]*(Bearer|token)[[:space:]]+)[^[:space:]]+/\1[REDACTED]/gI' \
+      -e 's#(https?://[^[:space:]@]+:)[^[:space:]@]+@#\1[REDACTED]@#g' >"$tmp"
+  head -c 20000 "$tmp"
+  rm -f "$tmp"
+}
+
+write_summary() {
+  local dir=$1 status_file=$2
+  local head_sha pipeline_url repo pipeline_number workflow step objects_file
+  mkdir -p "$dir"
+
+  head_sha="${CI_COMMIT_SHA:-${WOODPECKER_COMMIT_SHA:-}}"
+  if [[ -z $head_sha ]]; then
+    head_sha=$(git rev-parse HEAD 2>/dev/null || true)
+  fi
+  pipeline_url="${CI_PIPELINE_URL:-${WOODPECKER_BUILD_LINK:-${WOODPECKER_PIPELINE_URL:-}}}"
+  repo="${CI_REPO:-${WOODPECKER_REPO:-${WOODPECKER_REPO_FULL_NAME:-}}}"
+  pipeline_number="${CI_PIPELINE_NUMBER:-${WOODPECKER_BUILD_NUMBER:-${WOODPECKER_PIPELINE_NUMBER:-}}}"
+  workflow="${CI_WORKFLOW:-${WOODPECKER_WORKFLOW_NAME:-${WOODPECKER_PIPELINE_NAME:-full-checks}}}"
+  step="${CI_STEP_NAME:-${WOODPECKER_STEP_NAME:-full-checks}}"
+
+  objects_file=$(mktemp -t run-checks-summary-XXXXXX)
+  while IFS=$'\t' read -r name status log_path reproduce; do
+    [[ -n $name ]] || continue
+    if [[ $status == "failed" && -n $log_path && -f $log_path ]]; then
+      jq -n \
+        --arg name "$name" \
+        --arg status "$status" \
+        --arg reproduce "$reproduce" \
+        --rawfile log_tail "$log_path" \
+        '{name:$name,status:$status,reproduce:$reproduce,log_url:"",log_tail:$log_tail}' >>"$objects_file"
+    else
+      jq -n \
+        --arg name "$name" \
+        --arg status "$status" \
+        --arg reproduce "$reproduce" \
+        '{name:$name,status:$status,reproduce:$reproduce}' >>"$objects_file"
+    fi
+  done <"$status_file"
+
+  jq -s \
+    --arg schema "dotfiles-ci-summary:v1" \
+    --arg head "$head_sha" \
+    --arg pipeline_url "$pipeline_url" \
+    --arg repo "$repo" \
+    --arg pipeline_number "$pipeline_number" \
+    --arg workflow "$workflow" \
+    --arg step "$step" \
+    '{
+      schema: $schema,
+      head: $head,
+      status: (if any(.[]; .status == "failed") then "failed" else "passed" end),
+      repository: $repo,
+      pipeline_number: $pipeline_number,
+      pipeline_url: $pipeline_url,
+      workflow: $workflow,
+      step: $step,
+      checks: .,
+      failed_checks: map(select(.status == "failed"))
+    }' "$objects_file" >"$dir/check-summary.json"
+  rm -f "$objects_file"
 }
 
 SHARD_INDEX=0
@@ -100,6 +180,16 @@ while [[ $# -gt 0 ]]; do
   --shard=*)
     SHARD_SPEC="${1#--shard=}"
     parse_shard_spec "$SHARD_SPEC"
+    shift
+    ;;
+  --summary-dir)
+    shift
+    [[ $# -gt 0 ]] || die "--summary-dir requires a directory"
+    SUMMARY_DIR="$1"
+    shift
+    ;;
+  --summary-dir=*)
+    SUMMARY_DIR="${1#--summary-dir=}"
     shift
     ;;
   --help | -h)
@@ -149,12 +239,15 @@ fi
 # can be diagnosed after the fact (the script no longer discards `nix build`
 # output). Passing tests have their log file deleted to keep the dir tidy.
 LOG_DIR="$(mktemp -d -t run-checks-XXXXXX)"
+STATUS_FILE="$LOG_DIR/status.tsv"
 echo "Per-test logs: ${LOG_DIR}"
 echo ""
 
 PASSED=0
 FAILED=0
 FAILED_NAMES=()
+declare -A CHECK_STATUS
+declare -A CHECK_LOG
 
 TOTAL=${#CHECKS[@]}
 echo "Running ${TOTAL} nix checks (parallelism: ${MAX_PARALLEL})..."
@@ -181,10 +274,14 @@ if [[ $MAX_PARALLEL -le 1 ]]; then
     log="${LOG_DIR}/${check}.log"
     if run_check "$check" >"$log" 2>&1; then
       echo "  PASS  ${check}"
+      CHECK_STATUS["$check"]="passed"
+      CHECK_LOG["$check"]=""
       rm -f "$log"
       PASSED=$((PASSED + 1))
     else
       echo "  FAIL  ${check}  (log: ${log})"
+      CHECK_STATUS["$check"]="failed"
+      CHECK_LOG["$check"]="$log"
       FAILED=$((FAILED + 1))
       FAILED_NAMES+=("${check}")
     fi
@@ -204,10 +301,14 @@ else
       local log="${PID_TO_LOG[$pid]}"
       if wait "$pid" 2>/dev/null; then
         echo "  PASS  ${name}"
+        CHECK_STATUS["$name"]="passed"
+        CHECK_LOG["$name"]=""
         rm -f "$log"
         PASSED=$((PASSED + 1))
       else
         echo "  FAIL  ${name}  (log: ${log})"
+        CHECK_STATUS["$name"]="failed"
+        CHECK_LOG["$name"]="$log"
         FAILED=$((FAILED + 1))
         FAILED_NAMES+=("${name}")
       fi
@@ -234,11 +335,28 @@ else
   done
 fi
 
-# Tidy up an empty log dir on full success so we don't litter /tmp.
-rmdir "$LOG_DIR" 2>/dev/null || true
-
 echo ""
 echo "Results: ${PASSED} passed, ${FAILED} failed (${TOTAL} total)"
+
+if [[ -n $SUMMARY_DIR ]]; then
+  : >"$STATUS_FILE"
+  for name in "${CHECKS[@]}"; do
+    status="${CHECK_STATUS[$name]:-unknown}"
+    log="${CHECK_LOG[$name]:-}"
+    tail_file=""
+    if [[ $status == "failed" && -n $log ]]; then
+      tail_file="$LOG_DIR/${name}.tail"
+      redacted_tail "$log" >"$tail_file"
+    fi
+    printf '%s\t%s\t%s\t./scripts/run-checks.sh %s\n' \
+      "$name" "$status" "$tail_file" "$name" >>"$STATUS_FILE"
+  done
+  write_summary "$SUMMARY_DIR" "$STATUS_FILE"
+  echo "Check summary: ${SUMMARY_DIR}/check-summary.json"
+fi
+
+# Tidy up an empty log dir on full success so we don't litter /tmp.
+rmdir "$LOG_DIR" 2>/dev/null || true
 
 if [[ $FAILED -gt 0 ]]; then
   echo ""

@@ -170,7 +170,7 @@ Required flow:
 
 1. Woodpecker runs PR checks.
 2. Woodpecker reports normal status back to Forgejo for the head commit.
-3. CI emits `check-summary.json` and `check-summary.md` for each head SHA.
+3. CI emits `check-summary.json` for each head SHA.
 4. A trusted reporter outside the untrusted build step reads Woodpecker result
    data and posts or updates one sticky PR comment in Forgejo.
 5. Agents read Forgejo PR state through `tea`: use the built-in CI status for
@@ -195,8 +195,8 @@ Woodpecker's event stream (`GET /stream/events`) and reacts when a pipeline for
 this repository reaches a terminal state such as success, failure, error,
 killed, or cancelled. On each terminal event, the reporter fetches authoritative
 pipeline metadata and logs from the Woodpecker API, finds the matching PR/head
-SHA in Forgejo, reads `check-summary.json` / `check-summary.md` when present,
-and updates the sticky PR comment.
+SHA in Forgejo, reads `check-summary.json` when present, renders a safe
+Markdown projection, and updates the sticky PR comment.
 
 Add a small reconciliation timer as a fallback. On a fixed interval, the
 reporter should list recent completed pipelines for the dotfiles repository and
@@ -219,49 +219,34 @@ server-side primitive that matches this use case.
 ### CI summary format
 
 The sticky PR comment should be stable enough for both humans and agents.
-The source of truth is the CI artifact pair:
+The source of truth is the CI artifact:
 
 - `check-summary.json` — structured status, failed checks, local reproduction
-  commands, relevant log tails, and full log/artifact URLs.
-- `check-summary.md` — the human-readable rendering that the trusted reporter
-  can copy into the sticky PR comment.
+  commands, relevant log tails, reporter lookup identity, and full
+  log/artifact URLs when available.
 
 The reporter should locate summaries by repository, head SHA, Woodpecker
-pipeline number, and workflow/step identity. The PR comment is a projection of
-the artifact, not the only copy of the data.
+pipeline number, and workflow/step identity. The PR comment is a trusted
+reporter-rendered projection of the artifact, not the only copy of the data.
 
-The PR comment must be updated in place, not appended on every run. The hidden
-marker and `sha=<head-sha>` let agents find the current summary and ignore stale
-summaries after a force-push or new commit. Repeated comments are noisy for
-humans and harder for agents to disambiguate.
+The PR comment must be updated in place, not appended on every run. The
+reporter should render a bounded, escaped Markdown projection from JSON. The
+hidden marker and `sha=<head-sha>` let agents find the current summary and
+ignore stale summaries after a force-push or new commit. Repeated comments are
+noisy for humans and harder for agents to disambiguate.
 
-Recommended initial shape:
-
-````markdown
-<!-- dotfiles-ci-summary:v1 sha=<head-sha> -->
-
-CI: failed
-Head: <sha>
-Pipeline: https://woodpecker.internal/repos/...
-
-Failed checks:
-- network-registry
-  Reproduce: ./scripts/run-checks.sh network-registry
-  Full log: <woodpecker step URL or artifact URL>
-  Log tail:
-  ```text
-  ...
-  ```
-````
-
-If the summary grows, include a fenced JSON block with the same data:
+Recommended initial JSON shape:
 
 ```json
 {
   "schema": "dotfiles-ci-summary:v1",
   "head": "<sha>",
   "status": "failed",
+  "repository": "mutantmell/dotfiles",
+  "pipeline_number": "123",
   "pipeline_url": "https://woodpecker.internal/repos/...",
+  "workflow": "full-checks",
+  "step": "full-checks",
   "failed_checks": [
     {
       "name": "network-registry",
@@ -307,6 +292,21 @@ broad and expensive validation.
   config directory is private.
 - Token injection and normal branch PR creation are still pending, so AGit
   remains the default PR workflow.
+
+### Iteration 2 result
+
+- `scripts/run-checks.sh` accepts `--summary-dir DIR` or
+  `CHECK_SUMMARY_DIR=DIR` and writes `check-summary.json`.
+- `scripts/agent-preflight.sh` passes the same summary option through to
+  `run-checks.sh`.
+- The summary schema uses `dotfiles-ci-summary:v1`, records the head SHA,
+  reporter lookup fields, overall status, per-check reproduction commands, and
+  bounded redacted log tails for failed checks.
+- The existing Woodpecker `full-checks` lane writes summaries under
+  `ci-summary/` and prints the JSON summary at the end of the step, preserving
+  the previous full-check coverage.
+- Durable Woodpecker artifact retention and trusted Forgejo comment posting are
+  still pending.
 
 ### Phase 1: Add `tea` to dev-machine
 
@@ -360,18 +360,21 @@ broad and expensive validation.
 
 ### Phase 4: Emit compact CI summaries
 
-- Extend the CI quick lane so check execution produces `check-summary.json` and
-  `check-summary.md`.
+- Extend CI check execution so it produces `check-summary.json`. Initial
+  implementation writes this from
+  `scripts/run-checks.sh --summary-dir`.
 - Make failures include:
   - check name;
   - exact local reproduction command;
-  - failing command or phase;
-  - relevant log tail;
-  - full log/artifact URL.
-- Define artifact location, schema version, retention expectations, and reporter
-  lookup rules.
-- Add summary redaction and size limits before posting to Forgejo.
-- Start with quick preflight results, then extend to sharded full checks later.
+  - relevant log tail.
+- Add later:
+  - failing command or phase when the runner can identify it cleanly;
+  - full log/artifact URL once Woodpecker artifact lookup is finalized.
+- Define durable artifact retention expectations and reporter lookup rules.
+- Expand summary redaction as new secret patterns are identified.
+- The current repository pipeline emits summaries for the existing full-check
+  lane. If CI is later sharded, each shard should emit the same schema with a
+  shard/workflow identity for reporter lookup.
 
 ### Phase 5: Add trusted Forgejo CI reporter
 

@@ -9,6 +9,8 @@ Agent-friendly validation entrypoint.
 
   --quick   Check formatting, then run cheap/high-signal checks.
   --full    Run the full run-checks.sh suite, including formatting.
+  --summary-dir DIR
+            Write check-summary.json into DIR.
   check ... Check formatting, then run those explicit checks.
 
 This intentionally avoids `nix flake check`: this flake has many NixOS
@@ -18,6 +20,7 @@ USAGE
 }
 
 mode=quick
+summary_dir="${CHECK_SUMMARY_DIR:-}"
 checks=()
 
 while [[ $# -gt 0 ]]; do
@@ -28,6 +31,20 @@ while [[ $# -gt 0 ]]; do
     ;;
   --full)
     mode=full
+    shift
+    ;;
+  --summary-dir)
+    shift
+    [[ $# -gt 0 ]] || {
+      echo "--summary-dir requires a directory" >&2
+      usage
+      exit 2
+    }
+    summary_dir="$1"
+    shift
+    ;;
+  --summary-dir=*)
+    summary_dir="${1#--summary-dir=}"
     shift
     ;;
   -h | --help)
@@ -58,6 +75,11 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 cd "$repo_root"
 
+run_checks_args=()
+if [[ -n $summary_dir ]]; then
+  run_checks_args+=(--summary-dir "$summary_dir")
+fi
+
 if [[ ${#checks[@]} -gt 0 ]]; then
   explicit_checks=(formatting)
   for check in "${checks[@]}"; do
@@ -66,7 +88,7 @@ if [[ ${#checks[@]} -gt 0 ]]; then
     fi
   done
   echo "==> running explicit checks: ${explicit_checks[*]}"
-  exec "$script_dir/run-checks.sh" "${explicit_checks[@]}"
+  exec "$script_dir/run-checks.sh" "${run_checks_args[@]}" "${explicit_checks[@]}"
 fi
 
 case "$mode" in
@@ -83,11 +105,11 @@ quick)
   echo "==> running quick checks: ${quick_checks[*]}"
   # These checks throw during eval on failure. In CI they run under gVisor, where
   # uncached trivial Nix builders can fail while initializing the build env.
-  exec "$script_dir/run-checks.sh" --eval-only-pure "${quick_checks[@]}"
+  exec "$script_dir/run-checks.sh" "${run_checks_args[@]}" --eval-only-pure "${quick_checks[@]}"
   ;;
 full)
   echo "==> running full check suite"
-  exec "$script_dir/run-checks.sh"
+  exec "$script_dir/run-checks.sh" "${run_checks_args[@]}"
   ;;
 *)
   echo "internal error: unknown mode $mode" >&2
