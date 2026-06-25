@@ -440,6 +440,7 @@ in {
       pkgs.gnused
       pkgs.nix
       pkgs.woodpecker-agent
+      pkgs.woodpecker-plugin-git
     ])
   ];
 
@@ -462,6 +463,7 @@ in {
       pkgs.nix
       pkgs.openssh
       pkgs.woodpecker-agent
+      pkgs.woodpecker-plugin-git
     ];
     environment = {
       WOODPECKER_SERVER = "saint-arkh.internal:9000";

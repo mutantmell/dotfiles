@@ -1,0 +1,30 @@
+when:
+  - event: [push, pull_request, manual]
+
+labels:
+  runner: nixos-kvm
+
+depends_on:
+  - checks
+
+clone:
+  - name: git
+    image: plugin-git
+    settings:
+      depth: 0
+      home: /tmp
+
+steps:
+  - name: full-checks
+    image: bash
+    commands:
+      - |
+        if ionice -c 3 true 2>/dev/null; then
+          ionice -c 3 nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh
+        else
+          nice -n 10 \
+            nix --extra-experimental-features 'nix-command flakes' \
+            develop --command ./scripts/run-checks.sh
+        fi
