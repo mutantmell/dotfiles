@@ -435,6 +435,7 @@ in {
     (lib.mkIf isCiWorker [
       pkgs.bashInteractive
       pkgs.coreutils-full
+      pkgs.git-lfs
       pkgs.gitMinimal
       pkgs.gnugrep
       pkgs.gnused
@@ -459,6 +460,7 @@ in {
     path = [
       pkgs.bashInteractive
       pkgs.coreutils-full
+      pkgs.git-lfs
       pkgs.gitMinimal
       pkgs.nix
       pkgs.openssh
