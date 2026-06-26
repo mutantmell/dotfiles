@@ -346,6 +346,22 @@ broad and expensive validation.
 - The renderer is still local scaffolding. Posting/updating the Forgejo comment
   from a trusted Woodpecker event-stream reporter remains pending.
 
+### Iteration 5 result
+
+- Added `scripts/post-ci-summary-comment.py`, a reporter-side helper that reads
+  `check-summary.json`, renders the bounded sticky Markdown comment, and uses
+  `tea api` to create or patch the single `dotfiles-ci-summary:v1` PR comment.
+  It checks the current PR head before posting, fails closed when the PR head
+  cannot be verified, filters updates to the reporter-owned sticky comment, and
+  paginates comment lookup to avoid duplicate sticky summaries on busy PRs.
+- Added the `agent-ci-post-summary <pr-number> <check-summary.json>`
+  dev-machine wrapper for trusted reporter/manual validation use.
+- Added `ci-summary-comment-post`, a fake-`tea` check that validates create,
+  update, dry-run, marker, and redaction behavior without Forgejo credentials.
+- This is still scaffolding for Phase 5. A long-running Woodpecker event-stream
+  reporter service, durable artifact lookup, and host-side secret wiring remain
+  pending.
+
 ### Phase 1: Add `tea` to dev-machine
 
 - Add `tea` to the dev-machine tool package.
