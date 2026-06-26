@@ -369,13 +369,14 @@ that:
 ### 1.6a Agent PR feedback integration
 
 The CI gap is not only "run checks on PRs"; it is "make PR state and check
-failures readable by an LLM with narrow credentials." The concrete agent-facing
-workflow now lives in `llm-notes/plans/agent-ci-feedback-loop-plan.md`.
+failures readable by an LLM with narrow credentials." The concrete default
+agent-facing workflow now lives in
+`llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`.
 
 Target direction:
 
-- Agents use `tea` as the normal Forgejo-facing interface for PR
-  create/update/status/comment operations.
+- Agents use Forgejo status for CI pass/fail state and read-only Woodpecker
+  access for detailed logs and `check-summary.json`.
 - Agents do not normally use a direct Woodpecker API/CLI integration.
 - Woodpecker's built-in Forgejo status remains the pass/fail and merge-gate
   signal; rich failure detail is conveyed through the sticky PR comment below.
@@ -1099,7 +1100,7 @@ tracked in the cluster dependency registry. The first implementation should use
 a repo-native updater/check flow that edits that registry, refreshes
 hashes/digests, regenerates committed Flux YAML when needed, and opens a PR. The
 target PR creation path should follow
-`llm-notes/plans/agent-ci-feedback-loop-plan.md`: normal branch plus Forgejo PR
+`llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`: normal branch plus Forgejo PR
 creation through the chosen narrow API/broker path once validated. AGit is an
 acceptable interim fallback while the `tea` branch-credential workflow is still
 unproven. Renovate can be added later, but only if it edits the authoritative

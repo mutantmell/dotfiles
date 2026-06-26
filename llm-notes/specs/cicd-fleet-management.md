@@ -273,14 +273,13 @@ reproduction command (`./scripts/run-checks.sh <name>`,
 `nix build .#checks.x86_64-linux.<name>`, `agent-preflight-quick`, etc.).
 
 Agent-facing PR integration is specified in
-`llm-notes/plans/agent-ci-feedback-loop-plan.md`. The target is not a bespoke
-Forgejo/Woodpecker client: agents use `tea` as the normal Forgejo-facing
-interface, plus small repo-local wrappers only when useful. Agents read PR
-state, review comments, lifecycle comments, check state, and sticky
-`dotfiles-ci-summary:v1` comments through Forgejo. They do not normally query
-Woodpecker directly. A trusted reporter, separate from untrusted PR build steps
-and separate from the agent's `tea` credential, publishes the PR-facing CI
-summary comment from `check-summary.json` / `check-summary.md`.
+`llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. The default target is
+not a bespoke Forgejo/Woodpecker client: Forgejo status gates PRs, agents use
+the normal Forgejo-facing interface for PR state, and read-only Woodpecker
+access exposes detailed CI logs plus `check-summary.json`. The older trusted
+sticky-comment reporter design is archived at
+`llm-notes/done/agent-ci-feedback-loop-plan.md` and remains an optional
+hardened path if read-only Woodpecker access is insufficient.
 
 AGit remains an operational fallback until the normal-branch + `tea` workflow
 has validated branch namespace restrictions, token scope, token materialization,

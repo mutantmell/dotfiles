@@ -1,6 +1,11 @@
 # Agent CI Feedback Loop Plan
 
-> **Status:** Planning.
+> **Status:** Superseded.
+>
+> Superseded on 2026-06-26 by
+> `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. The default agent CI
+> feedback path should use Forgejo branch protection plus read-only Woodpecker
+> log access before adding sticky PR comment reporter machinery.
 >
 > This plan defines the agent-facing workflow for PR creation, CI feedback, and
 > local failure reproduction now that Woodpecker CI is working for the dotfiles

@@ -195,7 +195,7 @@ Rationale:
   defined in one place, changed in one commit, reviewed in one PR, gated by the
   repo PR/CI flow. Today that means `run-checks.sh` plus AGit; the target agent
   workflow is the validated normal-branch + `tea` path described in
-  `llm-notes/plans/agent-ci-feedback-loop-plan.md`.
+  `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`.
 - The repo is **already** the platform source of truth, but the ownership
   boundary is now explicit: k3s/NixOS bootstraps Flux, Flux reconciles the
   long-running Kubernetes objects and Helm releases, and Nix pins/renders/

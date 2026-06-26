@@ -615,10 +615,9 @@ an operator machine" item; orthogonal to this phase but surfaced by it.
 > **Supersession note (2026-06-25).** This section records the decision that
 > unblocked PR-oriented dev-machine work in June 2026. It remains historically
 > accurate, but it is no longer the target end-state. The current replacement
-> plan is `llm-notes/plans/agent-ci-feedback-loop-plan.md`: AGit stays as the
-> operational fallback/default until a constrained normal-branch + `tea`
-> workflow has validated branch namespace restrictions, Forgejo API/broker
-> scope, token materialization, and smoke-test behavior.
+> plan is `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`; the older
+> sticky-comment-first plan is archived at
+> `llm-notes/done/agent-ci-feedback-loop-plan.md`.
 
 **Decision: the sandbox opens/updates PRs with Forgejo's builtin AGit flow
 (`git push … HEAD:refs/for/<branch>`), NOT an injected Forgejo API token or a

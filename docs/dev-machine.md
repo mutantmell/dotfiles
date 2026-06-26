@@ -122,18 +122,15 @@ reporter lookup fields, and bounded redacted log tails for failures.
 
 Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.
 
-The target CI feedback loop is documented in `llm-notes/plans/agent-ci-feedback-loop-plan.md`. Until the Forgejo API credential and branch-push controls are validated, agents should continue to open PRs through the repo's AGit workflow. Once enabled, the intended PR status path is Forgejo through `tea`: read the PR `ci` field for pass/fail state and the sticky `dotfiles-ci-summary:v1` PR comment for actionable failure details.
+The target CI feedback loop is documented in `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. Until the Forgejo API credential and branch-push controls are validated, agents should continue to open PRs through the repo's AGit workflow. The intended CI feedback path is Forgejo status for pass/fail and read-only Woodpecker access for detailed logs and `check-summary.json`.
 
 The PR helper wrappers are intentionally thin. They fail clearly when `tea` has
 not been configured with a Forgejo login, which is the current default until API
 credential injection is enabled. When credentials are present,
 `agent-pr-status` infers the PR from the current branch when possible, or accepts
-an explicit PR number. When the PR head SHA is available, it only prints a
-`dotfiles-ci-summary:v1` comment whose hidden marker matches that SHA, avoiding
-stale feedback after a force-push or new commit. `agent-ci-render-summary` is
-the repo-local renderer for the trusted reporter path; it turns
-`check-summary.json` into the bounded Markdown comment format but does not post
-anything to Forgejo.
+an explicit PR number. It still contains sticky-summary scaffolding from the
+older trusted-reporter experiment; the read-only Woodpecker plan tracks cleanup
+of that default output once the simpler access model is validated.
 
 ## Agent Profile
 
