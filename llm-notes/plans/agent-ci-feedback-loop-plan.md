@@ -235,6 +235,13 @@ hidden marker and `sha=<head-sha>` let agents find the current summary and
 ignore stale summaries after a force-push or new commit. Repeated comments are
 noisy for humans and harder for agents to disambiguate.
 
+Decision: `run-checks.sh` must not emit a Markdown summary document. The checks
+script emits only structured JSON because a generated Markdown artifact would
+duplicate the same information and create an unnecessary Markdown-injection
+surface from untrusted build output. Markdown rendering belongs exclusively in
+the trusted reporter, which can escape fields, bound output, add the sticky
+comment marker, and update Forgejo comments in place.
+
 Recommended initial JSON shape:
 
 ```json
@@ -371,6 +378,9 @@ broad and expensive validation.
   - failing command or phase when the runner can identify it cleanly;
   - full log/artifact URL once Woodpecker artifact lookup is finalized.
 - Define durable artifact retention expectations and reporter lookup rules.
+- Keep Markdown rendering in the trusted reporter, not in `run-checks.sh`, so
+  escaping, stale-comment handling, and PR comment update semantics are owned by
+  the component that posts to Forgejo.
 - Expand summary redaction as new secret patterns are identified.
 - The current repository pipeline emits summaries for the existing full-check
   lane. If CI is later sharded, each shard should emit the same schema with a
