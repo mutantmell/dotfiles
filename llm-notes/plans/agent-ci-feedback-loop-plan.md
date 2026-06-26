@@ -315,6 +315,23 @@ broad and expensive validation.
 - Durable Woodpecker artifact retention and trusted Forgejo comment posting are
   still pending.
 
+### Iteration 3 result
+
+- Added thin dev-machine wrappers around `tea` for the agent-facing CI feedback
+  loop:
+  - `agent-pr-status [pr-number]` prints PR state, Forgejo CI state, and the
+    latest sticky `dotfiles-ci-summary:v1` comment when present.
+  - `agent-pr-comments <pr-number>` prints lifecycle and review comments as
+    JSON.
+  - `agent-pr-comment <pr-number> <message>` posts a concise PR comment through
+    `tea`.
+- The wrappers fail clearly when `tea` is not configured, so AGit remains the
+  operational fallback until API credential injection and branch-push controls
+  are validated.
+- `scripts/dev-machine-smoke.sh` now asserts the wrappers are available.
+- `docs/dev-machine.md` documents the wrappers and their current credential
+  limitations.
+
 ### Phase 1: Add `tea` to dev-machine
 
 - Add `tea` to the dev-machine tool package.
@@ -404,8 +421,10 @@ broad and expensive validation.
 
 ### Phase 6: Agent ergonomics
 
-Only after the raw `tea` flow works, add thin wrappers if they reduce repeated
-manual parsing:
+Thin wrapper scaffolding was added early in Iteration 3 so agents have a stable
+interface once `tea` credentials are available. The remaining Phase 6 work is to
+validate those wrappers against the live credentialed `tea` workflow after Phase
+2 and Phase 3 are complete:
 
 - `agent-pr-status`: print current PR, Forgejo CI state, and latest sticky CI
   summary.

@@ -14,7 +14,9 @@
         bashInteractive
         coreutils-full
         git
+        jq
         nix
+        tea
       ];
       text = ''
         find_repo_root() {
@@ -67,6 +69,144 @@
     '')
     (mkAgentWrapper "agent-smoke" ''
       exec ./scripts/dev-machine-smoke.sh "$@"
+    '')
+    (mkAgentWrapper "agent-pr-status" ''
+      require_tea_login() {
+        if ! tea whoami >/dev/null 2>&1; then
+          printf 'agent-pr-status: tea is not configured for Forgejo in this dev-machine\n' >&2
+          printf 'AGit remains the fallback PR workflow until tea credential injection is enabled.\n' >&2
+          exit 1
+        fi
+      }
+
+      usage() {
+        printf 'usage: agent-pr-status [pr-number]\n' >&2
+      }
+
+      require_tea_login
+      if [[ $# -gt 1 ]]; then
+        usage
+        exit 2
+      fi
+
+      fields=index,title,state,head,base,mergeable,ci,updated,url
+
+      if [[ $# -eq 1 ]]; then
+        pr_id=$1
+        pr=$(tea pr "$pr_id" --fields "$fields" --output json)
+      else
+        prs=$(tea pr list --state all --limit 100 --fields "$fields" --output json)
+        branch=$(git branch --show-current 2>/dev/null || true)
+        if [[ -z $branch ]]; then
+          printf 'agent-pr-status: not on a named branch; pass a PR number\n' >&2
+          jq -r '.[] | "#\(.index) [\(.state)] \(.title) head=\(.head | tostring) ci=\(.ci | tostring)"' <<<"$prs"
+          exit 1
+        fi
+
+        pr_id=$(
+          jq -r --arg branch "$branch" '
+            def head_text:
+              .head
+              | if type == "object" then (.ref // .name // .label // .branch // "")
+                elif type == "string" then .
+                else ""
+                end;
+            [
+              .[]
+              | select(.state == "open")
+              | select((head_text == $branch) or (head_text | endswith("/" + $branch)) or (head_text | endswith(":" + $branch)))
+            ][0].index // empty
+          ' <<<"$prs"
+        )
+
+        if [[ -z $pr_id ]]; then
+          printf 'agent-pr-status: no open PR found for branch %s; pass a PR number\n' "$branch" >&2
+          jq -r '.[] | "#\(.index) [\(.state)] \(.title) head=\(.head | tostring) ci=\(.ci | tostring)"' <<<"$prs"
+          exit 1
+        fi
+
+        pr=$(
+          jq -c --arg pr_id "$pr_id" '
+            map(select((.index | tostring) == $pr_id))[0] // empty
+          ' <<<"$prs"
+        )
+      fi
+
+      if [[ -z $pr ]]; then
+        printf 'agent-pr-status: PR #%s was not found by tea\n' "$pr_id" >&2
+        exit 1
+      fi
+
+      jq -r '
+        def head_text:
+          .head
+          | if type == "object" then (.ref // .name // .label // .branch // "")
+            elif type == "string" then .
+            else ""
+            end;
+        "PR #\(.index): \(.title)\nstate: \(.state)\nhead: \(head_text)\nbase: \(.base | tostring)\nmergeable: \(.mergeable | tostring)\nci: \(.ci | tostring)\nurl: \(.url // "")"
+      ' <<<"$pr"
+
+      comments=$(tea pr "$pr_id" --comments --limit 100 --output json)
+      summary=$(
+        jq -r '
+          def body_text: (.body? // .content? // .text? // "");
+          [
+            .. | objects
+            | select((body_text | type) == "string")
+            | select(body_text | contains("dotfiles-ci-summary:v1"))
+          ]
+          | last
+          | if . == null then "" else body_text end
+        ' <<<"$comments"
+      )
+
+      printf '\n'
+      if [[ -n $summary ]]; then
+        printf '%s\n' "$summary"
+      else
+        printf 'No dotfiles-ci-summary:v1 comment found for PR #%s.\n' "$pr_id"
+      fi
+    '')
+    (mkAgentWrapper "agent-pr-comments" ''
+      require_tea_login() {
+        if ! tea whoami >/dev/null 2>&1; then
+          printf 'agent-pr-comments: tea is not configured for Forgejo in this dev-machine\n' >&2
+          exit 1
+        fi
+      }
+
+      if [[ $# -ne 1 ]]; then
+        printf 'usage: agent-pr-comments <pr-number>\n' >&2
+        exit 2
+      fi
+
+      require_tea_login
+      pr_id=$1
+      lifecycle=$(tea pr "$pr_id" --comments --limit 100 --output json)
+      review=$(tea pr review-comments "$pr_id" --output json)
+      jq -n \
+        --argjson lifecycle "$lifecycle" \
+        --argjson review_comments "$review" \
+        '{lifecycle: $lifecycle, review_comments: $review_comments}'
+    '')
+    (mkAgentWrapper "agent-pr-comment" ''
+      require_tea_login() {
+        if ! tea whoami >/dev/null 2>&1; then
+          printf 'agent-pr-comment: tea is not configured for Forgejo in this dev-machine\n' >&2
+          exit 1
+        fi
+      }
+
+      if [[ $# -lt 2 ]]; then
+        printf 'usage: agent-pr-comment <pr-number> <message>\n' >&2
+        exit 2
+      fi
+
+      require_tea_login
+      pr_id=$1
+      shift
+      exec tea comment "$pr_id" "$*"
     '')
   ];
 

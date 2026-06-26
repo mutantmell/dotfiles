@@ -100,6 +100,9 @@ agent-preflight [--quick|--full]  # ./scripts/agent-preflight.sh
 agent-checks [check ...]          # ./scripts/run-checks.sh
 agent-build-check <check-name>    # nix build .#checks.x86_64-linux.<check-name>
 agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
+agent-pr-status [pr-number]       # PR state, Forgejo CI state, and sticky CI summary
+agent-pr-comments <pr-number>     # lifecycle and review comments as JSON
+agent-pr-comment <pr-number> ...  # post a concise PR comment through tea
 ```
 
 These commands locate the dotfiles checkout, change to the repo root, and call the existing scripts or Nix commands. They do not replace the repo validation stack.
@@ -119,6 +122,12 @@ reporter lookup fields, and bounded redacted log tails for failures.
 Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.
 
 The target CI feedback loop is documented in `llm-notes/plans/agent-ci-feedback-loop-plan.md`. Until the Forgejo API credential and branch-push controls are validated, agents should continue to open PRs through the repo's AGit workflow. Once enabled, the intended PR status path is Forgejo through `tea`: read the PR `ci` field for pass/fail state and the sticky `dotfiles-ci-summary:v1` PR comment for actionable failure details.
+
+The PR helper wrappers are intentionally thin. They fail clearly when `tea` has
+not been configured with a Forgejo login, which is the current default until API
+credential injection is enabled. When credentials are present,
+`agent-pr-status` infers the PR from the current branch when possible, or accepts
+an explicit PR number.
 
 ## Agent Profile
 
