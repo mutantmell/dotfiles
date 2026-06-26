@@ -63,6 +63,13 @@ The desired default loop is:
   comment reporter. That path is safer when agents cannot read Woodpecker, but
   it adds custom machinery that is unnecessary if agents can have read-only
   Woodpecker access.
+- Some sticky-comment scaffolding still exists in the current dev-machine
+  wrapper layer:
+  - `packages/dev-machine-tools.nix`: `agent-pr-status` fetches PR comments and
+    looks for `dotfiles-ci-summary:v1`.
+  - `docs/dev-machine.md`: the wrapper table still describes
+    `agent-pr-status` as showing a sticky CI summary.
+  These should be removed after the read-only Woodpecker path is validated.
 
 ## Design
 
@@ -252,8 +259,13 @@ After Phase 1 and Phase 2 succeed:
   superseded trusted-reporter design.
 - Update `docs/dev-machine.md` to describe the default read-only Woodpecker
   workflow.
-- Keep sticky-comment poster scaffolding out of the default agent-facing
-  wrappers.
+- Remove sticky-comment lookup from `agent-pr-status` in
+  `packages/dev-machine-tools.nix`. The default status helper should print PR
+  state, Forgejo CI state, and the Woodpecker status target URL when available.
+- Update `docs/dev-machine.md` so `agent-pr-status` is no longer described as
+  showing a sticky CI summary.
+- Keep sticky-comment poster/renderer scaffolding out of the default
+  agent-facing wrappers.
 - Keep the reverted Markdown renderer out of the default path unless the
   hardened sticky-comment mode is deliberately revived later.
 
