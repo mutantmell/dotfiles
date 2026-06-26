@@ -254,9 +254,8 @@ After Phase 1 and Phase 2 succeed:
   workflow.
 - Keep sticky-comment poster scaffolding out of the default agent-facing
   wrappers.
-- Decide whether to keep or remove `render-ci-summary-comment.py`:
-  - keep it if sticky comments remain plausible;
-  - delete it if read-only Woodpecker logs are enough.
+- Keep the reverted Markdown renderer out of the default path unless the
+  hardened sticky-comment mode is deliberately revived later.
 
 ## Validation Checklist
 
