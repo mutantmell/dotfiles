@@ -100,7 +100,6 @@ agent-preflight [--quick|--full]  # ./scripts/agent-preflight.sh
 agent-checks [check ...]          # ./scripts/run-checks.sh
 agent-build-check <check-name>    # nix build .#checks.x86_64-linux.<check-name>
 agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
-agent-ci-render-summary [json]    # render a bounded sticky PR summary comment
 agent-pr-status [pr-number]       # PR state, Forgejo CI state, and sticky CI summary
 agent-pr-comments <pr-number>     # lifecycle and review comments as JSON
 agent-pr-comment <pr-number> ...  # post a concise PR comment through tea
@@ -128,9 +127,7 @@ The PR helper wrappers are intentionally thin. They fail clearly when `tea` has
 not been configured with a Forgejo login, which is the current default until API
 credential injection is enabled. When credentials are present,
 `agent-pr-status` infers the PR from the current branch when possible, or accepts
-an explicit PR number. It still contains sticky-summary scaffolding from the
-older trusted-reporter experiment; the read-only Woodpecker plan tracks cleanup
-of that default output once the simpler access model is validated.
+an explicit PR number.
 
 ## Agent Profile
 

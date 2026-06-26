@@ -337,20 +337,6 @@ broad and expensive validation.
 - `docs/dev-machine.md` documents the wrappers and their current credential
   limitations.
 
-### Iteration 4 result
-
-- Added `scripts/render-ci-summary-comment.py`, a bounded Markdown renderer for
-  trusted reporter output from `check-summary.json`.
-- Added the `agent-ci-render-summary` dev-machine wrapper and a
-  `ci-summary-render` check that validates the sticky marker and code-block
-  rendering behavior.
-- Tightened `agent-pr-status` so, when the PR head SHA is known, it only prints
-  a sticky `dotfiles-ci-summary:v1` comment whose hidden `sha=<head>` marker
-  matches the current head. This prevents agents from acting on stale summaries
-  after a force-push or new commit.
-- The renderer is still local scaffolding. Posting/updating the Forgejo comment
-  from a trusted Woodpecker event-stream reporter remains pending.
-
 ### Phase 1: Add `tea` to dev-machine
 
 - Add `tea` to the dev-machine tool package.
