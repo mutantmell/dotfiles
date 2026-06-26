@@ -19,6 +19,7 @@ in
   (import ./router6.nix {inherit pkgs lib;})
   // {
     cert-expiry = import ./lib/cert-expiry.nix {inherit pkgs lib;};
+    ci-summary-render = import ./lib/ci-summary-render.nix {inherit pkgs lib;};
     disko-vmtools-canary = import ./lib/disko-vmtools-canary.nix {
       inherit pkgs lib disko;
     };

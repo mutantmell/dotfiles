@@ -13,9 +13,11 @@
       runtimeInputs = with pkgs; [
         bashInteractive
         coreutils-full
+        gawk
         git
         jq
         nix
+        python3
         tea
       ];
       text = ''
@@ -69,6 +71,9 @@
     '')
     (mkAgentWrapper "agent-smoke" ''
       exec ./scripts/dev-machine-smoke.sh "$@"
+    '')
+    (mkAgentWrapper "agent-ci-render-summary" ''
+      exec ./scripts/render-ci-summary-comment.py "$@"
     '')
     (mkAgentWrapper "agent-pr-status" ''
       require_tea_login() {
@@ -148,13 +153,58 @@
       ' <<<"$pr"
 
       comments=$(tea pr "$pr_id" --comments --limit 100 --output json)
-      summary=$(
+      head_sha=$(
         jq -r '
+          def head_sha:
+            .head
+            | if type == "object" then (.sha // .commit.sha // .commit.id // .commit_id // "")
+              else ""
+              end;
+          head_sha
+        ' <<<"$pr"
+      )
+      if [[ -z $head_sha ]]; then
+        current_branch=$(git branch --show-current 2>/dev/null || true)
+        pr_branch=$(
+          jq -r '
+            def head_text:
+              .head
+              | if type == "object" then (.ref // .name // .label // .branch // "")
+                elif type == "string" then .
+                else ""
+                end;
+            head_text
+          ' <<<"$pr"
+        )
+        remote_branch=$pr_branch
+        if [[ $remote_branch == *:* ]]; then
+          remote_branch=''${remote_branch#*:}
+        fi
+        if [[ $remote_branch == */* && $remote_branch != agent/* ]]; then
+          candidate=''${remote_branch#*/}
+          if git ls-remote --exit-code --heads origin "$candidate" >/dev/null 2>&1; then
+            remote_branch=$candidate
+          fi
+        fi
+        if [[ -n $remote_branch ]]; then
+          if remote_sha=$(git ls-remote --heads origin "$remote_branch" 2>/dev/null | awk 'NR == 1 { print $1 }'); then
+            head_sha=$remote_sha
+          fi
+        fi
+        if [[ -n $current_branch && ( $pr_branch == "$current_branch" || $pr_branch == *"/$current_branch" || $pr_branch == *":$current_branch" ) ]]; then
+          head_sha=''${head_sha:-$(git rev-parse HEAD 2>/dev/null || true)}
+        fi
+      fi
+      summary=$(
+        jq -r --arg head_sha "$head_sha" '
           def body_text: (.body? // .content? // .text? // "");
+          def marker_sha:
+            (body_text | capture("dotfiles-ci-summary:v1 sha=(?<sha>[A-Za-z0-9._/-]+)")? | .sha) // "";
           [
             .. | objects
             | select((body_text | type) == "string")
             | select(body_text | contains("dotfiles-ci-summary:v1"))
+            | select(($head_sha == "") or (marker_sha == $head_sha))
           ]
           | last
           | if . == null then "" else body_text end
@@ -165,7 +215,11 @@
       if [[ -n $summary ]]; then
         printf '%s\n' "$summary"
       else
-        printf 'No dotfiles-ci-summary:v1 comment found for PR #%s.\n' "$pr_id"
+        if [[ -n $head_sha ]]; then
+          printf 'No current dotfiles-ci-summary:v1 comment found for PR #%s at head %s.\n' "$pr_id" "$head_sha"
+        else
+          printf 'No dotfiles-ci-summary:v1 comment found for PR #%s.\n' "$pr_id"
+        fi
       fi
     '')
     (mkAgentWrapper "agent-pr-comments" ''

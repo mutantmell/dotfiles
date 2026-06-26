@@ -100,6 +100,7 @@ agent-preflight [--quick|--full]  # ./scripts/agent-preflight.sh
 agent-checks [check ...]          # ./scripts/run-checks.sh
 agent-build-check <check-name>    # nix build .#checks.x86_64-linux.<check-name>
 agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
+agent-ci-render-summary [json]    # render a bounded sticky PR summary comment
 agent-pr-status [pr-number]       # PR state, Forgejo CI state, and sticky CI summary
 agent-pr-comments <pr-number>     # lifecycle and review comments as JSON
 agent-pr-comment <pr-number> ...  # post a concise PR comment through tea
@@ -127,7 +128,12 @@ The PR helper wrappers are intentionally thin. They fail clearly when `tea` has
 not been configured with a Forgejo login, which is the current default until API
 credential injection is enabled. When credentials are present,
 `agent-pr-status` infers the PR from the current branch when possible, or accepts
-an explicit PR number.
+an explicit PR number. When the PR head SHA is available, it only prints a
+`dotfiles-ci-summary:v1` comment whose hidden marker matches that SHA, avoiding
+stale feedback after a force-push or new commit. `agent-ci-render-summary` is
+the repo-local renderer for the trusted reporter path; it turns
+`check-summary.json` into the bounded Markdown comment format but does not post
+anything to Forgejo.
 
 ## Agent Profile
 

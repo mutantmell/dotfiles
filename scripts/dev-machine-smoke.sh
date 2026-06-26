@@ -228,7 +228,7 @@ check "Nix has auto-allocate-uids feature" nix_config_contains_word experimental
 check "Nix cgroups enabled" bash -c 'nix config show use-cgroups 2>/dev/null | grep -qx "true"'
 check "Nix advertises uid-range" nix_config_contains_word system-features uid-range
 
-for wrapper in agent-fmt agent-preflight agent-preflight-quick agent-preflight-full agent-checks agent-build-check agent-smoke agent-pr-status agent-pr-comments agent-pr-comment; do
+for wrapper in agent-fmt agent-preflight agent-preflight-quick agent-preflight-full agent-checks agent-build-check agent-smoke agent-ci-render-summary agent-pr-status agent-pr-comments agent-pr-comment; do
   check "$wrapper available" command -v "$wrapper"
 done
 
