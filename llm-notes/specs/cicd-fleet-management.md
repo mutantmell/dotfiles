@@ -264,11 +264,12 @@ For each PR/head SHA, expose:
 - `check-summary.json` — machine-readable status, failed check names,
   reproduction commands, failing command snippets, artifact/log URLs, and
   relevant log tails.
-- `check-summary.md` — a human-readable PR comment or artifact with the same
-  information in review-friendly form.
+- Optional later artifacts may render the same information for humans, but the
+  default agent feedback path does not require a Markdown PR comment.
 
 Agents should not have to scrape entire Forgejo/Woodpecker logs to diagnose
-routine failures. Every generated check should map back to one repo-local
+routine failures; the Woodpecker log should print a bounded
+`check-summary.json` block. Every generated check should map back to one repo-local
 reproduction command (`./scripts/run-checks.sh <name>`,
 `nix build .#checks.x86_64-linux.<name>`, `agent-preflight-quick`, etc.).
 
@@ -281,9 +282,11 @@ sticky-comment reporter design is archived at
 `llm-notes/done/agent-ci-feedback-loop-plan.md` and remains an optional
 hardened path if read-only Woodpecker access is insufficient.
 
-AGit remains an operational fallback until the normal-branch + `tea` workflow
-has validated branch namespace restrictions, token scope, token materialization,
-and smoke-test behavior.
+The target agent submission model is Forgejo fork-and-pull: the agent identity
+pushes branches to its own fork and opens PRs against the upstream repo, without
+direct upstream push access. AGit remains an operational fallback until the fork
+remote, scoped push credential, and `tea`/Forgejo API PR creation path have
+validated token scope, token materialization, and smoke-test behavior.
 
 Lifecycle comments form the human control plane for active agent sessions. The
 initial vocabulary should cover:

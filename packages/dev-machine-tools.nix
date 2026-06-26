@@ -147,26 +147,6 @@
         "PR #\(.index): \(.title)\nstate: \(.state)\nhead: \(head_text)\nbase: \(.base | tostring)\nmergeable: \(.mergeable | tostring)\nci: \(.ci | tostring)\nurl: \(.url // "")"
       ' <<<"$pr"
 
-      comments=$(tea pr "$pr_id" --comments --limit 100 --output json)
-      summary=$(
-        jq -r '
-          def body_text: (.body? // .content? // .text? // "");
-          [
-            .. | objects
-            | select((body_text | type) == "string")
-            | select(body_text | contains("dotfiles-ci-summary:v1"))
-          ]
-          | last
-          | if . == null then "" else body_text end
-        ' <<<"$comments"
-      )
-
-      printf '\n'
-      if [[ -n $summary ]]; then
-        printf '%s\n' "$summary"
-      else
-        printf 'No dotfiles-ci-summary:v1 comment found for PR #%s.\n' "$pr_id"
-      fi
     '')
     (mkAgentWrapper "agent-pr-comments" ''
       require_tea_login() {

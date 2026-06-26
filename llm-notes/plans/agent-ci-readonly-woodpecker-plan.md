@@ -17,7 +17,8 @@ or Forgejo comment tokens.
 The desired default loop is:
 
 1. The agent runs quick local checks.
-2. The agent opens or updates a PR.
+2. The agent pushes a branch to its own Forgejo fork and opens or updates a PR
+   against the upstream dotfiles repo.
 3. Forgejo triggers Woodpecker.
 4. Woodpecker reports commit status back to Forgejo.
 5. Forgejo branch protection gates merges on the Woodpecker status.
@@ -31,6 +32,7 @@ The desired default loop is:
 - Giving agents Woodpecker admin, project settings, secret, registry, deploy,
   or restart permissions.
 - Giving untrusted PR build steps a Forgejo comment token.
+- Giving the agent identity direct push access to the upstream dotfiles repo.
 - Replacing Woodpecker with Forgejo Actions.
 - Building a bespoke Woodpecker client before the standard UI/API surfaces have
   been proven insufficient.
@@ -42,6 +44,7 @@ The desired default loop is:
   - `WOODPECKER_FORGEJO = "true"`
   - `WOODPECKER_FORGEJO_URL = "https://forgejo.internal"`
   - `WOODPECKER_OPEN = "true"`
+  - `WOODPECKER_ORGS = "mutantmell-net"`
   - `WOODPECKER_REPO_OWNERS = "mutantmell"`
   - `WOODPECKER_ADMIN = "mutantmell"`
 - `.woodpecker/full-checks.yml` runs:
@@ -58,18 +61,18 @@ The desired default loop is:
   - exact local reproduction commands;
   - bounded, redacted failed-check log tails.
 - `tea` and thin PR wrappers exist in the dev-machine image, but Forgejo API
-  token injection and the normal-branch PR flow are not yet validated.
+  token injection and the fork-and-pull PR flow are not yet validated.
 - `llm-notes/done/agent-ci-feedback-loop-plan.md` explored a trusted sticky PR
   comment reporter. That path is safer when agents cannot read Woodpecker, but
   it adds custom machinery that is unnecessary if agents can have read-only
   Woodpecker access.
-- Some sticky-comment scaffolding still exists in the current dev-machine
-  wrapper layer:
-  - `packages/dev-machine-tools.nix`: `agent-pr-status` fetches PR comments and
-    looks for `dotfiles-ci-summary:v1`.
-  - `docs/dev-machine.md`: the wrapper table still describes
-    `agent-pr-status` as showing a sticky CI summary.
-  These should be removed after the read-only Woodpecker path is validated.
+- Repo-side sticky-comment scaffolding has been removed from the default
+  dev-machine wrapper layer:
+  - `packages/dev-machine-tools.nix`: `agent-pr-status` no longer fetches PR
+    comments looking for `dotfiles-ci-summary:v1`.
+  - `docs/dev-machine.md`: `agent-pr-status` is documented as showing PR state
+    and Forgejo CI state, with detailed failure information coming from
+    Woodpecker logs.
 
 ## Design
 
@@ -109,6 +112,30 @@ Expected permission model:
   artifacts.
 - Woodpecker project settings, secrets, and registries remain owner/admin-only.
 
+### Agent PR authorship
+
+Use Forgejo's normal fork-and-pull model for agent-authored changes.
+
+The preferred write shape is:
+
+- upstream repo: `mutantmell/dotfiles`, or `mutantmell-net/dotfiles` if the
+  repo is moved into the org later;
+- agent fork: `cc/dotfiles`;
+- agent push scope: write to `cc/dotfiles` only;
+- PR target: upstream `main`;
+- merge authority: humans only, through protected branch rules.
+
+This keeps the agent identity out of the upstream branch namespace while still
+using standard Forgejo PRs, status checks, and review flows. It also matches the
+organization model: membership in `mutantmell-net` gates Woodpecker login, while
+repository permissions separately grant `cc` read access to the upstream repo
+and write access only to its fork.
+
+AGit remains an acceptable interim submission path until the fork remote,
+scoped push credential, and `tea`/Forgejo API PR creation flow are validated in
+the dev-machine. Once the fork-and-pull path is validated, make it the default
+agent PR workflow and keep AGit only as a fallback repair path.
+
 Expected Woodpecker visibility:
 
 - Use Woodpecker `Internal` visibility for the dotfiles project so the
@@ -119,11 +146,17 @@ Expected Woodpecker visibility:
 - Before enabling or relying on `Internal`, restrict who can log in to
   Woodpecker.
 
-The current server has `WOODPECKER_OPEN = "true"` and no `WOODPECKER_ORGS`.
-With `Internal` project visibility, that can expose CI logs to any Forgejo user
-who can log in to Woodpecker. Tighten login scope first, either by adding an
-appropriate `WOODPECKER_ORGS` restriction or by closing registration and
-managing allowed Woodpecker users explicitly.
+The current server keeps `WOODPECKER_OPEN = "true"` and sets
+`WOODPECKER_ORGS = "mutantmell-net"`. `mutantmell` is the Forgejo user account
+that owns the repo, so it remains in `WOODPECKER_REPO_OWNERS`;
+`mutantmell-net` is the domain/homelab Forgejo organization and doubles as the
+Woodpecker login allowlist. This keeps Forgejo SSO registration available for
+approved organization members while avoiding arbitrary Forgejo account access
+when Woodpecker projects use `Internal` visibility. Live validation still needs
+to confirm the agent user is in the approved Forgejo organization. Because this
+is a login/registration restriction, also audit existing Woodpecker users before
+relying on `Internal` visibility; do not assume the org filter evicts users who
+already registered.
 
 ### Log and artifact exposure
 
@@ -206,7 +239,16 @@ scaffolding out of the default agent surface.
 ### Phase 1: Validate access model
 
 - Create or identify the agent Forgejo user, likely `cc`.
+- Create or identify the Forgejo `mutantmell-net` organization used as the
+  domain/homelab org and Woodpecker login allowlist.
+- Add or confirm the agent user in the Forgejo `mutantmell-net` organization so
+  it can pass the Woodpecker `WOODPECKER_ORGS = "mutantmell-net"` login
+  restriction.
 - Grant that user read-only access to `mutantmell/dotfiles`.
+- Create or confirm the `cc/dotfiles` fork and grant the dev-machine's scoped
+  `cc` push credential write access to that fork, not to the upstream repo.
+- Audit existing Woodpecker users and remove any account that should not retain
+  access before treating `Internal` project visibility as safe.
 - Log in to Woodpecker through Forgejo SSO as that user.
 - Verify the user can:
   - see the dotfiles Woodpecker project;
@@ -230,7 +272,8 @@ scaffolding out of the default agent surface.
 
 ### Phase 2: Validate merge gate
 
-- Open or reuse a test PR.
+- Open or reuse a test PR, preferably from `cc/dotfiles:<branch>` into the
+  upstream `main` branch.
 - Confirm Woodpecker runs on the PR event.
 - Record the exact Forgejo status context name. Expected:
   `ci/woodpecker/pr/full-checks`.
@@ -253,7 +296,7 @@ scaffolding out of the default agent surface.
 
 ### Phase 4: Simplify existing scaffolding
 
-After Phase 1 and Phase 2 succeed:
+Repo-side cleanup can happen independently of live validation:
 
 - Keep `llm-notes/done/agent-ci-feedback-loop-plan.md` archived as the
   superseded trusted-reporter design.
@@ -272,8 +315,12 @@ After Phase 1 and Phase 2 succeed:
 ## Validation Checklist
 
 - `cc` has Forgejo read-only access to dotfiles.
+- `cc` can push branches to `cc/dotfiles` and open PRs against the upstream
+  repo, but cannot push directly to upstream branches.
 - Woodpecker login is restricted before dotfiles project visibility is set to
   or treated as `Internal`.
+- Existing Woodpecker users have been audited, and any users outside the
+  intended `mutantmell-net` allowlist have been removed or explicitly accepted.
 - `cc` can read Woodpecker logs for dotfiles pipelines.
 - `cc` cannot access Woodpecker settings, secrets, registries, deploy controls,
   or protected Forgejo branch controls.
@@ -287,9 +334,9 @@ After Phase 1 and Phase 2 succeed:
 
 - Woodpecker project visibility: use `Internal` for the default path unless
   live testing contradicts upstream docs about `Private` owner-only visibility.
-- Woodpecker login restriction: required before using `Internal`; choose
-  `WOODPECKER_ORGS` or closed registration with explicit users during
-  implementation.
+- Woodpecker login restriction: `WOODPECKER_ORGS = "mutantmell-net"` is
+  configured; live validation still needs to confirm that Forgejo organization
+  exists, includes the agent user, and allows the user to log in.
 - Status context: likely `ci/woodpecker/pr/full-checks`; verify from a real PR
   status before configuring branch protection.
 - Forgejo branch protection: expected to support requiring the Woodpecker
@@ -300,6 +347,9 @@ After Phase 1 and Phase 2 succeed:
 - Woodpecker API access: generally supports read-only pipeline/log reads, but
   the agent token/login flow needs live validation. Browser/log URL access may
   be enough.
+- Fork-and-pull PR flow: preferred target model; validate `cc/dotfiles` fork
+  creation, scoped push credentials, and `tea`/Forgejo API PR creation before
+  replacing AGit as the default operational submission path.
 - Artifact retention: not required initially. Printing `check-summary.json` in
   logs is sufficient unless logs prove hard for agents to consume.
 
@@ -307,13 +357,14 @@ After Phase 1 and Phase 2 succeed:
 
 Do not add more sticky-comment reporter code.
 
-Next, validate and then simplify:
+Next, validate the live service behavior:
 
-1. Restrict Woodpecker login scope.
+1. Deploy the Woodpecker login-scope change.
 2. Validate `cc` read-only access to the dotfiles Woodpecker project, logs, and
    `check-summary.json`.
-3. Validate the live Forgejo status context and target URL.
-4. Configure branch protection for the Woodpecker status.
-5. Clean up wrapper/docs wording so the default workflow is Forgejo status plus
-   read-only Woodpecker logs, while sticky PR comments are clearly optional
-   hardened-mode scaffolding.
+3. Validate `cc/dotfiles` fork push and PR creation into upstream `main`.
+4. Validate the live Forgejo status context and target URL.
+5. Configure branch protection for the Woodpecker status.
+6. Confirm the default agent workflow is fork-and-pull PRs, Forgejo status, and
+   read-only Woodpecker logs, while sticky PR comments remain optional
+   hardened-mode scaffolding only.

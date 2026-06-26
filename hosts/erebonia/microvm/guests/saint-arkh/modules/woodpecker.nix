@@ -7,6 +7,11 @@
       WOODPECKER_GRPC_ADDR = ":9000";
       WOODPECKER_ADMIN = "mutantmell";
       WOODPECKER_OPEN = "true";
+      # Keep registration open for approved Forgejo SSO users, but do not allow
+      # arbitrary Forgejo accounts to gain Woodpecker access when projects use
+      # Internal visibility. This is the homelab/domain org; the dotfiles repo itself
+      # can remain under the mutantmell user account via WOODPECKER_REPO_OWNERS.
+      WOODPECKER_ORGS = "mutantmell-net";
       WOODPECKER_REPO_OWNERS = "mutantmell";
       WOODPECKER_FORGEJO = "true";
       WOODPECKER_FORGEJO_URL = "https://forgejo.internal";

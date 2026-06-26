@@ -45,9 +45,10 @@ Inside the devcontainer, agents should expect:
 - Git push access uses a scoped per-session Forgejo bot key injected by `dev-machine up`.
 - Forgejo PR API access through `tea` has the client binary and
   `TEA_CONFIG_HOME=/home/agent/.config/tea` in place. The entrypoint creates
-  that directory with mode `0700`. Token injection and normal branch-based PR
+  that directory with mode `0700`. Token injection and fork-and-pull PR
   creation are still pending, so AGit remains the default PR submission path
-  for now.
+  for now. The target model is for `cc` to push branches to its own fork and
+  open PRs against the upstream repo without direct upstream push access.
 - LLM profile setup is injected through DevPod dotfiles when the target repo's `.net.mutantmell/agents.toml` names a dotfiles repository. That repository's installer activates only the plugins and marketplaces the checkout asks for.
 - Egress is enforced at bt8gw for VLAN 51, not by Kubernetes NetworkPolicy. The intended policy is WAN plus limited access to `forgejo.internal` for git/registry traffic.
 
@@ -100,7 +101,7 @@ agent-preflight [--quick|--full]  # ./scripts/agent-preflight.sh
 agent-checks [check ...]          # ./scripts/run-checks.sh
 agent-build-check <check-name>    # nix build .#checks.x86_64-linux.<check-name>
 agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
-agent-pr-status [pr-number]       # PR state, Forgejo CI state, and sticky CI summary
+agent-pr-status [pr-number]       # PR state and Forgejo CI state
 agent-pr-comments <pr-number>     # lifecycle and review comments as JSON
 agent-pr-comment <pr-number> ...  # post a concise PR comment through tea
 ```
@@ -117,17 +118,19 @@ agent-checks --summary-dir ci-summary network-registry
 
 This creates `ci-summary/check-summary.json` with the
 `dotfiles-ci-summary:v1` schema, including per-check reproduction commands,
-reporter lookup fields, and bounded redacted log tails for failures.
+pipeline lookup fields, and bounded redacted log tails for failures.
 
 Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.
 
-The target CI feedback loop is documented in `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. Until the Forgejo API credential and branch-push controls are validated, agents should continue to open PRs through the repo's AGit workflow. The intended CI feedback path is Forgejo status for pass/fail and read-only Woodpecker access for detailed logs and `check-summary.json`.
+The target CI feedback loop is documented in `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. Until the Forgejo API credential and fork-and-pull controls are validated, agents should continue to open PRs through the repo's AGit workflow. The intended CI feedback path is Forgejo status for pass/fail and read-only Woodpecker access for detailed logs and `check-summary.json`.
 
 The PR helper wrappers are intentionally thin. They fail clearly when `tea` has
 not been configured with a Forgejo login, which is the current default until API
 credential injection is enabled. When credentials are present,
 `agent-pr-status` infers the PR from the current branch when possible, or accepts
-an explicit PR number.
+an explicit PR number. Detailed CI failure information comes from the Woodpecker
+status target URL and the printed `===== check-summary.json =====` log block,
+not from sticky Forgejo PR comments by default.
 
 ## Agent Profile
 

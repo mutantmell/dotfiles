@@ -360,11 +360,11 @@ that:
 - Checks out the repo
 - Runs `nix build .#checks.x86_64-linux.<name>` for each check
 - Reports results back to Forgejo
-- Emits a machine-readable check summary artifact and a compact PR-facing
-  summary (`check-summary.json` and `check-summary.md`). Each failed check
-  should include the check name, exact reproduction command, failing command,
-  relevant log tail, and a pointer to the full log/artifact. Agents should not
-  need to scrape large CI logs to find the actionable failure.
+- Prints a bounded machine-readable `check-summary.json` block in the
+  Woodpecker log. Each failed check should include the check name, exact
+  reproduction command, failing command, relevant log tail, and a pointer to the
+  full log/artifact. Agents should not need to scrape large CI logs to find the
+  actionable failure.
 
 ### 1.6a Agent PR feedback integration
 
@@ -379,18 +379,19 @@ Target direction:
   access for detailed logs and `check-summary.json`.
 - Agents do not normally use a direct Woodpecker API/CLI integration.
 - Woodpecker's built-in Forgejo status remains the pass/fail and merge-gate
-  signal; rich failure detail is conveyed through the sticky PR comment below.
-- Woodpecker produces `check-summary.json` and `check-summary.md`.
-- A trusted reporter outside untrusted PR build steps posts or updates one
-  sticky `dotfiles-ci-summary:v1` PR comment in Forgejo.
-  The reporter should consume Woodpecker's event stream as its primary trigger
-  and use periodic reconciliation over recent completed pipelines as a fallback.
+  signal; rich failure detail is read from Woodpecker logs by default.
+- Woodpecker produces `check-summary.json` and prints it in the pipeline log.
 - Agents read PR description, lifecycle comments, review comments, requested
-  changes, mergeability/check state, and the sticky CI summary through Forgejo.
+  changes, mergeability/check state, and the Woodpecker status target URL
+  through Forgejo. They use read-only Woodpecker access for detailed logs.
+- The trusted sticky-comment reporter remains a possible hardened fallback, but
+  is not the default path.
 - AGit topic resolution remains fallback-only while AGit remains the operational
-  default. The normal-branch + `tea` workflow should not replace AGit until
-  branch namespace constraints, API token scope, token materialization, and
-  smoke-test behavior are implemented and validated.
+  default. The target model is Forgejo fork-and-pull: `cc` pushes branches to
+  `cc/dotfiles` and opens PRs against the upstream repo, without direct upstream
+  push access. That workflow should not replace AGit until fork provisioning,
+  API token scope, token materialization, and smoke-test behavior are
+  implemented and validated.
 
 Keep token scope narrow. Do not reuse the Git push credential for API
 operations, and do not grant deploy/admin rights to the agent-facing `tea`
@@ -1100,9 +1101,9 @@ tracked in the cluster dependency registry. The first implementation should use
 a repo-native updater/check flow that edits that registry, refreshes
 hashes/digests, regenerates committed Flux YAML when needed, and opens a PR. The
 target PR creation path should follow
-`llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`: normal branch plus Forgejo PR
+`llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`: fork-and-pull PR
 creation through the chosen narrow API/broker path once validated. AGit is an
-acceptable interim fallback while the `tea` branch-credential workflow is still
+acceptable interim fallback while the `tea` fork credential workflow is still
 unproven. Renovate can be added later, but only if it edits the authoritative
 dependency surface for a given dependency class; if Renovate owns this path, use
 its normal branch PR model rather than inventing an AGit-specific convention.
