@@ -101,7 +101,6 @@ agent-checks [check ...]          # ./scripts/run-checks.sh
 agent-build-check <check-name>    # nix build .#checks.x86_64-linux.<check-name>
 agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
 agent-ci-render-summary [json]    # render a bounded sticky PR summary comment
-agent-ci-post-summary <pr> <json> # create/update the sticky CI summary comment
 agent-pr-status [pr-number]       # PR state, Forgejo CI state, and sticky CI summary
 agent-pr-comments <pr-number>     # lifecycle and review comments as JSON
 agent-pr-comment <pr-number> ...  # post a concise PR comment through tea
@@ -133,15 +132,8 @@ an explicit PR number. When the PR head SHA is available, it only prints a
 `dotfiles-ci-summary:v1` comment whose hidden marker matches that SHA, avoiding
 stale feedback after a force-push or new commit. `agent-ci-render-summary` is
 the repo-local renderer for the trusted reporter path; it turns
-`check-summary.json` into the bounded Markdown comment format. The
-`agent-ci-post-summary` wrapper is reporter-side scaffolding: it renders the
-same JSON, finds the existing sticky comment with `tea api`, and creates or
-updates that one comment, paging through PR comments so busy PRs do not get
-duplicate summaries. It refuses to post when the current PR head cannot be
-verified or when the JSON head does not match it, unless `--allow-stale` is
-explicitly passed, and it only updates comments owned by the authenticated
-`tea` user unless an explicit reporter `--author` is provided. It requires a
-configured Forgejo `tea` login and is not intended for untrusted PR build steps.
+`check-summary.json` into the bounded Markdown comment format but does not post
+anything to Forgejo.
 
 ## Agent Profile
 

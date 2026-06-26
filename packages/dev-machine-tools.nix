@@ -75,9 +75,6 @@
     (mkAgentWrapper "agent-ci-render-summary" ''
       exec ./scripts/render-ci-summary-comment.py "$@"
     '')
-    (mkAgentWrapper "agent-ci-post-summary" ''
-      exec ./scripts/post-ci-summary-comment.py "$@"
-    '')
     (mkAgentWrapper "agent-pr-status" ''
       require_tea_login() {
         if ! tea whoami >/dev/null 2>&1; then
