@@ -245,6 +245,19 @@ forgejo_web_url() {
   printf '%s\n' "${url%/api/v1}"
 }
 
+woodpecker_token() {
+  if [[ -z $WOODPECKER_TOKEN_FILE ]]; then
+    return 1
+  fi
+  if [[ ! -f $WOODPECKER_TOKEN_FILE ]]; then
+    echo "Woodpecker token unavailable (programs.dev-machine.woodpeckerTokenFile)." >&2
+    echo "add 'dev-machine-woodpecker-token' to the edith sops secrets and" >&2
+    echo "re-run home-manager switch." >&2
+    return 1
+  fi
+  cat "$WOODPECKER_TOKEN_FILE"
+}
+
 # Map a workspace source (creil URL or local checkout's origin) to its
 # forgejo owner/repo; empty for non-creil sources (which get no push cred).
 # Used to gate credential injection and to derive the cc fork remote.
@@ -341,6 +354,54 @@ inject_forgejo_credential() {
         )
         if [ -z "$cid" ]; then
             echo "no running devcontainer with a workspace checkout found" >&2
+            exit 1
+        fi
+        exec podman-rootful exec -i --user agent "$cid" sh
+    '
+}
+
+inject_woodpecker_credential() {
+  local token=$1 host=$2
+  local server_q token_b64
+  server_q=$(shell_quote "$WOODPECKER_SERVER")
+  token_b64=$(printf '%s' "$token" | base64 -w0)
+  # shellcheck disable=SC2016
+  {
+    printf '%s\n' \
+      'set -e' \
+      'umask 077' \
+      "trap 'rm -f ~/.config/woodpecker/token.b64' EXIT" \
+      'mkdir -p ~/.config/woodpecker' \
+      'chmod 700 ~/.config/woodpecker' \
+      "cat > ~/.config/woodpecker/token.b64 <<'DM_WOODPECKER_TOKEN'" \
+      "$token_b64" \
+      'DM_WOODPECKER_TOKEN' \
+      'base64 -d ~/.config/woodpecker/token.b64 > ~/.config/woodpecker/token' \
+      'rm -f ~/.config/woodpecker/token.b64' \
+      'chmod 600 ~/.config/woodpecker/token' \
+      'cat > ~/.config/woodpecker/env <<'"'DM_WOODPECKER_ENV'" \
+      "export WOODPECKER_SERVER=$server_q" \
+      'export WOODPECKER_TOKEN="$(cat "$HOME/.config/woodpecker/token")"' \
+      'DM_WOODPECKER_ENV' \
+      'chmod 600 ~/.config/woodpecker/env' \
+      'for profile in ~/.profile ~/.bashrc; do' \
+      '  touch "$profile"' \
+      '  if ! grep -qxF "[ -f \"\$HOME/.config/woodpecker/env\" ] && . \"\$HOME/.config/woodpecker/env\"" "$profile"; then' \
+      '    printf "%s\n" "[ -f \"\$HOME/.config/woodpecker/env\" ] && . \"\$HOME/.config/woodpecker/env\"" >> "$profile"' \
+      '  fi' \
+      'done'
+  } | ssh_dev "$host" '
+        set -e
+        cid=$(
+            podman-rootful ps -q | while read -r c; do
+                if podman-rootful exec "$c" sh -c "test -d /workspaces"; then
+                    printf "%s\n" "$c"
+                    exit 0
+                fi
+            done
+        )
+        if [ -z "$cid" ]; then
+            echo "no running devcontainer found" >&2
             exit 1
         fi
         exec podman-rootful exec -i --user agent "$cid" sh
@@ -563,7 +624,7 @@ cmd_up() {
   # Phase 4: resolve the target creil repo + operator Forgejo token up front,
   # so a missing token fails before we build images / boot a VM. Non-creil
   # sources (or --no-push-cred) just get no git/API credential.
-  local token=""
+  local token="" woodpecker_api_token=""
   if [[ $push_cred -eq 1 ]]; then
     [[ -n $repo ]] || repo=$(parse_repo "$source")
     if [[ -n $repo ]]; then
@@ -574,6 +635,9 @@ cmd_up() {
       echo "      have no git-push or tea credential (pass --repo owner/name)." >&2
       rm -f "$statedir/repo"
     fi
+  fi
+  if ! woodpecker_api_token=$(woodpecker_token 2>/dev/null); then
+    woodpecker_api_token=""
   fi
 
   # Surface the OIDC login prompt up front (stderr visible) so the later
@@ -679,6 +743,11 @@ cmd_up() {
     inject_forgejo_credential "$name" "$token" "$repo" "$host" ||
       echo "warning: $FORGEJO_USER credential provisioning failed; sandbox has no push/API credential" >&2
   fi
+  if [[ -n $woodpecker_api_token ]]; then
+    echo "==> provisioning Woodpecker API credential"
+    inject_woodpecker_credential "$woodpecker_api_token" "$host" ||
+      echo "warning: Woodpecker credential provisioning failed; sandbox has no CI log API credential" >&2
+  fi
 
   echo
   echo "dev machine '$name' is up. Connect with:  dev-machine ssh $name"
@@ -755,10 +824,11 @@ cmd_ssh() {
 # multi-minute VM create+boot of a full `down`/`up`. `devpod up --recreate`
 # tears the container down and rebuilds it over the existing tunnel; the VM,
 # its scratch disk, and the local state all survive. A recreate produces a
-# fresh container, so the cc Forgejo token `up` injected is gone. Re-inject it
-# from the operator-side token so the refreshed container can push immediately.
+# fresh container, so the injected Forgejo and Woodpecker credentials are gone.
+# Re-inject them from operator-side token files so the refreshed container can
+# push and inspect CI immediately.
 cmd_refresh() {
-  local name=""
+  local name="" woodpecker_api_token=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
     -*)
@@ -812,6 +882,11 @@ cmd_refresh() {
       echo "warning: no Forgejo token; scoped credentials not re-injected" >&2
       echo "         re-run 'dev-machine up' after fixing forgejoTokenFile" >&2
     fi
+  fi
+  if woodpecker_api_token=$(woodpecker_token 2>/dev/null); then
+    echo "==> re-injecting the Woodpecker API credential"
+    inject_woodpecker_credential "$woodpecker_api_token" "$host" ||
+      echo "warning: Woodpecker credential re-injection failed; re-run 'dev-machine up' to restore it" >&2
   fi
   echo
   echo "dev machine '$name' refreshed. Connect with:  dev-machine ssh $name"

@@ -128,6 +128,8 @@ in
           FORGEJO_API=$(json_string '.forgejoApi' 'https://forgejo.internal/api/v1')
           FORGEJO_USER=$(json_string '.forgejoUser' 'cc')
           FORGEJO_TOKEN_FILE=$(json_string '.forgejoTokenFile' "")
+          WOODPECKER_SERVER=$(json_string '.woodpeckerServer' 'https://woodpecker.internal')
+          WOODPECKER_TOKEN_FILE=$(json_string '.woodpeckerTokenFile' "")
           COMMIT_NAME=$(json_string '.commitName' "$FORGEJO_USER")
           COMMIT_EMAIL=$(json_string '.commitEmail' "$FORGEJO_USER@forgejo.internal")
           AGENTS_DOTFILES_ENABLE=$(json_bool '.agentsDotfiles.enable' true)

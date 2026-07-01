@@ -164,6 +164,23 @@ in {
       '';
     };
 
+    woodpeckerServer = lib.mkOption {
+      type = lib.types.str;
+      default = "https://woodpecker.internal";
+      description = "Woodpecker server URL used by agents when reading CI pipeline metadata and logs.";
+    };
+
+    woodpeckerTokenFile = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      description = ''
+        Path to a file holding a Woodpecker personal access token injected into
+        the agent devcontainer as WOODPECKER_TOKEN. The token should belong to a
+        non-admin Woodpecker user with only the Forgejo/repository access needed
+        to read pipeline status and logs for agent-managed repositories.
+      '';
+    };
+
     forgejoUser = lib.mkOption {
       type = lib.types.str;
       default = "cc";
@@ -237,6 +254,8 @@ in {
         defaultDisk
         forgejoApi
         forgejoTokenFile
+        woodpeckerServer
+        woodpeckerTokenFile
         forgejoUser
         commitName
         commitEmail

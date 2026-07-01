@@ -157,6 +157,17 @@ dev-machine refresh <name>
 
 Inside the devcontainer, `tea whoami` should report the `cc` account, `git push fork HEAD:<branch-name>` should authenticate over HTTPS, and `agent-smoke` should pass the Forgejo tea login and git credential checks when a credential was provisioned.
 
+## Woodpecker API Credentials
+
+`dev-machine up` also reads `woodpeckerTokenFile` when configured and injects that Woodpecker personal access token into the agent devcontainer. The token is stored at `~/.config/woodpecker/token` with mode `0600`, and new shells source `~/.config/woodpecker/env` to set:
+
+```bash
+WOODPECKER_SERVER=https://woodpecker.internal
+WOODPECKER_TOKEN=<token from ~/.config/woodpecker/token>
+```
+
+`dev-machine refresh` re-injects the credential when the token file is configured, and `agent-smoke` checks the injected file permissions without requiring the credential to exist.
+
 ## Agent Profile
 
 `dev-machine up` reads the target repo's `.net.mutantmell/agents.toml` before starting DevPod. This repo uses:

@@ -295,6 +295,20 @@ else
   skip "Forgejo git credential file permissions" "no Forgejo API credential was provisioned"
 fi
 
+if [[ -f "$HOME/.config/woodpecker/token" ]]; then
+  check "Woodpecker token file permissions" test "$(stat -c %a "$HOME/.config/woodpecker/token")" = 600
+  check "Woodpecker env file permissions" test "$(stat -c %a "$HOME/.config/woodpecker/env")" = 600
+  # shellcheck disable=SC2016
+  check "Woodpecker server exported by env file" bash -c '. "$HOME/.config/woodpecker/env"; test "$WOODPECKER_SERVER" = "https://woodpecker.internal"'
+  # shellcheck disable=SC2016
+  check "Woodpecker token exported by env file" bash -c '. "$HOME/.config/woodpecker/env"; test -n "$WOODPECKER_TOKEN"'
+else
+  skip "Woodpecker token file permissions" "no Woodpecker API credential was provisioned"
+  skip "Woodpecker env file permissions" "no Woodpecker API credential was provisioned"
+  skip "Woodpecker server exported by env file" "no Woodpecker API credential was provisioned"
+  skip "Woodpecker token exported by env file" "no Woodpecker API credential was provisioned"
+fi
+
 if [[ $network -eq 1 ]]; then
   if in_codex_command_sandbox; then
     skip "network egress probes" "masked by Codex's nested command sandbox"
