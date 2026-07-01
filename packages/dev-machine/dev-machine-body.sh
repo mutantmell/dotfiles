@@ -270,12 +270,13 @@ parse_repo() {
 # of process argv.
 inject_forgejo_credential() {
   local name=$1 token=$2 repo=$3 host=$4
-  local name_q forgejo_user_q commit_name_q commit_email_q forgejo_url_q repo_name_q token_b64
+  local name_q forgejo_user_q commit_name_q commit_email_q forgejo_url_q repo_q repo_name_q token_b64
   name_q=$(shell_quote "$name")
   forgejo_user_q=$(shell_quote "$FORGEJO_USER")
   commit_name_q=$(shell_quote "$COMMIT_NAME")
   commit_email_q=$(shell_quote "$COMMIT_EMAIL")
   forgejo_url_q=$(shell_quote "$(forgejo_web_url)")
+  repo_q=$(shell_quote "$repo")
   repo_name_q=$(shell_quote "${repo##*/}")
   token_b64=$(printf '%s' "$token" | base64 -w0)
   # shellcheck disable=SC2016
@@ -315,6 +316,12 @@ inject_forgejo_credential() {
       '  done' \
       'fi' \
       "if [ -n \"\$ws\" ] && [ -n $repo_name_q ]; then" \
+      '  if git -C "$ws" remote get-url origin >/dev/null 2>&1; then' \
+      "    git -C \"\$ws\" remote set-url origin https://forgejo.internal/$repo_q.git" \
+      '  else' \
+      "    git -C \"\$ws\" remote add origin https://forgejo.internal/$repo_q.git" \
+      '  fi' \
+      '  git -C "$ws" remote set-url --push origin no_push_to_origin' \
       '  git -C "$ws" remote remove fork >/dev/null 2>&1 || true' \
       "  git -C \"\$ws\" remote add fork https://forgejo.internal/$FORGEJO_USER/$repo_name_q.git" \
       'fi'

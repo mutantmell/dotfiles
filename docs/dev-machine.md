@@ -136,6 +136,15 @@ Create the `cc` fork before relying on the injected `fork` remote. For this repo
 git push fork HEAD:<branch-name>
 ```
 
+`dev-machine up` normalizes the target checkout's Forgejo remotes to HTTPS:
+
+```text
+origin  https://forgejo.internal/mutantmell/dotfiles.git (fetch)
+origin  no_push_to_origin                              (push)
+fork    https://forgejo.internal/cc/dotfiles.git        (fetch)
+fork    https://forgejo.internal/cc/dotfiles.git        (push)
+```
+
 Then use `tea` to open a pull request from `cc:<branch-name>` to `mutantmell:main`.
 
 After changing the dev image trust store or the token config, rebuild/publish the dev image and refresh or recreate the devcontainer:
