@@ -26,6 +26,7 @@ in {
       packages.ENABLED = true;
       mirror.ENABLED = true;
       session.COOKIE_SECURE = true;
+      webhook.ALLOWED_HOST_LIST = "external,woodpecker.internal";
     };
   };
 
