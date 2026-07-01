@@ -79,27 +79,38 @@ Smoke test after dev-machine image/runtime changes:
 ./scripts/dev-machine-smoke.sh
 ```
 
-## Submitting Changes With AGit
+## Submitting Changes With Tea Fork PRs
 
-This repo uses Forgejo AGit flow for pull requests from the locked-down dev machine. Do not push directly to `main`, and do not look for a PR API token, `gh`, or web UI flow. The dev machine should only need its scoped git push credential for PR submission. `tea` may be installed for future Forgejo API work, but it is not the default PR workflow until token plumbing and branch constraints are validated.
+This repo uses a Forgejo fork-and-pull workflow from the locked-down dev machine. Do not push directly to upstream `main`. The dev machine uses the scoped `cc` credentials injected by `dev-machine up`: `tea` for Forgejo PR operations, HTTPS git credentials for pushing to `cc/<repo>`, and a Woodpecker token for reading CI pipeline details.
 
-Committing and opening a PR is the default workflow for a coherent unit of work. `refs/for/main` proposes a PR; it does not write protected `main` directly.
+Committing and opening a PR is the default workflow for a coherent unit of work. Work on a topic branch, push that branch to the `fork` remote, then create a PR from `cc:<branch>` to upstream `main`.
 
 ```bash
-git push origin HEAD:refs/for/main -o topic="<topic>" \
-  -o title="<title>" -o description="<inline markdown body>"
+tea login
 
-git push origin HEAD:refs/for/main -o topic="<topic>"
+git switch -c <topic-branch>
+# edit, test, commit
+git push fork HEAD:<topic-branch>
 
-git push origin HEAD:refs/for/main -o topic="<topic>" -o force-push=true
+tea pr create --repo mutantmell/dotfiles --head cc:<topic-branch> --base main
 ```
 
 Rules:
 
 - One PR per task is the baseline; reuse the same `topic` for iterations.
-- Push options cannot carry real multi-line descriptions. For a multi-paragraph PR body, omit `-o description` and put the body in the lead commit message.
-- Run `./scripts/agent-preflight.sh --quick` or the relevant targeted checks before pushing. Use `--full` when touching shared modules, test infrastructure, network policy, deployment scripts, or dev-machine images.
+- Keep upstream `origin` as fetch-only or no-push; push branches to `fork`.
+- Use `tea pr create --head cc:<branch> --base main` explicitly so `tea` does not try to open `main -> main`.
+- Run `./scripts/agent-preflight.sh --quick` or the relevant targeted checks before opening/updating a PR. Use `--full` when touching shared modules, test infrastructure, network policy, deployment scripts, or dev-machine images.
+- Check PR status with `tea pr --repo mutantmell/dotfiles <pr-number> --fields index,state,title,head,mergeable,ci --output yaml`.
+- When CI fails, follow the Woodpecker status URL from the `ci` field and use the injected `WOODPECKER_TOKEN`/`WOODPECKER_SERVER` to read pipeline metadata and step logs.
 - Irreversible or outward-facing actions beyond opening/updating a PR still need human confirmation.
+
+AGit remains available only as a fallback if the fork-and-pull path is broken:
+
+```bash
+git push origin HEAD:refs/for/main -o topic="<topic>" -o title="<title>"
+git push origin HEAD:refs/for/main -o topic="<topic>" -o force-push=true
+```
 
 ## Architecture Notes
 
