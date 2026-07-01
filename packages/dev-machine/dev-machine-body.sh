@@ -2,6 +2,9 @@
 
 devpod_up() {
   local args=("$@")
+  devpod context set-options default \
+    -o SSH_INJECT_GIT_CREDENTIALS=false \
+    -o SSH_INJECT_DOCKER_CREDENTIALS=false >/dev/null
   if [[ $AGENTS_DOTFILES_ENABLE == "true" && -n $AGENTS_DOTFILES_URL ]]; then
     args+=(--dotfiles "$AGENTS_DOTFILES_URL")
     if [[ -n $AGENTS_DOTFILES_SCRIPT ]]; then

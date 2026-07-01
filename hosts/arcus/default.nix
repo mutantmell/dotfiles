@@ -28,6 +28,12 @@ in {
     experimental-features = ["nix-command" "flakes"];
     trusted-users = ["root" "@wheel"];
   };
+  # TODO: remove once Jovian's decky-loader package no longer builds with pnpm_9.
+  # nixpkgs marks pnpm 9 insecure, but decky-loader is still part of the
+  # intended Steam Deck UX for this host.
+  nixpkgs.config.permittedInsecurePackages = [
+    "pnpm-9.15.9"
+  ];
 
   users.users.mutantmell = {
     isNormalUser = true;
