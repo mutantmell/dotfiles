@@ -27,6 +27,7 @@
     #   sops home/hosts/edith/secrets/secrets.yaml
     #   # add:  dev-machine-forgejo-token: <token>
     secrets."dev-machine-forgejo-token" = {};
+    secrets."dev-machine-woodpecker-token" = {};
   };
 
   programs.dev-machine = {
@@ -44,6 +45,7 @@
     # creil's API. The dev image carries the internal step-ca root for in-agent
     # tea and HTTPS git access to forgejo.internal.
     forgejoTokenFile = config.sops.secrets."dev-machine-forgejo-token".path;
+    woodpeckerTokenFile = config.sops.secrets."dev-machine-woodpecker-token".path;
     # Authenticate to forgejo as the `cc` bot (forgejoUser default) — that drives
     # branch protection + blast-radius scoping — but author commits under the
     # operator's real identity so history is meaningful (cc@forgejo.internal means
