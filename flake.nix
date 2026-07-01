@@ -155,6 +155,10 @@
         # claude-code from numtide (fresh + cached) instead of laggy nixpkgs;
         # scoped to this image only, not a global overlay override.
         inherit (llm-agents.packages.${system}) claude-code codex;
+        # The agent container itself must trust creil for Forgejo API calls made
+        # by tea. The base VM trust store is not enough because the devcontainer
+        # has its own /etc/ssl bundle.
+        caCerts = with pkgs.mmell.lib.data.pki; [root intermediate];
       };
       dev-machine = import packages/dev-machine {
         inherit pkgs;

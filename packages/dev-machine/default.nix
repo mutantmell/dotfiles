@@ -127,9 +127,7 @@ in
           VM_MANIFEST="${vmManifest}"
           FORGEJO_API=$(json_string '.forgejoApi' 'https://forgejo.internal/api/v1')
           FORGEJO_USER=$(json_string '.forgejoUser' 'cc')
-          FORGEJO_SSH_USER=$(json_string '.forgejoSshUser' 'forgejo')
           FORGEJO_TOKEN_FILE=$(json_string '.forgejoTokenFile' "")
-          CACERT=$(json_string '.caCert' "")
           COMMIT_NAME=$(json_string '.commitName' "$FORGEJO_USER")
           COMMIT_EMAIL=$(json_string '.commitEmail' "$FORGEJO_USER@forgejo.internal")
           AGENTS_DOTFILES_ENABLE=$(json_bool '.agentsDotfiles.enable' true)

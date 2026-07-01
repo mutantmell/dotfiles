@@ -22,11 +22,9 @@
 #                           per-machine devpod ssh provider DIRECTLY at
 #                           `dev-N.internal` (D.6 — the routable slot host, no
 #                           port-forward), and `devpod up`s the repo's
-#                           devcontainer.json inside the VM. For a creil
-#                           repo it then mints a per-session SSH key on the `cc`
-#                           bot account (Forgejo API) and injects it as the
-#                           sandbox's ONLY git-push credential — pushes go out as
-#                           `cc` (Phase 4).
+#                           devcontainer.json inside the VM. For a creil repo it
+#                           then injects the `cc` bot user's Forgejo token for
+#                           tea and HTTPS git pushes (Phase 4).
 #   dev-machine ssh  <name> drop into the running devcontainer (`devpod ssh`).
 #                           `--recover` restarts a dead in-VM agent/container
 #                           (`devpod up`) first — for a VM that crashed + rebooted.
@@ -42,10 +40,9 @@
 #                           rebuildable, work gone); durable fix is a persistent-
 #                           scratch PVC, deferred until iSCSI lands.
 #   dev-machine down <name> tear the workspace + VM + secret down (freeing the
-#                           VM's dev slot), and revoke the cc SSH key. `--no-agent`
-#                           skips the in-VM
-#                           devpod teardown when the VM is crashed/OOM-killed (the
-#                           normal teardown blocks on the dead agent tunnel).
+#                           VM's dev slot). `--no-agent` skips the in-VM devpod
+#                           teardown when the VM is crashed/OOM-killed (the normal
+#                           teardown blocks on the dead agent tunnel).
 #   dev-machine publish-base (re)build + push the base containerDisk to creil
 #                           (a prerequisite for `up`; run once / on base bumps).
 #
@@ -55,21 +52,17 @@
 # symlinks reference after /nix is bind-mounted from the host. Normal `up` reuses
 # the published images and only builds the base on demand if it is absent.
 #
-# PUSH CREDENTIAL (Phase 4): the sandbox holds EXACTLY ONE credential and it is
-# NOT the operator identity — it is the **`cc` bot user**. `up` generates a fresh
-# ed25519 keypair per session and registers the public half as an **SSH key on the
-# cc account** (Forgejo `POST /user/keys`, authed with cc's own token — read from
-# the file at `forgejoTokenFile`, a sops-decrypted tmpfs path that never enters the
-# sandbox), then injects the private half into the devcontainer with git pinned to
-# push forgejo over SSH. Pushes therefore authenticate **as cc**, so the blast
-# radius is whatever cc can write to — keep cc's repo access scoped to bound it.
-# `down` deletes the key. devpod's own host-credential forwarding is disabled on
-# the ssh path (`--start-services=false`) so the operator's git/registry creds are
-# never proxied into the session — the cc key is the only push path. Branch
-# protection on creil (AGit refs/for/main, no direct protected-main merge) is the
-# complementary server-side control; configure it once per repo in Forgejo. The
-# SSH push path makes forgejo SSH (:22) a required allowance in the bt8gw VLAN-51
-# policy.
+# PUSH/API CREDENTIAL (Phase 4): the sandbox holds only the **`cc` bot user**
+# identity, never the operator identity. `up` injects the token from
+# `forgejoTokenFile` into the devcontainer as a tea login and a private HTTPS git
+# credential store for pushing to cc's fork. Pushes and API writes therefore
+# authenticate as cc, so the blast radius is whatever cc can write to — keep cc's
+# repo access and token scopes bounded. devpod's own host-credential forwarding is
+# disabled on the ssh path (`--start-services=false`) so the operator's
+# git/registry creds are never proxied into the session. Branch protection on
+# creil is the complementary server-side control. AGit refs/for/main remains
+# available; the tea target is fork-and-pull from cc's fork to upstream. This path
+# requires HTTPS (:443) to forgejo.internal from the dev VLAN.
 #
 # Auth: everything drives the cluster with the operator's Authelia OIDC identity
 # via the standalone kubeconfig from kube.nix (KUBECONFIG exported below). Pushing
@@ -155,18 +148,7 @@ in {
     forgejoApi = lib.mkOption {
       type = lib.types.str;
       default = "https://forgejo.internal/api/v1";
-      description = "Forgejo (creil) API base URL used to mint/revoke the per-session deploy key.";
-    };
-
-    forgejoSshUser = lib.mkOption {
-      type = lib.types.str;
-      default = "forgejo";
-      description = ''
-        SSH login user for git-over-SSH to forgejo (the `<user>@forgejo.internal` in
-        rewritten clone URLs). A Forgejo using the OS sshd + authorized-keys
-        integration uses its RUN_USER here (default `forgejo`), NOT `git`. The key
-        still identifies the actual account (forgejoUser); this is only the transport.
-      '';
+      description = "Forgejo (creil) API base URL used by tea and token validation.";
     };
 
     forgejoTokenFile = lib.mkOption {
@@ -174,11 +156,11 @@ in {
       default = "";
       description = ''
         Path to a file holding the bot user's (forgejoUser) Forgejo token
-        (write:user scope). Used ONLY to add/remove that user's per-session SSH
-        keys (POST/DELETE /user/keys); it never enters the VM/sandbox. The keys
-        live on the bot account, so pushes authenticate as it — scope that user's
-        repo access to bound the blast radius. Point this at a sops-decrypted tmpfs
-        secret path, e.g. config.sops.secrets."dev-machine-forgejo-token".path.
+        injected into the agent devcontainer for tea and HTTPS git pushes.
+        It must identify the user, read/write the bot user's fork, create/update
+        pull requests, and comment/read PR status as required by the agent
+        wrappers. Point this at a sops-decrypted tmpfs secret path, e.g.
+        config.sops.secrets."dev-machine-forgejo-token".path.
       '';
     };
 
@@ -188,8 +170,7 @@ in {
       description = ''
         The Forgejo bot user the dev machines push as — the owner of the token in
         forgejoTokenFile. Drives the default commit identity and user-facing
-        messages; the per-session SSH key actually lands on whichever account owns
-        that token (/user/keys), so keep this in sync with the token's owner.
+        messages. Keep this in sync with the token's owner.
       '';
     };
 
@@ -205,12 +186,6 @@ in {
       default = "${cfg.forgejoUser}@forgejo.internal";
       defaultText = lib.literalExpression ''"''${config.programs.dev-machine.forgejoUser}@forgejo.internal"'';
       description = "git user.email set inside the sandbox. Set to one of the bot user's Forgejo emails so commits map to it.";
-    };
-
-    caCert = lib.mkOption {
-      type = lib.types.str;
-      default = "";
-      description = "Optional CA certificate path for TLS verification of the Forgejo API (internal step-ca root).";
     };
 
     agentsDotfiles = {
@@ -261,12 +236,10 @@ in {
         defaultCpu
         defaultDisk
         forgejoApi
-        forgejoSshUser
         forgejoTokenFile
         forgejoUser
         commitName
         commitEmail
-        caCert
         ;
       agentsDotfiles = {
         inherit (cfg.agentsDotfiles) enable url script;

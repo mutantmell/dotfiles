@@ -74,7 +74,7 @@
       require_tea_login() {
         if ! tea whoami >/dev/null 2>&1; then
           printf 'agent-pr-status: tea is not configured for Forgejo in this dev-machine\n' >&2
-          printf 'AGit remains the fallback PR workflow until tea credential injection is enabled.\n' >&2
+          printf 'rerun dev-machine up after configuring programs.dev-machine.forgejoTokenFile.\n' >&2
           exit 1
         fi
       }

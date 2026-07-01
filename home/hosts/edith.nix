@@ -21,9 +21,9 @@
   sops = {
     defaultSopsFile = ./edith/secrets/secrets.yaml;
     age.keyFile = "${config.home.homeDirectory}/.config/sops/age/keys.txt";
-    # The `cc` bot user's Forgejo token (write:user scope) the dev-machine wrapper
-    # uses to add/remove cc's per-session SSH keys. Decrypts to a tmpfs path; never
-    # enters the sandbox. Populate the value with:
+    # The `cc` bot user's Forgejo token the dev-machine wrapper injects for tea
+    # and HTTPS git pushes. Decrypts to a tmpfs path on the operator side before
+    # being copied into the devcontainer's private tea config. Populate the value with:
     #   sops home/hosts/edith/secrets/secrets.yaml
     #   # add:  dev-machine-forgejo-token: <token>
     secrets."dev-machine-forgejo-token" = {};
@@ -41,8 +41,8 @@
       "${config.home.homeDirectory}/.ssh/id_ed25519.pub"
       "${pkgs.writeText "ios.pub" (pkgs.mmell.lib.data.keys.ssh.ios + "\n")}"
     ];
-    # creil's API + the internal step-ca root so curl trusts forgejo.internal.
-    caCert = "${pkgs.mmell.lib.data.pki.root}";
+    # creil's API. The dev image carries the internal step-ca root for in-agent
+    # tea and HTTPS git access to forgejo.internal.
     forgejoTokenFile = config.sops.secrets."dev-machine-forgejo-token".path;
     # Authenticate to forgejo as the `cc` bot (forgejoUser default) — that drives
     # branch protection + blast-radius scoping — but author commits under the

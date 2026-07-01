@@ -213,7 +213,7 @@ require_agents_dotfiles_access() {
     echo "agents dotfiles repository is not readable from this workstation:" >&2
     echo "  $AGENTS_DOTFILES_URL" >&2
     echo "DevPod must be able to clone it during 'devpod up', before the" >&2
-    echo "per-session Forgejo push credential is injected into the sandbox." >&2
+    echo "Forgejo agent credential is injected into the sandbox." >&2
     return 1
   fi
 }
@@ -226,10 +226,10 @@ build_and_push() {
   "$stream" | skopeo copy docker-archive:/dev/stdin "docker://$ref"
 }
 
-# ── Phase 4: per-session scoped git-push key on the cc bot account ──────
+# ── Phase 4: scoped git/API credential on the cc bot account ─────────────
 # The cc bot's Forgejo token lives in a sops-decrypted tmpfs file
-# (forgejoTokenFile); read it on demand. It is used ONLY to add/remove cc's
-# own SSH keys (POST/DELETE /user/keys) and never enters the VM/sandbox.
+# (forgejoTokenFile); read it on demand and inject it into the sandbox so
+# agents can use tea and HTTPS git pushes as cc.
 forgejo_token() {
   if [[ -z $FORGEJO_TOKEN_FILE || ! -f $FORGEJO_TOKEN_FILE ]]; then
     echo "Forgejo token unavailable (programs.dev-machine.forgejoTokenFile)." >&2
@@ -240,17 +240,14 @@ forgejo_token() {
   cat "$FORGEJO_TOKEN_FILE"
 }
 
-# curl against the Forgejo API, trusting the internal CA when configured.
-curl_fj() {
-  local args=(-fsS)
-  [[ -n $CACERT ]] && args+=(--cacert "$CACERT")
-  curl "${args[@]}" "$@"
+forgejo_web_url() {
+  local url=${FORGEJO_API%/}
+  printf '%s\n' "${url%/api/v1}"
 }
 
 # Map a workspace source (creil URL or local checkout's origin) to its
 # forgejo owner/repo; empty for non-creil sources (which get no push cred).
-# Used only to gate provisioning + for messaging — the cc key is account-
-# level, so the push works for any repo cc can write to.
+# Used to gate credential injection and to derive the cc fork remote.
 parse_repo() {
   local src=$1 url rr
   if [[ -d $src ]]; then
@@ -266,81 +263,70 @@ parse_repo() {
   if [[ $rr =~ ^[^/]+/[^/]+$ ]]; then echo "$rr"; fi
 }
 
-# Delete any of cc's SSH keys whose title matches (idempotent re-up).
-delete_keys_by_title() {
-  local title=$1 token=$2
-  curl_fj -H "Authorization: token $token" "$FORGEJO_API/user/keys" 2>/dev/null |
-    jq -r --arg t "$title" '.[] | select(.title==$t) | .id' |
-    while read -r kid; do
-      curl_fj -X DELETE -H "Authorization: token $token" \
-        "$FORGEJO_API/user/keys/$kid" >/dev/null 2>&1 || true
-    done
-}
-
-# Generate a fresh per-session keypair, register the pubkey as an SSH key on
-# the cc bot account, record the key id for revoke, and inject the private
-# key into the devcontainer. $3 = token, $4 = VM slot host.
-provision_push_cred() {
-  local name=$1 statedir=$2 token=$3 host=$4
-  local keyfile title pub resp id
-  keyfile="$statedir/deploy_key"
-  title="dev-machine-$name"
-  mkdir -p "$statedir"
-  rm -f "$keyfile" "$keyfile.pub"
-  ssh-keygen -t ed25519 -N "" -C "$title" -f "$keyfile" >/dev/null
-  delete_keys_by_title "$title" "$token" || true
-  pub=$(cat "$keyfile.pub")
-  resp=$(curl_fj -X POST -H "Authorization: token $token" \
-    -H "Content-Type: application/json" \
-    "$FORGEJO_API/user/keys" \
-    -d "$(jq -n --arg t "$title" --arg k "$pub" \
-      '{title:$t, key:$k}')") || {
-    echo "failed to register SSH key on the $FORGEJO_USER account" >&2
-    return 1
-  }
-  id=$(echo "$resp" | jq -r '.id')
-  printf '%s\n' "$id" >"$statedir/deploy_key_id"
-  inject_deploy_key "$name" "$keyfile" "$host"
-}
-
-# Push the private key + git config into the running devcontainer through the
-# VM's rootful Podman socket. DevPod's `ssh --command` path has proven brittle
-# for stdin delivery during setup; this still uses the same rootful runtime
-# DevPod is configured to target, and keeps the key out of process argv.
-inject_deploy_key() {
-  local name=$1 keyfile=$2 host=$3
-  local ssh_user_q commit_name_q commit_email_q
-  ssh_user_q=$(shell_quote "$FORGEJO_SSH_USER")
+# Push the tea/API token and git HTTPS credential config into the running
+# devcontainer through the VM's rootful Podman socket. DevPod's `ssh --command`
+# path has proven brittle for stdin delivery during setup; this still uses the
+# same rootful runtime DevPod is configured to target, and keeps the token out
+# of process argv.
+inject_forgejo_credential() {
+  local name=$1 token=$2 repo=$3 host=$4
+  local name_q forgejo_user_q commit_name_q commit_email_q forgejo_url_q repo_name_q token_b64
+  name_q=$(shell_quote "$name")
+  forgejo_user_q=$(shell_quote "$FORGEJO_USER")
   commit_name_q=$(shell_quote "$COMMIT_NAME")
   commit_email_q=$(shell_quote "$COMMIT_EMAIL")
+  forgejo_url_q=$(shell_quote "$(forgejo_web_url)")
+  repo_name_q=$(shell_quote "${repo##*/}")
+  token_b64=$(printf '%s' "$token" | base64 -w0)
   # shellcheck disable=SC2016
   {
     printf '%s\n' \
       'set -e' \
       'umask 077' \
-      "trap 'rm -f ~/.ssh/dm_deploy_key.b64' EXIT" \
-      'mkdir -p ~/.ssh' \
-      "cat > ~/.ssh/dm_deploy_key.b64 <<'DM_DEPLOY_KEY'" \
-      "$(base64 -w0 "$keyfile")" \
-      'DM_DEPLOY_KEY' \
-      'base64 -d ~/.ssh/dm_deploy_key.b64 > ~/.ssh/dm_deploy_key' \
-      'rm -f ~/.ssh/dm_deploy_key.b64' \
-      'chmod 600 ~/.ssh/dm_deploy_key' \
-      "{ echo 'Host forgejo.internal'" \
-      "  printf '%s\n' '  User '$ssh_user_q" \
-      "  echo '  IdentityFile ~/.ssh/dm_deploy_key'" \
-      "  echo '  IdentitiesOnly yes'" \
-      "  echo '  StrictHostKeyChecking accept-new'" \
-      '} > ~/.ssh/config' \
-      'chmod 600 ~/.ssh/config' \
-      "git config --global url.$ssh_user_q@forgejo.internal:.insteadOf https://forgejo.internal/" \
+      "trap 'rm -f ~/.config/tea/token.b64 ~/.config/tea/token' EXIT" \
+      'mkdir -p ~/.config/tea' \
+      'chmod 700 ~/.config/tea' \
+      "cat > ~/.config/tea/token.b64 <<'DM_TEA_TOKEN'" \
+      "$token_b64" \
+      'DM_TEA_TOKEN' \
+      'base64 -d ~/.config/tea/token.b64 > ~/.config/tea/token' \
+      'rm -f ~/.config/tea/token.b64' \
+      'chmod 600 ~/.config/tea/token' \
       "git config --global user.name $commit_name_q" \
-      "git config --global user.email $commit_email_q"
+      "git config --global user.email $commit_email_q" \
+      'tea login delete forgejo.internal >/dev/null 2>&1 || true' \
+      "GITEA_SERVER_TOKEN=\$(cat ~/.config/tea/token) tea login add --name forgejo.internal --url $forgejo_url_q >/dev/null" \
+      'tea login default forgejo.internal >/dev/null' \
+      'tea whoami >/dev/null' \
+      'user_enc=$(printf %s '"$forgejo_user_q"' | jq -sRr @uri)' \
+      'token_enc=$(jq -sRr @uri < ~/.config/tea/token)' \
+      'printf "https://%s:%s@forgejo.internal\n" "$user_enc" "$token_enc" > ~/.config/tea/git-credentials' \
+      'chmod 600 ~/.config/tea/git-credentials' \
+      'git config --global credential.helper "store --file $HOME/.config/tea/git-credentials"' \
+      'git config --global --unset-all url.forgejo@forgejo.internal:.insteadOf >/dev/null 2>&1 || true' \
+      'git config --global --unset-all url.ssh://forgejo@forgejo.internal/.insteadOf >/dev/null 2>&1 || true' \
+      'rm -f ~/.config/tea/token' \
+      'ws=' \
+      "if [ -d /workspaces/$name_q/.git ]; then" \
+      "  ws=/workspaces/$name_q" \
+      'else' \
+      '  for d in /workspaces/*; do' \
+      '    if [ -d "$d/.git" ] && [ "$(basename "$d")" != agents ]; then ws=$d; break; fi' \
+      '  done' \
+      'fi' \
+      "if [ -n \"\$ws\" ] && [ -n $repo_name_q ]; then" \
+      '  git -C "$ws" remote remove fork >/dev/null 2>&1 || true' \
+      "  git -C \"\$ws\" remote add fork https://forgejo.internal/$FORGEJO_USER/$repo_name_q.git" \
+      'fi'
   } | ssh_dev "$host" '
         set -e
         cid=$(
             podman-rootful ps -q | while read -r c; do
-                if podman-rootful exec "$c" sh -c "ls -d /workspaces/*/.git >/dev/null 2>&1"; then
+                if podman-rootful exec "$c" sh -c "test -d /workspaces/'"$name_q"'/.git"; then
+                    printf "%s\n" "$c"
+                    exit 0
+                fi
+                if podman-rootful exec "$c" sh -c "for d in /workspaces/*; do test \"\$(basename \"\$d\")\" = agents && continue; test -d \"\$d/.git\" && exit 0; done; exit 1"; then
                     printf "%s\n" "$c"
                     exit 0
                 fi
@@ -352,15 +338,6 @@ inject_deploy_key() {
         fi
         exec podman-rootful exec -i --user agent "$cid" sh
     '
-}
-
-# Revoke a previously-minted cc SSH key (recorded in the state dir). $2=token.
-revoke_push_cred() {
-  local statedir=$1 token=$2 id
-  [[ -f "$statedir/deploy_key_id" ]] || return 0
-  id=$(cat "$statedir/deploy_key_id")
-  curl_fj -X DELETE -H "Authorization: token $token" \
-    "$FORGEJO_API/user/keys/$id" >/dev/null 2>&1 || true
 }
 
 # ── rescue: extract uncommitted work from a still-alive dev machine ────────
@@ -576,17 +553,19 @@ cmd_up() {
   statedir="$STATE/$name"
   save_agents_dotfiles_state "$statedir"
 
-  # Phase 4: resolve the target creil repo + operator Forgejo token up
-  # front, so a missing token fails before we build images / boot a VM.
-  # Non-creil sources (or --no-push-cred) just get no push credential.
+  # Phase 4: resolve the target creil repo + operator Forgejo token up front,
+  # so a missing token fails before we build images / boot a VM. Non-creil
+  # sources (or --no-push-cred) just get no git/API credential.
   local token=""
   if [[ $push_cred -eq 1 ]]; then
     [[ -n $repo ]] || repo=$(parse_repo "$source")
     if [[ -n $repo ]]; then
       token=$(forgejo_token) || return 1
+      printf '%s\n' "$repo" >"$statedir/repo"
     else
       echo "note: no creil repo detected for '$source'; the sandbox will" >&2
-      echo "      have no git-push credential (pass --repo owner/name)." >&2
+      echo "      have no git-push or tea credential (pass --repo owner/name)." >&2
+      rm -f "$statedir/repo"
     fi
   fi
 
@@ -686,12 +665,12 @@ cmd_up() {
   echo "==> bringing the workspace up (devcontainer.json inside the VM)"
   devpod_up "$source" --id "$name" --provider "$provider" --ide none
 
-  # Phase 4: mint + inject the scoped deploy key (the sandbox's ONLY push
-  # credential). Only when a creil repo was resolved and a token is present.
+  # Phase 4: inject the scoped Forgejo token for tea and HTTPS fork pushes.
+  # Only when a creil repo was resolved and a token is present.
   if [[ -n $repo && -n $token ]]; then
-    echo "==> provisioning scoped push credential ($FORGEJO_USER SSH key for $repo)"
-    provision_push_cred "$name" "$statedir" "$token" "$host" ||
-      echo "warning: $FORGEJO_USER SSH-key provisioning failed; sandbox has no push credential" >&2
+    echo "==> provisioning scoped Forgejo credential ($FORGEJO_USER tea + HTTPS git for $repo)"
+    inject_forgejo_credential "$name" "$token" "$repo" "$host" ||
+      echo "warning: $FORGEJO_USER credential provisioning failed; sandbox has no push/API credential" >&2
   fi
 
   echo
@@ -739,8 +718,8 @@ cmd_ssh() {
   # on the existing workspace id re-runs the agent and rebuilds the
   # devcontainer over the (re-established) tunnel, which is what gets the
   # `devpod ssh` below working again. NOTE: the rebuilt container is fresh,
-  # so the per-session cc push key injected by `up` is gone — re-run
-  # `dev-machine up <source>` if you need to push again; --recover just
+  # so the cc Forgejo token injected by `up` is gone — re-run `dev-machine up`
+  # if you need to push again; --recover just
   # gets you a working shell back.
   if [[ $recover -eq 1 ]]; then
     echo "==> --recover: restarting the devcontainer agent (devpod up)"
@@ -756,8 +735,8 @@ cmd_ssh() {
   # SSH session to root. --start-services=false stops devpod proxying the
   # operator's git/registry credentials into the session, and
   # --agent-forwarding=false stops forwarding the operator's SSH agent in
-  # (devpod defaults it ON) — the injected cc key is the sandbox's only
-  # identity. Disabling agent-forwarding also avoids devpod's noisy teardown
+  # (devpod defaults it ON) — the injected cc token is the sandbox's only
+  # Forgejo identity. Disabling agent-forwarding also avoids devpod's noisy teardown
   # error on logout (the forwarded-agent channel closing without a clean
   # exit-status). Trade-off: start-services=false also forgoes devpod
   # port-forwarding; run `devpod ssh <name>` directly if you need that.
@@ -769,9 +748,8 @@ cmd_ssh() {
 # multi-minute VM create+boot of a full `down`/`up`. `devpod up --recreate`
 # tears the container down and rebuilds it over the existing tunnel; the VM,
 # its scratch disk, and the local state all survive. A recreate produces a
-# fresh container, so the per-session cc push key `up` injected is gone —
-# re-inject it from saved state (the key still lives on the cc account; no
-# token or re-mint needed) so the refreshed container can push immediately.
+# fresh container, so the cc Forgejo token `up` injected is gone. Re-inject it
+# from the operator-side token so the refreshed container can push immediately.
 cmd_refresh() {
   local name=""
   while [[ $# -gt 0 ]]; do
@@ -816,10 +794,17 @@ cmd_refresh() {
     echo "refresh failed; inspect with 'dev-machine list' / 'dev-machine console $name'." >&2
     return 1
   }
-  if [[ -f "$statedir/deploy_key" ]]; then
-    echo "==> re-injecting the scoped push credential"
-    inject_deploy_key "$name" "$statedir/deploy_key" "$host" ||
-      echo "warning: push-credential re-injection failed; re-run 'dev-machine up' to restore it" >&2
+  if [[ -f "$statedir/repo" ]]; then
+    local token="" repo=""
+    repo=$(cat "$statedir/repo" 2>/dev/null || true)
+    if token=$(forgejo_token 2>/dev/null); then
+      echo "==> re-injecting the scoped Forgejo credentials"
+      inject_forgejo_credential "$name" "$token" "$repo" "$host" ||
+        echo "warning: credential re-injection failed; re-run 'dev-machine up' to restore it" >&2
+    else
+      echo "warning: no Forgejo token; scoped credentials not re-injected" >&2
+      echo "         re-run 'dev-machine up' after fixing forgejoTokenFile" >&2
+    fi
   fi
   echo
   echo "dev machine '$name' refreshed. Connect with:  dev-machine ssh $name"
@@ -1067,16 +1052,6 @@ cmd_down() {
   }
   local statedir="$STATE/$name"
   dm_login || return 1
-
-  # Phase 4: revoke the per-session deploy key on creil before teardown.
-  if [[ -f "$statedir/deploy_key_id" ]]; then
-    local token
-    if token=$(forgejo_token 2>/dev/null); then
-      revoke_push_cred "$statedir" "$token"
-    else
-      echo "warning: no Forgejo token; deploy key not revoked (revoke it manually)" >&2
-    fi
-  fi
 
   echo "==> tearing down $name"
   # Deleting the VM frees its slot (the next `up` sees the slot label gone

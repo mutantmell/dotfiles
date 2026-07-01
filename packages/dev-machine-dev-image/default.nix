@@ -6,11 +6,18 @@
   claude-code,
   codex,
   imageName ? "dev-machine-dev",
+  caCerts ? [],
 }: let
   devMachineTools = import ../dev-machine-tools.nix {
     inherit pkgs claude-code codex;
   };
   inherit (devMachineTools) agentUid agentGid devTools teaConfigHome;
+  extraCaCommands =
+    pkgs.lib.concatMapStringsSep "\n" (cert: ''
+      cat ${cert} >> etc/ssl/certs/ca-bundle.crt
+      cat ${cert} >> etc/ssl/certs/ca-certificates.crt
+    '')
+    caCerts;
   # ── Phase 2.2 — custom dev image for the locked-down LLM dev machines ────────
   # (ai-dev-machine-kubevirt-plan.md). devpod's SSH provider builds/runs this as
   # a plain runc container *inside* the KubeVirt VM (the security boundary); the
@@ -127,6 +134,9 @@ in
       EOF
       cp -L --remove-destination ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-bundle.crt
       cp -L --remove-destination ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
+      chmod u+w etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
+      ${extraCaCommands}
+      chmod 644 etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
       cat > etc/nix/nix.conf <<EOF
       experimental-features = nix-command flakes auto-allocate-uids cgroups
       build-users-group = nixbld

@@ -120,10 +120,7 @@ ssh_uses_agent_home() {
   ! grep -Eq '^userknownhostsfile .*/root/\.ssh/.*$' <<<"$ssh_config" || return 1
   grep -qx 'userknownhostsfile /home/agent/.ssh/known_hosts /home/agent/.ssh/known_hosts2' <<<"$ssh_config" || return 1
 
-  if [[ -f "$HOME/.ssh/config" ]] && grep -Eq '^[[:space:]]*Host[[:space:]]+forgejo\.internal([[:space:]]|$)' "$HOME/.ssh/config"; then
-    grep -qx 'user forgejo' <<<"$ssh_config" || return 1
-    grep -qx 'identityfile ~/.ssh/dm_deploy_key' <<<"$ssh_config" || return 1
-  fi
+  ! grep -qx 'identityfile ~/.ssh/dm_deploy_key' <<<"$ssh_config" || return 1
 }
 
 devcontainer_configures_cgroups() {
@@ -290,12 +287,12 @@ check_absent "docker registry credentials absent" test -e "$HOME/.docker/config.
 check_absent "podman registry credentials absent" test -e "$HOME/.config/containers/auth.json"
 check_absent "operator SSH agent absent" printenv SSH_AUTH_SOCK
 
-if [[ -f "$HOME/.ssh/dm_deploy_key" ]]; then
-  check "Forgejo deploy key permissions" test "$(stat -c %a "$HOME/.ssh/dm_deploy_key")" = 600
-  check "Forgejo SSH config pins deploy key" bash -c 'ssh -G forgejo.internal 2>/dev/null | grep -qx "identityfile ~/.ssh/dm_deploy_key"'
-  check "Forgejo SSH config disables extra identities" bash -c 'ssh -G forgejo.internal 2>/dev/null | grep -qx "identitiesonly yes"'
+if tea whoami >/dev/null 2>&1; then
+  check "Forgejo tea login configured" tea whoami
+  check "Forgejo git credential file permissions" test "$(stat -c %a "$HOME/.config/tea/git-credentials")" = 600
 else
-  skip "Forgejo deploy key present" "no per-session push credential was provisioned"
+  skip "Forgejo tea login configured" "no Forgejo API credential was provisioned"
+  skip "Forgejo git credential file permissions" "no Forgejo API credential was provisioned"
 fi
 
 if [[ $network -eq 1 ]]; then
