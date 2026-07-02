@@ -1,6 +1,11 @@
 # liberl Backups Hierarchy and Forgejo Repository Backup Plan
 
-> **Status:** Planning.
+> **Status:** Planning. Repo state still matches the baseline below:
+> `hosts/liberl/nas.nix` exposes the Samba `backup` share at `/data/backup`,
+> and no `data/backups` tmpfiles, snapshot manager, or `forgejo-backup` module
+> exists in the flake. Operator-created ZFS datasets cannot be inferred from
+> the repo, so treat the phases as not started unless live liberl state says
+> otherwise.
 >
 > This plan creates a ZFS-backed backup namespace on liberl, migrates the old
 > Windows-oriented `/data/backup` usage into that namespace, and adds a
@@ -43,7 +48,7 @@ not the active backup root.
 - Forgejo persists `/var/lib/forgejo` inside the creil local persist image:
   `/persist/guests/creil/images/persist.img` on calvard.
 - Forgejo uses SQLite and has repository/package/mirror support enabled.
-- `llm-notes/plans/cicd-fleet-activation-plan.md` already says creil should be
+- `llm-notes/wip/cicd-fleet-activation-plan.md` already says creil should be
   the primary git remote and GitHub should become a push mirror for the
   dotfiles repo, but that is not a liberl/ZFS backup.
 - `llm-notes/done/wg-ba-liberl-backup-tunnel-plan.md` establishes liberl as the

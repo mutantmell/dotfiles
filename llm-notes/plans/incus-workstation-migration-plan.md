@@ -1,6 +1,12 @@
 # Incus Workstation Migration Plan (edith + trista → KubeVirt, Incus sunset)
 
-Status: Planned (not started)
+Status: Planned (not started for edith/trista migration). The prerequisite
+KubeVirt/dev-machine shakedown on erebonia has landed, but this plan's
+workstation migration deliverables have not. `edith` and `trista` are still
+Incus guests, there are no substrate-neutral `nixosConfigurations.edith` /
+`nixosConfigurations.trista` replacements, no calvard standalone
+k3s/KubeVirt/Flux path for edith, and no liberl-backed CSI storage layer for
+persistent workstation VM disks.
 
 **Scope:** this plan is **only** about migrating the two existing
 **fully-fledged, long-lived NixOS workstations** — `edith` (the operator's

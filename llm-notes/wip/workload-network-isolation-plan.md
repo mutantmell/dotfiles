@@ -26,14 +26,15 @@ recorded here and in [`../guides/bt8-gateway-as-built.md`](../guides/bt8-gateway
   (node advertises `macvtap.network.kubevirt.io/vlan51 = 16`, k3s healthy);
   Incus `trista` RUNNING; VLAN-11 mgmt intact (apiserver reachable). microVM
   `saint-arkh` is `inactive` **by intent** (pre-existing, pending the Woodpecker
-  repurpose in `../plans/cicd-fleet-activation-plan.md`), not a regression.
+  repurpose in `./cicd-fleet-activation-plan.md`), not a regression.
 
 The **broader phases remain deferred** (Future-state A/B, the host-side
 flannel-egress redirect, LB-IPAM, NetworkPolicy default-deny, dynamic-pool IPAM,
 removing WAN from VLAN 11) — see "Phases / next steps" and "Explicitly deferred"
 below. The slice has **no remaining loose ends**: the retired per-slot bridge
 NADs were GC'd 2026-06-10 — `kubectl -n dev-machines get net-attach-def` now shows
-only the single shared `cluster-vlan51` NAD.
+only the single shared `cluster-vlan51` NAD. Ordinary flannel pod egress still
+uses erebonia's management-zone identity until the host-side redirect lands.
 
 How the three workload substrates on the VM hosts (cloud-hypervisor microVMs,
 KubeVirt VMs, and ordinary k3s containers/services) attach to the network: how

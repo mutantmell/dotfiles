@@ -2,7 +2,7 @@
 
 **Status:** COMPLETE. Follow-up restructuring for DAT/non-DAT layout and
 staging paths is tracked in
-`llm-notes/plans/games-library-restructure-plan.md`.
+`llm-notes/wip/games-library-restructure-plan.md`.
 
 ## Goal
 

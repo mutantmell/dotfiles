@@ -1,5 +1,23 @@
 # Repository Review Follow-ups Plan
 
+Status: WIP. At least one finding has been fixed (`setup-guest.sh`
+certificate/key convergence), while the OpenWrt readiness items and other
+follow-ups remain active.
+
+- **Fixed:** the `setup-guest.sh` certificate/key convergence issue is handled.
+  Generated private keys are stored in passage before certificate signing, and
+  existing SSH/X5C certificates are checked against the current public key before
+  signing is skipped.
+- **Still open:** the three OpenWrt live image-building findings are still
+  present: cache keys do not include baked secret material, UCI export redaction
+  only masks exact `.key='...'` values, and OpenWrt deploy still masks
+  `sysupgrade` failure with `|| true`.
+- **Still open:** router6 `hardwareName` rename semantics remain broken in the
+  module; `thebeyond` still works around this by using kernel predictable names.
+- **Partially addressed elsewhere:** erebonia k3s now has scheduled datastore
+  snapshots and CA/token adoption, but fleet-activation health gates and
+  pre-upgrade snapshot policy are still future work.
+
 ## Scope
 
 This plan records follow-up work from a broad read-only repository review on
@@ -130,7 +148,7 @@ Fix direction:
 Relevant docs/code:
 
 - `llm-notes/specs/cicd-fleet-management.md`
-- `llm-notes/plans/cicd-fleet-activation-plan.md`
+- `llm-notes/wip/cicd-fleet-activation-plan.md`
 - `llm-notes/wip/k3s-cluster-workloads-plan.md`
 - `hosts/erebonia/k3s/default.nix`
 
@@ -165,7 +183,7 @@ Fix direction:
 
 Relevant docs:
 
-- `llm-notes/plans/cicd-fleet-activation-plan.md`
+- `llm-notes/wip/cicd-fleet-activation-plan.md`
 - `llm-notes/specs/cicd-fleet-management.md`
 - `llm-notes/wip/k3s-cluster-workloads-plan.md`
 - the historical k3s deployd decommission plan, now deleted from `done/`
@@ -227,10 +245,18 @@ Fix direction:
 
 Relevant docs:
 
-- `llm-notes/plans/cicd-fleet-activation-plan.md`
+- `llm-notes/wip/cicd-fleet-activation-plan.md`
 - `llm-notes/specs/cicd-fleet-management.md`
 
-### High: guest setup is not convergent when cert signing succeeds before key persistence
+### High: guest setup is not convergent when cert signing succeeds before key persistence — DONE
+
+**Resolved in `scripts/setup-guest.sh` by 2026-07-02.** The script now persists
+new SSH host keys, PQC age identities, and fleet enrollment keys to passage
+before certificate signing. It also verifies that existing SSH host certificates
+and fleet X5C certificates match the current public key before skipping signing,
+and re-signs when they do not.
+
+Original finding retained for context:
 
 The original review described key setup as "not transactional." A more precise
 classification is: most public metadata updates are convergent on rerun, but

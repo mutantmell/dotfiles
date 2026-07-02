@@ -5,7 +5,7 @@ re-ground the concrete dynamic-manifest path in
 `llm-notes/wip/k3s-cluster-workloads-plan.md` before implementation.
 
 > **Implementation note (2026-06-16).** The concrete CI topology is the hybrid
-> described in `llm-notes/plans/cicd-fleet-activation-plan.md`: `saint-arkh`
+> described in `llm-notes/wip/cicd-fleet-activation-plan.md`: `saint-arkh`
 > remains a control-plane-only Woodpecker server microVM, while build execution
 > happens through Woodpecker's Kubernetes backend on erebonia k3s. The server
 > microVM is deliberate: it keeps CI identity, webhooks, UI, config service, and

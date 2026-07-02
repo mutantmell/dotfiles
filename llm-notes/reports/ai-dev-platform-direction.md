@@ -22,7 +22,7 @@ lifecycle boundaries, not a new web IDE surface.
 - **CI feedback loop for agents.** Agents should be able to see whether PR
   checks passed, read review comments, inspect compact failure summaries, and
   respond to lifecycle comments. This is tracked in
-  `llm-notes/plans/cicd-fleet-activation-plan.md` and
+  `llm-notes/wip/cicd-fleet-activation-plan.md` and
   `llm-notes/specs/cicd-fleet-management.md`.
 - **Codified homelab maintenance workflows.** Add playbooks for recurring
   maintenance tasks that fit AI assistance well: dependency updates, service

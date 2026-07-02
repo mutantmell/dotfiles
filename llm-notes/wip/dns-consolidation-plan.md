@@ -1,11 +1,14 @@
 # DNS Consolidation — Plan
 
-> **Status (2026-06-10): Piece 1 implemented** (`router6.dns.blocking` —
-> Blocky in front of kresd), proven by a real Blocky+kresd VM test
+> **Status:** Piece 1 is implemented (`router6.dns.blocking` — Blocky in front
+> of kresd), proven by a real Blocky+kresd VM test
 > (`tests/modules/router6-dns-blocking.nix`, 7 assertions incl. the
 > no-cross-poison regression in both orders). **Piece 2 (kresd recursive +
-> phantasma removal) remains.** Two implementation notes that deviate from the
-> draft below:
+> phantasma removal) remains entirely open:** `phantasma` remains in the network
+> registry, thebeyond still forwards kresd to phantasma, the phantasma guest and
+> Unbound module still exist, and local-data generation still uses
+> `mkUnboundLocalData`. Two implementation notes that deviate from the draft
+> below:
 >
 > - The per-interface opt-out option is **`network.dnsBlock`** (a flat bool),
 >   not `network.dns.block` — the topology submodule already has a
@@ -25,7 +28,7 @@
 >   `lib.nix`. The router always serves DNS on `:53`; enabling blocking only
 >   swaps which service binds `:53` directly (Blocky) vs. the loopback backend
 >   (kresd on 5335).
-
+>
 Replaces the former `dns-upgrades-plan.md` (deleted): its Phase 1 (kresd
 ISP-lease fallback) is deployed and recorded in
 `modules/router6/dns-isp-fallback.nix` + the code and

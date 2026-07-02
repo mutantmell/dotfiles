@@ -1,21 +1,21 @@
 # CI/CD Pipeline and Fleet Activation Plan
 
+Status: WIP. The plan is reconciled with the current liberl/zeiss, APP/DMZ,
+k3s/KubeVirt, and deployd-removed topology. Phase 1 follows the hybrid CI
+architecture: `saint-arkh` remains the Woodpecker server microVM, while build
+execution runs through Woodpecker's Kubernetes backend on erebonia's k3s
+cluster. The quick Woodpecker preflight lane is operational: the repo contains
+the saint-arkh Woodpecker server secrets, the erebonia Kubernetes backend agent,
+preloaded CI images, Kyverno policies for `woodpecker-builds`, and dev-machine
+helper wrappers for PR/CI feedback. Still open: full check-matrix sharding and
+summaries, KVM-capable NixOS VM-test lane, branch-protection/required-check
+policy, Attic signing/push, NATS, fleet coordinators, Garage, and fleet
+activation.
+
 Plan date: 2026-04-03
 Specification: `llm-notes/specs/cicd-fleet-management.md`
 Replaces: `llm-notes/plans/ci-cd-plan.md`
 
-> **Refresh note (2026-06-13).** The host map below has been updated for
-> liberl/zeiss, the APP/DMZ split, and deployd removal. Sections that discuss
-> dynamic workload execution still need implementation-time review against the
-> k3s/KubeVirt plans.
->
-> **Refresh note (2026-06-15).** Phase 1 is reconciled with the hybrid CI
-> architecture decided in
-> [`k3s-cluster-workloads-plan.md`](../wip/k3s-cluster-workloads-plan.md):
-> `saint-arkh` stays as the Woodpecker server microVM, but build execution moves
-> to Woodpecker's Kubernetes backend on erebonia's k3s cluster. The older
-> bare-metal Woodpecker-agent + standalone containerd/Kata path is superseded.
->
 > **Reconciliation note (2026-06-16).** Keeping the Woodpecker control plane in
 > a microVM is a deliberate dependency-boundary choice, not leftover pre-k3s
 > inertia. `saint-arkh` provides the stable CI identity, webhook receiver, UI,
@@ -111,6 +111,7 @@ Replaces: `llm-notes/plans/ci-cd-plan.md`
 > re-run inside each VM. Do not remove `/dev/kvm` from the dev-machine contract
 > yet: targeted VM-test debugging still needs it until CI has authoritative KVM
 > coverage and artifact output good enough for agents to act on.
+>
 
 ## Overview
 

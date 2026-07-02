@@ -1,7 +1,11 @@
 # Dual-Gateway Follow-ups Plan
 
-**Status:** WIP. Section A service moves are complete in the flake; Section B
-and most Section C follow-ups remain.
+**Status:** WIP. Section A service moves are complete in the flake, and
+erebonia's bridge-free/macvtap cleanup is done with `saint-arkh` as the working
+APP/VLAN 50 macvtap example. Remaining repo-visible work is BT8 image-builder
+codification/lockdown, calvard and liberl microVM macvtap conversion, the
+router6 DNS-resolution VM test, `hardwareName` rename semantics, and
+opportunistic inherited items.
 **Plan date:** 2026-05-31.
 **Successor to:** [`llm-notes/done/dual-gateway-app-vlan-plan.md`](../done/dual-gateway-app-vlan-plan.md)
 — that plan shipped the dual-gateway topology (Phases 0–3) and proved
@@ -11,7 +15,7 @@ codification, plus open items that accumulated during the dual-gateway
 window.
 **Related:** [`llm-notes/guides/bt8-gateway-as-built.md`](../guides/bt8-gateway-as-built.md)
 remains the living anchor for BT8-gateway state until Phase 4 codifies
-it. [`llm-notes/plans/cicd-fleet-activation-plan.md`](../plans/cicd-fleet-activation-plan.md)
+it. [`llm-notes/wip/cicd-fleet-activation-plan.md`](./cicd-fleet-activation-plan.md)
 is the gate for Phase 4 / 4.5 (see
 [`project-phase-4-deferred-to-cicd`](../../../../home/mutantmell/.claude/projects/-home-mutantmell-git-dotfiles/memory/project_phase_4_deferred_to_cicd.md)).
 
@@ -128,7 +132,7 @@ trista cleanup.
 ## Section B — Phase 4 / 4.5 (CI/CD-gated)
 
 **Gate:** Phase 4 is deferred until
-[`cicd-fleet-activation-plan.md`](../plans/cicd-fleet-activation-plan.md) is
+[`cicd-fleet-activation-plan.md`](./cicd-fleet-activation-plan.md) is
 complete. Reason: image-build cutover gets materially safer once image
 deploys are automated rather than hand-pushed. See
 [`project-phase-4-deferred-to-cicd`](../../../../home/mutantmell/.claude/projects/-home-mutantmell-git-dotfiles/memory/project_phase_4_deferred_to_cicd.md).

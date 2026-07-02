@@ -159,7 +159,7 @@ name]`) applied to the step-ca **and** perses clients in `authelia.nix`.
   Phase 4. F1 (MFA), F2 (audit trail — already largely handled via
   journald→VictoriaLogs shipping; only a dashboard remains), F4 (revocation /
   incident runbook), and F5 (no-mTLS decision record) moved to their own plan:
-  [`../plans/authelia-hardening-followups-plan.md`](../plans/authelia-hardening-followups-plan.md).
+  [`../wip/authelia-hardening-followups-plan.md`](../wip/authelia-hardening-followups-plan.md).
   See that plan; the detailed F1–F5 write-ups below are retained for context.
 
 > **Execution approach: repo changes only — operator deploys.** Claude makes

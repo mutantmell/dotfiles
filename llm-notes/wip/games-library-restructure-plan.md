@@ -1,5 +1,13 @@
 # Plan: Games library restructure — DAT-vs-non-DAT split + staging rename
 
+Status: WIP as of 2026-07-02. The code-side Nix changes have landed in the
+flake: `hosts/liberl/nas.nix` declares the new `staging/`, `staging-hq/`, and
+`library/software/{console,pc}` trees, and Retrom on `oracion` scans
+`/media/library/software/console` plus `/media/library/software/pc`. The plan
+remains WIP because repo state cannot prove the live liberl data migration,
+arr-stack manual-import reconfiguration, Retrom first-scan validation, MISTer
+symlink validation, or historical-note cleanup.
+
 Successor to `llm-notes/done/retrom-game-pipeline.md`. That plan
 established the games pipeline (Retrom on oracion, Igir on bose, MISTer
 hardlink view). This plan does two things at once:
@@ -520,8 +528,8 @@ One PR, with the operator-side migration sequenced before deploy.
 
 ### PR — restructure + rename
 
-1. `hosts/liberl/nas.nix`: replace tmpfiles entries per §3.
-2. `hosts/calvard/microvm/guests/oracion/modules/retrom.nix`: replace
+1. [x] `hosts/liberl/nas.nix`: replace tmpfiles entries per §3.
+2. [x] `hosts/calvard/microvm/guests/oracion/modules/retrom.nix`: replace
    `contentDirectories` per §4.
 3. `llm-notes/guides/media-ingestion-runbook.md`: update path
    references per §7.
@@ -542,7 +550,7 @@ One PR, with the operator-side migration sequenced before deploy.
 11. **First-scan verification** (§9).
 12. Update `llm-notes/done/retrom-game-pipeline.md` with a postscript
     pointing to this plan.
-13. Move this plan from `plans/` to `done/` once shipped.
+13. Move this plan from `wip/` to `done/` once shipped.
 
 The migration block is the operationally risky bit (mv invocations
 that touch all the user's media). Doing it before deploying the new

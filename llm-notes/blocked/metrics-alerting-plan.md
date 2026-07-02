@@ -7,7 +7,7 @@ homelab.
 
 ## Blocked on
 
-[`cicd-fleet-activation-plan.md`](../plans/cicd-fleet-activation-plan.md).
+[`cicd-fleet-activation-plan.md`](../wip/cicd-fleet-activation-plan.md).
 
 The original block on this plan was thebeyond hardware (for wg-vpn reachability
 and for the Phase 4 service-specific exporters running on the router). thebeyond
@@ -20,8 +20,9 @@ designed to absorb, and doing it pre-CI/CD just creates throwaway operator work.
 
 **Unblock condition:** CI/CD fleet activation reaches the point where
 `nixos-rebuild` is driven by the pusher host on merge — at which point the
-Phase 4 exporter rollout, dashboard refresh, and Forgejo → ntfy webhook all
-ride the new pipeline.
+service-specific exporter rollout, dependent firewall/drop and certificate
+expiry alerts, dashboard coverage review, phone/end-to-end notification
+validation, and Forgejo → ntfy webhook all ride the new pipeline.
 
 ---
 

@@ -1,9 +1,12 @@
 # k3s Cluster Workloads Plan (AI coding layer, game servers, CI, blog)
 
 Status: **In progress.** Phase A's KubeVirt/dev-machine critical path shipped
-through `llm-notes/done/ai-dev-machine-kubevirt-plan.md`; this document now
-tracks the remaining workload plan: dev-machine polish, blog, game servers, and
-cluster-backed CI.
+through `llm-notes/done/ai-dev-machine-kubevirt-plan.md`. The Woodpecker
+Kubernetes backend and quick preflight lane are present. Flux controllers are
+installed through k3s, but the concrete Flux `GitRepository`, `Kustomization`,
+watched path, and read-only creil deploy key are not wired yet. This document
+now tracks the remaining workload plan: dev-machine polish, full CI matrix/KVM
+lane, blog, game servers, and game-server CSI.
 
 **Done so far:**
 
@@ -80,7 +83,7 @@ Depends on:
 
 Interacts with:
 
-- **`llm-notes/plans/cicd-fleet-activation-plan.md`** — its Phase 1 makes
+- **`llm-notes/wip/cicd-fleet-activation-plan.md`** — its Phase 1 makes
   `saint-arkh` the **Woodpecker server microvm**. Under the **hybrid**
   decided here, that server microvm stays, but build runners move into the
   cluster via the Woodpecker **kubernetes backend** (replacing the

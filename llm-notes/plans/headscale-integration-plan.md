@@ -1,7 +1,9 @@
 # Headscale Integration Plan - Game Server Access for Friends
 
 > **Status:** Planning. This is a future Headscale plan for friend access to
-> game servers. It is intentionally not an external-ingress/cloud-host plan.
+> game servers. It is intentionally not an external-ingress/cloud-host plan. No
+> Headscale service, subnet-router guest, or ACL policy has landed in the flake;
+> Phase 0 placement decisions are still the next step.
 >
 > **Current assumptions (updated 2026-06-13):**
 >

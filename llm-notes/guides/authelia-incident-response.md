@@ -1,7 +1,7 @@
 # Authelia / lldap incident response & revocation
 
 **Status:** operator-facing runbook. Implements follow-up **F4** from
-[`authelia-hardening-followups-plan.md`](../plans/authelia-hardening-followups-plan.md).
+[`authelia-hardening-followups-plan.md`](../wip/authelia-hardening-followups-plan.md).
 Covers the **OIDC session / account** half of revocation; the **certificate**
 half (no CRL/OCSP; short lifetimes) lives in the resilience plan's PKI-hygiene
 appendix and the [`step-ca-jwk-break-glass.md`](step-ca-jwk-break-glass.md)

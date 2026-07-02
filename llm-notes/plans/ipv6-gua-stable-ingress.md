@@ -1,11 +1,12 @@
 # Plan: Stable GUA Addresses via SLAAC Token
 
-> **Refresh note (2026-06-15).** The host-token table below was regenerated
-> from the current network registry. It now reflects the APP moves
-> (`creil`/`zeiss`/`oracion`/`saint-arkh`), the current `liberl` NAS placement,
-> and the VLAN 51 `cluster` dev slots. Older rows for decommissioned or renamed
-> hosts (`remiferia`, `ardent`, `monrain`, network gear no longer in the
-> registry) were removed.
+Status: Planned. The prerequisite WAN IPv6 prefix-delegation router work is
+present, but this plan's own deliverables have not landed: the registry still
+emits low `::hostId` ULA addresses, host networkd configs do not carry the
+proposed `static:::a0XX` Tokens, and there is no `router6-ipv6-gua-token`
+check. The host-token table below reflects the current network registry,
+including the APP moves, current liberl NAS placement, and VLAN 51 `cluster`
+dev slots.
 
 ## Context
 

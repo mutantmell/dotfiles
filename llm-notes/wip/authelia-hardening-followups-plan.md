@@ -1,6 +1,8 @@
 # Authelia Hardening Follow-ups
 
-Status: Planned (not started)
+Status: WIP. F4 is complete via the incident-response runbook, F5 is recorded
+as a decision, and F1/F2 remain open. The actionable remaining work is MFA
+policy/enrollment and a Perses/VictoriaLogs view for centralized Authelia logs.
 
 Date: 2026-06-05
 
@@ -25,7 +27,7 @@ a Keycloak→Authelia translation table at the top.
   and incident response. The two intersect on revocation (see F4 vs. that plan's
   PKI-hygiene appendix, which covers _certificate_ revocation; F4 here is _OIDC
   session/account_ revocation).
-- [`headscale-integration-plan.md`](./headscale-integration-plan.md) — its threat
+- [`headscale-integration-plan.md`](../plans/headscale-integration-plan.md) — its threat
   model (friend credential compromise) is a primary driver for F1/F2/F4. MFA for
   admins and an audit trail matter more once friends are on the network.
 - [`../reports/friend-access-schemes.md`](../reports/friend-access-schemes.md) —
