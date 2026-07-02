@@ -85,9 +85,12 @@ in {
             domain = {
               cpu = {
                 model = "host-passthrough";
-                cores = 4;
+                cores = 8;
               };
-              resources.requests.memory = "6Gi";
+              # erebonia has 64Gi RAM. 16Gi has proven enough for -j4 check
+              # runs while still leaving most of the host's RAM free for k3s,
+              # dev-machines, existing workloads, and future CI growth.
+              resources.requests.memory = "16Gi";
               devices = {
                 disks = [
                   {

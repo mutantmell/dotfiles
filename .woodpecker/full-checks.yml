@@ -18,16 +18,33 @@ steps:
       - |
         mkdir -p ci-summary
 
+        ci_jobs="${DOTFILES_CI_JOBS:-}"
+        if [ -z "$ci_jobs" ]; then
+          mem_kib=0
+          while read -r key value _; do
+            if [ "$key" = "MemTotal:" ]; then
+              mem_kib="$value"
+              break
+            fi
+          done < /proc/meminfo
+          if [ "$mem_kib" -ge 14680064 ]; then
+            ci_jobs=4
+          else
+            ci_jobs=1
+          fi
+        fi
+        echo "Using run-checks.sh -j${ci_jobs}"
+
         set +e
         if ionice -c 3 true 2>/dev/null; then
           ionice -c 3 nice -n 10 \
             nix --extra-experimental-features 'nix-command flakes' \
-            develop --command ./scripts/run-checks.sh --summary-dir ci-summary
+            develop --command ./scripts/run-checks.sh -j "$ci_jobs" --summary-dir ci-summary
           rc=$?
         else
           nice -n 10 \
             nix --extra-experimental-features 'nix-command flakes' \
-            develop --command ./scripts/run-checks.sh --summary-dir ci-summary
+            develop --command ./scripts/run-checks.sh -j "$ci_jobs" --summary-dir ci-summary
           rc=$?
         fi
 
