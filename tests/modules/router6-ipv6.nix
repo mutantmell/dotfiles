@@ -164,6 +164,6 @@ in
       client.succeed("ping -6 -c 3 fdc6:55f2:a5e:a::1")
 
       # Test 8: Client can reach DNS over IPv6
-      client.succeed("${pkgs.dig}/bin/dig @fdc6:55f2:a5e:a::1 -6 localhost AAAA +short || true")
+      client.wait_until_succeeds("${pkgs.dig}/bin/dig @fdc6:55f2:a5e:a::1 -6 . NS +norecurse +time=2 +tries=1 | grep -F 'SERVER: fdc6:55f2:a5e:a::1#53'", timeout=30)
     '';
   }

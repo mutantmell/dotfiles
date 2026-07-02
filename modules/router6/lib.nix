@@ -329,7 +329,7 @@
         [
           {
             name = "dns-servers";
-            data = parsed.ip;
+            data = dhcp6Cfg.dnsAddress;
           }
         ]
         ++ optional (cfg.dns.localDomain != null) {

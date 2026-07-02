@@ -96,6 +96,46 @@ update_host_key_registry() {
   echo "  Updated keys.json: hostKeys.$name"
 }
 
+store_private_key_if_missing() {
+  local passage_name="$1"
+  local key_file="$2"
+  local label="$3"
+
+  if ! passage show "$passage_name" >/dev/null 2>&1; then
+    passage insert -m -f "$passage_name" <"$key_file"
+    echo "Stored $label in passage:$passage_name"
+  fi
+}
+
+ssh_host_cert_matches_key() {
+  local cert_file="$1"
+  local pubkey_file="$2"
+  local cert_fp
+  local key_fp
+
+  cert_fp=$(ssh-keygen -Lf "$cert_file" 2>/dev/null | awk '/Public key:/ {print $4; exit}')
+  key_fp=$(ssh-keygen -lf "$pubkey_file" 2>/dev/null | awk '{print $2; exit}')
+
+  [[ -n $cert_fp && $cert_fp == "$key_fp" ]]
+}
+
+x5c_cert_matches_key() {
+  local cert_file="$1"
+  local pubkey_file="$2"
+  local cert_fp
+  local key_fp
+
+  cert_fp=$(openssl x509 -in "$cert_file" -pubkey -noout 2>/dev/null |
+    openssl pkey -pubin -outform DER 2>/dev/null |
+    openssl dgst -sha256 -binary 2>/dev/null |
+    openssl base64 -A 2>/dev/null)
+  key_fp=$(openssl pkey -pubin -in "$pubkey_file" -outform DER 2>/dev/null |
+    openssl dgst -sha256 -binary 2>/dev/null |
+    openssl base64 -A 2>/dev/null)
+
+  [[ -n $cert_fp && $cert_fp == "$key_fp" ]]
+}
+
 # --- SSH key generation/reuse ---
 GUEST_SSH_KEY="$KEYFILE_DIR/${GUEST}-ssh_host_ed25519_key"
 
@@ -111,6 +151,7 @@ else
   ssh-keygen -t ed25519 -f "$GUEST_SSH_KEY" -q -N ""
 fi
 update_host_key_registry "$GUEST" "$GUEST_SSH_KEY.pub"
+store_private_key_if_missing "hosts/$GUEST/ssh_host_ed25519_key" "$GUEST_SSH_KEY" "SSH key"
 
 # --- sops-nix integration: guest PQC age identity ---
 # The guest decrypts its sops secrets with a native age hybrid post-quantum
@@ -127,6 +168,7 @@ else
   chmod 600 "$GUEST_PQC_KEY"
 fi
 GUEST_AGE_KEY=$(age-keygen -y "$GUEST_PQC_KEY")
+store_private_key_if_missing "hosts/$GUEST/age.key" "$GUEST_PQC_KEY" "PQC age identity"
 GUEST_ANCHOR="&sv_${GUEST}"
 GUEST_ANCHOR_ESCAPED="${GUEST_ANCHOR//&/\\&}"
 
@@ -164,11 +206,19 @@ fi
 
 # --- SSH host certificate signing ---
 CERTS_DIR="$REPO_ROOT/lib/common/data/host-certs"
+SSH_HOST_CERT="$CERTS_DIR/$GUEST-cert.pub"
+NEED_SSH_HOST_CERT=1
 
-if [[ -f "$CERTS_DIR/$GUEST-cert.pub" ]]; then
-  echo "SSH host certificate already exists, skipping signing."
-  echo "  To re-sign: nix run .#ssh-host-cert-sign -- --sign $GUEST"
-else
+if [[ -f $SSH_HOST_CERT ]]; then
+  if ssh_host_cert_matches_key "$SSH_HOST_CERT" "$GUEST_SSH_KEY.pub"; then
+    NEED_SSH_HOST_CERT=0
+    echo "SSH host certificate already matches current key, skipping signing."
+  else
+    echo "SSH host certificate exists but does not match current key; re-signing."
+  fi
+fi
+
+if [[ $NEED_SSH_HOST_CERT -eq 1 ]]; then
   SSH_CA_KEY="$KEYFILE_DIR/ssh_host_ca_key"
   if passage show "pki/ssh_host_ca_key" >"$SSH_CA_KEY" 2>/dev/null; then
     chmod 600 "$SSH_CA_KEY"
@@ -180,7 +230,7 @@ else
       cp "$GUEST_SSH_KEY.pub" "$tmpdir/$GUEST.pub"
       if ssh-keygen -s "$SSH_CA_KEY" -I "$GUEST" -h -n "$principals" -V "+731d" -z "$(date +%s)" "$tmpdir/$GUEST.pub" 2>/dev/null; then
         mkdir -p "$CERTS_DIR"
-        mv "$tmpdir/$GUEST-cert.pub" "$CERTS_DIR/$GUEST-cert.pub"
+        mv "$tmpdir/$GUEST-cert.pub" "$SSH_HOST_CERT"
         echo "  Signed host certificate: $GUEST"
       else
         echo "  ssh-keygen signing failed"
@@ -209,6 +259,7 @@ else
   openssl pkey -in "$GUEST_ENROLLMENT_KEY" -pubout -out "$GUEST_ENROLLMENT_PUB"
   chmod 600 "$GUEST_ENROLLMENT_KEY"
 fi
+store_private_key_if_missing "hosts/$GUEST/fleet_enrollment_key" "$GUEST_ENROLLMENT_KEY" "enrollment key"
 
 # Register enrollment pubkey in keys.json
 ENROLLMENT_PUB_PEM=$(cat "$GUEST_ENROLLMENT_PUB")
@@ -221,11 +272,19 @@ echo "  Updated keys.json: fleetEnrollmentKeys.$GUEST"
 # --- Fleet enrollment certificate signing ---
 X5C_CERTS_DIR="$REPO_ROOT/lib/common/data/fleet-x5c-certs"
 X5C_CA_CRT="$REPO_ROOT/lib/common/data/pki/fleet_x5c_ca.crt"
+X5C_CERT="$X5C_CERTS_DIR/$GUEST.crt"
+NEED_X5C_CERT=1
 
-if [[ -f "$X5C_CERTS_DIR/$GUEST.crt" ]]; then
-  echo "Fleet enrollment certificate already exists, skipping signing."
-  echo "  To re-sign: nix run .#fleet-x5c-cert-sign -- --sign $GUEST"
-else
+if [[ -f $X5C_CERT ]]; then
+  if x5c_cert_matches_key "$X5C_CERT" "$GUEST_ENROLLMENT_PUB"; then
+    NEED_X5C_CERT=0
+    echo "Fleet enrollment certificate already matches current key, skipping signing."
+  else
+    echo "Fleet enrollment certificate exists but does not match current key; re-signing."
+  fi
+fi
+
+if [[ $NEED_X5C_CERT -eq 1 ]]; then
   X5C_CA_KEY="$KEYFILE_DIR/fleet_x5c_ca_key"
   if [[ -f $X5C_CA_CRT ]] && passage show "pki/fleet_x5c_ca_key" >"$X5C_CA_KEY" 2>/dev/null; then
     chmod 600 "$X5C_CA_KEY"
@@ -239,20 +298,6 @@ else
     echo "Fleet X5C CA not yet available — skipping enrollment cert signing."
     echo "  After generating the CA, run: nix run .#fleet-x5c-cert-sign -- --sign $GUEST"
   fi
-fi
-
-# --- Store new keys in passage ---
-if ! passage show "hosts/$GUEST/ssh_host_ed25519_key" >/dev/null 2>&1; then
-  passage insert -m -f "hosts/$GUEST/ssh_host_ed25519_key" <"$GUEST_SSH_KEY"
-  echo "Stored SSH key in passage:hosts/$GUEST/ssh_host_ed25519_key"
-fi
-if ! passage show "hosts/$GUEST/age.key" >/dev/null 2>&1; then
-  passage insert -m -f "hosts/$GUEST/age.key" <"$GUEST_PQC_KEY"
-  echo "Stored PQC age identity in passage:hosts/$GUEST/age.key"
-fi
-if ! passage show "hosts/$GUEST/fleet_enrollment_key" >/dev/null 2>&1; then
-  passage insert -m -f "hosts/$GUEST/fleet_enrollment_key" <"$GUEST_ENROLLMENT_KEY"
-  echo "Stored enrollment key in passage:hosts/$GUEST/fleet_enrollment_key"
 fi
 
 # --- Place files ---

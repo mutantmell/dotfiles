@@ -127,7 +127,7 @@ in
       router.succeed("ss -tulnp | grep '\\[fdc6:55f2:a5e:a::1\\]:53'")
 
       # === kresd: DNS actually responds (sanity check) ===
-      router.succeed("${pkgs.dig}/bin/dig @10.0.10.1 localhost A +short +time=2 || true")
-      router.succeed("${pkgs.dig}/bin/dig @127.0.0.1 localhost A +short +time=2 || true")
+      router.wait_until_succeeds("${pkgs.dig}/bin/dig @10.0.10.1 . NS +norecurse +time=2 +tries=1 | grep -F 'SERVER: 10.0.10.1#53'", timeout=30)
+      router.wait_until_succeeds("${pkgs.dig}/bin/dig @127.0.0.1 . NS +norecurse +time=2 +tries=1 | grep -F 'SERVER: 127.0.0.1#53'", timeout=30)
     '';
   }

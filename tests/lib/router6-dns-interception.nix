@@ -67,7 +67,10 @@
           zone = "trusted";
           dhcp.enable = true;
           subnetId = 10;
-          dhcp6.enable = true;
+          dhcp6 = {
+            enable = true;
+            dnsAddress = "fdc6:55f2:0a5e:a::1";
+          };
         };
       };
     };

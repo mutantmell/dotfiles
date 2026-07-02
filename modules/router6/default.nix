@@ -29,7 +29,7 @@ let
   # Shared network configuration submodule
   # Used by topology interfaces, VLANs, bridges, and bonds
   mkNetworkSubmodule = {
-    allowedTypes ? ["disabled" "dhcp" "static" "pppoe"],
+    allowedTypes ? ["disabled" "dhcp" "static"],
     defaultType ? "disabled",
   }:
     types.submodule ({config, ...}: {
@@ -42,7 +42,6 @@ let
             - disabled: Interface exists but has no IP configuration
             - dhcp: Get address via DHCP (typically WAN)
             - static: Static IP address(es)
-            - pppoe: PPPoE connection (for DSL/fiber)
           '';
         };
 
@@ -145,8 +144,7 @@ let
                 description = "IPv6 address assignment mode";
               };
               dnsAddress = mkOption {
-                type = types.nullOr types.str;
-                default = null;
+                type = types.str;
                 description = ''
                   IPv6 address to advertise as DNS server in Router Advertisements.
                   Should be the router's ULA address on this interface (stable,

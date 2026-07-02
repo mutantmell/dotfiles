@@ -220,7 +220,7 @@ The router6 module has excellent test coverage across two categories:
 - `router6-sysctl-properties.nix`: Forwarding, rp_filter, RA acceptance
 - `router6-wireguard-config.nix`: Netdev/network/firewall generation
 - `router6-dyndns-config.nix`: Service/timer/script generation
-- `router6-pppoe-config.nix`: PPPoE type support
+- PPPoE is intentionally not exposed by `router6` until it is implemented end-to-end
 - `network-helpers.nix`: Network library helper functions
 - `openwrt-config.nix`: OpenWrt configuration generation
 
@@ -245,7 +245,7 @@ The router6 module has excellent test coverage across two categories:
 - No test for WireGuard end-to-end connectivity
 - No negative test for DNS interception (verifying bypass is actually caught)
 - No performance/stress testing
-- No test for PPPoE end-to-end (only config generation)
+- PPPoE is not exposed by `router6`; add end-to-end tests if support is introduced
 
 ---
 
@@ -739,8 +739,8 @@ PASS  router6-wan-ipv6-pd            PASS  router6-bond-bridge
 PASS  router6-bridge-vlan-ordering   PASS  router6-device-vlans
 PASS  router6-dnat                   PASS  router6-extra-rules
 PASS  router6-dhcp-config            PASS  router6-dnat-properties
-PASS  router6-kresd-config           PASS  router6-pppoe-config
-PASS  router6-wireguard-config       PASS  router6-dyndns-config
+PASS  router6-kresd-config           PASS  router6-wireguard-config
+PASS  router6-dyndns-config          PASS  router6-routes
 PASS  egress-filter                  PASS  network-helpers
 PASS  openwrt-config                 PASS  incus-container
 PASS  incus-vm                       PASS  disko-router

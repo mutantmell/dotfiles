@@ -77,6 +77,7 @@
           dhcp6 = {
             enable = true;
             mode = "stateful";
+            dnsAddress = "fdc6:55f2:0a5e:14::53";
           };
           subnetId = 20;
         };
@@ -128,10 +129,10 @@
     "kea6: pool uses networkPrefix" =
       assertEq "kea6 pool" (builtins.head keaLan6.pools).pool "fdc6:55f2:0a5e:14::1000-fdc6:55f2:0a5e:14::1fff";
 
-    "kea6: dns-servers is the parsed IP" = let
+    "kea6: dns-servers uses configured dhcp6.dnsAddress" = let
       dnsOpt = builtins.head (builtins.filter (o: o.name == "dns-servers") keaLan6.option-data);
     in
-      assertEq "kea6 dns" dnsOpt.data "fdc6:55f2:0a5e:14::1";
+      assertEq "kea6 dns" dnsOpt.data "fdc6:55f2:0a5e:14::53";
 
     # --- parseCIDR → kresd (ip extraction) ---
     "kresd: listens on parsed v4 IP" =
