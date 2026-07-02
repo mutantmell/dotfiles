@@ -274,7 +274,7 @@ reproduction command (`./scripts/run-checks.sh <name>`,
 `nix build .#checks.x86_64-linux.<name>`, `agent-preflight-quick`, etc.).
 
 Agent-facing PR integration is specified in
-`llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. The default target is
+`llm-notes/done/agent-ci-readonly-woodpecker-plan.md`. The default target is
 not a bespoke Forgejo/Woodpecker client: Forgejo status gates PRs, agents use
 the normal Forgejo-facing interface for PR state, and read-only Woodpecker
 access exposes detailed CI logs plus `check-summary.json`. The older trusted

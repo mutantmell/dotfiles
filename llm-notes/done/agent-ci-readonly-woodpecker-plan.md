@@ -1,6 +1,6 @@
 # Agent CI Read-Only Woodpecker Plan
 
-> **Status:** Planning.
+> **Status:** Done.
 >
 > This plan supersedes the sticky-comment-first direction in
 > `llm-notes/done/agent-ci-feedback-loop-plan.md` for the default agent CI

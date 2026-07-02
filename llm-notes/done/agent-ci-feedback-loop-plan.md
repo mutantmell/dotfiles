@@ -3,7 +3,7 @@
 > **Status:** Superseded.
 >
 > Superseded on 2026-06-26 by
-> `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. The default agent CI
+> `llm-notes/done/agent-ci-readonly-woodpecker-plan.md`. The default agent CI
 > feedback path should use Forgejo branch protection plus read-only Woodpecker
 > log access before adding sticky PR comment reporter machinery.
 >

@@ -371,7 +371,7 @@ that:
 The CI gap is not only "run checks on PRs"; it is "make PR state and check
 failures readable by an LLM with narrow credentials." The concrete default
 agent-facing workflow now lives in
-`llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`.
+`llm-notes/done/agent-ci-readonly-woodpecker-plan.md`.
 
 Target direction:
 
@@ -1101,7 +1101,7 @@ tracked in the cluster dependency registry. The first implementation should use
 a repo-native updater/check flow that edits that registry, refreshes
 hashes/digests, regenerates committed Flux YAML when needed, and opens a PR. The
 target PR creation path should follow
-`llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`: fork-and-pull PR
+`llm-notes/done/agent-ci-readonly-woodpecker-plan.md`: fork-and-pull PR
 creation through the chosen narrow API/broker path once validated. AGit is an
 acceptable interim fallback while the `tea` fork credential workflow is still
 unproven. Renovate can be added later, but only if it edits the authoritative

@@ -110,6 +110,7 @@ write_summary() {
   objects_file=$(mktemp -t run-checks-summary-XXXXXX)
   while IFS=$'\t' read -r name status log_path reproduce; do
     [[ -n $name ]] || continue
+    [[ $log_path == "-" ]] && log_path=""
     if [[ $status == "failed" && -n $log_path && -f $log_path ]]; then
       jq -n \
         --arg name "$name" \
@@ -348,8 +349,8 @@ if [[ -n $SUMMARY_DIR ]]; then
       tail_file="$LOG_DIR/${name}.tail"
       redacted_tail "$log" >"$tail_file"
     fi
-    printf '%s\t%s\t%s\t./scripts/run-checks.sh %s\n' \
-      "$name" "$status" "$tail_file" "$name" >>"$STATUS_FILE"
+    printf '%s\t%s\t%s\t%s\n' \
+      "$name" "$status" "${tail_file:-"-"}" "./scripts/run-checks.sh $name" >>"$STATUS_FILE"
   done
   write_summary "$SUMMARY_DIR" "$STATUS_FILE"
   echo "Check summary: ${SUMMARY_DIR}/check-summary.json"

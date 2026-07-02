@@ -615,7 +615,7 @@ an operator machine" item; orthogonal to this phase but surfaced by it.
 > **Supersession note (2026-06-25).** This section records the decision that
 > unblocked PR-oriented dev-machine work in June 2026. It remains historically
 > accurate, but it is no longer the target end-state. The current replacement
-> plan is `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`; the older
+> plan is `llm-notes/done/agent-ci-readonly-woodpecker-plan.md`; the older
 > sticky-comment-first plan is archived at
 > `llm-notes/done/agent-ci-feedback-loop-plan.md`.
 

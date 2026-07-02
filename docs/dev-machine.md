@@ -125,7 +125,7 @@ pipeline lookup fields, and bounded redacted log tails for failures.
 
 Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.
 
-The target CI feedback loop is documented in `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. The PR helper wrappers are intentionally thin. They fail clearly when `tea` has not been configured with a Forgejo login. `agent-pr-create` takes a PR body from `--body-file`, `--body`, or stdin so Markdown descriptions do not depend on shell newline escaping:
+The target CI feedback loop is documented in `llm-notes/done/agent-ci-readonly-woodpecker-plan.md`. The PR helper wrappers are intentionally thin. They fail clearly when `tea` has not been configured with a Forgejo login. `agent-pr-create` takes a PR body from `--body-file`, `--body`, or stdin so Markdown descriptions do not depend on shell newline escaping:
 
 ```bash
 git push fork HEAD:topic-branch
