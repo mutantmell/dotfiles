@@ -101,7 +101,10 @@ agent-preflight [--quick|--full]  # ./scripts/agent-preflight.sh
 agent-checks [check ...]          # ./scripts/run-checks.sh
 agent-build-check <check-name>    # nix build .#checks.x86_64-linux.<check-name>
 agent-smoke [--network]           # ./scripts/dev-machine-smoke.sh
+agent-pr-create --title ...       # create a fork PR with a Markdown body
 agent-pr-status [pr-number]       # PR state and Forgejo CI state
+agent-ci-status [--pr N]          # decoded Woodpecker pipeline/step state
+agent-ci-logs [--pr N]            # decoded Woodpecker logs, default full-checks
 agent-pr-comments <pr-number>     # lifecycle and review comments as JSON
 agent-pr-comment <pr-number> ...  # post a concise PR comment through tea
 ```
@@ -122,7 +125,22 @@ pipeline lookup fields, and bounded redacted log tails for failures.
 
 Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.
 
-The target CI feedback loop is documented in `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. The PR helper wrappers are intentionally thin. They fail clearly when `tea` has not been configured with a Forgejo login. When credentials are present, `agent-pr-status` infers the PR from the current branch when possible, or accepts an explicit PR number. Detailed CI failure information comes from the Woodpecker status target URL and the printed `===== check-summary.json =====` log block, not from sticky Forgejo PR comments by default.
+The target CI feedback loop is documented in `llm-notes/plans/agent-ci-readonly-woodpecker-plan.md`. The PR helper wrappers are intentionally thin. They fail clearly when `tea` has not been configured with a Forgejo login. `agent-pr-create` takes a PR body from `--body-file`, `--body`, or stdin so Markdown descriptions do not depend on shell newline escaping:
+
+```bash
+git push fork HEAD:topic-branch
+agent-pr-create --title "topic: concise title" --body-file pr-body.md
+```
+
+When credentials are present, `agent-pr-status` infers the PR from the current branch when possible, or accepts an explicit PR number. `agent-ci-status` and `agent-ci-logs` use the injected Woodpecker token to find the latest pipeline for a PR, pipeline number, commit, or current `HEAD`, then print decoded pipeline state or logs:
+
+```bash
+agent-ci-status --pr 146
+agent-ci-logs --pr 146 --tail 120
+agent-ci-logs --pipeline 61 --step full-checks --tail 120
+```
+
+Detailed CI failure information should come from `agent-ci-logs` and the printed `===== check-summary.json =====` log block, not from sticky Forgejo PR comments by default. When a PR changes CI runner resources or images and also changes CI behavior, the behavior must remain compatible with the currently deployed runner because the new resources are not available until after merge and deployment.
 
 ## Forgejo API Credentials
 

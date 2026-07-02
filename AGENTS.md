@@ -100,9 +100,11 @@ Rules:
 - One PR per task is the baseline; reuse the same `topic` for iterations.
 - Keep upstream `origin` as fetch-only or no-push; push branches to `fork`.
 - Use `tea pr create --head cc:<branch> --base main` explicitly so `tea` does not try to open `main -> main`.
+- Prefer `agent-pr-create --title ... --body-file ...` inside dev-machines when opening PRs; it wraps the same explicit head/base workflow while avoiding shell newline escaping issues in Markdown bodies.
 - Run `./scripts/agent-preflight.sh --quick` or the relevant targeted checks before opening/updating a PR. Use `--full` when touching shared modules, test infrastructure, network policy, deployment scripts, or dev-machine images.
-- Check PR status with `tea pr --repo mutantmell/dotfiles <pr-number> --fields index,state,title,head,mergeable,ci --output yaml`.
-- When CI fails, follow the Woodpecker status URL from the `ci` field and use the injected `WOODPECKER_TOKEN`/`WOODPECKER_SERVER` to read pipeline metadata and step logs.
+- Check PR status with `agent-pr-status <pr-number>` when available.
+- When CI fails, use `agent-ci-status --pr <pr-number>` and `agent-ci-logs --pr <pr-number> --tail 160` when available; these read the injected `WOODPECKER_TOKEN`/`WOODPECKER_SERVER`, select the right Woodpecker step ID, and decode log lines.
+- When a PR changes CI runner resources/images and CI behavior at the same time, keep the behavior compatible with the currently deployed runner. The resource change will not exist for the PR's own CI run until after merge and deployment.
 - Irreversible or outward-facing actions beyond opening/updating a PR still need human confirmation.
 
 AGit remains available only as a fallback if the fork-and-pull path is broken:

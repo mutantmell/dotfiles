@@ -13,6 +13,7 @@
       runtimeInputs = with pkgs; [
         bashInteractive
         coreutils-full
+        curl
         git
         jq
         nix
@@ -69,6 +70,130 @@
     '')
     (mkAgentWrapper "agent-smoke" ''
       exec ./scripts/dev-machine-smoke.sh "$@"
+    '')
+    (mkAgentWrapper "agent-pr-create" ''
+            require_tea_login() {
+              if ! tea whoami >/dev/null 2>&1; then
+                printf 'agent-pr-create: tea is not configured for Forgejo in this dev-machine\n' >&2
+                printf 'rerun dev-machine up after configuring programs.dev-machine.forgejoTokenFile.\n' >&2
+                exit 1
+              fi
+            }
+
+            usage() {
+              cat >&2 <<'USAGE'
+      usage: agent-pr-create --title TITLE [--body-file FILE|--body TEXT] [--base BRANCH] [--head OWNER:BRANCH] [--repo OWNER/REPO]
+
+      Creates a Forgejo PR using a Markdown body from --body-file, --body, or stdin.
+      Defaults to --repo mutantmell/dotfiles, --base main, and --head cc:<current-branch>.
+      USAGE
+            }
+
+            repo=mutantmell/dotfiles
+            base=main
+            head=
+            title=
+            body=
+            body_file=
+
+            while [[ $# -gt 0 ]]; do
+              case "$1" in
+              --repo)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                repo=$1
+                shift
+                ;;
+              --repo=*)
+                repo=''${1#--repo=}
+                shift
+                ;;
+              --base)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                base=$1
+                shift
+                ;;
+              --base=*)
+                base=''${1#--base=}
+                shift
+                ;;
+              --head)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                head=$1
+                shift
+                ;;
+              --head=*)
+                head=''${1#--head=}
+                shift
+                ;;
+              --title|-t)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                title=$1
+                shift
+                ;;
+              --title=*)
+                title=''${1#--title=}
+                shift
+                ;;
+              --body|-d)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                body=$1
+                shift
+                ;;
+              --body=*)
+                body=''${1#--body=}
+                shift
+                ;;
+              --body-file|-F)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                body_file=$1
+                shift
+                ;;
+              --body-file=*)
+                body_file=''${1#--body-file=}
+                shift
+                ;;
+              -h|--help)
+                usage
+                exit 0
+                ;;
+              *)
+                printf 'agent-pr-create: unknown argument: %s\n' "$1" >&2
+                usage
+                exit 2
+                ;;
+              esac
+            done
+
+            require_tea_login
+
+            if [[ -z $title ]]; then
+              printf 'agent-pr-create: --title is required\n' >&2
+              usage
+              exit 2
+            fi
+
+            if [[ -n $body_file ]]; then
+              body=$(cat "$body_file")
+            elif [[ -z $body && ! -t 0 ]]; then
+              body=$(cat)
+            fi
+
+            if [[ -z $head ]]; then
+              branch=$(git branch --show-current 2>/dev/null || true)
+              if [[ -z $branch ]]; then
+                printf 'agent-pr-create: not on a named branch; pass --head OWNER:BRANCH\n' >&2
+                exit 2
+              fi
+              head="cc:$branch"
+            fi
+
+            exec tea pr create --repo "$repo" --head "$head" --base "$base" --title "$title" --description "$body"
     '')
     (mkAgentWrapper "agent-pr-status" ''
       require_tea_login() {
@@ -147,6 +272,257 @@
         "PR #\(.index): \(.title)\nstate: \(.state)\nhead: \(head_text)\nbase: \(.base | tostring)\nmergeable: \(.mergeable | tostring)\nci: \(.ci | tostring)\nurl: \(.url // "")"
       ' <<<"$pr"
 
+    '')
+    (mkAgentWrapper "agent-ci-status" ''
+            usage() {
+              cat >&2 <<'USAGE'
+      usage: agent-ci-status [--pipeline N|--pr N|--commit SHA]
+
+      Shows Woodpecker pipeline and step state. With no selector, uses HEAD.
+      USAGE
+            }
+
+            require_woodpecker_api() {
+              if [[ -z ''${WOODPECKER_SERVER:-} || -z ''${WOODPECKER_TOKEN:-} ]]; then
+                printf 'agent-ci-status: WOODPECKER_SERVER and WOODPECKER_TOKEN must be set\n' >&2
+                exit 1
+              fi
+            }
+
+            woodpecker_get() {
+              curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN" "$WOODPECKER_SERVER$1"
+            }
+
+            pipeline_number=
+            pr_id=
+            commit_sha=
+            repo_id=''${DOTFILES_WOODPECKER_REPO_ID:-1}
+
+            while [[ $# -gt 0 ]]; do
+              case "$1" in
+              --pipeline)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                pipeline_number=$1
+                shift
+                ;;
+              --pipeline=*)
+                pipeline_number=''${1#--pipeline=}
+                shift
+                ;;
+              --pr)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                pr_id=$1
+                shift
+                ;;
+              --pr=*)
+                pr_id=''${1#--pr=}
+                shift
+                ;;
+              --commit)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                commit_sha=$1
+                shift
+                ;;
+              --commit=*)
+                commit_sha=''${1#--commit=}
+                shift
+                ;;
+              -h|--help)
+                usage
+                exit 0
+                ;;
+              *)
+                if [[ $1 =~ ^[0-9]+$ && -z $pr_id && -z $pipeline_number && -z $commit_sha ]]; then
+                  pr_id=$1
+                  shift
+                else
+                  printf 'agent-ci-status: unknown argument: %s\n' "$1" >&2
+                  usage
+                  exit 2
+                fi
+                ;;
+              esac
+            done
+
+            require_woodpecker_api
+
+            if [[ -n $pr_id && -z $commit_sha ]]; then
+              commit_sha=$(tea pr --repo mutantmell/dotfiles "$pr_id" --fields headSha --output json | jq -r '.headSha')
+            fi
+            if [[ -z $pipeline_number ]]; then
+              if [[ -z $commit_sha ]]; then
+                commit_sha=$(git rev-parse HEAD)
+              fi
+              pipeline_number=$(
+                woodpecker_get "/api/repos/$repo_id/pipelines?perPage=50" |
+                  jq -r --arg commit "$commit_sha" '[.[] | select(.commit == $commit)][0].number // empty'
+              )
+              if [[ -z $pipeline_number ]]; then
+                printf 'agent-ci-status: no Woodpecker pipeline found for commit %s\n' "$commit_sha" >&2
+                exit 1
+              fi
+            fi
+
+            woodpecker_get "/api/repos/$repo_id/pipelines/$pipeline_number" |
+              jq -r '
+                "pipeline #\(.number): \(.status)",
+                "event: \(.event) ref: \(.ref) commit: \(.commit[0:12])",
+                "url: \(.forge_url)",
+                (
+                  .workflows[]
+                  | "workflow \(.name): \(.state)\(if .error then " (" + .error + ")" else "" end)",
+                    (.children[] | "  step #\(.id) \(.name): \(.state) exit=\(.exit_code // "n/a")")
+                )
+              '
+    '')
+    (mkAgentWrapper "agent-ci-logs" ''
+            usage() {
+              cat >&2 <<'USAGE'
+      usage: agent-ci-logs [--pipeline N|--pr N|--commit SHA] [--step NAME_OR_ID] [--tail N]
+
+      Prints decoded Woodpecker logs. Defaults to the full-checks step for HEAD.
+      USAGE
+            }
+
+            require_woodpecker_api() {
+              if [[ -z ''${WOODPECKER_SERVER:-} || -z ''${WOODPECKER_TOKEN:-} ]]; then
+                printf 'agent-ci-logs: WOODPECKER_SERVER and WOODPECKER_TOKEN must be set\n' >&2
+                exit 1
+              fi
+            }
+
+            woodpecker_get() {
+              curl -fsS -H "Authorization: Bearer $WOODPECKER_TOKEN" "$WOODPECKER_SERVER$1"
+            }
+
+            pipeline_number=
+            pr_id=
+            commit_sha=
+            step_selector=full-checks
+            tail_lines=
+            repo_id=''${DOTFILES_WOODPECKER_REPO_ID:-1}
+
+            while [[ $# -gt 0 ]]; do
+              case "$1" in
+              --pipeline)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                pipeline_number=$1
+                shift
+                ;;
+              --pipeline=*)
+                pipeline_number=''${1#--pipeline=}
+                shift
+                ;;
+              --pr)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                pr_id=$1
+                shift
+                ;;
+              --pr=*)
+                pr_id=''${1#--pr=}
+                shift
+                ;;
+              --commit)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                commit_sha=$1
+                shift
+                ;;
+              --commit=*)
+                commit_sha=''${1#--commit=}
+                shift
+                ;;
+              --step)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                step_selector=$1
+                shift
+                ;;
+              --step=*)
+                step_selector=''${1#--step=}
+                shift
+                ;;
+              --tail)
+                shift
+                [[ $# -gt 0 ]] || { usage; exit 2; }
+                tail_lines=$1
+                shift
+                ;;
+              --tail=*)
+                tail_lines=''${1#--tail=}
+                shift
+                ;;
+              -h|--help)
+                usage
+                exit 0
+                ;;
+              *)
+                if [[ $1 =~ ^[0-9]+$ && -z $pr_id && -z $pipeline_number && -z $commit_sha ]]; then
+                  pr_id=$1
+                  shift
+                else
+                  printf 'agent-ci-logs: unknown argument: %s\n' "$1" >&2
+                  usage
+                  exit 2
+                fi
+                ;;
+              esac
+            done
+
+            require_woodpecker_api
+
+            if [[ -n $pr_id && -z $commit_sha ]]; then
+              commit_sha=$(tea pr --repo mutantmell/dotfiles "$pr_id" --fields headSha --output json | jq -r '.headSha')
+            fi
+            if [[ -z $pipeline_number ]]; then
+              if [[ -z $commit_sha ]]; then
+                commit_sha=$(git rev-parse HEAD)
+              fi
+              pipeline_number=$(
+                woodpecker_get "/api/repos/$repo_id/pipelines?perPage=50" |
+                  jq -r --arg commit "$commit_sha" '[.[] | select(.commit == $commit)][0].number // empty'
+              )
+              if [[ -z $pipeline_number ]]; then
+                printf 'agent-ci-logs: no Woodpecker pipeline found for commit %s\n' "$commit_sha" >&2
+                exit 1
+              fi
+            fi
+
+            pipeline_json=$(woodpecker_get "/api/repos/$repo_id/pipelines/$pipeline_number")
+            if [[ $step_selector =~ ^[0-9]+$ ]]; then
+              step_id=$step_selector
+            else
+              step_id=$(
+                jq -r --arg step "$step_selector" '
+                  [.workflows[]?.children[]? | select(.name == $step)][0].id // empty
+                ' <<<"$pipeline_json"
+              )
+            fi
+            if [[ -z ''${step_id:-} ]]; then
+              printf 'agent-ci-logs: no step %s found in pipeline %s\n' "$step_selector" "$pipeline_number" >&2
+              jq -r '.workflows[]?.children[]? | "  #\(.id) \(.name): \(.state)"' <<<"$pipeline_json" >&2
+              exit 1
+            fi
+
+            logs=$(
+              woodpecker_get "/api/repos/$repo_id/logs/$pipeline_number/$step_id" |
+                jq -r '.[]? | .data // empty' |
+                while IFS= read -r line; do
+                  printf '%s' "$line" | base64 -d
+                  printf '\n'
+                done
+            )
+
+            if [[ -n $tail_lines ]]; then
+              printf '%s\n' "$logs" | tail -n "$tail_lines"
+            else
+              printf '%s\n' "$logs"
+            fi
     '')
     (mkAgentWrapper "agent-pr-comments" ''
       require_tea_login() {
