@@ -55,13 +55,9 @@
     # ai-dev-machine-kubevirt-plan.md.
     llm-agents.url = "github:numtide/llm-agents.nix";
     retrom = {
-      # Pinned to v0.8.1-era rev: v0.8.2 ships a stale retrom-service pnpm-deps hash
-      # (pnpm-lock.yaml dropped the handlebars catalog entry but nix/pkgs/retrom-service/
-      # package.nix kept the v0.8.1 hash — same upstream-bug class as closed issue #506).
-      # NOT following our nixpkgs either: fetchPnpmDeps output also drifts as nixpkgs
-      # moves, so the templated hash only matches against retrom's own pinned nixpkgs.
-      # Bump past 995597d once upstream ships a fixed release.
-      url = "github:JMBeresford/retrom/995597d700c4e17b6e87a09a8faf572d76ce487b";
+      # NOT following our nixpkgs: fetchPnpmDeps output can drift as nixpkgs
+      # moves, so Retrom packages should build against Retrom's own pinned nixpkgs.
+      url = "github:JMBeresford/retrom/v0.8.4";
     };
     stevenblack-hosts = {
       url = "github:StevenBlack/hosts";
@@ -166,6 +162,13 @@
       mk-volume = import packages/mk-volume.nix {
         inherit (pkgs) writeShellScriptBin;
       };
+      # v0.8.4's retrom-service package kept the old pnpm-deps hash. Keep the
+      # latest release source/module, but override only the fixed-output hash.
+      retrom-service = retrom.packages.${system}.retrom-service.overrideAttrs (finalAttrs: previousAttrs: {
+        pnpmDeps = previousAttrs.pnpmDeps.overrideAttrs (_: {
+          outputHash = "sha256-b4OG+4i+ssaaJFj0SWyzI+dHWLk5XQCiq1TVMhIo/10=";
+        });
+      });
       openwrt-builder = import ./packages/openwrt-builder {
         inherit
           (pkgs)

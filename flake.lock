@@ -483,17 +483,17 @@
         "nixpkgs": "nixpkgs_4"
       },
       "locked": {
-        "lastModified": 1776033783,
-        "narHash": "sha256-QoqMWg/gTbHMtUtDqkRJveXrbIZ5TP1iuIITslueiSI=",
+        "lastModified": 1781466389,
+        "narHash": "sha256-R2Ls9KFRqcRv6HYDWoK5otPx/8K9O+T5xLpA8RnwkDg=",
         "owner": "JMBeresford",
         "repo": "retrom",
-        "rev": "995597d700c4e17b6e87a09a8faf572d76ce487b",
+        "rev": "850b3fa2e80521168e3fc9326acffd69072bd61a",
         "type": "github"
       },
       "original": {
         "owner": "JMBeresford",
+        "ref": "v0.8.4",
         "repo": "retrom",
-        "rev": "995597d700c4e17b6e87a09a8faf572d76ce487b",
         "type": "github"
       }
     },

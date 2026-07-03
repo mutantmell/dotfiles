@@ -4,6 +4,7 @@ in {
   services.retrom = {
     enable = true;
     enableDatabase = true;
+    package = pkgs.mmell.retrom-service;
     port = 5101;
     settings = {
       # Field names must be camelCase: Retrom's serde config sets
