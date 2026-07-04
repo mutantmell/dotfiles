@@ -122,6 +122,7 @@
         zeiss = 31; # Attic binary cache (liberl) — moved from dmz in Phase 5.A.2
         creil = 53; # Forgejo git hosting (calvard) — moved from dmz in Phase 5.A.1
         "saint-arkh" = 61; # Woodpecker CI server (erebonia) — moved from dmz in Phase 5.A.3
+        "north-ambria" = 62; # Framework Desktop LLM/ComfyUI runner
       };
     };
     # Low-trust cluster zone — KubeVirt dev-machine sandboxes (and future
@@ -469,6 +470,12 @@
     "saint-arkh" = [
       "woodpecker.internal.mutantmell.net"
       "woodpecker.internal"
+    ];
+    "north-ambria" = [
+      "comfyui.internal.mutantmell.net"
+      "comfyui.internal"
+      "llm.internal.mutantmell.net"
+      "llm.internal"
     ];
   };
 

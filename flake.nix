@@ -403,6 +403,16 @@
         ];
       };
 
+      north-ambria = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          nixos-hardware.nixosModules.framework-desktop-amd-ai-max-300-series
+          home-manager.nixosModules.home-manager
+          ./hosts/north-ambria
+        ];
+      };
+
       kernviter = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";
