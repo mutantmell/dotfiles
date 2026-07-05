@@ -12,6 +12,7 @@
 in {
   imports = [
     (modulesPath + "/installer/scan/not-detected.nix")
+    ./disko.nix
   ];
 
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
@@ -23,17 +24,16 @@ in {
   boot.initrd.availableKernelModules = ["xhci_pci" "nvme" "usb_storage" "usbhid" "sd_mod"];
   boot.initrd.kernelModules = ["amdgpu"];
 
-  # Minimal label-based layout for initial install. Replace with a disko profile
-  # after the actual NVMe device name and desired partitioning are known.
-  fileSystems."/" = {
-    device = "/dev/disk/by-label/nixos";
-    fsType = "ext4";
+  common.impermanence = {
+    enable = true;
+    directories = [
+      "/srv"
+      "/var/lib/containers"
+    ];
   };
-  fileSystems."/boot" = {
-    device = "/dev/disk/by-label/ESP";
-    fsType = "vfat";
-  };
-  swapDevices = [];
+  common.btrfs.enable = true;
+  common.btrfs.keyfileUnlock.enable = true;
+  common.btrfs.impermanence.enable = true;
 
   hardware.enableRedistributableFirmware = true;
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
