@@ -68,6 +68,7 @@
       gateway = "bt8gw";
       hosts = {
         azoth = 50; # Raspberry Pi (Home Assistant, MQTT)
+        ruan = 51; # SMB/CIFS NAS frontend microVM (liberl)
       };
     };
     lab = {
@@ -435,11 +436,6 @@
       "ldap.internal"
     ];
     langport = ["mutantmell.net"];
-    # Transition aliases: keep old DNS names resolving during migration
-    liberl = [
-      "remiferia.internal.mutantmell.net"
-      "remiferia.internal"
-    ];
     zeiss = [
       "attic.zeiss.internal.mutantmell.net"
       "attic.zeiss.internal"

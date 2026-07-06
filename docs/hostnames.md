@@ -36,7 +36,7 @@ VM HOSTS (Countries)
 │   ├── zeiss         (microVM) — Attic Nix binary cache
 │   ├── bose          (microVM) — Arr stack — UHD/4K (Sonarr, Radarr, Bazarr, Lidarr)
 │   ├── ravennue      (microVM) — Arr stack — SD/1080p (Sonarr, Radarr, Bazarr)
-│   ├── ruan          (reserved)
+│   ├── ruan          (microVM) — SMB/CIFS NAS frontend
 │   ├── grancel       (reserved)
 │   └── rolent        (reserved)
 │

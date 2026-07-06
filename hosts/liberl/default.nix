@@ -238,14 +238,6 @@ in {
     keys = ["deploy" "home" "edith"];
   };
 
-  users.users.mutantmell = {
-    isNormalUser = true;
-    description = "samba client user";
-    group = "mutantmell";
-    extraGroups = ["media"];
-  };
-  users.groups.mutantmell = {};
-
   home-manager.backupFileExtension = "bak";
   home-manager.users.root = {
     home.stateVersion = "23.11";

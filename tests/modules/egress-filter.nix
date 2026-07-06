@@ -10,12 +10,11 @@
   lib ? pkgs.lib,
 }: let
   inherit ((import ../../lib/common {inherit lib;}).nftables) mkEgressFilter;
-  testRunner = import ../lib/container-test-runner.nix {inherit pkgs lib;};
 in
-  testRunner {
+  pkgs.testers.nixosTest {
     name = "egress-filter";
 
-    containers = {
+    nodes = {
       # DMZ host with egress filtering: allow DNS + HTTP to "allowed" node only
       dmzhost = {
         config,

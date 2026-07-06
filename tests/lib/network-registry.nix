@@ -81,6 +81,11 @@
   # azoth in trusted (bt8gw group 1, vlanId 20 = "1014"), hostId 50 = "32"
   hostsAzothIpv6 = assertEq "azoth ipv6" net.hosts.azoth.ipv6 "fdc6:55f2:0a5e:1014::32";
 
+  # ruan is the liberl SMB frontend on trusted VLAN 20, hostId 51 = "33"
+  hostsRuanIpv4 = assertEq "ruan ipv4" net.hosts.ruan.ipv4 "10.97.20.51";
+  hostsRuanIpv6 = assertEq "ruan ipv6" net.hosts.ruan.ipv6 "fdc6:55f2:0a5e:1014::33";
+  hostsRuanZone = assertEq "ruan zone" net.hosts.ruan.zoneName "trusted";
+
   # E8450 devices have been dropped
   hostsNoMerkabah = assertEq "merkabah removed" (net.hosts ? merkabah) false;
   hostsNoBobcat = assertEq "bobcat removed" (net.hosts ? bobcat) false;
@@ -229,6 +234,9 @@
     "bt8bridge added to network zone" = hostsBt8bridgeIpv4;
     "dmz host has fixed-width hex vlan in subnet6" = hostsDmzSubnet;
     "azoth has bt8gw group 1 ULA prefix" = hostsAzothIpv6;
+    "ruan has trusted IPv4" = hostsRuanIpv4;
+    "ruan has trusted IPv6" = hostsRuanIpv6;
+    "ruan is in trusted zone" = hostsRuanZone;
     "merkabah removed from registry" = hostsNoMerkabah;
     "bobcat removed from registry" = hostsNoBobcat;
 

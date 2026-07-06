@@ -6,7 +6,6 @@
 }: let
   net = pkgs.mmell.lib.data.network;
   h = net.hosts;
-  inherit (net.networks) trusted;
   inherit (pkgs.mmell.lib.data.users) media;
 in {
   environment.systemPackages = with pkgs; [
@@ -29,15 +28,26 @@ in {
     # NFS from specific VM hosts only
     ip saddr { ${h.calvard.ipv4}, ${h.erebonia.ipv4} } tcp dport 2049 accept
     ip6 saddr { ${h.calvard.ipv6}, ${h.erebonia.ipv6} } tcp dport 2049 accept
-    # SMB from vHOME and legacy 10.0.0.0/16 subnet (TODO: remove 10.0.0.0/16 once Windows PC migrates to vHOME)
-    ip saddr { ${trusted.subnet4}, 10.0.0.0/16 } tcp dport { 139, 445 } accept
-    ip6 saddr ${trusted.subnet6} tcp dport { 139, 445 } accept
-    # WSDD from vHOME and legacy 10.0.0.0/16 subnet
-    ip saddr { ${trusted.subnet4}, 10.0.0.0/16 } tcp dport 5357 accept
-    ip saddr { ${trusted.subnet4}, 10.0.0.0/16 } udp dport 3702 accept
-    ip6 saddr ${trusted.subnet6} tcp dport 5357 accept
-    ip6 saddr ${trusted.subnet6} udp dport 3702 accept
   '';
+
+  systemd.services.liberl-smb-zfs-properties = {
+    description = "Apply Samba metadata properties to SMB-served ZFS datasets";
+    after = ["zfs-mount.service"];
+    wants = ["zfs-mount.service"];
+    wantedBy = ["multi-user.target"];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      zfs=${config.boot.zfs.package}/bin/zfs
+      for dataset in data/media data/drive data/backup; do
+        if "$zfs" list -H -o name "$dataset" >/dev/null 2>&1; then
+          "$zfs" set xattr=sa acltype=posixacl "$dataset"
+        fi
+      done
+    '';
+  };
 
   # Bind mounts into the NFS export tree
   # Both RW and RO bind the same root (/data/media); access level is enforced by export options
@@ -131,45 +141,6 @@ in {
   services.devmon.enable = true;
   services.udisks2.enable = true;
   boot.supportedFilesystems = ["ntfs"];
-
-  services.samba-wsdd.enable = true;
-  services.samba = {
-    enable = true;
-    openFirewall = false; # Handled by source-restricted extraInputRules above
-    settings.global = {
-      "invalid users" = ["root"];
-      "passwd program" = "/run/wrappers/bin/passwd %u";
-      security = "user";
-      "map to guest" = "Bad User";
-      "server string" = "LIBERL";
-      "netbios name" = "LIBERL";
-      "load printers" = "no";
-      "printcap name" = "/dev/null";
-    };
-    settings = {
-      drive = {
-        path = "/data/drive";
-        browseable = "yes";
-        "guest ok" = "no";
-        "read only" = "no";
-      };
-      media = {
-        path = "/data/media";
-        browseable = "yes";
-        "guest ok" = "no";
-        "read only" = "no";
-        # Required for MISTer (Linux CIFS client) to follow Unix symlinks —
-        # used for mister/games/<Core> → library/software/console/<platform>/
-        "mfs symlinks" = "yes";
-      };
-      backup = {
-        path = "/data/backup";
-        browseable = "yes";
-        "guest ok" = "no";
-        "read only" = "no";
-      };
-    };
-  };
 
   power.ups = {
     enable = true;
