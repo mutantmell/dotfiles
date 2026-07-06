@@ -26,7 +26,8 @@
     "bose": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMZHPlfg8G/1WnO2h7RYow/DZ5brdJ46neDg3It/3XRQ root@remiferia",
     "ravennue": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMEtaO83w8GyXHVcscGZBQN/p3nFcyUS7ZipS6ULxe03 mutantmell@edith",
     "thebeyond": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHDJ+UB9KNznZBJ+TfrkBwqn3SSwwQg7P20j9QfiyRme root@jotunheimr",
-    "phantasma": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINKCjx0KEQgdRfPtKTzJBjMcerouNQYc1V5XkIEwwk8N root@nixos"
+    "phantasma": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINKCjx0KEQgdRfPtKTzJBjMcerouNQYc1V5XkIEwwk8N root@nixos",
+    "north-ambria": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEYteAP1uSuK3tKSh9PkM5GWuW3OpNcG2w4PedzWnNKL mutantmell@edith"
   },
   "fleetEnrollmentKeys": {
     "calvard": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAre97SFcEyaTWmzmJFsFE6FwuBFdoYb9p38yDrsEqtg0=\n-----END PUBLIC KEY-----",
@@ -45,6 +46,7 @@
     "erebonia": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAxoL9vE5wUzl6xSl//H2TY6B0N0pyU3lopdtsoA9+ZZA=\n-----END PUBLIC KEY-----",
     "ravennue": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAhMQc3E/62oAHtz2Yx/wmVJ6pVlu5LGCbPdJQLIeC9tU=\n-----END PUBLIC KEY-----",
     "phantasma": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAr/kSkC2wZ+3gzjlRoGXGZq5rvd7jgZ0GXMxh/LO9MFM=\n-----END PUBLIC KEY-----",
-    "thebeyond": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHt5TaFmFmeQmyZ/hPTYJg3EXXi9xNr3ldC8dInNFEaM=\n-----END PUBLIC KEY-----"
+    "thebeyond": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAHt5TaFmFmeQmyZ/hPTYJg3EXXi9xNr3ldC8dInNFEaM=\n-----END PUBLIC KEY-----",
+    "north-ambria": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAUeeoJewhxZU6WE+jjSQoS1wR8STAq1tdIT7JRza4mGs=\n-----END PUBLIC KEY-----"
   }
 }
