@@ -21,6 +21,9 @@ in {
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
   boot.kernelPackages = pkgs.linuxPackages_latest;
+  # LLM-focused shared GPU memory cap for 64 GiB RAM. Keep BIOS UMA/dedicated
+  # VRAM minimal and let Linux map system RAM dynamically through TTM/GTT.
+  boot.kernelParams = ["ttm.pages_limit=14680064"];
   boot.initrd.availableKernelModules = ["xhci_pci" "nvme" "usb_storage" "usbhid" "sd_mod"];
   boot.initrd.kernelModules = ["amdgpu"];
 
@@ -34,6 +37,10 @@ in {
   common.btrfs.enable = true;
   common.btrfs.keyfileUnlock.enable = true;
   common.btrfs.impermanence.enable = true;
+  zramSwap = {
+    enable = true;
+    memoryPercent = 25;
+  };
 
   hardware.enableRedistributableFirmware = true;
   hardware.cpu.amd.updateMicrocode = lib.mkDefault config.hardware.enableRedistributableFirmware;
