@@ -571,33 +571,50 @@
     runtimeInputs = with pkgs; [
       bashInteractive
       coreutils-full
+      gnugrep
     ];
     text = ''
-      if [[ $(id -u) -eq 0 ]]; then
-        mkdir -p /home/agent /tmp
-        chmod 1777 /tmp
-        chown -R ${agentUid}:${agentGid} /home/agent 2>/dev/null || true
-        mkdir -p ${teaConfigHome}
-        chmod 700 ${teaConfigHome}
-        chown -R ${agentUid}:${agentGid} ${teaConfigHome} 2>/dev/null || true
-      else
-        [[ -d /home/agent ]] || {
-          echo "dev-machine-entrypoint: /home/agent is missing" >&2
-          exit 1
-        }
-        [[ -d /tmp ]] || {
-          echo "dev-machine-entrypoint: /tmp is missing" >&2
-          exit 1
-        }
-        mkdir -p ${teaConfigHome}
-        chmod 700 ${teaConfigHome}
-      fi
+            if [[ $(id -u) -eq 0 ]]; then
+              mkdir -p /home/agent /tmp
+              chmod 1777 /tmp
+              chown -R ${agentUid}:${agentGid} /home/agent 2>/dev/null || true
+              mkdir -p ${teaConfigHome}
+              chmod 700 ${teaConfigHome}
+              chown -R ${agentUid}:${agentGid} ${teaConfigHome} 2>/dev/null || true
+            else
+              [[ -d /home/agent ]] || {
+                echo "dev-machine-entrypoint: /home/agent is missing" >&2
+                exit 1
+              }
+              [[ -d /tmp ]] || {
+                echo "dev-machine-entrypoint: /tmp is missing" >&2
+                exit 1
+              }
+              mkdir -p ${teaConfigHome}
+              chmod 700 ${teaConfigHome}
+            fi
 
-      if [[ $# -gt 0 ]]; then
-        exec "$@"
-      fi
+            mkdir -p /home/agent/.config/direnv
+            touch /home/agent/.bashrc /home/agent/.config/direnv/direnvrc
+            if ! grep -qF 'source /share/nix-direnv/direnvrc' /home/agent/.config/direnv/direnvrc; then
+              printf '%s\n' 'source /share/nix-direnv/direnvrc' >> /home/agent/.config/direnv/direnvrc
+            fi
+            if ! grep -qF '# dev-machine direnv setup' /home/agent/.bashrc; then
+              cat >> /home/agent/.bashrc <<'EOF'
 
-      exec sleep infinity
+      # dev-machine direnv setup
+      if command -v direnv >/dev/null 2>&1; then
+        eval "$(direnv hook bash)"
+      fi
+      EOF
+            fi
+            chown -R ${agentUid}:${agentGid} /home/agent/.bashrc /home/agent/.config/direnv 2>/dev/null || true
+
+            if [[ $# -gt 0 ]]; then
+              exec "$@"
+            fi
+
+            exec sleep infinity
     '';
   };
 
@@ -618,6 +635,8 @@
       wget
       python3
       just
+      direnv
+      nix-direnv
       alejandra
       treefmt
       zellij

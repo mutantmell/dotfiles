@@ -229,6 +229,10 @@ for wrapper in agent-fmt agent-preflight agent-preflight-quick agent-preflight-f
   check "$wrapper available" command -v "$wrapper"
 done
 
+check "direnv available" command -v direnv
+check "nix-direnv direnvrc available" test -r /share/nix-direnv/direnvrc
+check "agent bashrc enables direnv" grep -qF "dev-machine direnv setup" "$HOME/.bashrc"
+
 check "su available for DevPod user switching" command -v su
 if [[ $(id -u) == 0 ]]; then
   # shellcheck disable=SC2016
