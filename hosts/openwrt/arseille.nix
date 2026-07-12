@@ -1,13 +1,16 @@
 # NETGEAR GS108T v3 — managed switch with VLAN-filtering bridge
-{owrtData}: {
-  type = "switch";
-  hostname = "arseille";
-  profile = "netgear_gs108t-v3";
-  target = "realtek";
-  subtarget = "rtl838x";
-  hostId = 12;
-  vlanId = 10;
-  timezone = owrtData.defaultTimezone;
-  trunkPorts = owrtData.defaultSwitchTrunkPorts;
-  extraPackages = ["luci" "luci-proto-batman-adv"];
+{
+  imports = [./modules/profiles/switch.nix];
+
+  openwrt = {
+    hostname = "arseille";
+    image = {
+      profile = "netgear_gs108t-v3";
+      target = "realtek";
+      subtarget = "rtl838x";
+    };
+    device.hostId = 12;
+    switch.vlanId = 10;
+    packages.extra = ["luci" "luci-proto-batman-adv"];
+  };
 }

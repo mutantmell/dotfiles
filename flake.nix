@@ -98,7 +98,20 @@
           pkgs = pkgsFor nixpkgs system;
         });
     treefmtEval = forAllSystems (sys: treefmt-nix.lib.evalModule sys.pkgs ./treefmt.nix);
-    openwrtDevices = import ./hosts/openwrt {inherit (nixpkgs) lib;};
+    openwrtModules = import ./hosts/openwrt;
+    openwrtPkgs = pkgsFor nixpkgs "x86_64-linux";
+    openwrtEvaluations =
+      builtins.mapAttrs
+      (_: module:
+        self.lib.mk-openwrt {
+          pkgs = openwrtPkgs;
+          modules = [module];
+        })
+      openwrtModules;
+    openwrtDevices =
+      builtins.mapAttrs
+      (_: eval: eval.config.openwrt.deviceInfo)
+      openwrtEvaluations;
     net = import ./lib/common/data/network.nix {inherit (nixpkgs) lib;};
   in {
     devShells = forAllSystems ({
@@ -355,6 +368,24 @@
             ]
             ++ self.lib.commonModules;
         };
+      mk-openwrt = args @ {
+        pkgs ? pkgsFor nixpkgs "x86_64-linux",
+        modules,
+        ...
+      }: let
+        owrtData = import ./lib/common/data/openwrt.nix {inherit (nixpkgs) lib;};
+      in
+        nixpkgs.lib.evalModules {
+          specialArgs = {
+            inherit pkgs owrtData;
+            openwrtLib = self.lib.openwrt;
+          };
+          modules =
+            [
+              ./hosts/openwrt/modules
+            ]
+            ++ modules;
+        };
     };
 
     nixosConfigurations = {
@@ -477,7 +508,7 @@
     # Per-device config build artifacts (derivations bundling all config files)
     # Text-only outputs — system choice doesn't affect content
     openwrtConfigurations = let
-      pkgs = pkgsFor nixpkgs "x86_64-linux";
+      pkgs = openwrtPkgs;
       owrtData = import ./lib/common/data/openwrt.nix {inherit (nixpkgs) lib;};
 
       # Returns a pkgs.fetchurl derivation for the Image Builder tarball for the
@@ -497,35 +528,21 @@
             url = "https://downloads.openwrt.org/releases/${release}/targets/${device.target}/${device.subtarget}/${ibName}.tar.zst";
             inherit hash;
           };
+      withBuilderTarball = name: eval: let
+        cfg = eval.config.openwrt;
+        ibTarball = mkImageBuilderFetcher cfg.image;
+      in
+        (self.lib.mk-openwrt {
+          inherit pkgs;
+          modules = [
+            openwrtModules.${name}
+            {
+              openwrt.image.builderTarball = ibTarball;
+            }
+          ];
+        }).config.openwrt.build.configDir;
     in
-      builtins.mapAttrs (
-        _: device: let
-          files = self.lib.openwrt.mkConfigFiles {inherit device owrtData;};
-          ibTarball = mkImageBuilderFetcher device;
-          release = device.release or owrtData.defaultRelease;
-        in
-          pkgs.runCommand "openwrt-config-${device.hostname}" {} ''
-            mkdir -p $out
-            cat > $out/build.json <<'EOF'
-            ${builtins.toJSON ({
-                inherit (device) hostname;
-                inherit (device) profile;
-                inherit (device) target;
-                inherit (device) subtarget;
-                inherit release;
-                deviceType = device.type;
-                packages = self.lib.openwrt.packagesForDevice device;
-                secretsMap = self.lib.openwrt.mkSecretsMap {inherit device owrtData;};
-                uciDefaults = "${files.uciFile}";
-                authorizedKeys = "${files.keysFile}";
-              }
-              // nixpkgs.lib.optionalAttrs (ibTarball != null) {
-                imageBuilderTarball = "${ibTarball}";
-              })}
-            EOF
-          ''
-      )
-      openwrtDevices;
+      builtins.mapAttrs withBuilderTarball openwrtEvaluations;
 
     # Apps for OpenWrt management
     apps = nixpkgs.lib.genAttrs ["x86_64-linux"] (system: let

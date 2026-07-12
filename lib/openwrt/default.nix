@@ -714,63 +714,6 @@
       // vlanPools;
   };
 
-  # Select packages for a device based on its type
-  packagesForDevice = device: let
-    inherit (device) extraPackages;
-  in
-    if device.type == "meshAP"
-    then defaultMeshPackages ++ extraPackages
-    else if device.type == "switch"
-    then defaultSwitchPackages ++ extraPackages
-    else if device.type == "simpleAP"
-    then defaultSimpleAPPackages ++ extraPackages
-    else if device.type == "router"
-    then
-      (
-        if device.hasMesh or false
-        then defaultRouterPackages ++ meshRouterPackageAdditions
-        else defaultRouterPackages
-      )
-      ++ extraPackages
-    else throw "packagesForDevice: unknown device type '${device.type}'";
-
-  # Generate per-device Nix store files using builtins.toFile.
-  # Returns { configJson, uciFile, secretsFile, keysFile } — all store paths.
-  # No pkgs needed, fully system-independent.
-  #
-  # Note: builtins.toFile cannot reference other store paths, so configJson
-  # contains only metadata (no file paths). The shell wrapper resolves all
-  # file paths from the lookup table and passes them to the builder.
-  mkConfigFiles = {
-    device,
-    owrtData,
-  }: let
-    config = mkDeviceConfig {inherit device owrtData;};
-    packages = packagesForDevice device;
-
-    uciScript = uci.mkUCIDefaults {
-      name = "nix-config";
-      inherit config;
-      preCommands = migrationPreCommands;
-    };
-    secretsMap = mkSecretsMap {inherit device owrtData;};
-    keysContent = lib.concatStringsSep "\n" (owrtData.authorizedKeys ++ [""]);
-
-    configJson = builtins.toFile "openwrt-config-${device.hostname}.json" (builtins.toJSON {
-      inherit (device) hostname;
-      inherit (device) profile;
-      inherit (device) target;
-      inherit (device) subtarget;
-      release = device.release or owrtData.defaultRelease;
-      deviceType = device.type;
-      inherit packages secretsMap;
-    });
-    uciFile = builtins.toFile "uci-defaults-${device.hostname}.sh" uciScript;
-    keysFile = builtins.toFile "authorized-keys" keysContent;
-  in {
-    inherit configJson uciFile keysFile;
-  };
-
   # Build complete router configuration
   mkRouterConfig = {
     hostname,
@@ -930,55 +873,6 @@
     )
     extraConfig;
 
-  # Generate a map of sops secret key names → UCI paths for a device.
-  # Derived by traversing the generated device config for { _secret = "key"; }
-  # markers. Any field in any config section can be marked as a secret; there
-  # is no hardcoded list of network names or device types.
-  #
-  # Produces: { "secret.key" = [ "config.section.option" ... ]; ... }
-  # Multiple UCI paths may share the same secret key (e.g., same SSID on 2g+5g).
-  mkSecretsMap = {
-    device,
-    owrtData,
-  }: let
-    config = mkDeviceConfig {inherit device owrtData;};
-
-    # Recursively collect { _secret = "key"; } markers from the config.
-    # path: the dot-joined UCI path built so far (e.g. "wireless.ap_2g_main")
-    # value: the current node being examined
-    # Returns an attrset of { secretKey = [ uciPath ... ]; }
-    collect = path: value:
-      if builtins.isAttrs value && value ? _secret
-      then
-        # Leaf: secret marker found.
-        {"${value._secret}" = [path];}
-      else if builtins.isAttrs value
-      then
-        # Interior node: recurse into children, skipping rendering hints.
-        lib.foldlAttrs
-        (acc: key: child:
-          if key == "_type" || key == "_anonymous"
-          then acc
-          else let
-            childPath =
-              if path == ""
-              then key
-              else "${path}.${key}";
-            found = collect childPath child;
-          in
-            # Merge: if two paths share a secret key, union their lists.
-            lib.foldlAttrs
-            (acc2: k: v: acc2 // {"${k}" = (acc2.${k} or []) ++ v;})
-            acc
-            found)
-        {}
-        value
-      else
-        # Leaf scalar or list — not a secret marker, nothing to collect.
-        {};
-  in
-    collect "" config;
-
   # Generate config files derivation (uci-defaults + authorized_keys)
   # Single function replacing the copy-pasted runCommand blocks in mk*Image
   # Migration pre-commands: delete anonymous sections before creating named ones.
@@ -997,71 +891,6 @@
     "while uci -q delete network.@bridge-vlan[-1]; do :; done"
     "while uci -q delete system.@led[-1]; do :; done"
   ];
-
-  # Generate UCI config from a device declaration (pure data with a type field)
-  # Dispatches to the appropriate mk*Config function based on device.type
-  mkDeviceConfig = {
-    device,
-    owrtData,
-  }: let
-    inherit
-      (owrtData)
-      mkAddresses
-      mkGateway
-      meshVlans
-      switchVlans
-      routerVlans
-      authorizedKeys
-      defaultAPNetworks
-      mkPrimaryGatewayAddress
-      mkExtraGatewayAddresses
-      ;
-  in
-    if device.type == "meshAP"
-    then
-      mkMeshAPConfig {
-        inherit (device) hostname timezone country heBssColor legacyRates;
-        extraConfig = device.extraConfig or {};
-        inherit authorizedKeys;
-        vlans = meshVlans;
-        apNetworks = defaultAPNetworks;
-        lanAddresses = mkAddresses meshVlans.HOME.tag device.hostId;
-        mgmtAddresses = mkAddresses meshVlans.MGMT.tag device.hostId;
-        gateway = mkGateway meshVlans.HOME.tag;
-      }
-    else if device.type == "switch"
-    then
-      mkSwitchConfig {
-        inherit (device) hostname timezone trunkPorts;
-        extraConfig = device.extraConfig or {};
-        inherit authorizedKeys;
-        lanAddresses = mkAddresses device.vlanId device.hostId;
-        gateway = mkGateway device.vlanId;
-        vlans = switchVlans;
-      }
-    else if device.type == "simpleAP"
-    then
-      mkSimpleAPConfig {
-        inherit (device) hostname timezone country encryption;
-        extraConfig = device.extraConfig or {};
-        inherit authorizedKeys;
-        lanAddresses = mkAddresses device.vlanId device.hostId;
-        gateway = mkGateway device.vlanId;
-      }
-    else if device.type == "router"
-    then
-      mkRouterConfig {
-        inherit (device) hostname timezone country encryption trunkPorts;
-        extraConfig = device.extraConfig or {};
-        inherit authorizedKeys mkPrimaryGatewayAddress mkExtraGatewayAddresses;
-        vlans = routerVlans;
-        hasMesh = device.hasMesh or false;
-        inherit meshVlans;
-        apNetworks = defaultAPNetworks;
-        heBssColor = device.heBssColor or null;
-        legacyRates = device.legacyRates or false;
-      }
-    else throw "mkDeviceConfig: unknown device type '${device.type}'";
 in {
   # Re-export UCI library
   inherit uci;
@@ -1085,8 +914,6 @@ in {
 
   # High-level API
   inherit
-    packagesForDevice
-    mkConfigFiles
     defaultMeshPackages
     defaultSwitchPackages
     defaultSimpleAPPackages
@@ -1105,8 +932,6 @@ in {
     mkMeshAPConfig
     mkSwitchConfig
     mkSimpleAPConfig
-    mkSecretsMap
-    mkDeviceConfig
     migrationPreCommands
     ;
 }

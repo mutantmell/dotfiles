@@ -24,7 +24,9 @@
 #
 # Secrets (hosts/openwrt/secrets/wifi.yaml):
 #   Encrypted with sops in binary format. The wrapper calls `sops -d` and pipes
-#   the decrypted YAML directly to the builder — secrets never touch disk.
+#   the decrypted YAML directly to the builder — secrets never enter the Nix
+#   store. Explicit `--secrets-file -` input is staged briefly in a private
+#   temp file so the builder can be invoked after argument/cache handling.
 #
 #   Plain YAML structure (example):
 #     wifi:
@@ -70,7 +72,7 @@
 
   # Device listing info embedded at eval time
   deviceListInfo = lib.concatStringsSep "\n" (lib.mapAttrsToList (
-      name: device: "  printf '  %-20s %-10s %s\\n' '${name}' '${device.type}' '${device.profile}'"
+      name: device: "  printf '  %-20s %-10s %s\\n' '${name}' '${device.role}' '${device.profile}'"
     )
     openwrtDevices);
 
@@ -125,15 +127,70 @@
     }
   '';
 
-  # Compute OUTPUT_DIR keyed by the SHA-256 hash of build.json plus an optional
-  # suffix. A config, package, or release change → different hash → different dir.
-  # Sets CONFIG_HASH and OUTPUT_DIR. Requires CONFIG_DIR, DEVICE, REPO_ROOT.
+  # Compute OUTPUT_DIR keyed by build.json and non-sensitive secret identity.
+  # Repo-managed sops secrets use the encrypted file's hash. Explicit plaintext
+  # secret files/stdin are intentionally uncached instead of exposing a verifier
+  # derived from the plaintext in the output path.
+  # Sets CONFIG_HASH, CACHE_VARIANT, CACHEABLE, and OUTPUT_DIR.
   computeCacheDir = ''
     compute_cache_dir() {
+      local use_secrets=true
+      local explicit_secrets_file=""
+      CACHEABLE=true
+      local args=("$@")
+      local i=0
+      while [ $i -lt ''${#args[@]} ]; do
+        case "''${args[$i]}" in
+          --no-secrets)
+            use_secrets=false
+            ;;
+          --secrets-file)
+            i=$((i + 1))
+            explicit_secrets_file="''${args[$i]:-}"
+            ;;
+        esac
+        i=$((i + 1))
+      done
+
       CONFIG_HASH=$(${pkgs.coreutils}/bin/sha256sum "$CONFIG_DIR/build.json" | cut -c1-16)
+      if ! $use_secrets; then
+        CACHE_VARIANT="nosecrets"
+      elif [ -n "$explicit_secrets_file" ]; then
+        CACHEABLE=false
+        CACHE_VARIANT="secrets-explicit-$(${pkgs.coreutils}/bin/date +%Y%m%d%H%M%S)-$$"
+      elif [ -n "''${SOPS_FILE:-}" ]; then
+        CACHE_VARIANT="secrets-sops-$(${pkgs.coreutils}/bin/sha256sum "$SOPS_FILE" | cut -c1-16)"
+      else
+        CACHE_VARIANT="nosecrets"
+      fi
+
       local base="''${REPO_ROOT:+$REPO_ROOT/openwrt-images}"
       base="''${base:-$(pwd)/openwrt-images}"
-      OUTPUT_DIR="$base/$DEVICE/$CONFIG_HASH''${1:+-$1}"
+      OUTPUT_DIR="$base/$DEVICE/$CONFIG_HASH-$CACHE_VARIANT"
+    }
+  '';
+
+  # Convert `--secrets-file -` into a private temporary file before invoking the
+  # builder. Explicit plaintext secret input is never cache-reused, so this file
+  # is not hashed into the cache key.
+  prepareStdinSecrets = ''
+    prepare_stdin_secrets() {
+      PREPARED_ARGS=("$@")
+      STDIN_SECRETS_FILE=""
+
+      local i=0
+      while [ $i -lt ''${#PREPARED_ARGS[@]} ]; do
+        if [ "''${PREPARED_ARGS[$i]}" = "--secrets-file" ]; then
+          local next=$((i + 1))
+          if [ "''${PREPARED_ARGS[$next]:-}" = "-" ]; then
+            STDIN_SECRETS_FILE=$(${pkgs.coreutils}/bin/mktemp -t openwrt-secrets-XXXXXX.yaml)
+            chmod 600 "$STDIN_SECRETS_FILE"
+            cat > "$STDIN_SECRETS_FILE"
+            PREPARED_ARGS[$next]="$STDIN_SECRETS_FILE"
+          fi
+        fi
+        i=$((i + 1))
+      done
     }
   '';
 
@@ -261,7 +318,11 @@ in {
           shift
           ${discoverSopsFile}
           ${runBuilder}
-          run_builder --config-file "$@"
+          ${prepareStdinSecrets}
+          cleanup_stdin_secrets() { [ -n "''${STDIN_SECRETS_FILE:-}" ] && rm -f "$STDIN_SECRETS_FILE"; }
+          trap cleanup_stdin_secrets EXIT INT TERM HUP
+          prepare_stdin_secrets --config-file "$@"
+          run_builder "''${PREPARED_ARGS[@]}"
           exit $?
         fi
 
@@ -277,21 +338,28 @@ in {
         ${runBuilder}
         ${findSysupgrade}
         ${computeCacheDir}
+        ${prepareStdinSecrets}
 
-        NO_SECRETS_SUFFIX=""
-        for a in "$@"; do [ "$a" = "--no-secrets" ] && NO_SECRETS_SUFFIX="nosecrets"; done
-        compute_cache_dir "$NO_SECRETS_SUFFIX"
+        cleanup_stdin_secrets() { [ -n "''${STDIN_SECRETS_FILE:-}" ] && rm -f "$STDIN_SECRETS_FILE"; }
+        trap cleanup_stdin_secrets EXIT INT TERM HUP
+        prepare_stdin_secrets "$@"
+        set -- "''${PREPARED_ARGS[@]}"
 
-        if [ "$FORCE_REBUILD" = false ]; then
+        compute_cache_dir "$@"
+
+        if $CACHEABLE && [ "$FORCE_REBUILD" = false ]; then
           CACHED=$(find_sysupgrade "$OUTPUT_DIR")
           if [ -n "$CACHED" ]; then
-            echo "Using cached image (config hash: $CONFIG_HASH)."
+            echo "Using cached image (config hash: $CONFIG_HASH, variant: $CACHE_VARIANT)."
             echo "  $CACHED"
             echo "Pass --rebuild to force a fresh build."
             exit 0
           fi
+        elif ! $CACHEABLE; then
+          echo "Explicit plaintext secrets selected; cache reuse disabled for this build."
         fi
 
+        echo "Cache key: config=$CONFIG_HASH variant=$CACHE_VARIANT"
         run_builder --config-file "$CONFIG_DIR/build.json" --output-dir "$OUTPUT_DIR" "$@"
       '';
     in "${script}";
@@ -307,7 +375,7 @@ in {
         ${resolveDevice}
 
         if [ $# -lt 2 ]; then
-          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--no-secrets] [--ssh-key <path>] [--rebuild]"
+          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--no-secrets] [--secrets-file <path|->] [--ssh-key <path>] [--rebuild]"
           echo ""
           echo "Builds and deploys an OpenWrt sysupgrade image to the specified device."
           echo "Secrets are baked into the image — no post-deploy SSH step needed."
@@ -318,6 +386,7 @@ in {
           echo "  device-ip        IP address or hostname of the device"
           echo "  --force          Skip confirmation prompt"
           echo "  --no-secrets     Build without WiFi secrets (radios will be disabled)"
+          echo "  --secrets-file   Use explicit plain secrets YAML for image build"
           echo "  --ssh-key PATH   Use a specific SSH private key for authentication"
           echo "  --rebuild        Force rebuild even if a cached image exists"
           echo ""
@@ -333,14 +402,31 @@ in {
         resolve_device "$DEVICE"
 
         FORCE_REBUILD=false
-        BUILD_ARGS=""
-        DEPLOY_ARGS=""
+        BUILD_ARGS=()
+        DEPLOY_ARGS=()
         while [ $# -gt 0 ]; do
           case "$1" in
-            --force) DEPLOY_ARGS="$DEPLOY_ARGS --force" ;;
-            --no-secrets) BUILD_ARGS="$BUILD_ARGS --no-secrets" ;;
-            --ssh-key) shift; DEPLOY_ARGS="$DEPLOY_ARGS --ssh-key $1" ;;
+            --force)
+              DEPLOY_ARGS+=(--force)
+              ;;
+            --no-secrets)
+              BUILD_ARGS+=(--no-secrets)
+              ;;
+            --secrets-file)
+              shift
+              [ $# -gt 0 ] || { echo "Error: --secrets-file requires a path or -" >&2; exit 1; }
+              BUILD_ARGS+=(--secrets-file "$1")
+              ;;
+            --ssh-key)
+              shift
+              [ $# -gt 0 ] || { echo "Error: --ssh-key requires a path" >&2; exit 1; }
+              DEPLOY_ARGS+=(--ssh-key "$1")
+              ;;
             --rebuild) FORCE_REBUILD=true ;;
+            *)
+              echo "Unknown argument: $1" >&2
+              exit 1
+              ;;
           esac
           shift
         done
@@ -350,23 +436,30 @@ in {
         ${runBuilder}
         ${findSysupgrade}
         ${computeCacheDir}
+        ${prepareStdinSecrets}
 
-        NO_SECRETS_SUFFIX=""
-        [[ "$BUILD_ARGS" == *"--no-secrets"* ]] && NO_SECRETS_SUFFIX="nosecrets"
-        compute_cache_dir "$NO_SECRETS_SUFFIX"
+        cleanup_stdin_secrets() { [ -n "''${STDIN_SECRETS_FILE:-}" ] && rm -f "$STDIN_SECRETS_FILE"; }
+        trap cleanup_stdin_secrets EXIT INT TERM HUP
+        prepare_stdin_secrets "''${BUILD_ARGS[@]}"
+        BUILD_ARGS=("''${PREPARED_ARGS[@]}")
+
+        compute_cache_dir "''${BUILD_ARGS[@]}"
 
         # Use cached image if available
         SYSUPGRADE=""
-        if [ "$FORCE_REBUILD" = false ]; then
+        if $CACHEABLE && [ "$FORCE_REBUILD" = false ]; then
           SYSUPGRADE=$(find_sysupgrade "$OUTPUT_DIR")
-          [ -n "$SYSUPGRADE" ] && echo "Using cached image (config hash: $CONFIG_HASH)."
+          [ -n "$SYSUPGRADE" ] && echo "Using cached image (config hash: $CONFIG_HASH, variant: $CACHE_VARIANT)."
+        elif ! $CACHEABLE; then
+          echo "Explicit plaintext secrets selected; cache reuse disabled for this deploy build."
         fi
 
         if [ -z "$SYSUPGRADE" ]; then
+          echo "Cache key: config=$CONFIG_HASH variant=$CACHE_VARIANT"
           run_builder \
             --config-file "$CONFIG_DIR/build.json" \
             --output-dir "$OUTPUT_DIR" \
-            $BUILD_ARGS
+            "''${BUILD_ARGS[@]}"
 
           SYSUPGRADE=$(find_sysupgrade "$OUTPUT_DIR")
           if [ -z "$SYSUPGRADE" ]; then
@@ -376,7 +469,7 @@ in {
         fi
 
         # Deploy the image
-        ${deployer}/bin/openwrt-deploy "$TARGET" "$SYSUPGRADE" $DEPLOY_ARGS
+        ${deployer}/bin/openwrt-deploy "$TARGET" "$SYSUPGRADE" "''${DEPLOY_ARGS[@]}"
       '';
     in "${script}";
   };
@@ -395,7 +488,7 @@ in {
           echo "Useful for migrating existing devices to the declarative system."
           echo ""
           echo "Output includes:"
-          echo "  - uci-show.txt     - Full UCI config (keys redacted)"
+          echo "  - uci-show.txt     - UCI config with best-effort credential redaction"
           echo "  - packages.txt     - Installed packages"
           echo "  - device-info.txt  - Board, model, version info"
           exit 1
@@ -423,10 +516,24 @@ in {
           uname -a
         " > "$OUTPUT_DIR/device-info.txt"
 
-        # Full UCI config (redact keys)
+        # Full UCI config (best-effort redaction of credential-bearing fields)
         echo "  - Full UCI config..."
         ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show" | \
-          ${pkgs.gnused}/bin/sed "s/\(\.key='\)[^']*'/\1[REDACTED]'/g" > "$OUTPUT_DIR/uci-show.txt"
+          ${pkgs.gawk}/bin/awk '
+            BEGIN { IGNORECASE = 1 }
+            {
+              eq = index($0, "=")
+              if (eq == 0) { print; next }
+              lhs = substr($0, 1, eq - 1)
+              key = lhs
+              sub(/^.*\./, "", key)
+              if (key ~ /(^|_)(key|password|passwd|secret|token|private|private_key|psk|sae_password)($|_)/ || key ~ /(password|passwd|secret|token|private|psk)/) {
+                print lhs "=\"[REDACTED]\""
+              } else {
+                print
+              }
+            }
+          ' > "$OUTPUT_DIR/uci-show.txt"
 
         # Installed packages
         echo "  - Installed packages..."
@@ -434,6 +541,7 @@ in {
 
         echo
         echo "Configuration exported to $OUTPUT_DIR/"
+        echo "uci-show.txt is best-effort redacted; review before sharing or committing."
         echo
         echo "Files created:"
         ls -la "$OUTPUT_DIR"/*.txt
@@ -615,16 +723,11 @@ in {
           resolve_device "$DEVICE"
           resolve_target "$DEVICE"
           REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
+          ${discoverSopsFile}
+          ${computeCacheDir}
 
-          # Cache key: first 16 hex chars of the build.json SHA-256, plus a suffix
-          # for each build parameter that affects the output. A UCI config change,
-          # package list change, or release bump all produce a new hash → new dir.
-          CONFIG_HASH=$(${pkgs.coreutils}/bin/sha256sum "$CONFIG_DIR/build.json" | cut -c1-16)
-          CACHE_SUFFIX="-armsr-armv8"
-          [ -n "$NO_SECRETS_ARG" ] && CACHE_SUFFIX="''${CACHE_SUFFIX}-nosecrets"
-          BASE_DIR="''${REPO_ROOT:+$REPO_ROOT/openwrt-images}"
-          BASE_DIR="''${BASE_DIR:-$(pwd)/openwrt-images}"
-          OUTPUT_DIR="''${BASE_DIR}/''${DEVICE}-vm/''${CONFIG_HASH}''${CACHE_SUFFIX}"
+          compute_cache_dir $NO_SECRETS_ARG
+          OUTPUT_DIR="$(dirname "$OUTPUT_DIR")/''${CONFIG_HASH}-armsr-armv8-''${CACHE_VARIANT}"
 
           # Warn when the device's native architecture differs from the armsr/armv8 VM.
           case "$DEVICE_TARGET" in
@@ -642,7 +745,7 @@ in {
             KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*-kernel.bin" 2>/dev/null | head -1 || true)
             ROOTFS_GZ=$(find "$OUTPUT_DIR" -name "*-ext4-rootfs.img.gz" 2>/dev/null | head -1 || true)
             if [ -n "$KERNEL_FILE" ] && [ -n "$ROOTFS_GZ" ]; then
-              echo "Using cached VM image (config hash: $CONFIG_HASH)."
+              echo "Using cached VM image (config hash: $CONFIG_HASH, variant: $CACHE_VARIANT)."
             fi
           fi
 
@@ -666,7 +769,6 @@ in {
               echo ""
             fi
 
-            ${discoverSopsFile}
             ${runBuilder}
 
             echo "Building aarch64 VM image for $DEVICE..."
