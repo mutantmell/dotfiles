@@ -544,6 +544,38 @@
     in
       builtins.mapAttrs withBuilderTarball openwrtEvaluations;
 
+    # Per-device VM manifests reuse declarative UCI/packages/keys but pin the
+    # armsr/armv8 Image Builder in Nix rather than overriding build fields at
+    # runtime. This keeps VM tests on the same manifest-only trust boundary.
+    openwrtVmConfigurations = let
+      pkgs = openwrtPkgs;
+      owrtData = import ./lib/common/data/openwrt.nix {inherit (nixpkgs) lib;};
+      release = owrtData.defaultRelease;
+      hash = owrtData.imageBuilderHashes.${release}."armsr/armv8";
+      name = "openwrt-imagebuilder-${release}-armsr-armv8.Linux-x86_64";
+      tarball = pkgs.fetchurl {
+        name = "${name}.tar.zst";
+        url = "https://downloads.openwrt.org/releases/${release}/targets/armsr/armv8/${name}.tar.zst";
+        inherit hash;
+      };
+      mkVmConfig = _: module:
+        (self.lib.mk-openwrt {
+          inherit pkgs;
+          modules = [
+            module
+            ({lib, ...}: {
+              openwrt.image = {
+                target = lib.mkForce "armsr";
+                subtarget = lib.mkForce "armv8";
+                profile = lib.mkForce "generic";
+                builderTarball = lib.mkForce tarball;
+              };
+            })
+          ];
+        }).config.openwrt.build.configDir;
+    in
+      builtins.mapAttrs mkVmConfig openwrtModules;
+
     # Apps for OpenWrt management
     apps = nixpkgs.lib.genAttrs ["x86_64-linux"] (system: let
       pkgs = pkgsFor nixpkgs system;
@@ -551,7 +583,7 @@
       import ./apps {
         inherit pkgs;
         inherit openwrtDevices;
-        inherit (self) openwrtConfigurations;
+        inherit (self) openwrtConfigurations openwrtVmConfigurations;
       });
 
     # deploy-rs deployment configurations

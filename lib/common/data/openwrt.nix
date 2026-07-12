@@ -4,11 +4,11 @@
 # device declarations and the image builder pipeline.
 {lib}: let
   keys = builtins.fromJSON (builtins.readFile ./keys.json);
-  # Release pins and Image Builder hashes — updated by `nix run .#openwrt-build -- --update-pins`
+  # Release pins and Image Builder hashes — updated by `nix run .#openwrt-update-pins`
   pins = builtins.fromJSON (builtins.readFile ./openwrt-hashes.json);
 in {
   # Default OpenWrt release for all devices (can be overridden per-device).
-  # Managed in openwrt-hashes.json — use `nix run .#openwrt-build -- --update-pins` to update.
+  # Managed in openwrt-hashes.json — use `nix run .#openwrt-update-pins` to update.
   inherit (pins) defaultRelease;
 
   # SHA-256 hashes for OpenWrt Image Builder tarballs, keyed by release then

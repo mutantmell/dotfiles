@@ -60,25 +60,6 @@
   # Default packages for a simple AP (keep firewall, no mesh)
   defaultSimpleAPPackages = removeSwitchPackages ++ debugPackages;
 
-  # Packages to remove for router (keep firewall+nftables, dnsmasq, wpad)
-  removeRouterPackages = [
-    "-odhcpd-ipv6only"
-    "-ppp"
-    "-ppp-mod-pppoe"
-  ];
-
-  # Default packages for a router
-  defaultRouterPackages = removeRouterPackages ++ debugPackages;
-
-  # Additional packages for a router that participates in the batman mesh.
-  # Replaces wpad-basic-mbedtls with the mesh-capable wpad-mesh-openssl.
-  meshRouterPackageAdditions = [
-    "-wpad-basic-mbedtls"
-    "wpad-mesh-openssl"
-    "kmod-batman-adv"
-    "batctl-full"
-  ];
-
   # Generate network configuration for a mesh AP
   # Uses separate bridges per VLAN (matching actual deployed topology)
   mkMeshNetworkConfig = {
@@ -292,7 +273,7 @@
             htmode = "HT20";
             cell_density = 0;
             inherit country;
-            disabled = false;
+            disabled = true;
           }
           // lib.optionalAttrs legacyRates {
             legacy_rates = true;
@@ -307,7 +288,7 @@
             htmode = "HE80";
             cell_density = 0;
             inherit country;
-            disabled = false;
+            disabled = true;
           }
           // lib.optionalAttrs (heBssColor != null) {
             he_bss_color = heBssColor;
@@ -333,7 +314,7 @@
         htmode = "HT20";
         cell_density = 0;
         inherit country;
-        disabled = false;
+        disabled = true;
       };
 
       radio1 = {
@@ -344,7 +325,7 @@
         htmode = "HE80";
         cell_density = 0;
         inherit country;
-        disabled = false;
+        disabled = true;
       };
 
       ap_2g_main = {
@@ -493,271 +474,6 @@
     };
   };
 
-  # Generate network configuration for a router (VLAN-filtering bridge + WAN)
-  mkRouterNetworkConfig = {
-    hostname,
-    vlans,
-    trunkPorts,
-    mkPrimaryGatewayAddress,
-    mkExtraGatewayAddresses,
-    # When non-null, bat0 is added to br-lan as a trunk port and included in
-    # bridge-vlan entries for VLANs that appear in meshVlans (by name).
-    meshVlans ? null,
-  }: let
-    # Collect all access ports from all VLANs
-    allAccessPorts = lib.concatMap (v: v.accessPorts or []) (builtins.attrValues vlans);
-    # Add bat0 as a bridge trunk port when mesh is enabled
-    allBridgePorts =
-      trunkPorts
-      ++ allAccessPorts
-      ++ lib.optional (meshVlans != null) "bat0";
-
-    # Bridge-VLAN entries: trunk ports tagged, access ports untagged+PVID,
-    # bat0 tagged for VLANs that are part of the batman mesh fabric.
-    bridgeVlanConfigs =
-      lib.mapAttrs' (name: vlan: {
-        name = "brvlan_${lib.toLower name}";
-        value = {
-          _type = "bridge-vlan";
-          device = "br-lan";
-          vlan = vlan.tag;
-          ports =
-            map (p: "${p}:t") trunkPorts
-            ++ map (p: "${p}:u*") (vlan.accessPorts or [])
-            ++ lib.optional (meshVlans != null && builtins.hasAttr name meshVlans) "bat0:t";
-        };
-      })
-      vlans;
-
-    # Primary per-VLAN interfaces: 10.97 address only.
-    # dnsmasq pools attach here — keeping a single address ensures only one
-    # DHCP pool is generated per VLAN (10.97.x.100–249).
-    primaryVlanInterfaces =
-      lib.mapAttrs' (name: vlan: {
-        name = lib.toLower name;
-        value = {
-          _type = "interface";
-          device = "br-lan.${toString vlan.tag}";
-          proto = "static";
-          ipaddr = mkPrimaryGatewayAddress vlan.tag;
-          dns = "127.0.0.1";
-        };
-      })
-      vlans;
-
-    # Extra alias interfaces per VLAN (currently none after migration).
-    # No dhcp section is generated for these, so they carry no DHCP pool.
-    extraVlanInterfaces =
-      lib.mapAttrs' (name: vlan: {
-        name = "${lib.toLower name}_x";
-        value = {
-          _type = "interface";
-          device = "br-lan.${toString vlan.tag}";
-          proto = "static";
-          ipaddr = mkExtraGatewayAddresses vlan.tag;
-        };
-      })
-      vlans;
-  in {
-    network =
-      {
-        # Loopback
-        loopback = {
-          _type = "interface";
-          device = "lo";
-          proto = "static";
-          ipaddr = "127.0.0.1";
-          netmask = "255.0.0.0";
-        };
-
-        # WAN interface
-        wan = {
-          _type = "interface";
-          device = "wan";
-          proto = "dhcp";
-        };
-
-        # Bridge device with VLAN filtering
-        br_lan = {
-          _type = "device";
-          name = "br-lan";
-          type = "bridge";
-          vlan_filtering = true;
-          ports = allBridgePorts;
-        };
-      }
-      // bridgeVlanConfigs
-      // primaryVlanInterfaces
-      // extraVlanInterfaces
-      // lib.optionalAttrs (meshVlans != null) {
-        # batman-adv interface — gateway mode advertises this node as the
-        # internet gateway to batman clients that use gw_mode=client.
-        bat0 = {
-          _type = "interface";
-          proto = "batadv";
-          routing_algo = "BATMAN_V";
-          gw_mode = "server";
-          aggregated_ogms = true;
-          hop_penalty = 30;
-          ap_isolation = false;
-          bonding = false;
-          bridge_loop_avoidance = true;
-          distributed_arp_table = true;
-          fragmentation = true;
-          log_level = 0;
-          multicast_mode = true;
-          multicast_fanout = 16;
-          network_coding = false;
-          orig_interval = 1000;
-        };
-
-        # Wireless mesh hardif — 5GHz radio as batman backhaul
-        bat0_mesh0 = {
-          _type = "interface";
-          proto = "batadv_hardif";
-          master = "bat0";
-          mtu = 2304;
-        };
-      };
-  };
-
-  # Generate firewall configuration for a router
-  mkRouterFirewallConfig = {vlans}: let
-    vlanIfaceNames = map lib.toLower (builtins.attrNames vlans);
-    # Include the _x alias interfaces so extra-prefix traffic is also in the LAN zone
-    extraIfaceNames = map (n: "${n}_x") vlanIfaceNames;
-    allLanNetworks = vlanIfaceNames ++ extraIfaceNames;
-  in {
-    firewall = {
-      defaults = {
-        _type = "defaults";
-        syn_flood = true;
-        input = "REJECT";
-        output = "ACCEPT";
-        forward = "REJECT";
-      };
-
-      zone_wan = {
-        _type = "zone";
-        name = "wan";
-        network = ["wan"];
-        input = "REJECT";
-        output = "ACCEPT";
-        forward = "REJECT";
-        masq = true;
-        mtu_fix = true;
-      };
-
-      zone_lan = {
-        _type = "zone";
-        name = "lan";
-        network = allLanNetworks;
-        input = "ACCEPT";
-        output = "ACCEPT";
-        forward = "ACCEPT";
-      };
-
-      fwd_lan_wan = {
-        _type = "forwarding";
-        src = "lan";
-        dest = "wan";
-      };
-
-      rule_wan_dhcp = {
-        _type = "rule";
-        name = "Allow-WAN-DHCP";
-        src = "wan";
-        proto = "udp";
-        dest_port = 68;
-        target = "ACCEPT";
-      };
-    };
-  };
-
-  # Generate DHCP configuration for a router
-  mkRouterDHCPConfig = {vlans}: let
-    vlanPools =
-      lib.mapAttrs' (name: _vlan: {
-        name = lib.toLower name;
-        value = {
-          _type = "dhcp";
-          interface = lib.toLower name;
-          start = 100;
-          limit = 150;
-          leasetime = "12h";
-          dhcpv4 = "server";
-        };
-      })
-      vlans;
-  in {
-    dhcp =
-      {
-        dnsmasq = {
-          _type = "dnsmasq";
-          domainneeded = true;
-          boguspriv = true;
-          localise_queries = true;
-          rebind_protection = true;
-          rebind_localhost = true;
-          local = "/lan/";
-          domain = "lan";
-          expandhosts = true;
-          authoritative = true;
-          readethers = true;
-          leasefile = "/tmp/dhcp.leases";
-          nonwildcard = true;
-          localservice = true;
-          ednspacket_max = 1232;
-          cachesize = 1000;
-        };
-      }
-      // vlanPools;
-  };
-
-  # Build complete router configuration
-  mkRouterConfig = {
-    hostname,
-    vlans,
-    trunkPorts,
-    mkPrimaryGatewayAddress,
-    mkExtraGatewayAddresses,
-    encryption,
-    country,
-    timezone,
-    authorizedKeys,
-    # Mesh options: when hasMesh=true, batman-adv is enabled and the 5GHz
-    # radio joins the wireless mesh (matching mesh AP configuration).
-    hasMesh ? false,
-    meshVlans ? null,
-    apNetworks ? {},
-    heBssColor ? null,
-    legacyRates ? false,
-    extraConfig ? {},
-  }:
-    lib.recursiveUpdate (
-      mkSystemConfig {inherit hostname timezone;}
-      // mkRouterNetworkConfig {
-        inherit hostname vlans trunkPorts mkPrimaryGatewayAddress mkExtraGatewayAddresses;
-        meshVlans =
-          if hasMesh
-          then meshVlans
-          else null;
-      }
-      // (
-        if hasMesh
-        then mkMeshWirelessConfig {inherit apNetworks country heBssColor legacyRates;}
-        else
-          mkSimpleAPWirelessConfig {
-            inherit encryption country;
-            network = "home";
-          }
-      )
-      // mkRouterFirewallConfig {inherit vlans;}
-      // mkRouterDHCPConfig {inherit vlans;}
-      // mkDropbearConfig {inherit authorizedKeys;}
-    )
-    extraConfig;
-
   # Generate system configuration
   mkSystemConfig = {
     hostname,
@@ -895,38 +611,16 @@ in {
   # Re-export UCI library
   inherit uci;
 
-  # Package sets (for customization)
-  packages = {
-    inherit
-      removeDefaultPackages
-      removeSwitchPackages
-      removeRouterPackages
-      minimalMeshPackages
-      luciPackages
-      debugPackages
-      defaultMeshPackages
-      defaultSwitchPackages
-      defaultSimpleAPPackages
-      defaultRouterPackages
-      meshRouterPackageAdditions
-      ;
-  };
-
   # High-level API
   inherit
     defaultMeshPackages
     defaultSwitchPackages
     defaultSimpleAPPackages
-    defaultRouterPackages
     mkMeshNetworkConfig
     mkMeshWirelessConfig
     mkSimpleAPWirelessConfig
     mkSwitchNetworkConfig
     mkSimpleAPNetworkConfig
-    mkRouterNetworkConfig
-    mkRouterFirewallConfig
-    mkRouterDHCPConfig
-    mkRouterConfig
     mkSystemConfig
     mkDropbearConfig
     mkMeshAPConfig

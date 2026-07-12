@@ -195,10 +195,11 @@
     "switch secrets map is empty" = switchEval.config.openwrt.uci.secretsMap == {};
     "simpleAP secrets has wifi.main.key" = simpleEval.config.openwrt.uci.secretsMap ? "wifi.main.key";
 
-    # Radios must have disabled = false — fresh sysupgrade leaves radios off by default.
-    "meshAP radio0 disabled=false" = !meshConfig.wireless.radio0.disabled;
-    "meshAP radio1 disabled=false" = !meshConfig.wireless.radio1.disabled;
-    "simpleAP radio0 disabled=false" = !simpleConfig.wireless.radio0.disabled;
+    # Radios are fail-safe in the manifest and enabled only after every required
+    # Wi-Fi secret has been validated and applied by the runtime builder.
+    "meshAP radio0 disabled=true" = meshConfig.wireless.radio0.disabled;
+    "meshAP radio1 disabled=true" = meshConfig.wireless.radio1.disabled;
+    "simpleAP radio0 disabled=true" = simpleConfig.wireless.radio0.disabled;
 
     # Named sections (no _anonymous in generated config)
     "meshAP batmesh is named" = !(meshConfig.wireless.batmesh ? _anonymous);

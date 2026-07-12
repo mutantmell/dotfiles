@@ -18,8 +18,9 @@
   pkgs,
   openwrtDevices,
   openwrtConfigurations,
+  openwrtVmConfigurations,
 }: let
-  openwrt = import ./openwrt {inherit pkgs openwrtDevices openwrtConfigurations;};
+  openwrt = import ./openwrt {inherit pkgs openwrtDevices openwrtConfigurations openwrtVmConfigurations;};
 in {
   # Network registry lookup
   netinfo = import ./netinfo.nix {inherit pkgs;};
@@ -42,8 +43,6 @@ in {
     openwrt-build
     openwrt-deploy
     openwrt-run
-    openwrt-export-config
-    openwrt-analyze-packages
-    openwrt-analyze-local
+    openwrt-update-pins
     ;
 }

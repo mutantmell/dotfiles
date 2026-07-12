@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
-"""OpenWrt image builder — downloads upstream Image Builder and runs make image.
+"""OpenWrt image builder — assembles an image from a pinned Nix manifest.
 
 1. Loads device config from a build.json manifest file (--config-file)
 2. Reads referenced files (UCI script, authorized_keys) from the paths in the manifest
 3. Optionally reads a pre-decrypted secrets YAML and bakes secrets into the image
-4. Obtains the OpenWrt Image Builder (from Nix store if pinned, else downloads)
+4. Extracts the Nix-pinned OpenWrt Image Builder
 5. Runs `make image` with the prepared filesystem overlay
 
 Usage:
     openwrt-build --config-file <build.json> [--no-secrets] [--output-dir DIR]
-    openwrt-build --config-file <build.json> [--target T] [--subtarget ST] [--profile P]
-    openwrt-build --target T --subtarget ST --profile P --release R --uci-defaults <file>
-    openwrt-build --update-pins --hashes-file <path> --targets <t/st> [<t/st> ...]
-    openwrt-build --config-file <build.json> --update [--hashes-file <path>]
 
 Environment variables:
     OPENWRT_SECRETS_FILE — path to a pre-decrypted plain secrets YAML
@@ -22,13 +18,11 @@ Environment variables:
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
-import urllib.request
 from pathlib import Path
 
 import yaml
@@ -100,11 +94,10 @@ def load_secrets(secrets_file):
             with open(secrets_file) as f:
                 data = yaml.safe_load(f)
     except (OSError, yaml.YAMLError) as e:
-        print(f"Warning: Failed to read secrets: {e}", file=sys.stderr)
-        return None
+        raise ValueError(f"failed to read secrets: {e}") from e
 
     if not isinstance(data, dict):
-        return None
+        raise ValueError("secrets input must be a YAML mapping")
 
     return flatten_yaml(data)
 
@@ -119,15 +112,20 @@ def merge_secrets_into_uci(uci_script, secrets_map, secrets_kv, device_type):
 
     Also enables radios for WiFi devices (they ship disabled without secrets).
     """
+    missing = [key for key in secrets_map if not secrets_kv.get(key)]
+    if missing:
+        raise ValueError(
+            "secrets input is missing required non-empty values: " + ", ".join(missing)
+        )
+
     secret_commands = []
     for secret_key, uci_paths in secrets_map.items():
-        if secret_key in secrets_kv:
-            value = escape_uci_value(secrets_kv[secret_key])
-            for uci_path in uci_paths:
-                secret_commands.append(f"uci -q set {uci_path}='{value}'")
+        value = escape_uci_value(secrets_kv[secret_key])
+        for uci_path in uci_paths:
+            secret_commands.append(f"uci -q set {uci_path}='{value}'")
 
     # Enable radios for WiFi devices
-    if device_type != "switch" and secret_commands:
+    if device_type != "switch" and secrets_map:
         secret_commands.append("uci -q set wireless.radio0.disabled=0")
         secret_commands.append("uci -q set wireless.radio1.disabled=0")
 
@@ -195,89 +193,52 @@ def _find_ib_subdir(parent_dir, release, target, subtarget):
     return None
 
 
-def prepare_imagebuilder(release, target, subtarget, cache_dir, tarball_path=None):
+def prepare_imagebuilder(release, target, subtarget, cache_dir, tarball_path):
     """Obtain the OpenWrt Image Builder directory, ready for `make image`.
 
-    If tarball_path is provided (a Nix store path), extract from there —
-    no network access needed. The Nix store path is content-addressed, so
-    it is safe to use as a cache key.
-
-    Otherwise downloads the tarball from the upstream OpenWrt servers.
+    tarball_path is a Nix store path. Its content-addressed store name is used
+    as the cache key.
 
     The extracted directory is cached in cache_dir to avoid re-extraction
     on repeated builds.
     """
-    if tarball_path:
-        store_path = Path(tarball_path)
-        # Derive a stable cache key from the Nix store hash component
-        # e.g. /nix/store/abc123...-openwrt-imagebuilder-... → "abc123..."
-        cache_key = store_path.parent.name  # hash-name directory name
-        extract_dir = cache_dir / f"store-{cache_key}"
-        ib_dir = _find_ib_subdir(extract_dir, release, target, subtarget)
-        if ib_dir is not None:
-            print(f"  Using cached Image Builder: {ib_dir}")
-            return ib_dir
-        print(f"  Extracting from Nix store: {store_path}")
-        extract_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            extract_tar_zst(store_path, extract_dir)
-        except Exception as e:
-            shutil.rmtree(extract_dir, ignore_errors=True)
-            print(f"Error: Failed to extract Image Builder: {e}", file=sys.stderr)
-            sys.exit(1)
-        ib_dir = _find_ib_subdir(extract_dir, release, target, subtarget)
-        if ib_dir is None:
-            print("Error: Could not find extracted Image Builder directory",
-                  file=sys.stderr)
-            sys.exit(1)
-        return ib_dir
-    else:
-        return _download_imagebuilder(release, target, subtarget, cache_dir)
-
-
-def _download_imagebuilder(release, target, subtarget, cache_dir):
-    """Download and extract the OpenWrt Image Builder tarball.
-
-    Caches in cache_dir to avoid re-downloading.
-    """
-    ib_name = f"openwrt-imagebuilder-{release}-{target}-{subtarget}.Linux-x86_64"
-    ib_dir = cache_dir / ib_name
-    if ib_dir.is_dir():
+    store_path = Path(tarball_path)
+    if not store_path.is_file():
+        raise ValueError(f"pinned Image Builder tarball does not exist: {store_path}")
+    # Derive a stable cache key from the Nix store hash component.
+    cache_key = store_path.name.split("-", 1)[0]
+    extract_dir = cache_dir / f"store-{cache_key}"
+    complete = extract_dir / ".complete"
+    ib_dir = _find_ib_subdir(extract_dir, release, target, subtarget)
+    if complete.is_file() and ib_dir is not None:
         print(f"  Using cached Image Builder: {ib_dir}")
         return ib_dir
-
-    tarball_name = f"{ib_name}.tar.zst"
-    tarball_path = cache_dir / tarball_name
-    url = (
-        f"https://downloads.openwrt.org/releases/{release}"
-        f"/targets/{target}/{subtarget}/{tarball_name}"
-    )
-
+    # Old/interrupted implementations may have left an incomplete destination.
+    # Current extraction happens privately, so a destination without the marker
+    # is never an active extraction.
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir, ignore_errors=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
-
-    if not tarball_path.is_file():
-        print(f"  Downloading {url} ...")
-        try:
-            urllib.request.urlretrieve(url, tarball_path)
-        except Exception as e:
-            tarball_path.unlink(missing_ok=True)
-            print(f"Error: Failed to download Image Builder: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    print(f"  Extracting {tarball_name} ...")
+    temp_dir = Path(tempfile.mkdtemp(prefix=f".{extract_dir.name}-", dir=cache_dir))
+    print(f"  Extracting from Nix store: {store_path}")
     try:
-        extract_tar_zst(tarball_path, cache_dir)
-    except Exception as e:
-        print(f"Error: Failed to extract Image Builder: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    ib_dir = _find_ib_subdir(cache_dir, release, target, subtarget)
-    if ib_dir is None:
-        print("Error: Could not find extracted Image Builder directory",
-              file=sys.stderr)
-        sys.exit(1)
-
-    return ib_dir
+        extract_tar_zst(store_path, temp_dir)
+        temp_ib = _find_ib_subdir(temp_dir, release, target, subtarget)
+        if temp_ib is None:
+            raise ValueError("archive did not contain the expected Image Builder directory")
+        (temp_dir / ".complete").touch()
+        try:
+            temp_dir.rename(extract_dir)
+        except FileExistsError:
+            # A concurrent process won atomic promotion. Reuse only its complete result.
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        ib_dir = _find_ib_subdir(extract_dir, release, target, subtarget)
+        if not complete.is_file() or ib_dir is None:
+            raise ValueError("concurrent Image Builder extraction did not complete")
+        return ib_dir
+    finally:
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -343,118 +304,6 @@ def find_sysupgrade(output_dir):
 
 
 # ---------------------------------------------------------------------------
-# ImageBuilder version update
-# ---------------------------------------------------------------------------
-
-def fetch_latest_release():
-    """Query downloads.openwrt.org to find the latest stable release version."""
-    url = "https://downloads.openwrt.org/releases/"
-    try:
-        with urllib.request.urlopen(url, timeout=15) as resp:
-            body = resp.read().decode()
-    except Exception as e:
-        print(f"Error: Failed to query OpenWrt releases: {e}", file=sys.stderr)
-        return None
-
-    # Match versioned stable release directories like 24.10.5, 23.05.6
-    # Exclude RCs (which contain letters like 24.10.0-rc1)
-    versions = re.findall(r'href="(\d+\.\d+\.\d+)/"', body)
-    if not versions:
-        return None
-
-    return sorted(versions, key=lambda v: tuple(int(x) for x in v.split(".")))[-1]
-
-
-def compute_imagebuilder_hash(release, target, subtarget):
-    """Compute and return the SRI sha256 hash of an Image Builder tarball.
-
-    Uses `nix store prefetch-file` which downloads the file into the Nix store
-    (or reuses a cached copy) and returns its content hash. This also warms
-    the store so the subsequent `nix build .#openwrtConfigurations.*` call
-    doesn't re-download.
-    """
-    ib_name = f"openwrt-imagebuilder-{release}-{target}-{subtarget}.Linux-x86_64"
-    url = (
-        f"https://downloads.openwrt.org/releases/{release}"
-        f"/targets/{target}/{subtarget}/{ib_name}.tar.zst"
-    )
-    print(f"  Fetching hash for {target}/{subtarget} @ {release} ...")
-    print(f"    {url}")
-    result = subprocess.run(
-        ["nix", "store", "prefetch-file", "--json", url],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"Error: Failed to prefetch {url}", file=sys.stderr)
-        print(result.stderr, file=sys.stderr)
-        return None
-    try:
-        return json.loads(result.stdout)["hash"]
-    except (json.JSONDecodeError, KeyError) as e:
-        print(f"Error: Unexpected output from nix store prefetch-file: {e}",
-              file=sys.stderr)
-        return None
-
-
-def update_hashes_json(hashes_file, release, new_hashes):
-    """Update defaultRelease and imageBuilderHashes in openwrt-hashes.json.
-
-    new_hashes: dict of { "target/subtarget": "sha256-..." }
-
-    Updates defaultRelease to release. Adds or replaces the entry for this
-    release inside imageBuilderHashes; older release entries are preserved.
-    """
-    hashes_file = Path(hashes_file)
-    data = json.loads(hashes_file.read_text()) if hashes_file.exists() else {}
-
-    data["defaultRelease"] = release
-    release_hashes = data.setdefault("imageBuilderHashes", {}).setdefault(release, {})
-    release_hashes.update(new_hashes)
-
-    hashes_file.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
-    print(f"  Updated {hashes_file}")
-
-
-def run_update(targets, hashes_file, release=None):
-    """Fetch hashes for the given targets and update openwrt-hashes.json.
-
-    targets: list of "target/subtarget" strings
-    hashes_file: path to lib/common/data/openwrt-hashes.json
-    release: explicit release version, or None to fetch the latest
-
-    Returns the release version that was written, or None on failure.
-    """
-    if release is None:
-        print("Querying latest OpenWrt release...")
-        release = fetch_latest_release()
-        if release is None:
-            print("Error: Could not determine latest OpenWrt release.",
-                  file=sys.stderr)
-            return None
-        print(f"  Latest release: {release}")
-
-    print(f"Computing Image Builder hashes for release {release}...")
-    new_hashes = {}
-    for target_key in targets:
-        parts = target_key.split("/")
-        if len(parts) != 2:
-            print(f"Warning: Skipping malformed target '{target_key}'",
-                  file=sys.stderr)
-            continue
-        target, subtarget = parts
-        h = compute_imagebuilder_hash(release, target, subtarget)
-        if h is None:
-            print(f"Error: Failed to compute hash for {target_key}", file=sys.stderr)
-            return None
-        new_hashes[target_key] = h
-        print(f"    {target_key}: {h}")
-
-    update_hashes_json(hashes_file, release, new_hashes)
-    print("Hash update complete. Commit the changes to lib/common/data/openwrt-hashes.json.")
-    return release
-
-
-# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -485,140 +334,16 @@ def main():
              "(default: $OPENWRT_SECRETS_FILE). Decryption is the caller's responsibility.",
     )
 
-    # Update flags
-    parser.add_argument(
-        "--update", action="store_true",
-        help="Update Image Builder hashes to the latest release before building",
-    )
-    parser.add_argument(
-        "--update-pins", action="store_true",
-        help="Update Image Builder hashes and exit without building",
-    )
-    parser.add_argument(
-        "--hashes-file", type=str, default=None,
-        help="Path to lib/common/data/openwrt-hashes.json (required for --update/--update-pins)",
-    )
-    parser.add_argument(
-        "--targets", nargs="+", default=None,
-        help='Image Builder targets to update, e.g. mediatek/mt7622 realtek/rtl838x',
-    )
-    parser.add_argument(
-        "--release", type=str, default=None,
-        help="OpenWrt release version (e.g. 24.10.5). In build mode: overrides the manifest "
-             "release. In --update-pins mode: pins to this release instead of fetching latest.",
-    )
-
-    # Per-build field overrides — take precedence over values from the build.json manifest.
-    # All of these can also be used without --config-file to build ad-hoc images.
-    parser.add_argument(
-        "--hostname", type=str, default=None,
-        help="Device hostname (used for default output directory naming)",
-    )
-    parser.add_argument(
-        "--target", type=str, default=None,
-        help="Image Builder target (e.g. armsr, mediatek)",
-    )
-    parser.add_argument(
-        "--subtarget", type=str, default=None,
-        help="Image Builder subtarget (e.g. armv8, mt7622)",
-    )
-    parser.add_argument(
-        "--profile", type=str, default=None,
-        help="Device profile passed to make image (e.g. generic, linksys_e8450-ubi)",
-    )
-    parser.add_argument(
-        "--device-type", type=str, default=None,
-        dest="device_type",
-        help="Device type: router, meshAP, switch, or simpleAP "
-             "(affects whether WiFi radios are enabled when secrets are applied)",
-    )
-    parser.add_argument(
-        "--uci-defaults", type=str, default=None,
-        help="Path to a UCI defaults script written to etc/uci-defaults/99-nix-config",
-    )
-    parser.add_argument(
-        "--package",
-        action="append",
-        default=None,
-        dest="package",
-        help="Package to include (can be repeated; when any --package is given, "
-             "it replaces the manifest package list entirely)",
-    )
-    parser.add_argument(
-        "--authorized-key",
-        action="append",
-        default=None,
-        dest="authorized_key",
-        help="SSH public key to include in authorized_keys (can be repeated; "
-             "when any --authorized-key is given, it replaces the manifest keys entirely)",
-    )
-    parser.add_argument(
-        "--image-builder-tarball", type=str, default=None,
-        help="Path to a pre-downloaded Image Builder .tar.zst (skips network download)",
-    )
-
     args = parser.parse_args()
-
-    # --- Update-only mode ---
-    if args.update_pins:
-        if not args.targets:
-            print("Error: --targets is required with --update-pins.", file=sys.stderr)
-            sys.exit(1)
-        if not args.hashes_file:
-            print("Error: --hashes-file is required with --update-pins.", file=sys.stderr)
-            sys.exit(1)
-        result = run_update(args.targets, args.hashes_file, release=args.release)
-        sys.exit(0 if result is not None else 1)
+    if args.no_secrets and args.secrets_file:
+        parser.error("--no-secrets cannot be combined with --secrets-file")
 
     # --- Load config ---
     secrets_file_explicit = args.secrets_file or os.environ.get("OPENWRT_SECRETS_FILE")
 
-    if args.config_file:
-        build_info = load_config(args.config_file)
-    else:
-        build_info = {
-            "hostname": "openwrt",
-            "profile": "",
-            "target": "",
-            "subtarget": "",
-            "release": "",
-            "deviceType": "",
-            "packages": [],
-            "authorizedKeys": [],
-            "secretsMap": {},
-            "uciDefaultsScript": "",
-        }
-
-    # Apply CLI overrides (take precedence over build.json values)
-    if args.hostname:
-        build_info["hostname"] = args.hostname
-    if args.target:
-        build_info["target"] = args.target
-    if args.subtarget:
-        build_info["subtarget"] = args.subtarget
-    if args.profile:
-        build_info["profile"] = args.profile
-    if args.release:
-        build_info["release"] = args.release
-    if args.device_type:
-        build_info["deviceType"] = args.device_type
-    if args.uci_defaults:
-        try:
-            build_info["uciDefaultsScript"] = Path(args.uci_defaults).read_text()
-        except OSError as e:
-            print(f"Error: Could not read UCI defaults file: {e}", file=sys.stderr)
-            sys.exit(1)
-    if args.package:
-        build_info["packages"] = args.package
-    if args.authorized_key:
-        build_info["authorizedKeys"] = [k for k in args.authorized_key if k.strip()]
-    if args.image_builder_tarball:
-        build_info["imageBuilderTarball"] = args.image_builder_tarball
-    # When overriding target/subtarget, the pinned Image Builder tarball for the
-    # original target is no longer valid — remove it so the builder fetches the
-    # correct one for the new target. Skip this if a tarball was explicitly supplied.
-    if (args.target or args.subtarget) and not args.image_builder_tarball:
-        build_info.pop("imageBuilderTarball", None)
+    if not args.config_file:
+        parser.error("--config-file is required; builds are manifest-only")
+    build_info = load_config(args.config_file)
 
     # --- Validate required fields ---
     missing = [
@@ -626,15 +351,13 @@ def main():
             ("target",    "--target"),
             ("subtarget", "--subtarget"),
             ("profile",   "--profile"),
-            ("release",   "--release"),
+            ("release",   "manifest release"),
+            ("imageBuilderTarball", "manifest imageBuilderTarball"),
         ]
         if not build_info.get(field)
     ]
     if missing:
         print(f"Error: Missing required fields: {', '.join(missing)}", file=sys.stderr)
-        if not args.config_file:
-            print("  Provide a --config-file or supply the missing fields via CLI flags.",
-                  file=sys.stderr)
         sys.exit(1)
 
     # --- Determine output directory ---
@@ -650,30 +373,29 @@ def main():
     print(f"  Target: {build_info['target']}/{build_info['subtarget']}")
     print(f"  Release: {build_info['release']}")
 
-    if "imageBuilderTarball" in build_info:
-        print(f"  ImageBuilder: pinned ({build_info['imageBuilderTarball']})")
-    else:
-        print(
-            "  ImageBuilder: not pinned — will download from upstream.\n"
-            "  Tip: run with --update to pin this version for reproducible builds.",
-        )
+    print(f"  ImageBuilder: pinned ({build_info['imageBuilderTarball']})")
 
     # --- Step 2: Secrets ---
     uci_script = build_info["uciDefaultsScript"]
     if not args.no_secrets:
         print("[2/5] Loading secrets...")
         if secrets_file_explicit:
-            secrets_kv = load_secrets(secrets_file_explicit)
-            if secrets_kv and build_info.get("secretsMap"):
-                uci_script = merge_secrets_into_uci(
-                    uci_script,
-                    build_info["secretsMap"],
-                    secrets_kv,
-                    build_info["deviceType"],
-                )
+            try:
+                secrets_kv = load_secrets(secrets_file_explicit)
+                if build_info.get("secretsMap"):
+                    uci_script = merge_secrets_into_uci(
+                        uci_script,
+                        build_info["secretsMap"],
+                        secrets_kv,
+                        build_info["deviceType"],
+                    )
+            except ValueError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                sys.exit(1)
+            if build_info.get("secretsMap"):
                 print("  Secrets merged into UCI config.")
             else:
-                print("  No secrets available (building without WiFi credentials).")
+                print("  Manifest does not require secrets.")
         else:
             print("  No secrets file provided (building without WiFi credentials).")
     else:

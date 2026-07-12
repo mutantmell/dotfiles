@@ -60,12 +60,21 @@ in
     dontConfigure = true;
     dontBuild = true;
 
+    doCheck = true;
+    checkPhase = ''
+      ${python}/bin/python3 test_build.py
+    '';
+
     installPhase = ''
       mkdir -p $out/bin $out/share/openwrt-builder
-      cp build.py $out/share/openwrt-builder/
+      cp build.py update-pins.py $out/share/openwrt-builder/
 
       makeWrapper ${python}/bin/python3 $out/bin/openwrt-build \
         --add-flags "$out/share/openwrt-builder/build.py" \
+        --prefix PATH : ${lib.makeBinPath runtimeDeps}
+
+      makeWrapper ${python}/bin/python3 $out/bin/openwrt-update-pins \
+        --add-flags "$out/share/openwrt-builder/update-pins.py" \
         --prefix PATH : ${lib.makeBinPath runtimeDeps}
     '';
 

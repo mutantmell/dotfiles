@@ -2,15 +2,10 @@
 {owrtData, ...}: let
   inherit (owrtData) mkAddresses mkGateway;
 in {
-  imports = [./modules/profiles/mesh-ap.nix];
+  imports = [./modules/hardware/linksys-e8450-mesh.nix];
 
   openwrt = {
     hostname = "derfflinger";
-    image = {
-      profile = "linksys_e8450-ubi";
-      target = "mediatek";
-      subtarget = "mt7622";
-    };
     device.hostId = 21;
     mesh = {
       heBssColor = 25;

@@ -4,10 +4,8 @@
 #   nix run .#openwrt-build -- <device-name>
 #   nix run .#openwrt-build -- <device-name> --no-secrets
 #
-# Update Image Builder hashes (modifies lib/common/data/openwrt.nix):
-#   nix run .#openwrt-build -- --update-pins            (all targets)
-#   nix run .#openwrt-build -- <device-name> --update-pins  (one target)
-#   nix run .#openwrt-build -- <device-name> --update   (update + build)
+# Update Image Builder hashes:
+#   nix run .#openwrt-update-pins
 #
 # Deploy:
 #   nix run .#openwrt-deploy -- <device-name> <device-ip>
@@ -15,18 +13,10 @@
 # Discovery:
 #   nix run .#openwrt-build -- --list-devices
 #
-# Migration (from existing devices):
-#   nix run .#openwrt-export-config -- <device-ip> [output-dir]
-#   nix run .#openwrt-analyze-packages -- <device-ip>
-#
-# Local analysis (from exported configs):
-#   nix run .#openwrt-analyze-local -- <config-dir-or-uci-file>
-#
 # Secrets (hosts/openwrt/secrets/wifi.yaml):
 #   Encrypted with sops in binary format. The wrapper calls `sops -d` and pipes
 #   the decrypted YAML directly to the builder — secrets never enter the Nix
-#   store. Explicit `--secrets-file -` input is staged briefly in a private
-#   temp file so the builder can be invoked after argument/cache handling.
+#   store. Explicit `--secrets-file -` is also read directly from stdin.
 #
 #   Plain YAML structure (example):
 #     wifi:
@@ -46,6 +36,7 @@
   pkgs,
   openwrtDevices,
   openwrtConfigurations,
+  openwrtVmConfigurations,
 }: let
   inherit (pkgs) lib;
   builder = pkgs.mmell.openwrt-builder;
@@ -59,13 +50,18 @@
     )
     openwrtConfigurations);
 
+  vmConfigLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (
+      name: drv: "    ${name}) VM_CONFIG_DIR=\"${drv}\" ;;"
+    )
+    openwrtVmConfigurations);
+
   # Device name → target/subtarget lookup (for update flow)
   deviceTargetLookup = lib.concatStringsSep "\n" (lib.mapAttrsToList (
       name: device: "    ${name}) DEVICE_TARGET=\"${device.target}/${device.subtarget}\" ;;"
     )
     openwrtDevices);
 
-  # Space-separated list of all unique targets across all devices (for --update-pins)
+  # All device targets, used by the explicit pin-update tool.
   allTargets = lib.concatStringsSep " " (
     lib.unique (lib.mapAttrsToList (_: device: "${device.target}/${device.subtarget}") openwrtDevices)
   );
@@ -141,30 +137,6 @@
     }
   '';
 
-  # Convert `--secrets-file -` into a private temporary file before invoking the
-  # builder. Completed images are never reused, so the temporary path does not
-  # need to participate in any cache identity.
-  prepareStdinSecrets = ''
-    prepare_stdin_secrets() {
-      PREPARED_ARGS=("$@")
-      STDIN_SECRETS_FILE=""
-
-      local i=0
-      while [ $i -lt ''${#PREPARED_ARGS[@]} ]; do
-        if [ "''${PREPARED_ARGS[$i]}" = "--secrets-file" ]; then
-          local next=$((i + 1))
-          if [ "''${PREPARED_ARGS[$next]:-}" = "-" ]; then
-            STDIN_SECRETS_FILE=$(${pkgs.coreutils}/bin/mktemp -t openwrt-secrets-XXXXXX.yaml)
-            chmod 600 "$STDIN_SECRETS_FILE"
-            cat > "$STDIN_SECRETS_FILE"
-            PREPARED_ARGS[$next]="$STDIN_SECRETS_FILE"
-          fi
-        fi
-        i=$((i + 1))
-      done
-    }
-  '';
-
   # Run the OpenWrt builder, piping decrypted secrets via stdin when available.
   # Decrypted bytes exist only in the kernel pipe buffer — never written to disk.
   # Skips secret injection if --no-secrets is present in the argument list,
@@ -194,9 +166,7 @@ in {
         set -euo pipefail
 
         ${resolveDevice}
-        ${resolveTarget}
-
-        # Always resolve repo root — needed for secrets and update paths
+        # Resolve the repository only to discover its encrypted secrets file.
         REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
 
         # Handle --list-devices before anything else
@@ -209,96 +179,9 @@ in {
         done
 
         if [ $# -lt 1 ]; then
-          echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets] [--update]"
-          echo "       nix run .#openwrt-build -- <device-name> --update-pins"
-          echo "       nix run .#openwrt-build -- --update-pins  (all targets)"
-          echo "       nix run .#openwrt-build -- --config-file <build.json> [--secrets-file <file>]"
+          echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets] [--secrets-file <file|->]"
           echo "       nix run .#openwrt-build -- --list-devices"
           exit 1
-        fi
-
-        # --- Parse and strip update flags from positional args ---
-        DO_UPDATE=false
-        UPDATE_ONLY=false
-        UPDATE_RELEASE_ARG=""
-        CLEAN_ARGS=()
-        i=0
-        ALL_ARGS=("$@")
-        while [ $i -lt ''${#ALL_ARGS[@]} ]; do
-          arg="''${ALL_ARGS[$i]}"
-          case "$arg" in
-            --update)      DO_UPDATE=true ;;
-            --update-pins) UPDATE_ONLY=true ;;
-            --release)
-              i=$((i + 1))
-              UPDATE_RELEASE_ARG="''${ALL_ARGS[$i]}"
-              ;;
-            *) CLEAN_ARGS+=("$arg") ;;
-          esac
-          i=$((i + 1))
-        done
-
-        # --- Update flow (--update or --update-pins) ---
-        if $DO_UPDATE || $UPDATE_ONLY; then
-          if [ -z "$REPO_ROOT" ]; then
-            echo "Error: --update/--update-pins requires running from within the git repo" >&2
-            exit 1
-          fi
-          HASHES_FILE="$REPO_ROOT/lib/common/data/openwrt-hashes.json"
-
-          # Determine which targets to update
-          if [ ''${#CLEAN_ARGS[@]} -ge 1 ] && [ "''${CLEAN_ARGS[0]#--}" = "''${CLEAN_ARGS[0]}" ]; then
-            # First clean arg is a device name (doesn't start with --)
-            resolve_target "''${CLEAN_ARGS[0]}"
-            UPDATE_TARGETS="$DEVICE_TARGET"
-          else
-            # No device specified — update all targets
-            UPDATE_TARGETS="${allTargets}"
-          fi
-
-          RELEASE_ARGS=()
-          if [ -n "$UPDATE_RELEASE_ARG" ]; then
-            RELEASE_ARGS=(--release "$UPDATE_RELEASE_ARG")
-          fi
-
-          echo "Updating Image Builder hashes (targets: $UPDATE_TARGETS)..."
-          ${builder}/bin/openwrt-build \
-            --update-pins \
-            --hashes-file "$HASHES_FILE" \
-            --targets $UPDATE_TARGETS \
-            "''${RELEASE_ARGS[@]}"
-
-          if $UPDATE_ONLY; then
-            exit 0
-          fi
-
-          # --update + build: re-evaluate the config with the new hashes
-          DEVICE="''${CLEAN_ARGS[0]}"
-          echo "Re-evaluating Nix config for $DEVICE..."
-          CONFIG_DIR=$(${pkgs.nix}/bin/nix build ".#openwrtConfigurations.$DEVICE" \
-            --print-out-paths --no-link)
-        fi
-
-        # --release belongs to the update operation when updating pins. For an
-        # ordinary build it is a builder override and must remain forwarded.
-        if ! $DO_UPDATE && ! $UPDATE_ONLY && [ -n "$UPDATE_RELEASE_ARG" ]; then
-          CLEAN_ARGS+=(--release "$UPDATE_RELEASE_ARG")
-        fi
-
-        # Restore cleaned args (wrapper-only update flags removed)
-        set -- "''${CLEAN_ARGS[@]}"
-
-        # --config-file mode: use a pre-built manifest file directly
-        if [ "''${1:-}" = "--config-file" ]; then
-          shift
-          ${discoverSopsFile}
-          ${runBuilder}
-          ${prepareStdinSecrets}
-          cleanup_stdin_secrets() { [ -n "''${STDIN_SECRETS_FILE:-}" ] && rm -f "$STDIN_SECRETS_FILE"; }
-          trap cleanup_stdin_secrets EXIT INT TERM HUP
-          prepare_stdin_secrets --config-file "$@"
-          run_builder "''${PREPARED_ARGS[@]}"
-          exit $?
         fi
 
         DEVICE="$1"
@@ -308,31 +191,36 @@ in {
         # the evaluated device manifest and a new artifact directory.
         for arg in "$@"; do
           case "$arg" in
-            --config-file|--output-dir)
-              echo "Error: $arg is managed by the device wrapper; use leading --config-file mode for ad-hoc builds." >&2
+            --config-file|--output-dir|--target|--subtarget|--profile|--release|--package|--authorized-key|--image-builder-tarball)
+              echo "Error: $arg is fixed by the evaluated device manifest." >&2
               exit 1
               ;;
           esac
         done
 
-        if ! $DO_UPDATE; then
-          # CONFIG_DIR not yet set by update flow — resolve from pre-built configs
-          resolve_device "$DEVICE"
-        fi
+        resolve_device "$DEVICE"
 
         ${discoverSopsFile}
         ${runBuilder}
         ${createOutputDir}
-        ${prepareStdinSecrets}
-
-        cleanup_stdin_secrets() { [ -n "''${STDIN_SECRETS_FILE:-}" ] && rm -f "$STDIN_SECRETS_FILE"; }
-        trap cleanup_stdin_secrets EXIT INT TERM HUP
-        prepare_stdin_secrets "$@"
-        set -- "''${PREPARED_ARGS[@]}"
-
         create_output_dir build
         echo "Artifact directory: $OUTPUT_DIR"
         run_builder --config-file "$CONFIG_DIR/build.json" --output-dir "$OUTPUT_DIR" "$@"
+      '';
+    in "${script}";
+  };
+
+  # Updating repository pins is deliberately separate from image assembly.
+  openwrt-update-pins = {
+    type = "app";
+    program = let
+      script = pkgs.writeShellScript "openwrt-update-pins" ''
+        set -euo pipefail
+        REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel)
+        exec ${builder}/bin/openwrt-update-pins \
+          --hashes-file "$REPO_ROOT/lib/common/data/openwrt-hashes.json" \
+          --targets ${allTargets} armsr/armv8 \
+          "$@"
       '';
     in "${script}";
   };
@@ -405,13 +293,6 @@ in {
         ${runBuilder}
         ${findSysupgrade}
         ${createOutputDir}
-        ${prepareStdinSecrets}
-
-        cleanup_stdin_secrets() { [ -n "''${STDIN_SECRETS_FILE:-}" ] && rm -f "$STDIN_SECRETS_FILE"; }
-        trap cleanup_stdin_secrets EXIT INT TERM HUP
-        prepare_stdin_secrets "''${BUILD_ARGS[@]}"
-        BUILD_ARGS=("''${PREPARED_ARGS[@]}")
-
         create_output_dir deploy
         echo "Artifact directory: $OUTPUT_DIR"
         run_builder \
@@ -427,175 +308,6 @@ in {
 
         # Deploy the image
         ${deployer}/bin/openwrt-deploy "$TARGET" "$SYSUPGRADE" "''${DEPLOY_ARGS[@]}"
-      '';
-    in "${script}";
-  };
-
-  # Export configuration from an existing OpenWrt device
-  openwrt-export-config = {
-    type = "app";
-    program = let
-      script = pkgs.writeShellScript "openwrt-export-config" ''
-        set -euo pipefail
-
-        if [ $# -lt 1 ]; then
-          echo "Usage: nix run .#openwrt-export-config -- <device-ip> [output-dir]"
-          echo ""
-          echo "Exports UCI configuration from an existing OpenWrt device."
-          echo "Useful for migrating existing devices to the declarative system."
-          echo ""
-          echo "Output includes:"
-          echo "  - uci-show.txt     - UCI config with best-effort credential redaction"
-          echo "  - packages.txt     - Installed packages"
-          echo "  - device-info.txt  - Board, model, version info"
-          exit 1
-        fi
-
-        TARGET="$1"
-        OUTPUT_DIR="''${2:-.}"
-
-        echo "Exporting configuration from $TARGET..."
-        umask 077
-        if [ ! -e "$OUTPUT_DIR" ]; then
-          mkdir -p "$OUTPUT_DIR"
-          chmod 700 "$OUTPUT_DIR"
-        else
-          mkdir -p "$OUTPUT_DIR"
-        fi
-
-        # Device info
-        echo "  - Device info..."
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "
-          echo '=== Board ==='
-          cat /tmp/sysinfo/board_name 2>/dev/null || echo 'unknown'
-          echo
-          echo '=== Model ==='
-          cat /tmp/sysinfo/model 2>/dev/null || echo 'unknown'
-          echo
-          echo '=== OpenWrt Version ==='
-          cat /etc/openwrt_release
-          echo
-          echo '=== Kernel ==='
-          uname -a
-        " > "$OUTPUT_DIR/device-info.txt"
-
-        # Full UCI config (best-effort redaction of credential-bearing fields)
-        echo "  - Full UCI config..."
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "uci show" | \
-          ${pkgs.gawk}/bin/awk '
-            BEGIN { IGNORECASE = 1 }
-            {
-              eq = index($0, "=")
-              if (eq == 0) { print; next }
-              lhs = substr($0, 1, eq - 1)
-              key = lhs
-              sub(/^.*\./, "", key)
-              if (key ~ /(^|_)(key|password|passwd|secret|token|private|private_key|psk|sae_password)($|_)/ || key ~ /(password|passwd|secret|token|private|psk)/) {
-                print lhs "=\"[REDACTED]\""
-              } else {
-                print
-              }
-            }
-          ' > "$OUTPUT_DIR/uci-show.txt"
-
-        # Installed packages
-        echo "  - Installed packages..."
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "opkg list-installed" > "$OUTPUT_DIR/packages.txt"
-
-        echo
-        echo "Configuration exported to $OUTPUT_DIR/"
-        echo "uci-show.txt is best-effort redacted; review before sharing or committing."
-        echo
-        echo "Files created:"
-        ls -la "$OUTPUT_DIR"/*.txt
-      '';
-    in "${script}";
-  };
-
-  # Analyze packages on an existing device to find minimal set
-  openwrt-analyze-packages = {
-    type = "app";
-    program = let
-      script = pkgs.writeShellScript "openwrt-analyze-packages" ''
-        set -euo pipefail
-
-        if [ $# -lt 1 ]; then
-          echo "Usage: nix run .#openwrt-analyze-packages -- <device-ip>"
-          echo ""
-          echo "Analyzes installed packages on an OpenWrt device to help determine"
-          echo "a minimal package set for migration."
-          echo ""
-          echo "Shows:"
-          echo "  - User-installed packages (not dependencies)"
-          echo "  - Packages related to mesh/batman-adv"
-          echo "  - Packages related to wireless"
-          echo "  - Suggested extraPackages for your Nix config"
-          exit 1
-        fi
-
-        TARGET="$1"
-
-        echo "Analyzing packages on $TARGET..."
-        echo ""
-
-        # Get all installed packages
-        PACKAGES=$(${pkgs.openssh}/bin/ssh "root@$TARGET" "opkg list-installed" | cut -d' ' -f1)
-
-        # Get user-installed packages (packages that were explicitly installed, not deps)
-        echo "=== User-Installed Packages ==="
-        echo "(These were explicitly installed, not pulled in as dependencies)"
-        echo ""
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "
-          # Packages in /usr/lib/opkg/status with 'Status: install user installed'
-          awk '/^Package:/{pkg=\$2} /^Status:.*user installed/{print pkg}' /usr/lib/opkg/status | sort
-        " || echo "(Could not determine user-installed packages)"
-        echo ""
-
-        # Mesh-related packages
-        echo "=== Mesh/Batman-adv Packages ==="
-        echo "$PACKAGES" | grep -E '(batman|mesh|batctl)' || echo "(none found)"
-        echo ""
-
-        # Wireless packages
-        echo "=== Wireless Packages ==="
-        echo "$PACKAGES" | grep -E '(wpad|hostapd|wireless|wifi|80211)' || echo "(none found)"
-        echo ""
-
-        # LuCI packages
-        echo "=== LuCI Packages ==="
-        echo "$PACKAGES" | grep -E '^luci' || echo "(none found)"
-        echo ""
-
-        # Kernel modules
-        echo "=== Kernel Modules (kmod-*) ==="
-        echo "$PACKAGES" | grep '^kmod-' | grep -v -E '(kmod-lib|kmod-crypto|kmod-nf-|kmod-ipt-)' || echo "(none found)"
-        echo ""
-
-        # Generate suggested extraPackages
-        echo "=== Suggested extraPackages for Nix config ==="
-        echo ""
-        echo "Based on analysis, consider adding these to extraPackages:"
-        echo ""
-        echo "extraPackages = ["
-
-        # User-installed that aren't in our defaults
-        ${pkgs.openssh}/bin/ssh "root@$TARGET" "
-          awk '/^Package:/{pkg=\$2} /^Status:.*user installed/{print pkg}' /usr/lib/opkg/status
-        " 2>/dev/null | while read -r pkg; do
-          # Skip packages we already include by default
-          case "$pkg" in
-            kmod-batman-adv|batctl*|wpad*|luci|luci-proto-batman-adv|htop|tcpdump|kmod-8021q)
-              continue
-              ;;
-            *)
-              echo "  \"$pkg\""
-              ;;
-          esac
-        done
-
-        echo "];"
-        echo ""
-        echo "Note: Review this list - some packages may be dependencies or device-specific."
       '';
     in "${script}";
   };
@@ -635,7 +347,7 @@ in {
           echo "directly — no SSH required. Use Ctrl-A X to quit QEMU."
           echo ""
           echo "SSH is also available on localhost:<ssh-port> from another terminal."
-          echo "SSH keys are collected from your agent (ssh-add -L) or ~/.ssh/id_*.pub."
+          echo "SSH uses the authorized keys from the evaluated device manifest."
           echo ""
           echo "Arguments:"
           echo "  device-name           Name of the device (as defined in hosts/openwrt/)"
@@ -682,27 +394,14 @@ in {
         if [ -z "$KERNEL_FILE" ]; then
           resolve_device "$DEVICE"
           resolve_target "$DEVICE"
+          VM_CONFIG_DIR=""
+          case "$DEVICE" in
+        ${vmConfigLookup}
+          esac
+          [ -n "$VM_CONFIG_DIR" ] || { echo "Error: no VM manifest for $DEVICE" >&2; exit 1; }
           REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
           ${discoverSopsFile}
           ${createOutputDir}
-
-          # Collect the caller's SSH public keys for this fresh VM image. Try the
-          # SSH agent first, then fall back to standard public key files.
-          USER_KEYS=$(${pkgs.openssh}/bin/ssh-add -L 2>/dev/null || true)
-          if [ -z "$USER_KEYS" ]; then
-            for pub in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME/.ssh/id_ecdsa.pub"; do
-              [ -f "$pub" ] && USER_KEYS="$(printf '%s\n%s' "$USER_KEYS" "$(cat "$pub")")" || true
-            done
-          fi
-          KEY_ARGS=()
-          while IFS= read -r key; do
-            [ -n "$key" ] && KEY_ARGS+=("--authorized-key" "$key")
-          done <<< "$USER_KEYS"
-          if [ ''${#KEY_ARGS[@]} -eq 0 ]; then
-            echo "Warning: No SSH public keys found in agent or ~/.ssh/id_*.pub."
-            echo "         VM will boot without any authorized SSH keys — login will fail."
-            echo ""
-          fi
 
           create_output_dir vm-armsr-armv8
 
@@ -722,11 +421,7 @@ in {
           echo "Building aarch64 VM image for $DEVICE..."
           echo "Artifact directory: $OUTPUT_DIR"
           run_builder \
-            --config-file "$CONFIG_DIR/build.json" \
-            --target armsr \
-            --subtarget armv8 \
-            --profile generic \
-            "''${KEY_ARGS[@]}" \
+            --config-file "$VM_CONFIG_DIR/build.json" \
             --output-dir "$OUTPUT_DIR" \
             $NO_SECRETS_ARG
 
@@ -785,431 +480,6 @@ in {
           -append "root=/dev/vda rw console=ttyAMA0" \
           -netdev "user,id=net0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$WEB_PORT-:80" \
           -device virtio-net-pci,netdev=net0
-      '';
-    in "${script}";
-  };
-
-  # Analyze local config exports to detect features and infer packages
-  openwrt-analyze-local = {
-    type = "app";
-    program = let
-      script = pkgs.writeShellScript "openwrt-analyze-local" ''
-        set -euo pipefail
-
-        if [ $# -lt 1 ]; then
-          echo "Usage: nix run .#openwrt-analyze-local -- <config-dir-or-uci-file>"
-          echo ""
-          echo "Analyzes exported OpenWrt configuration to detect features,"
-          echo "infer a minimal package set, and suggest Nix config."
-          echo ""
-          echo "Accepts either:"
-          echo "  - A config directory (e.g., temp/openwrt/config/<device>/config/)"
-          echo "  - A UCI export file (e.g., temp/openwrt/uci/<device>.uci)"
-          echo ""
-          echo "Examples:"
-          echo "  nix run .#openwrt-analyze-local -- temp/openwrt/config/derfflinger/config"
-          echo "  nix run .#openwrt-analyze-local -- temp/openwrt/uci/arseille.uci"
-          exit 1
-        fi
-
-        INPUT="$1"
-        UCI_DATA=""
-
-        # Convert raw UCI config files to UCI-show format
-        # Handles: config <type> '<name>' / option <key> '<value>' / list <key> '<value>'
-        convert_config_dir() {
-          local dir="$1"
-          for f in "$dir"/*; do
-            [ -f "$f" ] || continue
-            local fname
-            fname=$(basename "$f")
-            local section_type="" section_name="" anon_idx=0
-            while IFS= read -r line; do
-              # Skip empty lines and comments
-              case "$line" in
-                ""|\#*) continue ;;
-              esac
-              # Strip leading whitespace
-              line=$(echo "$line" | sed 's/^[[:space:]]*//')
-              case "$line" in
-                "config "*)
-                  # Parse: config <type> '<name>' or config <type>
-                  section_type=$(echo "$line" | ${pkgs.gawk}/bin/awk '{print $2}')
-                  section_name=$(echo "$line" | ${pkgs.gnused}/bin/sed -n "s/^config [^ ]* '\(.*\)'/\1/p")
-                  if [ -z "$section_name" ]; then
-                    section_name="@$section_type[$anon_idx]"
-                    anon_idx=$((anon_idx + 1))
-                  fi
-                  echo "$fname.$section_name=$section_type"
-                  ;;
-                "option "*)
-                  local key val
-                  key=$(echo "$line" | ${pkgs.gawk}/bin/awk '{print $2}')
-                  val=$(echo "$line" | ${pkgs.gnused}/bin/sed -n "s/^option [^ ]* '\(.*\)'/\1/p")
-                  if [ -z "$val" ]; then
-                    val=$(echo "$line" | ${pkgs.gawk}/bin/awk '{print $3}')
-                  fi
-                  echo "$fname.$section_name.$key='$val'"
-                  ;;
-                "list "*)
-                  local key val
-                  key=$(echo "$line" | ${pkgs.gawk}/bin/awk '{print $2}')
-                  val=$(echo "$line" | ${pkgs.gnused}/bin/sed -n "s/^list [^ ]* '\(.*\)'/\1/p")
-                  if [ -z "$val" ]; then
-                    val=$(echo "$line" | ${pkgs.gawk}/bin/awk '{print $3}')
-                  fi
-                  echo "$fname.$section_name.$key='$val'"
-                  ;;
-              esac
-            done < "$f"
-          done
-        }
-
-        # Determine input type and load UCI data
-        if [ -f "$INPUT" ]; then
-          # Single UCI export file
-          UCI_DATA=$(cat "$INPUT")
-          DEVICE=$(basename "$INPUT" .uci)
-          echo "Analyzing UCI export: $INPUT"
-        elif [ -d "$INPUT" ]; then
-          # Config directory — convert raw config to UCI-show format
-          CONFIG_DIR="$INPUT"
-          if [ -d "$CONFIG_DIR/config" ]; then
-            CONFIG_DIR="$CONFIG_DIR/config"
-          fi
-          DEVICE=$(basename "$(cd "$INPUT" && pwd)")
-          if [ "$DEVICE" = "config" ]; then
-            DEVICE=$(basename "$(cd "$INPUT/.." && pwd)")
-          fi
-          echo "Analyzing config directory: $CONFIG_DIR"
-          UCI_DATA=$(convert_config_dir "$CONFIG_DIR")
-        else
-          echo "Error: $INPUT is not a file or directory"
-          exit 1
-        fi
-
-        echo "Device: $DEVICE"
-        echo ""
-
-        # Feature detection functions (always use UCI_DATA)
-        has_feature() {
-          echo "$UCI_DATA" | grep -q "$1" 2>/dev/null
-        }
-
-        get_value() {
-          echo "$UCI_DATA" | grep "$1" 2>/dev/null | head -1 | sed "s/.*='\(.*\)'/\1/" || true
-        }
-
-        get_all() {
-          echo "$UCI_DATA" | grep "$1" 2>/dev/null || true
-        }
-
-        # --- Feature Detection ---
-        echo "=== Detected Features ==="
-        echo ""
-
-        FEATURES=""
-
-        # Batman-adv mesh
-        if has_feature "proto.*batadv"; then
-          echo "  [x] batman-adv mesh networking"
-          FEATURES="$FEATURES batman"
-        else
-          echo "  [ ] batman-adv mesh networking"
-        fi
-
-        # Wireless mesh
-        if has_feature "mode.*mesh"; then
-          echo "  [x] Wireless mesh (802.11s)"
-          FEATURES="$FEATURES wireless-mesh"
-          MESH_ID=$(get_value "mesh_id=")
-          if [ -n "$MESH_ID" ]; then
-            echo "       mesh_id: $MESH_ID"
-          fi
-        else
-          echo "  [ ] Wireless mesh (802.11s)"
-        fi
-
-        # VLANs on bat0
-        if has_feature "bat0\.[0-9]"; then
-          echo "  [x] VLAN interfaces on bat0"
-          FEATURES="$FEATURES vlans"
-          echo "       VLANs:"
-          get_all "bat0\.[0-9]" | grep -oE "bat0\.[0-9]+" | sort -u | sed 's/^/         /'
-        else
-          echo "  [ ] VLAN interfaces on bat0"
-        fi
-
-        # Bridge VLANs (switch-style)
-        if has_feature "bridge-vlan"; then
-          echo "  [x] Bridge VLAN filtering (managed switch)"
-          FEATURES="$FEATURES bridge-vlans"
-          echo "       VLANs:"
-          get_all "\.vlan=" | sed -n "s/.*\.vlan='\([0-9]*\)'/         VLAN \1/p" | sort -u
-        fi
-
-        # LuCI
-        if has_feature "^luci\."; then
-          echo "  [x] LuCI web UI"
-          FEATURES="$FEATURES luci"
-        else
-          echo "  [ ] LuCI web UI"
-        fi
-
-        # Usteer
-        if has_feature "^usteer\."; then
-          echo "  [x] usteer (WiFi steering)"
-          FEATURES="$FEATURES usteer"
-        else
-          echo "  [ ] usteer (WiFi steering)"
-        fi
-
-        # Firewall
-        if has_feature "^firewall\."; then
-          echo "  [x] Firewall (firewall4/nftables)"
-          FEATURES="$FEATURES firewall"
-        else
-          echo "  [ ] Firewall"
-        fi
-
-        # Wireless
-        HAS_WIRELESS=""
-        if has_feature "^wireless\."; then
-          echo "  [x] Wireless"
-          HAS_WIRELESS=1
-
-          # 802.11r
-          if has_feature "ieee80211r"; then
-            echo "  [x] 802.11r fast roaming"
-            FEATURES="$FEATURES 80211r"
-          fi
-
-          # 802.11k
-          if has_feature "ieee80211k"; then
-            echo "  [x] 802.11k radio resource management"
-            FEATURES="$FEATURES 80211k"
-          fi
-
-          # HE BSS color
-          BSS_COLOR=$(get_value "he_bss_color=")
-          if [ -n "$BSS_COLOR" ]; then
-            echo "  [x] HE BSS color: $BSS_COLOR"
-          fi
-
-          # Legacy rates
-          if has_feature "legacy_rates.*1"; then
-            echo "  [x] Legacy rates enabled"
-            FEATURES="$FEATURES legacy-rates"
-          fi
-
-          # Country code
-          COUNTRY=$(get_value "\.country=")
-          if [ -n "$COUNTRY" ]; then
-            echo "       Country: $COUNTRY"
-          fi
-
-          # SSIDs
-          echo "       SSIDs:"
-          get_all "\.ssid=" | sed "s/.*\.ssid='\(.*\)'/         \1/" | sort -u
-        else
-          echo "  [ ] Wireless (wired-only device)"
-        fi
-
-        echo ""
-
-        # --- Network Summary ---
-        echo "=== Network Summary ==="
-        echo ""
-
-        # Hostname
-        HOSTNAME=$(get_value "\.hostname=")
-        echo "  Hostname: $HOSTNAME"
-
-        # IP addresses
-        echo "  IP Addresses:"
-        get_all "\.ipaddr=" | grep -v "127.0.0.1" | sed "s/.*\.\(.*\)\.ipaddr='\(.*\)'/    \1: \2/"
-
-        # Gateways
-        echo "  Gateways:"
-        get_all "\.gateway=" | sed "s/.*\.\(.*\)\.gateway='\(.*\)'/    \1: \2/"
-
-        echo ""
-
-        # --- Inferred Package Set ---
-        echo "=== Inferred Package Set ==="
-        echo ""
-
-        PACKAGES=""
-        REMOVE_PACKAGES=""
-
-        # Base packages for all devices
-        echo "  Remove from defaults:"
-        echo "    -dnsmasq"
-        echo "    -odhcpd-ipv6only"
-        echo "    -ppp"
-        echo "    -ppp-mod-pppoe"
-        REMOVE_PACKAGES="-dnsmasq -odhcpd-ipv6only -ppp -ppp-mod-pppoe"
-
-        case "$FEATURES" in
-          *batman*)
-            echo ""
-            echo "  Mesh packages:"
-            echo "    kmod-batman-adv"
-            echo "    batctl-full"
-            PACKAGES="$PACKAGES kmod-batman-adv batctl-full"
-            ;;
-        esac
-
-        case "$FEATURES" in
-          *wireless-mesh*)
-            echo "    wpad-mesh-openssl"
-            PACKAGES="$PACKAGES wpad-mesh-openssl"
-            REMOVE_PACKAGES="$REMOVE_PACKAGES -wpad-basic-mbedtls"
-            echo "    (replaces wpad-basic-mbedtls)"
-            ;;
-        esac
-
-        case "$FEATURES" in
-          *vlans*|*bridge-vlans*)
-            echo ""
-            echo "  VLAN support:"
-            echo "    kmod-8021q"
-            PACKAGES="$PACKAGES kmod-8021q"
-            ;;
-        esac
-
-        case "$FEATURES" in
-          *luci*)
-            echo ""
-            echo "  LuCI packages:"
-            echo "    luci"
-            PACKAGES="$PACKAGES luci"
-            case "$FEATURES" in
-              *batman*)
-                echo "    luci-proto-batman-adv"
-                PACKAGES="$PACKAGES luci-proto-batman-adv"
-                ;;
-            esac
-            ;;
-        esac
-
-        case "$FEATURES" in
-          *usteer*)
-            echo ""
-            echo "  WiFi steering:"
-            echo "    usteer"
-            PACKAGES="$PACKAGES usteer"
-            ;;
-        esac
-
-        case "$FEATURES" in
-          *firewall*)
-            # If it's a switch or has firewall, keep firewall packages
-            case "$FEATURES" in
-              *batman*)
-                echo ""
-                echo "  Firewall: REMOVE (mesh AP, not needed)"
-                REMOVE_PACKAGES="$REMOVE_PACKAGES -firewall4 -nftables"
-                ;;
-              *)
-                echo ""
-                echo "  Firewall: KEEP (switch/AP device)"
-                ;;
-            esac
-            ;;
-        esac
-
-        if [ -z "$HAS_WIRELESS" ]; then
-          echo ""
-          echo "  No wireless: remove wpad-*"
-          REMOVE_PACKAGES="$REMOVE_PACKAGES -wpad-basic-mbedtls"
-        fi
-
-        echo ""
-        echo "  Debug tools:"
-        echo "    htop"
-        echo "    tcpdump"
-
-        echo ""
-
-        # --- Suggested Nix Config ---
-        echo "=== Suggested Nix Configuration ==="
-        echo ""
-
-        # Determine device type
-        DEVICE_TYPE="unknown"
-        case "$FEATURES" in
-          *batman*wireless-mesh*)
-            DEVICE_TYPE="meshAP"
-            ;;
-          *bridge-vlans*)
-            DEVICE_TYPE="switch"
-            ;;
-        esac
-
-        if [ -n "$HAS_WIRELESS" ] && [ "$DEVICE_TYPE" = "unknown" ]; then
-          DEVICE_TYPE="simpleAP"
-        fi
-
-        LAN_ADDR=$(get_value "\.lan\.ipaddr=" | head -1)
-        MGMT_ADDR=$(get_value "\.mgmt\.ipaddr=" | head -1)
-
-        case "$DEVICE_TYPE" in
-          meshAP)
-            echo "$DEVICE = mkMeshAP {"
-            echo "  hostname = \"$DEVICE\";"
-            echo "  profile = \"linksys_e8450-ubi\";"
-            if [ -n "$LAN_ADDR" ]; then
-              echo "  lanAddress = \"$LAN_ADDR\";"
-            fi
-            if [ -n "$MGMT_ADDR" ]; then
-              echo "  mgmtAddress = \"$MGMT_ADDR\";"
-            fi
-            # Per-device extras
-            BSS_COLOR=$(get_value "he_bss_color=")
-            if [ -n "$BSS_COLOR" ]; then
-              echo "  extraConfig.wireless.radio1.he_bss_color = $BSS_COLOR;"
-            fi
-            if echo "$FEATURES" | grep -q "legacy-rates"; then
-              echo "  extraConfig.wireless.radio0.legacy_rates = true;"
-            fi
-            if echo "$FEATURES" | grep -q "usteer"; then
-              echo "  extraPackages = [ \"usteer\" ];"
-            fi
-            # IoT VLAN
-            if has_feature "bat0\.1040"; then
-              echo "  # Has IoT VLAN (bat0.1040) with separate IoT SSID"
-            fi
-            echo "};"
-            ;;
-          switch)
-            echo "$DEVICE = mkSwitch {"
-            echo "  hostname = \"$DEVICE\";"
-            echo "  profile = \"linksys_e8450-ubi\";"
-            if [ -n "$LAN_ADDR" ]; then
-              echo "  lanAddress = \"$LAN_ADDR\";"
-            fi
-            echo "  extraPackages = openwrt.packages.luciPackages;"
-            echo "};"
-            ;;
-          simpleAP)
-            SSID=$(get_value "\.ssid=")
-            echo "$DEVICE = mkSimpleAP {"
-            echo "  hostname = \"$DEVICE\";"
-            echo "  profile = \"TODO\";  # Unknown hardware"
-            if [ -n "$LAN_ADDR" ]; then
-              echo "  lanAddress = \"$LAN_ADDR\";"
-            fi
-            if [ -n "$SSID" ]; then
-              echo "  ssid = \"$SSID\";"
-            fi
-            echo "};"
-            ;;
-          *)
-            echo "# Could not determine device type for $DEVICE"
-            echo "# Features: $FEATURES"
-            ;;
-        esac
       '';
     in "${script}";
   };
