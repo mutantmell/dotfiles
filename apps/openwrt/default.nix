@@ -127,52 +127,23 @@
     }
   '';
 
-  # Compute OUTPUT_DIR keyed by build.json and non-sensitive secret identity.
-  # Repo-managed sops secrets use the encrypted file's hash. Explicit plaintext
-  # secret files/stdin are intentionally uncached instead of exposing a verifier
-  # derived from the plaintext in the output path.
-  # Sets CONFIG_HASH, CACHE_VARIANT, CACHEABLE, and OUTPUT_DIR.
-  computeCacheDir = ''
-    compute_cache_dir() {
-      local use_secrets=true
-      local explicit_secrets_file=""
-      CACHEABLE=true
-      local args=("$@")
-      local i=0
-      while [ $i -lt ''${#args[@]} ]; do
-        case "''${args[$i]}" in
-          --no-secrets)
-            use_secrets=false
-            ;;
-          --secrets-file)
-            i=$((i + 1))
-            explicit_secrets_file="''${args[$i]:-}"
-            ;;
-        esac
-        i=$((i + 1))
-      done
-
-      CONFIG_HASH=$(${pkgs.coreutils}/bin/sha256sum "$CONFIG_DIR/build.json" | cut -c1-16)
-      if ! $use_secrets; then
-        CACHE_VARIANT="nosecrets"
-      elif [ -n "$explicit_secrets_file" ]; then
-        CACHEABLE=false
-        CACHE_VARIANT="secrets-explicit-$(${pkgs.coreutils}/bin/date +%Y%m%d%H%M%S)-$$"
-      elif [ -n "''${SOPS_FILE:-}" ]; then
-        CACHE_VARIANT="secrets-sops-$(${pkgs.coreutils}/bin/sha256sum "$SOPS_FILE" | cut -c1-16)"
-      else
-        CACHE_VARIANT="nosecrets"
-      fi
-
+  # Allocate a new private artifact directory for every image assembly. Completed
+  # images are deliberately never reused: evaluated configuration, secrets, CLI
+  # overrides, and caller SSH keys are all consumed afresh on every invocation.
+  createOutputDir = ''
+    create_output_dir() {
+      local kind="''${1:-build}"
       local base="''${REPO_ROOT:+$REPO_ROOT/openwrt-images}"
       base="''${base:-$(pwd)/openwrt-images}"
-      OUTPUT_DIR="$base/$DEVICE/$CONFIG_HASH-$CACHE_VARIANT"
+      umask 077
+      mkdir -p "$base/$DEVICE"
+      OUTPUT_DIR=$(${pkgs.coreutils}/bin/mktemp -d "$base/$DEVICE/$kind-$(${pkgs.coreutils}/bin/date -u +%Y%m%dT%H%M%SZ)-XXXXXX")
     }
   '';
 
   # Convert `--secrets-file -` into a private temporary file before invoking the
-  # builder. Explicit plaintext secret input is never cache-reused, so this file
-  # is not hashed into the cache key.
+  # builder. Completed images are never reused, so the temporary path does not
+  # need to participate in any cache identity.
   prepareStdinSecrets = ''
     prepare_stdin_secrets() {
       PREPARED_ARGS=("$@")
@@ -238,7 +209,7 @@ in {
         done
 
         if [ $# -lt 1 ]; then
-          echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets] [--update] [--rebuild]"
+          echo "Usage: nix run .#openwrt-build -- <device-name> [--no-secrets] [--update]"
           echo "       nix run .#openwrt-build -- <device-name> --update-pins"
           echo "       nix run .#openwrt-build -- --update-pins  (all targets)"
           echo "       nix run .#openwrt-build -- --config-file <build.json> [--secrets-file <file>]"
@@ -249,7 +220,6 @@ in {
         # --- Parse and strip update flags from positional args ---
         DO_UPDATE=false
         UPDATE_ONLY=false
-        FORCE_REBUILD=false
         UPDATE_RELEASE_ARG=""
         CLEAN_ARGS=()
         i=0
@@ -259,7 +229,6 @@ in {
           case "$arg" in
             --update)      DO_UPDATE=true ;;
             --update-pins) UPDATE_ONLY=true ;;
-            --rebuild)     FORCE_REBUILD=true ;;
             --release)
               i=$((i + 1))
               UPDATE_RELEASE_ARG="''${ALL_ARGS[$i]}"
@@ -310,7 +279,13 @@ in {
             --print-out-paths --no-link)
         fi
 
-        # Restore cleaned args (update flags removed)
+        # --release belongs to the update operation when updating pins. For an
+        # ordinary build it is a builder override and must remain forwarded.
+        if ! $DO_UPDATE && ! $UPDATE_ONLY && [ -n "$UPDATE_RELEASE_ARG" ]; then
+          CLEAN_ARGS+=(--release "$UPDATE_RELEASE_ARG")
+        fi
+
+        # Restore cleaned args (wrapper-only update flags removed)
         set -- "''${CLEAN_ARGS[@]}"
 
         # --config-file mode: use a pre-built manifest file directly
@@ -329,6 +304,17 @@ in {
         DEVICE="$1"
         shift
 
+        # The managed-device wrapper owns these paths so every invocation uses
+        # the evaluated device manifest and a new artifact directory.
+        for arg in "$@"; do
+          case "$arg" in
+            --config-file|--output-dir)
+              echo "Error: $arg is managed by the device wrapper; use leading --config-file mode for ad-hoc builds." >&2
+              exit 1
+              ;;
+          esac
+        done
+
         if ! $DO_UPDATE; then
           # CONFIG_DIR not yet set by update flow — resolve from pre-built configs
           resolve_device "$DEVICE"
@@ -336,8 +322,7 @@ in {
 
         ${discoverSopsFile}
         ${runBuilder}
-        ${findSysupgrade}
-        ${computeCacheDir}
+        ${createOutputDir}
         ${prepareStdinSecrets}
 
         cleanup_stdin_secrets() { [ -n "''${STDIN_SECRETS_FILE:-}" ] && rm -f "$STDIN_SECRETS_FILE"; }
@@ -345,21 +330,8 @@ in {
         prepare_stdin_secrets "$@"
         set -- "''${PREPARED_ARGS[@]}"
 
-        compute_cache_dir "$@"
-
-        if $CACHEABLE && [ "$FORCE_REBUILD" = false ]; then
-          CACHED=$(find_sysupgrade "$OUTPUT_DIR")
-          if [ -n "$CACHED" ]; then
-            echo "Using cached image (config hash: $CONFIG_HASH, variant: $CACHE_VARIANT)."
-            echo "  $CACHED"
-            echo "Pass --rebuild to force a fresh build."
-            exit 0
-          fi
-        elif ! $CACHEABLE; then
-          echo "Explicit plaintext secrets selected; cache reuse disabled for this build."
-        fi
-
-        echo "Cache key: config=$CONFIG_HASH variant=$CACHE_VARIANT"
+        create_output_dir build
+        echo "Artifact directory: $OUTPUT_DIR"
         run_builder --config-file "$CONFIG_DIR/build.json" --output-dir "$OUTPUT_DIR" "$@"
       '';
     in "${script}";
@@ -375,11 +347,11 @@ in {
         ${resolveDevice}
 
         if [ $# -lt 2 ]; then
-          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--no-secrets] [--secrets-file <path|->] [--ssh-key <path>] [--rebuild]"
+          echo "Usage: nix run .#openwrt-deploy -- <device-name> <device-ip> [--force] [--no-secrets] [--secrets-file <path|->] [--ssh-key <path>]"
           echo ""
           echo "Builds and deploys an OpenWrt sysupgrade image to the specified device."
           echo "Secrets are baked into the image — no post-deploy SSH step needed."
-          echo "Skips the build step if a cached image exists for the current config."
+          echo "Always assembles a fresh image from the current config and secrets."
           echo ""
           echo "Arguments:"
           echo "  device-name      Name of the device (as defined in hosts/openwrt/)"
@@ -388,7 +360,6 @@ in {
           echo "  --no-secrets     Build without WiFi secrets (radios will be disabled)"
           echo "  --secrets-file   Use explicit plain secrets YAML for image build"
           echo "  --ssh-key PATH   Use a specific SSH private key for authentication"
-          echo "  --rebuild        Force rebuild even if a cached image exists"
           echo ""
           echo "Example:"
           echo "  nix run .#openwrt-deploy -- bobcat 10.97.10.10"
@@ -401,7 +372,6 @@ in {
         shift 2
         resolve_device "$DEVICE"
 
-        FORCE_REBUILD=false
         BUILD_ARGS=()
         DEPLOY_ARGS=()
         while [ $# -gt 0 ]; do
@@ -422,7 +392,6 @@ in {
               [ $# -gt 0 ] || { echo "Error: --ssh-key requires a path" >&2; exit 1; }
               DEPLOY_ARGS+=(--ssh-key "$1")
               ;;
-            --rebuild) FORCE_REBUILD=true ;;
             *)
               echo "Unknown argument: $1" >&2
               exit 1
@@ -435,7 +404,7 @@ in {
         ${discoverSopsFile}
         ${runBuilder}
         ${findSysupgrade}
-        ${computeCacheDir}
+        ${createOutputDir}
         ${prepareStdinSecrets}
 
         cleanup_stdin_secrets() { [ -n "''${STDIN_SECRETS_FILE:-}" ] && rm -f "$STDIN_SECRETS_FILE"; }
@@ -443,29 +412,17 @@ in {
         prepare_stdin_secrets "''${BUILD_ARGS[@]}"
         BUILD_ARGS=("''${PREPARED_ARGS[@]}")
 
-        compute_cache_dir "''${BUILD_ARGS[@]}"
+        create_output_dir deploy
+        echo "Artifact directory: $OUTPUT_DIR"
+        run_builder \
+          --config-file "$CONFIG_DIR/build.json" \
+          --output-dir "$OUTPUT_DIR" \
+          "''${BUILD_ARGS[@]}"
 
-        # Use cached image if available
-        SYSUPGRADE=""
-        if $CACHEABLE && [ "$FORCE_REBUILD" = false ]; then
-          SYSUPGRADE=$(find_sysupgrade "$OUTPUT_DIR")
-          [ -n "$SYSUPGRADE" ] && echo "Using cached image (config hash: $CONFIG_HASH, variant: $CACHE_VARIANT)."
-        elif ! $CACHEABLE; then
-          echo "Explicit plaintext secrets selected; cache reuse disabled for this deploy build."
-        fi
-
+        SYSUPGRADE=$(find_sysupgrade "$OUTPUT_DIR")
         if [ -z "$SYSUPGRADE" ]; then
-          echo "Cache key: config=$CONFIG_HASH variant=$CACHE_VARIANT"
-          run_builder \
-            --config-file "$CONFIG_DIR/build.json" \
-            --output-dir "$OUTPUT_DIR" \
-            "''${BUILD_ARGS[@]}"
-
-          SYSUPGRADE=$(find_sysupgrade "$OUTPUT_DIR")
-          if [ -z "$SYSUPGRADE" ]; then
-            echo "Error: No sysupgrade image found in $OUTPUT_DIR"
-            exit 1
-          fi
+          echo "Error: No sysupgrade image found in $OUTPUT_DIR"
+          exit 1
         fi
 
         # Deploy the image
@@ -498,7 +455,13 @@ in {
         OUTPUT_DIR="''${2:-.}"
 
         echo "Exporting configuration from $TARGET..."
-        mkdir -p "$OUTPUT_DIR"
+        umask 077
+        if [ ! -e "$OUTPUT_DIR" ]; then
+          mkdir -p "$OUTPUT_DIR"
+          chmod 700 "$OUTPUT_DIR"
+        else
+          mkdir -p "$OUTPUT_DIR"
+        fi
 
         # Device info
         echo "  - Device info..."
@@ -685,7 +648,6 @@ in {
           echo "  --kernel-file PATH    Use a pre-built kernel (skip build step)"
           echo "  --rootfs-gz PATH      Use a pre-built ext4 rootfs .img.gz (skip build step;"
           echo "                        auto-detected from kernel directory if omitted)"
-          echo "  --rebuild             Force rebuild even if a cached image exists"
           exit 1
         }
 
@@ -702,7 +664,6 @@ in {
         MEMORY=256
         KERNEL_FILE=""
         ROOTFS_GZ=""
-        FORCE_REBUILD=false
 
         while [ $# -gt 0 ]; do
           case "$1" in
@@ -712,7 +673,6 @@ in {
             --memory)       shift; MEMORY="$1" ;;
             --kernel-file)  shift; KERNEL_FILE="$1" ;;
             --rootfs-gz)    shift; ROOTFS_GZ="$1" ;;
-            --rebuild)      FORCE_REBUILD=true ;;
             --help|-h)      usage ;;
             *)              echo "Unknown option: $1" >&2; usage ;;
           esac
@@ -724,10 +684,27 @@ in {
           resolve_target "$DEVICE"
           REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
           ${discoverSopsFile}
-          ${computeCacheDir}
+          ${createOutputDir}
 
-          compute_cache_dir $NO_SECRETS_ARG
-          OUTPUT_DIR="$(dirname "$OUTPUT_DIR")/''${CONFIG_HASH}-armsr-armv8-''${CACHE_VARIANT}"
+          # Collect the caller's SSH public keys for this fresh VM image. Try the
+          # SSH agent first, then fall back to standard public key files.
+          USER_KEYS=$(${pkgs.openssh}/bin/ssh-add -L 2>/dev/null || true)
+          if [ -z "$USER_KEYS" ]; then
+            for pub in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME/.ssh/id_ecdsa.pub"; do
+              [ -f "$pub" ] && USER_KEYS="$(printf '%s\n%s' "$USER_KEYS" "$(cat "$pub")")" || true
+            done
+          fi
+          KEY_ARGS=()
+          while IFS= read -r key; do
+            [ -n "$key" ] && KEY_ARGS+=("--authorized-key" "$key")
+          done <<< "$USER_KEYS"
+          if [ ''${#KEY_ARGS[@]} -eq 0 ]; then
+            echo "Warning: No SSH public keys found in agent or ~/.ssh/id_*.pub."
+            echo "         VM will boot without any authorized SSH keys — login will fail."
+            echo ""
+          fi
+
+          create_output_dir vm-armsr-armv8
 
           # Warn when the device's native architecture differs from the armsr/armv8 VM.
           case "$DEVICE_TARGET" in
@@ -740,59 +717,29 @@ in {
               ;;
           esac
 
-          # Check for a cached build from a previous run with the same config.
-          if [ "$FORCE_REBUILD" = false ]; then
-            KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*-kernel.bin" 2>/dev/null | head -1 || true)
-            ROOTFS_GZ=$(find "$OUTPUT_DIR" -name "*-ext4-rootfs.img.gz" 2>/dev/null | head -1 || true)
-            if [ -n "$KERNEL_FILE" ] && [ -n "$ROOTFS_GZ" ]; then
-              echo "Using cached VM image (config hash: $CONFIG_HASH, variant: $CACHE_VARIANT)."
-            fi
-          fi
+          ${runBuilder}
 
-          if [ -z "$KERNEL_FILE" ]; then
-            # Collect the caller's SSH public keys to pass to the builder.
-            # Try the SSH agent first (covers hardware tokens and loaded keys), then fall
-            # back to the standard public key files.
-            USER_KEYS=$(${pkgs.openssh}/bin/ssh-add -L 2>/dev/null || true)
-            if [ -z "$USER_KEYS" ]; then
-              for pub in "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub" "$HOME/.ssh/id_ecdsa.pub"; do
-                [ -f "$pub" ] && USER_KEYS="$(printf '%s\n%s' "$USER_KEYS" "$(cat "$pub")")" || true
-              done
-            fi
-            KEY_ARGS=()
-            while IFS= read -r key; do
-              [ -n "$key" ] && KEY_ARGS+=("--authorized-key" "$key")
-            done <<< "$USER_KEYS"
-            if [ ''${#KEY_ARGS[@]} -eq 0 ]; then
-              echo "Warning: No SSH public keys found in agent or ~/.ssh/id_*.pub."
-              echo "         VM will boot without any authorized SSH keys — login will fail."
-              echo ""
-            fi
+          echo "Building aarch64 VM image for $DEVICE..."
+          echo "Artifact directory: $OUTPUT_DIR"
+          run_builder \
+            --config-file "$CONFIG_DIR/build.json" \
+            --target armsr \
+            --subtarget armv8 \
+            --profile generic \
+            "''${KEY_ARGS[@]}" \
+            --output-dir "$OUTPUT_DIR" \
+            $NO_SECRETS_ARG
 
-            ${runBuilder}
-
-            echo "Building aarch64 VM image for $DEVICE..."
-            echo "(First run downloads the ~20 MB armsr/armv8 Image Builder and caches it)"
-            run_builder \
-              --config-file "$CONFIG_DIR/build.json" \
-              --target armsr \
-              --subtarget armv8 \
-              --profile generic \
-              "''${KEY_ARGS[@]}" \
-              --output-dir "$OUTPUT_DIR" \
-              $NO_SECRETS_ARG
-
-            # armsr/armv8 generic profile produces a separate kernel and ext4 rootfs:
-            #   *-kernel.bin              — plain kernel binary
-            #   *-ext4-rootfs.img.gz      — ext4 rootfs image (contains our UCI config)
-            # QEMU boots with -kernel + a virtio disk drive (no UEFI needed).
-            KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*-kernel.bin" 2>/dev/null | head -1 || true)
-            ROOTFS_GZ=$(find "$OUTPUT_DIR" -name "*-ext4-rootfs.img.gz" 2>/dev/null | head -1 || true)
-            if [ -z "$KERNEL_FILE" ] || [ -z "$ROOTFS_GZ" ]; then
-              echo "Error: Could not find kernel or ext4 rootfs image in $OUTPUT_DIR" >&2
-              ls "$OUTPUT_DIR" >&2 || true
-              exit 1
-            fi
+          # armsr/armv8 generic profile produces a separate kernel and ext4 rootfs:
+          #   *-kernel.bin              — plain kernel binary
+          #   *-ext4-rootfs.img.gz      — ext4 rootfs image (contains our UCI config)
+          # QEMU boots with -kernel + a virtio disk drive (no UEFI needed).
+          KERNEL_FILE=$(find "$OUTPUT_DIR" -name "*-kernel.bin" 2>/dev/null | head -1 || true)
+          ROOTFS_GZ=$(find "$OUTPUT_DIR" -name "*-ext4-rootfs.img.gz" 2>/dev/null | head -1 || true)
+          if [ -z "$KERNEL_FILE" ] || [ -z "$ROOTFS_GZ" ]; then
+            echo "Error: Could not find kernel or ext4 rootfs image in $OUTPUT_DIR" >&2
+            ls "$OUTPUT_DIR" >&2 || true
+            exit 1
           fi
         fi
 
@@ -807,16 +754,13 @@ in {
           fi
         fi
 
-        # Decompress the golden rootfs image once into the cache dir, then copy it
-        # to a temp file for this QEMU run. UCI defaults (/etc/uci-defaults/) run on
-        # first boot and delete themselves — a fresh copy per run ensures they always
-        # execute, and VM writes don't corrupt the cached golden image.
+        # Decompress the freshly assembled rootfs, then copy it to a temp file for
+        # this QEMU run. UCI defaults (/etc/uci-defaults/) run on first boot and
+        # delete themselves, and VM writes must not alter the retained artifact.
         ROOTFS_GOLDEN="''${ROOTFS_GZ%.gz}"
-        if [ ! -f "$ROOTFS_GOLDEN" ] || [ "$ROOTFS_GZ" -nt "$ROOTFS_GOLDEN" ]; then
-          echo "Decompressing rootfs image (cached for future runs)..."
-          ${pkgs.gzip}/bin/zcat "$ROOTFS_GZ" > "''${ROOTFS_GOLDEN}.tmp"
-          mv "''${ROOTFS_GOLDEN}.tmp" "$ROOTFS_GOLDEN"
-        fi
+        echo "Decompressing rootfs image..."
+        ${pkgs.gzip}/bin/zcat "$ROOTFS_GZ" > "''${ROOTFS_GOLDEN}.tmp"
+        mv "''${ROOTFS_GOLDEN}.tmp" "$ROOTFS_GOLDEN"
         ROOTFS_IMG=$(mktemp -t openwrt-rootfs-XXXXXX.img)
         ${pkgs.coreutils}/bin/cp "$ROOTFS_GOLDEN" "$ROOTFS_IMG"
 
