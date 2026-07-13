@@ -16,6 +16,8 @@ Environment variables:
 """
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import shutil
@@ -40,9 +42,9 @@ def load_config(manifest_file):
     paths for uciDefaults, secretsApply, and authorizedKeys. Paths may be
     absolute or relative to the manifest file.
 
-    When produced by `nix build .#openwrtConfigurations.<device>`, the paths
-    are absolute Nix store paths. The manifest may also be hand-crafted with
-    relative or absolute paths to files stored elsewhere.
+    Manifests produced by `nix build .#openwrtConfigurations.<device>` use
+    absolute Nix store paths. The Image Builder tarball is required to resolve
+    beneath /nix/store; other referenced configuration files may be relative.
     """
     manifest_file = Path(manifest_file)
     with open(manifest_file) as f:
@@ -193,6 +195,22 @@ def _find_ib_subdir(parent_dir, release, target, subtarget):
     return None
 
 
+def validate_pinned_tarball(tarball_path):
+    """Resolve and validate an Image Builder tarball pinned by Nix."""
+    store_root = Path("/nix/store").resolve()
+    try:
+        store_path = Path(tarball_path).resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise ValueError(
+            f"pinned Image Builder tarball does not exist: {tarball_path}"
+        ) from error
+    if not store_path.is_file() or not store_path.is_relative_to(store_root):
+        raise ValueError(
+            "imageBuilderTarball must resolve to a regular file under /nix/store"
+        )
+    return store_path
+
+
 def prepare_imagebuilder(release, target, subtarget, cache_dir, tarball_path):
     """Obtain the OpenWrt Image Builder directory, ready for `make image`.
 
@@ -202,43 +220,71 @@ def prepare_imagebuilder(release, target, subtarget, cache_dir, tarball_path):
     The extracted directory is cached in cache_dir to avoid re-extraction
     on repeated builds.
     """
-    store_path = Path(tarball_path)
-    if not store_path.is_file():
-        raise ValueError(f"pinned Image Builder tarball does not exist: {store_path}")
+    store_path = validate_pinned_tarball(tarball_path)
     # Derive a stable cache key from the Nix store hash component.
     cache_key = store_path.name.split("-", 1)[0]
     extract_dir = cache_dir / f"store-{cache_key}"
-    complete = extract_dir / ".complete"
-    ib_dir = _find_ib_subdir(extract_dir, release, target, subtarget)
-    if complete.is_file() and ib_dir is not None:
-        print(f"  Using cached Image Builder: {ib_dir}")
-        return ib_dir
-    # Old/interrupted implementations may have left an incomplete destination.
-    # Current extraction happens privately, so a destination without the marker
-    # is never an active extraction.
-    if extract_dir.exists():
-        shutil.rmtree(extract_dir, ignore_errors=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    temp_dir = Path(tempfile.mkdtemp(prefix=f".{extract_dir.name}-", dir=cache_dir))
-    print(f"  Extracting from Nix store: {store_path}")
-    try:
-        extract_tar_zst(store_path, temp_dir)
-        temp_ib = _find_ib_subdir(temp_dir, release, target, subtarget)
-        if temp_ib is None:
-            raise ValueError("archive did not contain the expected Image Builder directory")
-        (temp_dir / ".complete").touch()
-        try:
-            temp_dir.rename(extract_dir)
-        except FileExistsError:
-            # A concurrent process won atomic promotion. Reuse only its complete result.
-            shutil.rmtree(temp_dir, ignore_errors=True)
+    cache_dir.chmod(0o700)
+    lock_path = cache_dir / f".{extract_dir.name}.lock"
+    with open(lock_path, "a+") as lock_file:
+        lock_path.chmod(0o600)
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        complete = extract_dir / ".complete"
         ib_dir = _find_ib_subdir(extract_dir, release, target, subtarget)
-        if not complete.is_file() or ib_dir is None:
-            raise ValueError("concurrent Image Builder extraction did not complete")
+        if complete.is_file() and ib_dir is not None:
+            print(f"  Using cached Image Builder: {ib_dir}")
+            return ib_dir
+
+        # Only the lock holder may migrate an incomplete legacy entry. New
+        # extractors never write to the shared destination before promotion.
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
+
+        temp_dir = Path(tempfile.mkdtemp(prefix=f".{extract_dir.name}-", dir=cache_dir))
+        print(f"  Extracting from Nix store: {store_path}")
+        try:
+            extract_tar_zst(store_path, temp_dir)
+            temp_ib = _find_ib_subdir(temp_dir, release, target, subtarget)
+            if temp_ib is None:
+                raise ValueError(
+                    "archive did not contain the expected Image Builder directory"
+                )
+            (temp_dir / ".complete").touch()
+            temp_dir.rename(extract_dir)
+        finally:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        ib_dir = _find_ib_subdir(extract_dir, release, target, subtarget)
+        if not (extract_dir / ".complete").is_file() or ib_dir is None:
+            raise ValueError("Image Builder extraction did not complete")
         return ib_dir
+
+
+@contextlib.contextmanager
+def imagebuilder_workspace(cached_ib_dir):
+    """Copy a pristine cached Image Builder into a private temporary workspace."""
+    workspace_root = Path(tempfile.mkdtemp(prefix="openwrt-imagebuilder-"))
+    workspace_root.chmod(0o700)
+    workspace = workspace_root / "imagebuilder"
+    try:
+        # GNU cp can make cheap reflink copies where supported. Fall back to
+        # shutil for environments without that extension.
+        try:
+            result = subprocess.run(
+                ["cp", "-a", "--reflink=auto", f"{cached_ib_dir}/.", workspace],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            result = None
+        if result is None or result.returncode != 0:
+            shutil.rmtree(workspace, ignore_errors=True)
+            shutil.copytree(cached_ib_dir, workspace, symlinks=True)
+        yield workspace
     finally:
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        shutil.rmtree(workspace_root, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -419,13 +465,14 @@ def main():
         files_dir = prepare_files(build_info, uci_script, tmpdir)
 
         print("[5/5] Building image...")
-        build_image(
-            ib_dir,
-            build_info["profile"],
-            build_info["packages"],
-            files_dir,
-            output_dir,
-        )
+        with imagebuilder_workspace(ib_dir) as workspace:
+            build_image(
+                workspace,
+                build_info["profile"],
+                build_info["packages"],
+                files_dir,
+                output_dir,
+            )
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 

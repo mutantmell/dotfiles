@@ -1,7 +1,10 @@
 import importlib.util
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 spec = importlib.util.spec_from_file_location("openwrt_build", Path(__file__).with_name("build.py"))
@@ -35,6 +38,131 @@ class SecretsTests(unittest.TestCase):
             source.write_text("[not, a, mapping]\n")
             with self.assertRaisesRegex(ValueError, "YAML mapping"):
                 build.load_secrets(source)
+
+
+class ImageBuilderTests(unittest.TestCase):
+    release = "24.10.1"
+    target = "mediatek"
+    subtarget = "filogic"
+
+    def _ib_name(self):
+        return (
+            f"openwrt-imagebuilder-{self.release}-{self.target}-"
+            f"{self.subtarget}.Linux-x86_64"
+        )
+
+    @staticmethod
+    def _make_workspace(path):
+        path.mkdir()
+        return str(path)
+
+    def test_tarball_must_resolve_under_nix_store(self):
+        with tempfile.NamedTemporaryFile() as source:
+            with self.assertRaisesRegex(ValueError, "under /nix/store"):
+                build.validate_pinned_tarball(source.name)
+
+    def test_concurrent_preparation_extracts_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cache = root / "cache"
+            tarball = root / "store-hash-imagebuilder.tar.zst"
+            tarball.touch()
+            calls = []
+            calls_lock = threading.Lock()
+
+            def fake_extract(_archive, destination):
+                with calls_lock:
+                    calls.append(destination)
+                time.sleep(0.05)
+                (destination / self._ib_name()).mkdir()
+
+            results = []
+
+            def prepare():
+                results.append(build.prepare_imagebuilder(
+                    self.release,
+                    self.target,
+                    self.subtarget,
+                    cache,
+                    tarball,
+                ))
+
+            with (
+                mock.patch.object(build, "validate_pinned_tarball", return_value=tarball),
+                mock.patch.object(build, "extract_tar_zst", side_effect=fake_extract),
+            ):
+                threads = [threading.Thread(target=prepare) for _ in range(2)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+
+            self.assertEqual(1, len(calls))
+            self.assertEqual(2, len(results))
+            self.assertEqual(results[0], results[1])
+            self.assertTrue((results[0].parent / ".complete").is_file())
+
+    def test_workspace_is_private_pristine_and_removed_on_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cached = root / "cached"
+            cached.mkdir()
+            (cached / "sentinel").write_text("pristine")
+            workspace_root = root / "workspace"
+
+            def fake_run(command, **kwargs):
+                if command[0] == "cp":
+                    return mock.Mock(returncode=1)
+                # Model secret-bearing intermediates written by `make image`.
+                Path(kwargs["cwd"], "sentinel").write_text("secret build intermediate")
+                Path(kwargs["cwd"], "secret-intermediate").write_text("credential")
+                return mock.Mock(returncode=0)
+
+            with (
+                mock.patch.object(
+                    build.tempfile,
+                    "mkdtemp",
+                    side_effect=lambda **_kwargs: self._make_workspace(workspace_root),
+                ),
+                mock.patch.object(
+                    build.subprocess,
+                    "run",
+                    side_effect=fake_run,
+                ),
+            ):
+                with build.imagebuilder_workspace(cached) as workspace:
+                    self.assertEqual(0o700, workspace_root.stat().st_mode & 0o777)
+                    build.build_image(workspace, "profile", [], root, root / "output")
+
+            self.assertEqual("pristine", (cached / "sentinel").read_text())
+            self.assertFalse((cached / "secret-intermediate").exists())
+            self.assertFalse(workspace_root.exists())
+
+    def test_workspace_is_removed_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cached = root / "cached"
+            cached.mkdir()
+            (cached / "sentinel").touch()
+            workspace_root = root / "workspace"
+
+            with (
+                mock.patch.object(
+                    build.tempfile,
+                    "mkdtemp",
+                    side_effect=lambda **_kwargs: self._make_workspace(workspace_root),
+                ),
+                mock.patch.object(
+                    build.subprocess,
+                    "run",
+                    return_value=mock.Mock(returncode=1),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "failed"):
+                    with build.imagebuilder_workspace(cached):
+                        raise RuntimeError("failed")
+
+            self.assertFalse(workspace_root.exists())
 
 
 if __name__ == "__main__":
