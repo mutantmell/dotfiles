@@ -562,9 +562,14 @@ in {
           foreach {command expected description} {
             {uci -q get system.system.hostname} bobcat hostname
             {uci -q get network.bat0.proto} batadv batman-interface
-            {uci -q get wireless.ap_2g_main.ssid} fake-main-ssid main-ssid
-            {uci -q get wireless.ap_5g_main.key} {fake-main'key} main-key
-            {uci -q get wireless.ap_2g_secondary.ssid} fake-secondary-ssid secondary-ssid
+            {uci -q get wireless.ap_2g_main.ssid} fake-main-ssid main-ssid-2g
+            {uci -q get wireless.ap_5g_main.ssid} fake-main-ssid main-ssid-5g
+            {uci -q get wireless.ap_2g_main.key} {fake-main'key} main-key-2g
+            {uci -q get wireless.ap_5g_main.key} {fake-main'key} main-key-5g
+            {uci -q get wireless.ap_2g_secondary.ssid} fake-secondary-ssid secondary-ssid-2g
+            {uci -q get wireless.ap_5g_secondary.ssid} fake-secondary-ssid secondary-ssid-5g
+            {uci -q get wireless.ap_2g_secondary.key} fake-secondary-key secondary-key-2g
+            {uci -q get wireless.ap_5g_secondary.key} fake-secondary-key secondary-key-5g
             {uci -q get wireless.batmesh.mesh_id} fake-mesh-id mesh-id
             {uci -q get wireless.batmesh.key} fake-mesh-key mesh-key
             {uci -q get wireless.radio0.disabled} 0 radio0-state
