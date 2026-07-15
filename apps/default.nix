@@ -43,6 +43,7 @@ in {
     openwrt-build
     openwrt-deploy
     openwrt-run
+    openwrt-vm-smoke
     openwrt-update-pins
     ;
 }

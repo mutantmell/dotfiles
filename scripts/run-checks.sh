@@ -36,6 +36,10 @@ declare -A PURE_EVAL_CHECKS=(
   ["disko-vmtools-canary"]=1
 )
 
+declare -A EXTERNAL_CHECKS=(
+  ["openwrt-vm-smoke"]=1
+)
+
 usage() {
   cat <<EOF
 Usage: $0 [options] [check ...]
@@ -224,6 +228,7 @@ if [[ ${#CHECKS[@]} -eq 0 ]]; then
       2>/dev/null
   )
   mapfile -t CHECKS < <(printf '%s\n' "$CHECKS_TEXT" | grep -v '^$')
+  CHECKS+=(openwrt-vm-smoke)
 fi
 
 if [[ -n $SHARD_SPEC ]]; then
@@ -251,7 +256,7 @@ declare -A CHECK_STATUS
 declare -A CHECK_LOG
 
 TOTAL=${#CHECKS[@]}
-echo "Running ${TOTAL} nix checks (parallelism: ${MAX_PARALLEL})..."
+echo "Running ${TOTAL} checks (parallelism: ${MAX_PARALLEL})..."
 if [[ -n $SHARD_SPEC ]]; then
   echo "Shard: ${SHARD_SPEC}"
 fi
@@ -262,7 +267,9 @@ echo ""
 
 run_check() {
   local check="$1"
-  if [[ $EVAL_ONLY_PURE -eq 1 && -n ${PURE_EVAL_CHECKS[$check]+x} ]]; then
+  if [[ -n ${EXTERNAL_CHECKS[$check]+x} ]]; then
+    nix run "${FLAKE_REF}#${check}"
+  elif [[ $EVAL_ONLY_PURE -eq 1 && -n ${PURE_EVAL_CHECKS[$check]+x} ]]; then
     nix eval "${FLAKE_REF}#checks.${SYSTEM}.${check}.drvPath" --raw
   else
     nix build "${FLAKE_REF}#checks.${SYSTEM}.${check}" --print-build-logs
@@ -378,7 +385,7 @@ if [[ $FAILED -gt 0 ]]; then
     fi
   done
   echo ""
-  echo "Re-run a failing check with build logs:"
-  echo "  nix build .#checks.${SYSTEM}.<name> --print-build-logs"
+  echo "Re-run a failing check:"
+  echo "  ./scripts/run-checks.sh <name>"
   exit 1
 fi

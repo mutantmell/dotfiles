@@ -282,9 +282,38 @@ def imagebuilder_workspace(cached_ib_dir):
         if result is None or result.returncode != 0:
             shutil.rmtree(workspace, ignore_errors=True)
             shutil.copytree(cached_ib_dir, workspace, symlinks=True)
+        patch_env_shebangs(workspace)
         yield workspace
     finally:
         shutil.rmtree(workspace_root, ignore_errors=True)
+
+
+def patch_env_shebangs(workspace):
+    """Make upstream tools runnable when /usr/bin is absent in a Nix sandbox."""
+    env = shutil.which("env")
+    if env is None:
+        raise ValueError("env is required to prepare the Image Builder workspace")
+
+    old_prefix = b"#!/usr/bin/env"
+    new_prefix = f"#!{env}".encode()
+    rules = workspace / "rules.mk"
+    try:
+        rules.write_text(rules.read_text().replace("/usr/bin/env", env))
+    except OSError:
+        pass
+
+    for path in workspace.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            with path.open("rb") as source:
+                first_line = source.readline()
+                if not first_line.startswith(old_prefix):
+                    continue
+                remainder = source.read()
+            path.write_bytes(new_prefix + first_line[len(old_prefix):] + remainder)
+        except OSError:
+            continue
 
 
 # ---------------------------------------------------------------------------
@@ -331,10 +360,16 @@ def build_image(ib_dir, profile, packages, files_dir, output_dir):
     ]
 
     print(f"  Running: {' '.join(cmd[:4])} ...")
-    result = subprocess.run(
-        cmd, cwd=ib_dir,
-        env={**os.environ, "TERM": "xterm"},
-    )
+    # OpenWrt rejects other umasks because they can produce images with broken
+    # file modes. Do not rely on the caller (or a CI runner) to provide 022.
+    previous_umask = os.umask(0o022)
+    try:
+        result = subprocess.run(
+            cmd, cwd=ib_dir,
+            env={**os.environ, "TERM": "xterm"},
+        )
+    finally:
+        os.umask(previous_umask)
     if result.returncode != 0:
         print("Error: Image build failed", file=sys.stderr)
         sys.exit(1)

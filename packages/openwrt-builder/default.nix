@@ -7,6 +7,7 @@
   gnumake,
   gnutar,
   coreutils,
+  getopt,
   findutils,
   gnugrep,
   gawk,
@@ -20,6 +21,7 @@
   which,
   ncurses,
   rsync,
+  wget,
   xz,
 }: let
   # setuptools provides the distutils compatibility shim removed in Python 3.12,
@@ -33,6 +35,7 @@
     gnumake
     gnutar
     coreutils
+    getopt
     findutils
     gnugrep
     gawk
@@ -46,6 +49,7 @@
     which
     ncurses
     rsync
+    wget
     xz
   ];
 in

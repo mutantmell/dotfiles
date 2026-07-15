@@ -360,6 +360,7 @@ in {
           echo "  --kernel-file PATH    Use a pre-built kernel (skip build step)"
           echo "  --rootfs-gz PATH      Use a pre-built ext4 rootfs .img.gz (skip build step;"
           echo "                        auto-detected from kernel directory if omitted)"
+          echo "  --init-shell          Boot directly to /bin/sh (for automated image tests)"
           exit 1
         }
 
@@ -376,6 +377,7 @@ in {
         MEMORY=256
         KERNEL_FILE=""
         ROOTFS_GZ=""
+        INIT_SHELL_ARG=""
 
         while [ $# -gt 0 ]; do
           case "$1" in
@@ -385,6 +387,7 @@ in {
             --memory)       shift; MEMORY="$1" ;;
             --kernel-file)  shift; KERNEL_FILE="$1" ;;
             --rootfs-gz)    shift; ROOTFS_GZ="$1" ;;
+            --init-shell)   INIT_SHELL_ARG="init=/bin/sh" ;;
             --help|-h)      usage ;;
             *)              echo "Unknown option: $1" >&2; usage ;;
           esac
@@ -477,9 +480,64 @@ in {
           -nographic \
           -kernel "$KERNEL_FILE" \
           -drive "file=$ROOTFS_IMG,format=raw,if=virtio" \
-          -append "root=/dev/vda rw console=ttyAMA0" \
+          -append "root=/dev/vda rootwait rw console=ttyAMA0 $INIT_SHELL_ARG" \
+          -device virtio-rng-pci \
           -netdev "user,id=net0,hostfwd=tcp::$SSH_PORT-:22,hostfwd=tcp::$WEB_PORT-:80" \
           -device virtio-net-pci,netdev=net0
+      '';
+    in "${script}";
+  };
+
+  # Networked end-to-end smoke test. Image Builder downloads package feeds, so
+  # this intentionally runs outside the network-isolated Nix build sandbox.
+  openwrt-vm-smoke = {
+    type = "app";
+    program = let
+      script = pkgs.writeShellScript "openwrt-vm-smoke" ''
+        set -euo pipefail
+
+        cd "$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
+        OPENWRT_RUN_PROGRAM="$(${pkgs.nix}/bin/nix build \
+          .#apps.x86_64-linux.openwrt-run.program \
+          --no-link --print-out-paths)"
+        export OPENWRT_RUN_PROGRAM
+        export OPENWRT_SMOKE_SSH_PORT=$((20000 + $$ % 10000))
+        export OPENWRT_SMOKE_WEB_PORT=$((30000 + $$ % 10000))
+
+        ${pkgs.expect}/bin/expect <<'EXPECT_EOF'
+          set timeout 300
+          log_user 1
+          spawn $env(OPENWRT_RUN_PROGRAM) bobcat --no-secrets --init-shell \
+            --ssh-port $env(OPENWRT_SMOKE_SSH_PORT) \
+            --web-port $env(OPENWRT_SMOKE_WEB_PORT)
+
+          expect {
+            -re {[/~] # $} {}
+            timeout {
+              puts stderr "Timed out waiting for the OpenWrt init shell"
+              exit 1
+            }
+            eof {
+              puts stderr "QEMU exited before the OpenWrt console became ready"
+              exit 1
+            }
+          }
+          send {mkdir -p /var/lock && /etc/uci-defaults/99-nix-config && test "$(uci -q get system.system.hostname)" = bobcat && test "$(uci -q get network.bat0.proto)" = batadv && test "$(uci -q get wireless.radio0.disabled)" = 1 && printf 'OPENWRT_VM_SMOKE_%s\n' OK}
+          send "\r"
+          expect {
+            "OPENWRT_VM_SMOKE_OK" {}
+            timeout {
+              puts stderr "OpenWrt booted, but its generated UCI configuration was not applied"
+              exit 1
+            }
+            eof {
+              puts stderr "QEMU exited before UCI verification completed"
+              exit 1
+            }
+          }
+          send "\001x"
+          expect eof
+        EXPECT_EOF
       '';
     in "${script}";
   };

@@ -138,6 +138,32 @@ class ImageBuilderTests(unittest.TestCase):
             self.assertFalse((cached / "secret-intermediate").exists())
             self.assertFalse(workspace_root.exists())
 
+    def test_workspace_patches_env_shebangs_without_mutating_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cached = root / "cached"
+            cached.mkdir()
+            script = cached / "script"
+            script.write_text("#!/usr/bin/env python3\nprint('ok')\n")
+            rules = cached / "rules.mk"
+            rules.write_text("export SHELL:=/usr/bin/env bash\n")
+
+            with mock.patch.object(
+                build.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=1),
+            ):
+                with build.imagebuilder_workspace(cached) as workspace:
+                    patched = (workspace / "script").read_text()
+                    self.assertTrue(patched.startswith(f"#!{build.shutil.which('env')} python3"))
+                    self.assertIn(
+                        f"SHELL:={build.shutil.which('env')} bash",
+                        (workspace / "rules.mk").read_text(),
+                    )
+
+            self.assertTrue(script.read_text().startswith("#!/usr/bin/env python3"))
+            self.assertIn("/usr/bin/env bash", rules.read_text())
+
     def test_workspace_is_removed_on_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -163,6 +189,29 @@ class ImageBuilderTests(unittest.TestCase):
                         raise RuntimeError("failed")
 
             self.assertFalse(workspace_root.exists())
+
+    def test_image_build_uses_openwrt_umask_and_restores_caller_umask(self):
+        observed_umasks = []
+
+        def fake_run(*_args, **_kwargs):
+            current = build.os.umask(0o022)
+            build.os.umask(current)
+            observed_umasks.append(current)
+            return mock.Mock(returncode=0)
+
+        original = build.os.umask(0o077)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                with mock.patch.object(build.subprocess, "run", side_effect=fake_run):
+                    build.build_image(root, "generic", [], root, root / "output")
+
+            restored = build.os.umask(0o077)
+            build.os.umask(restored)
+            self.assertEqual([0o022], observed_umasks)
+            self.assertEqual(0o077, restored)
+        finally:
+            build.os.umask(original)
 
 
 if __name__ == "__main__":

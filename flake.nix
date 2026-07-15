@@ -193,6 +193,7 @@
           gnumake
           gnutar
           coreutils
+          getopt
           findutils
           gnugrep
           gawk
@@ -206,6 +207,7 @@
           which
           ncurses
           rsync
+          wget
           xz
           ;
       };
