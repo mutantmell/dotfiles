@@ -354,6 +354,7 @@ in {
           echo ""
           echo "Options:"
           echo "  --no-secrets          Build without WiFi/network secrets"
+          echo "  --secrets-file PATH   Use explicit plain secrets YAML for image build"
           echo "  --ssh-port PORT       Host port for SSH (default: 2222)"
           echo "  --web-port PORT       Host port for LuCI web UI (default: 8080)"
           echo "  --memory MB           VM memory in MB (default: 256)"
@@ -371,7 +372,7 @@ in {
         DEVICE="$1"
         shift
 
-        NO_SECRETS_ARG=""
+        SECRETS_ARGS=()
         SSH_PORT=2222
         WEB_PORT=8080
         MEMORY=256
@@ -381,7 +382,12 @@ in {
 
         while [ $# -gt 0 ]; do
           case "$1" in
-            --no-secrets)   NO_SECRETS_ARG="--no-secrets" ;;
+            --no-secrets)   SECRETS_ARGS+=(--no-secrets) ;;
+            --secrets-file)
+              shift
+              [ $# -gt 0 ] || { echo "Error: --secrets-file requires a path or -" >&2; exit 1; }
+              SECRETS_ARGS+=(--secrets-file "$1")
+              ;;
             --ssh-port)     shift; SSH_PORT="$1" ;;
             --web-port)     shift; WEB_PORT="$1" ;;
             --memory)       shift; MEMORY="$1" ;;
@@ -426,7 +432,7 @@ in {
           run_builder \
             --config-file "$VM_CONFIG_DIR/build.json" \
             --output-dir "$OUTPUT_DIR" \
-            $NO_SECRETS_ARG
+            "''${SECRETS_ARGS[@]}"
 
           # armsr/armv8 generic profile produces a separate kernel and ext4 rootfs:
           #   *-kernel.bin              — plain kernel binary
@@ -503,11 +509,31 @@ in {
         export OPENWRT_RUN_PROGRAM
         export OPENWRT_SMOKE_SSH_PORT=$((20000 + $$ % 10000))
         export OPENWRT_SMOKE_WEB_PORT=$((30000 + $$ % 10000))
+        OPENWRT_SMOKE_SECRETS_FILE=$(${pkgs.coreutils}/bin/mktemp -t openwrt-smoke-secrets-XXXXXX.yaml)
+        export OPENWRT_SMOKE_SECRETS_FILE
+        cleanup() { rm -f "$OPENWRT_SMOKE_SECRETS_FILE"; }
+        trap cleanup EXIT INT TERM HUP
+        chmod 0600 "$OPENWRT_SMOKE_SECRETS_FILE"
+        # This is intentionally plain, fake test data created only at runtime;
+        # no real sops-encrypted secrets are read by the smoke test.
+        ${pkgs.coreutils}/bin/printf '%s\n' \
+          'wifi:' \
+          '  main:' \
+          '    ssid: fake-main-ssid' \
+          '    key: fake-main'"'"'key' \
+          '  secondary:' \
+          '    ssid: fake-secondary-ssid' \
+          '    key: fake-secondary-key' \
+          '  mesh:' \
+          '    id: fake-mesh-id' \
+          '    key: fake-mesh-key' \
+          > "$OPENWRT_SMOKE_SECRETS_FILE"
 
         ${pkgs.expect}/bin/expect <<'EXPECT_EOF'
           set timeout 300
           log_user 1
-          spawn $env(OPENWRT_RUN_PROGRAM) bobcat --no-secrets --init-shell \
+          spawn $env(OPENWRT_RUN_PROGRAM) bobcat \
+            --secrets-file $env(OPENWRT_SMOKE_SECRETS_FILE) --init-shell \
             --ssh-port $env(OPENWRT_SMOKE_SSH_PORT) \
             --web-port $env(OPENWRT_SMOKE_WEB_PORT)
 
@@ -536,7 +562,13 @@ in {
           foreach {command expected description} {
             {uci -q get system.system.hostname} bobcat hostname
             {uci -q get network.bat0.proto} batadv batman-interface
-            {uci -q get wireless.radio0.disabled} 1 radio-state
+            {uci -q get wireless.ap_2g_main.ssid} fake-main-ssid main-ssid
+            {uci -q get wireless.ap_5g_main.key} {fake-main'key} main-key
+            {uci -q get wireless.ap_2g_secondary.ssid} fake-secondary-ssid secondary-ssid
+            {uci -q get wireless.batmesh.mesh_id} fake-mesh-id mesh-id
+            {uci -q get wireless.batmesh.key} fake-mesh-key mesh-key
+            {uci -q get wireless.radio0.disabled} 0 radio0-state
+            {uci -q get wireless.radio1.disabled} 0 radio1-state
           } {
             send "$command\r"
             expect {
