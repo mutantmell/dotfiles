@@ -522,18 +522,35 @@ in {
               exit 1
             }
           }
-          send {mkdir -p /var/lock && /etc/uci-defaults/99-nix-config && test "$(uci -q get system.system.hostname)" = bobcat && test "$(uci -q get network.bat0.proto)" = batadv && test "$(uci -q get wireless.radio0.disabled)" = 1 && printf 'OPENWRT_VM_SMOKE_%s\n' OK}
-          send "\r"
-          expect {
-            "OPENWRT_VM_SMOKE_OK" {}
-            timeout {
-              puts stderr "OpenWrt booted, but its generated UCI configuration was not applied"
-              exit 1
+          # init=/bin/sh deliberately avoids starting hardware-specific services,
+          # but it also bypasses OpenWrt's base UCI package creation. Create the
+          # empty packages that firstboot would provide before applying the
+          # generated defaults script.
+          send "touch /etc/config/dhcp /etc/config/firewall /etc/config/network\r"
+          expect -re {[/~] # $}
+          send "touch /etc/config/system /etc/config/wireless; mkdir -p /var/lock\r"
+          expect -re {[/~] # $}
+          send "/etc/uci-defaults/99-nix-config\r"
+          expect -re {[/~] # $}
+
+          foreach {command expected description} {
+            {uci -q get system.system.hostname} bobcat hostname
+            {uci -q get network.bat0.proto} batadv batman-interface
+            {uci -q get wireless.radio0.disabled} 1 radio-state
+          } {
+            send "$command\r"
+            expect {
+              -re "\\r+\\n$expected\\r+\\n" {}
+              timeout {
+                puts stderr "OpenWrt $description configuration did not match $expected"
+                exit 1
+              }
+              eof {
+                puts stderr "QEMU exited during $description verification"
+                exit 1
+              }
             }
-            eof {
-              puts stderr "QEMU exited before UCI verification completed"
-              exit 1
-            }
+            expect -re {[/~] # $}
           }
           send "\001x"
           expect eof
