@@ -212,7 +212,7 @@
           ;
       };
       openwrt-deployer = import ./packages/openwrt-deployer {
-        inherit (pkgs) lib stdenv makeWrapper openssh coreutils;
+        inherit (pkgs) lib stdenv makeWrapper openssh coreutils jq;
       };
       installer-iso = let
         keys = builtins.fromJSON (builtins.readFile ./lib/common/data/keys.json);

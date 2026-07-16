@@ -329,6 +329,13 @@ def prepare_files(build_info, uci_script, tmpdir):
     """
     files_dir = Path(tmpdir) / "files"
 
+    if build_info.get("buildId"):
+        etc_dir = files_dir / "etc"
+        etc_dir.mkdir(parents=True)
+        build_id_file = etc_dir / "mmell-build-id"
+        build_id_file.write_text(build_info["buildId"] + "\n")
+        build_id_file.chmod(0o644)
+
     uci_dir = files_dir / "etc" / "uci-defaults"
     uci_dir.mkdir(parents=True)
     uci_file = uci_dir / "99-nix-config"

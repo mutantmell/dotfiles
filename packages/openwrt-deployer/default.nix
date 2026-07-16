@@ -4,17 +4,25 @@
   makeWrapper,
   openssh,
   coreutils,
+  jq,
 }:
 stdenv.mkDerivation {
   pname = "openwrt-deployer";
-  version = "0.1.0";
+  version = "0.2.0";
 
   src = ./.;
 
   nativeBuildInputs = [makeWrapper];
+  nativeCheckInputs = [jq];
 
   dontConfigure = true;
   dontBuild = true;
+
+  doCheck = true;
+  checkPhase = ''
+    patchShebangs test-deploy.sh deploy.sh
+    DEPLOY=$PWD/deploy.sh ./test-deploy.sh
+  '';
 
   installPhase = ''
     mkdir -p $out/bin
@@ -22,7 +30,7 @@ stdenv.mkDerivation {
     chmod +x $out/bin/openwrt-deploy
 
     wrapProgram $out/bin/openwrt-deploy \
-      --prefix PATH : ${lib.makeBinPath [openssh coreutils]}
+      --prefix PATH : ${lib.makeBinPath [openssh coreutils jq]}
   '';
 
   meta = {

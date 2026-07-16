@@ -56,6 +56,17 @@ class ImageBuilderTests(unittest.TestCase):
         path.mkdir()
         return str(path)
 
+    def test_prepare_files_bakes_build_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            files = build.prepare_files(
+                {"buildId": "evaluated-build-id", "authorizedKeys": []},
+                "#!/bin/sh\n",
+                directory,
+            )
+            identity = files / "etc" / "mmell-build-id"
+            self.assertEqual("evaluated-build-id\n", identity.read_text())
+            self.assertEqual(0o644, identity.stat().st_mode & 0o777)
+
     def test_tarball_must_resolve_under_nix_store(self):
         with tempfile.NamedTemporaryFile() as source:
             with self.assertRaisesRegex(ValueError, "under /nix/store"):

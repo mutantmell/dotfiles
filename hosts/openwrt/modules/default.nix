@@ -46,9 +46,19 @@
   };
   uciFile = builtins.toFile "uci-defaults-${cfg.hostname}.sh" uciScript;
   keysFile = builtins.toFile "authorized-keys" (lib.concatStringsSep "\n" (cfg.authorizedKeys ++ [""]));
+  # Stable identity for the evaluated, non-secret image inputs. Secret-bearing
+  # artifacts are additionally pinned by their SHA-256 at deployment time.
+  buildId = builtins.hashString "sha256" (builtins.toJSON {
+    inherit (cfg) hostname;
+    inherit (cfg.image) profile target subtarget release;
+    deviceType = cfg.device.role;
+    packages = cfg.packages.final;
+    inherit renderedConfig;
+  });
   manifest =
     {
       inherit (cfg) hostname;
+      inherit buildId;
       inherit (cfg.image) profile target subtarget release;
       deviceType = cfg.device.role;
       packages = cfg.packages.final;

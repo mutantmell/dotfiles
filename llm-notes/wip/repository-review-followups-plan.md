@@ -1,17 +1,15 @@
 # Repository Review Follow-ups Plan
 
-Status: WIP. At least one finding has been fixed (`setup-guest.sh`
-certificate/key convergence), while the OpenWrt readiness items and other
-follow-ups remain active.
+Status: WIP. The original OpenWrt readiness findings and the `setup-guest.sh`
+certificate/key convergence finding have been fixed. Other follow-ups remain.
 
 - **Fixed:** the `setup-guest.sh` certificate/key convergence issue is handled.
   Generated private keys are stored in passage before certificate signing, and
   existing SSH/X5C certificates are checked against the current public key before
   signing is skipped.
-- **Still open:** the three OpenWrt live image-building findings are still
-  present: cache keys do not include baked secret material, UCI export redaction
-  only masks exact `.key='...'` values, and OpenWrt deploy still masks
-  `sysupgrade` failure with `|| true`.
+- **Fixed:** OpenWrt builds use fresh private artifact directories, the unsafe
+  config export command was removed, and deployment now validates and identifies
+  sysupgrade start/failure, waits for reboot, and verifies the returned device.
 - **Still open:** router6 `hardwareName` rename semantics remain broken in the
   module; `thebeyond` still works around this by using kernel predictable names.
 - **Partially addressed elsewhere:** erebonia k3s now has scheduled datastore
@@ -40,71 +38,29 @@ Result: passed.
 
 ## OpenWrt Live Image-Building Readiness
 
-These should be fixed before treating live OpenWrt image building and deployment
-from this flake as a reliable operator workflow.
+These findings are retained as historical context. They have been addressed.
 
-### High: image cache ignores baked secret content
+### Fixed: image cache ignored baked secret content
 
-`apps/openwrt/default.nix` computes image cache directories from
-`build.json` plus an optional `nosecrets` suffix. When secrets are enabled, the
-decrypted sops YAML is piped to the builder after the cache key is computed.
-That means rotating WiFi/mesh credentials can silently reuse a cached
-sysupgrade image with old baked credentials.
+Resolution: completed images are no longer cached or reused. Every invocation
+assembles a fresh image in a private artifact directory from the evaluated
+manifest and current secret input. Only the pristine, pinned upstream Image
+Builder extraction is cached; each assembly copies it into a private temporary
+workspace which is removed afterward.
 
-Impact: an operator can believe new credentials were deployed while the device
-continues running an image built with previous secrets.
+### Fixed: exported OpenWrt config redaction was incomplete
 
-Fix direction:
+Resolution: the unsafe `openwrt-export-config` command was removed. Operators
+must handle any live configuration capture as sensitive plaintext rather than
+relying on incomplete field-name redaction.
 
-- Include a digest of the injected secret material in the cache key when secrets
-  are used; or
-- Include a digest/revision of the encrypted sops file and force `--rebuild`
-  semantics when it changes; and
-- Print whether a cached image was built with secrets and which cache key inputs
-  were used.
+### Fixed: deploy treated all `sysupgrade` failures as success
 
-Relevant code:
-
-- `apps/openwrt/default.nix`: `compute_cache_dir`
-- `apps/openwrt/default.nix`: `run_builder`
-- `apps/openwrt/default.nix`: cached image reuse in `openwrt-build` and
-  `openwrt-deploy`
-
-### High: exported OpenWrt config redaction is incomplete
-
-`openwrt-export-config` advertises `uci-show.txt` as key-redacted, but the
-redaction only masks values named exactly `.key='...'`. Other sensitive UCI
-fields can leak, including `password`, `secret`, `private_key`, PSK-like values
-under different names, or values rendered with different quoting.
-
-Impact: migration exports can accidentally write live credentials to disk in
-plaintext.
-
-Fix direction:
-
-- Prefer writing raw exports only to an encrypted target; or
-- Redact by a denylist of sensitive key-name patterns such as `key`, `password`,
-  `passwd`, `secret`, `token`, `private`, `psk`; and
-- Make the command output clearly distinguish "best-effort redacted" from
-  "safe to commit".
-
-Relevant code:
-
-- `apps/openwrt/default.nix`: `openwrt-export-config`
-
-### Medium: deploy treats all `sysupgrade` failures as success
-
-`packages/openwrt-deployer/deploy.sh` runs remote `sysupgrade` with `|| true`.
-That tolerates the expected SSH disconnect during reboot, but it also hides
-ordinary failures such as a rejected image or missing command.
-
-Impact: deploy output can say "Deployment complete" when no upgrade started.
-
-Fix direction:
-
-- Distinguish expected disconnect from an immediate nonzero command failure.
-- Optionally poll for reboot and verify version/build metadata after the device
-  returns.
+Resolution: `openwrt-deployer` distinguishes a confirmed reboot disconnect from
+an early SSH or sysupgrade failure, polls for offline/online transitions, and
+supports hostname, build-ID, and role-specific health checks. Its CI mode also
+requires caller-managed SSH host keys and an exact artifact digest, which is
+verified both before and after upload.
 
 Relevant code:
 

@@ -306,7 +306,13 @@ in {
           exit 1
         fi
 
-        # Deploy the image
+        # Prove that the returned device is running this evaluated configuration.
+        # The image digest separately covers injected secret material.
+        DEPLOY_ARGS+=(
+          --expected-hostname "$DEVICE"
+          --expected-build-id "$(${pkgs.jq}/bin/jq -r .buildId "$CONFIG_DIR/build.json")"
+          --verify-command "ubus call system board >/dev/null"
+        )
         ${deployer}/bin/openwrt-deploy "$TARGET" "$SYSUPGRADE" "''${DEPLOY_ARGS[@]}"
       '';
     in "${script}";
