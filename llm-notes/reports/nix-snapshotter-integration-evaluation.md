@@ -23,8 +23,9 @@ image GC, then use it for selected Nix-native workload images.
 Keep ordinary OCI images for the dev-machine devcontainer, third-party
 controllers, and any workload that must remain portable outside a
 nix-snapshotter-enabled containerd node. The devcontainer image can be loaded
-directly into guest Podman under an immutable local tag; ordinary OCI format is
-required there, but registry publication is optional.
+directly into guest Podman under a content-derived local tag whose binding is
+verified against the built image ID; ordinary OCI format is required there,
+but registry publication is optional.
 
 Important nuance: the dev-machine base image publication path is a real pain
 point, and nix-snapshotter might help there. It is not rejected because it is
@@ -110,6 +111,10 @@ Sources:
 - DevPod Docker/Kubernetes drivers: <https://devpod.sh/docs/developing-providers/driver>
 - DevPod provider options: <https://devpod.sh/docs/developing-providers/options>
 - DevPod devcontainer environment substitution: <https://devpod.sh/docs/developing-in-workspaces/environment-variables-in-devcontainer-json>
+- Podman local-image existence check: <https://docs.podman.io/en/stable/markdown/podman-image-exists.1.html>
+- Podman image inspection fields: <https://docs.podman.io/en/stable/markdown/podman-image-inspect.1.html>
+- Skopeo image transports and inspection: <https://github.com/containers/skopeo>
+- OCI image manifest/config identity: <https://github.com/opencontainers/image-spec/blob/main/manifest.md>
 
 ## Online Evidence
 
@@ -194,8 +199,9 @@ the inner image does **not** therefore have to remain registry-backed. DevPod's
 Docker driver first asks its configured Docker-compatible CLI to inspect the
 image locally. In this repo that CLI is the `podman-rootful` wrapper. A
 Nix-built OCI stream can therefore be loaded into the VM's rootful Podman store
-under an immutable, content-derived local tag before `devpod up`; DevPod can
-then inspect and run it without a registry pull.
+under a content-derived local tag before `devpod up`. Verifying that the tag's
+image ID equals the archive's expected config digest makes the binding reliable;
+DevPod can then inspect and run it without a registry pull.
 
 It may improve the **base VM containerDisk** path. KubeVirt documents
 containerDisk as a way to store and distribute VM disks in a container image;
@@ -222,10 +228,15 @@ preload path:
 
 1. Build `.#dev-machine-dev-image` with the existing `streamLayeredImage` or a
    similarly portable OCI builder.
-2. After the VM and Podman socket are ready, execute or stream the image into
-   `podman-rootful load` inside the VM.
-3. Tag it as `localhost/dev-machine-dev:<content-derived-id>` and verify
-   `podman-rootful image exists` before starting DevPod.
+2. Record the config digest while building/materializing the archive (or
+   materialize the stream to a temporary archive for inspection), then execute
+   or stream the image into `podman-rootful load` after the VM and socket are
+   ready.
+3. Derive the expected Podman image ID from the built archive's OCI/Docker
+   config digest, load the archive, and confirm that exact ID exists in
+   rootful Podman storage. Tag that ID as
+   `localhost/dev-machine-dev:<content-derived-id>`, then inspect the tag and
+   require its `.Id` to equal the expected ID before starting DevPod.
 4. Change the devcontainer image to `${localEnv:DEV_MACHINE_IMAGE}` (with a
    suitable default during migration) and pass that variable to the remote
    DevPod agent through the SSH/provider environment.
@@ -308,7 +319,7 @@ distinction matters because nix-snapshotter helps only some of them.
 | `dotfiles-ci-nix` | Flake inputs pin contents, but Kubernetes uses mutable node-local tag `0.1.3`; operators must bump and prune tags | A `resolvedByNix` store-path reference would make identity immutable and remove manual tag bump/prune work after the runtime blocker is cleared. |
 | `ci-worker-base` | Flake pins build inputs, but KubeVirt uses node-local `localhost/ci-worker-base:latest` imported by a custom oneshot | Could replace the mutable tag/import with an immutable Nix store reference, but only if the unproven KubeVirt containerDisk pilot succeeds. |
 | Dev-machine base VM | Flake pins build inputs, but wrapper publishes `dev-machine-base:latest`; KubeVirt uses `Always` | Could give the strongest local benefit: an exact store reference and no registry push. It does not make the monolithic qcow2 package-granular. Requires the same containerDisk proof. |
-| Dev-machine inner devcontainer | Flake pins build inputs, but `.devcontainer/devcontainer.json` names `dev-machine-dev:latest` | No direct nix-snapshotter help because rootful Podman consumes it. It need not remain registry-backed: preload the Nix-built OCI stream into guest Podman under an immutable content-derived local tag and point DevPod at that tag. |
+| Dev-machine inner devcontainer | Flake pins build inputs, but `.devcontainer/devcontainer.json` names `dev-machine-dev:latest` | No direct nix-snapshotter help because rootful Podman consumes it. It need not remain registry-backed: preload the Nix-built OCI stream into guest Podman, bind a content-derived local tag to the expected image ID, verify that binding, and point DevPod at that tag. |
 | KubeVirt/operator/platform images | Release/FOD pins manifests; the operator controls its component image references | Not a suitable target. Keep normal OCI/digest and operator ownership. |
 
 Consequently, nix-snapshotter is **not a general solution to image pinning**.
@@ -563,7 +574,8 @@ integration.
 
 This option is independent of enabling nix-snapshotter on erebonia. Keep the
 inner image as a normal OCI image, preload it into the VM's rootful Podman
-store, and let DevPod's standard Docker driver consume the local immutable tag.
+store, and let DevPod's standard Docker driver consume a content-derived local
+tag after verifying its binding to the expected image ID.
 
 Minimal proof using the current wrapper:
 
@@ -572,8 +584,13 @@ Minimal proof using the current wrapper:
 - build `.#dev-machine-dev-image` during `dev-machine up`;
 - after SSH is ready, stream or generate it inside the VM and run
   `podman-rootful load`;
-- derive a stable local tag from the Nix output identity and fail before
-  `devpod up` if `podman-rootful image exists` does not find it;
+- derive a stable local tag from the Nix output identity and obtain the
+  expected image ID from the archive's config digest (for example, from the
+  config descriptor in `skopeo inspect --raw docker-archive:...`);
+- if the tag already exists, treat it as a cache hit only when
+  `podman-rootful image inspect --format '{{.Id}}'` equals that expected ID;
+  otherwise load the expected archive, tag the image by its verified ID, and
+  repeat the equality check before `devpod up`;
 - forward `DEV_MACHINE_IMAGE` to the remote DevPod agent.
 
 Longer-term consolidation:
@@ -592,7 +609,7 @@ Longer-term consolidation:
 Pros:
 
 - Removes the mutable `dev-machine-dev:latest` dependency and makes the exact
-  Nix-built image part of workspace provisioning.
+  verified Nix-built image part of workspace provisioning.
 - Removes the registry and its credentials from the normal inner-image path.
 - Gives VM lifecycle, readiness, image realization, and DevPod connection one
   owner.
@@ -771,8 +788,9 @@ The practical recommendation is:
 8. Re-evaluate `ci-worker-base` only after ordinary pod images and a small
    containerDisk are proven.
 9. In parallel, prove registry-free inner-image preload using the existing
-   wrapper: load the Nix-built OCI stream into rootful Podman under an immutable
-   content-derived tag and select it with `DEV_MACHINE_IMAGE` substitution.
+   wrapper: load the Nix-built OCI stream into rootful Podman, bind a
+   content-derived tag to the archive's expected config/image ID, verify that
+   binding by inspection, and select it with `DEV_MACHINE_IMAGE` substitution.
 10. If that proof is reliable, replace the dynamically generated per-machine
     SSH providers with a reusable custom DevPod KubeVirt machine provider that
     owns VM lifecycle, readiness, and image preload while retaining the normal
