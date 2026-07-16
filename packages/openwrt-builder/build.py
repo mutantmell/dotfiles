@@ -59,6 +59,10 @@ def load_config(manifest_file):
     meta["uciDefaultsScript"] = resolve(meta.pop("uciDefaults")).read_text()
     keys_content = resolve(meta.pop("authorizedKeys")).read_text()
     meta["authorizedKeys"] = [k for k in keys_content.splitlines() if k.strip()]
+    meta["extraFiles"] = {
+        target: resolve(source)
+        for target, source in meta.get("extraFiles", {}).items()
+    }
 
     return meta
 
@@ -349,6 +353,17 @@ def prepare_files(build_info, uci_script, tmpdir):
         keys_file = dropbear_dir / "authorized_keys"
         keys_file.write_text("\n".join(build_info["authorizedKeys"]) + "\n")
         keys_file.chmod(0o600)
+
+    for target, source in build_info.get("extraFiles", {}).items():
+        relative = Path(target.lstrip("/"))
+        if not target.startswith("/") or ".." in relative.parts or relative == Path("."):
+            raise ValueError(f"invalid extraFiles target: {target}")
+        if not source.is_file() or source.is_symlink():
+            raise ValueError(f"extraFiles source must be a regular file: {source}")
+        destination = files_dir / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+        destination.chmod(source.stat().st_mode & 0o777)
 
     return files_dir
 

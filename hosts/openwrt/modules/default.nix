@@ -54,6 +54,13 @@
     deviceType = cfg.device.role;
     packages = cfg.packages.final;
     inherit renderedConfig;
+    preCommands = cfg.uci.preCommands;
+    inherit (cfg) authorizedKeys;
+    imageBuilder =
+      if cfg.image.builderTarball == null
+      then null
+      else builtins.unsafeDiscardStringContext (toString cfg.image.builderTarball);
+    extraFiles = lib.mapAttrs (_: path: builtins.hashFile "sha256" path) cfg.extraFiles;
   });
   manifest =
     {
@@ -65,6 +72,7 @@
       inherit secretsMap;
       uciDefaults = "${uciFile}";
       authorizedKeys = "${keysFile}";
+      extraFiles = lib.mapAttrs (_: toString) cfg.extraFiles;
     }
     // lib.optionalAttrs (cfg.image.builderTarball != null) {
       imageBuilderTarball = "${cfg.image.builderTarball}";
@@ -128,6 +136,12 @@ in {
       type = types.listOf types.str;
       default = owrtData.authorizedKeys;
       description = "SSH authorized keys baked into the image overlay.";
+    };
+
+    extraFiles = mkOption {
+      type = types.attrsOf types.path;
+      default = {};
+      description = "Additional non-secret declarative files to bake into the image, keyed by absolute target path.";
     };
 
     packages = {

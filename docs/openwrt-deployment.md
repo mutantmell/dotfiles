@@ -19,6 +19,7 @@ nix run .#openwrt-deployer -- 10.97.10.10 ./sysupgrade.bin \
   --ci \
   --known-hosts ./openwrt-known-hosts \
   --ssh-key ./deploy-key \
+  --ssh-port 22 \
   --expected-sha256 0123456789abcdef... \
   --expected-hostname bobcat \
   --expected-build-id 0123456789abcdef... \
@@ -31,7 +32,15 @@ authentication and requires a caller-provided `known_hosts` file with strict
 checking plus an expected artifact SHA-256. The tool verifies that digest both
 before and after upload, serializes deployments to a target on the local runner,
 validates the image with `sysupgrade -T`, confirms that sysupgrade started,
-observes the offline/online transition, and then runs identity and health checks.
+performs a clean desired-state upgrade (`sysupgrade -n`), proves that the kernel
+boot ID changed, and then runs identity and health checks. CI mode requires the
+hostname, build ID, and at least one health check in addition to trust and digest
+inputs.
+Before upgrading, the deployer creates an on-device archive containing only
+regular, non-symlink Dropbear Ed25519, ECDSA, and RSA host-key files from an
+explicit allowlist. `sysupgrade` restores that narrow archive while discarding
+all other writable configuration. Host private keys never leave the device;
+authorized client keys, UCI state, and credentials come from the new image.
 Distinct exit codes identify digest (3), lock (4), upgrade (5), offline (6),
 online (7), identity (8), and health-check (9) failures.
 
@@ -40,3 +49,11 @@ publish the image plus digest and build ID, require environment approval, and
 then invoke this tool with the published values. Roll out one device at a time
 and stop on failure. CI credentials, approval, retention, and rollout order are
 orchestration concerns and are intentionally not implemented here.
+
+`openwrt-deployer-vm` is the networked end-to-end regression check. It builds
+two x86 images, boots A in QEMU, deploys the exact B artifact through the
+packaged deployer, and verifies strict host trust, digest pinning, clean config
+replacement, changed boot identity, returned image identity, health, and JSON
+output. Both images contain the same visibly test-only Dropbear host key. Real
+device host private keys must never be baked into image artifacts; the deployer
+preserves them only through its explicit, minimal on-device allowlist.

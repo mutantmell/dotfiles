@@ -44,6 +44,7 @@ in {
     openwrt-deploy
     openwrt-run
     openwrt-vm-smoke
+    openwrt-deployer-vm
     openwrt-update-pins
     ;
 }

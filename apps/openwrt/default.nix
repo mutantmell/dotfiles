@@ -39,6 +39,7 @@
   openwrtVmConfigurations,
 }: let
   inherit (pkgs) lib;
+  owrtData = import ../../lib/common/data/openwrt.nix {inherit lib;};
   builder = pkgs.mmell.openwrt-builder;
   deployer = pkgs.mmell.openwrt-deployer;
 
@@ -598,6 +599,25 @@ in {
           send "\001x"
           expect eof
         EXPECT_EOF
+      '';
+    in "${script}";
+  };
+
+  # Networked destructive-upgrade test against a disposable x86 OpenWrt VM.
+  openwrt-deployer-vm = {
+    type = "app";
+    program = let
+      imageBuilder = pkgs.fetchurl {
+        url = "https://downloads.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-imagebuilder-24.10.5-x86-64.Linux-x86_64.tar.zst";
+        hash = owrtData.imageBuilderHashes."24.10.5"."x86/64";
+      };
+      script = pkgs.writeShellScript "openwrt-deployer-vm" ''
+        export OPENWRT_BUILDER=${builder}/bin/openwrt-build
+        export OPENWRT_DEPLOYER=${deployer}/bin/openwrt-deploy
+        export OPENWRT_IMAGEBUILDER=${imageBuilder}
+        export OPENWRT_VM_FIXTURES=${../../tests/openwrt/fixtures}
+        export PATH=${lib.makeBinPath [pkgs.bash pkgs.coreutils pkgs.findutils pkgs.gzip pkgs.jq pkgs.openssh pkgs.qemu]}:$PATH
+        exec ${../../tests/openwrt/deployer-vm.sh}
       '';
     in "${script}";
   };

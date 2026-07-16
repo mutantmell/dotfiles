@@ -67,6 +67,31 @@ class ImageBuilderTests(unittest.TestCase):
             self.assertEqual("evaluated-build-id\n", identity.read_text())
             self.assertEqual(0o644, identity.stat().st_mode & 0o777)
 
+    def test_prepare_files_copies_declarative_extra_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "host-key"
+            source.write_text("fake-test-key\n")
+            source.chmod(0o600)
+            files = build.prepare_files(
+                {"authorizedKeys": [], "extraFiles": {"/etc/dropbear/host-key": source}},
+                "#!/bin/sh\n",
+                Path(directory) / "work",
+            )
+            copied = files / "etc" / "dropbear" / "host-key"
+            self.assertEqual("fake-test-key\n", copied.read_text())
+            self.assertEqual(0o600, copied.stat().st_mode & 0o777)
+
+    def test_prepare_files_rejects_unsafe_extra_file_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            source.write_text("test\n")
+            with self.assertRaisesRegex(ValueError, "invalid extraFiles target"):
+                build.prepare_files(
+                    {"authorizedKeys": [], "extraFiles": {"/../escape": source}},
+                    "#!/bin/sh\n",
+                    Path(directory) / "work",
+                )
+
     def test_tarball_must_resolve_under_nix_store(self):
         with tempfile.NamedTemporaryFile() as source:
             with self.assertRaisesRegex(ValueError, "under /nix/store"):
