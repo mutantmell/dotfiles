@@ -101,6 +101,7 @@ Sources:
 - k3s bundled-containerd support: <https://github.com/k3s-io/k3s/issues/13733>
 - k3s `v1.34` backport: <https://github.com/k3s-io/k3s/issues/13739>
 - k3s containerd template: <https://github.com/k3s-io/k3s/blob/main/pkg/agent/templates/templates.go>
+- k3s server runtime options: <https://docs.k3s.io/cli/server>
 - k3s 1.36 regression: <https://github.com/pdtpartners/nix-snapshotter/issues/183>
 - embedded-integration checkpoint bug: <https://github.com/pdtpartners/nix-snapshotter/issues/179>
 - KubeVirt containerDisk docs: <https://kubevirt.io/user-guide/storage/disks_and_volumes/>
@@ -247,11 +248,13 @@ transport path is an import source, not normally a valid image name for that
 API. Loading it into Podman's containers/storage supplies the required image
 configuration, metadata, layers, and image identity.
 
-DevPod has a custom-driver interface that could theoretically translate a Nix
-store reference into `podman run --rootfs` or another rootfs/overlay scheme,
-but it would require maintaining find, run, exec, start, stop, delete, and logs
-behavior normally supplied by the Docker driver. That is not justified while a
-local OCI preload preserves standard devcontainer and Podman semantics.
+DevPod documents only Docker and Kubernetes agent drivers; it does not document
+a provider extension point for an arbitrary third driver. Translating a Nix
+store reference into `podman run --rootfs` or another rootfs/overlay scheme
+would therefore require changing DevPod, relying on an unsupported internal
+interface, or supplying a Docker-compatible CLI replacement that reimplements
+the relevant image and container operations. None is justified while a local
+OCI preload preserves standard devcontainer and Podman semantics.
 
 ### Custom KubeVirt DevPod Provider
 
@@ -501,22 +504,41 @@ Cons:
 ### Option B: External Containerd For k3s
 
 Run NixOS-managed containerd and point k3s at it using
-`--container-runtime-endpoint unix:///run/containerd/containerd.sock`, matching
-upstream's module style more closely.
+`--container-runtime-endpoint unix:///run/containerd/containerd.sock` and the
+appropriate `--image-service-endpoint`. k3s officially supports these flags and
+disables its embedded runtime/image service when they are used. The reporter of
+issue #183 also says the affected images work in nix-snapshotter's non-bundled
+test VM, so this is a plausible fallback to test, not a confirmed fix for this
+repo.
 
 Pros:
 
-- Cleaner integration with upstream's NixOS module.
+- Direct integration with nix-snapshotter's external-containerd NixOS module.
 - Containerd config is more directly owned by NixOS instead of k3s-generated
   embedded config.
+- May avoid a defect specific to k3s's bundled implementation.
 
 Cons:
 
-- Bigger platform change. It touches the cluster's core runtime, existing CNI
-  paths, runtime classes, gVisor registration, KubeVirt, and CI.
-- Not justified just to improve a handful of CI images.
+- This is an officially supported k3s escape hatch, but not its normal
+  integrated architecture. NixOS would now own CRI compatibility, service
+  ordering, upgrades, recovery, and runtime configuration that k3s otherwise
+  coordinates.
+- It must reproduce k3s-specific CNI paths, sandbox/registry configuration,
+  `runsc` and `runc-kvm` registration, and image GC behavior.
+- This repo's `services.k3s.images`, `k3s ctr`, `k3s crictl`, custom image
+  import/prune services, KubeVirt, and Woodpecker flows all assume the embedded
+  runtime or its socket conventions and need migration tests.
+- It introduces a containerd/k3s version-skew boundary and is not justified
+  solely to improve a handful of CI images or work around one unconfirmed local
+  regression.
 
-Recommendation: do **not** start here.
+Recommendation: do **not** make this the primary architecture without a broader
+independent requirement to own containerd outside k3s. If issue #183 reproduces
+and remains unresolved, test an external-containerd variant beside the bundled
+variant. Adopt it only if nix-snapshotter's demonstrated value justifies the
+larger runtime ownership boundary and the variant preserves image imports, CNI,
+RuntimeClasses, KubeVirt, Woodpecker, and GC behavior.
 
 ### Option C: No Runtime Integration, Only Use `buildImage` For Registry Images
 
@@ -692,7 +714,9 @@ Security positives:
 Security concerns:
 
 - The node runtime becomes more complex: kubelet image handling now depends on
-  an additional privileged systemd service and containerd plugin path.
+  additional embedded containerd/image-service code with privileged access to
+  the host Nix store. Option B would add separately managed privileged services
+  as well, but the recommended bundled integration does not.
 - `nix:0` references are only meaningful on configured nodes; a policy or
   scheduling mistake fails at runtime.
 - If local builds are allowed during image pulls, a workload start can become a
@@ -715,7 +739,8 @@ Operational costs:
 ## Overall Worthwhile?
 
 Potentially, but only as a **targeted supplement**, and not on production with
-the currently evaluated k3s version until upstream issue #183 is resolved.
+the currently evaluated k3s version until upstream issue #183 is fixed,
+convincingly constrained, or disproved by the local regression test.
 
 It is worthwhile for this repo if the goal is to reduce duplication and
 publication/import friction for Nix-native Kubernetes workloads. The k3s path
