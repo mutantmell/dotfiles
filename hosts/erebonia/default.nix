@@ -110,7 +110,7 @@
 
   # Weekly auto-upgrade: update flake.lock, commit+push, then nixos-rebuild switch.
   system.autoUpgrade = {
-    enable = true;
+    enable = false;
     flake = "/etc/nixos";
     dates = "Sun *-*-* 04:00:00";
     allowReboot = true;
