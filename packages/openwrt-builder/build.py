@@ -30,7 +30,6 @@ from pathlib import Path
 import yaml
 import zstandard
 
-
 # ---------------------------------------------------------------------------
 # Config loading
 # ---------------------------------------------------------------------------
@@ -103,7 +102,7 @@ def load_secrets(secrets_file):
         raise ValueError(f"failed to read secrets: {e}") from e
 
     if not isinstance(data, dict):
-        raise ValueError("secrets input must be a YAML mapping")
+        raise TypeError("secrets input must be a YAML mapping")
 
     return flatten_yaml(data)
 
@@ -147,8 +146,7 @@ def merge_secrets_into_uci(uci_script, secrets_map, secrets_kv, device_type):
             result.append(line)
             result.append("")
             result.append("# Secrets (baked in at build time)")
-            for cmd in reversed(secret_commands):
-                result.append(cmd)
+            result.extend(reversed(secret_commands))
             inserted = True
         else:
             result.append(line)
@@ -178,10 +176,12 @@ def _imagebuilder_tar_filter(member, dest_path):
 def extract_tar_zst(archive_path, dest_dir):
     """Extract a .tar.zst archive using native Python libraries."""
     dctx = zstandard.ZstdDecompressor()
-    with open(archive_path, "rb") as fh:
-        with dctx.stream_reader(fh) as reader:
-            with tarfile.open(fileobj=reader, mode="r|") as tar:
-                tar.extractall(path=dest_dir, filter=_imagebuilder_tar_filter)
+    with (
+        open(archive_path, "rb") as fh,
+        dctx.stream_reader(fh) as reader,
+        tarfile.open(fileobj=reader, mode="r|") as tar,
+    ):
+        tar.extractall(path=dest_dir, filter=_imagebuilder_tar_filter)
 
 
 def _find_ib_subdir(parent_dir, release, target, subtarget):
@@ -280,6 +280,7 @@ def imagebuilder_workspace(cached_ib_dir):
                 ["cp", "-a", "--reflink=auto", f"{cached_ib_dir}/.", workspace],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                check=False,
             )
         except OSError:
             result = None
@@ -389,6 +390,7 @@ def build_image(ib_dir, profile, packages, files_dir, output_dir):
         result = subprocess.run(
             cmd, cwd=ib_dir,
             env={**os.environ, "TERM": "xterm"},
+            check=False,
         )
     finally:
         os.umask(previous_umask)

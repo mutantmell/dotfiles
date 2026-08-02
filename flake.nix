@@ -630,7 +630,10 @@
         inherit (pkgs) lib;
         inherit disko;
       })
-      // {formatting = treefmtEval.${system}.config.build.check self;}
+      // {
+        formatting = treefmtEval.${system}.config.build.check self;
+        openwrt-builder = self.packages.${system}.openwrt-builder;
+      }
       // (nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
         perses-dashboards =
           pkgs.runCommand "perses-dashboards-lint" {

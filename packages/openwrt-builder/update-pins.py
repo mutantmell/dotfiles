@@ -15,7 +15,7 @@ def latest_release():
         versions = re.findall(r'href="(\d+\.\d+\.\d+)/"', response.read().decode())
     if not versions:
         raise RuntimeError("could not determine the latest stable OpenWrt release")
-    return sorted(versions, key=lambda value: tuple(map(int, value.split("."))))[-1]
+    return max(versions, key=lambda value: tuple(map(int, value.split("."))))
 
 
 def prefetch(release, target_key):

@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-
 spec = importlib.util.spec_from_file_location("openwrt_build", Path(__file__).with_name("build.py"))
 build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build)
@@ -36,7 +35,7 @@ class SecretsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "secrets.yaml"
             source.write_text("[not, a, mapping]\n")
-            with self.assertRaisesRegex(ValueError, "YAML mapping"):
+            with self.assertRaisesRegex(TypeError, "YAML mapping"):
                 build.load_secrets(source)
 
 
@@ -93,9 +92,11 @@ class ImageBuilderTests(unittest.TestCase):
                 )
 
     def test_tarball_must_resolve_under_nix_store(self):
-        with tempfile.NamedTemporaryFile() as source:
-            with self.assertRaisesRegex(ValueError, "under /nix/store"):
-                build.validate_pinned_tarball(source.name)
+        with (
+            tempfile.NamedTemporaryFile() as source,
+            self.assertRaisesRegex(ValueError, "under /nix/store"),
+        ):
+            build.validate_pinned_tarball(source.name)
 
     def test_concurrent_preparation_extracts_once(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -165,10 +166,10 @@ class ImageBuilderTests(unittest.TestCase):
                     "run",
                     side_effect=fake_run,
                 ),
+                build.imagebuilder_workspace(cached) as workspace,
             ):
-                with build.imagebuilder_workspace(cached) as workspace:
-                    self.assertEqual(0o700, workspace_root.stat().st_mode & 0o777)
-                    build.build_image(workspace, "profile", [], root, root / "output")
+                self.assertEqual(0o700, workspace_root.stat().st_mode & 0o777)
+                build.build_image(workspace, "profile", [], root, root / "output")
 
             self.assertEqual("pristine", (cached / "sentinel").read_text())
             self.assertFalse((cached / "secret-intermediate").exists())
@@ -184,18 +185,20 @@ class ImageBuilderTests(unittest.TestCase):
             rules = cached / "rules.mk"
             rules.write_text("export SHELL:=/usr/bin/env bash\n")
 
-            with mock.patch.object(
-                build.subprocess,
-                "run",
-                return_value=mock.Mock(returncode=1),
+            with (
+                mock.patch.object(
+                    build.subprocess,
+                    "run",
+                    return_value=mock.Mock(returncode=1),
+                ),
+                build.imagebuilder_workspace(cached) as workspace,
             ):
-                with build.imagebuilder_workspace(cached) as workspace:
-                    patched = (workspace / "script").read_text()
-                    self.assertTrue(patched.startswith(f"#!{build.shutil.which('env')} python3"))
-                    self.assertIn(
-                        f"SHELL:={build.shutil.which('env')} bash",
-                        (workspace / "rules.mk").read_text(),
-                    )
+                patched = (workspace / "script").read_text()
+                self.assertTrue(patched.startswith(f"#!{build.shutil.which('env')} python3"))
+                self.assertIn(
+                    f"SHELL:={build.shutil.which('env')} bash",
+                    (workspace / "rules.mk").read_text(),
+                )
 
             self.assertTrue(script.read_text().startswith("#!/usr/bin/env python3"))
             self.assertIn("/usr/bin/env bash", rules.read_text())
@@ -219,10 +222,10 @@ class ImageBuilderTests(unittest.TestCase):
                     "run",
                     return_value=mock.Mock(returncode=1),
                 ),
+                self.assertRaisesRegex(RuntimeError, "failed"),
+                build.imagebuilder_workspace(cached),
             ):
-                with self.assertRaisesRegex(RuntimeError, "failed"):
-                    with build.imagebuilder_workspace(cached):
-                        raise RuntimeError("failed")
+                raise RuntimeError("failed")
 
             self.assertFalse(workspace_root.exists())
 
