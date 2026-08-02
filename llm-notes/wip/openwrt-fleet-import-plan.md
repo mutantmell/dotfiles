@@ -1,7 +1,10 @@
 # OpenWrt Fleet Import and Rotation Plan
 
-**Status:** WIP; discovery has not started.
+**Status:** WIP; spare-BT8 recovery completed, fleet discovery has not started.
 **Plan date:** 2026-07-23.
+**Decision update:** 2026-08-02 — manage every ZenWiFi BT8 using OpenWrt's
+stock-ASUS-bootloader image layout. Ubootmod conversion is deferred outside
+this import and is not a dependency of any phase below.
 **Scope:** Import `bt8gw`, `bt8bridge`, the spare ASUS ZenWiFi BT8, and the
 ZyXEL GS1900-10HP into this flake without combining unrelated device cutovers
 or losing the current rollback paths.
@@ -48,6 +51,10 @@ Goals:
 
 Non-goals for the initial import:
 
+- Do not convert any BT8 to ubootmod. Preserve the stock ASUS bootloader and
+  its recovery mode throughout this import. A future conversion, if pursued,
+  requires a separate reviewed plan and must not reuse this rollout as implicit
+  authorization.
 - Do not introduce `mesh11sd`. It owns HWMP behavior that conflicts with the
   `mesh_fwding=0` underlay required by batman-adv.
 - Do not build a custom dynamic channel-selection daemon. First establish a
@@ -94,12 +101,16 @@ These apply throughout the plan:
   - which cables must be moved to restore the old device.
 - [ ] **[Operator]** Photograph and label current cabling before moving any
       device. Record BT8 WAN/LAN port mappings and every GS1900 port's peer.
-- [ ] **[Operator]** Confirm that the spare BT8 boots and that its factory
-      identity, calibration partitions, Ethernet MACs, and radio MACs can be
-      backed up before installing ubootmod.
+- [x] **[Operator]** Recover the spare BT8 to stock-bootloader OpenWrt and
+      confirm the board identity, stock partition layout, factory calibration
+      volumes, Ethernet operation, and absence of bad NAND blocks.
+- [ ] **[Operator]** Store and verify offline backups of the spare's bootloader,
+      complete UBI device, factory calibration volumes, MAC identities, and
+      known-good stock-layout firmware before its production qualification.
 - [ ] **[Operator + LLM] Gate 0** Review the recovery inventory. Do not begin
-      ubootmod or switch VLAN work until every device has a credible recovery
-      route.
+      BT8 deployment or switch VLAN work until every device has a credible
+      recovery route. For each BT8, explicitly verify ASUS recovery mode and
+      retain the matching stock-layout factory and sysupgrade images.
 
 ## Phase 1: Capture live state
 
@@ -253,7 +264,10 @@ These apply throughout the plan:
 
 - [ ] **[LLM analysis]** Verify against the selected OpenWrt release and primary
       upstream sources:
-  - exact BT8 target, subtarget, profile, image types, and ubootmod procedure;
+  - exact BT8 target, subtarget, stock-bootloader profile, factory image,
+    sysupgrade image, and ASUS recovery procedure;
+  - safeguards that prevent selecting a `-ubootmod` artifact for a stock-layout
+    device;
   - whether factory calibration/MAC partitions require special preservation;
   - exact GS1900-10HP target, subtarget, profile, sysupgrade layout, U-Boot and
     recovery behavior;
@@ -315,8 +329,9 @@ These apply throughout the plan:
 
 - [ ] **[Operator]** Back up the spare's factory partitions, calibration data,
       MAC identities, stock firmware, and boot environment.
-- [ ] **[Operator]** Install ubootmod using the verified hardware-specific
-      procedure. This is a physical and potentially destructive operator step.
+- [ ] **[Operator]** Deploy only the reviewed stock-ASUS-bootloader BT8
+      sysupgrade artifact. Verify its filename, supported-device metadata, and
+      digest before flashing; reject any `-ubootmod` artifact.
 - [ ] **[Operator]** Boot the candidate image isolated from production trunks,
       using a temporary hostname/address that cannot collide with `bt8bridge`.
 - [ ] **[Operator + LLM]** Execute the bridge acceptance checklist:
@@ -389,8 +404,9 @@ These apply throughout the plan:
 - [ ] **[Implementation]** Add its device declaration and tests using the shared
       BT8 hardware and role modules; avoid cloning a configuration with duplicate
       addresses or identities.
-- [ ] **[Operator]** Back up/install ubootmod, deploy, and validate it using the
-      same isolated procedure as Phase 6.
+- [ ] **[Operator]** Back up the stock boot and factory data, deploy the reviewed
+      stock-layout artifact, and validate it using the same isolated procedure
+      as Phase 6.
 - [ ] **[Operator]** If it joins the live mesh, introduce it only after verifying
       its unique identity, allowed VLANs, Batman behavior, and effect on path
       selection. Otherwise document and periodically test the cold/warm-spare
