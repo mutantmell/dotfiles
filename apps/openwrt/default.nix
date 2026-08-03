@@ -251,8 +251,8 @@ in {
           echo "  --ssh-key PATH   Use a specific SSH private key for authentication"
           echo ""
           echo "Example:"
-          echo "  nix run .#openwrt-deploy -- bobcat 10.97.10.10"
-          echo "  nix run .#openwrt-deploy -- bobcat 10.97.10.10 --ssh-key ~/.ssh/id_ed25519"
+          echo "  nix run .#openwrt-deploy -- bt8bridge 10.91.10.4"
+          echo "  nix run .#openwrt-deploy -- bt8bridge 10.91.10.4 --ssh-key ~/.ssh/id_ed25519"
           exit 1
         fi
 
@@ -524,22 +524,26 @@ in {
         # This is intentionally plain, fake test data created only at runtime;
         # no real sops-encrypted secrets are read by the smoke test.
         ${pkgs.coreutils}/bin/printf '%s\n' \
-          'wifi:' \
-          '  main:' \
-          '    ssid: fake-main-ssid' \
-          '    key: fake-main'"'"'key' \
-          '  secondary:' \
-          '    ssid: fake-secondary-ssid' \
-          '    key: fake-secondary-key' \
+          'bt8bridge:' \
           '  mesh:' \
           '    id: fake-mesh-id' \
           '    key: fake-mesh-key' \
+          '  aps:' \
+          '    guest-main:' \
+          '      id: fake-main-ssid' \
+          '      key: fake-main'"'"'key' \
+          '    guest-secondary:' \
+          '      id: fake-secondary-ssid' \
+          '      key: fake-secondary-key' \
+          '    game:' \
+          '      id: fake-game-ssid' \
+          '      key: fake-game-key' \
           > "$OPENWRT_SMOKE_SECRETS_FILE"
 
         ${pkgs.expect}/bin/expect <<'EXPECT_EOF'
           set timeout 300
           log_user 1
-          spawn $env(OPENWRT_RUN_PROGRAM) bobcat \
+          spawn $env(OPENWRT_RUN_PROGRAM) bt8bridge \
             --secrets-file $env(OPENWRT_SMOKE_SECRETS_FILE) --init-shell \
             --ssh-port $env(OPENWRT_SMOKE_SSH_PORT) \
             --web-port $env(OPENWRT_SMOKE_WEB_PORT)
@@ -567,20 +571,20 @@ in {
           expect -re {[/~] # $}
 
           foreach {command expected description} {
-            {uci -q get system.system.hostname} bobcat hostname
+            {uci -q get system.system.hostname} bt8bridge hostname
             {uci -q get network.bat0.proto} batadv batman-interface
-            {uci -q get wireless.ap_2g_main.ssid} fake-main-ssid main-ssid-2g
-            {uci -q get wireless.ap_5g_main.ssid} fake-main-ssid main-ssid-5g
-            {uci -q get wireless.ap_2g_main.key} {fake-main'key} main-key-2g
-            {uci -q get wireless.ap_5g_main.key} {fake-main'key} main-key-5g
-            {uci -q get wireless.ap_2g_secondary.ssid} fake-secondary-ssid secondary-ssid-2g
-            {uci -q get wireless.ap_5g_secondary.ssid} fake-secondary-ssid secondary-ssid-5g
-            {uci -q get wireless.ap_2g_secondary.key} fake-secondary-key secondary-key-2g
-            {uci -q get wireless.ap_5g_secondary.key} fake-secondary-key secondary-key-5g
+            {uci -q get wireless.guest_main.ssid} fake-main-ssid main-ssid
+            {uci -q get wireless.guest_main.key} {fake-main'key} main-key
+            {uci -q get wireless.guest_secondary.ssid} fake-secondary-ssid secondary-ssid
+            {uci -q get wireless.guest_secondary.key} fake-secondary-key secondary-key
+            {uci -q get wireless.game.ssid} fake-game-ssid game-ssid
+            {uci -q get wireless.game.key} fake-game-key game-key
+            {uci -q get wireless.game.network} guest_l2 game-vlan-30-bridge
             {uci -q get wireless.batmesh.mesh_id} fake-mesh-id mesh-id
             {uci -q get wireless.batmesh.key} fake-mesh-key mesh-key
             {uci -q get wireless.radio0.disabled} 0 radio0-state
             {uci -q get wireless.radio1.disabled} 0 radio1-state
+            {uci -q get wireless.radio2.disabled} 0 radio2-state
           } {
             send "$command\r"
             expect {
@@ -608,8 +612,8 @@ in {
     type = "app";
     program = let
       imageBuilder = pkgs.fetchurl {
-        url = "https://downloads.openwrt.org/releases/24.10.5/targets/x86/64/openwrt-imagebuilder-24.10.5-x86-64.Linux-x86_64.tar.zst";
-        hash = owrtData.imageBuilderHashes."24.10.5"."x86/64";
+        url = "https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-imagebuilder-25.12.5-x86-64.Linux-x86_64.tar.zst";
+        hash = owrtData.imageBuilderHashes."25.12.5"."x86/64";
       };
       script = pkgs.writeShellScript "openwrt-deployer-vm" ''
         export OPENWRT_BUILDER=${builder}/bin/openwrt-build

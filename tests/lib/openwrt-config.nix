@@ -217,20 +217,28 @@
     "switch manifest deviceType" = switchManifest.deviceType == "switch";
     "simpleAP manifest deviceType" = simpleManifest.deviceType == "simpleAP";
 
-    # Real device modules load correctly
-    "real devices has bobcat" = realModules ? bobcat;
-    "real devices has arseille" = realModules ? arseille;
-    "real devices has glorious" = realModules ? glorious;
-    "real bobcat is meshAP" = realInfo.bobcat.role == "meshAP";
-    "real arseille is switch" = realInfo.arseille.role == "switch";
-    "real glorious is simpleAP" = realInfo.glorious.role == "simpleAP";
-    "real bobcat config generates" = realConfigs.bobcat ? network;
-    "real derfflinger has IoT extraConfig" = realConfigs.derfflinger.network ? iot;
-    "derfflinger secrets has wifi.iot.ssid" =
-      realEvals.derfflinger.config.openwrt.uci.secretsMap ? "wifi.iot.ssid";
-    "real bobcat target is mediatek" = realInfo.bobcat.target == "mediatek";
-    "real arseille target is realtek" = realInfo.arseille.target == "realtek";
-    "real glorious target is ramips" = realInfo.glorious.target == "ramips";
+    # Flake-visible BT8 bridge.
+    "real devices contains only bt8bridge" = builtins.attrNames realModules == ["bt8bridge"];
+    "real bt8bridge hostname is correct" = realInfo.bt8bridge.hostname == "bt8bridge";
+    "real bt8bridge role is wirelessBridge" = realInfo.bt8bridge.role == "wirelessBridge";
+    "real bt8bridge target is mediatek" = realInfo.bt8bridge.target == "mediatek";
+    "real bt8bridge subtarget is filogic" = realInfo.bt8bridge.subtarget == "filogic";
+    "real bt8bridge uses stock profile" = realInfo.bt8bridge.profile == "asus_zenwifi-bt8";
+    "real bt8bridge profile is not ubootmod" = !(contains "ubootmod" realInfo.bt8bridge.profile);
+    "real bt8bridge uses 25.12.5" = realInfo.bt8bridge.release == "25.12.5";
+    "real bt8bridge has three radios" = lib.all (name: realConfigs.bt8bridge.wireless ? ${name}) ["radio0" "radio1" "radio2"];
+    "real bt8bridge mesh uses radio2" = realConfigs.bt8bridge.wireless.batmesh.device == "radio2";
+    "real bt8bridge mesh is EHT80 channel 85" = realConfigs.bt8bridge.wireless.radio2.htmode == "EHT80" && realConfigs.bt8bridge.wireless.radio2.channel == 85;
+    "real bt8bridge uses GB policy" = realConfigs.bt8bridge.wireless.radio2.country == "GB";
+    "real bt8bridge disables mesh forwarding" = !realConfigs.bt8bridge.wireless.batmesh.mesh_fwding;
+    "real bt8bridge wired hardif is WAN" = realConfigs.bt8bridge.network.wired.device == "wan";
+    "real bt8bridge LAN ports are HOME access" = realConfigs.bt8bridge.network.br_home.ports == ["bat0.20" "lan1" "lan2" "lan3"];
+    "real bt8bridge has three guest APs" = lib.all (name: realConfigs.bt8bridge.wireless.${name}.network == "guest_l2") ["guest_main" "guest_secondary" "game"];
+    "real bt8bridge management address" = realConfigs.bt8bridge.network.mgmt.ipaddr == "10.91.10.4";
+    "real bt8bridge password auth disabled" = !realConfigs.bt8bridge.dropbear.main.PasswordAuth && !realConfigs.bt8bridge.dropbear.main.RootPasswordAuth;
+    "real bt8bridge enables all radios after secrets" = realEvals.bt8bridge.config.openwrt.uci.radiosToEnable == ["radio0" "radio1" "radio2"];
+    "real bt8bridge uses device scoped mesh secret" = realEvals.bt8bridge.config.openwrt.uci.secretsMap ? "bt8bridge.mesh.id";
+    "real bt8bridge uses device scoped game secret" = realEvals.bt8bridge.config.openwrt.uci.secretsMap ? "bt8bridge.aps.game.key";
     "all real devices have target" =
       lib.all (d: d ? target && d ? subtarget) (builtins.attrValues realInfo);
     "all real devices produce build manifests" = lib.all (

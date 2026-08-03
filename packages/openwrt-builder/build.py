@@ -112,7 +112,9 @@ def escape_uci_value(value):
     return value.replace("'", "'\\''")
 
 
-def merge_secrets_into_uci(uci_script, secrets_map, secrets_kv, device_type):
+def merge_secrets_into_uci(
+    uci_script, secrets_map, secrets_kv, device_type, radios_to_enable=None
+):
     """Insert uci set commands for secrets before the uci commit line.
 
     Also enables radios for WiFi devices (they ship disabled without secrets).
@@ -131,8 +133,8 @@ def merge_secrets_into_uci(uci_script, secrets_map, secrets_kv, device_type):
 
     # Enable radios for WiFi devices
     if device_type != "switch" and secrets_map:
-        secret_commands.append("uci -q set wireless.radio0.disabled=0")
-        secret_commands.append("uci -q set wireless.radio1.disabled=0")
+        for radio in radios_to_enable or ["radio0", "radio1"]:
+            secret_commands.append(f"uci -q set wireless.{radio}.disabled=0")
 
     if not secret_commands:
         return uci_script
@@ -493,6 +495,7 @@ def main():
                         build_info["secretsMap"],
                         secrets_kv,
                         build_info["deviceType"],
+                        build_info.get("radiosToEnable"),
                     )
             except ValueError as e:
                 print(f"Error: {e}", file=sys.stderr)

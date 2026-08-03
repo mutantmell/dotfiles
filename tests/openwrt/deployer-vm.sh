@@ -53,7 +53,7 @@ EOF
   "target": "x86",
   "subtarget": "64",
   "profile": "generic",
-  "release": "24.10.5",
+  "release": "25.12.5",
   "deviceType": "vm-test",
   "packages": ["dropbear", "ubus", "uci"],
   "secretsMap": {},

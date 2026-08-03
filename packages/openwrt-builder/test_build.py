@@ -22,6 +22,16 @@ class SecretsTests(unittest.TestCase):
         self.assertIn("wireless.radio0.disabled=0", rendered)
         self.assertIn("wireless.radio1.disabled=0", rendered)
 
+    def test_explicit_radio_list_enables_third_radio(self):
+        rendered = build.merge_secrets_into_uci(
+            "uci commit",
+            {"bt8bridge.mesh.key": ["wireless.batmesh.key"]},
+            {"bt8bridge.mesh.key": "example"},
+            "wirelessBridge",
+            ["radio0", "radio1", "radio2"],
+        )
+        self.assertIn("wireless.radio2.disabled=0", rendered)
+
     def test_incomplete_secrets_fail(self):
         with self.assertRaisesRegex(ValueError, "wifi.main.key"):
             build.merge_secrets_into_uci(

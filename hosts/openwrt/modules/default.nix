@@ -53,6 +53,7 @@
     inherit (cfg.image) profile target subtarget release;
     deviceType = cfg.device.role;
     packages = cfg.packages.final;
+    inherit (cfg.uci) radiosToEnable;
     inherit renderedConfig;
     preCommands = cfg.uci.preCommands;
     inherit (cfg) authorizedKeys;
@@ -70,6 +71,7 @@
       deviceType = cfg.device.role;
       packages = cfg.packages.final;
       inherit secretsMap;
+      inherit (cfg.uci) radiosToEnable;
       uciDefaults = "${uciFile}";
       authorizedKeys = "${keysFile}";
       extraFiles = lib.mapAttrs (_: toString) cfg.extraFiles;
@@ -87,6 +89,10 @@ in {
     image = {
       profile = mkOption {
         type = types.str;
+        apply = profile:
+          if lib.hasPrefix "asus_zenwifi-bt8" profile && lib.hasInfix "ubootmod" profile
+          then throw "OpenWrt BT8 profile must preserve the stock ASUS bootloader layout"
+          else profile;
         description = "OpenWrt Image Builder profile.";
       };
       target = mkOption {
@@ -187,6 +193,11 @@ in {
         type = types.attrsOf (types.listOf types.str);
         readOnly = true;
         description = "Map of flattened secret keys to UCI paths.";
+      };
+      radiosToEnable = mkOption {
+        type = types.listOf types.str;
+        default = ["radio0" "radio1"];
+        description = "Wireless UCI device sections enabled only after all required secrets are injected.";
       };
     };
 
