@@ -232,7 +232,8 @@
     "real bt8bridge uses GB policy" = realConfigs.bt8bridge.wireless.radio2.country == "GB";
     "real bt8bridge disables mesh forwarding" = !realConfigs.bt8bridge.wireless.batmesh.mesh_fwding;
     "real bt8bridge wired hardif is WAN" = realConfigs.bt8bridge.network.wired.device == "wan";
-    "real bt8bridge LAN ports are HOME access" = realConfigs.bt8bridge.network.br_home.ports == ["bat0.20" "lan1" "lan2" "lan3"];
+    "real bt8bridge LAN1 is management recovery access" = realConfigs.bt8bridge.network.br_mgmt.ports == ["bat0.10" "lan1"];
+    "real bt8bridge LAN2 and LAN3 are HOME access" = realConfigs.bt8bridge.network.br_home.ports == ["bat0.20" "lan2" "lan3"];
     "real bt8bridge has three guest APs" = lib.all (name: realConfigs.bt8bridge.wireless.${name}.network == "guest_l2") ["guest_main" "guest_secondary" "game"];
     "real bt8bridge management address" = realConfigs.bt8bridge.network.mgmt.ipaddr == "10.91.10.4";
     "real bt8bridge password auth disabled" = !realConfigs.bt8bridge.dropbear.main.PasswordAuth && !realConfigs.bt8bridge.dropbear.main.RootPasswordAuth;

@@ -75,7 +75,10 @@ in {
             _type = "device";
             type = "bridge";
             name = "br-mgmt";
-            ports = ["bat0.10"];
+            # Keep LAN1 as an untagged management recovery port so the bridge
+            # remains reachable with a statically addressed client if BATMAN
+            # is unavailable during the initial rollout.
+            ports = ["bat0.10" "lan1"];
           };
           mgmt = {
             _type = "interface";
@@ -97,7 +100,7 @@ in {
             _type = "device";
             type = "bridge";
             name = "br-home";
-            ports = ["bat0.20" "lan1" "lan2" "lan3"];
+            ports = ["bat0.20" "lan2" "lan3"];
           };
           home_l2 = {
             _type = "interface";
