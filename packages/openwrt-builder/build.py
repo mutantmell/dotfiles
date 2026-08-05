@@ -414,9 +414,17 @@ def find_sysupgrade(output_dir):
 # CLI
 # ---------------------------------------------------------------------------
 
-def main():
+def nonempty_secret_source(value):
+    """Reject an explicit empty secrets source before starting a build."""
+    if not value:
+        raise argparse.ArgumentTypeError("must be a non-empty path or '-'")
+    return value
+
+
+def create_argument_parser():
     parser = argparse.ArgumentParser(
         description="Build OpenWrt images with baked-in configuration",
+        allow_abbrev=False,
     )
     parser.add_argument(
         "--no-secrets", action="store_true",
@@ -436,18 +444,24 @@ def main():
         help="Path to build.json manifest (from nix build .#openwrtConfigurations.<device>)",
     )
     parser.add_argument(
-        "--secrets-file", type=str, default=None,
+        "--secrets-file", type=nonempty_secret_source, default=None,
         help="Path to plain (pre-decrypted) secrets YAML, or '-' to read from stdin "
              "(default: $OPENWRT_SECRETS_FILE). Decryption is the caller's responsibility.",
     )
 
+    return parser
+
+
+def main():
+    parser = create_argument_parser()
     args = parser.parse_args()
-    if args.no_secrets and args.secrets_file:
+
+    environment_secrets_file = os.environ.get("OPENWRT_SECRETS_FILE") or None
+    secrets_file_explicit = args.secrets_file or environment_secrets_file
+    if args.no_secrets and secrets_file_explicit:
         parser.error("--no-secrets cannot be combined with --secrets-file")
 
     # --- Load config ---
-    secrets_file_explicit = args.secrets_file or os.environ.get("OPENWRT_SECRETS_FILE")
-
     if not args.config_file:
         parser.error("--config-file is required; builds are manifest-only")
     build_info = load_config(args.config_file)

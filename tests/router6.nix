@@ -60,5 +60,6 @@ in {
   network-registry = import ./lib/network-registry.nix {inherit pkgs lib;};
   network-prefix-length = import ./lib/network-prefix-length.nix {inherit pkgs lib;};
   openwrt-config = import ./lib/openwrt-config.nix {inherit pkgs lib;};
+  openwrt-build-wrapper = import ./lib/openwrt-build-wrapper.nix {inherit pkgs lib;};
   uci-rendering = import ./lib/uci-rendering.nix {inherit pkgs lib;};
 }

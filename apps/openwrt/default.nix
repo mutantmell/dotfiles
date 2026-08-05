@@ -140,21 +140,54 @@
 
   # Run the OpenWrt builder, piping decrypted secrets via stdin when available.
   # Decrypted bytes exist only in the kernel pipe buffer — never written to disk.
-  # Skips secret injection if --no-secrets is present in the argument list,
-  # or if no sops file was found, or if --secrets-file was already supplied.
+  # Secret-free builds must be requested explicitly with --no-secrets; silently
+  # producing an image with disabled radios is too easy to mistake for a
+  # deployable image. Explicit --secrets-file values are passed through.
   runBuilder = ''
     run_builder() {
       local use_secrets=true
       local has_secrets_file=false
-      for arg in "$@"; do
-        [ "$arg" = "--no-secrets" ]  && use_secrets=false
-        [ "$arg" = "--secrets-file" ] && has_secrets_file=true
+      local secrets_file_value=""
+      local -a builder_args=("$@")
+      local i arg
+      for ((i = 0; i < ''${#builder_args[@]}; i++)); do
+        arg="''${builder_args[$i]}"
+        [ "$arg" = "--no-secrets" ] && use_secrets=false
+        case "$arg" in
+          --secrets-file)
+            has_secrets_file=true
+            i=$((i + 1))
+            secrets_file_value="''${builder_args[$i]-}"
+            ;;
+          --secrets-file=*)
+            has_secrets_file=true
+            secrets_file_value="''${arg#*=}"
+            ;;
+        esac
       done
-      if $use_secrets && ! $has_secrets_file && [ -n "''${SOPS_FILE:-}" ]; then
+
+      if $has_secrets_file && [ -z "$secrets_file_value" ]; then
+        echo "Error: --secrets-file requires a non-empty path or -." >&2
+        return 1
+      fi
+
+      if ! $use_secrets && { $has_secrets_file || [ -n "''${OPENWRT_SECRETS_FILE:-}" ]; }; then
+        echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2
+        return 1
+      fi
+
+      if ! $use_secrets || $has_secrets_file; then
+        ${builder}/bin/openwrt-build "$@"
+      elif [ -n "''${OPENWRT_SECRETS_FILE:-}" ]; then
+        ${builder}/bin/openwrt-build "$@"
+      elif [ -n "''${SOPS_FILE:-}" ]; then
         ${pkgs.sops}/bin/sops -d "$SOPS_FILE" \
           | ${builder}/bin/openwrt-build "$@" --secrets-file -
       else
-        ${builder}/bin/openwrt-build "$@"
+        echo "Error: no OpenWrt secrets file was found." >&2
+        echo "Expected hosts/openwrt/secrets/wifi.yaml in the repository, or pass --secrets-file <file|->." >&2
+        echo "For an intentionally credential-free image, pass --no-secrets." >&2
+        return 1
       fi
     }
   '';
@@ -167,8 +200,6 @@ in {
         set -euo pipefail
 
         ${resolveDevice}
-        # Resolve the repository only to discover its encrypted secrets file.
-        REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
 
         # Handle --list-devices before anything else
         for arg in "$@"; do
@@ -190,10 +221,30 @@ in {
 
         # The managed-device wrapper owns these paths so every invocation uses
         # the evaluated device manifest and a new artifact directory.
-        for arg in "$@"; do
+        BUILD_ARGS=("$@")
+        for ((i = 0; i < ''${#BUILD_ARGS[@]}; i++)); do
+          arg="''${BUILD_ARGS[$i]}"
           case "$arg" in
-            --config-file|--output-dir|--target|--subtarget|--profile|--release|--package|--authorized-key|--image-builder-tarball)
+            --config-file|--config-file=*|--output-dir|--output-dir=*|--target|--target=*|--subtarget|--subtarget=*|--profile|--profile=*|--release|--release=*|--package|--package=*|--authorized-key|--authorized-key=*|--image-builder-tarball|--image-builder-tarball=*)
               echo "Error: $arg is fixed by the evaluated device manifest." >&2
+              exit 1
+              ;;
+            --no-secrets|--help|-h) ;;
+            --secrets-file|--cache-dir)
+              i=$((i + 1))
+              if [ -z "''${BUILD_ARGS[$i]-}" ]; then
+                echo "Error: $arg requires a non-empty value." >&2
+                exit 1
+              fi
+              ;;
+            --secrets-file=*|--cache-dir=*)
+              if [ -z "''${arg#*=}" ]; then
+                echo "Error: ''${arg%%=*} requires a non-empty value." >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Error: unknown openwrt-build option: $arg" >&2
               exit 1
               ;;
           esac
@@ -201,6 +252,16 @@ in {
 
         resolve_device "$DEVICE"
 
+        # Help is purely informational: do not require a repository checkout or
+        # secrets, and do not allocate an artifact directory.
+        for arg in "$@"; do
+          case "$arg" in
+            --help|-h) exec ${builder}/bin/openwrt-build "$arg" ;;
+          esac
+        done
+
+        # Resolve the repository only to discover its encrypted secrets file.
+        REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
         ${discoverSopsFile}
         ${runBuilder}
         ${createOutputDir}

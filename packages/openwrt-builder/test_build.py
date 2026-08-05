@@ -12,6 +12,40 @@ spec.loader.exec_module(build)
 
 
 class SecretsTests(unittest.TestCase):
+    def test_cli_disables_long_option_abbreviations(self):
+        parser = build.create_argument_parser()
+        for option in ["--config=manifest.json", "--config-f=manifest.json", "--out=output"]:
+            with self.subTest(option=option), self.assertRaises(SystemExit):
+                parser.parse_args([option])
+
+    def test_cli_accepts_canonical_split_and_equal_options(self):
+        parser = build.create_argument_parser()
+        split = parser.parse_args([
+            "--config-file", "manifest.json",
+            "--output-dir", "output",
+            "--secrets-file", "secrets.yaml",
+        ])
+        equal = parser.parse_args([
+            "--config-file=manifest.json",
+            "--output-dir=output",
+            "--secrets-file=secrets.yaml",
+        ])
+        self.assertEqual("manifest.json", split.config_file)
+        self.assertEqual("secrets.yaml", split.secrets_file)
+        self.assertEqual("manifest.json", equal.config_file)
+        self.assertEqual("secrets.yaml", equal.secrets_file)
+
+    def test_cli_rejects_empty_secret_sources_including_duplicates(self):
+        parser = build.create_argument_parser()
+        cases = [
+            ["--secrets-file", ""],
+            ["--secrets-file="],
+            ["--secrets-file", "secrets.yaml", "--secrets-file="],
+        ]
+        for arguments in cases:
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit):
+                parser.parse_args(arguments)
+
     def test_complete_secrets_enable_radios(self):
         rendered = build.merge_secrets_into_uci(
             "#!/bin/sh\nuci commit",
