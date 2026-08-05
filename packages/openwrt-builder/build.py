@@ -426,7 +426,8 @@ def create_argument_parser():
         description="Build OpenWrt images with baked-in configuration",
         allow_abbrev=False,
     )
-    parser.add_argument(
+    secrets = parser.add_mutually_exclusive_group()
+    secrets.add_argument(
         "--no-secrets", action="store_true",
         help="Build without WiFi secrets (radios will be disabled)",
     )
@@ -443,7 +444,7 @@ def create_argument_parser():
         "--config-file", type=str, default=None,
         help="Path to build.json manifest (from nix build .#openwrtConfigurations.<device>)",
     )
-    parser.add_argument(
+    secrets.add_argument(
         "--secrets-file", type=nonempty_secret_source, default=None,
         help="Path to plain (pre-decrypted) secrets YAML, or '-' to read from stdin "
              "(default: $OPENWRT_SECRETS_FILE). Decryption is the caller's responsibility.",
@@ -457,9 +458,9 @@ def main():
     args = parser.parse_args()
 
     environment_secrets_file = os.environ.get("OPENWRT_SECRETS_FILE") or None
-    secrets_file_explicit = args.secrets_file or environment_secrets_file
-    if args.no_secrets and secrets_file_explicit:
-        parser.error("--no-secrets cannot be combined with --secrets-file")
+    if args.no_secrets and environment_secrets_file:
+        parser.error("--no-secrets cannot be combined with OPENWRT_SECRETS_FILE")
+    secrets_source = args.secrets_file or environment_secrets_file
 
     # --- Load config ---
     if not args.config_file:
@@ -500,9 +501,9 @@ def main():
     uci_script = build_info["uciDefaultsScript"]
     if not args.no_secrets:
         print("[2/5] Loading secrets...")
-        if secrets_file_explicit:
+        if secrets_source:
             try:
-                secrets_kv = load_secrets(secrets_file_explicit)
+                secrets_kv = load_secrets(secrets_source)
                 if build_info.get("secretsMap"):
                     uci_script = merge_secrets_into_uci(
                         uci_script,

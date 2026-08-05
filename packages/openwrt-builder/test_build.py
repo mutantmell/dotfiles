@@ -46,6 +46,11 @@ class SecretsTests(unittest.TestCase):
             with self.subTest(arguments=arguments), self.assertRaises(SystemExit):
                 parser.parse_args(arguments)
 
+    def test_cli_secret_modes_are_mutually_exclusive(self):
+        parser = build.create_argument_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--no-secrets", "--secrets-file", "secrets.yaml"])
+
     def test_complete_secrets_enable_radios(self):
         rendered = build.merge_secrets_into_uci(
             "#!/bin/sh\nuci commit",

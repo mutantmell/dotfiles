@@ -138,57 +138,116 @@
     }
   '';
 
-  # Run the OpenWrt builder, piping decrypted secrets via stdin when available.
+  # Parse the options accepted by the managed build wrapper once. The caller
+  # receives normalized builder arguments and an explicit secrets mode instead
+  # of passing raw arguments through multiple validation/scanning layers.
+  parseManagedBuildArgs = ''
+    parse_managed_build_args() {
+      BUILDER_ARGS=()
+      SECRET_MODE=auto
+      SECRET_SOURCE=""
+      SHOW_BUILDER_HELP=false
+      local arg value
+      while [ $# -gt 0 ]; do
+        arg="$1"
+        shift
+        case "$arg" in
+          --config-file|--config-file=*|--output-dir|--output-dir=*|--target|--target=*|--subtarget|--subtarget=*|--profile|--profile=*|--release|--release=*|--package|--package=*|--authorized-key|--authorized-key=*|--image-builder-tarball|--image-builder-tarball=*)
+            echo "Error: $arg is fixed by the evaluated device manifest." >&2
+            return 1
+            ;;
+          --no-secrets)
+            if [ "$SECRET_MODE" = explicit ]; then
+              echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2
+              return 1
+            fi
+            SECRET_MODE=none
+            ;;
+          --secrets-file)
+            [ $# -gt 0 ] || { echo "Error: --secrets-file requires a non-empty value." >&2; return 1; }
+            value="$1"
+            shift
+            [ -n "$value" ] || { echo "Error: --secrets-file requires a non-empty value." >&2; return 1; }
+            if [ "$SECRET_MODE" = none ]; then
+              echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2
+              return 1
+            elif [ "$SECRET_MODE" = explicit ]; then
+              echo "Error: --secrets-file may only be specified once." >&2
+              return 1
+            fi
+            SECRET_MODE=explicit
+            SECRET_SOURCE="$value"
+            ;;
+          --secrets-file=*)
+            value="''${arg#*=}"
+            [ -n "$value" ] || { echo "Error: --secrets-file requires a non-empty value." >&2; return 1; }
+            if [ "$SECRET_MODE" = none ]; then
+              echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2
+              return 1
+            elif [ "$SECRET_MODE" = explicit ]; then
+              echo "Error: --secrets-file may only be specified once." >&2
+              return 1
+            fi
+            SECRET_MODE=explicit
+            SECRET_SOURCE="$value"
+            ;;
+          --cache-dir)
+            [ $# -gt 0 ] || { echo "Error: --cache-dir requires a non-empty value." >&2; return 1; }
+            value="$1"
+            shift
+            [ -n "$value" ] || { echo "Error: --cache-dir requires a non-empty value." >&2; return 1; }
+            BUILDER_ARGS+=(--cache-dir "$value")
+            ;;
+          --cache-dir=*)
+            value="''${arg#*=}"
+            [ -n "$value" ] || { echo "Error: --cache-dir requires a non-empty value." >&2; return 1; }
+            BUILDER_ARGS+=(--cache-dir "$value")
+            ;;
+          --help|-h)
+            SHOW_BUILDER_HELP=true
+            ;;
+          *)
+            echo "Error: unknown openwrt-build option: $arg" >&2
+            return 1
+            ;;
+        esac
+      done
+    }
+  '';
+
+  # Run the OpenWrt builder from normalized argument and secret state, piping
+  # decrypted secrets via stdin when available.
   # Decrypted bytes exist only in the kernel pipe buffer — never written to disk.
   # Secret-free builds must be requested explicitly with --no-secrets; silently
   # producing an image with disabled radios is too easy to mistake for a
   # deployable image. Explicit --secrets-file values are passed through.
   runBuilder = ''
     run_builder() {
-      local use_secrets=true
-      local has_secrets_file=false
-      local secrets_file_value=""
-      local -a builder_args=("$@")
-      local i arg
-      for ((i = 0; i < ''${#builder_args[@]}; i++)); do
-        arg="''${builder_args[$i]}"
-        [ "$arg" = "--no-secrets" ] && use_secrets=false
-        case "$arg" in
-          --secrets-file)
-            has_secrets_file=true
-            i=$((i + 1))
-            secrets_file_value="''${builder_args[$i]-}"
-            ;;
-          --secrets-file=*)
-            has_secrets_file=true
-            secrets_file_value="''${arg#*=}"
-            ;;
-        esac
-      done
-
-      if $has_secrets_file && [ -z "$secrets_file_value" ]; then
-        echo "Error: --secrets-file requires a non-empty path or -." >&2
-        return 1
-      fi
-
-      if ! $use_secrets && { $has_secrets_file || [ -n "''${OPENWRT_SECRETS_FILE:-}" ]; }; then
-        echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2
-        return 1
-      fi
-
-      if ! $use_secrets || $has_secrets_file; then
-        ${builder}/bin/openwrt-build "$@"
-      elif [ -n "''${OPENWRT_SECRETS_FILE:-}" ]; then
-        ${builder}/bin/openwrt-build "$@"
-      elif [ -n "''${SOPS_FILE:-}" ]; then
-        ${pkgs.sops}/bin/sops -d "$SOPS_FILE" \
-          | ${builder}/bin/openwrt-build "$@" --secrets-file -
-      else
-        echo "Error: no OpenWrt secrets file was found." >&2
-        echo "Expected hosts/openwrt/secrets/wifi.yaml in the repository, or pass --secrets-file <file|->." >&2
-        echo "For an intentionally credential-free image, pass --no-secrets." >&2
-        return 1
-      fi
+      case "$SECRET_MODE" in
+        none)
+          ${builder}/bin/openwrt-build "$@" --no-secrets
+          ;;
+        explicit)
+          ${builder}/bin/openwrt-build "$@" --secrets-file "$SECRET_SOURCE"
+          ;;
+        auto)
+          if [ -n "''${OPENWRT_SECRETS_FILE:-}" ]; then
+            ${builder}/bin/openwrt-build "$@"
+          elif [ -n "''${SOPS_FILE:-}" ]; then
+            ${pkgs.sops}/bin/sops -d "$SOPS_FILE" \
+              | ${builder}/bin/openwrt-build "$@" --secrets-file -
+          else
+            echo "Error: no OpenWrt secrets file was found." >&2
+            echo "Expected hosts/openwrt/secrets/wifi.yaml in the repository, or pass --secrets-file <file|->." >&2
+            echo "For an intentionally credential-free image, pass --no-secrets." >&2
+            return 1
+          fi
+          ;;
+        *)
+          echo "Error: invalid internal secrets mode: $SECRET_MODE" >&2
+          return 1
+          ;;
+      esac
     }
   '';
 in {
@@ -221,44 +280,19 @@ in {
 
         # The managed-device wrapper owns these paths so every invocation uses
         # the evaluated device manifest and a new artifact directory.
-        BUILD_ARGS=("$@")
-        for ((i = 0; i < ''${#BUILD_ARGS[@]}; i++)); do
-          arg="''${BUILD_ARGS[$i]}"
-          case "$arg" in
-            --config-file|--config-file=*|--output-dir|--output-dir=*|--target|--target=*|--subtarget|--subtarget=*|--profile|--profile=*|--release|--release=*|--package|--package=*|--authorized-key|--authorized-key=*|--image-builder-tarball|--image-builder-tarball=*)
-              echo "Error: $arg is fixed by the evaluated device manifest." >&2
-              exit 1
-              ;;
-            --no-secrets|--help|-h) ;;
-            --secrets-file|--cache-dir)
-              i=$((i + 1))
-              if [ -z "''${BUILD_ARGS[$i]-}" ]; then
-                echo "Error: $arg requires a non-empty value." >&2
-                exit 1
-              fi
-              ;;
-            --secrets-file=*|--cache-dir=*)
-              if [ -z "''${arg#*=}" ]; then
-                echo "Error: ''${arg%%=*} requires a non-empty value." >&2
-                exit 1
-              fi
-              ;;
-            *)
-              echo "Error: unknown openwrt-build option: $arg" >&2
-              exit 1
-              ;;
-          esac
-        done
+        ${parseManagedBuildArgs}
+        parse_managed_build_args "$@"
 
         resolve_device "$DEVICE"
 
         # Help is purely informational: do not require a repository checkout or
         # secrets, and do not allocate an artifact directory.
-        for arg in "$@"; do
-          case "$arg" in
-            --help|-h) exec ${builder}/bin/openwrt-build "$arg" ;;
-          esac
-        done
+        $SHOW_BUILDER_HELP && exec ${builder}/bin/openwrt-build --help
+
+        if [ "$SECRET_MODE" = none ] && [ -n "''${OPENWRT_SECRETS_FILE:-}" ]; then
+          echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2
+          exit 1
+        fi
 
         # Resolve the repository only to discover its encrypted secrets file.
         REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
@@ -267,7 +301,7 @@ in {
         ${createOutputDir}
         create_output_dir build
         echo "Artifact directory: $OUTPUT_DIR"
-        run_builder --config-file "$CONFIG_DIR/build.json" --output-dir "$OUTPUT_DIR" "$@"
+        run_builder --config-file "$CONFIG_DIR/build.json" --output-dir "$OUTPUT_DIR" "''${BUILDER_ARGS[@]}"
       '';
     in "${script}";
   };
@@ -322,7 +356,8 @@ in {
         shift 2
         resolve_device "$DEVICE"
 
-        BUILD_ARGS=()
+        SECRET_MODE=auto
+        SECRET_SOURCE=""
         DEPLOY_ARGS=()
         while [ $# -gt 0 ]; do
           case "$1" in
@@ -330,12 +365,24 @@ in {
               DEPLOY_ARGS+=(--force)
               ;;
             --no-secrets)
-              BUILD_ARGS+=(--no-secrets)
+              [ "$SECRET_MODE" != explicit ] || { echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2; exit 1; }
+              SECRET_MODE=none
               ;;
             --secrets-file)
               shift
-              [ $# -gt 0 ] || { echo "Error: --secrets-file requires a path or -" >&2; exit 1; }
-              BUILD_ARGS+=(--secrets-file "$1")
+              [ $# -gt 0 ] && [ -n "$1" ] || { echo "Error: --secrets-file requires a non-empty path or -" >&2; exit 1; }
+              [ "$SECRET_MODE" != none ] || { echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2; exit 1; }
+              [ "$SECRET_MODE" != explicit ] || { echo "Error: --secrets-file may only be specified once." >&2; exit 1; }
+              SECRET_MODE=explicit
+              SECRET_SOURCE="$1"
+              ;;
+            --secrets-file=*)
+              value="''${1#*=}"
+              [ -n "$value" ] || { echo "Error: --secrets-file requires a non-empty path or -" >&2; exit 1; }
+              [ "$SECRET_MODE" != none ] || { echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2; exit 1; }
+              [ "$SECRET_MODE" != explicit ] || { echo "Error: --secrets-file may only be specified once." >&2; exit 1; }
+              SECRET_MODE=explicit
+              SECRET_SOURCE="$value"
               ;;
             --ssh-key)
               shift
@@ -350,6 +397,11 @@ in {
           shift
         done
 
+        if [ "$SECRET_MODE" = none ] && [ -n "''${OPENWRT_SECRETS_FILE:-}" ]; then
+          echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2
+          exit 1
+        fi
+
         REPO_ROOT=$(${pkgs.git}/bin/git rev-parse --show-toplevel 2>/dev/null || echo "")
         ${discoverSopsFile}
         ${runBuilder}
@@ -359,8 +411,7 @@ in {
         echo "Artifact directory: $OUTPUT_DIR"
         run_builder \
           --config-file "$CONFIG_DIR/build.json" \
-          --output-dir "$OUTPUT_DIR" \
-          "''${BUILD_ARGS[@]}"
+          --output-dir "$OUTPUT_DIR"
 
         SYSUPGRADE=$(find_sysupgrade "$OUTPUT_DIR")
         if [ -z "$SYSUPGRADE" ]; then
@@ -440,7 +491,8 @@ in {
         DEVICE="$1"
         shift
 
-        SECRETS_ARGS=()
+        SECRET_MODE=auto
+        SECRET_SOURCE=""
         SSH_PORT=2222
         WEB_PORT=8080
         MEMORY=256
@@ -450,11 +502,25 @@ in {
 
         while [ $# -gt 0 ]; do
           case "$1" in
-            --no-secrets)   SECRETS_ARGS+=(--no-secrets) ;;
+            --no-secrets)
+              [ "$SECRET_MODE" != explicit ] || { echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2; exit 1; }
+              SECRET_MODE=none
+              ;;
             --secrets-file)
               shift
-              [ $# -gt 0 ] || { echo "Error: --secrets-file requires a path or -" >&2; exit 1; }
-              SECRETS_ARGS+=(--secrets-file "$1")
+              [ $# -gt 0 ] && [ -n "$1" ] || { echo "Error: --secrets-file requires a non-empty path or -" >&2; exit 1; }
+              [ "$SECRET_MODE" != none ] || { echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2; exit 1; }
+              [ "$SECRET_MODE" != explicit ] || { echo "Error: --secrets-file may only be specified once." >&2; exit 1; }
+              SECRET_MODE=explicit
+              SECRET_SOURCE="$1"
+              ;;
+            --secrets-file=*)
+              value="''${1#*=}"
+              [ -n "$value" ] || { echo "Error: --secrets-file requires a non-empty path or -" >&2; exit 1; }
+              [ "$SECRET_MODE" != none ] || { echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2; exit 1; }
+              [ "$SECRET_MODE" != explicit ] || { echo "Error: --secrets-file may only be specified once." >&2; exit 1; }
+              SECRET_MODE=explicit
+              SECRET_SOURCE="$value"
               ;;
             --ssh-port)     shift; SSH_PORT="$1" ;;
             --web-port)     shift; WEB_PORT="$1" ;;
@@ -467,6 +533,11 @@ in {
           esac
           shift
         done
+
+        if [ "$SECRET_MODE" = none ] && [ -n "''${OPENWRT_SECRETS_FILE:-}" ]; then
+          echo "Error: --no-secrets cannot be combined with an explicit secrets source." >&2
+          exit 1
+        fi
 
         if [ -z "$KERNEL_FILE" ]; then
           resolve_device "$DEVICE"
@@ -499,8 +570,7 @@ in {
           echo "Artifact directory: $OUTPUT_DIR"
           run_builder \
             --config-file "$VM_CONFIG_DIR/build.json" \
-            --output-dir "$OUTPUT_DIR" \
-            "''${SECRETS_ARGS[@]}"
+            --output-dir "$OUTPUT_DIR"
 
           # armsr/armv8 generic profile produces a separate kernel and ext4 rootfs:
           #   *-kernel.bin              — plain kernel binary

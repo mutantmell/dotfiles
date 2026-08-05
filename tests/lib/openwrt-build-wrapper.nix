@@ -75,8 +75,11 @@ in
     ! rg -q 'secrets:' output
     [ ! -e openwrt-images ]
     "$wrapper" bt8bridge -h >output 2>&1
-    rg -q 'builder-args: <-h>' output
+    rg -q 'builder-args: <--help>' output
     ! rg -q 'secrets:' output
+    [ ! -e openwrt-images ]
+    OPENWRT_SECRETS_FILE=secrets.yaml "$wrapper" bt8bridge --no-secrets --help >output 2>&1
+    rg -q 'builder-args: <--help>' output
     [ ! -e openwrt-images ]
 
     for option in config-file output-dir target subtarget profile release package authorized-key image-builder-tarball; do
@@ -92,15 +95,21 @@ in
     expect_success --secrets-file secrets.yaml
     rg -q '<--secrets-file> <secrets.yaml>' output
     expect_success --secrets-file=secrets.yaml
-    rg -q '<--secrets-file=secrets.yaml>' output
+    rg -q '<--secrets-file> <secrets.yaml>' output
     printf 'test-secret\n' | "$wrapper" bt8bridge --secrets-file - >output 2>&1
     rg -q 'stdin-secret:test-secret' output
+
+    expect_success --cache-dir cache --no-secrets
+    rg -q '<--cache-dir> <cache>' output
+    expect_success --cache-dir=cache --no-secrets
+    rg -q '<--cache-dir> <cache>' output
 
     expect_failure 'requires a non-empty' --secrets-file ""
     expect_failure 'requires a non-empty' --secrets-file=
     expect_failure 'requires a non-empty' --secrets-file secrets.yaml --secrets-file=
     expect_failure 'requires a non-empty' --secrets-file= --secrets-file secrets.yaml
     expect_failure 'cannot be combined' --no-secrets --secrets-file secrets.yaml
+    expect_failure 'may only be specified once' --secrets-file first.yaml --secrets-file=second.yaml
 
     expect_success --no-secrets
     OPENWRT_SECRETS_FILE=secrets.yaml expect_success
