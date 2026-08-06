@@ -591,11 +591,15 @@
 
   # Generate config files derivation (uci-defaults + authorized_keys)
   # Single function replacing the copy-pasted runCommand blocks in mk*Image
-  # Migration pre-commands: delete anonymous sections before creating named ones.
-  # On sysupgrade from anonymous → named, this prevents duplicates.
-  # Safe no-op on fresh installs (no anonymous sections to delete).
+  # Migration pre-commands: remove ImageBuilder state before applying the
+  # declarative configuration.  A generated network configuration owns the
+  # complete topology, including named interfaces and anonymous devices, so
+  # retaining ImageBuilder's defaults would leave conflicting sections behind.
   migrationPreCommands = [
-    "# Migration: remove anonymous sections (safe no-op when none exist)"
+    "# Migration: remove ImageBuilder defaults before applying desired state"
+    # This removes named lan/wan sections as well as anonymous device and
+    # bridge-vlan sections. It is a safe no-op when the network config is empty.
+    ''uci -q show network | sed -n "s/^network\.\([^.=]*\)=.*/\1/p" | while IFS= read -r section; do uci -q delete "network.$section"; done''
     "while uci -q delete wireless.@wifi-iface[-1]; do :; done"
     "while uci -q delete firewall.@defaults[-1]; do :; done"
     "while uci -q delete firewall.@zone[-1]; do :; done"
@@ -604,7 +608,6 @@
     "while uci -q delete system.@system[-1]; do :; done"
     "while uci -q delete dropbear.@dropbear[-1]; do :; done"
     "while uci -q delete dhcp.@dnsmasq[-1]; do :; done"
-    "while uci -q delete network.@bridge-vlan[-1]; do :; done"
     "while uci -q delete system.@led[-1]; do :; done"
   ];
 in {

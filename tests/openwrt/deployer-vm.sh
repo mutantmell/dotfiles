@@ -17,8 +17,9 @@ trap 'exit 143' TERM
 
 : "${OPENWRT_BUILDER:?OPENWRT_BUILDER is required}"
 : "${OPENWRT_DEPLOYER:?OPENWRT_DEPLOYER is required}"
-: "${OPENWRT_IMAGEBUILDER:?OPENWRT_IMAGEBUILDER is required}"
 : "${OPENWRT_VM_FIXTURES:?OPENWRT_VM_FIXTURES is required}"
+: "${OPENWRT_DEPLOYER_VM_CONFIG_A:?OPENWRT_DEPLOYER_VM_CONFIG_A is required}"
+: "${OPENWRT_DEPLOYER_VM_CONFIG_B:?OPENWRT_DEPLOYER_VM_CONFIG_B is required}"
 
 PORT=$((20000 + $$ % 10000))
 HOST=127.0.0.1
@@ -30,46 +31,26 @@ printf '[%s]:%s %s\n' "$HOST" "$PORT" \
   "$(cut -d' ' -f1,2 "$OPENWRT_VM_FIXTURES/vm-host-ed25519.pub")" >"$KNOWN_HOSTS"
 
 make_manifest() {
-  local version=$1 build_id=$2 dir="$ROOT/$1"
+  local name=$1
+  local config_dir=$2
+  local dir="$ROOT/$name"
   mkdir -p "$dir"
   base64 -d "$OPENWRT_VM_FIXTURES/vm-host-ed25519.b64" >"$dir/host-key"
-  cp "$OPENWRT_VM_FIXTURES/vm-client-ed25519.pub" "$dir/authorized-keys"
   chmod 0600 "$dir/host-key"
-  cat >"$dir/uci-defaults" <<EOF
-#!/bin/sh
-uci -q batch <<'UCI'
-set system.@system[0].hostname='openwrt-deployer-vm'
-set system.@system[0].description='deployment-$version'
-commit system
-set network.lan.device='eth0'
-set network.lan.proto='dhcp'
-commit network
-UCI
-EOF
-  cat >"$dir/build.json" <<EOF
-{
-  "hostname": "openwrt-deployer-vm",
-  "buildId": "$build_id",
-  "target": "x86",
-  "subtarget": "64",
-  "profile": "generic",
-  "release": "25.12.5",
-  "deviceType": "vm-test",
-  "packages": ["dropbear", "ubus", "uci"],
-  "secretsMap": {},
-  "uciDefaults": "uci-defaults",
-  "authorizedKeys": "authorized-keys",
-  "extraFiles": {"/etc/dropbear/dropbear_ed25519_host_key": "host-key"},
-  "imageBuilderTarball": "$OPENWRT_IMAGEBUILDER"
-}
-EOF
+  # Consume the complete Nix-generated manifest and UCI defaults. The only
+  # runtime addition is a test-only SSH host key, which keeps host trust
+  # deterministic. Keeping the generated defaults intact makes this test cover
+  # production cleanup of intrinsic networking.
+  jq --arg host_key "$dir/host-key" \
+    '.extraFiles["/etc/dropbear/dropbear_ed25519_host_key"] = $host_key' \
+    "$config_dir/build.json" >"$dir/build.json"
   "$OPENWRT_BUILDER" --config-file "$dir/build.json" --output-dir "$dir/out" --no-secrets
 }
 
-BUILD_A=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-BUILD_B=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-make_manifest A "$BUILD_A"
-make_manifest B "$BUILD_B"
+BUILD_A=$(jq -er '.buildId' "$OPENWRT_DEPLOYER_VM_CONFIG_A/build.json")
+BUILD_B=$(jq -er '.buildId' "$OPENWRT_DEPLOYER_VM_CONFIG_B/build.json")
+make_manifest A "$OPENWRT_DEPLOYER_VM_CONFIG_A"
+make_manifest B "$OPENWRT_DEPLOYER_VM_CONFIG_B"
 
 IMAGE_A_GZ=$(find "$ROOT/A/out" -name '*ext4-combined.img.gz' -print -quit)
 IMAGE_B=$(find "$ROOT/B/out" -name '*ext4-combined.img.gz' -print -quit)
@@ -92,6 +73,13 @@ QEMU_PID=$!
 SSH=(ssh -p "$PORT" -i "$CLIENT_KEY" -o IdentitiesOnly=yes -o BatchMode=yes
   -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$KNOWN_HOSTS"
   -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=2 "root@$HOST")
+assert_uci_absent() {
+  local section=$1
+  if "${SSH[@]}" uci -q get "$section"; then
+    echo "unexpected intrinsic UCI section survived: $section" >&2
+    exit 1
+  fi
+}
 deadline=$((SECONDS + 180))
 until "${SSH[@]}" true >/dev/null 2>&1; do
   if ! kill -0 "$QEMU_PID" 2>/dev/null; then
@@ -110,6 +98,12 @@ OLD_BOOT_ID=$("${SSH[@]}" cat /proc/sys/kernel/random/boot_id)
 [[ -n $OLD_BOOT_ID ]]
 [[ $("${SSH[@]}" cat /etc/mmell-build-id) == "$BUILD_A" ]]
 [[ $("${SSH[@]}" uci -q get 'system.@system[0].description') == deployment-A ]]
+[[ $("${SSH[@]}" uci -q get network.uplink.device) == eth0 ]]
+[[ $("${SSH[@]}" uci -q get network.uplink.proto) == dhcp ]]
+assert_uci_absent network.lan
+assert_uci_absent network.wan
+assert_uci_absent 'network.@device[0]'
+"${SSH[@]}" ip -4 address show dev eth0 | grep -q 'inet '
 
 SHA=$(sha256sum "$IMAGE_B" | cut -d' ' -f1)
 RESULT=$("$OPENWRT_DEPLOYER" "$HOST" "$IMAGE_B" \
@@ -125,6 +119,12 @@ RESULT=$("$OPENWRT_DEPLOYER" "$HOST" "$IMAGE_B" \
 NEW_BOOT_ID=$("${SSH[@]}" cat /proc/sys/kernel/random/boot_id)
 [[ $NEW_BOOT_ID != "$OLD_BOOT_ID" ]]
 [[ $("${SSH[@]}" cat /etc/mmell-build-id) == "$BUILD_B" ]]
+[[ $("${SSH[@]}" uci -q get network.uplink.device) == eth0 ]]
+[[ $("${SSH[@]}" uci -q get network.uplink.proto) == dhcp ]]
+assert_uci_absent network.lan
+assert_uci_absent network.wan
+assert_uci_absent 'network.@device[0]'
+"${SSH[@]}" ip -4 address show dev eth0 | grep -q 'inet '
 jq -e --arg sha "$SHA" --arg build "$BUILD_B" \
   '.status == "success" and .sha256 == $sha and .build_id == $build' <<<"$RESULT" >/dev/null
 echo 'OpenWrt deployer VM integration test passed.'

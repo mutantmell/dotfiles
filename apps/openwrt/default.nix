@@ -42,6 +42,69 @@
   owrtData = import ../../lib/common/data/openwrt.nix {inherit lib;};
   builder = pkgs.mmell.openwrt-builder;
   deployer = pkgs.mmell.openwrt-deployer;
+  imageBuilder = pkgs.fetchurl {
+    url = "https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-imagebuilder-25.12.5-x86-64.Linux-x86_64.tar.zst";
+    hash = owrtData.imageBuilderHashes."25.12.5"."x86/64";
+  };
+
+  # A disposable x86 configuration for the destructive-upgrade VM test.  It
+  # goes through the same OpenWrt module and UCI-defaults renderer as device
+  # configurations so the test exercises production migration pre-commands,
+  # rather than a copy maintained in its shell harness.
+  mkDeployerVmConfig = deployment: let
+    eval = lib.evalModules {
+      specialArgs = {
+        inherit pkgs owrtData;
+        openwrtLib = import ../../lib/openwrt {inherit lib;};
+      };
+      modules = [
+        ../../hosts/openwrt/modules
+        {
+          openwrt = {
+            hostname = "openwrt-deployer-vm";
+            image = {
+              profile = "generic";
+              target = "x86";
+              subtarget = "64";
+              builderTarball = imageBuilder;
+            };
+            device.role = "vm-test";
+            packages.extra = ["dropbear" "ubus" "uci"];
+            authorizedKeys = [(builtins.readFile ../../tests/openwrt/fixtures/vm-client-ed25519.pub)];
+            uci.extraConfig = {
+              system.system = {
+                _type = "system";
+                hostname = "openwrt-deployer-vm";
+                description = "deployment-${deployment}";
+              };
+              dropbear.main = {
+                _type = "dropbear";
+                PasswordAuth = false;
+                RootPasswordAuth = false;
+                Port = 22;
+              };
+              network.uplink = {
+                _type = "interface";
+                device = "eth0";
+                proto = "dhcp";
+              };
+              firewall.test = {
+                _type = "zone";
+                name = "test";
+                network = "uplink";
+                input = "ACCEPT";
+                output = "ACCEPT";
+                forward = "REJECT";
+              };
+            };
+          };
+        }
+      ];
+    };
+  in
+    eval.config.openwrt.build.configDir;
+  deployerVmConfigA = mkDeployerVmConfig "A";
+  deployerVmConfigB = mkDeployerVmConfig "B";
 
   # Device name → config dir lookup (shell case statement)
   # ${drv} interpolation embeds the store path AND adds drv to the closure,
@@ -742,15 +805,12 @@ in {
   openwrt-deployer-vm = {
     type = "app";
     program = let
-      imageBuilder = pkgs.fetchurl {
-        url = "https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-imagebuilder-25.12.5-x86-64.Linux-x86_64.tar.zst";
-        hash = owrtData.imageBuilderHashes."25.12.5"."x86/64";
-      };
       script = pkgs.writeShellScript "openwrt-deployer-vm" ''
         export OPENWRT_BUILDER=${builder}/bin/openwrt-build
         export OPENWRT_DEPLOYER=${deployer}/bin/openwrt-deploy
-        export OPENWRT_IMAGEBUILDER=${imageBuilder}
         export OPENWRT_VM_FIXTURES=${../../tests/openwrt/fixtures}
+        export OPENWRT_DEPLOYER_VM_CONFIG_A=${deployerVmConfigA}
+        export OPENWRT_DEPLOYER_VM_CONFIG_B=${deployerVmConfigB}
         export PATH=${lib.makeBinPath [pkgs.bash pkgs.coreutils pkgs.findutils pkgs.gzip pkgs.jq pkgs.openssh pkgs.qemu]}:$PATH
         exec ${../../tests/openwrt/deployer-vm.sh}
       '';

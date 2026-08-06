@@ -253,6 +253,8 @@
     "migrationPreCommands is exported" = openwrt ? migrationPreCommands;
     "migrationPreCommands is a list" = builtins.isList openwrt.migrationPreCommands;
     "migrationPreCommands is non-empty" = builtins.length openwrt.migrationPreCommands > 0;
+    "migration removes intrinsic network config" =
+      lib.any (lib.hasPrefix "uci -q show network") openwrt.migrationPreCommands;
   };
 
   failures = lib.filterAttrs (_: v: !v) allTests;
