@@ -21,7 +21,7 @@
               model = "host-passthrough";
               cores = 4;
             };
-            resources.requests.memory = "8Gi";
+            resources.requests.memory = "16Gi";
             devices = {
               disks = [
                 {
@@ -121,7 +121,7 @@ in
           REGISTRY_HOST="''${registry%%/*}"
           FLAKE=$(json_string '.flake' "$HOME/git/dotfiles")
           KUBECONFIG=$(json_string '.kubeconfig' "$HOME/.kube/erebonia-oidc.yaml")
-          DEFAULT_MEMORY=$(json_string '.defaultMemory' '8Gi')
+          DEFAULT_MEMORY=$(json_string '.defaultMemory' '16Gi')
           DEFAULT_CPU=$(json_string '.defaultCpu' '4')
           DEFAULT_DISK=$(json_string '.defaultDisk' '60Gi')
           VM_MANIFEST="${vmManifest}"

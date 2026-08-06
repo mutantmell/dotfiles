@@ -20,7 +20,14 @@
   // /nix bind mount: the devcontainer uses the host VM's Nix store and daemon
   //   socket, so uid-range/container tests execute on the VM host instead of
   //   inside a constrained OCI container.
-  "runArgs": ["--device=/dev/kvm", "--mount=type=bind,source=/nix,target=/nix"],
+  // Keep enough PID/thread headroom for nested VM tests and their build tools.
+  // Podman's lower default can make thread creation fail with EAGAIN while the
+  // VM still has ample memory.
+  "runArgs": [
+    "--device=/dev/kvm",
+    "--mount=type=bind,source=/nix,target=/nix",
+    "--pids-limit=8192"
+  ],
 
   // Keep postCreate minimal (plan). The workspace is bind-mounted, so git would
   // otherwise refuse to operate on a dir owned by a different uid. This runs as

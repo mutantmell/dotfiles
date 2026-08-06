@@ -609,7 +609,7 @@ cmd_up() {
       manifest_hint="$PWD"
       echo "==> no repo given; using current checkout's origin: $source" >&2
     else
-      echo "usage: dev-machine up [<repo-url-or-path>] [--name N] [--repo owner/name] [--rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]" >&2
+      echo "usage: dev-machine up [<repo-url-or-path>] [--name N] [--repo owner/name] [--rebuild] [--no-push-cred] [--memory 16Gi] [--cpu 4] [--disk 60Gi]" >&2
       echo "       (omit the repo to use the current directory's origin remote URL)" >&2
       return 1
     fi
@@ -1172,7 +1172,7 @@ usage() {
   cat >&2 <<'USAGE'
 dev-machine — locked-down LLM dev machines on KubeVirt
 
-  dev-machine up [<repo>] [--name N] [--repo owner/name] [--rebuild] [--no-push-cred] [--memory 8Gi] [--cpu 4] [--disk 60Gi]
+  dev-machine up [<repo>] [--name N] [--repo owner/name] [--rebuild] [--no-push-cred] [--memory 16Gi] [--cpu 4] [--disk 60Gi]
                                        (omit <repo> to use the current directory's checkout)
   dev-machine ssh <name> [--recover]   (--recover: restart a dead devcontainer agent before ssh)
   dev-machine refresh <name>           (recreate just the devcontainer on the running VM — fast iterate on devcontainer.json)
