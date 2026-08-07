@@ -30,9 +30,14 @@
           openwrt-deployer = fakeDeployer;
         };
     };
+  uciDefaults = pkgs.writeText "test-uci-defaults" ''
+    #!/bin/sh
+    # generated test UCI defaults
+    uci -q set network.mgmt.ipaddr='10.91.10.4'
+  '';
   config = pkgs.runCommand "openwrt-wrapper-test-config" {} ''
     mkdir -p "$out"
-    echo '{"buildId":"test"}' > "$out/build.json"
+    echo '{"buildId":"test","uciDefaults":"${uciDefaults}"}' > "$out/build.json"
   '';
   devices.bt8bridge = {
     target = "mediatek";
@@ -52,6 +57,7 @@ in
   } ''
     set -euo pipefail
     wrapper=${app.openwrt-build.program}
+    show_config=${app.openwrt-show-config.program}
 
     expect_failure() {
       local expected="$1"
@@ -67,6 +73,21 @@ in
       "$wrapper" bt8bridge "$@" >output 2>&1
       rg -q 'builder-args:' output
     }
+
+    "$show_config" bt8bridge >output 2>&1
+    rg -q "network.mgmt.ipaddr='10.91.10.4'" output
+    "$show_config" --help >output 2>&1
+    rg -q 'Usage: nix run .#openwrt-show-config' output
+    if "$show_config" >output 2>&1; then
+      echo 'openwrt-show-config unexpectedly accepted a missing device' >&2
+      exit 1
+    fi
+    rg -q 'Usage: nix run .#openwrt-show-config' output
+    if "$show_config" unknown >output 2>&1; then
+      echo 'openwrt-show-config unexpectedly accepted an unknown device' >&2
+      exit 1
+    fi
+    rg -q "Unknown device 'unknown'" output
 
     # Help must reach the underlying CLI without repository discovery, secrets,
     # or even creating the artifact-directory hierarchy.

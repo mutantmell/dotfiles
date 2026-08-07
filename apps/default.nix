@@ -13,6 +13,7 @@
 #
 # OpenWrt management:
 #   nix run .#openwrt-build -- <device>         # Build image
+#   nix run .#openwrt-show-config -- <device>   # Show generated UCI defaults
 #   nix run .#openwrt-deploy -- <device> <ip>   # Build + deploy to device
 {
   pkgs,
@@ -41,6 +42,7 @@ in {
   inherit
     (openwrt)
     openwrt-build
+    openwrt-show-config
     openwrt-deploy
     openwrt-run
     openwrt-vm-smoke

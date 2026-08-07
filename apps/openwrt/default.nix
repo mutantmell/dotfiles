@@ -3,6 +3,7 @@
 # Build:
 #   nix run .#openwrt-build -- <device-name>
 #   nix run .#openwrt-build -- <device-name> --no-secrets
+#   nix run .#openwrt-show-config -- <device-name>
 #
 # Update Image Builder hashes:
 #   nix run .#openwrt-update-pins
@@ -314,6 +315,34 @@
     }
   '';
 in {
+  # Print the evaluated, non-secret UCI defaults exactly as they will be baked
+  # into the image. Secret values are injected later by openwrt-build and are
+  # never read or decrypted by this command.
+  openwrt-show-config = {
+    type = "app";
+    program = let
+      script = pkgs.writeShellScript "openwrt-show-config" ''
+        set -euo pipefail
+
+        ${resolveDevice}
+
+        if [ "$#" -ne 1 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+          echo "Usage: nix run .#openwrt-show-config -- <device-name>"
+          echo ""
+          echo "Print the evaluated, non-secret UCI defaults for an OpenWrt device."
+          if [ "$#" -eq 1 ] && { [ "$1" = "--help" ] || [ "$1" = "-h" ]; }; then
+            exit 0
+          fi
+          exit 1
+        fi
+
+        resolve_device "$1"
+        UCI_DEFAULTS=$(${pkgs.jq}/bin/jq -er '.uciDefaults' "$CONFIG_DIR/build.json")
+        exec ${pkgs.coreutils}/bin/cat "$UCI_DEFAULTS"
+      '';
+    in "${script}";
+  };
+
   # Build an OpenWrt image using the upstream Image Builder
   openwrt-build = {
     type = "app";
