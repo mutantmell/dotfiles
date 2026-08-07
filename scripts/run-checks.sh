@@ -331,6 +331,31 @@ else
   }
 
   for check in "${CHECKS[@]}"; do
+    # ImageBuilder checks create multi-gigabyte mutable workspaces under /tmp.
+    # Running more than one of them—or an unrelated VM build alongside one—can
+    # exhaust the CI runner's ephemeral disk. Drain the parallel queue and run
+    # each external check alone while retaining parallelism for normal checks.
+    if [[ -n ${EXTERNAL_CHECKS[$check]+x} ]]; then
+      while [[ $RUNNING -gt 0 ]]; do
+        reap_one
+      done
+      log="${LOG_DIR}/${check}.log"
+      if run_check "$check" >"$log" 2>&1; then
+        echo "  PASS  ${check}"
+        CHECK_STATUS["$check"]="passed"
+        CHECK_LOG["$check"]=""
+        rm -f "$log"
+        PASSED=$((PASSED + 1))
+      else
+        echo "  FAIL  ${check}  (log: ${log})"
+        CHECK_STATUS["$check"]="failed"
+        CHECK_LOG["$check"]="$log"
+        FAILED=$((FAILED + 1))
+        FAILED_NAMES+=("${check}")
+      fi
+      continue
+    fi
+
     while [[ $RUNNING -ge $MAX_PARALLEL ]]; do
       reap_one
     done
