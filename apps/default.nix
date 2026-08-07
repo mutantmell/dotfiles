@@ -45,6 +45,7 @@ in {
     openwrt-run
     openwrt-vm-smoke
     openwrt-deployer-vm
+    openwrt-native-image-check
     openwrt-update-pins
     ;
 }

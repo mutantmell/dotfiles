@@ -816,4 +816,28 @@ in {
       '';
     in "${script}";
   };
+
+  # Networked native-image build and inspection. This is an app rather than a
+  # flake check because ImageBuilder fetches its package feeds at build time.
+  openwrt-native-image-check = {
+    type = "app";
+    program = let
+      script = pkgs.writeShellScript "openwrt-native-image-check" ''
+        export OPENWRT_BUILDER=${builder}/bin/openwrt-build
+        export OPENWRT_NATIVE_CONFIG=${openwrtConfigurations.bt8bridge}
+        export PATH=${lib.makeBinPath [
+          pkgs.bash
+          pkgs.coreutils
+          pkgs.dtc
+          pkgs.findutils
+          pkgs.gnugrep
+          pkgs.gnutar
+          pkgs.jq
+          pkgs.squashfsTools
+          pkgs.ubootTools
+        ]}:$PATH
+        exec ${pkgs.bash}/bin/bash ${../../tests/openwrt/native-image.sh}
+      '';
+    in "${script}";
+  };
 }

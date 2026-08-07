@@ -39,6 +39,7 @@ declare -A PURE_EVAL_CHECKS=(
 declare -A EXTERNAL_CHECKS=(
   ["openwrt-vm-smoke"]=1
   ["openwrt-deployer-vm"]=1
+  ["openwrt-native-image-check"]=1
 )
 
 usage() {
@@ -231,6 +232,7 @@ if [[ ${#CHECKS[@]} -eq 0 ]]; then
   mapfile -t CHECKS < <(printf '%s\n' "$CHECKS_TEXT" | grep -v '^$')
   CHECKS+=(openwrt-vm-smoke)
   CHECKS+=(openwrt-deployer-vm)
+  CHECKS+=(openwrt-native-image-check)
 fi
 
 if [[ -n $SHARD_SPEC ]]; then
