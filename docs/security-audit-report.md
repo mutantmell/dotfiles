@@ -462,17 +462,18 @@ policy drop
 #### 2. Sysctl Verification
 
 From the evaluated configuration:
-| Setting | Value | Assessment |
-|---------|-------|------------|
-| `net.ipv4.conf.all.forwarding` | `true` | Required for routing |
-| `net.ipv6.conf.all.forwarding` | `true` | Required for routing |
-| `net.ipv4.conf.all.rp_filter` | `1` | Strict reverse path — prevents spoofing |
-| `net.ipv4.conf.default.rp_filter` | `1` | Default strict reverse path |
-| `net.ipv6.conf.all.accept_ra` | `0` | Globally disabled — prevents rogue RAs |
-| `net.ipv6.conf.default.accept_ra` | `0` | Default disabled |
-| `net.ipv6.conf.wan.accept_ra` | `2` | WAN only — correct for DHCP/PD |
-| `kernel.kptr_restrict` | `1` | Hides kernel pointers (NixOS default) |
-| `net.ipv6.conf.default.use_tempaddr` | `"2"` | IPv6 privacy addresses (NixOS default) |
+
+| Setting                              | Value  | Assessment                              |
+| ------------------------------------ | ------ | --------------------------------------- |
+| `net.ipv4.conf.all.forwarding`       | `true` | Required for routing                    |
+| `net.ipv6.conf.all.forwarding`       | `true` | Required for routing                    |
+| `net.ipv4.conf.all.rp_filter`        | `1`    | Strict reverse path — prevents spoofing |
+| `net.ipv4.conf.default.rp_filter`    | `1`    | Default strict reverse path             |
+| `net.ipv6.conf.all.accept_ra`        | `0`    | Globally disabled — prevents rogue RAs  |
+| `net.ipv6.conf.default.accept_ra`    | `0`    | Default disabled                        |
+| `net.ipv6.conf.wan.accept_ra`        | `2`    | WAN only — correct for DHCP/PD          |
+| `kernel.kptr_restrict`               | `1`    | Hides kernel pointers (NixOS default)   |
+| `net.ipv6.conf.default.use_tempaddr` | `"2"`  | IPv6 privacy addresses (NixOS default)  |
 
 The first 7 sysctls are explicitly set by the router6 module. The last 2 (`kptr_restrict`, `use_tempaddr`) are NixOS defaults — beneficial but not explicitly configured by this project.
 

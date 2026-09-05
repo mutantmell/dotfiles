@@ -36,10 +36,10 @@
     dates = "weekly";
     options = "-d";
   };
-  services.journald.extraConfig = ''
-    SystemMaxUse=100M
-    MaxFileSec=7day
-  '';
+  services.journald.settings.Journal = {
+    SystemMaxUse = "100M";
+    MaxFileSec = "7day";
+  };
 
   # NFS media share from liberl (NAS) — read-only
   fileSystems."/mnt/media" = {

@@ -37,10 +37,10 @@
     dates = "weekly";
     options = "-d";
   };
-  services.journald.extraConfig = ''
-    SystemMaxUse=100M
-    MaxFileSec=7day
-  '';
+  services.journald.settings.Journal = {
+    SystemMaxUse = "100M";
+    MaxFileSec = "7day";
+  };
 
   environment.systemPackages = [
     pkgs.git

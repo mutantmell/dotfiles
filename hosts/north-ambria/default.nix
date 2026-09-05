@@ -155,10 +155,10 @@ in {
     COMFYUI_MODEL_PATH = "/srv/llm/models";
   };
 
-  services.journald.extraConfig = ''
-    SystemMaxUse=250M
-    MaxFileSec=14day
-  '';
+  services.journald.settings.Journal = {
+    SystemMaxUse = "250M";
+    MaxFileSec = "14day";
+  };
   nix.gc = {
     automatic = true;
     dates = "weekly";
