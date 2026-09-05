@@ -39,6 +39,10 @@
 #                           pod-restarted (emptyDisk scratch wiped — machine
 #                           rebuildable, work gone); durable fix is a persistent-
 #                           scratch PVC, deferred until iSCSI lands.
+#   dev-machine pull <name> <path> [--output-dir <dir>]
+#                           operator-initiated extraction of one named file or
+#                           directory. Refuses local overwrites and does not
+#                           forward workstation credentials into the sandbox.
 #   dev-machine down <name> tear the workspace + VM + secret down (freeing the
 #                           VM's dev slot). `--no-agent` skips the in-VM devpod
 #                           teardown when the VM is crashed/OOM-killed (the normal

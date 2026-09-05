@@ -822,6 +822,116 @@ cmd_ssh() {
   devpod ssh "$name" --user agent --start-services=false --agent-forwarding=false
 }
 
+# Pull one explicitly named file or directory out of the devcontainer. The
+# operator initiates the transfer through DevPod; no workstation credentials or
+# listening service are exposed to the sandbox. Stage and inspect the archive in
+# a fresh local directory before moving it into place, and refuse to overwrite
+# an existing destination.
+cmd_pull() {
+  local name="" remote_path="" output_dir="."
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --output-dir)
+      [[ $# -ge 2 ]] || {
+        echo "--output-dir requires a directory" >&2
+        return 1
+      }
+      output_dir=$2
+      shift 2
+      ;;
+    --output-dir=*)
+      output_dir=${1#*=}
+      shift
+      ;;
+    -*)
+      echo "unknown flag: $1" >&2
+      return 1
+      ;;
+    *)
+      if [[ -z $name ]]; then
+        name=$1
+      elif [[ -z $remote_path ]]; then
+        remote_path=$1
+      else
+        echo "unexpected arg: $1" >&2
+        return 1
+      fi
+      shift
+      ;;
+    esac
+  done
+
+  name=$(sanitize "$name")
+  [[ -n $name && -n $remote_path ]] || {
+    echo "usage: dev-machine pull <name> <remote-path> [--output-dir <directory>]" >&2
+    return 1
+  }
+  [[ -d $output_dir ]] || {
+    echo "output directory does not exist: $output_dir" >&2
+    return 1
+  }
+  [[ -d $STATE/$name ]] || {
+    echo "no such dev machine: $name" >&2
+    return 1
+  }
+
+  # Strip trailing slashes so basename is stable. Pulling the container root is
+  # intentionally out of scope for this targeted extraction command.
+  while [[ $remote_path != / && $remote_path == */ ]]; do
+    remote_path=${remote_path%/}
+  done
+  [[ $remote_path != / ]] || {
+    echo "refusing to pull the devcontainer root; name a specific file or directory" >&2
+    return 1
+  }
+
+  local leaf remote_q command stage archive extracted
+  leaf=$(basename -- "$remote_path")
+  [[ -n $leaf && $leaf != . && $leaf != .. ]] || {
+    echo "remote path must name a specific file or directory: $remote_path" >&2
+    return 1
+  }
+  [[ ! -e $output_dir/$leaf && ! -L $output_dir/$leaf ]] || {
+    echo "destination already exists: $output_dir/$leaf" >&2
+    return 1
+  }
+
+  dm_login || return 1
+  remote_q=$(shell_quote "$remote_path")
+  # shellcheck disable=SC2016
+  command='set -e; path='"$remote_q"'; test -e "$path" || test -L "$path" || { echo "remote path does not exist: $path" >&2; exit 3; }; parent=$(dirname -- "$path"); leaf=$(basename -- "$path"); tar -C "$parent" -czf - -- "$leaf" | base64 -w0'
+
+  stage=$(mktemp -d "$output_dir/.dev-machine-pull.XXXXXX")
+  archive="$stage/payload.tar.gz"
+  extracted="$stage/extracted"
+  mkdir "$extracted"
+  trap 'rm -rf -- "$stage"; trap - RETURN' RETURN
+
+  echo "==> pulling $remote_path from '$name'"
+  if ! devpod ssh "$name" --user agent --start-services=false --agent-forwarding=false \
+    --command "$command" | base64 -d >"$archive"; then
+    echo "pull failed; no destination was created" >&2
+    return 1
+  fi
+  if ! tar -C "$extracted" --no-same-owner --no-same-permissions -xzf "$archive"; then
+    echo "received an invalid archive; no destination was created" >&2
+    return 1
+  fi
+  [[ -e $extracted/$leaf || -L $extracted/$leaf ]] || {
+    echo "archive did not contain the requested path; no destination was created" >&2
+    return 1
+  }
+  local -a extracted_entries=()
+  mapfile -d '' extracted_entries < <(find "$extracted" -mindepth 1 -maxdepth 1 -print0)
+  if [[ ${#extracted_entries[@]} -ne 1 || ${extracted_entries[0]} != "$extracted/$leaf" ]]; then
+    echo "archive contained unexpected top-level paths; no destination was created" >&2
+    return 1
+  fi
+
+  mv -- "$extracted/$leaf" "$output_dir/$leaf"
+  echo "saved to: $output_dir/$leaf"
+}
+
 # Recreate just the devcontainer on an already-running VM — the fast
 # iteration loop for devcontainer.json / dev-image changes, WITHOUT the
 # multi-minute VM create+boot of a full `down`/`up`. `devpod up --recreate`
@@ -1175,6 +1285,8 @@ dev-machine — locked-down LLM dev machines on KubeVirt
   dev-machine up [<repo>] [--name N] [--repo owner/name] [--rebuild] [--no-push-cred] [--memory 16Gi] [--cpu 4] [--disk 60Gi]
                                        (omit <repo> to use the current directory's checkout)
   dev-machine ssh <name> [--recover]   (--recover: restart a dead devcontainer agent before ssh)
+  dev-machine pull <name> <remote-path> [--output-dir <directory>]
+                                       (operator-initiated targeted file/directory extraction; refuses overwrites)
   dev-machine refresh <name>           (recreate just the devcontainer on the running VM — fast iterate on devcontainer.json)
   dev-machine console <name>
   dev-machine list
@@ -1193,6 +1305,7 @@ cmd="${1:-}"
 case "$cmd" in
 up) cmd_up "$@" ;;
 ssh) cmd_ssh "$@" ;;
+pull) cmd_pull "$@" ;;
 refresh) cmd_refresh "$@" ;;
 console) cmd_console "$@" ;;
 rescue) cmd_rescue "$@" ;;

@@ -88,7 +88,11 @@ in
       jq
       python3
       coreutils
+      findutils
+      gnugrep
       gnused
+      gnutar
+      gzip
       gawk
     ];
     text = ''

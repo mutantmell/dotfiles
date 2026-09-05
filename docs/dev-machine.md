@@ -13,6 +13,12 @@ dev-machine up [<repo-url-or-path>] [--name <name>]
 # Attach to the running devcontainer.
 dev-machine ssh <name>
 
+# Pull one file or directory into the current directory without exposing
+# workstation credentials to the devcontainer. Existing destinations are not
+# overwritten; use --output-dir to select another existing directory.
+dev-machine pull <name> /workspaces/<repo>/<path>
+dev-machine pull <name> /workspaces/<repo>/<path> --output-dir <directory>
+
 # Recreate only the devcontainer on the existing VM. Use after devcontainer.json-only changes.
 dev-machine refresh <name>
 
