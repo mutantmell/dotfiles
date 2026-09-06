@@ -3,6 +3,7 @@
   system ? "x86_64-linux",
   claude-code ? null,
   codex ? null,
+  opencode ? null,
   role ? "dev-machine",
   imageName ? "dev-machine-base",
   # Extra CA certificates (PEM paths) added to the guest trust store. The base
@@ -25,7 +26,7 @@
   baseSystem = nixpkgs.lib.nixosSystem {
     inherit system;
     specialArgs = {
-      inherit claude-code codex role;
+      inherit claude-code codex opencode role;
     };
     modules = [
       ./configuration.nix

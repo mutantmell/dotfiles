@@ -145,7 +145,7 @@
       # a streamLayeredImage script; `skopeo copy` it to creil to publish.
       dev-machine-image = import packages/dev-machine-image {
         inherit nixpkgs system;
-        inherit (llm-agents.packages.${system}) claude-code codex;
+        inherit (llm-agents.packages.${system}) claude-code codex opencode;
         # The guest must trust creil's step-ca to clone the workspace over HTTPS
         # and to docker-pull the dev image from forgejo.internal.
         caCerts = with pkgs.mmell.lib.data.pki; [root intermediate];
@@ -163,7 +163,7 @@
         inherit pkgs;
         # claude-code from numtide (fresh + cached) instead of laggy nixpkgs;
         # scoped to this image only, not a global overlay override.
-        inherit (llm-agents.packages.${system}) claude-code codex;
+        inherit (llm-agents.packages.${system}) claude-code codex opencode;
         # The agent container itself must trust creil for Forgejo API calls made
         # by tea. The base VM trust store is not enough because the devcontainer
         # has its own /etc/ssl bundle.

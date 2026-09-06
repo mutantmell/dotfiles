@@ -5,11 +5,12 @@
   # releases. Defaults to nixpkgs so the package still evaluates standalone.
   claude-code,
   codex,
+  opencode,
   imageName ? "dev-machine-dev",
   caCerts ? [],
 }: let
   devMachineTools = import ../dev-machine-tools.nix {
-    inherit pkgs claude-code codex;
+    inherit pkgs claude-code codex opencode;
   };
   inherit (devMachineTools) agentUid agentGid devTools teaConfigHome;
   extraCaCommands =

@@ -2,6 +2,7 @@
   pkgs,
   claude-code,
   codex,
+  opencode,
 }: let
   agentUid = "1000";
   agentGid = "1000";
@@ -622,6 +623,7 @@
     [
       claude-code
       codex
+      opencode
       devMachineEntrypoint
     ]
     ++ agentWrappers
@@ -629,6 +631,12 @@
       nix
       git
       ripgrep
+      fzf
+      # Diagnostics and runtimes used by terminal agents and local MCP tools.
+      nixd
+      bash-language-server
+      shellcheck
+      nodejs
       fd
       jq
       curl

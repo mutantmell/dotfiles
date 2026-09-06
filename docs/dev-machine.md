@@ -39,7 +39,8 @@ dev-machine publish-base
 
 Inside the devcontainer, agents should expect:
 
-- `nix`, `git`, `rg`, `fd`, `jq`, `curl`, `wget`, `python3`, `just`, `treefmt`, `alejandra`, `openssh`, `tea`, Codex, and Claude are available.
+- `nix`, `git`, `rg`, `fd`, `jq`, `curl`, `wget`, `python3`, `just`, `treefmt`, `alejandra`, `openssh`, `tea`, Codex, Claude, and OpenCode are available.
+- Terminal agent companions include `fzf`, `nixd`, `bash-language-server`, `shellcheck`, and Node.js (`node`, `npm`, `npx`). These provide file selection, Nix/shell diagnostics, and a runtime for JavaScript-based tools such as local MCP servers. MCP servers are configured separately; none are automatically enabled.
 - Common shell diagnostics and archive/build helpers are available, including `findmnt`, `ip`, `dig`, `nc`, `ps`, `rsync`, `unzip`, `zstd`, `file`, `which`, `make`, and `pkg-config`.
 - Interactive agent work runs as the non-root `agent` user (`uid 1000`, home `/home/agent`).
 - The container bind-mounts the VM host `/nix`; agent Nix clients use `NIX_REMOTE=daemon` and talk to the VM host nix-daemon.
@@ -89,6 +90,59 @@ To also probe the expected bt8gw egress shape from a non-nested shell, run:
 ```
 
 That optional mode checks WAN HTTPS plus `forgejo.internal` SSH/HTTPS reachability, and verifies a non-creil internal HTTPS target is not reachable. It is intentionally not part of the default smoke path because Codex's per-command sandbox can hide DNS/network access even when the devcontainer itself is correctly configured.
+
+## OpenCode with a local llama-server
+
+Run `opencode` from the repository directory. The executable comes from the
+locked `llm-agents` flake input, alongside Claude and Codex. All three agents
+and their companion tools are included in both image closures because the
+devcontainer uses the VM host's `/nix` store. Roll out both the base VM image
+and devcontainer image, then recreate the dev-machine to receive this tooling.
+
+For a local model, merge a provider into
+`~/.config/opencode/opencode.json` (create its parent directory if needed).
+Replace `PORT` and `MODEL_ALIAS` with the published llama-server port and the
+model ID returned by its `/v1/models` endpoint. Match the context limit to
+the server allocation; the numbers below are an example:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "north-ambria/MODEL_ALIAS",
+  "small_model": "north-ambria/MODEL_ALIAS",
+  "provider": {
+    "north-ambria": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "north-ambria llama-server",
+      "options": {
+        "baseURL": "http://north-ambria.internal:PORT/v1"
+      },
+      "models": {
+        "MODEL_ALIAS": {
+          "name": "Local Gemma",
+          "limit": { "context": 32768, "output": 4096 }
+        }
+      }
+    }
+  },
+  "permission": { "bash": "ask", "edit": "ask" }
+}
+```
+
+If the server requires an API key, add
+`"apiKey": "{env:LOCAL_LLM_API_KEY}"` under provider `options` and supply that
+environment variable privately. Do not put credentials in the image or Git.
+See the [OpenCode llama.cpp provider documentation](https://opencode.ai/docs/providers/#llamacpp).
+
+The dev-machine needs a destination/port-scoped bt8gw rule to reach the API;
+north-ambria must also publish and permit that port. Image installation does
+not grant network access. Model serving, chat templates, and MTP stay on
+north-ambria; repository tools execute inside the devcontainer.
+
+The bundled language servers are available for optional OpenCode LSP
+configuration. Refer to the [LSP documentation](https://opencode.ai/docs/lsp/)
+for enabling diagnostics. Repository checks remain the validation authority;
+language-server diagnostics do not replace `agent-preflight` or VM tests.
 
 ## Validation
 

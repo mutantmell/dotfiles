@@ -229,6 +229,12 @@ for wrapper in agent-fmt agent-preflight agent-preflight-quick agent-preflight-f
   check "$wrapper available" command -v "$wrapper"
 done
 
+# Execute the new tools as well as checking PATH: the container uses the VM's
+# /nix, so missing base-image store paths can leave otherwise present links broken.
+for tool in opencode nixd bash-language-server shellcheck node npm npx fzf; do
+  check "$tool runs" "$tool" --version
+done
+
 check "direnv available" command -v direnv
 check "nix-direnv direnvrc available" test -r /share/nix-direnv/direnvrc
 check "agent bashrc enables direnv" grep -qF "dev-machine direnv setup" "$HOME/.bashrc"

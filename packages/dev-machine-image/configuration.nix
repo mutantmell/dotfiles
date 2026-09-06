@@ -5,6 +5,7 @@
   modulesPath,
   claude-code,
   codex,
+  opencode,
   role ? "dev-machine",
   ...
 }: let
@@ -12,7 +13,7 @@
   isCiWorker = role == "ci-worker";
 
   devMachineTools = import ../dev-machine-tools.nix {
-    inherit pkgs claude-code codex;
+    inherit pkgs claude-code codex opencode;
   };
 
   # ── Phase 6 — attach helper for a mobile/remote operator (attach-only) ───────
@@ -114,8 +115,8 @@ in {
       message = "packages/dev-machine-image role must be \"dev-machine\" or \"ci-worker\".";
     }
     {
-      assertion = !isDevMachine || (claude-code != null && codex != null);
-      message = "packages/dev-machine-image role \"dev-machine\" requires claude-code and codex.";
+      assertion = !isDevMachine || (claude-code != null && codex != null && opencode != null);
+      message = "packages/dev-machine-image role \"dev-machine\" requires claude-code, codex, and opencode.";
     }
   ];
 
