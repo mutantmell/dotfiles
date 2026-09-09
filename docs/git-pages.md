@@ -5,6 +5,8 @@ filesystem storage and a shared Caddy HTTPS frontend. New repositories do not
 need DNS records, host configuration, a Pages branch, or a service account on
 Creil. CI publishes the output directory directly over HTTPS.
 
+Sites can be used to preview changes internally before publishing externally.
+
 - Project: `https://USER.pages.internal/PROJECT/` maps to
   `https://forgejo.internal/USER/PROJECT.git`.
 - User homepage: `https://USER.pages.internal/` maps to the user's `pages`
@@ -60,12 +62,8 @@ host/volume backup coverage should be confirmed before relying on it.
 
 ## Publish a project
 
-Build with the site's public path configured. For Vite project sites:
-
-```sh
-npm ci
-npm run build -- --base=/PROJECT/
-```
+Generate the site's static files with its public path configured as `/PROJECT/`.
+Use the resulting output directory in the upload command below.
 
 Use a pinned `git-pages-cli` release in the publishing environment. Put a
 Forgejo token restricted to the intended repository, with repository write
@@ -79,7 +77,7 @@ branch builds. No token belongs in the Nix configuration.
 ```sh
 git-pages-cli https://USER.pages.internal/PROJECT/ \
   --server pages.internal \
-  --upload-dir dist
+  --upload-dir /path/to/site-output
 ```
 
 `--server` takes a hostname, not a URL. It connects using TLS SNI
@@ -93,9 +91,8 @@ For a custom publishing image, include the public root from
 in its certificate bundle during the image build, following the existing
 `hosts/erebonia/k3s/woodpecker-images.nix` internal-CA pattern. Alternatively mount a trusted
 bundle and set `SSL_CERT_FILE=/path/to/bundle.pem` in the publishing container.
-Do not disable TLS verification. A native Woodpecker pipeline and publishing
-image selection remain repository-level work; this infrastructure does not
-change the game's pipeline.
+Do not disable TLS verification. Each repository configures its own Woodpecker
+pipeline and publishing image.
 
 ## Verify and troubleshoot
 
