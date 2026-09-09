@@ -59,8 +59,11 @@ in
     };
 
     testScript = ''
+      import ipaddress
+
       start_all()
 
+      dns_server.succeed("${pkgs.unbound}/bin/unbound-checkconf /etc/unbound/unbound.conf")
       dns_server.wait_for_unit("unbound.service")
       dns_server.wait_for_open_port(53)
 
@@ -84,6 +87,16 @@ in
       assert "10.91.10.10" in out, (
           f"expected canonical internal A record, got {out!r}"
       )
+
+      # The shared Pages zone resolves both the upload endpoint and names for
+      # repositories/users that do not exist yet, without flake changes.
+      for name in ["pages.internal", "new-user.pages.internal"]:
+          for record, expected in [
+              ("A", "${pkgs.mmell.lib.data.network.hosts.creil.ipv4}"),
+              ("AAAA", "${pkgs.mmell.lib.data.network.hosts.creil.ipv6}"),
+          ]:
+              answer = dns_server.succeed(f"dig @127.0.0.1 {name} {record} +short").strip()
+              assert ipaddress.ip_address(answer) == ipaddress.ip_address(expected), (name, record, answer)
 
       # libc resolves through Unbound on loopback (resolved is disabled, so
       # resolv.conf points at 127.0.0.1, not the 127.0.0.53 stub).

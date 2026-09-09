@@ -18,6 +18,8 @@ let
 in
   (import ./router6.nix {inherit pkgs lib;})
   // {
+    git-pages-config = import ./lib/git-pages-config.nix {inherit pkgs lib;};
+    git-pages = mkContainerTest ./modules/git-pages.nix;
     cert-expiry = import ./lib/cert-expiry.nix {inherit pkgs lib;};
     disko-vmtools-canary = import ./lib/disko-vmtools-canary.nix {
       inherit pkgs lib disko;

@@ -59,7 +59,15 @@ in {
           };
         };
       in {
-        x509 = allowLocal;
+        x509 =
+          allowLocal
+          // {
+            allow =
+              allowLocal.allow
+              // {
+                dns = allowLocal.allow.dns ++ ["*.pages.internal"];
+              };
+          };
         ssh.host = allowLocal;
         ssh.user = {
           allow = {

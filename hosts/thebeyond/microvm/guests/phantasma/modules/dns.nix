@@ -98,6 +98,8 @@ in {
           ''"mutantmell.net." transparent'' # split-horizon: local overrides, rest forwarded
           ''"internal.mutantmell.net." static'' # canonical internal: authoritative, never forwards
           ''"internal." static'' # short alias: authoritative, never forwards
+          # Redirect provides apex + arbitrary user names without per-site records.
+          ''"pages.internal." redirect''
         ];
         local-data =
           # Standard host records (<name>.internal.mutantmell.net + <name>.internal),
@@ -106,7 +108,11 @@ in {
           net.mkUnboundLocalData net.dnsHosts
           # Alias records (split-horizon, backward-compat, service aliases)
           # sourced from hostAliases in network.nix
-          ++ net.mkUnboundAliasData net.dnsHosts;
+          ++ net.mkUnboundAliasData net.dnsHosts
+          ++ [
+            ''"pages.internal. IN A ${net.hosts.creil.ipv4}"''
+            ''"pages.internal. IN AAAA ${net.hosts.creil.ipv6}"''
+          ];
       };
       remote-control.control-enable = true;
     };

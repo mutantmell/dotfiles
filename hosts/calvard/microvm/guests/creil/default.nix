@@ -11,6 +11,7 @@ in {
   imports = [
     ./microvm.nix
     ./modules/forgejo.nix
+    ./modules/pages.nix
     ./sops.nix
   ];
 
@@ -56,24 +57,12 @@ in {
 
   # Port 22: SSH (openssh — also serves Forgejo git SSH via authorized_keys)
   # Port 80: ACME HTTP-01 challenge
-  # Port 443: nginx HTTPS (creil.internal)
+  # Port 443: Caddy HTTPS (Forgejo and Pages)
   networking.firewall.allowedTCPPorts = [22 80 443];
 
-  security.acme = {
-    defaults = {
-      server = "https://basel.internal/acme/acme/directory";
-      email = "malaguy@gmail.com";
-    };
-    acceptTerms = true;
-  };
   environment.persistence."/persist" = {
     hideMounts = true;
     directories = [
-      {
-        directory = "/var/lib/acme";
-        user = "acme";
-        group = "acme";
-      }
       "/var/log"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
