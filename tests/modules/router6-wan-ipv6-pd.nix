@@ -257,7 +257,13 @@ in
         imports = [../lib/test-minimal-base.nix];
         virtualisation.vlans = [2];
 
-        networking.useDHCP = false;
+        networking = {
+          useDHCP = false;
+          # The container test driver otherwise adds 2001:db8:2::1/64.
+          # Source selection prefers that address over the delegated prefix,
+          # but the simulated ISP has no return route for the driver subnet.
+          interfaces.eth1 = lib.mkForce {};
+        };
 
         systemd.network = {
           enable = true;
@@ -338,6 +344,7 @@ in
 
       # Test 7: Client can ping ISP via GUA (end-to-end IPv6 forwarding)
       print("Test 7: Client can ping ISP (end-to-end GUA forwarding)")
+      client.wait_until_succeeds("ip -6 route get 2001:db8::1 | grep 'src 2001:db8:1000:1:'", timeout=30)
       client.wait_until_succeeds("ping -6 -c 1 -W 5 2001:db8::1", timeout=30)
       print("PASS")
 
