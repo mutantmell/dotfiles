@@ -1,8 +1,10 @@
 # Arteria: single-port office gateway
 
 `arteria` replaces the routing duties of the office OpenWrt `bt8gw` on the old
-NUC previously used by `erebonia`. The OpenWrt devices continue to provide
-802.11s/BATMAN transport. `thebeyond` remains the Internet gateway and NAT owner.
+NUC previously used by `erebonia`. The Flint 2 provides the office Ethernet
+bridge into a new 5 GHz 802.11s/BATMAN mesh on the existing `bt8bridge`.
+`bt8gw` is disconnected during cutover. `thebeyond` remains the Internet gateway
+and NAT owner.
 There is no NAT on arteria.
 
 The switch's current firmware, management address, and physical port assignments
@@ -157,7 +159,7 @@ verified inventory.
 | Role                     | Tagged VLANs                             | Untagged/PVID                             |
 | ------------------------ | ---------------------------------------- | ----------------------------------------- |
 | Arteria NIC              | 11, 12, 20, 21, 50, 51, 255              | None; no native client network            |
-| Office OpenWrt bridge    | Existing required fabric VLANs, plus 255 | Preserve any verified current requirement |
+| Office Flint 2 bridge    | Existing required fabric VLANs, plus 255 | Preserve any verified current requirement |
 | VM/server host trunks    | Only VLANs required by that host         | Preserve existing host configuration      |
 | Operator recovery laptop | None                                     | 11                                        |
 | Wired trusted client     | None                                     | 20                                        |
@@ -228,16 +230,39 @@ switch IP, registry entry, or default route as an incidental fix.
 
 ## OpenWrt bridge requirements
 
-The office OpenWrt device must expose a normal tagged Ethernet trunk to the
+The office Flint 2 must expose a normal tagged Ethernet trunk to the
 switch. For each VLAN with a wired consumer, bridge its `bat0.<vid>` interface
 to the corresponding tagged Ethernet/bridge-VLAN interface. In particular,
 `bat0.255` must reach switch VLAN 255. Arteria's seven VLANs must reach the switch
-even when the same OpenWrt device no longer owns their gateway addresses.
+while arteria owns their gateway addresses. The Flint 2 must not run gateway
+DHCP/DHCPv6/RA services on those bridged networks.
+
+The planned path is:
+
+```text
+arteria -- tagged Ethernet/switch -- Flint 2
+                                      |
+                               5 GHz 802.11s/BATMAN
+                                      |
+                                  bt8bridge -- existing wired fabric -- thebeyond
+```
+
+The NUC's Ethernet trunk can also connect directly to a configured Flint 2
+trunk port; the switch port plan applies wherever the office switch joins
+that same tagged fabric. Arteria always receives ordinary 802.1Q Ethernet.
+
+Configure matching mesh ID, encryption credentials, 5 GHz channel/channel
+width, and BATMAN routing algorithm on the Flint 2 and `bt8bridge`. A matching
+SSID alone does not establish a BATMAN path. On `bt8bridge`, ensure the new
+mesh reaches the existing BATMAN fabric and VLAN 255's wired path to thebeyond.
+If using a separate BATMAN interface for the new mesh, explicitly connect the
+required VLANs into the existing wired fabric and avoid duplicate L2 paths.
 
 Intermediate BATMAN nodes need no per-VLAN termination. The conversion to a
 normal Ethernet trunk happens at the office node, not in the switch or NUC.
-Maintain the existing mesh while preparing this trunk; a wireless rebuild or
-new firmware flash is a separate change.
+Prepare the Flint 2 and the new mesh on `bt8bridge` before the cutover, keeping
+arteria's gateway/DHCP/RA interfaces isolated until BT8GW is disconnected.
+Retain the old mesh configuration for rollback.
 
 ## Gateway cutover
 
@@ -252,11 +277,15 @@ new firmware flash is a separate change.
 3. Prepare switch trunks and recovery ports. Prove switch access from its direct
    management port. Put the operator laptop on VLAN 11 with `10.97.11.2/24` for
    direct arteria access during cutover; no DNS or default route is needed.
-4. On the BT8, disable the replaced gateway IPs, DHCP/DHCPv6/RA services, and
-   office routing. Keep BATMAN, its own management address, and the L2 bridges
-   active. Ensure there is only one gateway/DHCP/RA owner for each migrated VLAN.
-5. Connect arteria's trunk. Verify direct SSH at `10.97.11.1`, then transit and
-   local routing before relying on the wireless path.
+4. Disconnect `bt8gw` completely from the live fabric. Power it off or disable
+   its mesh radio as well as disconnecting Ethernet: an active wireless link
+   could still advertise its old gateway addresses and DHCP/RA services.
+   Keep its saved configuration intact for rollback.
+5. Bring up the Flint 2's new 5 GHz mesh link to `bt8bridge`, verify BATMAN
+   neighbor/originator visibility, and connect arteria's trunk through the
+   Flint 2/switch tagged fabric. Verify direct SSH at `10.97.11.1`, then transit
+   and local routing. The Flint 2 provides L2 transport; arteria is the only
+   office gateway/DHCP/RA owner.
 6. Renew client leases or reconnect them so obsolete DNS/RA state does not mask
    a problem. Check both IPv4 and IPv6. Some live OpenWrt details are being
    replaced by explicit desired policy, not copied blindly.
@@ -290,8 +319,9 @@ before changing routes. Thebeyond already routes the office address space via
 
 ## Rollback
 
-Disconnect arteria's trunk first. Restore the BT8's previous gateway addresses,
-DHCP/RA services, and policy from the saved configuration. Verify the original
+Disconnect arteria's trunk first, isolate the Flint 2 path if necessary, then
+reconnect `bt8gw` using its original mesh and saved configuration. Restore its
+gateway/DHCP/RA settings only if they were changed. Verify the original
 path before reconnecting clients. Never run both gateway configurations on the
 same VLAN simultaneously. Restore the switch backup only if its changes broke
 the original path; the new spare arteria/recovery memberships can otherwise
