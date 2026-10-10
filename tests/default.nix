@@ -18,6 +18,7 @@ let
 in
   (import ./router6.nix {inherit pkgs lib;})
   // {
+    arteria-gateway = mkContainerTest ./modules/arteria-gateway.nix;
     git-pages-config = import ./lib/git-pages-config.nix {inherit pkgs lib;};
     git-pages = mkContainerTest ./modules/git-pages.nix;
     cert-expiry = import ./lib/cert-expiry.nix {inherit pkgs lib;};

@@ -55,6 +55,7 @@
       vlanId = 11;
       gateway = "bt8gw";
       hosts = {
+        arteria = 1; # office NixOS gateway; replaces BT8 L3 duties, preserves addresses
         messeldam = 6; # Authelia OIDC (calvard)
         basel = 7; # step-ca / PKI (calvard)
         tharbad = 5; # Prometheus+Loki+Alertmanager+ntfy (calvard)

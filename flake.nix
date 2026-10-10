@@ -391,6 +391,16 @@
     };
 
     nixosConfigurations = {
+      arteria = self.lib.mk-nixos {
+        inherit nixpkgs;
+        system = "x86_64-linux";
+        modules = [
+          disko.nixosModules.disko
+          self.nixosModules.router6
+          ./hosts/arteria
+        ];
+      };
+
       thebeyond = self.lib.mk-nixos {
         inherit nixpkgs;
         system = "x86_64-linux";

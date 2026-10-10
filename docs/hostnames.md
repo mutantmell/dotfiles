@@ -55,9 +55,10 @@ VM HOSTS (Countries)
     ├── lucent        (reserved)
     └── eyja          (reserved)
 
-ROUTER (Extra-planar spaces)
-└── thebeyond         (Router)
-    └── phantasma     (microVM) — DNS (Blocky + Unbound), ad-blocking, internal proxy
+ROUTERS (Extra-planar spaces)
+├── thebeyond         (Internet gateway)
+│   └── phantasma     (microVM) — DNS (Blocky + Unbound), ad-blocking, internal proxy
+└── arteria           (Office gateway, pending cutover) — repurposed single-NIC NUC
 
 SWITCHES (Named vehicles)
 ├── arseille          (L2 switch)
