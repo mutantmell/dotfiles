@@ -17,8 +17,8 @@
     age
     (aspellWithDicts (ds: [
       ds.en
-      ds.en-computers
-      ds.en-science
+      #ds.en-computers
+      #ds.en-science
     ]))
   ];
 
