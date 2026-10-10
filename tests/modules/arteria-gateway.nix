@@ -56,7 +56,7 @@ in
       upstream.succeed("ip addr add 198.51.100.1/32 dev lo; ip addr add 2001:db8::1/128 dev lo")
       upstream.succeed("ip route add 10.97.0.0/16 via 10.255.255.2; ip -6 route add fdc6:55f2:a5e:1000::/52 via fdc6:55f2:a5e:ffff::2")
       vlan(app, 50, ["10.97.50.53/24", "10.97.50.31/24", "10.97.50.52/24", "fdc6:55f2:a5e:1032::35/64", "fdc6:55f2:a5e:1032::1f/64", "fdc6:55f2:a5e:1032::34/64"])
-      app.succeed("ip route add default via 10.97.50.1; ip -6 route add default via fdc6:55f2:a5e:1032::1")
+      app.succeed("ip route replace default via 10.97.50.1 dev eth1.50; ip -6 route replace default via fdc6:55f2:a5e:1032::1 dev eth1.50")
       app.wait_for_unit("listener.service")
 
       vlan(cluster, 51, [])
