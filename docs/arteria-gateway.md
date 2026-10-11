@@ -331,3 +331,93 @@ On arteria, use its local console to select the previous NixOS generation or
 run `nixos-rebuild switch --rollback`. Remote rollback cannot repair missing
 switch VLAN membership. Future gateway updates should retain a working local
 console/recovery port and be separate from OpenWrt firmware or mesh changes.
+
+## Backhaul validation
+
+Use 5 GHz for the initial Flint 2-to-BT8Bridge backhaul. WiFi 7 client support,
+6 GHz backhaul, and multi-link backhaul are separate capabilities; do not infer
+mesh reliability from a device's WiFi generation or AP-mode feature list.
+OpenWrt's [802.11s documentation](https://openwrt.org/docs/guide-user/network/wifi/mesh/802-11s)
+makes working mesh support dependent on the hardware and driver.
+
+Closed doors may weaken an already marginal wireless path. Six GHz experiences
+greater attenuation through obstacles, although its free-space propagation
+difference from 5 GHz is modest. This is a possible contributor to the
+apartment's reported problems, not a confirmed diagnosis. See
+[Cisco's 6 GHz deployment guidance](https://www.cisco.com/c/en/us/td/docs/wireless/controller/9800/technical-reference/c9800-best-practices.html).
+
+Compare local throughput, packet loss, and latency with doors open and closed.
+Use a client wired to the remote node to isolate backhaul performance from the
+client WiFi link. Keep node placement fixed when comparing bands. Validate the
+mesh at its intended positions before purchasing additional APs or depending
+on a 6 GHz backhaul.
+
+## Later OpenWISP management
+
+OpenWISP is a possible follow-up on erebonia's k3s infrastructure after the
+gateway and mesh are stable. It is not deployed or required by this profile.
+For two or three APs and a switch, evaluate whether centralized configuration
+and update tracking save more effort than maintaining the controller services.
+Keep direct SSH/LuCI access and operator recovery independent of the controller.
+
+### Separate firmware from configuration
+
+Build a pinned upstream OpenWrt sysupgrade image per hardware model with the
+required packages: hardware drivers/firmware, `kmod-batman-adv`, `batctl-full`,
+a mesh-capable `wpad` variant, and `openwisp-config` if enrolling the device.
+Include the monitoring agent if used. The resulting image can be shared by
+devices of that model; full per-device SSID/VLAN/mesh configuration does not
+need to be embedded in every firmware build.
+
+The OpenWISP agent still needs a controller URL, registration credentials,
+certificate trust, and network connectivity. Provision these during initial
+Ethernet enrollment, then let OpenWISP apply the operational mesh, SSID, VLAN,
+and management configuration. A mesh-only device cannot fetch its first mesh
+configuration over a mesh it has not joined. Factory resets and upgrades that
+cannot preserve compatible configuration require the bootstrap path again.
+See [agent setup](https://openwisp.io/docs/26.09/openwrt-config-agent/user/quickstart.html)
+and [registration](https://openwisp.io/docs/26.09/openwrt-config-agent/user/automatic-registration.html).
+
+Define which settings OpenWISP owns before enrolling a device. Avoid competing
+flake scripts and controller templates overwriting the same settings. Retain
+recovery configurations and image/package definitions in Git, with secrets
+outside plaintext repository files. Prove operation with the controller offline
+and manual management with the agent disabled during the pilot.
+
+OpenWISP applies configuration and can restore a backup when its connectivity
+test fails. The default test checks controller reachability; it does not prove
+BATMAN transit, every VLAN, or client isolation. Add appropriate operational
+checks where needed. Configuration rollback does not provide firmware rollback.
+See [configuration testing](https://openwisp.io/docs/26.09/openwrt-config-agent/user/settings.html).
+
+### Updates across critical network devices
+
+OpenWISP uploads an image before starting sysupgrade, then waits and retries
+connecting after the device reboots. A temporary outage is expected. Preserve
+the compatible local mesh/management configuration during routine upgrades and
+include every required package in the replacement image. Each node must be able
+to rejoin the network without first fetching configuration from the controller.
+Verify those properties with a single-device trial before routine rollouts.
+See [upgrader options](https://github.com/openwisp/openwisp-firmware-upgrader/blob/master/openwisp_firmware_upgrader/upgraders/openwrt.py)
+and [reconnection settings](https://openwisp.io/docs/26.09/firmware-upgrader/user/settings.html).
+
+Use explicit single-device upgrades at this scale:
+
+1. Upgrade peripheral APs individually; verify mesh membership, management,
+   client connectivity, and VLAN isolation before proceeding.
+2. Upgrade the Flint 2 and BT8Bridge separately. Each is critical to the office
+   path; accept a maintenance outage and verify recovery before the next update.
+3. Upgrade the switch in a separate window, accounting for management paths and
+   any APs it powers. Keep direct recovery access available.
+
+The documented [batch upgrade workflow](https://openwisp.io/docs/26.09/firmware-upgrader/user/quickstart.html)
+allows device selection and grouping; do not assume it orders upgrades around
+mesh dependencies or waits for all affected clients to recover. Controller
+workers must remain running even if their network path to a device disappears.
+Keep the controller's own cluster updates separate from network-device updates.
+
+If a device does not return, OpenWISP can report failure but cannot repair the
+broken management path remotely. Use wired/console recovery or the device's
+supported recovery procedure; do not assume automatic firmware rollback.
+[Upgrade status documentation](https://openwisp.io/docs/26.09/firmware-upgrader/user/upgrade-status.html)
+describes post-flash failures and recovery investigation.
