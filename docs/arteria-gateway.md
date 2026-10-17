@@ -68,8 +68,14 @@ lspci -nnk
 
 Back up anything still needed from the old erebonia installation. Confirm the
 installation disk and the physical NIC before running disko or an installer.
-The host uses a persistent ext4 root and EFI boot partition, with no disk
-encryption or impermanence, so it can recover unattended after power loss.
+The host uses the same storage pattern as thebeyond: an EFI boot partition,
+a LUKS-encrypted XFS partition mounted at `/persist`, and a temporary RAM-backed
+root. `/nix`, SSH identity, DHCP leases/server identity, resolver state, and the
+root console password persist across reboots. Automatic unlocking reads
+`/boot/secrets/disk.key` from the EFI partition, so power-loss recovery does not
+depend on another host or a working network. Because that key is on the same
+disk in an unencrypted partition, this does not protect against theft of the
+whole disk or machine.
 
 The onboard PCI Ethernet NIC is renamed `uplink` by a networkd link rule.
 Verify its udev `ID_PATH` starts with `pci-` and that there is only one matching
@@ -90,36 +96,54 @@ Build the host from the repository:
 nix build .#nixosConfigurations.arteria.config.system.build.toplevel
 ```
 
-Install from the local console using the repository's disko configuration after
-confirming its disk selection. If necessary, change the disk device in
-`hosts/arteria/disk.nix` to the verified `/dev/disk/by-id/` path before building
-the installer script. Copy the flake to the installer and, from its directory,
-build the pinned partitioning script:
+Use the repository deployment wrapper from an operator machine with the
+passage store and deployment dependencies available. Boot the NUC into an SSH-
+accessible installer first. Confirm the selected disk with `lsblk` on the NUC;
+if necessary, change the disk passed to the shared profile in
+`hosts/arteria/disk.nix` to the verified `/dev/disk/by-id/` path.
+
+The following command **erases the selected disk**:
 
 ```sh
-nix build .#nixosConfigurations.arteria.config.system.build.diskoScript \
-  --out-link /tmp/arteria-disko
+./scripts/deploy-nixos-anywhere.sh arteria root@10.97.11.220
 ```
 
-Inspect the script and confirm its device matches the intended disk. The next
-command erases that disk, creates the filesystems, and mounts them under `/mnt`:
+Replace the target with the installer's current address. The wrapper selects
+its `tmpfs` profile, provisions the LUKS key and persistent host identity,
+stores recovery key material in passage, and installs the system without
+rebooting. Review the generated public-key/certificate and `.sops.yaml` changes
+before committing them; do not commit private keys. Arteria does not currently
+require host-specific sops secrets.
+
+Before the first reboot, set a root console password on the installed system
+from the installer (locally, or in an interactive SSH session):
 
 ```sh
-sudo /tmp/arteria-disko
+sudo nixos-enter --root /mnt -c '
+  umask 077
+  install -d -m 700 /persist/secrets
+  passwd && getent shadow root | cut -d: -f2 > /persist/secrets/root-password
+'
 ```
 
-Then install the host:
+The hash in `/persist/secrets/root-password` restores the console password on
+each boot or activation. An initial missing-password-file warning during the
+wrapper's install is expected until this step is complete. To change the
+password later, run `passwd` and refresh that file with
+`getent shadow root | cut -d: -f2 > /persist/secrets/root-password` as root with
+`umask 077`; otherwise the previous hash returns at the next activation.
+SSH password authentication remains disabled; remote administration uses
+public keys or certificates. Do not reuse erebonia's old VM-host configuration or storage
+mounts. Keep the installed gateway's trunk isolated until BT8GW is disconnected:
+arteria claims its gateway addresses as soon as the installed system boots.
+Then reboot with console access available and confirm `ip -br link` shows
+`uplink`.
 
-```sh
-nixos-install --flake .#arteria
-```
-
-Partitioning erases the selected disk. Do not reuse erebonia's old VM-host
-configuration, secret files, or storage mounts for this installation. Reboot
-with console access available, and confirm `ip -br link` shows `uplink`.
-Set a root password when `nixos-install` prompts; this persistent host retains
-that password for physical-console recovery. SSH password authentication is
-disabled; remote administration uses the configured public keys/certificates.
+Verify automatic unlock after a cold boot, confirm `/` is tmpfs and `/persist`
+is XFS on `/dev/mapper/cryptroot`, and check that the console password, SSH host
+identity, and DHCP state survive another reboot. Retain the passage recovery
+key independently of arteria. This layout change requires reinstalling an
+existing plain-ext4 arteria; a normal NixOS rebuild does not repartition disks.
 
 ## One Ethernet port, several networks
 

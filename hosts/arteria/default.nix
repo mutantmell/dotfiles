@@ -20,7 +20,7 @@
     users = ["root"];
     keys = ["deploy" "home" "edith"];
   };
-  # Preserve the console password set by nixos-install for local recovery.
+  # Preserve the console password in /persist for local recovery (see disk.nix).
   # SSH still uses the repository's key-only common.openssh policy.
   users.mutableUsers = true;
   environment.systemPackages = with pkgs; [git tcpdump ethtool];
