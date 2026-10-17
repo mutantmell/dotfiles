@@ -18,6 +18,14 @@ steps:
       - |
         mkdir -p ci-summary
 
+        # The local backend puts the checkout on its scratch disk, but /tmp
+        # remains on the small boot disk. Set TMPDIR before nix develop so its
+        # shell directory, test artifacts, and expanded QEMU disks stay on
+        # scratch too. Keep temporary data outside the flake source tree.
+        ci_tmp=$(mktemp -d "$PWD/../dotfiles-checks-tmp.XXXXXX")
+        export TMPDIR="$ci_tmp"
+        trap 'rm -rf "$ci_tmp"' EXIT
+
         ci_jobs="${DOTFILES_CI_JOBS:-}"
         if [ -z "$ci_jobs" ]; then
           mem_kib=0
