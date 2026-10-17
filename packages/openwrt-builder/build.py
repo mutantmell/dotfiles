@@ -271,7 +271,13 @@ def prepare_imagebuilder(release, target, subtarget, cache_dir, tarball_path):
 @contextlib.contextmanager
 def imagebuilder_workspace(cached_ib_dir):
     """Copy a pristine cached Image Builder into a private temporary workspace."""
-    workspace_root = Path(tempfile.mkdtemp(prefix="openwrt-imagebuilder-"))
+    # Image Builders contain multi-gigabyte SDK trees. Keep the mutable copy
+    # beside the cache, on the same filesystem, rather than in a potentially
+    # small /tmp (including nix develop's temporary directory). This also lets
+    # cp use reflinks instead of allocating another full SDK where supported.
+    workspace_root = Path(tempfile.mkdtemp(
+        prefix="openwrt-imagebuilder-", dir=Path(cached_ib_dir).parent,
+    ))
     workspace_root.chmod(0o700)
     workspace = workspace_root / "imagebuilder"
     try:
@@ -438,7 +444,7 @@ def create_argument_parser():
     parser.add_argument(
         "--cache-dir", type=Path,
         default=Path.home() / ".cache" / "openwrt-builder",
-        help="Cache directory for Image Builder tarballs",
+        help="Directory for cached Image Builders and temporary build workspaces",
     )
     parser.add_argument(
         "--config-file", type=str, default=None,

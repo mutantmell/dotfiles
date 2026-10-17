@@ -224,6 +224,26 @@ class ImageBuilderTests(unittest.TestCase):
             self.assertFalse((cached / "secret-intermediate").exists())
             self.assertFalse(workspace_root.exists())
 
+    def test_workspace_avoids_system_tmp_and_cleans_up_beside_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cached = root / "cache" / "imagebuilder"
+            cached.mkdir(parents=True)
+            (cached / "sentinel").write_text("pristine")
+
+            # Model CI's unusable /tmp independently of the roomy SDK cache.
+            with (
+                mock.patch.object(tempfile, "tempdir", str(root / "unavailable")),
+                build.imagebuilder_workspace(cached) as workspace,
+            ):
+                workspace_root = workspace.parent
+                self.assertEqual(cached.parent, workspace_root.parent)
+                self.assertEqual("pristine", (workspace / "sentinel").read_text())
+                (workspace / "sentinel").write_text("private build")
+
+            self.assertFalse(workspace_root.exists())
+            self.assertEqual("pristine", (cached / "sentinel").read_text())
+
     def test_workspace_patches_env_shebangs_without_mutating_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

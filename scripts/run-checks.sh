@@ -331,7 +331,7 @@ else
   }
 
   for check in "${CHECKS[@]}"; do
-    # ImageBuilder checks create multi-gigabyte mutable workspaces under /tmp.
+    # ImageBuilder checks create multi-gigabyte mutable workspaces beside the SDK cache.
     # Running more than one of them—or an unrelated VM build alongside one—can
     # exhaust the CI runner's ephemeral disk. Drain the parallel queue and run
     # each external check alone while retaining parallelism for normal checks.
