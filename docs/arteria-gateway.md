@@ -288,8 +288,31 @@ that same tagged fabric. Arteria always receives ordinary 802.1Q Ethernet.
 
 Configure matching mesh ID, encryption credentials, 5 GHz channel/channel
 width, and BATMAN routing algorithm on the Flint 2 and `bt8bridge`. A matching
-SSID alone does not establish a BATMAN path. On `bt8bridge`, ensure the new
-mesh reaches the existing BATMAN fabric and VLAN 255's wired path to thebeyond.
+SSID alone does not establish a BATMAN path. On both endpoints, explicitly set
+`option mesh_fwding '0'` on the 802.11s `wifi-iface` section. This disables
+native 802.11s forwarding so BATMAN is the forwarding layer. Attach the mesh
+interface through a `batadv_hardif` network whose master is the intended BATMAN
+device (normally `bat0`); do not bridge the raw mesh interface directly to LAN.
+The manually configured Flint 2 does not inherit these settings from the
+repository's generated OpenWrt profiles.
+
+After applying the wireless configuration, verify on both endpoints:
+
+```sh
+iw dev
+# Replace MESH_INTERFACE with the actual 802.11s interface shown above.
+iw dev MESH_INTERFACE get mesh_param mesh_fwding
+batctl meshif bat0 interface
+batctl meshif bat0 neighbors
+```
+
+The live mesh-forwarding parameter must be `0`, the mesh interface must appear
+as an active BATMAN hard interface, and BATMAN must discover the peer. Substitute
+the chosen BATMAN device name if it is not `bat0`. A wireless mesh peer alone
+does not prove that BATMAN is carrying traffic.
+
+On `bt8bridge`, ensure the new mesh reaches the existing BATMAN fabric and
+VLAN 255's wired path to thebeyond.
 If using a separate BATMAN interface for the new mesh, explicitly connect the
 required VLANs into the existing wired fabric and avoid duplicate L2 paths.
 
