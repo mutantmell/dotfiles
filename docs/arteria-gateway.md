@@ -1,8 +1,9 @@
 # Arteria: single-port office gateway
 
 `arteria` replaces the routing duties of the office OpenWrt `bt8gw` on the old
-NUC previously used by `erebonia`. The Flint 2 provides the office Ethernet
-bridge into a new 5 GHz 802.11s/BATMAN mesh on the existing `bt8bridge`.
+Intel NUC BOXNUC7i5BNH previously used by `erebonia`. The Flint 2 provides the
+office Ethernet bridge into a new 5 GHz 802.11s/BATMAN mesh on the existing
+`bt8bridge`.
 `bt8gw` is disconnected during cutover. `thebeyond` remains the Internet gateway
 and NAT owner.
 There is no NAT on arteria.
@@ -15,8 +16,9 @@ do not apply their management migration as part of this cutover.
 
 The pre-migration `erebonia` hardware configuration (the parent of commit
 `362ecdd`) records an Intel x86-64 machine, Intel virtualization, SATA storage,
-and the `rtsx_pci_sdmmc` initrd driver. It does not record the NUC model, NIC MAC,
-or disk serial. Before the generic uplink rename in commit `c2a553f`, the old
+and the `rtsx_pci_sdmmc` initrd driver. The operator has confirmed the model as
+BOXNUC7i5BNH; the historical configuration does not record the NIC MAC or disk
+serial. Before the generic uplink rename in commit `c2a553f`, the old
 configuration used `eno1` for its Ethernet VLANs. The old deployment used
 `/dev/sda`; that is an installation
 default, not proof that today's disk has that name.
