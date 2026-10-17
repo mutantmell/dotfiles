@@ -58,7 +58,7 @@ VM HOSTS (Countries)
 ROUTERS (Extra-planar spaces)
 ├── thebeyond         (Internet gateway)
 │   └── phantasma     (microVM) — DNS (Blocky + Unbound), ad-blocking, internal proxy
-└── arteria           (Office gateway, pending cutover) — repurposed single-NIC NUC
+└── arteria           (Office gateway, pending cutover) — NUC initially; calvard microVM planned
 
 SWITCHES (Named vehicles)
 ├── arseille          (L2 switch)

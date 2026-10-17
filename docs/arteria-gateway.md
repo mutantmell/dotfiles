@@ -12,6 +12,39 @@ The switch's current firmware, management address, and physical port assignments
 must be checked on site. Historical switch notes disagree with the registry;
 do not apply their management migration as part of this cutover.
 
+## Architecture decision: gateway placement
+
+Use the existing BOXNUC7i5BNH for the initial migration. The intended long-term
+home for arteria is a dedicated NixOS gateway microVM on calvard, once calvard
+has been prepared as a minimal, locked-down virtualization host. A dedicated
+lab firewall appliance is not a planned prerequisite; invest in calvard's
+hardware as capacity requires. The NUC can remain available as a recovery
+gateway after the VM migration, with its gateway interfaces disconnected while
+the VM is active.
+
+Calvard's hypervisor is part of the network security boundary: host compromise
+could alter the gateway VM or bypass its policy through host networking.
+Application guests must remain isolated, with host-enforced VLAN membership
+limited to their required networks. Restrict host administration to designated
+operator paths. Calvard maintenance or failure will interrupt office routing
+as well as its hosted services; accept that shared failure domain and retain
+direct local-console recovery. Thebeyond remains the Internet gateway, NAT
+owner, and VPN endpoint.
+
+Run the gateway microVM directly under NixOS/systemd, independently of calvard's
+future k3s cluster. Keep its boot artifacts and writable storage local, start
+it automatically, and avoid startup dependencies on DNS, PKI, NFS, Kubernetes,
+or other services reached through the gateway. Preserve a direct management
+path to calvard while its gateway VM is unavailable, including host-to-guest
+connectivity through the chosen virtual networking arrangement.
+
+The VM migration is future work, not implemented by this profile. Reuse
+`hosts/arteria/router.nix` for routing policy and addresses, adapting the disk,
+hardware, and interface bindings to the VM. Test host cold boot, gateway
+restart, management access during an outage, and rollback to the NUC before
+retiring the physical deployment. Only one deployment may own arteria's
+gateway addresses and DHCP/IPv6 services at a time.
+
 ## Hardware and installation
 
 The pre-migration `erebonia` hardware configuration (the parent of commit
