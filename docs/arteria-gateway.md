@@ -356,8 +356,12 @@ on a 6 GHz backhaul.
 
 ## Later OpenWISP management
 
-OpenWISP is a possible follow-up on erebonia's k3s infrastructure after the
-gateway and mesh are stable. It is not deployed or required by this profile.
+OpenWISP is deferred until calvard has a separate trusted infrastructure k3s
+cluster and the gateway and mesh are stable. It is not deployed or required by
+this profile; do not deploy it in erebonia's CI/development cluster. Its device
+management credentials belong in the trusted infrastructure environment, with
+explicitly permitted access to AP management addresses. Cluster bootstrap,
+network policy, and OpenWISP deployment are future work.
 For two or three APs and a switch, evaluate whether centralized configuration
 and update tracking save more effort than maintaining the controller services.
 Keep direct SSH/LuCI access and operator recovery independent of the controller.
