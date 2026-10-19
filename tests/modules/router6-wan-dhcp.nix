@@ -213,6 +213,42 @@ in
       client.succeed("ping -c 2 -W 3 10.99.99.1")
       print("PASS")
 
+      # Startup must wait for the serving interface, beyond the old 20s
+      # retry window. Stop networkd temporarily so it cannot raise the link.
+      # A condition also prevents Kea's Wants= from starting it again.
+      router.succeed("mkdir -p /run/systemd/system/systemd-networkd.service.d")
+      router.succeed("printf '[Unit]\\nConditionPathExists=!/run/router6-hold-networkd\\n' > /run/systemd/system/systemd-networkd.service.d/test.conf")
+      router.succeed("systemctl daemon-reload")
+      router.succeed("systemctl stop kea-dhcp4-server systemd-networkd")
+      router.succeed("touch /run/router6-hold-networkd")
+      router.succeed("ip link set ${routerLan} down")
+      router.succeed("systemctl start --no-block kea-dhcp4-server")
+      router.wait_until_succeeds("test $(systemctl show -p SubState --value kea-dhcp4-server) = start-pre")
+      router.sleep(25)
+      router.succeed("test $(systemctl show -p SubState --value kea-dhcp4-server) = start-pre")
+      router.succeed("rm /run/router6-hold-networkd")
+      router.succeed("systemctl start systemd-networkd")
+      router.succeed("ip link set ${routerLan} up")
+      router.wait_for_unit("kea-dhcp4-server.service")
+
+      # Bypass the readiness wait to exercise Kea's independent socket retry
+      # protection. A fresh DHCP exchange must succeed after the late link
+      # returns, without an operator restarting Kea.
+      router.succeed("systemctl stop kea-dhcp4-server systemd-networkd")
+      router.succeed("touch /run/router6-hold-networkd")
+      router.succeed("ip link set ${routerLan} down")
+      router.succeed("mkdir -p /run/systemd/system/kea-dhcp4-server.service.d")
+      router.succeed("printf '[Service]\\nExecStartPre=\\n' > /run/systemd/system/kea-dhcp4-server.service.d/test.conf")
+      router.succeed("systemctl daemon-reload; systemctl start kea-dhcp4-server")
+      kea_pid = router.succeed("systemctl show -p MainPID --value kea-dhcp4-server").strip()
+      router.sleep(25)
+      router.succeed("systemctl is-active kea-dhcp4-server")
+      router.succeed("rm /run/router6-hold-networkd")
+      router.succeed("systemctl start systemd-networkd")
+      router.succeed("ip link set ${routerLan} up")
+      client.wait_until_succeeds("${pkgs.busybox}/bin/udhcpc -f -n -q -i eth1 -t 3 -T 2 -s /bin/true 2>&1 | grep 'lease of 10.0.10.'", timeout=60)
+      assert router.succeed("systemctl show -p MainPID --value kea-dhcp4-server").strip() == kea_pid
+
       # ======================================================================
       # Summary
       # ======================================================================

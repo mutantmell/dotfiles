@@ -177,6 +177,25 @@
   # Tests
   # ========================================================================
   tests = [
+    # Both families must recover instead of remaining active without sockets.
+    (assertTrue "Kea: recoverable socket startup for both families"
+      (lib.all (family: let
+        settings = dhcpEval.services.kea."dhcp${family}".settings.interfaces-config;
+        service = dhcpEval.systemd.services."kea-dhcp${family}-server";
+        waitCommand = lib.concatStringsSep " " service.serviceConfig.ExecStartPre;
+      in
+        settings.service-sockets-require-all
+        && settings.service-sockets-max-retries * settings.service-sockets-retry-wait-time > 20000
+        && service.serviceConfig.Restart == "always"
+        && service.startLimitIntervalSec == 0
+        && lib.elem "systemd-networkd.service" service.after
+        && lib.hasInfix "--interface=lan:degraded" waitCommand
+        && lib.hasInfix "--ipv${family}" waitCommand
+        && !(lib.hasInfix "--interface=wan" waitCommand)) ["4" "6"]))
+
+    (assertFalse "Router: global wait-online remains disabled"
+      dhcpEval.systemd.network.wait-online.enable)
+
     # ====================================================================
     # systemd-networkd: DHCP WAN interface
     # ====================================================================
