@@ -14,6 +14,7 @@ in {
   ];
 
   networking.hostName = hostname;
+  common.internal-pki.enable = true;
   networking.useNetworkd = true;
   networking.useDHCP = false;
   common.openssh = {

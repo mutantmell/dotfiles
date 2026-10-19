@@ -14,6 +14,7 @@ in {
   ];
 
   networking.hostName = "arcus";
+  common.internal-pki.enable = true;
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;

@@ -23,6 +23,7 @@ in {
   nix.settings.experimental-features = ["nix-command" "flakes"];
 
   networking.hostName = hostname;
+  common.internal-pki.enable = true;
   networking.useNetworkd = true;
   networking.useDHCP = false;
 

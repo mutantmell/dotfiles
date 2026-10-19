@@ -2,6 +2,7 @@
   imports = [./hardware-configuration.nix ./disk.nix ./router.nix];
 
   networking.hostName = "arteria";
+  common.internal-pki.enable = true;
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
