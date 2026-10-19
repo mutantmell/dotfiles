@@ -211,8 +211,7 @@ in {
 
       extraConfig = ''
         modules.load('policy')
-        ${localPolicyLua}
-        ${
+        ${localPolicyLua}${
           if hasPrimary && hasFallback
           then ''
             ${breakerPreludeLua}

@@ -141,6 +141,7 @@ in {
       }
     ];
     dns = {
+      inherit (pkgs.mmell.lib.data.dns) localZones localRecords;
       upstream = [net.networks.transit.gateway4];
       localDomain = "internal";
       # Local records are answered by kresd; thebeyond/phantasma validates

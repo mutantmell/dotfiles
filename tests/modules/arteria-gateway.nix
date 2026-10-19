@@ -14,7 +14,7 @@ in
     name = "arteria-gateway";
     nodes = {
       router = {lib, ...}: {
-        imports = [base ../../modules/router6 ../../hosts/arteria/router.nix ../../hosts/arteria/dns.nix];
+        imports = [base ../../modules/router6 ../../hosts/arteria/router.nix];
         # The VM has a separate test-driver NIC. Rename only its trunk NIC.
         systemd.network.links."10-trunk" = {
           matchConfig.OriginalName = "eth1";
