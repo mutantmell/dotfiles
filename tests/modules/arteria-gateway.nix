@@ -22,6 +22,18 @@ in
         };
         networking.firewall.enable = lib.mkForce false;
         services.openssh.enable = true;
+        router6.dns.localRecords = {
+          "override.pages.internal".addresses = ["192.0.2.42"];
+          "nested.pages.internal" = {
+            addresses = ["192.0.2.43"];
+            includeSubdomains = true;
+          };
+          "v4only.internal".addresses = ["192.0.2.44"];
+          "multi.internal" = {
+            addresses = ["192.0.2.45" "192.0.2.46"];
+            ttl = 17;
+          };
+        };
       };
       cluster = base;
       app = {
@@ -64,7 +76,6 @@ in
       router.wait_for_unit("kea-dhcp4-server.service")
       router.wait_for_unit("kea-dhcp6-server.service")
       router.wait_for_unit("kresd@1.service")
-      router.wait_for_unit("unbound.service")
       upstream.wait_for_unit("unbound.service")
       router.wait_until_succeeds("ip -4 addr show uplink.255 | grep 10.255.255.2")
       router.succeed("ip -4 route show default | grep 'via 10.255.255.1 dev uplink.255'")
@@ -115,19 +126,34 @@ in
               for name in ["missing.internal", "missing.internal.mutantmell.net", "bt8gw.internal"]:
                   cluster.succeed(f"dig +time=2 +tries=1 @{server} {name} A +comments | grep 'status: NXDOMAIN'")
 
+          # Exact records override redirect parents; longest redirect wins.
+          for name, expected in [
+              ("override.pages.internal", "192.0.2.42"),
+              ("child.nested.pages.internal", "192.0.2.43"),
+          ]:
+              answer = cluster.succeed(f"dig +time=2 +tries=1 @10.97.51.1 {name} A +short").strip()
+              assert answer == expected, (name, answer)
+          # Known name/missing type is NODATA and must never go upstream.
+          answer = cluster.succeed("dig +time=2 +tries=1 @10.97.51.1 v4only.internal AAAA +comments")
+          assert "status: NOERROR" in answer and "ANSWER: 0" in answer, answer
+          answer = cluster.succeed("dig +time=2 +tries=1 @10.97.51.1 multi.internal A +short").strip()
+          assert set(answer.splitlines()) == {"192.0.2.45", "192.0.2.46"}, answer
+          cluster.succeed("dig +time=2 +tries=1 @10.97.51.1 multi.internal A +noall +answer | grep -E '17[[:space:]]+IN[[:space:]]+A'")
+          cluster.succeed("dig +tcp +time=2 +tries=1 @10.97.51.1 arteria.internal A +short | grep 10.97.11.1")
+
       check_local_records()
       for rrtype, expected in [("A", "198.51.100.42"), ("AAAA", "2001:db8::42")]:
           answer = cluster.succeed(f"dig +time=2 +tries=1 @10.97.51.1 forwarded.openwrt.org {rrtype} +short").strip()
           assert ipaddress.ip_address(answer) == ipaddress.ip_address(expected), (rrtype, answer)
-      # Port 5353 must remain private to the router; only port 53 is exposed.
-      cluster.fail("nc -z -w 2 10.97.51.1 5353")
-      # Restart both local resolvers to clear caches. Internal answers, including
+      # No second DNS daemon/backend is needed on the gateway.
+      router.fail("systemctl cat unbound.service")
+      router.fail("ss -lntup | grep :5353")
+      # Restart kresd and clear its on-disk cache. Internal answers, including
       # fresh NXDOMAINs and Pages children, must work with no upstream resolver.
       upstream.succeed("systemctl stop unbound")
-      router.succeed("systemctl stop kresd@1 unbound")
+      router.succeed("systemctl stop kresd@1")
       router.succeed("rm -f /var/cache/knot-resolver/*.mdb")
-      router.succeed("systemctl start unbound kresd@1")
-      router.wait_for_unit("unbound.service")
+      router.succeed("systemctl start kresd@1")
       router.wait_for_unit("kresd@1.service")
       check_local_records()
       # DHCP-advertised DNS and RA DNS point at the actual gateway interfaces.

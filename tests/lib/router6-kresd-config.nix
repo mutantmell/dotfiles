@@ -271,7 +271,27 @@
   extraK = (evalConfig configK).services.kresd.extraConfig;
   extraL = (evalConfig configL).services.kresd.extraConfig;
 
+  localConfig = evalConfig (baseTopology
+    // {
+      dns = {
+        upstream = ["1.1.1.1"];
+        localZones = ["home.arpa"];
+        localRecords."router.home.arpa".addresses = ["192.0.2.1" "2001:db8::1"];
+      };
+    });
+  localLua = localConfig.services.kresd.extraConfig;
+
   tests = [
+    (assertTrue "local records are opt-in" (notContains "policy.ANSWER" extraA))
+    (assertTrue "local records do not disable DNSSEC for other queries"
+      (contains "trust_anchors.add_file" localLua && notContains "trust_anchors.set_insecure" localLua))
+    (assertTrue "exact local answers precede closed-zone denial and upstream forwarding"
+      (builtins.match ".*policy.domains.*policy.DENY.*policy.FORWARD.*" localLua != null))
+    (assertTrue "local records produce both address families with a default TTL"
+      (contains "kres.str2ip(\"192.0.2.1\")" localLua
+        && contains "kres.str2ip(\"2001:db8::1\")" localLua
+        && contains "ttl = 300" localLua))
+
     # Config A: Simple upstream — module default is upstreamPolicy = "forward",
     # so the single-primary path must template to policy.FORWARD (and NOT
     # policy.STUB).

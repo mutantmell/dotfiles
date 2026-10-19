@@ -33,6 +33,37 @@
   primaryPolicyFn = "policy.${lib.toUpper cfg.dns.upstreamPolicy}";
   fallbackPolicyFn = "policy.${lib.toUpper cfg.dns.fallbackPolicy}";
 
+  # Local answers precede forwarding/failover and terminate policy evaluation.
+  # Match exact names first, then longest redirect suffix, then closed zones.
+  # JSON quoting is also valid Lua quoting for the ASCII DNS names/IPs used
+  # here; reject other characters before rendering to avoid Lua injection.
+  quote = builtins.toJSON;
+  localRecordList = lib.mapAttrsToList (name: record: record // {inherit name;}) cfg.dns.localRecords;
+  exactRecords = builtins.filter (r: !r.includeSubdomains) localRecordList;
+  redirects =
+    lib.sort (a: b: builtins.stringLength a.name > builtins.stringLength b.name)
+    (builtins.filter (r: r.includeSubdomains) localRecordList);
+  answerRule = record: let
+    families = lib.partition (address: lib.hasInfix ":" address) record.addresses;
+    rrset = rrtype: addresses:
+      optionalString (addresses != [])
+      "[kres.type.${rrtype}] = { rdata = { ${concatStringsSep ", " (map (a: "kres.str2ip(${quote a})") addresses)} }, ttl = ${toString record.ttl} },";
+    matcher =
+      if record.includeSubdomains
+      then "suffix"
+      else "domains";
+  in ''
+    policy.add(policy.${matcher}(policy.ANSWER({
+      ${rrset "A" families.wrong}
+      ${rrset "AAAA" families.right}
+    }, true), policy.todnames({${quote record.name}})))
+  '';
+  localPolicyLua =
+    lib.concatMapStrings answerRule (exactRecords ++ redirects)
+    + optionalString (cfg.dns.localZones != []) ''
+      policy.add(policy.suffix(policy.DENY, policy.todnames({${concatStringsSep ", " (map quote cfg.dns.localZones)}})))
+    '';
+
   # kresd 5.x policy.FORWARD returns a closure that synchronously sets request
   # flags and the nslist, then returns `state`. It does NOT block on the
   # upstream answer, so the e3cf667 pattern `if primary(state, req) then ...`
@@ -140,6 +171,16 @@
   '';
 in {
   config = mkIf cfg.enable {
+    assertions =
+      map (record: {
+        assertion =
+          builtins.match "[A-Za-z0-9_.-]+" record.name
+          != null
+          && lib.all (address: builtins.match "[0-9A-Fa-f:.]+" address != null) record.addresses;
+        message = "router6.dns.localRecords: use ASCII DNS names and literal IPv4/IPv6 addresses";
+      })
+      localRecordList;
+
     services.kresd = {
       enable = true;
       listenPlain =
@@ -170,6 +211,7 @@ in {
 
       extraConfig = ''
         modules.load('policy')
+        ${localPolicyLua}
         ${
           if hasPrimary && hasFallback
           then ''

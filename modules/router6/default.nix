@@ -563,6 +563,35 @@ in {
             description = "Local domain for DHCP hostnames";
           };
 
+          localZones = mkOption {
+            type = types.listOf (types.strMatching "[A-Za-z0-9_.-]+");
+            default = [];
+            description = "Local DNS subtrees: names without a local record return NXDOMAIN instead of forwarding.";
+          };
+
+          localRecords = mkOption {
+            type = types.attrsOf (types.submodule {
+              options = {
+                addresses = mkOption {
+                  type = types.nonEmptyListOf types.str;
+                  description = "IPv4/IPv6 addresses returned for this exact DNS name.";
+                };
+                ttl = mkOption {
+                  type = types.ints.unsigned;
+                  default = 300;
+                  description = "TTL of local answers in seconds.";
+                };
+                includeSubdomains = mkOption {
+                  type = types.bool;
+                  default = false;
+                  description = "Also answer all descendants with these addresses (subtree redirect).";
+                };
+              };
+            });
+            default = {};
+            description = "Static DNS names served directly by kresd before upstream forwarding. Unconfigured record types return NODATA.";
+          };
+
           enableDNSSEC = mkOption {
             type = types.bool;
             default = true;

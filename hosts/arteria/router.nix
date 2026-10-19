@@ -141,10 +141,10 @@ in {
       }
     ];
     dns = {
-      upstream = ["127.0.0.1@5353"];
+      upstream = [net.networks.transit.gateway4];
       localDomain = "internal";
-      # Local Unbound serves registry zones and forwards other queries to
-      # thebeyond/phantasma for validation; do not validate unsigned local data.
+      # Local records are answered by kresd; thebeyond/phantasma validates
+      # forwarded Internet queries. Do not revalidate unsigned internal data.
       enableDNSSEC = false;
       upstreamPolicy = "stub";
     };

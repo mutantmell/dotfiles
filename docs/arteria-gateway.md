@@ -187,12 +187,16 @@ The office DNS path is:
 
 ```text
 client → Arteria gateway port 53 (kresd)
-         → 127.0.0.1:5353 (Unbound)
-           → local registry zones: answer without upstream connectivity
-           → other names: thebeyond transit DNS → phantasma
+         → local registry records/policies: answer without upstream connectivity
+         → other names: thebeyond transit DNS → phantasma (Unbound)
 ```
 
-The Unbound backend listens only on loopback. Existing gateway DNS addresses,
+Arteria uses router6's existing kresd server, with no additional DNS daemon or
+backend port. Router6 renders `dns.localRecords` as exact-name or subtree answer
+policies, followed by `dns.localZones` negative-answer policies, ahead of
+upstream/failover rules. Known names with unconfigured record types return
+NODATA, not NXDOMAIN. Phantasma renders the same shared model as Unbound zones.
+Existing gateway DNS addresses,
 DHCP/RA advertisements, DNS firewall admission, and upstream DNSSEC validation
 remain in place. Arteria does not become an independent Internet-recursive
 resolver. Internet lookups still need the upstream path; local DNS working
@@ -223,8 +227,8 @@ gateway address is not granted to every zone. Phantasma itself intentionally
 accepts queries only from thebeyond and loopback, so do not query its
 `10.91.10.10` listener directly from an office client. Local records should
 still resolve after the upstream path fails; unknown internal names should
-return `NXDOMAIN`. The gateway integration test verifies this with both local
-resolver caches cleared and its simulated upstream resolver stopped.
+return `NXDOMAIN`. The gateway integration test verifies this after clearing
+kresd's disk cache and stopping its simulated upstream resolver.
 
 ## Gateway policy to review
 

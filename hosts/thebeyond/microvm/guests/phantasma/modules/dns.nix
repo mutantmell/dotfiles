@@ -95,7 +95,7 @@ in {
 
         # Shared with arteria: both resolvers serve the same registry records,
         # service aliases, and Pages zone without depending on each other.
-        inherit (pkgs.mmell.lib.data.dns) local-zone local-data;
+        inherit (pkgs.mmell.lib.data.dns.unbound) local-zone local-data;
       };
       remote-control.control-enable = true;
     };
