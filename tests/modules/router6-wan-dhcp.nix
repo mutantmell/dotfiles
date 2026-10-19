@@ -272,12 +272,12 @@ in
       assert router.succeed("systemctl show -p MainPID --value kea-dhcp4-server").strip() == kea_pid
 
       # One unplugged optional LAN must not block service on the healthy LAN.
-      # Keep networkd stopped so it cannot raise eth3 during the assertion.
+      # Keep networkd running: wait-online needs its configured/address state
+      # for the healthy LAN. networkctl down holds eth3 administratively down
+      # without freezing or removing the healthy LAN's readiness information.
       router.succeed("systemctl stop kea-dhcp4-server")
       router.succeed("networkctl down eth3")
       router.wait_until_succeeds("grep -q '^OPER_STATE=off$' /run/systemd/netif/links/$(cat /sys/class/net/eth3/ifindex)")
-      router.succeed("touch /run/router6-hold-networkd")
-      router.succeed("systemctl stop systemd-networkd")
       router.succeed("rm /run/systemd/system/kea-dhcp4-server.service.d/test.conf")
       router.succeed("systemctl daemon-reload; systemctl start --no-block kea-dhcp4-server")
       router.wait_for_unit("kea-dhcp4-server.service", timeout=30)
