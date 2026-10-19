@@ -161,6 +161,11 @@
   # ========================================================================
   dhcpEval = evalConfig dhcpWanConfig;
   staticEval = evalConfig staticWanConfig;
+  # dhcp6.enable alone defaults to SLAAC, which intentionally does not run
+  # Kea DHCPv6. Use stateful mode to exercise the startup policy for both servers.
+  dualStackEval = evalConfig (lib.recursiveUpdate dhcpWanConfig {
+    topology.lan.network.dhcp6.mode = "stateful";
+  });
 
   dhcpNetworks = dhcpEval.systemd.network.networks;
   staticNetworks = staticEval.systemd.network.networks;
@@ -180,8 +185,8 @@
     # Both families must recover instead of remaining active without sockets.
     (assertTrue "Kea: recoverable socket startup for both families"
       (lib.all (family: let
-        settings = dhcpEval.services.kea."dhcp${family}".settings.interfaces-config;
-        service = dhcpEval.systemd.services."kea-dhcp${family}-server";
+        settings = dualStackEval.services.kea."dhcp${family}".settings.interfaces-config;
+        service = dualStackEval.systemd.services."kea-dhcp${family}-server";
         waitCommand = lib.concatStringsSep " " service.serviceConfig.ExecStartPre;
       in
         settings.service-sockets-require-all
@@ -195,6 +200,13 @@
 
     (assertFalse "Router: global wait-online remains disabled"
       dhcpEval.systemd.network.wait-online.enable)
+
+    (assertFalse "SLAAC: Kea DHCPv6 remains disabled"
+      dhcpEval.services.kea.dhcp6.enable)
+
+    (assertNoAttr "SLAAC: no Kea DHCPv6 service or readiness wait"
+      "kea-dhcp6-server"
+      dhcpEval.systemd.services)
 
     # ====================================================================
     # systemd-networkd: DHCP WAN interface
