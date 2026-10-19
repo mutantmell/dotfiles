@@ -190,12 +190,14 @@
         waitCommand = lib.concatStringsSep " " service.serviceConfig.ExecStartPre;
       in
         settings.service-sockets-require-all
-        && settings.service-sockets-max-retries * settings.service-sockets-retry-wait-time > 20000
+        # An unplugged optional LAN must not cause periodic server restarts.
+        && settings.service-sockets-max-retries * settings.service-sockets-retry-wait-time > 100 * 365 * 24 * 60 * 60 * 1000
         && service.serviceConfig.Restart == "always"
         && service.startLimitIntervalSec == 0
         && lib.elem "systemd-networkd.service" service.after
         && lib.hasInfix "--interface=lan:degraded" waitCommand
         && lib.hasInfix "--ipv${family}" waitCommand
+        && lib.hasInfix "--any" waitCommand
         && !(lib.hasInfix "--interface=wan" waitCommand)) ["4" "6"]))
 
     (assertFalse "Router: global wait-online remains disabled"

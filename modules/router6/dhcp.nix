@@ -8,10 +8,12 @@
   cfg = config.router6;
   r6lib = import ./lib.nix {inherit cfg lib;};
   socketRetrySettings = {
-    # Give slow VLAN/bridge setup five minutes, then exit rather than remain
-    # active without sockets. systemd restarts Kea for another attempt.
+    # Zero disables retries; Kea has no infinite-retry sentinel. INT32_MAX at
+    # two-second intervals gives over 136 years while keeping config-get's
+    # signed serialization valid. Retries preserve sockets on healthy LANs,
+    # even when another LAN has no carrier. Restart if retries ever exhaust.
     service-sockets-require-all = true;
-    service-sockets-max-retries = 150;
+    service-sockets-max-retries = 2147483647;
     service-sockets-retry-wait-time = 2000;
   };
   keaStartup = family: interfaces: {
@@ -20,10 +22,11 @@
     startLimitIntervalSec = 0;
     serviceConfig = {
       # Global wait-online is deliberately disabled on routers. Wait only for
-      # this server's LAN interfaces and address family, independently of WAN.
+      # any serving LAN and address family, independently of WAN. An unplugged
+      # optional LAN must not prevent DHCP on healthy LANs; Kea retries the rest.
       ExecStartPre = [
         (utils.escapeSystemdExecArgs (
-          ["${pkgs.systemd}/lib/systemd/systemd-networkd-wait-online" "--timeout=60" "--ipv${family}"]
+          ["${pkgs.systemd}/lib/systemd/systemd-networkd-wait-online" "--timeout=60" "--any" "--ipv${family}"]
           ++ map (iface: "--interface=${iface}:degraded") interfaces
         ))
       ];

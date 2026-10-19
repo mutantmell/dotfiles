@@ -87,8 +87,8 @@ in
           ../lib/test-minimal-base.nix
         ];
 
-        # eth1 = WAN (VLAN 1), eth2 = LAN (VLAN 3)
-        virtualisation.vlans = [1 3];
+        # eth1 = WAN (VLAN 1), eth2 = LAN (VLAN 3), eth3 = optional LAN
+        virtualisation.vlans = [1 3 4];
 
         router6 = {
           enable = true;
@@ -129,6 +129,16 @@ in
                 addresses = ["10.0.10.1/24"];
                 zone = "trusted";
                 dhcp.enable = true;
+              };
+            };
+            eth3 = {
+              kind = "physical";
+              network = {
+                type = "static";
+                addresses = ["10.0.20.1/24"];
+                zone = "trusted";
+                dhcp.enable = true;
+                required = false;
               };
             };
           };
@@ -221,24 +231,34 @@ in
       router.succeed("mkdir -p /run/systemd/system/systemd-networkd.service.d")
       router.succeed("printf '[Unit]\\nConditionPathExists=!/run/router6-hold-networkd\\n' > /run/systemd/system/systemd-networkd.service.d/test.conf")
       router.succeed("systemctl daemon-reload")
-      router.succeed("systemctl stop kea-dhcp4-server systemd-networkd")
+      router.succeed("systemctl stop kea-dhcp4-server")
+      router.succeed("networkctl down ${routerLan} eth3")
+      # Let networkd publish the down state before freezing it. wait-online
+      # reads these files, not just kernel link flags.
+      for iface in ["${routerLan}", "eth3"]:
+          router.wait_until_succeeds(f"grep -q '^OPER_STATE=off$' /run/systemd/netif/links/$(cat /sys/class/net/{iface}/ifindex)")
       router.succeed("touch /run/router6-hold-networkd")
-      router.succeed("ip link set ${routerLan} down")
+      router.succeed("systemctl stop systemd-networkd")
       router.succeed("systemctl start --no-block kea-dhcp4-server")
       router.wait_until_succeeds("test $(systemctl show -p SubState --value kea-dhcp4-server) = start-pre")
       time.sleep(25)
       router.succeed("test $(systemctl show -p SubState --value kea-dhcp4-server) = start-pre")
       router.succeed("rm /run/router6-hold-networkd")
       router.succeed("systemctl start systemd-networkd")
-      router.succeed("ip link set ${routerLan} up")
+      router.succeed("networkctl up ${routerLan} eth3")
       router.wait_for_unit("kea-dhcp4-server.service")
 
       # Bypass the readiness wait to exercise Kea's independent socket retry
       # protection. A fresh DHCP exchange must succeed after the late link
       # returns, without an operator restarting Kea.
-      router.succeed("systemctl stop kea-dhcp4-server systemd-networkd")
+      router.succeed("systemctl stop kea-dhcp4-server")
+      router.succeed("networkctl down ${routerLan} eth3")
+      # Let networkd publish the down state before freezing it. wait-online
+      # reads these files, not just kernel link flags.
+      for iface in ["${routerLan}", "eth3"]:
+          router.wait_until_succeeds(f"grep -q '^OPER_STATE=off$' /run/systemd/netif/links/$(cat /sys/class/net/{iface}/ifindex)")
       router.succeed("touch /run/router6-hold-networkd")
-      router.succeed("ip link set ${routerLan} down")
+      router.succeed("systemctl stop systemd-networkd")
       router.succeed("mkdir -p /run/systemd/system/kea-dhcp4-server.service.d")
       router.succeed("printf '[Service]\\nExecStartPre=\\n' > /run/systemd/system/kea-dhcp4-server.service.d/test.conf")
       router.succeed("systemctl daemon-reload; systemctl start kea-dhcp4-server")
@@ -247,9 +267,22 @@ in
       router.succeed("systemctl is-active kea-dhcp4-server")
       router.succeed("rm /run/router6-hold-networkd")
       router.succeed("systemctl start systemd-networkd")
-      router.succeed("ip link set ${routerLan} up")
+      router.succeed("networkctl up ${routerLan} eth3")
       client.wait_until_succeeds("${pkgs.busybox}/bin/udhcpc -f -n -q -i eth1 -t 3 -T 2 -s /bin/true 2>&1 | grep 'lease of 10.0.10.'", timeout=60)
       assert router.succeed("systemctl show -p MainPID --value kea-dhcp4-server").strip() == kea_pid
+
+      # One unplugged optional LAN must not block service on the healthy LAN.
+      # Keep networkd stopped so it cannot raise eth3 during the assertion.
+      router.succeed("systemctl stop kea-dhcp4-server")
+      router.succeed("networkctl down eth3")
+      router.wait_until_succeeds("grep -q '^OPER_STATE=off$' /run/systemd/netif/links/$(cat /sys/class/net/eth3/ifindex)")
+      router.succeed("touch /run/router6-hold-networkd")
+      router.succeed("systemctl stop systemd-networkd")
+      router.succeed("rm /run/systemd/system/kea-dhcp4-server.service.d/test.conf")
+      router.succeed("systemctl daemon-reload; systemctl start --no-block kea-dhcp4-server")
+      router.wait_for_unit("kea-dhcp4-server.service", timeout=30)
+      client.wait_until_succeeds("${pkgs.busybox}/bin/udhcpc -f -n -q -i eth1 -t 3 -T 2 -s /bin/true 2>&1 | grep 'lease of 10.0.10.'", timeout=30)
+      router.succeed("test $(cat /sys/class/net/eth3/operstate) = down")
 
       # ======================================================================
       # Summary
