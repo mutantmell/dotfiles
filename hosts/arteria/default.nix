@@ -1,5 +1,5 @@
 {pkgs, ...}: {
-  imports = [./hardware-configuration.nix ./disk.nix ./router.nix];
+  imports = [./hardware-configuration.nix ./disk.nix ./router.nix ./dns.nix];
 
   networking.hostName = "arteria";
   boot.loader.systemd-boot.enable = true;

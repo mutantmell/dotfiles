@@ -1,7 +1,9 @@
 {lib}: let
   pki = ./pki;
-in {
   network = import ./network.nix {inherit lib;};
+in {
+  inherit network;
+  dns = import ./dns.nix {net = network;};
   keys = builtins.fromJSON (
     builtins.readFile ./keys.json
   );

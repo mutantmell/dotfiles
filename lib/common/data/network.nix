@@ -405,7 +405,7 @@
     "bt8gw"
   ];
 
-  # Hosts served by phantasma's authoritative internal DNS zone. Derived from
+  # Hosts served by the shared internal DNS zones on phantasma and arteria. Derived from
   # the registry so a newly-added host resolves automatically — the previous
   # hand-maintained allow-list in dns.nix silently NXDOMAINed any host someone
   # forgot to add (this is how roer went missing). Subtract dnsExcludedHosts.

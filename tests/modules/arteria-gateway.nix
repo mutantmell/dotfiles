@@ -14,7 +14,7 @@ in
     name = "arteria-gateway";
     nodes = {
       router = {lib, ...}: {
-        imports = [base ../../modules/router6 ../../hosts/arteria/router.nix];
+        imports = [base ../../modules/router6 ../../hosts/arteria/router.nix ../../hosts/arteria/dns.nix];
         # The VM has a separate test-driver NIC. Rename only its trunk NIC.
         systemd.network.links."10-trunk" = {
           matchConfig.OriginalName = "eth1";
@@ -31,7 +31,32 @@ in
           serviceConfig.ExecStart = "${pkgs.socat}/bin/socat TCP6-LISTEN:443,ipv6only=0,reuseaddr,fork EXEC:${pkgs.coreutils}/bin/cat";
         };
       };
-      upstream = base;
+      upstream = {
+        imports = [base];
+        services.unbound = {
+          enable = true;
+          resolveLocalQueries = false;
+          enableRootTrustAnchor = false;
+          settings.server = {
+            interface = ["0.0.0.0"];
+            access-control = ["0.0.0.0/0 allow"];
+            module-config = "iterator";
+            # A conflicting upstream answer exposes accidental forwarding of
+            # unknown internal names; external test names must still forward.
+            local-zone = [
+              "\"forwarded.openwrt.org.\" static"
+              "\"internal.\" redirect"
+              "\"internal.mutantmell.net.\" redirect"
+            ];
+            local-data = [
+              "\"forwarded.openwrt.org. A 198.51.100.42\""
+              "\"forwarded.openwrt.org. AAAA 2001:db8::42\""
+              "\"internal. A 192.0.2.99\""
+              "\"internal.mutantmell.net. A 192.0.2.99\""
+            ];
+          };
+        };
+      };
     };
     testScript = ''
       start_all()
@@ -39,6 +64,8 @@ in
       router.wait_for_unit("kea-dhcp4-server.service")
       router.wait_for_unit("kea-dhcp6-server.service")
       router.wait_for_unit("kresd@1.service")
+      router.wait_for_unit("unbound.service")
+      upstream.wait_for_unit("unbound.service")
       router.wait_until_succeeds("ip -4 addr show uplink.255 | grep 10.255.255.2")
       router.succeed("ip -4 route show default | grep 'via 10.255.255.1 dev uplink.255'")
       router.succeed("ip -6 route show default | grep 'via fdc6:55f2:a5e:ffff::1 dev uplink.255'")
@@ -69,6 +96,40 @@ in
       cluster.succeed("ip -6 addr add fdc6:55f2:a5e:1033::a/64 dev eth1.51")
       cluster.succeed("nc -z -w 3 10.97.51.1 53")
       cluster.succeed("nc -6 -z -w 3 fdc6:55f2:a5e:1033::1 53")
+      # Query through the real IPv4/IPv6 gateway listeners, not the backend.
+      import ipaddress
+      records = {
+          "arteria.internal": ("10.97.11.1", "fdc6:55f2:a5e:100b::1"),
+          "arteria.internal.mutantmell.net": ("10.97.11.1", "fdc6:55f2:a5e:100b::1"),
+          "forgejo.internal": ("10.97.50.53", "fdc6:55f2:a5e:1032::35"),
+          "attic.zeiss.internal.mutantmell.net": ("10.97.50.31", "fdc6:55f2:a5e:1032::1f"),
+          "pages.internal": ("10.97.50.53", "fdc6:55f2:a5e:1032::35"),
+          "new-user.pages.internal": ("10.97.50.53", "fdc6:55f2:a5e:1032::35"),
+      }
+      def check_local_records():
+          for server in ["10.97.51.1", "fdc6:55f2:a5e:1033::1"]:
+              for name, addresses in records.items():
+                  for rrtype, expected in zip(["A", "AAAA"], addresses):
+                      answer = cluster.succeed(f"dig +time=2 +tries=1 @{server} {name} {rrtype} +short").strip()
+                      assert ipaddress.ip_address(answer) == ipaddress.ip_address(expected), (server, name, rrtype, answer)
+              for name in ["missing.internal", "missing.internal.mutantmell.net", "bt8gw.internal"]:
+                  cluster.succeed(f"dig +time=2 +tries=1 @{server} {name} A +comments | grep 'status: NXDOMAIN'")
+
+      check_local_records()
+      for rrtype, expected in [("A", "198.51.100.42"), ("AAAA", "2001:db8::42")]:
+          answer = cluster.succeed(f"dig +time=2 +tries=1 @10.97.51.1 forwarded.openwrt.org {rrtype} +short").strip()
+          assert ipaddress.ip_address(answer) == ipaddress.ip_address(expected), (rrtype, answer)
+      # Port 5353 must remain private to the router; only port 53 is exposed.
+      cluster.fail("nc -z -w 2 10.97.51.1 5353")
+      # Restart both local resolvers to clear caches. Internal answers, including
+      # fresh NXDOMAINs and Pages children, must work with no upstream resolver.
+      upstream.succeed("systemctl stop unbound")
+      router.succeed("systemctl stop kresd@1 unbound")
+      router.succeed("rm -f /var/cache/knot-resolver/*.mdb")
+      router.succeed("systemctl start unbound kresd@1")
+      router.wait_for_unit("unbound.service")
+      router.wait_for_unit("kresd@1.service")
+      check_local_records()
       # DHCP-advertised DNS and RA DNS point at the actual gateway interfaces.
       router.succeed("grep -F 'fdc6:55f2:0a5e:1033::1' /etc/systemd/network/*uplink.51.network")
       cluster.succeed("ping -c 1 -W 3 198.51.100.1")

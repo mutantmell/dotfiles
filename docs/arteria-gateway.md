@@ -173,6 +173,59 @@ in the gateway reference, while the others use SLAAC. Confirm the live network's
 IPv6 expectations before cutover. Arteria's SSH accepts the configured operator
 keys from management/trusted/lab and the operator VPN, not from cluster or APP.
 
+## Internal DNS on both sides of the mesh
+
+Arteria serves the same flake-generated local records as phantasma. Both consume
+`lib/common/data/dns.nix`, which derives host A/AAAA records and service aliases
+from `lib/common/data/network.nix`. This includes both `.internal` and
+`.internal.mutantmell.net`, the public split-horizon aliases under
+`mutantmell.net`, and the `pages.internal` apex and arbitrary child names.
+Excluded hosts remain excluded. Unknown names inside the two internal zones
+return a local negative answer; they are never forwarded to the other resolver.
+
+The office DNS path is:
+
+```text
+client → Arteria gateway port 53 (kresd)
+         → 127.0.0.1:5353 (Unbound)
+           → local registry zones: answer without upstream connectivity
+           → other names: thebeyond transit DNS → phantasma
+```
+
+The Unbound backend listens only on loopback. Existing gateway DNS addresses,
+DHCP/RA advertisements, DNS firewall admission, and upstream DNSSEC validation
+remain in place. Arteria does not become an independent Internet-recursive
+resolver. Internet lookups still need the upstream path; local DNS working
+during a mesh outage does not imply Internet connectivity or remote services
+are available.
+
+Deploying arteria updates office records without a thebeyond/phantasma deploy.
+Phantasma retains its own copy, so deploy both from the same registry revision
+when changing records used on both sides. During a staggered deployment the
+answers may differ, and cached positive/negative answers can outlast the
+update. Neither resolver performs dynamic DHCP DNS registration; adding that
+later requires an explicit synchronization design.
+
+After deployment, compare representative A and AAAA answers through each
+side's gateway listener from an authorized client. For example:
+
+```sh
+dig @10.97.11.1 arteria.internal A
+dig @10.97.11.1 arteria.internal.mutantmell.net AAAA
+dig @10.97.11.1 forgejo.internal A
+dig @10.97.11.1 new-user.pages.internal A
+dig @10.97.11.1 missing.internal A
+dig @10.91.10.1 arteria.internal A
+```
+
+Use an appropriate local gateway address for your client VLAN; access to every
+gateway address is not granted to every zone. Phantasma itself intentionally
+accepts queries only from thebeyond and loopback, so do not query its
+`10.91.10.10` listener directly from an office client. Local records should
+still resolve after the upstream path fails; unknown internal names should
+return `NXDOMAIN`. The gateway integration test verifies this with both local
+resolver caches cleared and its simulated upstream resolver stopped.
+
 ## Gateway policy to review
 
 This profile translates the documented intended flows into router6 policy;

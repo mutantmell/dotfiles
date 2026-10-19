@@ -93,26 +93,9 @@ in {
         serve-expired-reply-ttl = 30;
         prefetch = true;
 
-        # Split-horizon DNS zones
-        local-zone = [
-          ''"mutantmell.net." transparent'' # split-horizon: local overrides, rest forwarded
-          ''"internal.mutantmell.net." static'' # canonical internal: authoritative, never forwards
-          ''"internal." static'' # short alias: authoritative, never forwards
-          # Redirect provides apex + arbitrary user names without per-site records.
-          ''"pages.internal." redirect''
-        ];
-        local-data =
-          # Standard host records (<name>.internal.mutantmell.net + <name>.internal),
-          # derived from the network registry (net.dnsHosts) so a newly-added host
-          # resolves automatically. Opt a host out via dnsExcludedHosts in network.nix.
-          net.mkUnboundLocalData net.dnsHosts
-          # Alias records (split-horizon, backward-compat, service aliases)
-          # sourced from hostAliases in network.nix
-          ++ net.mkUnboundAliasData net.dnsHosts
-          ++ [
-            ''"pages.internal. IN A ${net.hosts.creil.ipv4}"''
-            ''"pages.internal. IN AAAA ${net.hosts.creil.ipv6}"''
-          ];
+        # Shared with arteria: both resolvers serve the same registry records,
+        # service aliases, and Pages zone without depending on each other.
+        inherit (pkgs.mmell.lib.data.dns) local-zone local-data;
       };
       remote-control.control-enable = true;
     };
