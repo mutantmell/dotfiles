@@ -154,6 +154,8 @@ in
     };
 
     testScript = ''
+      import time
+
       start_all()
 
       # ======================================================================
@@ -224,7 +226,7 @@ in
       router.succeed("ip link set ${routerLan} down")
       router.succeed("systemctl start --no-block kea-dhcp4-server")
       router.wait_until_succeeds("test $(systemctl show -p SubState --value kea-dhcp4-server) = start-pre")
-      router.sleep(25)
+      time.sleep(25)
       router.succeed("test $(systemctl show -p SubState --value kea-dhcp4-server) = start-pre")
       router.succeed("rm /run/router6-hold-networkd")
       router.succeed("systemctl start systemd-networkd")
@@ -241,7 +243,7 @@ in
       router.succeed("printf '[Service]\\nExecStartPre=\\n' > /run/systemd/system/kea-dhcp4-server.service.d/test.conf")
       router.succeed("systemctl daemon-reload; systemctl start kea-dhcp4-server")
       kea_pid = router.succeed("systemctl show -p MainPID --value kea-dhcp4-server").strip()
-      router.sleep(25)
+      time.sleep(25)
       router.succeed("systemctl is-active kea-dhcp4-server")
       router.succeed("rm /run/router6-hold-networkd")
       router.succeed("systemctl start systemd-networkd")
