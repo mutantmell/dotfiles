@@ -2,6 +2,9 @@
 
 This guide covers deploying NixOS systems from scratch using nixos-anywhere with encrypted disks over the network.
 
+For the planned ongoing Comin release workflow, see [host pull updates](host-pull-updates.md).
+This guide describes initial installation and operator recovery.
+
 ## Prerequisites
 
 ### On Your Local Machine

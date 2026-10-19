@@ -18,11 +18,16 @@ reason as dual-gateway Phase 4/4.5 (see
 changes out to every host by hand is exactly the churn the CI/CD pipeline is
 designed to absorb, and doing it pre-CI/CD just creates throwaway operator work.
 
-**Unblock condition:** CI/CD fleet activation reaches the point where
-`nixos-rebuild` is driven by the pusher host on merge — at which point the
-service-specific exporter rollout, dependent firewall/drop and certificate
-expiry alerts, dashboard coverage review, phone/end-to-end notification
-validation, and Forgejo → ntfy webhook all ride the new pipeline.
+**Unblock condition (reconciled 2026-10-19):** trusted CI publishes complete
+closures and promotes protected `release`, and Comin rollout/recovery is validated
+for the hosts receiving exporter changes. There is no dedicated pusher host in
+the revised plan. Physical-host enrollment remains gated on KVM/out-of-band
+recovery, and OpenWrt exporter changes need their own deployment path.
+
+The existing sequencing policy still defers the remaining work behind that
+capability. Dashboard review, phone/end-to-end notification validation, and the
+Forgejo → ntfy webhook do not technically require host-update automation; they
+can be scheduled independently if that policy is deliberately relaxed.
 
 ---
 

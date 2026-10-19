@@ -15,9 +15,10 @@ codification, plus open items that accumulated during the dual-gateway
 window.
 **Related:** [`llm-notes/guides/bt8-gateway-as-built.md`](../guides/bt8-gateway-as-built.md)
 remains the living anchor for BT8-gateway state until Phase 4 codifies
-it. [`llm-notes/wip/cicd-fleet-activation-plan.md`](./cicd-fleet-activation-plan.md)
-is the gate for Phase 4 / 4.5 (see
-[`project-phase-4-deferred-to-cicd`](../../../../home/mutantmell/.claude/projects/-home-mutantmell-git-dotfiles/memory/project_phase_4_deferred_to_cicd.md)).
+it. Phase 4 / 4.5 requires validated OpenWrt image/deployment automation;
+the [NixOS Comin plan](./cicd-fleet-activation-plan.md) is related work but
+not sufficient to satisfy that gate. The deployment-automation rationale is
+recorded in Section B below.
 
 ---
 
@@ -132,10 +133,11 @@ trista cleanup.
 ## Section B — Phase 4 / 4.5 (CI/CD-gated)
 
 **Gate:** Phase 4 is deferred until
-[`cicd-fleet-activation-plan.md`](./cicd-fleet-activation-plan.md) is
-complete. Reason: image-build cutover gets materially safer once image
-deploys are automated rather than hand-pushed. See
-[`project-phase-4-deferred-to-cicd`](../../../../home/mutantmell/.claude/projects/-home-mutantmell-git-dotfiles/memory/project_phase_4_deferred_to_cicd.md).
+the relevant OpenWrt image validation/deployment automation is proven. The
+[Comin fleet plan](./cicd-fleet-activation-plan.md) covers NixOS host updates,
+not OpenWrt deployment; completing it alone does not satisfy this gate. Define
+and validate the OpenWrt automation separately. Reason: image-build cutover gets
+materially safer once image deploys are automated rather than hand-pushed.
 
 ### B.1 — Codify BT8-gateway and BT8-bridge in Image Builder
 
@@ -173,7 +175,7 @@ Source for the gateway "golden output":
 ### B.2 — Lock down BT8-gateway/BT8-bridge management plane
 
 - [ ] Decide management-host allowlist (operator workstation IPs on
-      `network`/`management`, pusher host from CI/CD work) and document
+      `network`/`management`, operator/bootstrap deployment sources) and document
       in OpenWrt zone description
 - [ ] Add `inputRules` restriction: drop SSH (22) + LuCI (80/443) from
       sources outside allowlist
@@ -342,10 +344,10 @@ Today only liberl's wg-ba _tunnel_ egress is filtered (`hosts/liberl/wg-ba.nix`'
 
 ### D.3 CI/CD ancillary placement
 
-- [ ] Pusher host zone placement. The CI/CD activation plan creates a
-      pusher host that runs `nixos-rebuild --target-host`; its zone
-      placement affects the Phase 4.5 management-host allowlist. Decide
-      when the CI/CD plan reaches that step.
+- [ ] Operator/bootstrap deployment source placement. The revised NixOS CI/CD
+      plan uses Comin pull updates and creates no dedicated pusher host. Define
+      allowlists for the operator recovery/bootstrap and OpenWrt deployment
+      sources separately from outbound host access to Forgejo and Attic.
 
 ### D.4 Hostile-zone tightening
 
@@ -422,8 +424,8 @@ Today only liberl's wg-ba _tunnel_ egress is filtered (`hosts/liberl/wg-ba.nix`'
 - **Section A** (service migrations) can proceed without waiting on
   CI/CD. Each move is independent; pick the order based on operator
   convenience.
-- **Section B** (Phase 4 / 4.5) is gated on CI/CD activation.
-  `cicd-fleet-activation-plan.md` is the predecessor.
+- **Section B** (Phase 4 / 4.5) is gated on validated OpenWrt image/deployment
+  automation; the NixOS Comin plan alone does not satisfy this gate.
 - **Section C** (MACVLAN) is independent of A and B; pick a quiet
   window since it touches every microvm guest.
 - **Section D** items are bite-sized and can be slotted in

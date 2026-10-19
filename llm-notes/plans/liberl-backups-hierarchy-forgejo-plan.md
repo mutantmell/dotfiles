@@ -48,9 +48,9 @@ not the active backup root.
 - Forgejo persists `/var/lib/forgejo` inside the creil local persist image:
   `/persist/guests/creil/images/persist.img` on calvard.
 - Forgejo uses SQLite and has repository/package/mirror support enabled.
-- `llm-notes/wip/cicd-fleet-activation-plan.md` already says creil should be
-  the primary git remote and GitHub should become a push mirror for the
-  dotfiles repo, but that is not a liberl/ZFS backup.
+- The fleet plan uses Forgejo/creil as the reviewed source endpoint. A GitHub
+  push mirror can provide an additional repository copy, but is not a
+  liberl/ZFS backup of Forgejo state.
 - `llm-notes/done/wg-ba-liberl-backup-tunnel-plan.md` establishes liberl as the
   host with an offsite SSH/Borg path, but no local Forgejo-to-liberl backup
   source exists yet.

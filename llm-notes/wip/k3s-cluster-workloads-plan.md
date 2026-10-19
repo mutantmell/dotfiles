@@ -83,14 +83,13 @@ Depends on:
 
 Interacts with:
 
-- **`llm-notes/wip/cicd-fleet-activation-plan.md`** — its Phase 1 makes
-  `saint-arkh` the **Woodpecker server microvm**. Under the **hybrid**
-  decided here, that server microvm stays, but build runners move into the
-  cluster via the Woodpecker **kubernetes backend** (replacing the
-  bare-metal-agent execution model). See "CI architecture: hybrid" below.
-- **`llm-notes/specs/cicd-fleet-management.md`** §9 (container
-  integration) is written against deployd's API; it needs re-pointing at
-  k8s deploy events.
+- **`llm-notes/wip/cicd-fleet-activation-plan.md`** — Comin follows protected
+  CI-promoted `release` with Attic substitution. The Woodpecker server stays in
+  saint-arkh; both Kubernetes-backend execution and a KubeVirt local-backend
+  full-check worker are declared. Verify live lane use/isolation before changes.
+- **`llm-notes/specs/cicd-fleet-management.md`** separates host updates from Flux
+  resource reconciliation. NATS/custom coordinators and deployd integration are
+  outside the initial scope.
 - The planned-but-never-built deployd game-server iSCSI add-on (deployd
   milestone "D4", from the now-deleted dynamic-container-layer spec) is
   replaced here by CSI VolumeSnapshot. deployd has been retired.
@@ -362,50 +361,25 @@ CI build pushes target **creil** (Forgejo registry). The report flags
 Forgejo's bundled registry as basic — may need Harbor or similar as CI
 throughput grows; defer until measured pressure.
 
-### CI architecture: hybrid (decided 2026-06-01)
+### CI architecture and host updates (reconciled 2026-10-19)
 
-The Woodpecker CI runtime and the cluster orchestrator are two different
-things with different roles, so they live on different surfaces:
+Woodpecker's server stays in saint-arkh, outside k3s, preserving CI metadata and
+identity when the cluster is degraded. Build execution has both a declared
+Kubernetes backend and a KubeVirt local-backend worker; the checked-in
+`.woodpecker/full-checks.yml` selects `nixos-kvm`. Audit the live lanes and their
+trust boundaries rather than treating all execution as restricted pods.
 
-- **Woodpecker server stays a microvm** — `saint-arkh` keeps its role from
-  `cicd-fleet-activation-plan.md` Phase 1 (the Woodpecker server microvm).
-  It is **not** decommissioned; the report's "decommission saint-arkh"
-  stance does not apply under the hybrid.
-- **Build runners move into the cluster** — Woodpecker uses the
-  **kubernetes backend** (`WOODPECKER_BACKEND=kubernetes`), so per-pipeline-
-  step pods schedule onto the k3s node (erebonia, bare-metal) with the
-  Appendix-A security stack (gVisor RuntimeClass, PSS Restricted,
-  NetworkPolicy, Kyverno). This replaces the
-  `cicd-fleet-activation-plan.md` Phase 1 "agents on erebonia bare-metal
-  via containerd+kata" execution model — the runners are k8s pods now, not
-  standalone agents.
-- **The NixOS fleet-activation coordinator is a third, separate role** —
-  the per-host Rust coordinator + NATS/Attic closure-delivery layer
-  (`cicd-fleet-management.md`) is unaffected by where CI runs and proceeds
-  independently. CI builds; the coordinator activates closures; the cluster
-  orchestrates build pods. Three roles, not one.
+Trusted CI builds enrolled NixOS host closures and publishes them to Attic before
+fast-forwarding protected `release`. Comin follows that branch, testing branches
+disabled, and still evaluates locally. Cache-miss/no-compilation and recovery
+behavior must be validated. Host activation must function independently of k3s.
+NATS and the custom fleet coordinator are no longer initial implementation work.
 
-Net: this keeps both plans mostly intact — `cicd-fleet-activation-plan.md`
-keeps saint-arkh as the Woodpecker server, but its runner-execution
-substrate becomes the k3s kubernetes backend instead of bare-metal agents.
-
-**Follow-up edits to land with this plan:**
-
-- Update `cicd-fleet-activation-plan.md` Phase 1 to set
-  `WOODPECKER_BACKEND=kubernetes` and drop the bare-metal-agent /
-  containerd+kata runner wiring (runners are cluster pods).
-- Reconcile the `saint-arkh` registry comment ("Forgejo Actions CI/CD
-  runners", `lib/common/data/network.nix:125`) to "Woodpecker CI server" —
-  `cicd-fleet-management.md` already standardised on Woodpecker.
-
-### Reconcile cicd spec §9
-
-`cicd-fleet-management.md` §9 ("Future Direction: Container Integration")
-builds container deploys on `builds.containers.*` events calling the
-**deployd API** (depends on deployd D3/D1c). With deployd removed, that
-section should be rewritten to target k8s deploy events (Flux
-reconciliation or a small apiserver-talking controller) instead. Out of
-scope for the build here, but flag it when touching the cicd plan.
+Flux owns the intended Kubernetes resource path, not host OS activation. The
+current Flux controllers do not yet have complete Git source/sync wiring. Finish
+that ownership migration explicitly; do not add another build-event controller
+or resurrect deployd. Platform upgrades additionally require datastore backup and
+cluster health gates as specified in the fleet plan.
 
 ## What lands in the dynamic layer vs NixOS
 

@@ -136,47 +136,29 @@ Strict ownership rule:
 - passage owns private bootstrap identities; sops-nix owns ordinary in-guest
   secret decryption after activation.
 
-**Why comin (pull) for workstations specifically:**
+**Comin ownership and release policy (reconciled 2026-10-19):**
 
-- comin's one real weakness is polling (periodic wakeups → power), which is why
-  it was previously rejected. For a **KubeVirt-hosted** guest that objection is
-  largely moot: k3s, kubelet, flannel/kube-router,
-  virt-handler, and Flux are already continuous reconcile loops, so the host
-  never settles into deep C-states regardless. A guest's git poll is marginal on
-  top. **Tune the comin interval up (≈5–15 min)** since a pet workstation has no
-  deploy-latency pressure.
-- comin can substitute from **zeiss/Attic** like any `nixos-rebuild`, so
-  "Attic-backed" is not exclusive to the fleet system; the only real difference
-  is comin evaluates the flake on the host (fine — trista is resourced) vs. the
-  coordinator downloading a pre-built signed closure.
-- **The fleet-activation layer (`specs/cicd-fleet-management.md` — its
-  *per-host* event-driven coordinators; a *central* coordinator is an explicit
-  non-goal there) is the WRONG tool here.** Its differentiating value props —
-  dual-signed *trusted
-  images*, *network-safe activation*, *no-local-build for underpowered hosts*,
-  *outbound-only as a hard requirement* — all target **infra hosts**
-  (thebeyond / liberl / erebonia). trista is a resourced workstation that is
-  already an inbound SSH target; **none** of those core motivations apply to it.
-  The coordinator and comin are tuned for opposite ends of the host spectrum,
-  not competitors for this workload.
-- **Interim/fallback before comin is wired: `deploy-rs`** (push, already in the
-  flake, magic rollback). Zero host polling; the tradeoff is it needs an inbound
-  push path, so it's a bridge, not the endpoint.
-- **Comin implementation requirements:** pin comin as an explicit flake input
-  or package source; test Forgejo/creil auth before migration; set
-  `services.comin.hostname` explicitly; consider commit signature checking;
-  use `machineId` during migration so old and new VMs cannot both converge the
-  same host unintentionally; configure zeiss/Attic substituters and trusted keys;
-  tune the poll interval to roughly 10-15 minutes.
+Comin is the initial pull updater for long-lived workstations and the planned
+infrastructure-host rollout. Both use cached builds from zeiss/Attic; both still
+evaluate Nix locally. Polling is an accepted tradeoff. Tune guest polling to its
+latency/resource needs rather than assuming it prevents host sleep.
 
-**Scoping rule that falls out (record it so it isn't misapplied):**
-
-- **Long-lived workstations (trista / edith) → comin (pull).**
-- **Migration/provisioning of those workstations → `workstation-provision`
-  one-shot tool, not Flux and not comin.**
-- **Infra hosts (thebeyond / liberl / erebonia) → the cicd-fleet activation
-  layer (per-host event-driven coordinators, Attic-signed).** Different host
-  class, different tool.
+- Pin Comin and explicitly select remote, hostname, and approved release branch;
+  disable testing branches and verify Forgejo authentication.
+- Follow the protected CI-promoted `release` model in
+  `../specs/cicd-fleet-management.md`: trusted CI validates/builds the enrolled
+  configurations and publishes complete closures before exact-commit promotion.
+  Enrolling workstations in that shared channel expands its required build set.
+- Validate no local or remote compilation where required; cache misses must
+  postpone updates. Test health/reboot recovery rather than assuming history
+  means automatic rollback. Consider commit verification as an additional check.
+- Use `machineId` during migration so old and new VMs cannot both converge the
+  same host unintentionally.
+- `deploy-rs` remains an interim/operator recovery path before Comin is wired.
+- `workstation-provision` handles migration/provisioning as a one-shot action;
+  Flux owns VM resources and Comin owns guest OS convergence.
+- Infrastructure hosts initially use Comin too; stricter artifact-only lockdown
+  waits for KVM recovery readiness. nix-fleet is only a future candidate.
 - **Ephemeral AI dev sandboxes → already solved**
   (`done/ai-dev-machine-kubevirt-plan.md`: imperative per-session
   `kubectl apply`, containerDisk, **no** persistent guest plane by design).

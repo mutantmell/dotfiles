@@ -70,12 +70,10 @@ Relevant code:
 
 ### High: k3s upgrade automation needs explicit cluster health gates and datastore backup handling
 
-The CI/CD and fleet activation design is a good foundation for regular NixOS
-host updates: it builds closures in CI, signs and caches them, pre-downloads
-before activation, activates exact store paths, and rolls back to a known-good
-GC-rooted system generation. That is the right shape for k3s hosts as long as
-k3s-specific safety checks are added before the mechanism is trusted for routine
-cluster upgrades.
+The revised fleet direction uses CI-built and cached closures, a protected
+CI-promoted release branch, and Comin polling with local evaluation. Download,
+activation, health checks, GC-protected recovery generations, and failed-boot
+recovery must be validated before routine unattended cluster upgrades.
 
 Generic host connectivity is not enough for a k3s upgrade. A successful host
 activation should also prove that the apiserver is reachable, the node returns
@@ -93,12 +91,11 @@ degraded.
 
 Fix direction:
 
-- Extend the fleet coordinator's `connectivityCheck` contract with k3s-aware
-  health checks.
+- Validate the Comin rollout/recovery procedure with k3s-aware health checks.
 - Require or trigger a fresh datastore snapshot before k3s version upgrades.
 - Treat k3s minor-version bumps as deliberate channel/window changes rather
   than ordinary unattended drift.
-- Keep a manual recovery path documented for cases where CI, Attic, NATS, or
+- Keep a manual recovery path documented for cases where CI, Attic, Forgejo, or
   k3s itself is unavailable.
 
 Relevant docs/code:
@@ -108,41 +105,25 @@ Relevant docs/code:
 - `llm-notes/wip/k3s-cluster-workloads-plan.md`
 - `hosts/erebonia/k3s/default.nix`
 
-### Medium: CI/CD fleet activation plan is stale relative to the current k3s/KubeVirt direction
+### Medium: validate the revised pull-update plan against deployed CI
 
-The fleet activation plan is explicitly marked stale. It still references old
-host mappings and deployd-era container workflow assumptions that no longer
-match the repository direction. The later k3s workload notes move dynamic
-workloads into Kubernetes/Flux and retain Woodpecker server placement while
-moving runners toward the Kubernetes backend.
+Documentation reconciled 2026-10-19: the active plan/spec now use Comin following
+protected `release` after trusted CI builds and publishes complete closures.
+NATS, custom coordinators, dual-signature independent-approval claims, and deployd
+integration are removed from initial scope. Flux resource reconciliation remains
+separate. Full-check and KubeVirt worker declarations already exist.
 
-The architectural intent remains sound: NATS carries facts, not authority; CI
-and Attic signatures establish build trust; host-local policy decides
-activation; and break-glass repair remains possible outside the pipeline. The
-implementation plan should be re-grounded before work starts so the code does
-not encode obsolete topology.
-
-Impact: implementing the stale plan as written would rebuild parts of the
-retired deployd model and could create circular recovery dependencies if the
-only useful CI runners live inside the k3s cluster being repaired.
-
-Fix direction:
-
-- Update host mappings to the current `liberl`/`zeiss`, `erebonia`, `calvard`,
-  and current service placement.
-- Remove deployd/container API integration and replace it with Kubernetes/Flux
-  workload eventing where needed.
-- Explicitly separate NixOS/k3s-node upgrades from dynamic Kubernetes workload
-  deployment.
-- Preserve an out-of-cluster or operator-triggered build/repair path so a broken
-  k3s cluster is not the only path to producing its own fix.
+Remaining implementation work is to verify live runners and required checks,
+isolate PR execution from publishing/promotion credentials, prove complete cache
+coverage and monotonic exact-commit promotion, and test no-compilation plus
+recovery on disposable targets. Physical rollout/access restrictions wait for
+KVM recovery readiness. Preserve an operator build/repair path outside k3s.
 
 Relevant docs:
 
 - `llm-notes/wip/cicd-fleet-activation-plan.md`
 - `llm-notes/specs/cicd-fleet-management.md`
-- `llm-notes/wip/k3s-cluster-workloads-plan.md`
-- the historical k3s deployd decommission plan, now deleted from `done/`
+- `docs/host-pull-updates.md`
 
 ### Medium: plain k3s pod networking still has broader host-zone access than the target security model
 
