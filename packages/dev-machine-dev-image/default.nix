@@ -13,6 +13,20 @@
     inherit pkgs claude-code codex opencode;
   };
   inherit (devMachineTools) agentUid agentGid devTools teaConfigHome;
+  # CVE-2026-111943: nixpkgs currently blocks these roots only in the NixOS
+  # security.pki bundle, which this container does not use. Include the
+  # Comodo/AAA root to block the compromised intermediates' cross-signed path.
+  # Remove this override and use pkgs.cacert directly once its default bundle
+  # excludes these roots (or otherwise rejects all eight compromised keys).
+  # https://github.com/NixOS/nixpkgs/commit/02c087f3fe673c9e317f206a627cb6b910336dbe
+  caBundle = pkgs.cacert.override {
+    blacklist = [
+      "Comodo AAA Services root"
+      "emSign ECC Root CA - G3"
+      "emSign Root CA - C1"
+      "emSign ECC Root CA - C3"
+    ];
+  };
   extraCaCommands =
     pkgs.lib.concatMapStringsSep "\n" (cert: ''
       cat ${cert} >> etc/ssl/certs/ca-bundle.crt
@@ -133,8 +147,8 @@ in
       group: files
       hosts: files dns
       EOF
-      cp -L --remove-destination ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-bundle.crt
-      cp -L --remove-destination ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
+      cp -L --remove-destination ${caBundle}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-bundle.crt
+      cp -L --remove-destination ${caBundle}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
       chmod u+w etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
       ${extraCaCommands}
       chmod 644 etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
