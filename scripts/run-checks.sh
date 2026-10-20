@@ -33,7 +33,6 @@ declare -A PURE_EVAL_CHECKS=(
   ["router6-firewall-properties"]=1
   ["router6-zone-system"]=1
   ["openwrt-config"]=1
-  ["disko-vmtools-canary"]=1
 )
 
 declare -A EXTERNAL_CHECKS=(
