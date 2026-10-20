@@ -31,11 +31,40 @@ coordinator are outside the initial scope. nix-fleet is a possible later updater
 not a dependency on a delivery date. Shared object storage is a separate project
 with multiple potential consumers, not a prerequisite for this workflow.
 
-A CI-published HTTPS tarball flake with built-in `system.autoUpgrade` is also
-under investigation as a smaller alternative; no change of updater has been
-selected. End-to-end activation/recovery and publication guarantees still need
-validation. See the alternative note in the plan and the upstream
-[NixOS auto-upgrade module](https://github.com/NixOS/nixpkgs/blob/master/nixos/modules/tasks/auto-upgrade.nix).
+Comin is selected over the assessed blob-flake/`system.autoUpgrade` alternative:
+its signature verification, persistent release history, metrics and pause controls
+avoid adding those features as custom scripts. Pin it before relying on features.
+
+## Release safeguards to implement
+
+- Use a separate trusted publisher or proven clean disposable execution boundary.
+  The persistent local-backend PR worker cannot safely gain publishing secrets
+  later merely because the job event changes.
+- Sign candidate commits before CI tests them; promote that exact hash. Select
+  compatible Comin/Flux verification after pinning versions. Independently provision
+  trust keys with rotation overlap. Source signatures do not attest CI success;
+  protected branch promotion is the deployment authorization boundary.
+- Flux also follows `release`, with read-only credentials and committed per-cluster
+  paths. Nix owns Flux bootstrap initially; Flux owns migrated resources. Its
+  health/dependency controls order Kubernetes resources, not Comin host updates.
+- Consumers may skip releases. Use backwards-compatible platform transitions or
+  explicit readiness holds covering required hosts, paused/offline hosts and rejoin.
+  Two commits or jitter alone do not enforce order.
+- Nix dependency pins must constrain deployed bytes: image/OCI chart digests or
+  exact verified immutable chart artifacts. CI-only hash checking is insufficient.
+- Preserve Comin state under impermanence. Test cold source/evaluation failures,
+  remote-builder restrictions and the `max-jobs = 0`/`preferLocalBuild` exception;
+  this remains an intermediate model minimizing compilation, not full lockdown.
+- Audit effective Attic per-cache retention and the possibly obsolete
+  `retention-period` key. Protect complete current/recovery releases regardless of
+  age; historical expiry is a separate capacity choice.
+- Establish SQLite datastore plus server-token/identity recovery off-host before
+  unattended k3s upgrades. Application and VM disk backups remain separate. Use
+  supported sequential minor upgrades with add-on compatibility and health checks.
+- Use native pause controls and existing monitoring for desired/running revision,
+  failures, stale hosts and pending reboots. Recovery must work without k3s.
+
+These are requirements for implementation and acceptance, not existing guarantees.
 
 Implementation checklist: [fleet activation plan](../llm-notes/wip/cicd-fleet-activation-plan.md).
 Contract and acceptance criteria: [fleet specification](../llm-notes/specs/cicd-fleet-management.md).

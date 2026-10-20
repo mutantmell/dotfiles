@@ -1,6 +1,6 @@
 # k3s / Flux Helm Ownership Report
 
-Date: 2026-06-13
+Date: 2026-06-13; release-direction reconciliation: 2026-10-20
 
 ## Executive summary
 
@@ -247,13 +247,13 @@ NixOS k3s module's historical limitations around OCI `autoDeployCharts`; this
 is another reason not to depend on `autoDeployCharts` as the final Helm
 interface.
 
-For privileged or foundational images, prefer digest-only image references or
-at least tag-plus-expected-digest validation. Tags such as `v1.2.3` are better
-than `latest`, but they are still mutable in principle. Digest-only references
-avoid tag drift entirely; tag-plus-digest validation keeps a human-readable tag
-while detecting if that tag starts resolving to different content. Digest
-validation matters most for host-adjacent or privileged components such as CNI
-helpers, storage drivers, and VM operators.
+Runtime identity must be enforced by deployed references, not just CI checks.
+Use digest-only or tag-plus-digest image references (`name:tag@sha256:...`),
+including controller-selected helper images. For OCI charts, pin the deployed
+`OCIRepository` by digest. For conventional Helm repositories, distribute the
+exact Nix-verified archive through controlled immutable artifacts or vendored
+content and verify the actual Flux consumption path. Version pins plus CI hash
+checks alone do not stop upstream content changing before runtime fetches.
 
 ### Update tooling: repo-native first, Renovate optional
 
@@ -282,7 +282,7 @@ Minimum updater responsibilities:
   - Flux release tags for bootstrap manifests,
 - update version/tag/digest fields and fixed-output hashes,
 - regenerate committed Flux YAML when YAML is generated from the registry,
-- run targeted checks before opening or updating an AGit PR.
+- run targeted checks before opening or updating a fork-and-pull PR (AGit fallback only).
 
 Renovate is optional. It can still be valuable later for release discovery,
 grouping, scheduling, and changelog links, but only if the chosen authoritative
@@ -303,6 +303,27 @@ Choose one update surface per dependency class:
 For this repo, start with the Nix-registry-authoritative path. It matches the
 flake's existing fixed-output dependency style and avoids introducing Renovate
 before there is a clear operational need.
+
+### Release and verification contract
+
+Both Flux and Comin follow protected `release`; there is no independent automatic
+Flux promotion channel. Use read-only source credentials separate from publisher
+credentials and per-standalone-cluster paths (suggested `clusters/erebonia/`, later
+`clusters/calvard/`). CI validates committed YAML and host closures before promoting
+the exact already-signed candidate commit. Pin Comin and confirm the actual Flux
+source-controller version before selecting shared GPG/SSH verification; provision
+keys independently, with overlap during rotation. Merge signatures establish source
+authenticity; protected promotion establishes CI authorization.
+
+Flux and Comin converge independently. Kubernetes `dependsOn`/`wait`/health checks
+cannot assert that a host update occurred. Separate releases alone are insufficient
+because offline/paused consumers can skip them. Preserve compatibility with older
+supported host states, or hold promotion/consumption on observed readiness of every
+required host with explicit offline rejoin/recovery rules. Roll back desired state
+with a forward revert through normal promotion; OS rollback alone does not rewind
+Flux desired state. Document maintenance suspension of reconcilers, bounded Helm
+failure remediation, CRD lifecycle and pruning/deletion protection for persistent
+resources. See the [release specification](../specs/cicd-fleet-management.md).
 
 ### GitOps compatibility rules
 
@@ -426,7 +447,10 @@ configuration and creates a stable source of truth.
   artifact.
 - Add a check that regenerates or validates the bootstrap manifests from the
   Nix-owned Flux version.
-- Ensure the Flux source points at a monorepo path for cluster state.
+- Wire the currently missing Git source/sync to protected `release`, with read-only
+  credentials, verified signed commits, and a committed per-cluster monorepo path.
+- Keep NixOS the only Flux bootstrap upgrade owner initially; do not also enable
+  Flux self-management for the same controller/source objects.
 
 ### Phase 3: Move platform charts into Flux
 
@@ -449,8 +473,9 @@ For each migration:
   controllers, and dependent custom resources,
 - define Helm CRD lifecycle behavior for chart-backed releases before handoff
   (`install.crds` / `upgrade.crds`, or the chart-specific equivalent),
-- apply with ownership handoff planned,
-- remove the k3s `autoDeployCharts` entry only after Flux is healthy,
+- plan a component-specific handoff: disable the former reconciler before enabling
+  the new one against the same release, preserving installed resources and data;
+  simply deleting a manifest or overlapping both controllers is not a handoff,
 - document any uninstall/manual cleanup required because k3s AddOn deletion is
   not a prune operation.
 

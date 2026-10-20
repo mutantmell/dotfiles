@@ -151,7 +151,7 @@ latency/resource needs rather than assuming it prevents host sleep.
   Enrolling workstations in that shared channel expands its required build set.
 - Validate no local or remote compilation where required; cache misses must
   postpone updates. Test health/reboot recovery rather than assuming history
-  means automatic rollback. Consider commit verification as an additional check.
+  means automatic rollback. Require commit verification using the pinned, validated signing policy.
 - Use `machineId` during migration so old and new VMs cannot both converge the
   same host unintentionally.
 - `deploy-rs` remains an interim/operator recovery path before Comin is wired.
@@ -181,8 +181,8 @@ Rationale:
 - comin already makes this repo the source of truth for the **guest** plane;
   putting the **shell** plane here too means the whole workstation (VM + OS) is
   defined in one place, changed in one commit, reviewed in one PR, gated by the
-  repo PR/CI flow. Today that means `run-checks.sh` plus AGit; the target agent
-  workflow is the validated normal-branch + `tea` path described in
+  repo PR/CI flow. Use `run-checks.sh` and the normal-branch fork-and-pull
+  `tea` workflow (AGit is fallback only), as described in
   `llm-notes/done/agent-ci-readonly-woodpecker-plan.md`.
 - The repo is **already** the platform source of truth, but the ownership
   boundary is now explicit: k3s/NixOS bootstraps Flux, Flux reconciles the
@@ -197,18 +197,13 @@ Rationale:
 
 Resolved sub-points and the one still open:
 
-- **Manifest authoring — hand-written YAML/Kustomize *for now*; migrate to
-  Nix-generated once CI is in place.** Flux reads *committed* YAML, not Nix, so
-  Nix-generated manifests (precedent: the dev-machine plan authors KubeVirt VM
-  specs as Nix attrsets → `toJSON`) require a **render-and-commit step that CI
-  will own**. Hand-writing gets Flux reconciling with zero new machinery; the
-  generation step is deferred to CI. *(This is the only remaining open
-  sub-decision, and it is intentionally gated on CI.)* The dependency-update
-  model should still be settled before broad migration: either the Nix registry
-  is authoritative and an updater edits it before regenerating YAML, or the
-  committed Flux YAML is authoritative and Nix validates/fetches from it. Avoid
-  a mixed model where update automation edits only generated YAML while Nix owns
-  separate version fields.
+- **Manifest authoring — committed YAML/Kustomize, with Nix-authoritative
+  dependency pins.** Hand-written resource structure is acceptable initially,
+  but versions, hashes and digests come from the shared Nix registry. The updater
+  edits that registry and regenerates committed dependency-bearing YAML; CI checks
+  regeneration. Flux reads committed YAML, not Nix. Do not let automation maintain
+  a second authoritative version surface in YAML. Broad migration waits for this
+  render/validation path; the registry ownership decision is settled.
 - **Flux read-auth:** a read-only deploy key / token on creil for this repo. In
   the monorepo it scopes to the whole repo rather than a manifests-only subset —
   acceptable blast radius for a single-operator homelab.
@@ -558,3 +553,20 @@ until then).
   toward macvlan/macvtap-compatible lower devices on both calvard and erebonia,
   extending the existing VLAN-51 macvtap lesson into a general host networking
   pattern.
+
+## Release safeguards reconciliation (2026-10-20)
+
+The [fleet specification](../specs/cicd-fleet-management.md) is the authoritative
+release contract. Comin and Flux both follow protected `release`; Comin remains
+selected, not an unresolved alternative to `autoUpgrade`. Trusted publication
+requires a separate runner/service or proven disposable reset boundary from
+persistent PR execution. Validate signed candidate commits before exact-hash
+promotion; signatures authenticate source, not CI approval.
+
+Consumers can skip releases: use compatible transitions or explicit readiness
+holds and offline/rejoin policy. Keep Nix dependency pins authoritative and generated
+Flux YAML committed, with digest-pinned deployed images/charts or exact verified
+immutable chart artifacts. Persist Comin state, test cold evaluation/cache failures
+and build restrictions (including `preferLocalBuild`), protect current/recovery
+closures regardless of age, and prove host/SQLite recovery independently of k3s.
+No automatic health or failed-boot rollback is implied by deployment history.

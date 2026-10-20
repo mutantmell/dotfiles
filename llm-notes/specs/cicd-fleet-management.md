@@ -1,6 +1,6 @@
 # NixOS Homelab Pipeline and Fleet Activation: Specification
 
-Status: Active design, revised 2026-10-19. This replaces the NATS/custom
+Status: Active design, revised 2026-10-20. This replaces the NATS/custom
 coordinator design; historical details remain in Git history. Implementation
 sequencing lives in `../wip/cicd-fleet-activation-plan.md`.
 
@@ -27,13 +27,15 @@ metadata and cache artifacts must never contain decrypted secrets.
 
 ## 2. Delivery and authorization
 
-1. Reviewed PRs merge into protected `main` after required checks.
+1. Reviewed PRs merge into protected `main` after required checks. The candidate
+   commit must already carry its trusted signature before release validation.
 2. Trusted CI checks the exact main commit and builds the toplevel for every
    host enrolled in the shared release channel, using the committed lock file.
 3. CI uploads each complete runtime closure to Attic, verifies availability and
    records commit, configuration, and store path evidence. A successful check
    matrix alone is not proof that all host closures have been built and cached.
-4. Only after all required checks and uploads succeed, a serialized promotion
+4. Validate committed Flux manifests and their pinned runtime dependencies.
+   Only after all required checks and uploads succeed, a serialized promotion
    step fast-forwards protected `release` to that exact tested main commit.
 5. Comin polls `release`, evaluates its explicitly selected host configuration,
    substitutes the cached closure, and activates according to validated policy.
@@ -49,12 +51,28 @@ Protect release against manual/agent writes and force pushes. Restrict the
 promotion credential to the trusted publisher and release ref where supported.
 PR execution must have neither that credential nor cache-write/signing credentials.
 Do not expose publisher secrets to PR-controlled pipeline execution. Reviewed main
-code is trusted for publication; that trust boundary must be explicit.
+code is trusted for publication; that trust boundary must be explicit. The
+persistent local-backend PR worker must not later execute privileged publishing
+with secrets: use a separate trusted publishing runner/service, or a demonstrably
+clean disposable boundary with reset between trust domains. Event-based secret
+scoping alone cannot prevent PR jobs leaving processes or modified state.
 
 Cache signatures establish artifact integrity/trust in the cache publisher.
 Protected-branch promotion establishes release authorization. Two signing keys
 reachable through one CI publisher do not create independent approval. No
 production PR test activations are permitted; Comin testing branches are disabled.
+
+### Source signatures and promotion authority
+
+Pin Comin and establish the actual Flux source-controller version before choosing
+a shared supported OpenPGP/SSH verification format. Forgejo-signed merge commits
+are the proposed candidate source; configure and test that policy rather than
+assuming all merges are signed. Signing after validation changes the commit hash,
+so promote the original signed, tested hash without rewriting it. A source
+signature authenticates its signer, not successful CI: protected release promotion
+is the approval boundary. Do not introduce post-CI signed tags unless the selected
+consumers demonstrably support that policy. Provision verification keys separately
+from repository contents and document overlapping-key rotation and revocation.
 
 ## 3. Target contract
 
@@ -64,8 +82,15 @@ production PR test activations are permitted; Comin testing branches are disable
   Comin/Nix invocation: a missing dependency must leave the current system running
   and postpone the update, rather than compile locally or remotely. Treat this as
   an acceptance test, not a solved property of merely configuring a substituter.
+  `max-jobs = 0` still permits `preferLocalBuild` derivations; Comin minimizes
+  compilation but is not an artifact-only execution boundary. Resolve any exceptions
+  in the pinned configuration before enrollment, or keep activation gated.
 - Prove target evaluation selects the same host closure CI published. Avoid impure
-  or host-dependent inputs; test source-fetch and Git authentication requirements.
+  or host-dependent inputs; test source-fetch and Git authentication requirements
+  on a cold target. Runtime closures do not cover every source/evaluation dependency. Test missing source
+  inputs and transitive store paths without mandating a custom evaluation cache.
+- Persist Comin state/history under impermanence; loss of that state can remove
+  ancestry protections. Configure native suspend/resume and switch inhibitors.
 - Bound update attempts, serialize activation, retain enough local recovery state
   and GC-protected generations, and surface failures and running revisions.
 - Test interrupted downloads/activation, service health failure, retry behavior,
@@ -92,6 +117,18 @@ and retain locally usable recovery closures if liberl/Attic is unavailable.
 thebeyond, intermittent workstations, and OpenWrt are not automatically enrolled
 by this decision. Define their release and recovery policy separately.
 
+Offline/paused consumers may skip any number of intermediate releases. Separate
+commits and polling jitter do not enforce a sequence. Prefer transitions compatible
+with older supported host states. Otherwise hold promotion/consumption until every
+required host has demonstrated readiness, with an explicit policy for offline
+hosts and their rejoin/recovery. A readiness observation is not a permanent
+guarantee: prevent rollback or rejoin into incompatible platform states.
+In particular, an offline k3s host must not jump across unsupported minor versions
+just because `release` advanced. Keep its updater paused and recover through
+explicit intermediate versions, or require verified sequential catch-up before
+normal convergence. A forward-only Git history does not enforce version-by-version
+activation.
+
 ## 5. k3s and workload ownership
 
 The updater must run as a host service independently of k3s/Flux. NixOS owns the
@@ -100,8 +137,31 @@ of Kubernetes add-ons, applications, and KubeVirt resource definitions after the
 Git source/reconciliation path is wired; installed controllers alone do not mean
 that migration is complete. Comin must not independently reconcile those resources.
 
-k3s upgrades require a fresh datastore backup with verified off-host recovery,
-version compatibility review, and API/node/core-pod/KubeVirt/network checks.
+Flux follows the same protected `release` branch, using read-only source credentials
+distinct from promotion credentials. Use a committed per-standalone-cluster path
+(suggested `clusters/erebonia/` and later `clusters/calvard/`). Flux `dependsOn`,
+`wait`, and health checks order Kubernetes resources, not host upgrades. Define
+maintenance freezes for reconcilers as well as host updaters.
+
+The Nix dependency registry is authoritative; commit generated Flux YAML and
+check regeneration in CI. Pins must survive into deployed references: use image
+digests and digest-pinned OCI charts, or distribute exact verified charts through
+vendored/controlled immutable artifacts. A CI fetch hash plus a mutable runtime
+version reference is insufficient. Initially NixOS alone owns Flux bootstrap
+upgrades; migrate existing `autoDeployCharts` with explicit controller handoff,
+CRD and prune/deletion policies, and bounded Helm remediation. Flux must not
+simultaneously manage its own bootstrap objects. See the
+[ownership report](../reports/k3s-flux-helm-ownership.md).
+
+k3s currently uses SQLite. Maintain local snapshots plus fresh pre-platform-upgrade
+backups of the datastore and required server token/identity material, verified
+off-host copies, and an isolated restore exercise. Document a consistent SQLite
+backup method (including any required service stop), not an arbitrary live file
+copy. Existing token configuration
+must be inventoried, not assumed absent. Application volumes and VM disks need
+separate backups. Follow supported sequential minor upgrades after compatibility
+review, including KubeVirt; routine patch/minor upgrades need not become projects.
+Check API/node/core-pod/KubeVirt/network health.
 An OS generation rollback does not reverse datastore migrations. Keep risky
 platform upgrades deliberately gated until their recovery procedures are proven.
 
@@ -119,14 +179,26 @@ actual backend compatibility, retention, sizing, and failure-domain requirements
 Garage is a candidate, not a prerequisite or settled choice. Object storage does
 not replace CSI/block storage for VM disks or offsite backups.
 
+Audit effective per-cache retention against the pinned Attic source/configuration:
+the existing `retention-period` key may be obsolete; verify support for
+`default-retention-period` and actual cache settings before changing them. Preserve
+complete current and designated recovery releases regardless of age, both in the
+cache and as appropriate local roots. A possible 90-day history window is only a
+capacity-dependent suggestion, not protection for a still-current old release.
+Report desired/running revision, failures, stale hosts, and pending reboots through
+the existing monitoring stack; define credential/key rotation and outage behavior.
+
 ## 7. Acceptance criteria
 
 - Trusted CI publishes complete closures before exact-commit release promotion.
 - Competing/failed jobs cannot regress or partially authorize a release.
-- PR jobs cannot publish artifacts or advance release.
+- PR jobs cannot persist into the privileged publisher, publish artifacts, or
+  advance release; candidate signatures verify in both pinned consumers.
+- Offline/rejoining consumers cannot bypass required platform prerequisites.
+- Deployed chart/image bytes match the dependency registry, not just CI fetches.
 - A disposable Comin target follows only release and runs the CI-selected closure.
-- Cache misses and unavailable Git/cache endpoints postpone updates safely without
-  local or remote compilation.
+- Cold-source failures, cache misses, and unavailable Git/cache endpoints postpone
+  updates safely; build restrictions and `preferLocalBuild` exceptions are tested.
 - Recovery and observability work through interruption, health failure, and reboot,
   including while k3s is unavailable.
 - Physical-host enrollment and access restrictions wait for validated KVM recovery.

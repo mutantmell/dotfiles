@@ -409,3 +409,20 @@ Relevant docs/code:
 
 - `docs/deployment.md`
 - `scripts/deploy-nixos-anywhere.sh`
+
+## Release safeguards reconciliation (2026-10-20)
+
+The [fleet specification](../specs/cicd-fleet-management.md) is the authoritative
+release contract. Comin and Flux both follow protected `release`; Comin remains
+selected, not an unresolved alternative to `autoUpgrade`. Trusted publication
+requires a separate runner/service or proven disposable reset boundary from
+persistent PR execution. Validate signed candidate commits before exact-hash
+promotion; signatures authenticate source, not CI approval.
+
+Consumers can skip releases: use compatible transitions or explicit readiness
+holds and offline/rejoin policy. Keep Nix dependency pins authoritative and generated
+Flux YAML committed, with digest-pinned deployed images/charts or exact verified
+immutable chart artifacts. Persist Comin state, test cold evaluation/cache failures
+and build restrictions (including `preferLocalBuild`), protect current/recovery
+closures regardless of age, and prove host/SQLite recovery independently of k3s.
+No automatic health or failed-boot rollback is implied by deployment history.
