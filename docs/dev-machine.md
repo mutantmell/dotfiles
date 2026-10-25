@@ -227,8 +227,8 @@ Then use `tea` to open a pull request from `cc:<branch-name>` to the current ups
 
 The planned upstream transfer changes `<upstream-owner>` from `mutantmell` to
 `mutantmell-net`; do not change existing remotes until the transfer occurs.
-`agent-pr-create`, `agent-pr-status`, `agent-ci-status --pr`, and
-`agent-ci-logs --pr` derive the upstream from the `origin` fetch URL. Set
+`agent-pr-create`, `agent-pr-status`, `agent-pr-comments`, `agent-pr-comment`,
+`agent-ci-status --pr`, and `agent-ci-logs --pr` derive the upstream from the `origin` fetch URL. Set
 `DOTFILES_FORGEJO_REPO=OWNER/REPO` to override discovery when needed;
 `agent-pr-create --repo OWNER/REPO` takes precedence over that environment variable.
 The fork remains `cc/dotfiles`, GitHub remains `mutantmell/dotfiles`, and the

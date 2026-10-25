@@ -91,8 +91,8 @@ URL, so the preparation PR works against the current owner. They accept HTTPS,
 SSH URL, and SCP-style origins on `forgejo.internal`. They reject other hosts
 unless `DOTFILES_FORGEJO_REPO=OWNER/REPO` is explicitly supplied.
 `agent-pr-create --repo OWNER/REPO` takes precedence over discovery and the
-environment override. PR status also explicitly uses upstream rather than relying
-on Tea choosing between `origin` and `fork`.
+environment override. PR status and comment helpers also explicitly use upstream
+rather than relying on Tea choosing between `origin` and `fork`.
 
 The image registry's `mutantmell` namespace, the separate `mutantmell/agents`
 profile repository, historical notes, and GitHub links remain unchanged.

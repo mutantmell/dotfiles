@@ -36,7 +36,7 @@
           return 1
         }
 
-        # Resolve upstream from the fetch URL, never the cc fork or no-push URL.
+        # Resolve upstream from origin fetch, rather than Tea remote selection or push URL.
         # This works on both sides of an ownership transfer without an image rebuild.
         forgejo_repo() {
           local repo remote_url
@@ -575,8 +575,9 @@
 
       require_tea_login
       pr_id=$1
-      lifecycle=$(tea pr "$pr_id" --comments --limit 100 --output json)
-      review=$(tea pr review-comments "$pr_id" --output json)
+      repo=$(forgejo_repo)
+      lifecycle=$(tea pr --repo "$repo" "$pr_id" --comments --limit 100 --output json)
+      review=$(tea pr review-comments --repo "$repo" "$pr_id" --output json)
       jq -n \
         --argjson lifecycle "$lifecycle" \
         --argjson review_comments "$review" \
@@ -598,7 +599,8 @@
       require_tea_login
       pr_id=$1
       shift
-      exec tea comment "$pr_id" "$*"
+      repo=$(forgejo_repo)
+      exec tea comment --repo "$repo" "$pr_id" "$*"
     '')
   ];
 
