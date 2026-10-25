@@ -36,6 +36,34 @@
           return 1
         }
 
+        # Resolve upstream from the fetch URL, never the cc fork or no-push URL.
+        # This works on both sides of an ownership transfer without an image rebuild.
+        forgejo_repo() {
+          local repo remote_url
+          repo=''${DOTFILES_FORGEJO_REPO:-}
+          if [[ -z $repo ]]; then
+            remote_url=$(git remote get-url origin)
+            case "$remote_url" in
+              https://forgejo.internal/*|ssh://forgejo@forgejo.internal/*)
+                repo=''${remote_url#*forgejo.internal/}
+                ;;
+              forgejo@forgejo.internal:*)
+                repo=''${remote_url#forgejo@forgejo.internal:}
+                ;;
+              *)
+                printf 'agent wrapper: set DOTFILES_FORGEJO_REPO=OWNER/REPO or use a Forgejo origin fetch URL\n' >&2
+                return 1
+                ;;
+            esac
+            repo=''${repo%.git}
+          fi
+          if [[ ! $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            printf 'agent wrapper: invalid Forgejo repository; expected OWNER/REPO\n' >&2
+            return 1
+          fi
+          printf '%s\n' "$repo"
+        }
+
         repo_root=$(find_repo_root)
         cd "$repo_root"
 
@@ -86,11 +114,12 @@
       usage: agent-pr-create --title TITLE [--body-file FILE|--body TEXT] [--base BRANCH] [--head OWNER:BRANCH] [--repo OWNER/REPO]
 
       Creates a Forgejo PR using a Markdown body from --body-file, --body, or stdin.
-      Defaults to --repo mutantmell/dotfiles, --base main, and --head cc:<current-branch>.
+      Defaults to the origin Forgejo repository (or DOTFILES_FORGEJO_REPO), --base main,
+      and --head cc:<current-branch>.
       USAGE
             }
 
-            repo=mutantmell/dotfiles
+            repo=
             base=main
             head=
             title=
@@ -172,6 +201,9 @@
             done
 
             require_tea_login
+            if [[ -z $repo ]]; then
+              repo=$(forgejo_repo)
+            fi
 
             if [[ -z $title ]]; then
               printf 'agent-pr-create: --title is required\n' >&2
@@ -215,13 +247,14 @@
         exit 2
       fi
 
+      repo=$(forgejo_repo)
       fields=index,title,state,head,base,mergeable,ci,updated,url
 
       if [[ $# -eq 1 ]]; then
         pr_id=$1
-        pr=$(tea pr "$pr_id" --fields "$fields" --output json)
+        pr=$(tea pr --repo "$repo" "$pr_id" --fields "$fields" --output json)
       else
-        prs=$(tea pr list --state all --limit 100 --fields "$fields" --output json)
+        prs=$(tea pr list --repo "$repo" --state all --limit 100 --fields "$fields" --output json)
         branch=$(git branch --show-current 2>/dev/null || true)
         if [[ -z $branch ]]; then
           printf 'agent-pr-status: not on a named branch; pass a PR number\n' >&2
@@ -351,7 +384,8 @@
             require_woodpecker_api
 
             if [[ -n $pr_id && -z $commit_sha ]]; then
-              commit_sha=$(tea pr --repo mutantmell/dotfiles "$pr_id" --fields headSha --output json | jq -r '.headSha')
+              repo=$(forgejo_repo)
+              commit_sha=$(tea pr --repo "$repo" "$pr_id" --fields headSha --output json | jq -r '.headSha')
             fi
             if [[ -z $pipeline_number ]]; then
               if [[ -z $commit_sha ]]; then
@@ -478,7 +512,8 @@
             require_woodpecker_api
 
             if [[ -n $pr_id && -z $commit_sha ]]; then
-              commit_sha=$(tea pr --repo mutantmell/dotfiles "$pr_id" --fields headSha --output json | jq -r '.headSha')
+              repo=$(forgejo_repo)
+              commit_sha=$(tea pr --repo "$repo" "$pr_id" --fields headSha --output json | jq -r '.headSha')
             fi
             if [[ -z $pipeline_number ]]; then
               if [[ -z $commit_sha ]]; then

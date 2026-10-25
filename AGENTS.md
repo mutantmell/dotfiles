@@ -92,8 +92,15 @@ git switch -c <topic-branch>
 # edit, test, commit
 git push fork HEAD:<topic-branch>
 
-tea pr create --repo mutantmell/dotfiles --head cc:<topic-branch> --base main
+tea pr create --repo <upstream-owner>/dotfiles --head cc:<topic-branch> --base main
 ```
+
+The upstream is being transferred from `mutantmell/dotfiles` to
+`mutantmell-net/dotfiles`. Until the operator completes the transfer, target the
+existing upstream. The agent helpers derive the repository from the `origin`
+fetch URL; update that URL after transfer. `DOTFILES_FORGEJO_REPO=OWNER/REPO`
+overrides helper discovery. See [the transfer checklist](docs/forgejo-org-transfer.md).
+The GitHub mirror remains `mutantmell/dotfiles`; the bot fork remains `cc/dotfiles`.
 
 Rules:
 

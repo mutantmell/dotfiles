@@ -217,13 +217,23 @@ git push fork HEAD:<branch-name>
 `dev-machine up` normalizes the target checkout's Forgejo remotes to HTTPS:
 
 ```text
-origin  https://forgejo.internal/mutantmell/dotfiles.git (fetch)
+origin  https://forgejo.internal/<upstream-owner>/dotfiles.git (fetch)
 origin  no_push_to_origin                              (push)
 fork    https://forgejo.internal/cc/dotfiles.git        (fetch)
 fork    https://forgejo.internal/cc/dotfiles.git        (push)
 ```
 
-Then use `tea` to open a pull request from `cc:<branch-name>` to `mutantmell:main`.
+Then use `tea` to open a pull request from `cc:<branch-name>` to the current upstream owner’s `main`.
+
+The planned upstream transfer changes `<upstream-owner>` from `mutantmell` to
+`mutantmell-net`; do not change existing remotes until the transfer occurs.
+`agent-pr-create`, `agent-pr-status`, `agent-ci-status --pr`, and
+`agent-ci-logs --pr` derive the upstream from the `origin` fetch URL. Set
+`DOTFILES_FORGEJO_REPO=OWNER/REPO` to override discovery when needed;
+`agent-pr-create --repo OWNER/REPO` takes precedence over that environment variable.
+The fork remains `cc/dotfiles`, GitHub remains `mutantmell/dotfiles`, and the
+image registry and `mutantmell/agents` profile repository are unchanged.
+See the [transfer checklist](forgejo-org-transfer.md) for CI and credential checks.
 
 After changing the dev image trust store or the token config, rebuild/publish the dev image and refresh or recreate the devcontainer:
 
