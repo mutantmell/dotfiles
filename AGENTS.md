@@ -16,7 +16,23 @@ Important directories:
 - `tests/lib/` - pure Nix evaluation tests.
 - `docs/` - current operator-facing documentation.
 - `llm-notes/` - migration disposition and the operator raw-question scratchpad.
-- Work tracking belongs in `mutantmell-net/dotfiles` issues. See `docs/work-tracking.md` for status conventions and the notes migration mapping, and `docs/README.md` for current guidance and explicit target designs.
+- Work tracking, future designs and current focus belong in `mutantmell-net/dotfiles` issues and milestones. See [the tracking workflow](docs/work-tracking.md) for lifecycle rules and the historical notes migration mapping, and `docs/README.md` for operator guidance.
+
+## Work Tracking
+
+Follow [the tracking workflow](docs/work-tracking.md) when starting, handing off or
+completing work. Select ready issues within the single `Current:` milestone unless
+the operator directs otherwise; check owners, PRs and recent handoffs first. Keep
+status, ownership, branch/PR links, next action and acceptance evidence current.
+The shared `cc` account is not an exclusive claim on work.
+
+Routine bounded issue creation and maintenance is authorized. Preserve requirements
+when splitting tasks; ask for an operator decision before dropping requirements,
+changing architecture or moving work between focus milestones unless already
+authorized. Keep outside-focus findings outside the active milestone. Close issues
+only with verified acceptance or an established disposition; a merge does not prove
+deployment or operator acceptance. The operator confirms milestone completion and
+the next focus. Leave the project board unused pending supported stable tooling.
 
 ## Build And Test Commands
 
@@ -111,7 +127,7 @@ Rules:
 - Check PR status with `agent-pr-status <pr-number>` when available.
 - When CI fails, use `agent-ci-status --pr <pr-number>` and `agent-ci-logs --pr <pr-number> --tail 160` when available; these read the injected `WOODPECKER_TOKEN`/`WOODPECKER_SERVER`, select the right Woodpecker step ID, and decode log lines.
 - When a PR changes CI runner resources/images and CI behavior at the same time, keep the behavior compatible with the currently deployed runner. The resource change will not exist for the PR's own CI run until after merge and deployment.
-- Irreversible or outward-facing actions beyond opening/updating a PR still need human confirmation.
+- Routine Forgejo tracking maintenance follows the authority above. Other irreversible or outward-facing actions beyond opening/updating a PR still need human confirmation.
 
 AGit remains available only as a fallback if the fork-and-pull path is broken:
 

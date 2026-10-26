@@ -3,8 +3,12 @@
 Code and the network registry represent current homelab state for devices managed
 by this repository. Separate implemented configuration from future design and from
 behavioral checks, application/data state or manually managed hardware that code
-does not establish. Work tracking belongs in Forgejo; [status conventions and the migration mapping](work-tracking.md)
-record the completed issue import. [Migration disposition](../llm-notes/README.md) accounts for every old note.
+does not establish. Future designs, execution plans and current focus belong in
+Forgejo issues and milestones. The [tracking workflow](work-tracking.md) defines
+lifecycle, milestone and agent-maintenance rules and preserves the historical
+import mapping. [Migration disposition](../llm-notes/README.md) accounts for every
+old note. Existing proposal documents below remain design context; track their
+remaining work in Forgejo and update operator guidance as changes ship.
 
 ## Operator guides
 

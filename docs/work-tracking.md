@@ -1,9 +1,13 @@
 # Work tracking and notes migration
 
 Work belongs in [Forgejo issues](https://forgejo.internal/mutantmell-net/dotfiles/issues).
-Operator guidance and explicit design contracts belong in [docs](README.md).
-Keep issues bounded, link prerequisites, and update operator documentation when
-work ships. Split implementation PRs further when necessary.
+Forgejo also holds future designs, execution plans and the current focus.
+[Repository docs](README.md) describe implemented state, operating procedures and
+workflow rules. Update them when work ships; retain obsolete guidance in Git
+history rather than presenting it as current. Existing target-design documents
+are context, not evidence of deployment or an independently maintained backlog.
+Keep issues bounded and self-contained, link prerequisites, and split
+implementation PRs further when necessary.
 
 Repository-managed configuration is the current-state baseline. Hardware behavior,
 application databases, private data and manually managed devices require separate
@@ -13,14 +17,94 @@ cutover; prerequisite and operator gates still apply.
 
 ## Issue status
 
-- `status/todo`: selected work awaiting implementation; prerequisites are not
-  necessarily satisfied.
-- `status/blocked`: selected work waiting on a specific dependency or external
-  condition. Record what unblocks it.
+- `status/todo`: accepted backlog awaiting execution, not a readiness or priority
+  signal. Check prerequisites before starting.
+- `status/in-progress`: an owner is actively taking a concrete next step.
+- `status/in-review`: a linked result or PR awaits review.
+- `status/blocked`: progress requires a named dependency, decision or external
+  condition. Record the gate and what evidence unblocks it.
 - `status/deferred`: intentionally postponed until a concrete revisit trigger.
   Preserve its reason, design context, acceptance criteria and dependencies;
   keep it outside the actionable backlog without an active milestone or assignee.
   Reassess status when its trigger occurs. Dependencies alone do not activate it.
+
+Keep exactly one status label on each open issue. Closed is an issue state, not an
+additional status label. Close completed work with acceptance evidence; close
+cancelled, duplicate or superseded work with an explanation and replacement link
+where applicable. Do not close issues automatically because they are old.
+
+## Milestones and current focus
+
+Use [native Forgejo milestones](https://forgejo.internal/mutantmell-net/dotfiles/milestones)
+for bounded outcomes, not permanent subsystem categories. The operator selects
+priorities and identifies one open milestone with the title prefix `Current:`.
+Keep the live focus and queued outcomes in Forgejo, not a parallel roadmap in
+repository docs. Queued milestone membership does not activate deferred work,
+satisfy prerequisites or authorize deployment. Deferred issues have no active
+milestone or assignee.
+
+A milestone description records its outcome, why it matters, scope and exclusions,
+completion criteria, coordinator, next actionable issue or execution order, and
+review point. Use dates for real deadlines rather than invented delivery promises.
+The coordinator is named in the description because milestones have no assignee.
+
+Create a tracking issue only when an outcome needs substantial sequencing, design
+decisions or acceptance across tasks. Assign it to the coordinator and link it from
+the milestone. Keep the detailed plan there and the milestone description brief;
+use milestone membership for the task list instead of duplicating checklists.
+Implementation issues retain their own scope and acceptance criteria.
+
+Before milestone closure, the agent prepares an acceptance summary, reconciles
+remaining or removed scope, and updates current-state docs. The operator confirms
+completion and promotion of the next focus. Closed child issues alone do not prove
+operational acceptance.
+
+The project board is intentionally unused until its public API is stable enough
+to rely on or a standard CLI provides supported board operations. Do not populate
+it or maintain a second status record there; an empty board is expected.
+
+## Ownership, execution and handoff
+
+Assign an accountable owner when work starts. Assignment alone does not mean work
+is active; default to at most two in-progress issues per person. The shared `cc`
+account identifies agent activity, not an exclusive claim. Check existing owners,
+active PRs and recent handoffs before starting to avoid duplicate work.
+
+At start and each handoff, update the issue's status, owner, branch/PR links, next
+action, blockers and acceptance evidence. Include enough context to resume in a
+new session. The coordinator reviews the current focus manually each week and when
+its outcome changes; issue owners review blocked and deferred issues when their
+gates or triggers change. Record tested commits, relevant check results and any
+remaining limits on behavioral or deployment evidence.
+This convention does not create scheduled automation.
+
+Use native issue dependencies for genuine prerequisites and retain prose explaining
+the acceptance gate. Related or advisory links do not block closure. When a
+prerequisite completes, reassess readiness rather than automatically activating
+every dependent issue.
+
+A merge completes an issue only if it satisfies all acceptance criteria. Otherwise
+link the merged PR, record completed criteria and state the remaining validation or
+deployment step. Leave operator-dependent acceptance open, using `status/blocked`
+when operator action is required. Split remaining work into a linked follow-up only
+when that creates a clear scope boundary and preserves all requirements. Use
+automatic closing references only when merge completes the entire issue.
+
+## Agent authority
+
+Agents may create bounded implementation issues and maintain status, ownership,
+dependencies, links and acceptance records for work they perform. Choose ready
+tasks within the current focus unless the operator explicitly directs otherwise.
+Agents may split tasks while preserving requirements and links. Dropping
+requirements, changing architecture or moving work between focus milestones needs
+an operator decision unless already authorized in the session.
+
+Agents may file findings outside the current focus, leaving them outside the active
+milestone. Report urgent blockers rather than silently changing priorities. Close
+issues only when all criteria can be verified, or when cancellation, duplication
+or supersession is explicitly established; do not claim operator acceptance.
+Routine tracking maintenance is authorized, but it does not authorize production
+execution, cutovers or other separately gated actions.
 
 ## Migration record
 
