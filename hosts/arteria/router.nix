@@ -188,7 +188,10 @@ in {
       cluster = {
         icmpEcho = "enable";
         inputRules = serviceInput;
-        forwardRules.app = hostFlow h.creil [22 443] "Cluster Forgejo" ++ hostFlow h.zeiss [443] "Cluster Attic";
+        forwardRules.app =
+          hostFlow h.creil [22 443] "Cluster Forgejo"
+          ++ hostFlow h.zeiss [443] "Cluster Attic"
+          ++ hostFlow h."saint-arkh" [443] "Cluster Woodpecker HTTPS";
         forwardRules.transit = internetOnly;
       };
       transit = {

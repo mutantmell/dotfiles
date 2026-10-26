@@ -42,6 +42,11 @@ in
           wantedBy = ["multi-user.target"];
           serviceConfig.ExecStart = "${pkgs.socat}/bin/socat TCP6-LISTEN:443,ipv6only=0,reuseaddr,fork EXEC:${pkgs.coreutils}/bin/cat";
         };
+        # A real gRPC-port listener makes the negative policy probe meaningful.
+        systemd.services.grpc-listener = {
+          wantedBy = ["multi-user.target"];
+          serviceConfig.ExecStart = "${pkgs.socat}/bin/socat TCP6-LISTEN:9000,ipv6only=0,reuseaddr,fork EXEC:${pkgs.coreutils}/bin/cat";
+        };
       };
       upstream = {
         imports = [base];
@@ -93,9 +98,10 @@ in
       vlan(upstream, 255, ["10.255.255.1/30", "fdc6:55f2:a5e:ffff::1/64"])
       upstream.succeed("ip addr add 198.51.100.1/32 dev lo; ip addr add 2001:db8::1/128 dev lo")
       upstream.succeed("ip route add 10.97.0.0/16 via 10.255.255.2; ip -6 route add fdc6:55f2:a5e:1000::/52 via fdc6:55f2:a5e:ffff::2")
-      vlan(app, 50, ["10.97.50.53/24", "10.97.50.31/24", "10.97.50.52/24", "fdc6:55f2:a5e:1032::35/64", "fdc6:55f2:a5e:1032::1f/64", "fdc6:55f2:a5e:1032::34/64"])
+      vlan(app, 50, ["10.97.50.53/24", "10.97.50.31/24", "10.97.50.52/24", "10.97.50.61/24", "fdc6:55f2:a5e:1032::35/64", "fdc6:55f2:a5e:1032::1f/64", "fdc6:55f2:a5e:1032::34/64", "fdc6:55f2:a5e:1032::3d/64"])
       app.succeed("ip route replace default via 10.97.50.1 dev eth1.50; ip -6 route replace default via fdc6:55f2:a5e:1032::1 dev eth1.50")
       app.wait_for_unit("listener.service")
+      app.wait_for_unit("grpc-listener.service")
 
       vlan(cluster, 51, [])
       cluster.succeed("ip link set eth1.51 down; ip link set eth1.51 address 02:51:51:00:00:0a; ip link set eth1.51 up")
@@ -112,6 +118,7 @@ in
       records = {
           "arteria.internal": ("10.97.11.1", "fdc6:55f2:a5e:100b::1"),
           "arteria.internal.mutantmell.net": ("10.97.11.1", "fdc6:55f2:a5e:100b::1"),
+          "woodpecker.internal": ("10.97.50.61", "fdc6:55f2:a5e:1032::3d"),
           "forgejo.internal": ("10.97.50.53", "fdc6:55f2:a5e:1032::35"),
           "attic.zeiss.internal.mutantmell.net": ("10.97.50.31", "fdc6:55f2:a5e:1032::1f"),
           "pages.internal": ("10.97.50.53", "fdc6:55f2:a5e:1032::35"),
@@ -172,6 +179,12 @@ in
       upstream.wait_until_succeeds("grep 'fdc6:55f2:a5e:1033::a > 2001:db8::1' /tmp/source6")
       for address in ["10.97.50.53", "10.97.50.31", "fdc6:55f2:a5e:1032::35", "fdc6:55f2:a5e:1032::1f"]:
           cluster.succeed(f"nc -z -w 3 {address} 443")
+      # Woodpecker's UI/API must be reachable, while agent gRPC stays private.
+      for address in ["10.97.50.61", "fdc6:55f2:a5e:1032::3d"]:
+          app.succeed(f"nc -z -w 3 {address} 443")
+          app.succeed(f"nc -z -w 3 {address} 9000")
+          cluster.succeed(f"nc -z -w 3 {address} 443")
+          cluster.fail(f"nc -z -w 2 {address} 9000")
       for address in ["10.97.50.52", "fdc6:55f2:a5e:1032::34"]:
           cluster.fail(f"nc -z -w 2 {address} 443")
       for address in ["10.255.255.1", "fdc6:55f2:a5e:ffff::1"]:

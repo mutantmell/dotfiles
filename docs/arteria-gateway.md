@@ -243,7 +243,7 @@ service flows. Verify application behavior before accepting the cutover.
 | Trusted                  | Management, lab, APP, netmgmt, and transit                                    |
 | Lab                      | Management, APP, cluster, and transit                                         |
 | APP                      | Transit; basel TCP 443; tharbad TCP 3100/8427; oracion to messeldam TCP 3890  |
-| Cluster                  | Creil TCP 22/443; zeiss TCP 443; public Internet over transit                 |
+| Cluster                  | Creil TCP 22/443; zeiss/saint-arkh TCP 443; public Internet over transit      |
 | Netmgmt                  | Gateway DNS and ping; no forwarded egress                                     |
 | Operator VPN via transit | Office VLANs and gateway SSH                                                  |
 | DMZ via transit          | Basel TCP 443; tharbad TCP 3100/8427; creil TCP 22/443; zeiss/oracion TCP 443 |
