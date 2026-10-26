@@ -117,7 +117,7 @@ in {
           # Cap retry backoff so destination outages drop samples after a few
           # minutes instead of buffering for hours and replaying stale values
           # with current timestamps on recovery (see
-          # llm-notes/done/perses-dashboard-overhaul.md investigation).
+          # docs/observability.md investigation).
           "scheduler.base" = 5;
           "scheduler.cap" = 60;
         };

@@ -1,6 +1,6 @@
 # Phase 3 + Phase 4 — devpod wiring, operator scripting, and the scoped git-push
 # credential for the locked-down LLM dev machines
-# (llm-notes/wip/ai-dev-machine-kubevirt-plan.md).
+# (docs/dev-machine.md).
 #
 # Shipped as a standalone `dev-machine` package plus a Home Manager integration:
 # `programs.dev-machine.enable` installs the package and writes operator-local

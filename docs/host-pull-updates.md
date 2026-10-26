@@ -66,5 +66,5 @@ avoid adding those features as custom scripts. Pin it before relying on features
 
 These are requirements for implementation and acceptance, not existing guarantees.
 
-Implementation checklist: [fleet activation plan](../llm-notes/wip/cicd-fleet-activation-plan.md).
-Contract and acceptance criteria: [fleet specification](../llm-notes/specs/cicd-fleet-management.md).
+Implementation units: [fleet issues](work-tracking.md).
+Contract and acceptance criteria: [fleet specification](design/fleet-delivery.md).

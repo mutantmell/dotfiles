@@ -16,9 +16,9 @@
   # **resolved to the monorepo**: Flux's source is *this* repo (dotfiles on
   # creil), manifests under a watched path here, hand-written YAML for now and
   # Nix-generated once CI can render-and-commit them. See
-  # `llm-notes/plans/incus-workstation-migration-plan.md` ("Decision #4 …
-  # resolved: monorepo"). What remains is the concrete wiring (GitRepository +
-  # Kustomization + a read-only creil deploy key), tracked by the workloads plan.
+  # `docs/design/cluster-ownership.md`. What remains is the concrete wiring
+  # (GitRepository + Kustomization + a read-only creil deploy key), tracked in
+  # https://forgejo.internal/mutantmell-net/dotfiles/issues/206.
   #
   # Community flux2 chart (CNCF Flux upstream), pinned. Image-automation and
   # image-reflector controllers are disabled — they watch container registries

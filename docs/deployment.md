@@ -1,285 +1,89 @@
-# NixOS Deployment with nixos-anywhere
+# Initial NixOS installation and operator recovery
 
-This guide covers deploying NixOS systems from scratch using nixos-anywhere with encrypted disks over the network.
-
-For the planned ongoing Comin release workflow, see [host pull updates](host-pull-updates.md).
-This guide describes initial installation and operator recovery.
+This describes `scripts/deploy-nixos-anywhere.sh`, not ongoing unattended updates.
+[Comin delivery](host-pull-updates.md) is still planned. Installation destroys
+the configured target disks, including guest data on them. Back up required
+state and confirm the host's disko device identities before running it.
 
 ## Prerequisites
 
-### On Your Local Machine
+Use an operator environment with Nix flakes, SSH, jq, ssh-keygen, age-keygen
+with PQ support, sops, OpenSSL and passage. The script checks these tools.
+The target needs reachable SSH/root installation access and a supported Linux
+kexec environment. Confirm console/recovery access and network connectivity.
 
-- Nix with flakes enabled
-- SSH access to target machine
-- Network connectivity to target
-
-### On Target Machine
-
-- Any Linux OS with SSH access (will be replaced)
-- Root access or passwordless sudo
-- Minimum 1.5 GB RAM (for kexec environment)
-- Network connectivity (WiFi not supported)
-- **WARNING:** All data on target disk will be destroyed!
-
-## Deployment Process
-
-### 1. Deploy to Target Machine
+The wrapper supports its LUKS-backed tmpfs/XFS and btrfs profile shapes, derived
+from `nixosConfigurations.<host>.config.disko.devices.disk.main.content.partitions`.
+It rejects an unsupported profile. Review the current host output before choosing
+a target. Extra arguments are passed to both nixos-anywhere phases.
 
 ```bash
 ./scripts/deploy-nixos-anywhere.sh thebeyond root@192.168.1.100
 ```
 
-The script will:
+The wrapper asks for the exact hostname to confirm disk destruction, then asks
+for final deployment confirmation. It can update public key registry data before
+those prompts; review the working tree even if cancelling.
 
-- Generate a random LUKS encryption keyfile
-- Boot target into kexec installer (no physical media needed)
-- Partition and encrypt disk using disko
-- Install NixOS
-- Save keyfile to `.keys/thebeyond-disk.key`
+## Identities and encrypted state
 
-### 2. Post-Deployment Configuration
+Passage is the authoritative operator store for reusable private bootstrap keys:
 
-After deployment completes, follow these steps:
+| Entry under `hosts/<host>/` | Purpose                             | Installed location                          |
+| --------------------------- | ----------------------------------- | ------------------------------------------- |
+| `disk.key`                  | LUKS keyfile                        | `/boot/secrets/disk.key`                    |
+| `ssh_host_ed25519_key`      | SSH host identity                   | `/persist/etc/ssh/ssh_host_ed25519_key`     |
+| `age.key`                   | Native PQ age identity for sops-nix | `/persist/var/lib/sops-nix/key.txt`         |
+| `fleet_enrollment_key`      | Fleet X5C enrollment identity       | `/persist/var/lib/fleet-tls/enrollment.key` |
 
-#### a. Copy Encryption Keyfile
+Existing entries are reused; missing identities are generated and stored by the
+wrapper. Temporary staging prefers `/dev/shm`, with a temporary-directory fallback
+and exit cleanup. Do not place private key copies in Git or issue attachments.
+The old `.keys/<host>-disk.key` and post-install scp workflow is retired.
 
-```bash
-scp .keys/thebeyond-disk.key root@192.168.1.100:/boot/secrets/disk.key
-ssh root@192.168.1.100 'chmod 600 /boot/secrets/disk.key'
-```
+The wrapper updates public SSH/enrollment data in `lib/common/data/keys.json`,
+updates an existing `&sv_<host>` age anchor in `.sops.yaml`, and runs
+`sops updatekeys` on host secret YAML. A missing anchor requires an operator edit
+to keys/creation_rules. The host's PQ recipient must use compatible admin
+recipients; mixed classical/PQ rules can fail. Review the emitted warning and
+stop to fix the rule rather than treating re-encryption failure as success.
 
-#### b. Get LUKS UUID
+MicroVM and Incus guest directories are discovered under the host.
+`setup-guest.sh` prepares their identities and static trees into the private
+extra-files staging directory. [Host identity](host-identity.md) documents the
+bootstrap boundaries. The wrapper attempts SSH host and fleet enrollment
+certificate signing when operator CA material is available. It reports unsigned
+hosts at the end; absence of signing material is not proof enrollment succeeded.
 
-```bash
-ssh root@192.168.1.100 'blkid | grep crypto_LUKS'
-```
+## Installation phases
 
-Output will look like:
+1. Run nixos-anywhere kexec/disko with the selected flake and LUKS key.
+2. For tmpfs, bind persistent `/nix` into the installation root. For btrfs,
+   create the read-only `@blank` snapshot used by impermanence.
+3. Run nixos-anywhere install with `--extra-files` so host/guest identities and
+   `/boot/secrets/disk.key` are available on first boot. The wrapper does not
+   require a post-install SSH copy of the disk key.
 
-```
-/dev/sda3: UUID="a1b2c3d4-..." TYPE="crypto_LUKS" PARTLABEL="persist"
-```
+Read the current script before rerunning after a partial failure: it is an
+installation wrapper and its disk-formatting phase is destructive. Reusing
+identities from passage does not make reinstalling disks non-destructive.
 
-Copy the UUID and update `hosts/thebeyond/default.nix`:
+## After installation
 
-```nix
-boot.initrd.luks.devices."cryptroot" = {
-  device = "/dev/disk/by-uuid/a1b2c3d4-...";  # Replace with your UUID
-  keyFile = "/boot/secrets/disk.key";
-  allowDiscards = true;
-};
-```
+Reboot when ready, verify the expected SSH host identity and automatic LUKS
+unlock, and check sops-nix without printing secret contents. Fetch hardware
+configuration with `nixos-generate-config --no-filesystems --show-hardware-config`
+from the installed host; review it against disko before committing. Review all
+public registry/certificate, encrypted-secret and `.sops.yaml` changes.
 
-#### c. Regenerate Hardware Configuration
-
-```bash
-ssh root@192.168.1.100 'nixos-generate-config --no-filesystems --show-hardware-config > /tmp/hw.nix'
-scp root@192.168.1.100:/tmp/hw.nix hosts/thebeyond/hardware-configuration.nix
-```
-
-The `--no-filesystems` flag is important - disko already handles filesystem configuration.
-
-#### d. Commit and Rebuild
-
-```bash
-git add hosts/thebeyond/default.nix hosts/thebeyond/hardware-configuration.nix
-git commit -m "Update thebeyond post-deployment config"
-
-# Rebuild on the router
-ssh root@192.168.1.100 'nixos-rebuild switch --flake /etc/nixos#thebeyond'
-```
-
-#### e. Test Autonomous Reboot
+For reported unsigned identities, use the existing operator signing entrypoints:
 
 ```bash
-ssh root@192.168.1.100 'reboot'
-# Wait ~30 seconds
-ssh root@192.168.1.100 'uptime'
+nix run .#ssh-host-cert-sign -- --sign <hostname>
+nix run .#fleet-x5c-cert-sign -- --sign <hostname>
 ```
 
-If it boots successfully without password prompts, encryption is working!
-
-#### f. Backup Encryption Keyfile
-
-**CRITICAL:** Without this keyfile, you cannot decrypt `/persist`!
-
-```bash
-# Store in password manager
-cat .keys/thebeyond-disk.key  # Copy to password manager
-
-# Store on encrypted backup drive
-cp .keys/thebeyond-disk.key /path/to/secure/backup/
-```
-
-### 3. Verify Deployment
-
-```bash
-# Check encryption status
-ssh root@192.168.1.100 'lsblk'
-# Should show /dev/mapper/cryptroot
-
-# Check filesystems
-ssh root@192.168.1.100 'df -h'
-# Should show tmpfs on /, ext4 on /persist
-
-# Check mount options
-ssh root@192.168.1.100 'mount | grep mapper'
-# Should show /dev/mapper/cryptroot on /persist
-```
-
----
-
-## Testing Before Production Deployment
-
-### Configuration Validation
-
-Run the check wrapper before production deployment:
-
-```bash
-./scripts/run-checks.sh
-```
-
-For a focused iteration, run the relevant check directly:
-
-```bash
-nix build .#checks.x86_64-linux.<name> --print-build-logs
-```
-
-Avoid `nix flake check` for this repository. The flake has many NixOS
-evaluations and broad flake checking can OOM; `run-checks.sh` runs checks as
-separate `nix build` processes to keep memory bounded.
-
-The check set includes:
-
-- Disko profile validation (router and vm-host)
-- Router6 module tests
-- Nftables DSL tests
-
-### VM Testing (Optional)
-
-Test full deployment in a VM before touching real hardware:
-
-```bash
-# Create test VM (adjust as needed)
-# Deploy to VM
-./scripts/deploy-nixos-anywhere.sh thebeyond root@<vm-ip> --vm-test
-```
-
-## Encryption Details
-
-### Security Model
-
-**Protects against:**
-
-- Disk removed from router and connected elsewhere
-- Remote data exfiltration of `/persist` only
-
-**Does NOT protect against:**
-
-- Physical theft of entire router (keyfile is on `/boot`)
-- Targeted attacks on `/boot` partition
-
-### Future Upgrades
-
-The keyfile-on-`/boot` approach can be upgraded later without re-encrypting:
-
-#### Option 1: USB Key Storage
-
-Move keyfile to USB drive that must be inserted during boot.
-
-#### Option 2: Tang/Clevis Network-Bound Encryption
-
-Set up Tang server for network-bound encryption. See plan document for details.
-
-#### Option 3: Dual Key Slots
-
-LUKS supports 8 key slots - can have multiple unlock methods.
-
-## Troubleshooting
-
-### System Won't Boot After Deployment
-
-1. **Check if keyfile exists:**
-
-   ```bash
-   # Boot from rescue media
-   mount /dev/sda2 /mnt  # ESP partition
-   ls -la /mnt/secrets/disk.key
-   ```
-
-2. **Manually unlock to debug:**
-
-   ```bash
-   cryptsetup open /dev/sda3 cryptroot
-   # Enter passphrase if you set one during testing
-   ```
-
-3. **Check LUKS UUID matches:**
-   ```bash
-   blkid /dev/sda3
-   # Compare with default.nix
-   ```
-
-### Can't SSH After Deployment
-
-1. **Check if system booted:**
-   - Physical access: check console
-   - Network: ping the IP
-
-2. **Try serial console:**
-
-   ```bash
-   # If you have physical access
-   ```
-
-3. **Boot from rescue media and check logs:**
-   ```bash
-   mount /dev/mapper/cryptroot /mnt
-   mount /dev/sda2 /mnt/boot
-   nixos-enter
-   journalctl -b -1  # Previous boot
-   ```
-
-### Keyfile Lost
-
-If you lost the keyfile but still have access to booted system:
-
-```bash
-# Generate new keyfile
-dd if=/dev/urandom of=/boot/secrets/disk.key.new bs=4096 count=1
-
-# Add to LUKS (requires current unlock method)
-cryptsetup luksAddKey /dev/sda3 /boot/secrets/disk.key.new
-
-# Backup new keyfile immediately!
-# Then remove old key slot if desired
-cryptsetup luksRemoveKey /dev/sda3
-```
-
-## Advanced Usage
-
-### Custom Disk Device
-
-Override default `/dev/sda`:
-
-```nix
-# In default.nix
-disko.devices.disk.main.device = "/dev/nvme0n1";
-```
-
-### Deploy Without Encryption
-
-To deploy a host without encryption, remove LUKS layer from disko profile and skip encryption keyfile steps.
-
-### Build on Remote Host
-
-For slow local machines:
-
-```bash
-./scripts/deploy-nixos-anywhere.sh thebeyond root@<ip> --build-on-remote
-```
-
-## References
-
-- [nixos-anywhere Documentation](https://nix-community.github.io/nixos-anywhere/)
-- [disko Documentation](https://github.com/nix-community/disko)
+Commit public certificates and rebuild/redeploy as required, then verify actual
+fleet enrollment and guest startup. Keep the passage recovery material outside
+the target's failure domain. [Secrets](secrets.md), [router deployment](router-deployment.md)
+and [host identity](host-identity.md) cover related operator work.

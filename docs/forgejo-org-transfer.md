@@ -1,4 +1,9 @@
-# Transfer dotfiles to mutantmell-net
+# dotfiles organization transfer record
+
+Ownership is now `mutantmell-net/dotfiles` (operator report and current origin URL).
+The inventory below is the historical pre-transfer observation. Webhooks, mirrors,
+team permissions and CI mapping still require their listed live verification;
+the remote URL alone does not prove those checks.
 
 Preparation recorded on 2026-10-25. The operator must perform the ownership
 transfer; this checklist does not authorize it. Use Forgejo's ownership transfer

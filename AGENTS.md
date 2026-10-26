@@ -15,7 +15,8 @@ Important directories:
 - `tests/modules/` - NixOS VM integration tests.
 - `tests/lib/` - pure Nix evaluation tests.
 - `docs/` - current operator-facing documentation.
-- `llm-notes/` - plans, specs, reports, and historical design notes. Treat code and `docs/` as current source of truth when they disagree with old plans.
+- `llm-notes/` - migration disposition and the operator raw-question scratchpad.
+- Work tracking belongs in `mutantmell-net/dotfiles` issues. See `docs/work-tracking.md` for status conventions and the notes migration mapping, and `docs/README.md` for current guidance and explicit target designs.
 
 ## Build And Test Commands
 
@@ -95,10 +96,8 @@ git push fork HEAD:<topic-branch>
 tea pr create --repo <upstream-owner>/dotfiles --head cc:<topic-branch> --base main
 ```
 
-The upstream is being transferred from `mutantmell/dotfiles` to
-`mutantmell-net/dotfiles`. Until the operator completes the transfer, target the
-existing upstream. The agent helpers derive the repository from the `origin`
-fetch URL; update that URL after transfer. `DOTFILES_FORGEJO_REPO=OWNER/REPO`
+The upstream is `mutantmell-net/dotfiles` following the organization transfer. The agent helpers derive the repository from the `origin`
+fetch URL. `DOTFILES_FORGEJO_REPO=OWNER/REPO`
 overrides helper discovery. See [the transfer checklist](docs/forgejo-org-transfer.md).
 The GitHub mirror remains `mutantmell/dotfiles`; the bot fork remains `cc/dotfiles`.
 

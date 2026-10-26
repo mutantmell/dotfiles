@@ -6,7 +6,9 @@ Start here:
 
 - [`AGENTS.md`](AGENTS.md) - model-neutral workflow for AI coding agents and operators working through the dev-machine.
 - [`docs/`](docs/) - current operator-facing runbooks and architecture docs.
-- [`llm-notes/`](llm-notes/) - plans, reports, specs, and historical implementation notes. Old plans are context, not source of truth.
+- [`docs/README.md`](docs/README.md) - operator guidance and explicitly marked design contracts.
+- [Work tracking](docs/work-tracking.md) - Forgejo status conventions and the imported issue mapping.
+- [`llm-notes/README.md`](llm-notes/README.md) - exhaustive disposition of the retired notes; original text remains in Git history.
 - [`scripts/run-checks.sh`](scripts/run-checks.sh) - preferred full check runner. It runs flake checks in separate Nix processes to avoid `nix flake check` OOM behavior.
 - [`scripts/agent-preflight.sh`](scripts/agent-preflight.sh) - quick/full validation entrypoint for agents.
 - [`scripts/dev-machine-smoke.sh`](scripts/dev-machine-smoke.sh) - smoke test for the dev-machine runtime.

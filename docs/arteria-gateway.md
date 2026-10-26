@@ -1,6 +1,6 @@
 # Arteria: single-port office gateway
 
-`arteria` replaces the routing duties of the office OpenWrt `bt8gw` on the old
+The current repository-managed physical `arteria` deployment replaces the routing duties of the office OpenWrt `bt8gw` on the old
 Intel NUC BOXNUC7i5BNH previously used by `erebonia`. The Flint 2 provides the
 office Ethernet bridge into a new 5 GHz 802.11s/BATMAN mesh on the existing
 `bt8bridge`.
@@ -297,9 +297,12 @@ These instructions assume the GS1900-10HP runs OpenWrt. If it runs Zyxel OEM
 firmware, use its VLAN membership/PVID controls instead; do not paste UCI
 commands into it. Identify the installed firmware before proceeding.
 
-1. Log in through the currently working management address. The central
-   registry records `arseille` at `10.91.10.12` on VLAN 10; older notes also
-   describe `10.97.12.12` on VLAN 12. Treat neither as verified live state.
+1. Identify the switch before logging in. Arseille is the NETGEAR GS108Tv3,
+   distinct from this GS1900-10HP; do not use its address as the GS1900 address.
+   The registry currently places Arseille at `10.91.10.12` on VLAN 10, with
+   reclassification deferred. Historical `10.97.12.12` notes are not the current
+   registry placement. Neither switch has a device configuration in the current
+   OpenWrt outputs; verify the actual management access on site.
 2. Under **System → Backup / Flash Firmware**, download a configuration backup.
    Save it privately outside the repository. Keep local console access to the
    NUC and a separate working connection to the switch.
@@ -491,16 +494,15 @@ client WiFi link. Keep node placement fixed when comparing bands. Validate the
 mesh at its intended positions before purchasing additional APs or depending
 on a 6 GHz backhaul.
 
-## Later OpenWISP management
+## Selected OpenWISP management; deployment gated
 
-OpenWISP is deferred until calvard has a separate trusted infrastructure k3s
+OpenWISP is selected for OpenWrt image and configuration management. Deployment is gated until calvard has a separate trusted infrastructure k3s
 cluster and the gateway and mesh are stable. It is not deployed or required by
 this profile; do not deploy it in erebonia's CI/development cluster. Its device
 management credentials belong in the trusted infrastructure environment, with
 explicitly permitted access to AP management addresses. Cluster bootstrap,
 network policy, and OpenWISP deployment are future work.
-For two or three APs and a switch, evaluate whether centralized configuration
-and update tracking save more effort than maintaining the controller services.
+Keep the controller footprint and maintenance appropriate to two or three APs and a switch; this sizing constraint does not reopen the selected management direction.
 Keep direct SSH/LuCI access and operator recovery independent of the controller.
 
 ### Separate firmware from configuration

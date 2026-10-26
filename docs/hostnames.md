@@ -5,7 +5,7 @@ are derived from the network registry (`lib/common/data/network.nix`); do
 not duplicate IPs here. Names marked "(reserved)" are part of a host's
 Trails-themed name pool but not yet provisioned.
 
-In-flight k3s migration (see `llm-notes/plans/k3s-*-plan.md`) is noted
+Proposed workstation migration (see [issues](work-tracking.md)) is noted
 inline with "→".
 
 ```
@@ -13,7 +13,7 @@ VM HOSTS (Countries)
 ├── erebonia          (GP / dynamic-compute host)
 │   ├── saint-arkh    (microVM) — Woodpecker CI server; build execution moves into k3s
 │   ├── trista        (Incus VM) — NixOS dev workstation; SSH over wg-ba in DMZ  → KubeVirt VM
-│   ├── k3s-server    (microVM, planned) — k3s control plane (apiserver/kine); name TBD
+│   ├── k3s-server    (unused name) — retired proposal — k3s runs on erebonia itself
 │   ├── heimdallr     (reserved)
 │   ├── ordis         (reserved)
 │   ├── legram        (reserved)
@@ -21,9 +21,9 @@ VM HOSTS (Countries)
 │   └── leeves        (reserved)
 │
 ├── calvard           (GP / static-fleet host)
-│   ├── messeldam     (microVM) — Keycloak OIDC identity provider (→ Authelia)
+│   ├── messeldam     (microVM) — Authelia OIDC identity provider + lldap
 │   ├── basel         (microVM) — step-ca PKI / SSH certificate authority
-│   ├── langport      (microVM) — reverse proxy / web gateway (nginx)
+│   ├── langport      (microVM) — reserved guest; external reverse-proxy stack removed
 │   ├── oracion       (microVM) — Jellyfin / Navidrome / Retrom media
 │   ├── tharbad       (microVM) — VictoriaMetrics, VictoriaLogs, Alertmanager, ntfy, Perses
 │   ├── creil         (microVM) — Forgejo git hosting + container registry
@@ -77,7 +77,7 @@ PERSONAL COMPUTERS (Legendary weapons)
 └── angbar            (NixOS laptop — ThinkPad X1 Carbon 7th Gen)
 
 UTILITY HOSTS (Artifacts)
-├── azoth             — Raspberry Pi (Home Assistant, MQTT)
+├── azoth             — Raspberry Pi (proposed Home Assistant/MQTT role)
 ├── gospel            (reserved)
 └── gleipnir          (reserved)
 
@@ -90,7 +90,7 @@ OTHER HOSTS (Orbments)
 Notes:
 
 - The static service fleet lives on **calvard**; **erebonia** is the
-  dynamic-compute host (k3s cluster planned; deployd was decommissioned). **liberl** is
+  dynamic-compute host (k3s/KubeVirt configured; deployd was decommissioned). **liberl** is
   the NAS and also hosts the media/cache microVMs.
 - Several old erebonia guest names (heimdallr, ordis, legram, ymir, roer)
   were the pre-migration names of guests now on calvard (oracion, langport,

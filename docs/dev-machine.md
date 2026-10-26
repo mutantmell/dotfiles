@@ -185,7 +185,7 @@ pipeline lookup fields, and bounded redacted log tails for failures.
 
 Do not use `nix flake check` for normal validation; this flake's large set of NixOS evaluations can OOM in a single evaluator process. `scripts/run-checks.sh` runs checks as separate `nix build` invocations, and `agent-checks` is the PATH wrapper around it.
 
-The target CI feedback loop is documented in `llm-notes/done/agent-ci-readonly-woodpecker-plan.md`. The PR helper wrappers are intentionally thin. They fail clearly when `tea` has not been configured with a Forgejo login. `agent-pr-create` takes a PR body from `--body-file`, `--body`, or stdin so Markdown descriptions do not depend on shell newline escaping:
+The implemented CI feedback loop uses the scoped helpers described here; [future fleet delivery](design/fleet-delivery.md) remains separate work. The PR helper wrappers are intentionally thin. They fail clearly when `tea` has not been configured with a Forgejo login. `agent-pr-create` takes a PR body from `--body-file`, `--body`, or stdin so Markdown descriptions do not depend on shell newline escaping:
 
 ```bash
 git push fork HEAD:topic-branch
@@ -225,8 +225,9 @@ fork    https://forgejo.internal/cc/dotfiles.git        (push)
 
 Then use `tea` to open a pull request from `cc:<branch-name>` to the current upstream owner’s `main`.
 
-The planned upstream transfer changes `<upstream-owner>` from `mutantmell` to
-`mutantmell-net`; do not change existing remotes until the transfer occurs.
+The current upstream is `mutantmell-net/dotfiles`; use `mutantmell-net` for
+`<upstream-owner>`. Update older checkouts to that fetch URL while retaining
+`no_push_to_origin` and pushing topic branches to `fork`.
 `agent-pr-create`, `agent-pr-status`, `agent-pr-comments`, `agent-pr-comment`,
 `agent-ci-status --pr`, and `agent-ci-logs --pr` derive the upstream from the `origin` fetch URL. Set
 `DOTFILES_FORGEJO_REPO=OWNER/REPO` to override discovery when needed;
@@ -279,7 +280,7 @@ When `dotfiles.url` is present, the wrapper passes that repository to DevPod as 
 devpod up ... --dotfiles ssh://forgejo@forgejo.internal/mutantmell/agents.git --dotfiles-script install.sh
 ```
 
-The agents repository is a catalog and installer, not a checked-in home directory. Each target repo chooses its own profile source, plugins, and marketplaces with `.net.mutantmell/agents.toml`; this repo currently enables the shared `mutantmell-dev` plugin, which provides the Nix flake, NixOS VM test, Forgejo AGit, and dev-machine skills. The manifest is intentionally under a private hidden namespace to avoid colliding with future generic agent standards.
+The agents repository is a catalog and installer, not a checked-in home directory. Each target repo chooses its own profile source, plugins, and marketplaces with `.net.mutantmell/agents.toml`; this repo currently enables the shared `mutantmell-dev` plugin, which provides the Nix flake, NixOS VM test, Forgejo fork-and-pull PR, and dev-machine skills. The manifest is intentionally under a private hidden namespace to avoid colliding with future generic agent standards.
 
 The agents dotfiles repository must be readable during `devpod up`. That happens
 before `dev-machine up` injects the Forgejo token into the devcontainer, so the
@@ -288,3 +289,60 @@ configured agents repository readable through the normal DevPod clone path.
 `programs.dev-machine.agentsDotfiles.url` remains available as an
 operator-side fallback for repositories that do not yet carry an agents manifest,
 but repo-local `dotfiles.url` is the preferred source of truth.
+
+## Recorded security tradeoffs
+
+The base image intentionally defaults to root autologin on the serial console
+(`packages/dev-machine-image/configuration.nix`). Console access therefore belongs
+to the trusted operator/cluster boundary; revisit this choice before delegating
+console access. The inner agent remains a separate non-root user.
+
+Earlier platform work accepted durable agent OAuth credentials and
+operator-selected account connectors. Those choices do not guarantee that an
+account can never gain additional connected-service access later. Review actual
+account/tool configuration when assessing a session. A blanket connector lockout
+was explicitly rejected; it is not an outstanding implementation task.
+
+Future inventory, image publication and session improvements are separated in
+[the imported issues](work-tracking.md). A browser IDE, a custom
+DevPod provider and multi-workspace lifecycle extraction remain deferred until
+there is a concrete need.
+
+## Mobile and direct terminal attachment
+
+From a trusted operator device with routed/VPN access to the dev VLAN, use
+`tssh --udp dev@dev-N.internal` for a roaming terminal (replace N with the
+allocated slot). The VM image provides `tsshd` and permits UDP 61001–61999;
+validate the intervening firewall/VPN path rather than exposing these publicly.
+Ordinary SSH remains an alternative. Configure operator-side
+`programs.dev-machine.sshPubKeys` with the workstation and mobile **public-key
+file paths** before creating the VM; keep each private key on its own device.
+The wrapper injects those public keys through KubeVirt AccessCredentials.
+
+Interactive `dev` logins automatically invoke `dev-attach`, which finds the
+running rootful-Podman devcontainer and attaches to its `zellij` session `main`
+(creating the session when absent). Run `dev-attach` manually from the VM shell
+if needed. Multiple devices can attach to the same session. If no devcontainer
+is running, the helper returns to the VM shell; use the operator's
+`dev-machine ssh <name> --recover` or `dev-machine rescue <name>` as appropriate.
+
+This is attachment to an existing machine. Creation, recovery and destruction
+remain operator-side `dev-machine` operations; do not copy cluster credentials
+or lifecycle tools onto the phone or into the agent container. Test reconnect
+and simultaneous attachment after image/key changes, and retain ordinary SSH
+as the fallback when UDP is unavailable.
+
+## Retired runtime and startup findings
+
+Current k3s runtime configuration declares runsc and runc-kvm; Kata is absent
+from repository-managed hosts/modules and its cleanup draft is retired. Keep
+the supported gVisor and KubeVirt paths. The wrapper already injects scoped
+tea/HTTPS credentials, checks registry login and publishes a missing base image.
+Historical SSH-credential and missing-image logs are not current bug evidence.
+The operator has now reproduced a tunnel teardown error after successful
+dotfiles installation and normal logout, including two successful SSH attachments.
+[The teardown issue](https://forgejo.internal/mutantmell-net/dotfiles/issues/276) is ready for
+investigation. Agent forwarding is already disabled by the wrapper; that setting
+does not establish a fix. The Docker snapshotter advisory must be assessed against
+the intentional Podman runtime, and a successful first image pull is expected.
+An Authelia login-friction proposal still needs its own concrete scope.
