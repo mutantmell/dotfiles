@@ -55,7 +55,8 @@ in {
 
     # Copy persisted machine-id into place before systemd starts (which would
     # create a new one), avoiding the race with impermanence bind mounts.
-    boot.initrd.systemd.services.restore-machine-id = lib.mkIf config.boot.initrd.systemd.enable {
+    # The initrd always uses systemd with the pinned nixpkgs.
+    boot.initrd.systemd.services.restore-machine-id = {
       description = "Restore persisted machine-id";
       wantedBy = ["initrd.target"];
       after = ["sysroot.mount"];

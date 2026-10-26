@@ -27,7 +27,6 @@ in {
 
   # LUKS automatic unlock via keyfile on ESP.
   # systemd-cryptsetup-generator mounts the ESP, reads the keyfile, and unmounts it.
-  boot.initrd.systemd.enable = true;
   boot.initrd.supportedFilesystems = ["vfat"];
   boot.initrd.luks.devices."cryptroot" = {
     device = "/dev/disk/by-partlabel/disk-main-persist";

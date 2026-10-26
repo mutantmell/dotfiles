@@ -39,7 +39,6 @@ in {
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
     {
-      boot.initrd.systemd.enable = true;
       boot.initrd.supportedFilesystems = ["btrfs"];
     }
     (lib.mkIf cfg.keyfileUnlock.enable {

@@ -5,7 +5,6 @@
 
   # Match thebeyond: unlock locally, without depending on the network gateway
   # we are bringing up. The deployment wrapper installs the key on the ESP.
-  boot.initrd.systemd.enable = true;
   boot.initrd.supportedFilesystems = ["vfat"];
   boot.initrd.luks.devices.cryptroot = {
     device = "/dev/disk/by-partlabel/disk-main-persist";
