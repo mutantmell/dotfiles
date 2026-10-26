@@ -31,8 +31,10 @@ when splitting tasks; ask for an operator decision before dropping requirements,
 changing architecture or moving work between focus milestones unless already
 authorized. Keep outside-focus findings outside the active milestone. Close issues
 only with verified acceptance or an established disposition; a merge does not prove
-deployment or operator acceptance. The operator confirms milestone completion and
-the next focus. Leave the project board unused pending supported stable tooling.
+deployment or operator acceptance. Agents may implement operator-approved milestone
+creation, edits, membership and focus-title changes. The operator owns deferred-work
+review and confirms milestone completion and the next focus. Leave the project
+board unused pending supported stable tooling.
 
 ## Build And Test Commands
 

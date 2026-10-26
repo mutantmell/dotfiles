@@ -48,6 +48,13 @@ completion criteria, coordinator, next actionable issue or execution order, and
 review point. Use dates for real deadlines rather than invented delivery promises.
 The coordinator is named in the description because milestones have no assignee.
 
+Tea supports milestone listing, creation, closure, reopening and deletion, and
+issue milestone assignment. To rename a milestone (including its `Current:`
+prefix) or edit its description, use `tea api --method PATCH` against
+`repos/mutantmell-net/dotfiles/milestones/<id>` with the `title` or `description`
+fields. These operations use the instance's documented public API; see its
+[API reference](https://forgejo.internal/api/swagger).
+
 Create a tracking issue only when an outcome needs substantial sequencing, design
 decisions or acceptance across tasks. Assign it to the coordinator and link it from
 the milestone. Keep the detailed plan there and the milestone description brief;
@@ -73,9 +80,11 @@ active PRs and recent handoffs before starting to avoid duplicate work.
 At start and each handoff, update the issue's status, owner, branch/PR links, next
 action, blockers and acceptance evidence. Include enough context to resume in a
 new session. The coordinator reviews the current focus manually each week and when
-its outcome changes; issue owners review blocked and deferred issues when their
-gates or triggers change. Record tested commits, relevant check results and any
-remaining limits on behavioral or deployment evidence.
+its outcome changes. Issue owners review blocked work when its gate changes. The
+operator owns review of deferred work and unassigned blocked work when their
+recorded triggers or gates occur. Deferred issues remain unassigned; review
+responsibility does not activate them. Record tested commits, relevant check
+results and any remaining limits on behavioral or deployment evidence.
 This convention does not create scheduled automation.
 
 Use native issue dependencies for genuine prerequisites and retain prose explaining
@@ -98,6 +107,10 @@ tasks within the current focus unless the operator explicitly directs otherwise.
 Agents may split tasks while preserving requirements and links. Dropping
 requirements, changing architecture or moving work between focus milestones needs
 an operator decision unless already authorized in the session.
+
+Agents may create and edit milestones and apply issue membership or focus-title
+changes that implement an operator-approved plan. They must not independently
+select priorities or close milestones without operator confirmation of completion.
 
 Agents may file findings outside the current focus, leaving them outside the active
 milestone. Report urgent blockers rather than silently changing priorities. Close
